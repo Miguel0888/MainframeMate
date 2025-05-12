@@ -1,20 +1,35 @@
 package org.example.ui;
 
 import org.example.ftp.FtpService;
+import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
-import java.util.Properties;
 
 public class ConnectDialog {
 
+    public static boolean connectIfNeeded(Component parent, FtpService ftpService) {
+        Settings settings = SettingsManager.load();
+
+        if (settings.autoConnect && settings.host != null && settings.user != null) {
+            return show(parent, ftpService, settings);
+        }
+
+        return show(parent, ftpService, settings);
+    }
+
     public static boolean show(Component parent, FtpService ftpService) {
-        JTextField hostField = new JTextField();
-        JTextField userField = new JTextField();
+        return show(parent, ftpService, SettingsManager.load());
+    }
+
+    private static boolean show(Component parent, FtpService ftpService, Settings settings) {
+        JTextField hostField = new JTextField(settings.host != null ? settings.host : "");
+        JTextField userField = new JTextField(settings.user != null ? settings.user : "");
         JPasswordField passField = new JPasswordField();
         JCheckBox autoConnectBox = new JCheckBox("Automatisch verbinden");
+        autoConnectBox.setSelected(settings.autoConnect);
 
         JButton openFolderButton = new JButton("\uD83D\uDCC1");
         openFolderButton.setToolTipText("Einstellungsordner öffnen");
@@ -31,11 +46,6 @@ public class ConnectDialog {
         JPanel autoConnectPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         autoConnectPanel.add(autoConnectBox);
         autoConnectPanel.add(openFolderButton);
-
-        Properties settings = SettingsManager.load();
-        hostField.setText(settings.getProperty("host", ""));
-        userField.setText(settings.getProperty("user", ""));
-        autoConnectBox.setSelected(Boolean.parseBoolean(settings.getProperty("autoConnect", "false")));
 
         JPanel panel = new JPanel(new GridLayout(0, 1));
         panel.add(new JLabel("Host:"));
@@ -57,10 +67,9 @@ public class ConnectDialog {
 
             try {
                 ftpService.connect(host, user, pass);
-                // Nur speichern, wenn Verbindung erfolgreich war
-                settings.setProperty("host", host);
-                settings.setProperty("user", user);
-                settings.setProperty("autoConnect", String.valueOf(autoConnect));
+                settings.host = host;
+                settings.user = user;
+                settings.autoConnect = autoConnect;
                 SettingsManager.save(settings);
                 return true;
             } catch (IOException ex) {

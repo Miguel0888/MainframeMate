@@ -20,12 +20,8 @@ public class MainFrame extends JFrame {
 
         initUI();
 
-        Properties settings = SettingsManager.load();
-        if (Boolean.parseBoolean(settings.getProperty("autoConnect", "false"))) {
-            boolean connected = ConnectDialog.show(this, ftpService);
-            if (connected) {
-                browserPanel.loadInitialDirectory();
-            }
+        if (ConnectDialog.connectIfNeeded(this, ftpService)) {
+            browserPanel.loadInitialDirectory();
         }
     }
 
