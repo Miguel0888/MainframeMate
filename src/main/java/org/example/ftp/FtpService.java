@@ -1,6 +1,7 @@
 package org.example.ftp;
 
 import org.apache.commons.net.ftp.FTPClient;
+import org.apache.commons.net.ftp.FTPFile;
 
 import java.io.IOException;
 
@@ -37,4 +38,7 @@ public class FtpService {
     }
 
     // Später: listFiles, downloadFile, uploadFile etc.
+    public FTPFile[] listDirectory(String path) throws IOException {
+        return ftpClient.listFiles(path);
+    }
 }

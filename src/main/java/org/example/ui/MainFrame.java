@@ -11,6 +11,7 @@ public class MainFrame extends JFrame {
 
     private static final File SETTINGS_FILE = new File(System.getProperty("user.home"), ".mainframemate/settings.properties");
     private final FtpService ftpService = new FtpService();
+    private FtpBrowserPanel browserPanel;
 
     public MainFrame() {
         setTitle("MainframeMate");
@@ -45,11 +46,9 @@ public class MainFrame extends JFrame {
         menuBar.add(fileMenu);
         setJMenuBar(menuBar);
 
-        // Hauptinhalt (Platzhalter für FTP-Dateiansicht)
-        JPanel content = new JPanel(new BorderLayout());
-        JLabel placeholder = new JLabel("Willkommen bei MainframeMate", SwingConstants.CENTER);
-        content.add(placeholder, BorderLayout.CENTER);
-        add(content);
+        // FTP-Browser-Panel als Hauptinhalt
+        browserPanel = new FtpBrowserPanel(ftpService);
+        add(browserPanel, BorderLayout.CENTER);
     }
 
     private void showConnectDialog() {
@@ -97,12 +96,13 @@ public class MainFrame extends JFrame {
             // TODO: FTP-Verbindung aufbauen
             try {
                 ftpService.connect(host, user, pass);
-                JOptionPane.showMessageDialog(this, "Verbindung erfolgreich mit " + host);
+//                JOptionPane.showMessageDialog(this, "Verbindung erfolgreich mit " + host);
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(this, "Verbindung fehlgeschlagen:\n" + ex.getMessage(),
                         "Fehler", JOptionPane.ERROR_MESSAGE);
                 return; // keine Einstellungen speichern
             }
+            browserPanel.loadInitialDirectory();
 
             // Einstellungen speichern
             settings.setProperty("host", host);
