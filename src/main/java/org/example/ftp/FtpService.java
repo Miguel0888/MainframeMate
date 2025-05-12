@@ -116,4 +116,8 @@ public class FtpService {
         }
     }
 
+    // ToDo: Consider encapsulation
+    public FTPClient getClient() {
+        return ftpClient;
+    }
 }
