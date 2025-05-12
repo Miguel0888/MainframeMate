@@ -1,5 +1,7 @@
 package org.example.ui;
 
+import org.example.ftp.FtpService;
+
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
@@ -8,6 +10,7 @@ import java.util.Properties;
 public class MainFrame extends JFrame {
 
     private static final File SETTINGS_FILE = new File(System.getProperty("user.home"), ".mainframemate/settings.properties");
+    private final FtpService ftpService = new FtpService();
 
     public MainFrame() {
         setTitle("MainframeMate");
@@ -92,7 +95,14 @@ public class MainFrame extends JFrame {
             boolean autoConnect = autoConnectBox.isSelected();
 
             // TODO: FTP-Verbindung aufbauen
-            JOptionPane.showMessageDialog(this, "Verbunden mit " + host + " (noch ohne echte Verbindung)");
+            try {
+                ftpService.connect(host, user, pass);
+                JOptionPane.showMessageDialog(this, "Verbindung erfolgreich mit " + host);
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this, "Verbindung fehlgeschlagen:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+                return; // keine Einstellungen speichern
+            }
 
             // Einstellungen speichern
             settings.setProperty("host", host);
