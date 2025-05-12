@@ -1,6 +1,7 @@
 package org.example.ui;
 
 import org.apache.commons.net.ftp.FTPFile;
+import org.example.ftp.FtpObserver;
 import org.example.ftp.FtpService;
 
 import javax.swing.*;
@@ -9,7 +10,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 
-public class FtpBrowserPanel extends JPanel {
+public class FtpBrowserPanel extends JPanel  implements FtpObserver {
 
     private final FtpService ftpService;
     private final JTextField pathField;
@@ -52,20 +53,27 @@ public class FtpBrowserPanel extends JPanel {
         this.add(new JScrollPane(fileList), BorderLayout.CENTER);
     }
 
-    public void loadInitialDirectory() {
-        pathField.setText("/");
-        loadDirectory("/");
+    void loadDirectory(String path) {
+        try {
+            boolean success = ftpService.changeDirectory(path);
+            if (!success) {
+                JOptionPane.showMessageDialog(this, "Verzeichnis nicht gefunden: " + path,
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Fehler beim Wechseln des Verzeichnisses:\n" + e.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
-    void loadDirectory(String path) {
-        if (!ftpService.isConnected()) {
-            JOptionPane.showMessageDialog(this, "Nicht verbunden!", "Fehler", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+    @Override
+    public void onDirectoryChanged(String newPath) {
+        if (!ftpService.isConnected()) return;
 
         try {
             listModel.clear();
-            FTPFile[] files = ftpService.listDirectory(path);
+            pathField.setText(newPath);
+            FTPFile[] files = ftpService.listDirectory(newPath);
             for (FTPFile file : files) {
                 String name = file.getName();
                 if (".".equals(name) || "..".equals(name)) continue;
@@ -76,5 +84,13 @@ public class FtpBrowserPanel extends JPanel {
             JOptionPane.showMessageDialog(this, "Fehler beim Laden des Verzeichnisses:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    public void init() {
+        ftpService.addObserver(this);
+    }
+
+    public void dispose() {
+        ftpService.removeObserver(this);
     }
 }
