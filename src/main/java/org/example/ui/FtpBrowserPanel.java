@@ -57,7 +57,7 @@ public class FtpBrowserPanel extends JPanel {
         loadDirectory("/");
     }
 
-    private void loadDirectory(String path) {
+    void loadDirectory(String path) {
         if (!ftpService.isConnected()) {
             JOptionPane.showMessageDialog(this, "Nicht verbunden!", "Fehler", JOptionPane.ERROR_MESSAGE);
             return;

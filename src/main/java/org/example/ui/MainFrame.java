@@ -11,43 +11,49 @@ public class MainFrame extends JFrame {
 
     private final FtpService ftpService = new FtpService();
     private FtpBrowserPanel browserPanel;
+    private TabbedPaneManager tabManager;
 
     public MainFrame() {
         setTitle("MainframeMate");
-        setSize(800, 600);
+        setSize(1000, 700);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
         initUI();
 
         if (ConnectDialog.connectIfNeeded(this, ftpService)) {
-            browserPanel.loadInitialDirectory();
+            tabManager.openNewTab(ftpService);
         }
     }
 
     private void initUI() {
-        // Menüleiste
         JMenuBar menuBar = new JMenuBar();
 
         JMenu fileMenu = new JMenu("Datei");
         JMenuItem connectItem = new JMenuItem("Verbinden...");
         connectItem.addActionListener(e -> {
-            boolean connected = ConnectDialog.show(this, ftpService);
-            if (connected) {
-                browserPanel.loadInitialDirectory();
+            if (ConnectDialog.show(this, ftpService)) {
+                tabManager.openNewTab(ftpService);
             }
         });
 
+        fileMenu.add(connectItem);
         JMenuItem exitItem = new JMenuItem("Beenden");
         exitItem.addActionListener(e -> System.exit(0));
-
-        fileMenu.add(connectItem);
         fileMenu.add(exitItem);
         menuBar.add(fileMenu);
         setJMenuBar(menuBar);
 
-        // Hauptbereich
-        browserPanel = new FtpBrowserPanel(ftpService);
-        add(browserPanel, BorderLayout.CENTER);
+        // Bookmark-Leiste
+        BookmarkToolbar bookmarkToolbar = new BookmarkToolbar(path -> {
+            tabManager.openNewTab(ftpService, path);
+        });
+
+        // Tabs
+        tabManager = new TabbedPaneManager();
+        this.setLayout(new BorderLayout());
+        add(bookmarkToolbar, BorderLayout.NORTH);
+        add(tabManager.getComponent(), BorderLayout.CENTER);
     }
+
 }
