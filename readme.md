@@ -1,6 +1,21 @@
 # MainframeMate - Your assistant for configuring the Mainframe
 ..todo
 
+MainframeMate/
+├─ src/
+│  └─ main/
+│     ├─ java/
+│     │  └─ de/beispiel/mainframemate/
+│     │     ├─ Main.java               // Einstiegspunkt
+│     │     ├─ ui/                     // Swing GUI-Klassen
+│     │     ├─ ftp/                    // FTP-/SFTP-Client-Logik
+│     │     ├─ config/                 // z. B. Properties-Loader
+│     │     └─ service/                // spätere Job- oder Analyse-Logik
+│     └─ resources/
+│        └─ icon.png                   // Icon für Tray oder Fenster
+├─ build.gradle
+
+
 ### Automatische Proxy-Konfiguration per WPAD/PAC-Datei
 Wenn unter Windows ein Setupskript mit URL für das Netzwerk hinterlegt ist, muss das Projekt wie folgt über die PowerShell gebaut werden:
 
