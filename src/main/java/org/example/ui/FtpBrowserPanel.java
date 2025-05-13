@@ -3,11 +3,11 @@ package org.example.ui;
 import org.apache.commons.net.ftp.FTPFile;
 import org.example.ftp.FtpObserver;
 import org.example.ftp.FtpService;
+import org.example.util.SettingsManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -109,9 +109,7 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
                 if (!currentPath.startsWith("'")) currentPath = "'" + currentPath;
                 if (!currentPath.endsWith("'")) currentPath += "'";
 
-                // Wenn du in einer PDS bist (kein Slash, keine Extension mit .XYZ), dann ist filename ein Member
                 boolean isPds = !currentPath.contains("/") && !filename.contains(".");
-
                 if (isPds) {
                     fullPath = currentPath.substring(0, currentPath.length() - 1) + "(" + filename + ")'";
                 } else {
@@ -121,21 +119,14 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
                 fullPath = currentPath + "/" + filename;
             }
 
-            System.out.println("→ FTP-Pfad: " + fullPath);
-
             ftpService.getClient().setFileType(org.apache.commons.net.ftp.FTPClient.ASCII_FILE_TYPE);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             boolean ok = ftpService.getClient().retrieveFile(fullPath, out);
-
             if (!ok) {
                 int code = ftpService.getClient().getReplyCode();
                 String reply = ftpService.getClient().getReplyString();
-                System.err.println("Download fehlgeschlagen: " + fullPath);
-                System.err.println("FTP Reply Code: " + code);
-                System.err.println("FTP Reply Text: " + reply);
-                throw new IOException("Download fehlgeschlagen für: " + fullPath + "\nFTP-Code: " + code + "\nAntwort: " + reply);
+                throw new IOException("Download fehlgeschlagen: " + fullPath + "\nFTP-Code: " + code + "\nAntwort: " + reply);
             }
-
             String content = out.toString(StandardCharsets.UTF_8.name());
 
             JTextArea textArea = new JTextArea(content);
@@ -145,13 +136,56 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
 
             JTabbedPane parentTabs = findParentTabbedPane();
             if (parentTabs != null) {
-                parentTabs.addTab("📄 " + filename, scrollPane);
-                parentTabs.setSelectedComponent(scrollPane);
+                String tabTitle = "📄 " + filename;
+                JPanel tabPanel = new JPanel(new BorderLayout());
+                tabPanel.add(scrollPane, BorderLayout.CENTER);
+
+                // Tab mit Schließen- und Bookmark-Button
+                JPanel tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                tabHeader.setOpaque(false);
+                JLabel titleLabel = new JLabel(tabTitle);
+
+                JButton bookmarkButton = new JButton("☆");
+                bookmarkButton.setMargin(new Insets(0, 4, 0, 4));
+                bookmarkButton.setFocusable(false);
+                bookmarkButton.addActionListener(e -> {
+                    String bookmarkPath;
+
+                    if (ftpService.isMvsMode()) {
+                        String base = pathField.getText();
+                        if (!base.startsWith("'")) base = "'" + base;
+                        if (!base.endsWith("'")) base += "'";
+                        String member = filename.replaceAll("\\.\\w+$", ""); // optional .txt entfernen
+                        bookmarkPath = base.substring(0, base.length() - 1) + "(" + member + ")'";
+                    } else {
+                        bookmarkPath = pathField.getText() + "/" + filename;
+                    }
+
+                    SettingsManager.addBookmark(bookmarkPath);
+                    MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(this);
+                    main.getBookmarkToolbar().refreshBookmarks();
+
+                    JOptionPane.showMessageDialog(this, "Bookmark gesetzt für: " + bookmarkPath);
+                });
+
+                JButton closeButton = new JButton("x");
+                closeButton.setMargin(new Insets(0, 4, 0, 4));
+                closeButton.setFocusable(false);
+                closeButton.addActionListener(e -> parentTabs.remove(tabPanel));
+
+                tabHeader.add(titleLabel);
+                tabHeader.add(bookmarkButton);
+                tabHeader.add(closeButton);
+
+                parentTabs.addTab(null, tabPanel);
+                int index = parentTabs.indexOfComponent(tabPanel);
+                parentTabs.setTabComponentAt(index, tabHeader);
+                parentTabs.setSelectedComponent(tabPanel);
             } else {
                 JOptionPane.showMessageDialog(this, scrollPane, "📄 " + filename, JOptionPane.PLAIN_MESSAGE);
             }
         } catch (IOException e) {
-            e.printStackTrace(); // für Konsole
+            e.printStackTrace();
             JOptionPane.showMessageDialog(this, "Fehler beim Öffnen der Datei:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
         }

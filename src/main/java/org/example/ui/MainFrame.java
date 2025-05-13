@@ -12,6 +12,7 @@ public class MainFrame extends JFrame {
     private final FtpService ftpService = new FtpService();
     private FtpBrowserPanel browserPanel;
     private TabbedPaneManager tabManager;
+    private BookmarkToolbar bookmarkToolbar;
 
     public MainFrame() {
         setTitle("MainframeMate");
@@ -45,7 +46,7 @@ public class MainFrame extends JFrame {
         setJMenuBar(menuBar);
 
         // Bookmark-Leiste
-        BookmarkToolbar bookmarkToolbar = new BookmarkToolbar(path -> {
+        bookmarkToolbar = new BookmarkToolbar(path -> {
             tabManager.openNewTab(ftpService, path);
         });
 
@@ -56,4 +57,8 @@ public class MainFrame extends JFrame {
         add(tabManager.getComponent(), BorderLayout.CENTER);
     }
 
+    // ToDo: Better use Obersver etc here?
+    public BookmarkToolbar getBookmarkToolbar() {
+        return bookmarkToolbar;
+    }
 }
