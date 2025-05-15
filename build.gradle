@@ -23,3 +23,14 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
+// Erzeugt ein zusätzliches JAR mit den Sourcen
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allSource
+    archiveClassifier.set('sources')
+}
+
+// Stellt sicher, dass das sourcesJar beim "assemble" mitgebaut wird
+artifacts {
+    archives sourcesJar
+}

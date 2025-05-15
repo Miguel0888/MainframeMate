@@ -51,42 +51,50 @@ public class FtpService {
         }
     }
 
-    // Später: listFiles, downloadFile, uploadFile etc.
+    // zentrale Abstraktion über FtpPath
     public FTPFile[] listDirectory(String path) throws IOException {
-        if (mvsMode) {
-            // Pfad sicher in einfache Anführungszeichen setzen, falls nötig
-            String mvsPath = path;
-            if (!mvsPath.startsWith("'")) {
-                mvsPath = "'" + mvsPath;
-            }
-            if (!mvsPath.endsWith("'")) {
-                mvsPath = mvsPath + "'";
-            }
+        return new FtpPath(path).list(this);
+    }
 
-            // In das Dataset-Verzeichnis wechseln (oft erforderlich)
-            boolean changed = ftpClient.changeWorkingDirectory(mvsPath);
-            if (!changed) {
-                throw new IOException("MVS-Verzeichnis nicht gefunden: " + mvsPath);
-            }
+    // Zugriff auf PDS-Member-Liste
+    public FTPFile[] listPdsMembers(String dataset) throws IOException {
+        String quoted = quoteMvsPath(dataset);
+        boolean changed = ftpClient.changeWorkingDirectory(quoted);
 
-            // Versuche Liste zu bekommen
-            String[] names = ftpClient.listNames();
-            if (names == null) return new FTPFile[0];
-
-            // Mache FTPFile[] aus Namen
-            FTPFile[] fakeFiles = new FTPFile[names.length];
-            for (int i = 0; i < names.length; i++) {
-                FTPFile file = new FTPFile();
-                file.setName(names[i]);
-                file.setType(FTPFile.FILE_TYPE); // oder DIRECTORY_TYPE, wenn du weißt, dass es ein PDS ist
-                fakeFiles[i] = file;
-            }
-
-            return fakeFiles;
-        } else {
-            // Normales Verhalten
-            return ftpClient.listFiles(path);
+        if (!changed) {
+            throw new IOException("PDS not found: " + dataset);
         }
+
+        String[] names = ftpClient.listNames();
+        if (names == null) return new FTPFile[0];
+
+        FTPFile[] files = new FTPFile[names.length];
+        for (int i = 0; i < names.length; i++) {
+            FTPFile file = new FTPFile();
+            file.setName(names[i]);
+            file.setType(FTPFile.FILE_TYPE); // oder DIRECTORY_TYPE
+            files[i] = file;
+        }
+        return files;
+    }
+
+    // Zugriff auf normales Dataset (z. B. sequentiell oder PDS)
+    public FTPFile[] listMvsDirectory(String dataset) throws IOException {
+        String quoted = quoteMvsPath(dataset);
+        boolean changed = ftpClient.changeWorkingDirectory(quoted);
+
+        if (!changed) {
+            throw new IOException("Dataset not found or not accessible: " + dataset);
+        }
+
+        FTPFile[] files = ftpClient.listFiles();
+        return files != null ? files : new FTPFile[0];
+    }
+
+    private String quoteMvsPath(String dataset) {
+        if (!dataset.startsWith("'")) dataset = "'" + dataset;
+        if (!dataset.endsWith("'")) dataset = dataset + "'";
+        return dataset;
     }
 
     public boolean changeDirectory(String path) throws IOException {
@@ -116,7 +124,6 @@ public class FtpService {
         }
     }
 
-    // ToDo: Consider encapsulation
     public FTPClient getClient() {
         return ftpClient;
     }
