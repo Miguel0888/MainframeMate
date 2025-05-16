@@ -1,7 +1,9 @@
 package org.example.ftp;
 
 import org.apache.commons.net.ftp.FTPClient;
+import org.apache.commons.net.ftp.FTPCmd;
 import org.apache.commons.net.ftp.FTPFile;
+import org.example.util.SettingsManager;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +21,7 @@ public class FtpManager {
     }
 
     public boolean connect(String host, String user, String password) throws IOException {
+        ftpClient.setControlEncoding(SettingsManager.load().encoding);
         ftpClient.connect(host);
         int replyCode = ftpClient.getReplyCode();
 
@@ -155,5 +158,32 @@ public class FtpManager {
         // Upload
         InputStream data = buffer.toInputStream(newContent);
         return ftpClient.storeFile(buffer.getRemotePath(), data);
+    }
+
+    public boolean hasFeature(FTPCmd cmd)
+    {
+        try {
+            return ftpClient.hasFeature(cmd);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getHelp()
+    {
+        try {
+            return ftpClient.listHelp();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getHelp(String command)
+    {
+        try {
+            return ftpClient.listHelp(command);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

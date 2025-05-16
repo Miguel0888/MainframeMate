@@ -58,6 +58,4 @@ public class SettingsManager {
         bookmarks.put(label, path);
         save(settings);
     }
-
-
 }

@@ -90,50 +90,8 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
     }
 
     private void openFileInNewTab(FtpFileBuffer buffer) {
-        String title = buffer.getMeta().getName();
-        JTextArea textArea = new JTextArea(buffer.getOriginalContent());
-        JScrollPane scrollPane = new JScrollPane(textArea);
 
-        JButton saveButton = new JButton("Speichern");
-        saveButton.addActionListener(e -> {
-            String newText = textArea.getText();
-            try {
-                boolean ok = ftpManager.storeFile(buffer, newText);
-                if (ok) {
-                    JOptionPane.showMessageDialog(this, "Datei erfolgreich gespeichert.");
-                } else {
-                    JOptionPane.showMessageDialog(this, "Datei wurde verändert!\nSpeichern abgebrochen.",
-                            "Konflikt", JOptionPane.WARNING_MESSAGE);
-                }
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Fehler beim Speichern:\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        });
-
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.add(scrollPane, BorderLayout.CENTER);
-        panel.add(saveButton, BorderLayout.SOUTH);
-
-        JTabbedPane parentTabs = findParentTabbedPane();
-        if (parentTabs != null) {
-            parentTabs.addTab("📄 " + title, panel);
-            parentTabs.setSelectedComponent(panel);
-        } else {
-            JOptionPane.showMessageDialog(this, scrollPane, "📄 " + title, JOptionPane.PLAIN_MESSAGE);
-        }
     }
-
-    private JTabbedPane findParentTabbedPane() {
-        Container parent = this.getParent();
-        while (parent != null) {
-            if (parent instanceof JTabbedPane) return (JTabbedPane) parent;
-            parent = parent.getParent();
-        }
-        return null;
-    }
-
-
 
     public void init() {
         ftpManager.addObserver(this);

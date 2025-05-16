@@ -1,84 +1,83 @@
 package org.example.ui;
 
+import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
-import org.example.util.SettingsManager;
+import org.example.ui.FtpTab;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.HashMap;
+import java.util.Map;
 
 public class TabbedPaneManager {
 
     private final JTabbedPane tabbedPane = new JTabbedPane();
-    private int tabCount = 1;
+    private final Map<Component, FtpTab> tabMap = new HashMap<>();
 
     public TabbedPaneManager() {
         tabbedPane.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                handlePopup(e);
+                maybeShowPopup(e);
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                handlePopup(e);
+                maybeShowPopup(e);
             }
 
-            private void handlePopup(MouseEvent e) {
+            private void maybeShowPopup(MouseEvent e) {
                 if (!e.isPopupTrigger()) return;
 
                 int tabIndex = tabbedPane.indexAtLocation(e.getX(), e.getY());
                 if (tabIndex < 0) return;
 
                 Component tabComponent = tabbedPane.getComponentAt(tabIndex);
-                JPopupMenu menu = new JPopupMenu();
+                FtpTab tab = tabMap.get(tabComponent);
+                if (tab == null) return;
 
-                JMenuItem bookmarkItem = new JMenuItem("🕮 Bookmark setzen");
-                bookmarkItem.addActionListener(a -> {
-                    if (tabComponent instanceof FtpBrowserPanel) {
-                        FtpBrowserPanel panel = (FtpBrowserPanel) tabComponent;
-                        String path = panel.getCurrentPath();
-                        SettingsManager.addBookmark(path);
-
-                        MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(tabbedPane);
-                        main.getBookmarkToolbar().refreshBookmarks();
-
-                        JOptionPane.showMessageDialog(tabbedPane, "Bookmark gesetzt für: " + path);
-                    }
-                });
-
-                JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
-                closeItem.addActionListener(a -> closeTab(tabIndex));
-
-                menu.add(bookmarkItem);
-                menu.add(closeItem);
-
-                menu.show(tabbedPane, e.getX(), e.getY());
+                JPopupMenu menu = tab.createContextMenu(() -> closeTab(tabIndex));
+                if (menu != null) {
+                    menu.show(tabbedPane, e.getX(), e.getY());
+                }
             }
         });
     }
 
-    public void openNewTab(FtpManager ftpManager) {
-        openNewTab(ftpManager, "/");
-    }
-
-    public void openNewTab(FtpManager ftpManager, String path) {
-        FtpBrowserPanel panel = new FtpBrowserPanel(ftpManager);
-        panel.init();
-        panel.loadDirectory(path);
-        tabbedPane.addTab("Verbindung " + (tabCount++), panel);
+    public void addTab(FtpTab tab) {
+        tabbedPane.addTab(tab.getTitle(), tab.getComponent());
+        tabMap.put(tab.getComponent(), tab);
+        tabbedPane.setSelectedComponent(tab.getComponent());
     }
 
     public void closeTab(int index) {
-        Component component = tabbedPane.getComponentAt(index);
-        if (component instanceof FtpBrowserPanel) {
-            ((FtpBrowserPanel) component).dispose();
-        }
+        Component comp = tabbedPane.getComponentAt(index);
+        FtpTab tab = tabMap.remove(comp);
+        if (tab != null) tab.onClose();
         tabbedPane.remove(index);
+    }
+
+    public void saveSelectedComponent() {
+        Component comp = tabbedPane.getSelectedComponent();
+        FtpTab tab = tabMap.get(comp);
+        if (tab != null) tab.saveIfApplicable();
     }
 
     public JComponent getComponent() {
         return tabbedPane;
     }
+
+    public Component getSelectedComponent() {
+        return tabbedPane.getSelectedComponent();
+    }
+
+    public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
+        FileTab fileTab = new FileTab(ftpManager, this, buffer);
+        tabbedPane.addTab(fileTab.getTitle(), fileTab.getComponent());
+        tabMap.put(fileTab.getComponent(), fileTab);
+        tabbedPane.setSelectedComponent(fileTab.getComponent());
+    }
+
 }

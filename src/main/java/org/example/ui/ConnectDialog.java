@@ -3,6 +3,7 @@ package org.example.ui;
 import org.example.ftp.FtpManager;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
+import org.example.util.WindowsCryptoUtil;
 
 import javax.swing.*;
 import java.awt.*;
@@ -27,7 +28,13 @@ public class ConnectDialog {
     private static boolean show(Component parent, FtpManager ftpManager, Settings settings) {
         JTextField hostField = new JTextField(settings.host != null ? settings.host : "");
         JTextField userField = new JTextField(settings.user != null ? settings.user : "");
-        JPasswordField passField = new JPasswordField();
+        String storedPassword = null;
+        if (settings.savePassword && settings.encryptedPassword != null) {
+            storedPassword = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
+        }
+        JPasswordField passField = new JPasswordField(storedPassword != null ? storedPassword : "");
+        JCheckBox savePasswordBox = new JCheckBox("Passwort speichern");
+        savePasswordBox.setSelected(settings.savePassword);
         JCheckBox autoConnectBox = new JCheckBox("Automatisch verbinden");
         autoConnectBox.setSelected(settings.autoConnect);
 
@@ -44,6 +51,7 @@ public class ConnectDialog {
         });
 
         JPanel autoConnectPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        autoConnectPanel.add(savePasswordBox);
         autoConnectPanel.add(autoConnectBox);
         autoConnectPanel.add(openFolderButton);
 
@@ -70,6 +78,13 @@ public class ConnectDialog {
                 settings.host = host;
                 settings.user = user;
                 settings.autoConnect = autoConnect;
+                if (savePasswordBox.isSelected()) {
+                    settings.savePassword = true;
+                    settings.encryptedPassword = WindowsCryptoUtil.encrypt(pass);
+                } else {
+                    settings.savePassword = false;
+                    settings.encryptedPassword = null;
+                }
                 SettingsManager.save(settings);
                 return true;
             } catch (IOException ex) {
