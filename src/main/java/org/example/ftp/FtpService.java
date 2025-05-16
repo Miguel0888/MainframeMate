@@ -3,13 +3,9 @@ package org.example.ftp;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPFile;
 
-import java.io.ByteArrayOutputStream;
-import java.io.FileDescriptor;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class FtpService {
 
@@ -74,7 +70,7 @@ public class FtpService {
         try {
             return ftpClient.printWorkingDirectory();
         } catch (IOException e) {
-            throw new RuntimeException(e); //ToDo
+            throw new RuntimeException(e);
         }
     }
 
@@ -96,58 +92,42 @@ public class FtpService {
         return ftpClient;
     }
 
-    public List<FTPFile> listDirectory(String newPath) {
-        // ToDo
-        return null;
+    public List<FTPFile> listDirectory(String path) throws IOException {
+        FTPFile[] files = ftpClient.listFiles(path);
+        return Arrays.asList(files);
     }
 
-    public String getFile(FTPFile file) {
-        try {
-            ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
-        } catch (IOException e) {
-            throw new RuntimeException(e); // ToDo
-        }
+    public FtpFileBuffer openFile(String remotePath) throws IOException {
+        FTPFile[] metaArr = ftpClient.listFiles(remotePath);
+        FTPFile fileMeta = metaArr.length > 0 ? metaArr[0] : new FTPFile();
+
+        InputStream in = ftpClient.retrieveFileStream(remotePath);
+        FtpFileBuffer buffer = new FtpFileBuffer(remotePath, fileMeta);
+        buffer.loadContent(in, null);
+        ftpClient.completePendingCommand();
+
+        return buffer;
+    }
+
+    public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {
+        // Remote-Version neu laden
+        InputStream in = ftpClient.retrieveFileStream(buffer.getRemotePath());
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        System.out.println("--> RETRIEVING " + out + " IN " + fullPath);
-        boolean ok = false;
-        try {
-            ok = ftpClient.retrieveFile(file, out);
-        } catch (IOException e) {
-            throw new RuntimeException(e); // ToDo
-        }
-        if (!ok) {
-            int code = ftpClient.getReplyCode();
-            String reply = ftpClient.getReplyString();
-        }
-        try {
-            return out.toString(StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e); // ToDo
-        }
-    }
+        byte[] tmp = new byte[8192];
+        int len;
+        while ((len = in.read(tmp)) != -1) out.write(tmp, 0, len);
+        ftpClient.completePendingCommand();
+        String currentRemote = out.toString(StandardCharsets.UTF_8.name());
 
-//    public String getFile(String fullPath) {
-//        try {
-//            ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
-//        } catch (IOException e) {
-//            throw new RuntimeException(e); // ToDo
-//        }
-//        ByteArrayOutputStream out = new ByteArrayOutputStream();
-//        System.out.println("--> RETRIEVING " + out + " IN " + fullPath);
-//        boolean ok = false;
-//        try {
-//            ok = ftpClient.retrieveFile(fullPath, out);
-//        } catch (IOException e) {
-//            throw new RuntimeException(e); // ToDo
-//        }
-//        if (!ok) {
-//            int code = ftpClient.getReplyCode();
-//            String reply = ftpClient.getReplyString();
-//        }
-//        try {
-//            return out.toString(StandardCharsets.UTF_8.name());
-//        } catch (UnsupportedEncodingException e) {
-//            throw new RuntimeException(e); // ToDo
-//        }
-//    }
+        // Konfliktprüfung
+        if (!buffer.isUnchanged(currentRemote)) {
+            // Stelle hier ggf. Dialog oder Logik für Konfliktbehandlung bereit
+            System.err.println("Konflikt: Die Datei wurde auf dem Server geändert.");
+            return false;
+        }
+
+        // Upload
+        InputStream data = buffer.toInputStream(newContent);
+        return ftpClient.storeFile(buffer.getRemotePath(), data);
+    }
 }
