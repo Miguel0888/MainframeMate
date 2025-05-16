@@ -106,43 +106,38 @@ public class FtpManager {
     }
 
     public FtpFileBuffer open(String filename) throws IOException {
-        FTPFile fileMeta = null;
+        // Suche Meta aus aktuellem Directory
+        FTPFile fileMeta = Arrays.stream(ftpClient.listFiles())
+                .filter(f -> f.getName().equalsIgnoreCase(filename))
+                .findFirst()
+                .orElseThrow(() -> new IOException("Datei nicht gefunden: " + filename));
 
-        // Suche nach dem passenden FTPFile im aktuellen Verzeichnis
-        for (FTPFile f : ftpClient.listFiles()) {
-            if (f.getName().equalsIgnoreCase(filename)) {
-                fileMeta = f;
-                break;
-            }
-        }
-
-        if (fileMeta == null) {
-            throw new IOException("Datei nicht gefunden: " + filename);
-        }
-
-        // PDS Member oder normale Datei?
-        String path;
-        if (mvsMode && isProbablyMember(fileMeta)) {
-            path = currentPath.replaceAll("/$", ""); // remove trailing slash
-            if (!path.startsWith("'")) path = "'" + path;
-            if (!path.endsWith("'")) path += "'";
-            path = path.substring(0, path.length() - 1) + "(" + filename + ")'";
-        } else {
-            path = currentPath.endsWith("/") ? currentPath + filename : currentPath + "/" + filename;
-        }
-
+        // Dateityp: wir lesen als Text
         ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
-        InputStream in = ftpClient.retrieveFileStream(path);
+
+        // Retrieve nur mit einfachem Dateinamen – NICHT vollqualifiziert
+        InputStream in = ftpClient.retrieveFileStream(filename);
         if (in == null) {
-            throw new IOException("Konnte Datei nicht laden: " + path +
+            throw new IOException("Konnte Datei nicht laden: " + filename +
                     "\nAntwort: " + ftpClient.getReplyString());
         }
 
-        FtpFileBuffer buffer = new FtpFileBuffer(path, fileMeta);
-        buffer.loadContent(in, null);
-        ftpClient.completePendingCommand();
+        // Datei lesen – NICHT vergessen, sonst hängt completePendingCommand
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int len;
+        while ((len = in.read(buffer)) != -1) {
+            out.write(buffer, 0, len);
+        }
+        in.close();
+        if (!ftpClient.completePendingCommand()) {
+            throw new IOException("FTP-Übertragung unvollständig: " + filename);
+        }
 
-        return buffer;
+        // Jetzt den Buffer bauen
+        FtpFileBuffer result = new FtpFileBuffer(filename, fileMeta);
+        result.loadContent(new ByteArrayInputStream(out.toByteArray()), null);
+        return result;
     }
 
     private boolean isProbablyMember(FTPFile file) {
