@@ -92,11 +92,6 @@ public class FtpManager {
         return ftpClient;
     }
 
-//    public List<FTPFile> listDirectory(String path) throws IOException {
-//        FTPFile[] files = ftpClient.listFiles(path);
-//        return Arrays.asList(files);
-//    }
-
     public List<String> listDirectory() {
         try {
             return Arrays.asList(ftpClient.listNames());
@@ -138,10 +133,6 @@ public class FtpManager {
         FtpFileBuffer result = new FtpFileBuffer(filename, fileMeta);
         result.loadContent(new ByteArrayInputStream(out.toByteArray()), null);
         return result;
-    }
-
-    private boolean isProbablyMember(FTPFile file) {
-        return file.isFile() && !file.getName().contains("."); // z.B. TEST001
     }
 
     public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {

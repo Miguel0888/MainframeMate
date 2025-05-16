@@ -142,4 +142,8 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
     public void dispose() {
         ftpManager.removeObserver(this);
     }
+
+    public String getCurrentPath() {
+        return pathField.getText();
+    }
 }
