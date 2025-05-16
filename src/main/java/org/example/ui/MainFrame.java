@@ -1,15 +1,13 @@
 package org.example.ui;
 
-import org.example.ftp.FtpService;
-import org.example.util.SettingsManager;
+import org.example.ftp.FtpManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Properties;
 
 public class MainFrame extends JFrame {
 
-    private final FtpService ftpService = new FtpService();
+    private final FtpManager ftpManager = new FtpManager();
     private FtpBrowserPanel browserPanel;
     private TabbedPaneManager tabManager;
     private BookmarkToolbar bookmarkToolbar;
@@ -22,8 +20,8 @@ public class MainFrame extends JFrame {
 
         initUI();
 
-        if (ConnectDialog.connectIfNeeded(this, ftpService)) {
-            tabManager.openNewTab(ftpService);
+        if (ConnectDialog.connectIfNeeded(this, ftpManager)) {
+            tabManager.openNewTab(ftpManager);
         }
     }
 
@@ -33,8 +31,8 @@ public class MainFrame extends JFrame {
         JMenu fileMenu = new JMenu("Datei");
         JMenuItem connectItem = new JMenuItem("Verbinden...");
         connectItem.addActionListener(e -> {
-            if (ConnectDialog.show(this, ftpService)) {
-                tabManager.openNewTab(ftpService);
+            if (ConnectDialog.show(this, ftpManager)) {
+                tabManager.openNewTab(ftpManager);
             }
         });
 
@@ -47,7 +45,7 @@ public class MainFrame extends JFrame {
 
         // Bookmark-Leiste
         bookmarkToolbar = new BookmarkToolbar(path -> {
-            tabManager.openNewTab(ftpService, path);
+            tabManager.openNewTab(ftpManager, path);
         });
 
         // Tabs

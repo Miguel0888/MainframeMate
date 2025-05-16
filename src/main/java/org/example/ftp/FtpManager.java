@@ -7,7 +7,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class FtpService {
+public class FtpManager {
 
     private final FTPClient ftpClient = new FTPClient();
     private String currentPath = "/";
@@ -92,21 +92,61 @@ public class FtpService {
         return ftpClient;
     }
 
-    public List<FTPFile> listDirectory(String path) throws IOException {
-        FTPFile[] files = ftpClient.listFiles(path);
-        return Arrays.asList(files);
+//    public List<FTPFile> listDirectory(String path) throws IOException {
+//        FTPFile[] files = ftpClient.listFiles(path);
+//        return Arrays.asList(files);
+//    }
+
+    public List<String> listDirectory() {
+        try {
+            return Arrays.asList(ftpClient.listNames());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
-    public FtpFileBuffer openFile(String remotePath) throws IOException {
-        FTPFile[] metaArr = ftpClient.listFiles(remotePath);
-        FTPFile fileMeta = metaArr.length > 0 ? metaArr[0] : new FTPFile();
+    public FtpFileBuffer open(String filename) throws IOException {
+        FTPFile fileMeta = null;
 
-        InputStream in = ftpClient.retrieveFileStream(remotePath);
-        FtpFileBuffer buffer = new FtpFileBuffer(remotePath, fileMeta);
+        // Suche nach dem passenden FTPFile im aktuellen Verzeichnis
+        for (FTPFile f : ftpClient.listFiles()) {
+            if (f.getName().equalsIgnoreCase(filename)) {
+                fileMeta = f;
+                break;
+            }
+        }
+
+        if (fileMeta == null) {
+            throw new IOException("Datei nicht gefunden: " + filename);
+        }
+
+        // PDS Member oder normale Datei?
+        String path;
+        if (mvsMode && isProbablyMember(fileMeta)) {
+            path = currentPath.replaceAll("/$", ""); // remove trailing slash
+            if (!path.startsWith("'")) path = "'" + path;
+            if (!path.endsWith("'")) path += "'";
+            path = path.substring(0, path.length() - 1) + "(" + filename + ")'";
+        } else {
+            path = currentPath.endsWith("/") ? currentPath + filename : currentPath + "/" + filename;
+        }
+
+        ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
+        InputStream in = ftpClient.retrieveFileStream(path);
+        if (in == null) {
+            throw new IOException("Konnte Datei nicht laden: " + path +
+                    "\nAntwort: " + ftpClient.getReplyString());
+        }
+
+        FtpFileBuffer buffer = new FtpFileBuffer(path, fileMeta);
         buffer.loadContent(in, null);
         ftpClient.completePendingCommand();
 
         return buffer;
+    }
+
+    private boolean isProbablyMember(FTPFile file) {
+        return file.isFile() && !file.getName().contains("."); // z.B. TEST001
     }
 
     public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {

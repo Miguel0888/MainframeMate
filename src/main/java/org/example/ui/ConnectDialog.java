@@ -1,6 +1,6 @@
 package org.example.ui;
 
-import org.example.ftp.FtpService;
+import org.example.ftp.FtpManager;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
@@ -10,21 +10,21 @@ import java.io.IOException;
 
 public class ConnectDialog {
 
-    public static boolean connectIfNeeded(Component parent, FtpService ftpService) {
+    public static boolean connectIfNeeded(Component parent, FtpManager ftpManager) {
         Settings settings = SettingsManager.load();
 
         if (settings.autoConnect && settings.host != null && settings.user != null) {
-            return show(parent, ftpService, settings);
+            return show(parent, ftpManager, settings);
         }
 
-        return show(parent, ftpService, settings);
+        return show(parent, ftpManager, settings);
     }
 
-    public static boolean show(Component parent, FtpService ftpService) {
-        return show(parent, ftpService, SettingsManager.load());
+    public static boolean show(Component parent, FtpManager ftpManager) {
+        return show(parent, ftpManager, SettingsManager.load());
     }
 
-    private static boolean show(Component parent, FtpService ftpService, Settings settings) {
+    private static boolean show(Component parent, FtpManager ftpManager, Settings settings) {
         JTextField hostField = new JTextField(settings.host != null ? settings.host : "");
         JTextField userField = new JTextField(settings.user != null ? settings.user : "");
         JPasswordField passField = new JPasswordField();
@@ -66,7 +66,7 @@ public class ConnectDialog {
             boolean autoConnect = autoConnectBox.isSelected();
 
             try {
-                ftpService.connect(host, user, pass);
+                ftpManager.connect(host, user, pass);
                 settings.host = host;
                 settings.user = user;
                 settings.autoConnect = autoConnect;
