@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class FtpBrowserPanel extends JPanel implements FtpObserver {
@@ -82,21 +83,16 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
     public void onDirectoryChanged(String newPath) {
         if (!ftpService.isConnected()) return;
 
-        try {
-            listModel.clear();
-            fileMap.clear();
-            pathField.setText(newPath);
-            FTPFile[] files = ftpService.listDirectory(newPath);
-            for (FTPFile file : files) {
-                String name = file.getName();
-                if (".".equals(name) || "..".equals(name)) continue;
-                if (file.isDirectory()) name += "/";
-                listModel.addElement(name);
-                fileMap.put(name, file);
-            }
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Fehler beim Laden des Verzeichnisses:\n" + e.getMessage(),
-                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        listModel.clear();
+        fileMap.clear();
+        pathField.setText(newPath);
+        List<FTPFile> files = ftpService.listDirectory(newPath);
+        for (FTPFile file : files) {
+            String name = file.getName();
+            if (".".equals(name) || "..".equals(name)) continue;
+            if (file.isDirectory()) name += "/";
+            listModel.addElement(name);
+            fileMap.put(name, file);
         }
     }
 
@@ -119,15 +115,7 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
                 fullPath = currentPath + "/" + filename;
             }
 
-            ftpService.getClient().setFileType(org.apache.commons.net.ftp.FTPClient.ASCII_FILE_TYPE);
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            boolean ok = ftpService.getClient().retrieveFile(fullPath, out);
-            if (!ok) {
-                int code = ftpService.getClient().getReplyCode();
-                String reply = ftpService.getClient().getReplyString();
-                throw new IOException("Download fehlgeschlagen: " + fullPath + "\nFTP-Code: " + code + "\nAntwort: " + reply);
-            }
-            String content = out.toString(StandardCharsets.UTF_8.name());
+            String content = ftpService.getFile(fullPath);
 
             JTextArea textArea = new JTextArea(content);
             textArea.setEditable(false);

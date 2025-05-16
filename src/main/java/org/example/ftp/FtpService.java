@@ -3,7 +3,11 @@ package org.example.ftp;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPFile;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileDescriptor;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,46 +55,6 @@ public class FtpService {
         }
     }
 
-    // zentrale Abstraktion über FtpPath
-    public FTPFile[] listDirectory(String path) throws IOException {
-        return new FtpPath(path).list(this);
-    }
-
-    // Zugriff auf PDS-Member-Liste
-    public FTPFile[] listPdsMembers(String dataset) throws IOException {
-        String quoted = quoteMvsPath(dataset);
-        boolean changed = ftpClient.changeWorkingDirectory(quoted);
-
-        if (!changed) {
-            throw new IOException("PDS not found: " + dataset);
-        }
-
-        String[] names = ftpClient.listNames();
-        if (names == null) return new FTPFile[0];
-
-        FTPFile[] files = new FTPFile[names.length];
-        for (int i = 0; i < names.length; i++) {
-            FTPFile file = new FTPFile();
-            file.setName(names[i]);
-            file.setType(FTPFile.FILE_TYPE); // oder DIRECTORY_TYPE
-            files[i] = file;
-        }
-        return files;
-    }
-
-    // Zugriff auf normales Dataset (z. B. sequentiell oder PDS)
-    public FTPFile[] listMvsDirectory(String dataset) throws IOException {
-        String quoted = quoteMvsPath(dataset);
-        boolean changed = ftpClient.changeWorkingDirectory(quoted);
-
-        if (!changed) {
-            throw new IOException("Dataset not found or not accessible: " + dataset);
-        }
-
-        FTPFile[] files = ftpClient.listFiles();
-        return files != null ? files : new FTPFile[0];
-    }
-
     private String quoteMvsPath(String dataset) {
         if (!dataset.startsWith("'")) dataset = "'" + dataset;
         if (!dataset.endsWith("'")) dataset = dataset + "'";
@@ -107,7 +71,11 @@ public class FtpService {
     }
 
     public String getCurrentPath() {
-        return currentPath;
+        try {
+            return ftpClient.printWorkingDirectory();
+        } catch (IOException e) {
+            throw new RuntimeException(e); //ToDo
+        }
     }
 
     public void addObserver(FtpObserver observer) {
@@ -127,4 +95,59 @@ public class FtpService {
     public FTPClient getClient() {
         return ftpClient;
     }
+
+    public List<FTPFile> listDirectory(String newPath) {
+        // ToDo
+        return null;
+    }
+
+    public String getFile(FTPFile file) {
+        try {
+            ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
+        } catch (IOException e) {
+            throw new RuntimeException(e); // ToDo
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        System.out.println("--> RETRIEVING " + out + " IN " + fullPath);
+        boolean ok = false;
+        try {
+            ok = ftpClient.retrieveFile(file, out);
+        } catch (IOException e) {
+            throw new RuntimeException(e); // ToDo
+        }
+        if (!ok) {
+            int code = ftpClient.getReplyCode();
+            String reply = ftpClient.getReplyString();
+        }
+        try {
+            return out.toString(StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e); // ToDo
+        }
+    }
+
+//    public String getFile(String fullPath) {
+//        try {
+//            ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
+//        } catch (IOException e) {
+//            throw new RuntimeException(e); // ToDo
+//        }
+//        ByteArrayOutputStream out = new ByteArrayOutputStream();
+//        System.out.println("--> RETRIEVING " + out + " IN " + fullPath);
+//        boolean ok = false;
+//        try {
+//            ok = ftpClient.retrieveFile(fullPath, out);
+//        } catch (IOException e) {
+//            throw new RuntimeException(e); // ToDo
+//        }
+//        if (!ok) {
+//            int code = ftpClient.getReplyCode();
+//            String reply = ftpClient.getReplyString();
+//        }
+//        try {
+//            return out.toString(StandardCharsets.UTF_8.name());
+//        } catch (UnsupportedEncodingException e) {
+//            throw new RuntimeException(e); // ToDo
+//        }
+//    }
 }
