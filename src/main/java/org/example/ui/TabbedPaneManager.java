@@ -48,8 +48,29 @@ public class TabbedPaneManager {
 
     public void addTab(FtpTab tab) {
         tabbedPane.addTab(tab.getTitle(), tab.getComponent());
+        int index = tabbedPane.indexOfComponent(tab.getComponent());
+
+        addClosableTabComponent(index, tab);
         tabMap.put(tab.getComponent(), tab);
         tabbedPane.setSelectedComponent(tab.getComponent());
+    }
+
+    private void addClosableTabComponent(int index, FtpTab tab) {
+        JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabPanel.setOpaque(false);
+
+        JLabel titleLabel = new JLabel(tab.getTitle());
+        JButton closeButton = new JButton("×");
+        closeButton.setMargin(new Insets(0, 5, 0, 5));
+        closeButton.setBorder(BorderFactory.createEmptyBorder());
+        closeButton.setFocusable(false);
+        closeButton.setContentAreaFilled(false);
+        closeButton.setToolTipText("Tab schließen");
+        closeButton.addActionListener(e -> closeTab(tabbedPane.indexOfComponent(tab.getComponent())));
+
+        tabPanel.add(titleLabel);
+        tabPanel.add(closeButton);
+        tabbedPane.setTabComponentAt(index, tabPanel);
     }
 
     public void closeTab(int index) {
@@ -75,9 +96,8 @@ public class TabbedPaneManager {
 
     public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
         FileTab fileTab = new FileTab(ftpManager, this, buffer);
-        tabbedPane.addTab(fileTab.getTitle(), fileTab.getComponent());
-        tabMap.put(fileTab.getComponent(), fileTab);
-        tabbedPane.setSelectedComponent(fileTab.getComponent());
+        addTab(fileTab); // handled everything
     }
+
 
 }
