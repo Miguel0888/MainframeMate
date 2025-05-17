@@ -178,8 +178,7 @@ public class ConnectionTab implements FtpTab, FtpObserver {
         if (name == null || name.trim().isEmpty()) return;
 
         try {
-            String fullPath = getCurrentPath() + (getCurrentPath().endsWith("/") ? "" : "/") + name;
-            if (ftpManager.createEmptyFile(fullPath)) {
+            if (ftpManager.createEmptyFile(name)) {
                 JOptionPane.showMessageDialog(mainPanel, "Datei erstellt: " + name);
                 updateFileList();
             } else {

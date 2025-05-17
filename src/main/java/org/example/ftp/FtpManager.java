@@ -191,8 +191,8 @@ public class FtpManager {
 
     // In FtpManager.java
 
-    public boolean createEmptyFile(String path) throws IOException {
-        return ftpClient.storeFile(path, new ByteArrayInputStream(new byte[0]));
+    public boolean createEmptyFile(String name) throws IOException {
+        return ftpClient.storeFile(name, new ByteArrayInputStream(new byte[0]));
     }
 
     public boolean createPds(String name) throws IOException {
