@@ -217,10 +217,8 @@ public class ConnectionTab implements FtpTab, FtpObserver {
 
         if (confirm != JOptionPane.YES_OPTION) return;
 
-        String fullPath = getCurrentPath() + (getCurrentPath().endsWith("/") ? "" : "/") + selected;
-
         try {
-            if (ftpManager.delete(fullPath)) {
+            if (ftpManager.delete(selected)) {
                 JOptionPane.showMessageDialog(mainPanel, "Gelöscht: " + selected);
                 updateFileList();
             } else {
@@ -230,6 +228,7 @@ public class ConnectionTab implements FtpTab, FtpObserver {
             JOptionPane.showMessageDialog(mainPanel, "Fehler beim Löschen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
+
 
 
 }

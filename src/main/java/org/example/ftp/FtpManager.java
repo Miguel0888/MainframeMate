@@ -202,8 +202,8 @@ public class FtpManager {
         return ftpClient.makeDirectory(quoted);
     }
 
-    public boolean delete(String path) throws IOException {
-        return ftpClient.deleteFile(path) || ftpClient.removeDirectory(path);
+    public boolean delete(String name) throws IOException {
+        return ftpClient.deleteFile(name) || ftpClient.removeDirectory(name);
     }
 
 }
