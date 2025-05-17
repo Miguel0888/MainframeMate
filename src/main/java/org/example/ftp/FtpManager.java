@@ -104,11 +104,30 @@ public class FtpManager {
     }
 
     public FtpFileBuffer open(String filename) throws IOException {
+        if (isMvsMode()) {
+            if (filename.contains(".")) {
+                String[] parts = filename.split("\\.");
+                for (int i = 0; i < parts.length - 1; i++) {
+                    openDirectory(parts[i]);
+                }
+                // Letzter Part ist der Member
+                filename = parts[parts.length - 1];
+            }
+        }
+
         // Suche Meta aus aktuellem Directory
+        String finalFilename = filename;
+        String finalFilename1 = filename;
         FTPFile fileMeta = Arrays.stream(ftpClient.listFiles())
-                .filter(f -> f.getName().equalsIgnoreCase(filename))
+                .filter(f -> f.getName().equalsIgnoreCase(finalFilename))
                 .findFirst()
-                .orElseThrow(() -> new IOException("Datei nicht gefunden: " + filename));
+                .orElseThrow(() -> new IOException("Datei nicht gefunden: " + finalFilename1));
+
+        if(fileMeta.isDirectory())
+        {
+            openDirectory(filename);
+            return null;
+        }
 
         // Dateityp: wir lesen als Text
         ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
@@ -195,15 +214,21 @@ public class FtpManager {
         return ftpClient.storeFile(name, new ByteArrayInputStream(new byte[0]));
     }
 
-    public boolean createPds(String name) throws IOException {
-        if (!mvsMode) throw new UnsupportedOperationException("Nur unter MVS möglich");
-
-        String quoted = name.startsWith("'") ? name : "'" + name + "'";
-        return ftpClient.makeDirectory(quoted);
-    }
-
     public boolean delete(String name) throws IOException {
         return ftpClient.deleteFile(name) || ftpClient.removeDirectory(name);
     }
 
+    public boolean createPds(String name) throws IOException {
+        if (!mvsMode) throw new UnsupportedOperationException("Nur unter MVS möglich");
+
+        String quoted = name;
+        if (!quoted.startsWith("'")) quoted = "'" + quoted;
+        if (!quoted.endsWith("'")) quoted = quoted + "'";
+
+        return ftpClient.makeDirectory(quoted);
+    }
+
+    public void openDirectory(String selected) throws IOException {
+        ftpClient.changeWorkingDirectory(selected);
+    }
 }

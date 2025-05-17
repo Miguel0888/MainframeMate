@@ -46,8 +46,15 @@ public class ConnectionTab implements FtpTab, FtpObserver {
                     if (selected == null || selected.endsWith("/")) return;
                     try {
                         FtpFileBuffer buffer = ftpManager.open(selected);
-                        MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(mainPanel);
-                        tabbedPaneManager.openFileTab(ftpManager, buffer);
+                        if( buffer != null) // no DIR
+                        {
+                            tabbedPaneManager.openFileTab(ftpManager, buffer);
+                        }
+                        else
+                        {
+                            pathField.setText(ftpManager.getCurrentPath());
+                            updateFileList();
+                        }
                     } catch (IOException ex) {
                         JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
                                 "Fehler", JOptionPane.ERROR_MESSAGE);
@@ -189,22 +196,6 @@ public class ConnectionTab implements FtpTab, FtpObserver {
         }
     }
 
-    private void createNewPds() {
-        String dataset = JOptionPane.showInputDialog(mainPanel, "Name des neuen PDS (z. B. USER.TEST.PDS):", "Neues PDS", JOptionPane.PLAIN_MESSAGE);
-        if (dataset == null || dataset.trim().isEmpty()) return;
-
-        try {
-            if (ftpManager.createPds(dataset)) {
-                JOptionPane.showMessageDialog(mainPanel, "PDS erstellt: " + dataset);
-                updateFileList();
-            } else {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Erstellen des PDS.", "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (IOException | UnsupportedOperationException e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
     private void deleteSelectedEntry() {
         String selected = fileList.getSelectedValue();
         if (selected == null) {
@@ -229,6 +220,20 @@ public class ConnectionTab implements FtpTab, FtpObserver {
         }
     }
 
+    private void createNewPds() {
+        String dataset = JOptionPane.showInputDialog(mainPanel, "Name des neuen PDS (z. B. USER.TEST.PDS):", "Neues PDS", JOptionPane.PLAIN_MESSAGE);
+        if (dataset == null || dataset.trim().isEmpty()) return;
 
+        try {
+            if (ftpManager.createPds(dataset)) {
+                JOptionPane.showMessageDialog(mainPanel, "PDS erstellt: " + dataset);
+                updateFileList();
+            } else {
+                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Erstellen des PDS.", "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (IOException | UnsupportedOperationException e) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
 
 }

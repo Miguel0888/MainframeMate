@@ -14,8 +14,6 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
 
     private final FtpManager ftpManager;
     private final JTextField pathField;
-    private final DefaultListModel<String> listModel;
-    private final JList<String> fileList;
 
     public FtpBrowserPanel(FtpManager ftpManager) {
         this.ftpManager = ftpManager;
@@ -33,32 +31,6 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
         pathPanel.add(goButton, BorderLayout.EAST);
         this.add(pathPanel, BorderLayout.NORTH);
 
-        // Dateiliste
-        listModel = new DefaultListModel<>();
-        fileList = new JList<>(listModel);
-        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        fileList.addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    String selected = fileList.getSelectedValue();
-                    if (selected == null || selected.endsWith("/")) return;
-
-                    // Open Directory or File
-                    try {
-                        FtpFileBuffer buffer = ftpManager.open(selected);
-                        openFileInNewTab(buffer);
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(FtpBrowserPanel.this,
-                                "Fehler beim Öffnen:\n" + ex.getMessage(),
-                                "Fehler", JOptionPane.ERROR_MESSAGE);
-                    }
-
-                }
-            }
-        });
-
-
-        this.add(new JScrollPane(fileList), BorderLayout.CENTER);
     }
 
     void loadDirectory(String path) {
@@ -79,14 +51,9 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
     public void onDirectoryChanged(String newPath) {
         if (!ftpManager.isConnected()) return;
 
-        listModel.clear();
         pathField.setText(newPath);
         List<String> files = null;
         files = ftpManager.listDirectory();
-
-        for (String file : files) {
-            listModel.addElement(file);
-        }
     }
 
     private void openFileInNewTab(FtpFileBuffer buffer) {
