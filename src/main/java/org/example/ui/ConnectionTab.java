@@ -164,7 +164,7 @@ public class ConnectionTab implements FtpTab, FtpObserver {
         newPdsButton.addActionListener(e -> createNewPds());
 
         leftPanel.add(newFileButton);
-        leftPanel.add(newPdsButton);
+        //leftPanel.add(newPdsButton); //ToDo: Fix, currently not working
 
         // Rechter Bereich: Löschen
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
