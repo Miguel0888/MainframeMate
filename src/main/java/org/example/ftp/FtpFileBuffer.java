@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
 public class FtpFileBuffer {
+    private Charset currentCharset = Charset.forName(SettingsManager.load().encoding);
 
     private final String remotePath;
     private final long expectedSize;
@@ -42,8 +43,9 @@ public class FtpFileBuffer {
         }
 
         this.rawBytes = out.toByteArray();
-        this.content = new String(rawBytes, Charset.forName(SettingsManager.load().encoding)); // Initialanzeige
-        this.originalHash = sha256(this.content);
+        this.content = new String(rawBytes, currentCharset); // Initialanzeige
+//        this.originalHash = sha256(this.content); // decoded hash
+        this.originalHash = sha256(rawBytes);
     }
 
     public void applyEncoding(Charset charset) {
@@ -53,6 +55,7 @@ public class FtpFileBuffer {
     }
 
     public String decodeWith(Charset charset) {
+        setCharset(charset); // required later to save the file, if wanted
         if (rawBytes != null) {
             return new String(rawBytes, charset);
         }
@@ -61,10 +64,6 @@ public class FtpFileBuffer {
 
     public InputStream toInputStream(String updatedContent) {
         return new ByteArrayInputStream(updatedContent.getBytes(Charset.forName(SettingsManager.load().encoding)));
-    }
-
-    public boolean isUnchanged(String currentRemoteContent) {
-        return originalHash != null && originalHash.equals(sha256(currentRemoteContent));
     }
 
     public String getRemotePath() {
@@ -87,17 +86,48 @@ public class FtpFileBuffer {
         return rawBytes;
     }
 
-    private String sha256(String input) {
+    // old version uses decoding
+//    private String sha256(String input) {
+//        try {
+//            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+//            byte[] hashBytes = digest.digest(input.getBytes(Charset.defaultCharset()));
+//            return Base64.getEncoder().encodeToString(hashBytes);
+//        } catch (NoSuchAlgorithmException e) {
+//            throw new RuntimeException("SHA-256 not available", e);
+//        }
+//    }
+//
+//    public boolean isUnchanged(String currentRemoteContent) {
+//        return originalHash != null && originalHash.equals(sha256(currentRemoteContent));
+//    }
+
+    private String sha256(byte[] data) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = digest.digest(input.getBytes(Charset.defaultCharset()));
+            byte[] hashBytes = digest.digest(data);
             return Base64.getEncoder().encodeToString(hashBytes);
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("SHA-256 not available", e);
         }
     }
 
+    public boolean isUnchanged(String currentRemoteContent) {
+        byte[] currentBytes = currentRemoteContent.getBytes(currentCharset);
+        return originalHash != null && originalHash.equals(sha256(currentBytes));
+    }
+
     public interface ProgressListener {
         void onProgress(int percent);
+    }
+
+    private void setCharset(Charset charset) {
+        this.currentCharset = charset;
+        if (rawBytes != null) {
+            this.content = new String(rawBytes, charset);
+        }
+    }
+
+    public Charset getCharset() {
+        return currentCharset;
     }
 }

@@ -164,8 +164,9 @@ public class FtpManager {
         byte[] tmp = new byte[8192];
         int len;
         while ((len = in.read(tmp)) != -1) out.write(tmp, 0, len);
+        in.close();
         ftpClient.completePendingCommand();
-        String currentRemote = out.toString(StandardCharsets.UTF_8.name());
+        String currentRemote = new String(out.toByteArray(), buffer.getCharset());
 
         // Konfliktprüfung
         if (!buffer.isUnchanged(currentRemote)) {
