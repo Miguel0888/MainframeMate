@@ -14,8 +14,8 @@ public class FtpFileBuffer {
     private final long expectedSize;
     private final FTPFile fileMeta;
 
-    private byte[] rawBytes; // <-- NEU: Originaldaten
-    private String content;
+    private byte[] rawBytes; // Originaldaten vom Server
+    private String content;  // Aktueller Textinhalt
     private String originalHash;
 
     public FtpFileBuffer(String remotePath, FTPFile fileMeta) {
@@ -41,8 +41,21 @@ public class FtpFileBuffer {
         }
 
         this.rawBytes = out.toByteArray();
-        this.content = new String(rawBytes, Charset.defaultCharset()); // Default erst mal
+        this.content = new String(rawBytes, Charset.defaultCharset()); // Initialanzeige
         this.originalHash = sha256(this.content);
+    }
+
+    public void applyEncoding(Charset charset) {
+        if (rawBytes != null) {
+            this.content = new String(rawBytes, charset);
+        }
+    }
+
+    public String decodeWith(Charset charset) {
+        if (rawBytes != null) {
+            return new String(rawBytes, charset);
+        }
+        return "";
     }
 
     public InputStream toInputStream(String updatedContent) {
@@ -71,12 +84,6 @@ public class FtpFileBuffer {
 
     public byte[] getRawBytes() {
         return rawBytes;
-    }
-
-    public void applyEncoding(Charset charset) {
-        if (rawBytes != null) {
-            this.content = new String(rawBytes, charset);
-        }
     }
 
     private String sha256(String input) {

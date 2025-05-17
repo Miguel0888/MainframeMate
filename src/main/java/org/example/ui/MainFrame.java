@@ -60,6 +60,25 @@ public class MainFrame extends JFrame {
         menuBar.add(settingsMenu);
         setJMenuBar(menuBar);
 
+        // Hilfe-Menü
+        JMenu helpMenu = new JMenu("Hilfe");
+        JMenuItem featureItem = new JMenuItem("📋 Server-Features anzeigen");
+        featureItem.addActionListener(e -> FeatureDialog.show(this));
+        helpMenu.add(featureItem);
+
+        JMenuItem aboutItem = new JMenuItem("ℹ️ Über MainframeMate");
+        aboutItem.addActionListener(e -> {
+            JOptionPane.showMessageDialog(this,
+                    "MainframeMate\nVersion 1.0\n© 2025 GZD",
+                    "Über", JOptionPane.INFORMATION_MESSAGE);
+        });
+        helpMenu.add(aboutItem);
+
+        menuBar.add(fileMenu);
+        menuBar.add(settingsMenu);
+        menuBar.add(helpMenu);
+        setJMenuBar(menuBar);
+
         // Bookmark-Leiste
         bookmarkToolbar = new BookmarkToolbar(path -> {
             final FtpManager ftpManager = new FtpManager();

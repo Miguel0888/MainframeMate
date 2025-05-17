@@ -17,8 +17,7 @@ public class ConnectDialog {
         if (settings.autoConnect && settings.host != null && settings.user != null) {
             return show(parent, ftpManager, settings);
         }
-
-        return show(parent, ftpManager, settings);
+        return false;
     }
 
     public static boolean show(Component parent, FtpManager ftpManager) {

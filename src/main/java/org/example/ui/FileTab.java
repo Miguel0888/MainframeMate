@@ -2,10 +2,12 @@ package org.example.ui;
 
 import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
+import org.example.util.SettingsManager;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
+import java.nio.charset.Charset;
 
 public class FileTab implements FtpTab {
 
@@ -74,15 +76,20 @@ public class FileTab implements FtpTab {
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JLabel encodingLabel = new JLabel("Encoding:");
-        JComboBox<String> encodingBox = new JComboBox<>(new String[]{
-                "UTF-8", "ISO-8859-1", "Cp1047", "Cp037", "IBM01140"
-        });
+        JComboBox<String> encodingBox = new JComboBox<>(
+                SettingsManager.SUPPORTED_ENCODINGS.toArray(new String[0])
+        );
 
-        encodingBox.setSelectedItem("ISO-8859-1");
+        encodingBox.setSelectedItem(SettingsManager.load().encoding);
         encodingBox.addActionListener(e -> {
             String selectedEncoding = (String) encodingBox.getSelectedItem();
             ftpManager.getClient().setControlEncoding(selectedEncoding);
-            // Reload would go here (falls du live umschalten willst)
+
+            // Reload here (live umschalten)
+            String selected = (String) encodingBox.getSelectedItem();
+            Charset charset = Charset.forName(selected);
+            textArea.setText(buffer.decodeWith(charset));
+
         });
 
         statusBar.add(encodingLabel);
