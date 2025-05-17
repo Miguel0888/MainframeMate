@@ -14,5 +14,7 @@ public class Settings {
     public Map<String, String> bookmarks = new HashMap<>(); // Pfad → Name
     public Map<String, String> pathActions = new HashMap<>(); // Pfad → Aktion
 
-    public String encoding = "windows-1252"; // Standardwert oder "UTF-8"
+    public String encoding = "ISO-8859-1"; // Standardwert
+    public boolean hideLoginDialog = false;
+
 }

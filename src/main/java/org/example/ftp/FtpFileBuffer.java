@@ -1,6 +1,7 @@
 package org.example.ftp;
 
 import org.apache.commons.net.ftp.FTPFile;
+import org.example.util.SettingsManager;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -41,7 +42,7 @@ public class FtpFileBuffer {
         }
 
         this.rawBytes = out.toByteArray();
-        this.content = new String(rawBytes, Charset.defaultCharset()); // Initialanzeige
+        this.content = new String(rawBytes, Charset.forName(SettingsManager.load().encoding)); // Initialanzeige
         this.originalHash = sha256(this.content);
     }
 
@@ -59,7 +60,7 @@ public class FtpFileBuffer {
     }
 
     public InputStream toInputStream(String updatedContent) {
-        return new ByteArrayInputStream(updatedContent.getBytes(Charset.defaultCharset()));
+        return new ByteArrayInputStream(updatedContent.getBytes(Charset.forName(SettingsManager.load().encoding)));
     }
 
     public boolean isUnchanged(String currentRemoteContent) {

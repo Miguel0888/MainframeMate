@@ -14,7 +14,7 @@ public class ConnectDialog {
     public static boolean connectIfNeeded(Component parent, FtpManager ftpManager) {
         Settings settings = SettingsManager.load();
 
-        if (settings.autoConnect && settings.host != null && settings.user != null) {
+        if (settings.autoConnect) {
             return show(parent, ftpManager, settings);
         }
         return false;
@@ -25,6 +25,18 @@ public class ConnectDialog {
     }
 
     private static boolean show(Component parent, FtpManager ftpManager, Settings settings) {
+        // Hide Dialog, if not wanted and not required
+        if(settings.hideLoginDialog && settings.host != null && settings.user != null &&
+                settings.savePassword && settings.encryptedPassword != null) {
+            try {
+                String password = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
+                ftpManager.connect(settings.host, settings.user, password);
+                return true;
+            } catch (IOException ex) {
+                // Fallback: Dialog anzeigen
+            }
+        }
+
         JTextField hostField = new JTextField(settings.host != null ? settings.host : "");
         JTextField userField = new JTextField(settings.user != null ? settings.user : "");
         String storedPassword = null;
@@ -34,25 +46,9 @@ public class ConnectDialog {
         JPasswordField passField = new JPasswordField(storedPassword != null ? storedPassword : "");
         JCheckBox savePasswordBox = new JCheckBox("Passwort speichern");
         savePasswordBox.setSelected(settings.savePassword);
-        JCheckBox autoConnectBox = new JCheckBox("Automatisch verbinden");
-        autoConnectBox.setSelected(settings.autoConnect);
-
-        JButton openFolderButton = new JButton("\uD83D\uDCC1");
-        openFolderButton.setToolTipText("Einstellungsordner öffnen");
-        openFolderButton.setMargin(new Insets(0, 5, 0, 5));
-        openFolderButton.setFocusable(false);
-        openFolderButton.addActionListener(e -> {
-            try {
-                Desktop.getDesktop().open(SettingsManager.getSettingsFolder());
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(parent, "Ordner konnte nicht geöffnet werden:\n" + ex.getMessage());
-            }
-        });
 
         JPanel autoConnectPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         autoConnectPanel.add(savePasswordBox);
-        autoConnectPanel.add(autoConnectBox);
-        autoConnectPanel.add(openFolderButton);
 
         JPanel panel = new JPanel(new GridLayout(0, 1));
         panel.add(new JLabel("Host:"));
@@ -70,13 +66,11 @@ public class ConnectDialog {
             String host = hostField.getText();
             String user = userField.getText();
             String pass = new String(passField.getPassword());
-            boolean autoConnect = autoConnectBox.isSelected();
 
             try {
                 ftpManager.connect(host, user, pass);
                 settings.host = host;
                 settings.user = user;
-                settings.autoConnect = autoConnect;
                 if (savePasswordBox.isSelected()) {
                     settings.savePassword = true;
                     settings.encryptedPassword = WindowsCryptoUtil.encrypt(pass);

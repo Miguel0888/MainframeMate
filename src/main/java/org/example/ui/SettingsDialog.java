@@ -6,6 +6,7 @@ import org.example.util.SettingsManager;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.util.List;
 
 public class SettingsDialog {
@@ -25,20 +26,47 @@ public class SettingsDialog {
 
         addEncodingSelector(panel, gbc, encodingCombo);
 
+        // Login-Dialog unterdrücken
+        JCheckBox hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
+        hideLoginBox.setSelected(settings.hideLoginDialog);
+        panel.add(hideLoginBox, gbc);
+        gbc.gridy++;
+
+        // Login beim Start (new Session), falls Bookmarks nicht verwendet werden
+        JCheckBox autoConnectBox = new JCheckBox("Automatisch verbinden (beim Start)");
+        autoConnectBox.setSelected(settings.autoConnect);
+        panel.add(autoConnectBox, gbc);
+        gbc.gridy++;
+
+        // User Profile Folder
+        JButton openFolderButton = new JButton("\uD83D\uDCC1");
+        openFolderButton.setToolTipText("Einstellungsordner öffnen");
+        openFolderButton.setMargin(new Insets(0, 5, 0, 5));
+        openFolderButton.setFocusable(false);
+        openFolderButton.addActionListener(e -> {
+            try {
+                Desktop.getDesktop().open(SettingsManager.getSettingsFolder());
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(parent, "Ordner konnte nicht geöffnet werden:\n" + ex.getMessage());
+            }
+        });
+        panel.add(openFolderButton, gbc);
+        gbc.gridy++;
+
         // Dialog anzeigen
         int result = JOptionPane.showConfirmDialog(parent, panel, "Einstellungen",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result == JOptionPane.OK_OPTION) {
-            String selectedEncoding = (String) encodingCombo.getSelectedItem();
-            settings.encoding = selectedEncoding;
+            settings.encoding = (String) encodingCombo.getSelectedItem();
+            settings.hideLoginDialog = hideLoginBox.isSelected();
+            settings.autoConnect = autoConnectBox.isSelected();
             SettingsManager.save(settings);
 
-            // Live setzen (wenn möglich)
-            ftpManager.getClient().setControlEncoding(selectedEncoding);
+            ftpManager.getClient().setControlEncoding(settings.encoding);
 
             JOptionPane.showMessageDialog(parent,
-                    "Kodierung gesetzt auf: " + selectedEncoding,
+                    "Einstellungen wurden gespeichert.",
                     "Info", JOptionPane.INFORMATION_MESSAGE);
         }
     }
