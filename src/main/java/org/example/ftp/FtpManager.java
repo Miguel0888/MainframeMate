@@ -186,4 +186,24 @@ public class FtpManager {
             throw new RuntimeException(e);
         }
     }
+
+    /// ////////////////
+
+    // In FtpManager.java
+
+    public boolean createEmptyFile(String path) throws IOException {
+        return ftpClient.storeFile(path, new ByteArrayInputStream(new byte[0]));
+    }
+
+    public boolean createPds(String name) throws IOException {
+        if (!mvsMode) throw new UnsupportedOperationException("Nur unter MVS möglich");
+
+        String quoted = name.startsWith("'") ? name : "'" + name + "'";
+        return ftpClient.makeDirectory(quoted);
+    }
+
+    public boolean delete(String path) throws IOException {
+        return ftpClient.deleteFile(path) || ftpClient.removeDirectory(path);
+    }
+
 }
