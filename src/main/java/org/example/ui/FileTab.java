@@ -9,6 +9,9 @@ import java.awt.*;
 import java.io.IOException;
 import java.nio.charset.Charset;
 
+import javax.swing.undo.UndoManager;
+import javax.swing.undo.CannotUndoException;
+
 public class FileTab implements FtpTab {
 
     private final FtpManager ftpManager;
@@ -17,12 +20,17 @@ public class FileTab implements FtpTab {
     private final JTextArea textArea = new JTextArea();
     private final TabbedPaneManager tabbedPaneManager;
 
+    private final UndoManager undoManager = new UndoManager();
+    private final JButton undoButton = new JButton("↶");
+    private final JButton redoButton = new JButton("↷");
+
     public FileTab(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager, FtpFileBuffer buffer) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.buffer = buffer;
 
         textArea.setText(buffer.getOriginalContent());
+        textArea.getDocument().addUndoableEditListener(undoManager);
         JScrollPane scroll = new JScrollPane(textArea);
 
         JPanel statusBar = createStatusBar();
@@ -74,35 +82,85 @@ public class FileTab implements FtpTab {
     }
 
     private JPanel createStatusBar() {
-        JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel statusBar = new JPanel(new BorderLayout());
+
+        // Links: Undo/Redo Buttons
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        undoButton.setToolTipText("Änderung rückgängig machen");
+        undoButton.setEnabled(false);
+        undoButton.addActionListener(e -> {
+            try {
+                if (undoManager.canUndo()) {
+                    undoManager.undo();
+                }
+            } catch (CannotUndoException ex) {
+                // ignorieren
+            }
+            updateUndoRedoState();
+        });
+
+        redoButton.setToolTipText("Wiederherstellen");
+        redoButton.setEnabled(false);
+        redoButton.addActionListener(e -> {
+            try {
+                if (undoManager.canRedo()) {
+                    undoManager.redo();
+                }
+            } catch (CannotUndoException ex) {
+                // ignorieren
+            }
+            updateUndoRedoState();
+        });
+
+        leftPanel.add(undoButton);
+        leftPanel.add(redoButton);
+
+        // Rechts: Encoding-Auswahl
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JLabel encodingLabel = new JLabel("Encoding:");
         JComboBox<String> encodingBox = new JComboBox<>(
                 SettingsManager.SUPPORTED_ENCODINGS.toArray(new String[0])
         );
-
         encodingBox.setSelectedItem(SettingsManager.load().encoding);
         encodingBox.addActionListener(e -> {
-            String selectedEncoding = (String) encodingBox.getSelectedItem();
-            ftpManager.getClient().setControlEncoding(selectedEncoding);
-
-            // Reload here (live umschalten)
             String selected = (String) encodingBox.getSelectedItem();
+            ftpManager.getClient().setControlEncoding(selected);
             Charset charset = Charset.forName(selected);
             textArea.setText(buffer.decodeWith(charset));
-
         });
+        rightPanel.add(encodingLabel);
+        rightPanel.add(encodingBox);
 
-        statusBar.add(encodingLabel);
-        statusBar.add(encodingBox);
+        // Listener registrieren, um Buttons aktuell zu halten
+        textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
+
+        statusBar.add(leftPanel, BorderLayout.WEST);
+        statusBar.add(rightPanel, BorderLayout.EAST);
         return statusBar;
     }
+
+    private void updateUndoRedoState() {
+        undoButton.setEnabled(undoManager.canUndo());
+        redoButton.setEnabled(undoManager.canRedo());
+    }
+
+
+
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Plugin-Management
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public void setContent(String newText) {
-        textArea.setText(newText);
+        textArea.selectAll();
+        textArea.replaceSelection(""); // erlaubt Undo des Löschens
+        textArea.append(newText);      // erlaubt Undo des Einfügens
+        updateUndoRedoState();
+    }
+
+    public void resetUndoHistory() {
+        undoManager.discardAllEdits();
+        updateUndoRedoState();
     }
 
     //ToDo: Mit Hashing kombinieren
