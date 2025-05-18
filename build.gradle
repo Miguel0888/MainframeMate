@@ -74,7 +74,7 @@ jar {
 
 shadowJar {
     manifest {
-        attributes 'Main-Class': 'de.beispiel.mainframemate.Main'
+        attributes 'Main-Class': 'org.example.Main'
     }
 }
 
