@@ -133,13 +133,8 @@ public class ConnectionTab implements FtpTab, FtpObserver {
 
         JMenuItem bookmarkItem = new JMenuItem("🕮 Bookmark setzen");
         bookmarkItem.addActionListener(e -> {
-            String path = getCurrentPath();
-            SettingsManager.addBookmark(path);
-
             MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
-            main.getBookmarkToolbar().refreshBookmarks();
-
-            JOptionPane.showMessageDialog(getComponent(), "Bookmark gesetzt für: " + path);
+            main.getBookmarkToolbar().setBookmarkForCurrentPath(getComponent(), getCurrentPath());
         });
 
         JMenuItem closeItem = new JMenuItem("❌ Tab schließen");

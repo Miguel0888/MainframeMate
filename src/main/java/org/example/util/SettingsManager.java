@@ -67,4 +67,10 @@ public class SettingsManager {
         bookmarks.put(label, path);
         save(settings);
     }
+
+    public static void removeBookmark(String path) {
+        Settings settings = load();
+        settings.bookmarks.values().removeIf(value -> value.equals(path));
+        save(settings);
+    }
 }
