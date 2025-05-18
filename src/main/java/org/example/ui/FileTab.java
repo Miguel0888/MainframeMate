@@ -96,4 +96,33 @@ public class FileTab implements FtpTab {
         statusBar.add(encodingBox);
         return statusBar;
     }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Plugin-Management
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public void setContent(String newText) {
+        textArea.setText(newText);
+    }
+
+    //ToDo: Mit Hashing kombinieren
+    private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
+
+    public void markAsChanged() {
+        this.changed = true;
+        // Optional: Tab-Titel mit Stern markieren
+        updateTabTitle();
+    }
+
+    private void updateTabTitle() {
+        int index = ((JTabbedPane) mainPanel.getParent()).indexOfComponent(mainPanel);
+        if (index >= 0) {
+            String title = getTitle();
+            if (changed && !title.endsWith("*")) {
+                title += " *";
+            }
+            ((JTabbedPane) mainPanel.getParent()).setTitleAt(index, title);
+        }
+    }
+
 }

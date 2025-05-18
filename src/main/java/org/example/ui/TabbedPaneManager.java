@@ -10,6 +10,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class TabbedPaneManager {
 
@@ -97,6 +98,24 @@ public class TabbedPaneManager {
     public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
         FileTab fileTab = new FileTab(ftpManager, this, buffer);
         addTab(fileTab); // handled everything
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Plugin-Management
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public Optional<FtpTab> getSelectedTab() {
+        Component selected = tabbedPane.getSelectedComponent();
+        return Optional.ofNullable(tabMap.get(selected));
+    }
+
+    public Optional<FileTab> getSelectedFileTab() {
+        Component selected = tabbedPane.getSelectedComponent();
+        FtpTab tab = tabMap.get(selected);
+        if (tab instanceof FileTab) {
+            return Optional.of((FileTab) tab);
+        }
+        return Optional.empty();
     }
 
 

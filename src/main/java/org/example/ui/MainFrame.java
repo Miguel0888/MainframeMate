@@ -1,6 +1,8 @@
 package org.example.ui;
 
 import org.example.ftp.FtpManager;
+import org.example.plugins.PluginManager;
+import org.example.plugins.excel.ExcelImportPlugin;
 
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
@@ -68,10 +70,38 @@ public class MainFrame extends JFrame {
     }
 
     private void initUI() {
-        JMenuBar menuBar = new JMenuBar();
+        tabManager = new TabbedPaneManager();
+        bookmarkToolbar = createBookmarkToolbar();
 
-        // Datei-Menü
+        // 1. Plugins registrieren (aber noch nicht initialisieren!)
+        registerPlugins();
+
+        // 2. Menü erstellen → JMenuBar existiert jetzt
+        JMenuBar menuBar = createMenuBar();
+        setJMenuBar(menuBar);
+
+        // 3. Layout
+        setLayout(new BorderLayout());
+        add(bookmarkToolbar, BorderLayout.NORTH);
+        add(tabManager.getComponent(), BorderLayout.CENTER);
+
+        // ✅ 4. Jetzt ist Menü verfügbar → Plugins initialisieren
+        PluginManager.initializePlugins(this);
+    }
+
+
+
+    private JMenuBar createMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        menuBar.add(createFileMenu());
+        menuBar.add(createSettingsMenu());
+        menuBar.add(createHelpMenu());
+        return menuBar;
+    }
+
+    private JMenu createFileMenu() {
         JMenu fileMenu = new JMenu("Datei");
+
         JMenuItem saveItem = new JMenuItem("Speichern");
         saveItem.addActionListener(e -> tabManager.saveSelectedComponent());
 
@@ -89,9 +119,12 @@ public class MainFrame extends JFrame {
         fileMenu.add(saveItem);
         fileMenu.add(connectItem);
         fileMenu.add(exitItem);
+        return fileMenu;
+    }
 
-        // Einstellungen-Menü
+    private JMenu createSettingsMenu() {
         JMenu settingsMenu = new JMenu("Einstellungen");
+
         JMenuItem settingsItem = new JMenuItem("Allgemein...");
         settingsItem.addActionListener(e -> {
             FtpManager dummy = new FtpManager();
@@ -99,12 +132,16 @@ public class MainFrame extends JFrame {
         });
         settingsMenu.add(settingsItem);
 
-        menuBar.add(fileMenu);
-        menuBar.add(settingsMenu);
-        setJMenuBar(menuBar);
+        PluginManager.getPlugins().forEach(plugin ->
+                plugin.getSettingsMenuItem(this).ifPresent(settingsMenu::add)
+        );
 
-        // Hilfe-Menü
+        return settingsMenu;
+    }
+
+    private JMenu createHelpMenu() {
         JMenu helpMenu = new JMenu("Hilfe");
+
         JMenuItem featureItem = new JMenuItem("📋 Server-Features anzeigen");
         featureItem.addActionListener(e -> FeatureDialog.show(this));
         helpMenu.add(featureItem);
@@ -117,13 +154,11 @@ public class MainFrame extends JFrame {
         });
         helpMenu.add(aboutItem);
 
-        menuBar.add(fileMenu);
-        menuBar.add(settingsMenu);
-        menuBar.add(helpMenu);
-        setJMenuBar(menuBar);
+        return helpMenu;
+    }
 
-        // Bookmark-Leiste
-        bookmarkToolbar = new BookmarkToolbar(path -> {
+    private BookmarkToolbar createBookmarkToolbar() {
+        return new BookmarkToolbar(path -> {
             final FtpManager ftpManager = new FtpManager();
             if (ConnectDialog.show(this, ftpManager)) {
                 ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
@@ -131,12 +166,9 @@ public class MainFrame extends JFrame {
                 tab.loadDirectory(path);
             }
         });
-
-        tabManager = new TabbedPaneManager();
-        setLayout(new BorderLayout());
-        add(bookmarkToolbar, BorderLayout.NORTH);
-        add(tabManager.getComponent(), BorderLayout.CENTER);
     }
+
+
 
     public BookmarkToolbar getBookmarkToolbar() {
         return bookmarkToolbar;
@@ -153,4 +185,30 @@ public class MainFrame extends JFrame {
         return false;
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Plugin-Management
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    // ToDo: Extend with ServiceLoader for external plugins / JARs
+    private void registerPlugins() {
+        PluginManager.registerPlugin(new ExcelImportPlugin());
+    }
+
+    public JMenu getOrCreatePluginMenu() {
+        JMenuBar menuBar = getJMenuBar();
+        for (int i = 0; i < menuBar.getMenuCount(); i++) {
+            JMenu menu = menuBar.getMenu(i);
+            if ("Plugins".equals(menu.getText())) {
+                return menu;
+            }
+        }
+        JMenu pluginMenu = new JMenu("Plugins");
+        menuBar.add(pluginMenu);
+        return pluginMenu;
+    }
+
+
+    public TabbedPaneManager getTabManager() {
+        return tabManager;
+    }
 }
