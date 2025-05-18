@@ -3,7 +3,9 @@ package org.example.ui;
 import org.example.ftp.FtpManager;
 
 import javax.swing.*;
+import javax.swing.plaf.FontUIResource;
 import java.awt.*;
+import java.util.Enumeration;
 
 public class MainFrame extends JFrame {
 
@@ -12,6 +14,7 @@ public class MainFrame extends JFrame {
 
     public MainFrame() {
         setTitle("MainframeMate");
+        setCompatibleFontIfNecessary();
         setSize(1000, 700);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -21,6 +24,46 @@ public class MainFrame extends JFrame {
         final FtpManager ftpManager = new FtpManager();
         if (ConnectDialog.connectIfNeeded(this, ftpManager)) {
             tabManager.addTab(new ConnectionTab(ftpManager, tabManager));
+        }
+    }
+
+    /**
+     * Setze den Font auf "Segoe UI", wenn verfügbar.
+     */
+    private void setCompatibleFontIfNecessary() {
+        String unicodeTest = "ÄÖÜß 📁";
+        Font testFont = UIManager.getFont("Label.font");
+
+        boolean unicodeOk = testFont.canDisplayUpTo(unicodeTest) == -1;
+
+        System.out.println("Font: " + testFont.getFontName() + " | Unicode OK: " + unicodeOk);
+        System.out.println("file.encoding: " + System.getProperty("file.encoding"));
+        System.out.println("defaultCharset: " + java.nio.charset.Charset.defaultCharset());
+
+        if (!unicodeOk) {
+            System.out.println("⚠️ Unicode-Darstellung unvollständig – versuche Korrektur...");
+
+            if (isFontAvailable("Segoe UI")) {
+                for (Enumeration<Object> keys = UIManager.getDefaults().keys(); keys.hasMoreElements(); ) {
+                    Object key = keys.nextElement();
+                    Object value = UIManager.get(key);
+                    if (value instanceof FontUIResource) {
+                        UIManager.put(key, new FontUIResource("Segoe UI", Font.PLAIN, 12));
+                    }
+                }
+                System.out.println("→ Font auf 'Segoe UI' gesetzt.");
+            }
+
+            // Benutzer-Hinweis anzeigen
+            JOptionPane.showMessageDialog(this,
+                    "Einige Unicode-Zeichen (z. B. 📁 oder ÄÖÜ) werden auf deinem System nicht korrekt dargestellt.\n\n" +
+                            "Die Darstellung wurde automatisch angepasst.\n\n" +
+                            "💡 Hinweis: Du kannst die App mit folgendem Startparameter ausführen,\n" +
+                            "um das Problem dauerhaft zu vermeiden:\n\n" +
+                            "    -Dfile.encoding=UTF-8\n\n" +
+                            "Beispiel:\n" +
+                            "    java -Dfile.encoding=UTF-8 -jar MainframeMate.jar",
+                    "Darstellungsproblem erkannt", JOptionPane.WARNING_MESSAGE);
         }
     }
 
@@ -98,4 +141,16 @@ public class MainFrame extends JFrame {
     public BookmarkToolbar getBookmarkToolbar() {
         return bookmarkToolbar;
     }
+
+    // Fix Win 11 Problem
+    private boolean isFontAvailable(String fontName) {
+        String[] availableFonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+        for (String name : availableFonts) {
+            if (name.equalsIgnoreCase(fontName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

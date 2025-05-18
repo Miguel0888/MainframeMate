@@ -38,3 +38,8 @@ task sourcesJar(type: Jar) {
 artifacts {
     archives sourcesJar
 }
+
+// Setzt die Encoding auf UTF-8 für Compilierung unter Windows 11
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
