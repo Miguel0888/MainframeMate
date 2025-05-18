@@ -30,7 +30,12 @@ jobs:
         run: |
           version=$(grep '^version=' gradle.properties | cut -d'=' -f2)
           echo "current_version=$version" >> $GITHUB_ENV
-          new_version=$(echo $version | awk -F. '{$NF += 1; OFS="."; print}')
+          new_version=$(echo "$version" | awk -F. '{
+            $NF += 1
+            for (i = 1; i <= NF; i++) {
+              printf "%s%s", $i, (i == NF ? "" : ".")
+            }
+          }')
           echo "new_version=$new_version" >> $GITHUB_ENV
 
       - name: Update version in gradle.properties
