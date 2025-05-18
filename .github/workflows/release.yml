@@ -23,7 +23,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build project
-        run: ./gradlew clean build
+        run: ./gradlew clean shadowJar
 
       - name: Determine version
         id: version
@@ -67,7 +67,7 @@ jobs:
       - name: Find JAR file
         id: find_jar
         run: |
-          JAR_FILE=$(ls build/libs/*.jar | grep -v 'sources' | head -n 1)
+          JAR_FILE=$(ls build/libs/*-all.jar | grep -v 'sources' | head -n 1)
           echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
 
       - name: Upload Release Asset

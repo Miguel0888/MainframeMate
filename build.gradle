@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'com.github.johnrengelman.shadow' version '7.1.2' // FatJar-Support
 }
 
 group = 'org.example'
@@ -68,6 +69,12 @@ jar {
         attributes(
                 'Main-Class': 'org.example.Main'
         )
+    }
+}
+
+shadowJar {
+    manifest {
+        attributes 'Main-Class': 'de.beispiel.mainframemate.Main'
     }
 }
 
