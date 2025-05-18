@@ -47,3 +47,18 @@ artifacts {
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
 }
+
+// Release-Mode: Debug-Infos deaktivieren
+// Use via: "./gradlew clean build -Prelease=true"
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+
+    // Debug-Infos standardmäßig aktiv (wie gewohnt)
+    if (project.hasProperty('release') && project.release == 'true') {
+        println "Building without debug info (release mode)"
+        options.debug = false
+    } else {
+        println "Building with debug info (default)"
+        options.debug = true
+    }
+}

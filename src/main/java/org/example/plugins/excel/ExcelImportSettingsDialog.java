@@ -13,6 +13,8 @@ public class ExcelImportSettingsDialog extends JDialog {
 
     private final JTextField jsonPathField = new JTextField(30);
     private final JTextField excelPathField = new JTextField(30);
+    private final JTextField trennzeileField = new JTextField(30);
+    private final JCheckBox showConfirmationCheck = new JCheckBox("Bestätigungsdialog nach dem Import anzeigen");
     private final JCheckBox autoOpenCheck = new JCheckBox("Datei nach Import automatisch öffnen");
 
     private static final String PLUGIN_KEY = "excelImporter";
@@ -25,7 +27,10 @@ public class ExcelImportSettingsDialog extends JDialog {
 
         jsonPathField.setText(pluginSettings.getOrDefault("lastJsonPath", ""));
         excelPathField.setText(pluginSettings.getOrDefault("lastExcelPath", ""));
+        trennzeileField.setText(pluginSettings.getOrDefault("trennzeile", ""));
+        showConfirmationCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("showConfirmation", "true")));
         autoOpenCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("autoOpen", "true")));
+
 
         JPanel form = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -48,8 +53,18 @@ public class ExcelImportSettingsDialog extends JDialog {
         gbc.gridx = 2;
         form.add(createBrowseButton(excelPathField, "Excel-Datei auswählen", "xlsx", "xls"), gbc);
 
-        // Checkbox
-        gbc.gridx = 1; gbc.gridy = 2; gbc.gridwidth = 2;
+        // Trennzeile
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 1;
+        form.add(new JLabel("Trennzeile:"), gbc);
+        gbc.gridx = 1; gbc.gridwidth = 2;
+        form.add(trennzeileField, gbc);
+
+        // Checkbox for confirmation dialog
+        gbc.gridx = 1; gbc.gridy = 3; gbc.gridwidth = 2;
+        form.add(showConfirmationCheck, gbc);
+
+        // Checkbox for auto-open
+        gbc.gridx = 1; gbc.gridy = 4; gbc.gridwidth = 1;
         form.add(autoOpenCheck, gbc);
 
         // Buttons
@@ -59,6 +74,8 @@ public class ExcelImportSettingsDialog extends JDialog {
             Map<String, String> updated = new LinkedHashMap<>();
             updated.put("lastJsonPath", jsonPathField.getText().trim());
             updated.put("lastExcelPath", excelPathField.getText().trim());
+            updated.put("trennzeile", trennzeileField.getText().trim());
+            updated.put("showConfirmation", String.valueOf(showConfirmationCheck.isSelected()));
             updated.put("autoOpen", String.valueOf(autoOpenCheck.isSelected()));
             savePluginSettings(updated);
             dispose();

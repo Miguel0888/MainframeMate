@@ -1,0 +1,76 @@
+name: Release Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '8'
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build project (release mode)
+        run: ./gradlew clean build -Prelease=true
+
+      - name: Determine version
+        id: version
+        run: |
+          version=$(grep '^version=' build.gradle | cut -d'=' -f2 | tr -d '[:space:]' | tr -d \")
+          echo "current_version=$version" >> $GITHUB_ENV
+          new_version=$(echo $version | awk -F. '{$NF += 1; OFS="."; print}')
+          echo "new_version=$new_version" >> $GITHUB_ENV
+
+      - name: Update version in build.gradle
+        run: |
+          sed -i "s/version *= *[\"'].*[\"']/version = '$new_version'/" build.gradle
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add build.gradle
+          git commit -m "Bump version to $new_version"
+          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
+          git push origin main
+
+      - name: Create Git tag
+        run: |
+          git tag "v$new_version"
+          git push origin "v$new_version"
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: "v${{ env.new_version }}"
+          release_name: "Release v${{ env.new_version }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+
+      - name: Find JAR file
+        id: find_jar
+        run: |
+          JAR_FILE=$(ls build/libs/*.jar | head -n 1)
+          echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.jar_file }}
+          asset_name: MainframeMate-${{ env.new_version }}.jar
+          asset_content_type: application/java-archive
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}

@@ -1,6 +1,7 @@
 package org.example.ftp;
 
 import org.apache.commons.net.ftp.FTPClient;
+import org.apache.commons.net.ftp.FTPClientConfig;
 import org.apache.commons.net.ftp.FTPCmd;
 import org.apache.commons.net.ftp.FTPFile;
 import org.example.util.SettingsManager;
@@ -35,6 +36,12 @@ public class FtpManager {
         String systemType = ftpClient.getSystemType();
         System.out.println("Systemtyp laut FTP-Server: " + systemType);
         mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
+
+        // Setze Parser nur wenn explizit Windows erkannt wird (z. B. bei Testserver)
+        if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
+            // Configure parser manually for Windows FTP
+            ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_NT));
+        }
 
         return true;
     }

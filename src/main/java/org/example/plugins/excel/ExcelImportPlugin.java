@@ -19,6 +19,12 @@ import java.util.*;
 
 public class ExcelImportPlugin implements MainframeMatePlugin {
 
+    private static final String KEY_NAME = "name";
+    private static final String KEY_POS = "pos";
+    private static final String KEY_LEN = "len";
+    private static final String KEY_FIELDS = "felder";
+
+
     private static final String PLUGIN_KEY = "excelImporter";
 
     MainFrame mainFrame;
@@ -55,56 +61,203 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         dialog.setVisible(true);
         if (!dialog.isConfirmed()) return;
 
-        File excelFile = dialog.getExcelFile().orElse(null);
+        File excelFile = dialog.getExcelFile();
         if (excelFile == null || !excelFile.exists()) {
             showError(mainFrame, "Excel-Datei wurde nicht gefunden.");
             return;
         }
 
-        try {
-//            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(excelFile, true);
-            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(excelFile, true, 0);
-            String formatted = formatWithEmojis(table);
-            insertTextIntoEditor(formatted);
+        String satzartName = dialog.getSelectedSatzart();
+        if (satzartName == null || satzartName.trim().isEmpty()) {
+            showError(mainFrame, "Bitte wähle eine Satzart aus.");
+            return;
+        }
 
-            JOptionPane.showMessageDialog(mainFrame,
-                    "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
-                    "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
+        Map<String, Object> satzartenMap = dialog.getSatzartenMap();
+        if (satzartenMap == null || satzartenMap.isEmpty()) {
+            showError(mainFrame, "Es wurde kein gültiges Satzarten-Layout geladen.");
+            return;
+        }
+
+        try {
+            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(
+                    excelFile,
+                    dialog.isHeaderEnabled(),
+                    dialog.getHeaderRowIndex()
+            );
+
+            String formatted = formatFixedWidthBySatzart(table, satzartName, satzartenMap);
+
+            if (formatted == null || formatted.trim().isEmpty()) {
+                showError(mainFrame, "Kein Inhalt wurde erzeugt – bitte prüfe die Felddefinition oder die Excel-Datei.");
+                return;
+            }
+
+            // 🔁 An bestehende Datei anhängen?
+            if (dialog.shouldAppend()) {
+                Optional<FileTab> optionalTab = mainFrame.getTabManager().getSelectedFileTab();
+                String existing = optionalTab.map(FileTab::getContent).orElse("");
+                String trennzeile = dialog.getTrennzeile();
+
+                String separator = (trennzeile != null && !trennzeile.trim().isEmpty())
+                        ? trennzeile + "\n"
+                        : "";
+
+                formatted = existing + separator + formatted;
+            }
+
+            insertTextIntoEditor(formatted);
+            Map<String, String> settings = getPluginSettings();
+            boolean showConfirmation = Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"));
+
+            if (showConfirmation) {
+                JOptionPane.showMessageDialog(mainFrame,
+                        "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
+                        "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
+            }
 
         } catch (InvalidFormatException ex) {
             showError(mainFrame, "Die gewählte Datei ist kein gültiges Excel-Dokument.");
         } catch (IOException ex) {
             showError(mainFrame, "Fehler beim Lesen der Datei:\n" + ex.getMessage());
+        } catch (Exception ex) {
+            showError(mainFrame, "Unerwarteter Fehler:\n" + ex.getMessage());
+            ex.printStackTrace();
         }
     }
 
-    private String formatWithEmojis(Map<String, List<String>> table) {
-        if (table.isEmpty()) {
-            showError(mainFrame, "Die Excel-Tabelle enthält keine Daten.");
+    private String formatFixedWidthBySatzart(Map<String, List<String>> table, String satzartName, Map<String, Object> satzartenMap) {
+        if (table.isEmpty() || satzartenMap == null) {
+            showError(mainFrame, "Keine Daten oder Satzart verfügbar.");
             return null;
         }
 
-        StringBuilder sb = new StringBuilder();
-        List<String> headers = new ArrayList<>(table.keySet());
+        Map<String, Object> satzart = getSatzartDefinition(satzartenMap, satzartName);
+        if (satzart == null) return null;
 
-        int rowCount = table.values().stream()
+        List<Map<String, Object>> felder = getFeldDefinitionen(satzart, satzartName);
+        if (felder == null) return null;
+
+        int rowCount = calculateMaxRows(table);
+        int recordLength = calculateRecordLength(felder);
+
+        StringBuilder result = new StringBuilder();
+
+        for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            char[] line = createBlankLine(recordLength);
+            fillLineWithRowData(line, rowIndex, felder, table, satzartName);
+            result.append(new String(line)).append("\n");
+        }
+
+        return result.toString();
+    }
+
+    private void fillLineWithRowData(char[] line, int rowIndex, List<Map<String, Object>> felder, Map<String, List<String>> table, String satzartName) {
+        for (Map<String, Object> feld : felder) {
+            if (!isFeldValid(feld, satzartName)) return;
+
+            String name = (String) feld.get(KEY_NAME);
+            int start = getIntValue(feld.get(KEY_POS)) - 1;
+            int len = getIntValue(feld.get(KEY_LEN));
+
+            List<String> column = findColumnByName(table, name);
+            if (column == null) {
+                System.err.println("⚠️ Spalte \"" + name + "\" nicht in Tabelle enthalten.");
+                continue;
+            }
+
+
+            String value = rowIndex < column.size() ? column.get(rowIndex) : "";
+            String padded = padRight(value, len);
+            insertIntoLine(line, start, padded);
+        }
+    }
+
+    private List<String> findColumnByName(Map<String, List<String>> table, String fieldName) {
+        for (Map.Entry<String, List<String>> entry : table.entrySet()) {
+            String key = entry.getKey().trim();
+            if (key.equalsIgnoreCase(fieldName.trim())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private int getIntValue(Object obj) {
+        return (obj instanceof Number) ? ((Number) obj).intValue() : 0;
+    }
+
+    private Map<String, Object> getSatzartDefinition(Map<String, Object> map, String name) {
+        Object def = map.get(name);
+        if (!(def instanceof Map)) {
+            showError(mainFrame, "Satzart \"" + name + "\" nicht gefunden oder ungültig.");
+            return null;
+        }
+        return (Map<String, Object>) def;
+    }
+
+    private List<Map<String, Object>> getFeldDefinitionen(Map<String, Object> satzart, String satzartName) {
+        Object list = satzart.get(KEY_FIELDS);
+        if (!(list instanceof List)) {
+            showError(mainFrame, "Satzart \"" + satzartName + "\" enthält keine Felddefinitionen.");
+            return null;
+        }
+        return (List<Map<String, Object>>) list;
+    }
+
+    private int calculateMaxRows(Map<String, List<String>> table) {
+        return table.values().stream()
                 .mapToInt(List::size)
                 .max()
                 .orElse(0);
-
-        for (int i = 0; i < rowCount; i++) {
-            for (int c = 0; c < headers.size(); c++) {
-                List<String> column = table.get(headers.get(c));
-                String value = i < column.size() ? column.get(i) : "";
-                sb.append(value);
-                if (c < headers.size() - 1) sb.append(" 😎 ");
-            }
-            sb.append("\n");
-        }
-
-        return sb.toString();
     }
 
+    private int calculateRecordLength(List<Map<String, Object>> felder) {
+        return felder.stream()
+                .filter(f -> f.get(KEY_POS) instanceof Number && f.get(KEY_LEN) instanceof Number)
+                .mapToInt(f -> ((Number) f.get(KEY_POS)).intValue() + ((Number) f.get(KEY_LEN)).intValue() - 1)
+                .max()
+                .orElse(0);
+    }
+
+    private char[] createBlankLine(int length) {
+        char[] line = new char[length];
+        Arrays.fill(line, ' ');
+        return line;
+    }
+
+    private void insertIntoLine(char[] line, int start, String content) {
+        for (int i = 0; i < content.length() && (start + i) < line.length; i++) {
+            line[start + i] = content.charAt(i);
+        }
+    }
+
+    private boolean isFeldValid(Map<String, Object> feld, String satzartName) {
+        Object pos = feld.get(KEY_POS);
+        Object len = feld.get(KEY_LEN);
+        Object name = feld.get(KEY_NAME);
+
+        if (!(pos instanceof Number) || !(len instanceof Number)) {
+            String feldName = name != null ? name.toString() : "<unbenannt>";
+            showError(mainFrame,
+                    "Die Satzart \"" + satzartName + "\" enthält ein ungültiges Feld:\n" +
+                            "Feld \"" + feldName + "\" hat keine gültige Position (\"" + KEY_POS + "\") oder Länge (\"" + KEY_LEN + "\").");
+            return false;
+        }
+        return true;
+    }
+
+    private String padRight(String input, int length) {
+        if (input == null) input = "";
+        if (input.length() >= length) return input.substring(0, length);
+        return input + repeatSpace(length - input.length());
+    }
+
+    private String repeatSpace(int count) {
+        char[] chars = new char[count];
+        Arrays.fill(chars, ' ');
+        return new String(chars);
+    }
 
     private void insertTextIntoEditor(String text) {
         Optional<FileTab> optionalTab = mainFrame.getTabManager().getSelectedFileTab();
@@ -122,10 +275,10 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
 
     private FileTab createNewFileTab(String content) {
         org.apache.commons.net.ftp.FTPFile dummyMeta = new org.apache.commons.net.ftp.FTPFile();
-        dummyMeta.setName("import.csv");
+        dummyMeta.setName("import");
         dummyMeta.setSize(content.getBytes(StandardCharsets.UTF_8).length);
 
-        FtpFileBuffer buffer = new FtpFileBuffer("/import.csv", dummyMeta);
+        FtpFileBuffer buffer = new FtpFileBuffer("import", dummyMeta);
         try {
             buffer.loadContent(
                     new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)),

@@ -125,4 +125,7 @@ public class FileTab implements FtpTab {
         }
     }
 
+    public String getContent() {
+        return textArea.getText();
+    }
 }
