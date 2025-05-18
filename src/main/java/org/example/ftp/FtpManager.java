@@ -4,6 +4,7 @@ import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPClientConfig;
 import org.apache.commons.net.ftp.FTPCmd;
 import org.apache.commons.net.ftp.FTPFile;
+import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
 import java.io.*;
@@ -165,6 +166,11 @@ public class FtpManager {
     }
 
     public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {
+        // Preprocessing: Zeilenenden normalisieren
+        Settings settings = SettingsManager.load();
+        String normalized = normalizeLineEndings(newContent, settings.lineEnding);
+        InputStream data = buffer.toInputStream(normalized);
+
         // Remote-Version neu laden
         InputStream in = ftpClient.retrieveFileStream(buffer.getRemotePath());
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -183,8 +189,16 @@ public class FtpManager {
         }
 
         // Upload
-        InputStream data = buffer.toInputStream(newContent);
         return ftpClient.storeFile(buffer.getRemotePath(), data);
+    }
+    private String normalizeLineEndings(String text, String mode) {
+        if ("CRLF".equalsIgnoreCase(mode)) {
+            return text.replaceAll("\\r?\\n", "\r\n");
+        } else if ("NONE".equalsIgnoreCase(mode)) {
+            return text.replaceAll("\\r?\\n", ""); // alles entfernen
+        } else { // "LF"
+            return text.replaceAll("\\r?\\n", "\n");
+        }
     }
 
     public boolean hasFeature(FTPCmd cmd)

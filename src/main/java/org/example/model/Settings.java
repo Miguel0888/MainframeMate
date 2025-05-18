@@ -23,7 +23,6 @@ public class Settings {
 
     public String editorFont = "Monospaced"; // default
     public int editorFontSize = 12; // Standardgröße
-
-
+    public String lineEnding = "NONE"; // "LF", "CRLF" oder "NONE"
 
 }

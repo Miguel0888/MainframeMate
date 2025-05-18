@@ -144,44 +144,59 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         StringBuilder result = new StringBuilder();
 
         for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-            char[] line = createBlankLine(recordLength);
-            fillLineWithRowData(line, rowIndex, felder, table, satzartName);
-            result.append(new String(line)).append("\n");
+            List<String> blockLines = buildMultiLineRecord(table, felder, rowIndex, satzartName);
+            for (String line : blockLines) {
+                result.append(line).append("\n");
+            }
         }
 
         return result.toString();
     }
 
-    private void fillLineWithRowData(char[] line, int rowIndex, List<Map<String, Object>> felder,
-                                     Map<String, List<String>> table, String satzartName) {
-        for (Map<String, Object> feld : felder) {
-            if (!isFeldValid(feld, satzartName)) return;
+    private List<String> buildMultiLineRecord(
+            Map<String, List<String>> table,
+            List<Map<String, Object>> felder,
+            int rowIndex,
+            String satzartName) {
 
-            String name = (String) feld.get(KEY_NAME);
+        Map<Integer, char[]> rowLines = new TreeMap<>();
+
+        for (Map<String, Object> feld : felder) {
+            if (!isFeldValid(feld, satzartName)) continue;
+
+            int row = getIntValue(feld.get("row"));
+            if (row < 1) row = 1; // default row
+
+            char[] line = rowLines.computeIfAbsent(row, r -> createBlankLine(256)); // max Länge schätzen
             int start = getIntValue(feld.get(KEY_POS)) - 1;
             int len = getIntValue(feld.get(KEY_LEN));
+            String padded;
 
-            // 🆕 Konstante prüfen
             if (feld.containsKey("value")) {
                 String fixed = String.valueOf(feld.get("value"));
-                String padded = padRight(fixed, len);
-                insertIntoLine(line, start, padded);
-                continue; // Excel-Wert überspringen
+                padded = padRight(fixed, len);
+            } else {
+                String name = (String) feld.get(KEY_NAME);
+                List<String> column = findColumnByName(table, name);
+                if (column == null) {
+                    System.err.println("⚠️ Spalte \"" + name + "\" nicht in Tabelle enthalten.");
+                    continue;
+                }
+                String value = rowIndex < column.size() ? column.get(rowIndex) : "";
+                padded = padRight(value, len);
             }
 
-            // 📥 Excel-Wert verarbeiten
-            List<String> column = findColumnByName(table, name);
-            if (column == null) {
-                System.err.println("⚠️ Spalte \"" + name + "\" nicht in Tabelle enthalten.");
-                continue;
-            }
-
-            String value = rowIndex < column.size() ? column.get(rowIndex) : "";
-            String padded = padRight(value, len);
             insertIntoLine(line, start, padded);
         }
-    }
 
+        // Reihenfolge sicherstellen (1, 2, 3...)
+        List<String> resultLines = new ArrayList<>();
+        for (char[] line : rowLines.values()) {
+            resultLines.add(new String(line));
+        }
+
+        return resultLines;
+    }
 
     private List<String> findColumnByName(Map<String, List<String>> table, String fieldName) {
         for (Map.Entry<String, List<String>> entry : table.entrySet()) {

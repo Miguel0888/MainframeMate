@@ -44,7 +44,6 @@ public class SettingsDialog {
         gbc.gridwidth = 2;
         panel.add(new JLabel("Editor-Schriftgröße:"), gbc);
         gbc.gridy++;
-
         JComboBox<Integer> fontSizeCombo = new JComboBox<>(new Integer[] {
                 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72
         });
@@ -53,6 +52,26 @@ public class SettingsDialog {
         panel.add(fontSizeCombo, gbc);
         gbc.gridy++;
         gbc.gridwidth = 1;
+
+        // Zeilenumbruch
+        JComboBox<String> lineEndingBox = new JComboBox<>(new String[] {
+                "LF (\\n)", "CRLF (\\r\\n)", "Keine (Mainframe)"
+        });
+        String current = settings.lineEnding != null ? settings.lineEnding : "NONE";
+        switch (current) {
+            case "CRLF":
+                lineEndingBox.setSelectedItem("CRLF (\\r\\n)");
+                break;
+            case "NONE":
+                lineEndingBox.setSelectedItem("Keine (Mainframe)");
+                break;
+            default:
+                lineEndingBox.setSelectedItem("LF (\\n)");
+        }
+        lineEndingBox.setSelectedItem(current);
+        panel.add(new JLabel("Zeilenumbruch beim Speichern:"), gbc);
+        gbc.gridy++;
+        panel.add(lineEndingBox, gbc);
 
         // Login-Dialog unterdrücken
         JCheckBox hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
@@ -94,6 +113,14 @@ public class SettingsDialog {
                         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return null; }
                     })
                     .orElse(12);
+            settings.lineEnding = Optional.ofNullable((String) lineEndingBox.getSelectedItem())
+                    .map(String::toUpperCase)
+                    .map(s -> {
+                        if (s.contains("CRLF")) return "CRLF";
+                        if (s.contains("KEINE")) return "NONE";
+                        return "LF";
+                    })
+                    .orElse("LF");
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
             SettingsManager.save(settings);
