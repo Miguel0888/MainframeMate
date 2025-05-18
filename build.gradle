@@ -62,3 +62,12 @@ tasks.withType(JavaCompile) {
         options.debug = true
     }
 }
+
+jar {
+    manifest {
+        attributes(
+                'Main-Class': 'de.beispiel.mainframemate.Main'
+        )
+    }
+}
+
