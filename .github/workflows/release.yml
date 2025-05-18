@@ -2,8 +2,8 @@ name: Release Workflow
 
 on:
   push:
-    branches:
-      - master
+    tags:
+      - 'v*'  # Reagiert nur auf Tags wie v1.0.0, v2.1 etc.
 
 jobs:
   build-and-release:
@@ -22,54 +22,32 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Determine version
-        id: version
-        run: |
-          version=$(grep "^version" build.gradle | cut -d= -f2 | tr -d '\"[:space:]')
-          echo "current_version=$version" >> $GITHUB_ENV
-          new_version=$(echo "$version" | awk -F. '{ $NF++; print }' OFS=".")
-          echo "new_version=$new_version" >> $GITHUB_ENV
-
-      - name: Update version in build.gradle
-        run: |
-          sed -i "s/^version *= *.*/version = '$new_version'/" build.gradle
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add build.gradle
-          git commit -m "Bump version to $new_version"
-          git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
-          git push origin master
-
-      - name: Build project
+      - name: Build JAR (release mode)
         run: ./gradlew clean build -Prelease=true
 
-      - name: Create Git tag
+      - name: Find JAR file
+        id: find_jar
         run: |
-          git tag "v${{ env.new_version }}"
-          git push origin "v${{ env.new_version }}"
+          JAR_FILE=$(ls build/libs/*.jar | head -n 1)
+          echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
 
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         with:
-          tag_name: "v${{ env.new_version }}"
-          release_name: "Release v${{ env.new_version }}"
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
-
-      - name: Find JAR file
-        id: find_jar
-        run: |
-          echo "jar_file=$(find build/libs -name '*.jar' | grep -v sources | head -n 1)" >> $GITHUB_ENV
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ${{ env.jar_file }}
-          asset_name: MainframeMate-${{ env.new_version }}.jar
+          asset_name: MainframeMate-${{ github.ref_name }}.jar
           asset_content_type: application/java-archive
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
