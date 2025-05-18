@@ -8,6 +8,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 public class SettingsDialog {
 
@@ -25,6 +26,33 @@ public class SettingsDialog {
         encodingCombo.setSelectedItem(currentEncoding);
 
         addEncodingSelector(panel, gbc, encodingCombo);
+
+        // Schriftart-Auswahl
+        gbc.gridwidth = 2;
+        panel.add(new JLabel("Editor-Schriftart:"), gbc);
+        gbc.gridy++;
+
+        JComboBox<String> fontCombo = new JComboBox<>(new String[] {
+                "Monospaced", "Consolas", "Courier New", "Menlo", "Dialog"
+        });
+        fontCombo.setSelectedItem(settings.editorFont);
+        panel.add(fontCombo, gbc);
+        gbc.gridy++;
+        gbc.gridwidth = 1;
+
+        // Schriftgröße
+        gbc.gridwidth = 2;
+        panel.add(new JLabel("Editor-Schriftgröße:"), gbc);
+        gbc.gridy++;
+
+        JComboBox<Integer> fontSizeCombo = new JComboBox<>(new Integer[] {
+                10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72
+        });
+        fontSizeCombo.setEditable(true);
+        fontSizeCombo.setSelectedItem(settings.editorFontSize);
+        panel.add(fontSizeCombo, gbc);
+        gbc.gridy++;
+        gbc.gridwidth = 1;
 
         // Login-Dialog unterdrücken
         JCheckBox hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
@@ -59,6 +87,13 @@ public class SettingsDialog {
 
         if (result == JOptionPane.OK_OPTION) {
             settings.encoding = (String) encodingCombo.getSelectedItem();
+            settings.editorFont = (String) fontCombo.getSelectedItem();
+            settings.editorFontSize = Optional.ofNullable(fontSizeCombo.getEditor().getItem())
+                    .map(Object::toString)
+                    .map(s -> {
+                        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return null; }
+                    })
+                    .orElse(12);
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
             SettingsManager.save(settings);

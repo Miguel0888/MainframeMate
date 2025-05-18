@@ -2,6 +2,7 @@ package org.example.ui;
 
 import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
+import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
 import javax.swing.*;
@@ -29,6 +30,9 @@ public class FileTab implements FtpTab {
         this.ftpManager = ftpManager;
         this.buffer = buffer;
 
+        Settings settings = SettingsManager.load();
+        Font editorFont = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
+        textArea.setFont(editorFont);
         textArea.setText(buffer.getOriginalContent());
         textArea.getDocument().addUndoableEditListener(undoManager);
         JScrollPane scroll = new JScrollPane(textArea);

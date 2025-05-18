@@ -152,7 +152,8 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return result.toString();
     }
 
-    private void fillLineWithRowData(char[] line, int rowIndex, List<Map<String, Object>> felder, Map<String, List<String>> table, String satzartName) {
+    private void fillLineWithRowData(char[] line, int rowIndex, List<Map<String, Object>> felder,
+                                     Map<String, List<String>> table, String satzartName) {
         for (Map<String, Object> feld : felder) {
             if (!isFeldValid(feld, satzartName)) return;
 
@@ -160,18 +161,27 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
             int start = getIntValue(feld.get(KEY_POS)) - 1;
             int len = getIntValue(feld.get(KEY_LEN));
 
+            // 🆕 Konstante prüfen
+            if (feld.containsKey("value")) {
+                String fixed = String.valueOf(feld.get("value"));
+                String padded = padRight(fixed, len);
+                insertIntoLine(line, start, padded);
+                continue; // Excel-Wert überspringen
+            }
+
+            // 📥 Excel-Wert verarbeiten
             List<String> column = findColumnByName(table, name);
             if (column == null) {
                 System.err.println("⚠️ Spalte \"" + name + "\" nicht in Tabelle enthalten.");
                 continue;
             }
 
-
             String value = rowIndex < column.size() ? column.get(rowIndex) : "";
             String padded = padRight(value, len);
             insertIntoLine(line, start, padded);
         }
     }
+
 
     private List<String> findColumnByName(Map<String, List<String>> table, String fieldName) {
         for (Map.Entry<String, List<String>> entry : table.entrySet()) {

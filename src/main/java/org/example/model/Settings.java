@@ -21,4 +21,9 @@ public class Settings {
     // Plugin-Settings pro Plugin-Name
     public Map<String, Map<String, String>> pluginSettings = new LinkedHashMap<>();
 
+    public String editorFont = "Monospaced"; // default
+    public int editorFontSize = 12; // Standardgröße
+
+
+
 }
