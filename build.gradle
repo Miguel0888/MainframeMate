@@ -66,7 +66,7 @@ tasks.withType(JavaCompile) {
 jar {
     manifest {
         attributes(
-                'Main-Class': 'de.beispiel.mainframemate.Main'
+                'Main-Class': 'org.example.Main'
         )
     }
 }
