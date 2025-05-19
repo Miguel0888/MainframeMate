@@ -142,19 +142,75 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
             return null;
         }
 
-        int rowCount = calculateMaxRows(table);
+        Map<String, String> pluginSettings = getPluginSettings();
+        boolean stopOnEmptyRequired = Boolean.parseBoolean(pluginSettings.getOrDefault("stopOnEmptyRequired", "true"));
+        boolean requireAllFieldsEmpty = Boolean.parseBoolean(pluginSettings.getOrDefault("requireAllFieldsEmpty", "false"));
 
+        int rowCount = calculateMaxRows(table);
         StringBuilder result = new StringBuilder();
 
+        boolean usedTableColumnAtLeastOnce = false;
+
         for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-            List<String> blockLines = buildMultiLineRecord(table, felder, rowIndex, satzartName);
-            for (String line : blockLines) {
-                result.append(line).append("\n");
+            boolean usedColumnThisRow = false;
+            boolean foundEmptyRequiredField = false;
+
+            Map<Integer, char[]> rowLines = new TreeMap<>();
+
+            for (Map<String, Object> feld : felder) {
+                if (!isFeldValid(feld, satzartName)) continue;
+
+                int row = getIntValue(feld.get("row"));
+                if (row < 1) row = 1;
+
+                char[] line = rowLines.computeIfAbsent(row, r -> createBlankLine(256));
+                int start = getIntValue(feld.get(KEY_POS)) - 1;
+                int len = getIntValue(feld.get(KEY_LEN));
+                String padded;
+
+                if (feld.containsKey("value")) {
+                    // Konstante Werte
+                    String fixed = String.valueOf(feld.get("value"));
+                    padded = padRight(fixed, len);
+                } else {
+                    String name = (String) feld.get(KEY_NAME);
+                    List<String> column = findColumnByName(table, name);
+                    if (column == null) continue;
+
+                    String value = rowIndex < column.size() ? column.get(rowIndex) : "";
+                    if (value == null || value.trim().isEmpty()) {
+                        if (!requireAllFieldsEmpty) {
+                            foundEmptyRequiredField = true;
+                            break; // reicht schon
+                        }
+                    } else {
+                        usedColumnThisRow = true;
+                        if (requireAllFieldsEmpty) foundEmptyRequiredField = false;
+                    }
+
+                    padded = padRight(value, len);
+                }
+
+                insertIntoLine(line, start, padded);
+            }
+
+            if (foundEmptyRequiredField) break; // abbrechen, wenn relevante Felder leer
+
+            if (!usedColumnThisRow && usedTableColumnAtLeastOnce) {
+                // Nur Konstante verwendet und bereits einmal geschrieben
+                break;
+            }
+
+            usedTableColumnAtLeastOnce |= usedColumnThisRow;
+
+            for (char[] line : rowLines.values()) {
+                result.append(new String(line)).append("\n");
             }
         }
 
         return result.toString();
     }
+
 
     private List<String> buildMultiLineRecord(
             Map<String, List<String>> table,

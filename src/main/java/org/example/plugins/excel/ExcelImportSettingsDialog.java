@@ -18,6 +18,9 @@ public class ExcelImportSettingsDialog extends JDialog {
     private final JTextField trennzeileField = new JTextField(30);
     private final JCheckBox showConfirmationCheck = new JCheckBox("Bestätigungsdialog nach dem Import anzeigen");
     private final JCheckBox autoOpenCheck = new JCheckBox("Datei nach Import automatisch öffnen");
+    private final JCheckBox stopOnEmptyRequiredCheck = new JCheckBox("Stoppen, wenn benötigte Spalten leer sind");
+    private final JCheckBox requireAllFieldsEmptyCheck = new JCheckBox("Alle statt eine Spalte müssen leer sein");
+
 
     private static final String PLUGIN_KEY = "excelImporter";
 
@@ -32,6 +35,9 @@ public class ExcelImportSettingsDialog extends JDialog {
         trennzeileField.setText(pluginSettings.getOrDefault("trennzeile", ""));
         showConfirmationCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("showConfirmation", "true")));
         autoOpenCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("autoOpen", "true")));
+        stopOnEmptyRequiredCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("stopOnEmptyRequired", "true")));
+        requireAllFieldsEmptyCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("requireAllFieldsEmpty", "false")));
+
 
 
         JPanel form = new JPanel(new GridBagLayout());
@@ -69,6 +75,12 @@ public class ExcelImportSettingsDialog extends JDialog {
         gbc.gridx = 1; gbc.gridy = 4; gbc.gridwidth = 1;
         form.add(autoOpenCheck, gbc);
 
+        // Weiter Import-Optionen
+        gbc.gridx = 1; gbc.gridy++;
+        form.add(stopOnEmptyRequiredCheck, gbc);
+        gbc.gridx = 1; gbc.gridy++;
+        form.add(requireAllFieldsEmptyCheck, gbc);
+
         // Buttons
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton save = new JButton("Speichern");
@@ -79,6 +91,8 @@ public class ExcelImportSettingsDialog extends JDialog {
             updated.put("trennzeile", trennzeileField.getText().trim());
             updated.put("showConfirmation", String.valueOf(showConfirmationCheck.isSelected()));
             updated.put("autoOpen", String.valueOf(autoOpenCheck.isSelected()));
+            updated.put("stopOnEmptyRequired", String.valueOf(stopOnEmptyRequiredCheck.isSelected()));
+            updated.put("requireAllFieldsEmpty", String.valueOf(requireAllFieldsEmptyCheck.isSelected()));
             savePluginSettings(updated);
             dispose();
         });
