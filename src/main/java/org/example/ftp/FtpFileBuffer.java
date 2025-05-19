@@ -145,45 +145,46 @@ public class FtpFileBuffer {
 
     // TODO: Implement this method to decode the text with RDW markers
     public String decodeWithRdwMarkers(Charset charset) {
-        if (rawBytes == null) {
-            System.out.println("Keine Daten vorhanden.");
-            return "";
+        if (rawBytes == null || rawBytes.length == 0) {
+            return "Keine Daten vorhanden.";
         }
 
-        // RDW-Analyse auf System.out
-        int pos = 0;
-        int recordNum = 1;
+        StringBuilder output = new StringBuilder();
+        int offset = 0;
 
-        while (pos + 4 <= rawBytes.length) {
-            byte b1 = rawBytes[pos];
-            byte b2 = rawBytes[pos + 1];
-            byte b3 = rawBytes[pos + 2];
-            byte b4 = rawBytes[pos + 3];
+        while (offset < rawBytes.length) {
+            int lineLength = Math.min(16, rawBytes.length - offset);
+            byte[] line = Arrays.copyOfRange(rawBytes, offset, offset + lineLength);
 
-            int length = ((b1 & 0xFF) << 8) | (b2 & 0xFF);
+            // Offset anzeigen
+            output.append(String.format("%08X  ", offset));
 
-            System.out.printf("RDW #%03d @ pos %04d: %02X %02X %02X %02X → len=%d",
-                    recordNum, pos, b1, b2, b3, b4, length);
-
-            if (length < 4 || pos + length > rawBytes.length) {
-                System.out.print(" ⚠ ungültig");
+            // Hex-Werte
+            for (int i = 0; i < 16; i++) {
+                if (i < lineLength) {
+                    output.append(String.format("%02X ", line[i]));
+                } else {
+                    output.append("   ");
+                }
+                if (i == 7) output.append(" "); // optische Mitte
             }
 
-            System.out.println();
-            pos += 4;
-            recordNum++;
-        }
-
-        if (pos < rawBytes.length) {
-            System.out.printf("Restdaten ab pos %04d (%d Byte): ", pos, rawBytes.length - pos);
-            for (int i = pos; i < rawBytes.length; i++) {
-                System.out.printf("%02X ", rawBytes[i]);
+            // ASCII-Darstellung
+            output.append(" |");
+            for (int i = 0; i < lineLength; i++) {
+                char c = (char) (line[i] & 0xFF);
+                if (c >= 32 && c <= 126) {
+                    output.append(c);
+                } else {
+                    output.append('.');
+                }
             }
-            System.out.println();
+            output.append("|\n");
+
+            offset += lineLength;
         }
 
-        // Originaldaten als String zurückgeben – NICHT verändert
-        return new String(rawBytes, charset);
+        return output.toString();
     }
 
 
