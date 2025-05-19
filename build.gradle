@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'org.example'
-version = '1.0.2'
+version = '1.1.0'
 
 repositories {
     mavenCentral()
@@ -24,6 +24,9 @@ dependencies {
     // Excel processing
     implementation 'org.apache.poi:poi:5.2.3'
     implementation 'org.apache.poi:poi-ooxml:5.2.3'
+
+    // GUI
+    implementation 'com.fifesoft:rsyntaxtextarea:3.3.3'
 
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'

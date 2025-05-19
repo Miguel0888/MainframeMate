@@ -4,12 +4,23 @@ import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.FlowLayout;
+import java.awt.Font;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.List;
+import java.util.Map;
 
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.CannotUndoException;
 
@@ -18,7 +29,7 @@ public class FileTab implements FtpTab {
     private final FtpManager ftpManager;
     private final FtpFileBuffer buffer;
     private final JPanel mainPanel = new JPanel(new BorderLayout());
-    private final JTextArea textArea = new JTextArea();
+    private final RSyntaxTextArea textArea = new RSyntaxTextArea();
     private final TabbedPaneManager tabbedPaneManager;
 
     private final UndoManager undoManager = new UndoManager();
@@ -30,12 +41,10 @@ public class FileTab implements FtpTab {
         this.ftpManager = ftpManager;
         this.buffer = buffer;
 
-        Settings settings = SettingsManager.load();
-        Font editorFont = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
-        textArea.setFont(editorFont);
+        initEditorSettings(textArea, SettingsManager.load());
         textArea.setText(buffer.getOriginalContent());
         textArea.getDocument().addUndoableEditListener(undoManager);
-        JScrollPane scroll = new JScrollPane(textArea);
+        RTextScrollPane scroll = new RTextScrollPane(textArea);
 
         JPanel statusBar = createStatusBar();
 
@@ -162,6 +171,16 @@ public class FileTab implements FtpTab {
         updateUndoRedoState();
     }
 
+    public void setContent(String text, List<Map<String, Object>> feldDefinitionen, int zeilenSchema) {
+        setContent(text); // Basismethode aufrufen
+        highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
+    }
+
+    public void setStructuredContent(String text, List<Map<String, Object>> feldDefinitionen, int zeilenSchema) {
+        setContent(text); // Inhalt setzen (inkl. Undo)
+        highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
+    }
+
     public void resetUndoHistory() {
         undoManager.discardAllEdits();
         updateUndoRedoState();
@@ -190,4 +209,111 @@ public class FileTab implements FtpTab {
     public String getContent() {
         return textArea.getText();
     }
+
+    private void initEditorSettings(RSyntaxTextArea editor, Settings settings) {
+        // Font aus Settings setzen
+        Font editorFont = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
+        editor.setFont(editorFont);
+
+        // Syntax und Verhalten
+        editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        editor.setCodeFoldingEnabled(false);
+        editor.setAntiAliasingEnabled(true);
+        editor.setTabSize(4);
+        editor.setHighlightCurrentLine(true);
+        editor.setMarkOccurrences(false);
+
+        // Vertikale Begrenzung bei 80 Zeichen
+        editor.setMarginLineEnabled(true);
+        if (settings.marginColumn > 0) {
+            editor.setMarginLineEnabled(true);
+            editor.setMarginLinePosition(settings.marginColumn);
+        } else {
+            editor.setMarginLineEnabled(false);
+        }
+        editor.setMarginLineColor(Color.RED);
+
+        // Optional: Tabs sichtbar machen
+        editor.setPaintTabLines(true);
+    }
+
+    private void highlightStructuredContent(String content, List<Map<String, Object>> felder, int schemaLines) {
+        Highlighter highlighter = textArea.getHighlighter();
+        highlighter.removeAllHighlights();
+
+        String[] lines = content.split("\n");
+
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            int schemaRow = lineIndex % schemaLines;
+            int lineOffset = getLineStartOffset(lines, lineIndex);
+            String line = lines[lineIndex];
+
+            for (Map<String, Object> feld : felder) {
+                int feldRow = feld.containsKey("row") ? getIntValue(feld.get("row")) - 1 : 0;
+                if (feldRow != schemaRow) continue;
+
+                int start = getIntValue(feld.get("pos")) - 1;
+                int len = getIntValue(feld.get("len"));
+                if (start >= line.length()) continue;
+
+                int end = Math.min(line.length(), start + len);
+
+                try {
+                    highlighter.addHighlight(
+                            lineOffset + start,
+                            lineOffset + end,
+                            new DefaultHighlighter.DefaultHighlightPainter(getColorFor((String) feld.get("name"), feld))
+                    );
+                } catch (BadLocationException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    private int getLineStartOffset(String[] lines, int lineIndex) {
+        int offset = 0;
+        for (int i = 0; i < lineIndex; i++) {
+            offset += lines[i].length() + 1; // \n
+        }
+        return offset;
+    }
+
+    private int getIntValue(Object obj) {
+        return (obj instanceof Number) ? ((Number) obj).intValue() : Integer.parseInt(obj.toString());
+    }
+
+
+    private Color getColorFor(String name, Map<String, Object> feld) {
+        Settings settings = SettingsManager.load();
+
+        if (name == null && feld != null && feld.containsKey("value")) {
+            // Konstante, aber ohne Namen → grau, außer Settings-Override
+            String valueKey = "CONST_" + String.valueOf(feld.get("value")).toUpperCase();
+            String hex = settings.fieldColorOverrides.get(valueKey);
+            return hex != null ? Color.decode(hex) : Color.GRAY;
+        }
+
+        if (name == null) {
+            return Color.GRAY;
+        }
+
+        String hex = settings.fieldColorOverrides.get(name.toUpperCase());
+        if (hex != null) {
+            try {
+                return Color.decode(hex);
+            } catch (NumberFormatException e) {
+                System.err.println("⚠️ Ungültige Farbdefinition für " + name + ": " + hex);
+            }
+        }
+
+        // Dynamische Farbgenerierung für Felder mit Namen
+        int hash = Math.abs(name.hashCode());
+        float hue = (hash % 360) / 360f;
+        return Color.getHSBColor(hue, 0.5f, 0.85f);
+    }
+
+
+
+
 }

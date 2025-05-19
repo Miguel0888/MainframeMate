@@ -95,6 +95,53 @@ graph TD
     A -->|schreibt| H[FileTab]
 ```
 
+## Erweiterte Funktionen (seit Version 1.1)
+
+**MainframeMate** wurde um eine Reihe hilfreicher Editor- und Konfigurationsfunktionen erweitert:
+
+### 🎨 Farbliche Hervorhebung von Feldern
+
+- Jeder importierte Datenblock wird auf Basis der Satzart farblich markiert.
+- Statische Werte (`"value"`) erscheinen standardmäßig in **grau**.
+- Optional lassen sich Farben pro Feldname in den allgemeinen **Einstellungen** überschreiben:
+  - `"Feldname"` → Name des Felds (Groß-/Kleinschreibung wird ignoriert)
+  - `"Farbe"` → Farbwert als HEX-Code (`#RRGGBB`)
+- Die Farbüberschreibungen werden im Einstellungsdialog gepflegt.
+- Doppelklick auf die Farbzelle öffnet einen **Color Picker**.
+
+### 🧾 Mehrzeilige Satzarten mit `"row"`
+
+- Felder können über das Attribut `"row"` in **mehrere Zeilen** verteilt werden.
+- `"row"` ist optional, Standardwert: `1`.
+- Auch `"value"`-Felder ohne Excel-Spalte können in beliebige Zeilen geschrieben werden.
+- Beispiel:
+
+```json
+{ "name": "NAME", "pos": 1, "len": 20 },
+{ "value": "Alter", "pos": 21, "len": 5, "row": 2 },
+{ "name": "ALTER", "pos": 30, "len": 3, "row": 2 },
+{ "name": "AKTIV", "pos": 10, "len": 1, "row": 3 }
+```
+
+### 🛠 Erweiterte Editor-Einstellungen
+
+- Editor-Schriftart und -größe konfigurierbar.
+- Zeilenende beim Speichern: `LF`, `CRLF`, oder `NONE`.
+- Optional eine **vertikale Linie** z. B. bei Spalte 80 (in den allgemeinen Einstellungen).
+- Inhalte werden farbig hervorgehoben, wenn Satzarten beim Import verwendet werden.
+
+### 🧩 Farb-Overrides in JSON (experimentell)
+
+Im JSON können alternativ zu den globalen Einstellungen auch Farbwerte pro Feld festgelegt werden:
+
+```json
+{ "name": "ALTER", "pos": 21, "len": 3, "color": "#FFA500" }
+```
+
+Die Konfiguration in den allgemeinen Einstellungen überschreibt die Farbe in der Satzart nur, wenn dort explizit hinterlegt.
+Namenlose felder (value) können ebenfalls mit einer Farbe versehen. Dafür kann als Bezeichner CONST_ und dann der Inhalt der value-Angabe verwenden werden.
+Beispielsweise steht in value 01, dann wird CONST_01 als Bezeichner verwendet.
+
 ---
 
 ### Automatische Proxy-Konfiguration per WPAD/PAC-Datei

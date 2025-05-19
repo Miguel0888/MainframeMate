@@ -149,7 +149,7 @@ public class MainFrame extends JFrame {
         JMenuItem aboutItem = new JMenuItem("ℹ️ Über MainframeMate");
         aboutItem.addActionListener(e -> {
             JOptionPane.showMessageDialog(this,
-                    "MainframeMate\nVersion 1.0\n© 2025 GZD",
+                    "MainframeMate\nVersion 1.1.0\n© 2025 GZD",
                     "Über", JOptionPane.INFORMATION_MESSAGE);
         });
         helpMenu.add(aboutItem);

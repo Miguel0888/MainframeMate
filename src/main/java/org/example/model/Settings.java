@@ -24,5 +24,9 @@ public class Settings {
     public String editorFont = "Monospaced"; // default
     public int editorFontSize = 12; // Standardgröße
     public String lineEnding = "NONE"; // "LF", "CRLF" oder "NONE"
+    public int marginColumn = 80; // 0 bedeutet: keine Linie
+
+    public Map<String, String> fieldColorOverrides = new HashMap<>();
+
 
 }

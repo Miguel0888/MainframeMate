@@ -86,7 +86,15 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
                     dialog.getHeaderRowIndex()
             );
 
-            String formatted = formatFixedWidthBySatzart(table, satzartName, satzartenMap);
+            // 🆕 Satzart und Felder extrahieren
+            Map<String, Object> satzart = getSatzartDefinition(satzartenMap, satzartName);
+            if (satzart == null) return;
+
+            List<Map<String, Object>> felder = getFeldDefinitionen(satzart, satzartName);
+            if (felder == null) return;
+
+            // 🆕 Übergib felder explizit
+            String formatted = formatFixedWidthBySatzart(table, felder, satzartName);
 
             if (formatted == null || formatted.trim().isEmpty()) {
                 showError(mainFrame, "Kein Inhalt wurde erzeugt – bitte prüfe die Felddefinition oder die Excel-Datei.");
@@ -106,7 +114,9 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
                 formatted = existing + separator + formatted;
             }
 
-            insertTextIntoEditor(formatted);
+            // ✅ Jetzt funktioniert's
+            insertTextIntoEditor(formatted, felder);
+
             Map<String, String> settings = getPluginSettings();
             boolean showConfirmation = Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"));
 
@@ -126,20 +136,13 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         }
     }
 
-    private String formatFixedWidthBySatzart(Map<String, List<String>> table, String satzartName, Map<String, Object> satzartenMap) {
-        if (table.isEmpty() || satzartenMap == null) {
-            showError(mainFrame, "Keine Daten oder Satzart verfügbar.");
+    private String formatFixedWidthBySatzart(Map<String, List<String>> table, List<Map<String, Object>> felder, String satzartName) {
+        if (table.isEmpty() || felder == null || felder.isEmpty()) {
+            showError(mainFrame, "Keine Daten oder Felddefinitionen verfügbar.");
             return null;
         }
 
-        Map<String, Object> satzart = getSatzartDefinition(satzartenMap, satzartName);
-        if (satzart == null) return null;
-
-        List<Map<String, Object>> felder = getFeldDefinitionen(satzart, satzartName);
-        if (felder == null) return null;
-
         int rowCount = calculateMaxRows(table);
-        int recordLength = calculateRecordLength(felder);
 
         StringBuilder result = new StringBuilder();
 
@@ -284,7 +287,7 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return new String(chars);
     }
 
-    private void insertTextIntoEditor(String text) {
+    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) {
         Optional<FileTab> optionalTab = mainFrame.getTabManager().getSelectedFileTab();
         FileTab fileTab;
 
@@ -294,7 +297,8 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
             fileTab = createNewFileTab(text);
         }
 
-        fileTab.setContent(text);
+        fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
+
         fileTab.markAsChanged();
     }
 
@@ -348,5 +352,11 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return Optional.of(item);
     }
 
+    private int getMaxRowNumber(List<Map<String, Object>> felder) {
+        return felder.stream()
+                .map(f -> f.containsKey("row") ? ((Number) f.get("row")).intValue() : 1)
+                .max(Integer::compareTo)
+                .orElse(1);
+    }
 
 }

@@ -5,9 +5,15 @@ import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
 import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableCellEditor;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class SettingsDialog {
@@ -73,6 +79,18 @@ public class SettingsDialog {
         gbc.gridy++;
         panel.add(lineEndingBox, gbc);
 
+        // Marker-Linie (z. B. bei Spalte 80)
+        gbc.gridwidth = 2;
+        panel.add(new JLabel("Vertikale Markierung bei Spalte (0 = aus):"), gbc);
+        gbc.gridy++;
+        JSpinner marginSpinner = new JSpinner(new SpinnerNumberModel(
+                Math.max(0, settings.marginColumn),  // sicherstellen, dass 0 erlaubt ist
+                0, 200, 1
+        ));
+        panel.add(marginSpinner, gbc);
+        gbc.gridy++;
+        gbc.gridwidth = 1;
+
         // Login-Dialog unterdrücken
         JCheckBox hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
         hideLoginBox.setSelected(settings.hideLoginDialog);
@@ -100,6 +118,66 @@ public class SettingsDialog {
         panel.add(openFolderButton, gbc);
         gbc.gridy++;
 
+        // Farbüberschreibungen für Feldnamen
+        gbc.gridwidth = 2;
+        panel.add(new JLabel("Farbüberschreibungen für Feldnamen:"), gbc);
+        gbc.gridy++;
+
+        ColorOverrideTableModel colorModel = new ColorOverrideTableModel(settings.fieldColorOverrides);
+        JTable colorTable = new JTable(colorModel);
+        colorTable.getColumnModel().getColumn(1).setCellEditor(new ColorCellEditor());
+        colorTable.getColumnModel().getColumn(1).setCellRenderer((table, value, isSelected, hasFocus, row, col) -> {
+            JLabel label = new JLabel(value != null ? value.toString() : "");
+            label.setOpaque(true);
+            label.setBackground(parseHexColor(String.valueOf(value), Color.WHITE));
+            return label;
+        });
+        colorTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    // open color chooser does not work cause of missing double click event
+                }
+                else {
+                    int row = colorTable.rowAtPoint(e.getPoint());
+                    int column = colorTable.columnAtPoint(e.getPoint());
+                    if (column == 1) {
+                        colorTable.editCellAt(row, column);
+                    }
+                }
+            }
+        });
+
+        colorTable.setFillsViewportHeight(true);
+        colorTable.setPreferredScrollableViewportSize(new Dimension(300, 100));
+
+        JPanel colorPanel = new JPanel(new BorderLayout());
+        colorPanel.add(new JScrollPane(colorTable), BorderLayout.CENTER);
+
+        JPanel colorButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton addRowButton = new JButton("➕");
+        addRowButton.addActionListener(e -> {
+            String key = JOptionPane.showInputDialog(parent, "Feldname eingeben:");
+            if (key != null && !key.trim().isEmpty()) {
+                colorModel.addEntry(key.trim().toUpperCase(), "#00AA00");
+            }
+        });
+        JButton removeRowButton = new JButton("➖");
+        removeRowButton.addActionListener(e -> {
+            int selected = colorTable.getSelectedRow();
+            if (selected >= 0) {
+                colorModel.removeEntry(selected);
+            }
+        });
+
+        colorButtons.add(addRowButton);
+        colorButtons.add(removeRowButton);
+        colorPanel.add(colorButtons, BorderLayout.SOUTH);
+
+        panel.add(colorPanel, gbc);
+        gbc.gridy++;
+
+
         // Dialog anzeigen
         int result = JOptionPane.showConfirmDialog(parent, panel, "Einstellungen",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -121,6 +199,7 @@ public class SettingsDialog {
                         return "LF";
                     })
                     .orElse("LF");
+            settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
             SettingsManager.save(settings);
@@ -151,4 +230,112 @@ public class SettingsDialog {
         gbc.gridy++;
         gbc.gridwidth = 1;
     }
+
+    private static Color parseHexColor(String hex, Color fallback) {
+        if (hex == null) return fallback;
+        try {
+            return Color.decode(hex);
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+
+    private static class ColorOverrideTableModel extends AbstractTableModel {
+        private final java.util.List<String> keys;
+        private final Map<String, String> colorMap;
+
+        public ColorOverrideTableModel(Map<String, String> colorMap) {
+            this.colorMap = colorMap;
+            this.keys = new ArrayList<>(colorMap.keySet());
+        }
+
+        @Override
+        public int getRowCount() {
+            return keys.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return 2; // name + farbe
+        }
+
+        @Override
+        public String getColumnName(int col) {
+            return col == 0 ? "Feldname" : "Farbe (Hex)";
+        }
+
+        @Override
+        public Object getValueAt(int row, int col) {
+            String key = keys.get(row);
+            return col == 0 ? key : colorMap.get(key);
+        }
+
+        @Override
+        public void setValueAt(Object value, int row, int col) {
+            if (col == 1) {
+                colorMap.put(keys.get(row), value.toString());
+            }
+        }
+
+        @Override
+        public boolean isCellEditable(int row, int col) {
+            return col == 1;
+        }
+
+        public void addEntry(String name, String color) {
+            colorMap.put(name, color);
+            keys.add(name);
+            fireTableDataChanged();
+        }
+
+        public void removeEntry(int rowIndex) {
+            if (rowIndex >= 0 && rowIndex < keys.size()) {
+                colorMap.remove(keys.get(rowIndex));
+                keys.remove(rowIndex);
+                fireTableDataChanged();
+            }
+        }
+    }
+
+    private static class ColorCellEditor extends AbstractCellEditor implements TableCellEditor {
+
+        private final JButton button = new JButton();
+        private String currentColorHex;
+
+        public ColorCellEditor() {
+            button.addActionListener(e -> {
+                Color initialColor = parseHexColor(currentColorHex, Color.BLACK);
+                Color selectedColor = JColorChooser.showDialog(button, "Farbe wählen", initialColor);
+                if (selectedColor != null) {
+                    currentColorHex = "#" + Integer.toHexString(selectedColor.getRGB()).substring(2).toUpperCase();
+                    button.setBackground(selectedColor);
+                    fireEditingStopped();
+                }
+            });
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            return currentColorHex;
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected,
+                                                     int row, int column) {
+            currentColorHex = String.valueOf(value);
+            button.setBackground(parseHexColor(currentColorHex, Color.BLACK));
+            return button;
+        }
+
+        private Color parseHexColor(String hex, Color fallback) {
+            try {
+                return Color.decode(hex);
+            } catch (Exception e) {
+                return fallback;
+            }
+        }
+    }
+
+
 }

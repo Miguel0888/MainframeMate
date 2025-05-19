@@ -4,8 +4,10 @@ import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
 import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
