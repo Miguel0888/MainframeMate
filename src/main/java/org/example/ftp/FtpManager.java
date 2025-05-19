@@ -11,6 +11,11 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+// NOTE: Falls Binary Mode statt ASCII Mode verwendet wird, muss der Charset entsprechend angepasst werden.
+//        byte[] buffer = new byte[8192];
+//        new String(buffer, "IBM1047");
+
+
 public class FtpManager {
 
     private final FTPClient ftpClient = new FTPClient();
@@ -36,7 +41,7 @@ public class FtpManager {
 //        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE);
         // WICHTIG: diese 3 Zeilen setzen alle notwendigen Transfer-Eigenschaften
         ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
-//        ftpClient.setFileStructure(FTPClient.RECORD_STRUCTURE);
+        ftpClient.setFileStructure(FTPClient.RECORD_STRUCTURE);
 //        ftpClient.setFileTransferMode(FTPClient.STREAM_TRANSFER_MODE);
 
         String systemType = ftpClient.getSystemType();
@@ -162,7 +167,7 @@ public class FtpManager {
         }
 
         // Jetzt den Buffer bauen
-        FtpFileBuffer result = new FtpFileBuffer(filename, fileMeta);
+        FtpFileBuffer result = new FtpFileBuffer(filename, fileMeta, true);
         result.loadContent(new ByteArrayInputStream(out.toByteArray()), null);
         return result;
     }
@@ -170,7 +175,7 @@ public class FtpManager {
     public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {
         // Preprocessing: Zeilenenden normalisieren
         Settings settings = SettingsManager.load();
-        String normalized = normalizeLineEndings(newContent, settings.lineEnding);
+        String normalized = normalizeLineEndings(newContent, settings.lineEnding); // ToDo: Move to FtpFileBuffer
         InputStream data = buffer.toInputStream(normalized);
 
         // Remote-Version neu laden

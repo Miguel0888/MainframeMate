@@ -42,7 +42,7 @@ public class FileTab implements FtpTab {
         this.buffer = buffer;
 
         initEditorSettings(textArea, SettingsManager.load());
-        textArea.setText(buffer.getOriginalContent());
+        textArea.setText(buffer.getContent());
         textArea.getDocument().addUndoableEditListener(undoManager);
         RTextScrollPane scroll = new RTextScrollPane(textArea);
 

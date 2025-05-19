@@ -7,6 +7,7 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.Base64;
 
 public class FtpFileBuffer {
@@ -20,10 +21,13 @@ public class FtpFileBuffer {
     private String content;  // Aktueller Textinhalt
     private String originalHash;
 
-    public FtpFileBuffer(String remotePath, FTPFile fileMeta) {
+    private final boolean recordStructure;
+
+    public FtpFileBuffer(String remotePath, FTPFile fileMeta, boolean recordStructure) {
         this.remotePath = remotePath;
         this.fileMeta = fileMeta;
         this.expectedSize = fileMeta != null ? fileMeta.getSize() : -1;
+        this.recordStructure = recordStructure;
     }
 
     public void loadContent(InputStream in, ProgressListener progress) throws IOException {
@@ -43,7 +47,11 @@ public class FtpFileBuffer {
         }
 
         this.rawBytes = out.toByteArray();
-        this.content = new String(rawBytes, currentCharset); // Initialanzeige
+        if (recordStructure) {
+            this.content = decodeWithRdwMarkers(currentCharset); // RDW wird als [Länge]Zeile interpretiert
+        } else {
+            this.content = new String(rawBytes, currentCharset);
+        }
 //        this.originalHash = sha256(this.content); // decoded hash
         this.originalHash = sha256(rawBytes);
     }
@@ -63,7 +71,15 @@ public class FtpFileBuffer {
     }
 
     public InputStream toInputStream(String updatedContent) {
-        return new ByteArrayInputStream(updatedContent.getBytes(Charset.forName(SettingsManager.load().encoding)));
+        if (recordStructure) {
+            try {
+                return encodeFromRdwMarkers(updatedContent, currentCharset);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Fehler beim Serialisieren von RDW-Inhalt", e);
+            }
+        } else {
+            return new ByteArrayInputStream(updatedContent.getBytes(currentCharset));
+        }
     }
 
     public String getRemotePath() {
@@ -78,7 +94,7 @@ public class FtpFileBuffer {
         return fileMeta;
     }
 
-    public String getOriginalContent() {
+    public String getContent() {
         return content;
     }
 
@@ -130,4 +146,71 @@ public class FtpFileBuffer {
     public Charset getCharset() {
         return currentCharset;
     }
+
+    public String getNormalizedContentForEditing() throws IOException {
+        if (recordStructure) {
+            return decodeWithRdwMarkers(currentCharset);
+        } else {
+            return content != null ? content : "";
+        }
+    }
+
+    public InputStream toUploadStream(String editedContent) throws IOException {
+        if (recordStructure) {
+            return encodeFromRdwMarkers(editedContent, currentCharset);
+        } else {
+            return new ByteArrayInputStream(editedContent.getBytes(currentCharset));
+        }
+    }
+
+    public String decodeWithRdwMarkers(Charset charset) throws IOException {
+        if (rawBytes == null) return "";
+
+        StringBuilder builder = new StringBuilder();
+        int pos = 0;
+        while (pos + 4 <= rawBytes.length) {
+            int recordLength = ((rawBytes[pos] & 0xFF) << 8) | (rawBytes[pos + 1] & 0xFF);
+            if (recordLength < 4 || pos + recordLength > rawBytes.length) {
+                throw new IOException("Ungültiger RDW-Record an Position " + pos);
+            }
+
+            byte[] content = Arrays.copyOfRange(rawBytes, pos + 4, pos + recordLength);
+            String line = new String(content, charset);
+
+            builder.append("[").append(recordLength).append("]").append(line).append("\n");
+            pos += recordLength;
+        }
+        return builder.toString();
+    }
+
+    public InputStream encodeFromRdwMarkers(String markedText, Charset charset) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        BufferedReader reader = new BufferedReader(new StringReader(markedText));
+        String line;
+
+        while ((line = reader.readLine()) != null) {
+            if (!line.startsWith("[") || !line.contains("]")) {
+                throw new IOException("Ungültige Formatierung: " + line);
+            }
+
+            int endIndex = line.indexOf("]");
+            int declaredLength = Integer.parseInt(line.substring(1, endIndex));
+            String content = line.substring(endIndex + 1);
+
+            byte[] contentBytes = content.getBytes(charset);
+            int actualLength = contentBytes.length + 4;
+            if (actualLength != declaredLength) {
+                throw new IOException("RDW-Länge stimmt nicht mit Inhalt überein: " + line);
+            }
+
+            out.write((byte) ((actualLength >> 8) & 0xFF));
+            out.write((byte) (actualLength & 0xFF));
+            out.write(0x00);
+            out.write(0x00);
+            out.write(contentBytes);
+        }
+
+        return new ByteArrayInputStream(out.toByteArray());
+    }
+
 }

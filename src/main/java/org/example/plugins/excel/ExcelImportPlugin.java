@@ -307,7 +307,7 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         dummyMeta.setName("import");
         dummyMeta.setSize(content.getBytes(StandardCharsets.UTF_8).length);
 
-        FtpFileBuffer buffer = new FtpFileBuffer("import", dummyMeta);
+        FtpFileBuffer buffer = new FtpFileBuffer("import", dummyMeta, true);
         try {
             buffer.loadContent(
                     new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)),
