@@ -1,6 +1,6 @@
 package org.example.ui;
 
-import org.example.ftp.FtpManager;
+import org.example.ftp.*;
 import org.example.model.LineEndingOption;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
@@ -106,6 +106,44 @@ public class SettingsDialog {
         panel.add(openFolderButton, gbc);
         gbc.gridy++;
 
+        // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE)
+        panel.add(new JLabel("FTP Datei-Typ (TYPE):"), gbc);
+        gbc.gridy++;
+        JComboBox<FtpFileType> typeBox = org.example.ui.components.ComboBoxHelper.createComboBoxWithNullOption(
+                FtpFileType.class, settings.ftpFileType, "Standard"
+        );
+        panel.add(typeBox, gbc);
+        gbc.gridy++;
+
+        panel.add(new JLabel("FTP Text-Format (FORMAT):"), gbc);
+        gbc.gridy++;
+        JComboBox<FtpTextFormat> formatBox = org.example.ui.components.ComboBoxHelper.createComboBoxWithNullOption(
+                FtpTextFormat.class, settings.ftpTextFormat, "Standard"
+        );
+        panel.add(formatBox, gbc);
+        gbc.gridy++;
+
+        panel.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbc);
+        gbc.gridy++;
+        JComboBox<FtpFileStructure> structureBox = org.example.ui.components.ComboBoxHelper.createComboBoxWithNullOption(
+                FtpFileStructure.class, settings.ftpFileStructure, "Automatisch"
+        );
+        panel.add(structureBox, gbc);
+        gbc.gridy++;
+
+        panel.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbc);
+        gbc.gridy++;
+        JComboBox<FtpTransferMode> modeBox = org.example.ui.components.ComboBoxHelper.createComboBoxWithNullOption(
+                FtpTransferMode.class, settings.ftpTransferMode, "Standard"
+        );
+        panel.add(modeBox, gbc);
+        gbc.gridy++;
+
+        JCheckBox hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen (Debugzwecke)");
+        hexDumpBox.setSelected(settings.enableHexDump);
+        panel.add(hexDumpBox, gbc);
+        gbc.gridy++;
+
         // Farbüberschreibungen für Feldnamen
         gbc.gridwidth = 2;
         panel.add(new JLabel("Farbüberschreibungen für Feldnamen:"), gbc);
@@ -183,6 +221,11 @@ public class SettingsDialog {
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
+            settings.ftpFileType = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(typeBox, FtpFileType.class);
+            settings.ftpTextFormat = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(formatBox, FtpTextFormat.class);
+            settings.ftpFileStructure = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
+            settings.ftpTransferMode = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
+            settings.enableHexDump = hexDumpBox.isSelected();
             SettingsManager.save(settings);
 
             ftpManager.getClient().setControlEncoding(settings.encoding);

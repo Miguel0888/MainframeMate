@@ -1,5 +1,10 @@
 package org.example.model;
 
+import org.example.ftp.FtpFileStructure;
+import org.example.ftp.FtpFileType;
+import org.example.ftp.FtpTextFormat;
+import org.example.ftp.FtpTransferMode;
+
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -28,5 +33,10 @@ public class Settings {
 
     public Map<String, String> fieldColorOverrides = new HashMap<>();
 
+    public FtpFileType ftpFileType;
+    public FtpTextFormat ftpTextFormat;
+    public FtpFileStructure ftpFileStructure; // Enum-Name aus FtpFileStructure oder null für "Automatisch"
+    public FtpTransferMode ftpTransferMode;
 
+    public boolean enableHexDump = false; // Standard = aus
 }
