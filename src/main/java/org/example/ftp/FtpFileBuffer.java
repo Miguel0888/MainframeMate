@@ -146,10 +146,10 @@ public class FtpFileBuffer {
     // TODO: Implement this method to decode the text with RDW markers
     public String decodeWithRdwMarkers(Charset charset) {
         if (rawBytes == null || rawBytes.length < 4) {
-            return "No data or too short.";
+            System.out.println("Keine Daten oder zu kurz.");
+            return "";
         }
 
-        StringBuilder output = new StringBuilder();
         int pos = 0;
         int recordNum = 1;
 
@@ -160,27 +160,34 @@ public class FtpFileBuffer {
             byte b4 = rawBytes[pos + 3];
 
             int length = ((b1 & 0xFF) << 8) | (b2 & 0xFF);
-            output.append(String.format("RDW [%d] @ pos %d → Bytes: %02X %02X %02X %02X → len=%d",
-                    recordNum, pos, b1, b2, b3, b4, length));
+
+            System.out.printf("Record %02d @ pos %d: RDW = %s %s %s %s → length: %d",
+                    recordNum, pos,
+                    toBitString(b1), toBitString(b2), toBitString(b3), toBitString(b4),
+                    length);
 
             if (length < 4 || pos + length > rawBytes.length) {
-                output.append(" ⚠ Possibly invalid or incomplete");
-                pos++; // nur einen Schritt weiter, um nicht hängen zu bleiben
+                System.out.print(" ⚠ Ungültig oder unvollständig");
+                pos++; // vorsichtig weiterrücken
             } else {
                 pos += length;
             }
 
-            output.append("\n");
+            System.out.println();
             recordNum++;
         }
 
         if (pos < rawBytes.length) {
-            output.append(String.format("⚠ Remaining %d byte(s) after last RDW at pos %d\n",
-                    rawBytes.length - pos, pos));
+            System.out.printf("⚠ %d Byte Rest nach letzter gültiger RDW bei pos %d\n", rawBytes.length - pos, pos);
         }
 
-        return output.toString();
+        return ""; // Signatur-konform
     }
+
+    private String toBitString(byte b) {
+        return String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0');
+    }
+
 
 
     // ToDo: Implement this method to encode the text with RDW markers
