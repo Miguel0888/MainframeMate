@@ -47,12 +47,23 @@ public class FtpManager {
     private void applyTransferSettings(Settings settings) throws IOException {
         // TYPE
         if (settings.ftpFileType != null) {
-            ftpClient.setFileType(settings.ftpFileType.getCode());
+            // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
+            // FORMAT
+            if (settings.ftpTextFormat != null) {
+                ftpClient.setFileType(settings.ftpFileType.getCode(), settings.ftpTextFormat.getCode());
+            }
+            else {
+                ftpClient.setFileType(settings.ftpFileType.getCode());
+            }
         } else {
-            ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+            // FORMAT
+            if (settings.ftpTextFormat != null) {
+                ftpClient.setFileType(FTP.ASCII_FILE_TYPE, settings.ftpTextFormat.getCode());
+            }
+            else {
+                ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+            }
         }
-
-        // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
 
         // STRUCTURE
         if (settings.ftpFileStructure != null) {
