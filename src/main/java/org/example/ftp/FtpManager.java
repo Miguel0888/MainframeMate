@@ -32,7 +32,12 @@ public class FtpManager {
         }
 
         ftpClient.enterLocalPassiveMode();
-        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE);
+
+//        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE);
+        // WICHTIG: diese 3 Zeilen setzen alle notwendigen Transfer-Eigenschaften
+        ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
+        ftpClient.setFileStructure(FTPClient.RECORD_STRUCTURE);
+        ftpClient.setFileTransferMode(FTPClient.STREAM_TRANSFER_MODE);
 
         String systemType = ftpClient.getSystemType();
         System.out.println("Systemtyp laut FTP-Server: " + systemType);
@@ -136,9 +141,6 @@ public class FtpManager {
             openDirectory(filename);
             return null;
         }
-
-        // Dateityp: wir lesen als Text
-        ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
 
         // Retrieve nur mit einfachem Dateinamen – NICHT vollqualifiziert
         InputStream in = ftpClient.retrieveFileStream(filename);
