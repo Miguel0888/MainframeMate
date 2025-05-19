@@ -37,7 +37,7 @@ public class FtpManager {
         // WICHTIG: diese 3 Zeilen setzen alle notwendigen Transfer-Eigenschaften
         ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
         ftpClient.setFileStructure(FTPClient.RECORD_STRUCTURE);
-        ftpClient.setFileTransferMode(FTPClient.STREAM_TRANSFER_MODE);
+//        ftpClient.setFileTransferMode(FTPClient.STREAM_TRANSFER_MODE);
 
         String systemType = ftpClient.getSystemType();
         System.out.println("Systemtyp laut FTP-Server: " + systemType);
