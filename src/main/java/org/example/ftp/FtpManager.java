@@ -155,6 +155,7 @@ public class FtpManager {
             throw new IOException("Konnte Datei nicht laden: " + filename + "\nAntwort: " + ftpClient.getReplyString());
         }
 
+        in.close();
         FtpFileBuffer buffer = new FtpFileBuffer(filename, fileMeta, true); // recordStructure = true
         buffer.loadContent(in, null);
 
