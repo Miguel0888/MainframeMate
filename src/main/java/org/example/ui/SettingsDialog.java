@@ -1,6 +1,7 @@
 package org.example.ui;
 
 import org.example.ftp.FtpManager;
+import org.example.model.LineEndingOption;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
@@ -60,24 +61,11 @@ public class SettingsDialog {
         gbc.gridwidth = 1;
 
         // Zeilenumbruch
-        JComboBox<String> lineEndingBox = new JComboBox<>(new String[] {
-                "LF (\\n)", "CRLF (\\r\\n)", "Keine (Mainframe)"
-        });
-        String current = settings.lineEnding != null ? settings.lineEnding : "NONE";
-        switch (current) {
-            case "CRLF":
-                lineEndingBox.setSelectedItem("CRLF (\\r\\n)");
-                break;
-            case "NONE":
-                lineEndingBox.setSelectedItem("Keine (Mainframe)");
-                break;
-            default:
-                lineEndingBox.setSelectedItem("LF (\\n)");
-        }
-        lineEndingBox.setSelectedItem(current);
-        panel.add(new JLabel("Zeilenumbruch beim Speichern:"), gbc);
+        panel.add(new JLabel("Zeilenumbruch des Servers:"), gbc);
         gbc.gridy++;
+        JComboBox<String> lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
         panel.add(lineEndingBox, gbc);
+        gbc.gridy++;
 
         // Marker-Linie (z. B. bei Spalte 80)
         gbc.gridwidth = 2;
@@ -191,14 +179,7 @@ public class SettingsDialog {
                         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return null; }
                     })
                     .orElse(12);
-            settings.lineEnding = Optional.ofNullable((String) lineEndingBox.getSelectedItem())
-                    .map(String::toUpperCase)
-                    .map(s -> {
-                        if (s.contains("CRLF")) return "CRLF";
-                        if (s.contains("KEINE")) return "NONE";
-                        return "LF";
-                    })
-                    .orElse("LF");
+            settings.lineEnding = LineEndingOption.normalizeInput(lineEndingBox.getSelectedItem());
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();

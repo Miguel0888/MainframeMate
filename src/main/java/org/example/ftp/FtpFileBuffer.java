@@ -7,7 +7,6 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.Base64;
 
 public class FtpFileBuffer {
@@ -145,6 +144,34 @@ public class FtpFileBuffer {
 
     // TODO: Implement this method to decode the text with RDW markers
     public String decodeWithRdwMarkers(Charset charset) {
+        return decodeWithHexDump(charset);
+    }
+
+
+    private String toBitString(byte b) {
+        return String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0');
+    }
+
+
+
+    // ToDo: Implement this method to encode the text with RDW markers
+    public InputStream encodeFromRdwMarkers(String markedText, Charset charset) {
+        // Nichts verändern, nur plain zurückgeben
+        return new ByteArrayInputStream(markedText.getBytes(charset));
+    }
+
+
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // DEBUGGING
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    /**
+     * Gibt den Inhalt des Buffers als Hexdump aus.
+     * @param charset Der Zeichensatz, der für die Umwandlung in einen String verwendet werden soll.
+     * @return Der Inhalt des Buffers als String.
+     */
+    public String decodeWithHexDump(Charset charset) {
         if (rawBytes == null || rawBytes.length == 0) {
             System.out.println("Keine Daten vorhanden.");
             return "";
@@ -185,19 +212,4 @@ public class FtpFileBuffer {
         // Rückgabe: Originalinhalt als String (unverändert)
         return new String(rawBytes, charset);
     }
-
-
-    private String toBitString(byte b) {
-        return String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0');
-    }
-
-
-
-    // ToDo: Implement this method to encode the text with RDW markers
-    public InputStream encodeFromRdwMarkers(String markedText, Charset charset) {
-        // Nichts verändern, nur plain zurückgeben
-        return new ByteArrayInputStream(markedText.getBytes(charset));
-    }
-
-
 }
