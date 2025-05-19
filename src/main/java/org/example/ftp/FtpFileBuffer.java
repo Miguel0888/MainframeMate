@@ -1,6 +1,7 @@
 package org.example.ftp;
 
 import org.apache.commons.net.ftp.FTPFile;
+import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
 import java.io.*;
@@ -10,16 +11,16 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
 public class FtpFileBuffer {
-    private Charset currentCharset = Charset.forName(SettingsManager.load().encoding);
 
     private final String remotePath;
     private final long expectedSize;
     private final FTPFile fileMeta;
 
-    private byte[] rawBytes; // Originaldaten vom Server
-    private String content;  // Aktueller Textinhalt
+    private byte[] rawBytes;
+    private String content;
     private String originalHash;
 
+    private Charset currentCharset;
     private final boolean recordStructure;
 
     public FtpFileBuffer(String remotePath, FTPFile fileMeta, boolean recordStructure) {
@@ -27,9 +28,66 @@ public class FtpFileBuffer {
         this.fileMeta = fileMeta;
         this.expectedSize = fileMeta != null ? fileMeta.getSize() : -1;
         this.recordStructure = recordStructure;
+
+        Settings settings = SettingsManager.load();
+        this.currentCharset = Charset.forName(settings.encoding);
     }
 
     public void loadContent(InputStream in, ProgressListener progress) throws IOException {
+        this.rawBytes = readAllBytes(in, progress);
+
+        Settings settings = SettingsManager.load();
+        if (recordStructure) {
+            this.content = mapLineEndings(new String(rawBytes, currentCharset), settings.lineEnding);
+        } else {
+            this.content = new String(rawBytes, currentCharset);
+        }
+
+        this.originalHash = sha256(rawBytes);
+
+        if (settings.enableHexDump) {
+            printHexDump();
+        }
+    }
+
+    public InputStream toInputStream(String updatedContent) {
+        Settings settings = SettingsManager.load();
+        byte[] encoded;
+
+        if (recordStructure) {
+            String restored = unmapLineEndings(updatedContent, settings.lineEnding);
+            encoded = restored.getBytes(currentCharset);
+        } else {
+            encoded = updatedContent.getBytes(currentCharset);
+        }
+
+        return new ByteArrayInputStream(encoded);
+    }
+
+    public boolean isUnchanged(String currentRemoteContent) {
+        byte[] currentBytes = currentRemoteContent.getBytes(currentCharset);
+        return originalHash != null && originalHash.equals(sha256(currentBytes));
+    }
+
+    public void applyEncoding(Charset charset) {
+        if (rawBytes != null) {
+            this.content = new String(rawBytes, charset);
+        }
+    }
+
+    public String decodeWith(Charset charset) {
+        setCharset(charset);
+        return rawBytes != null ? new String(rawBytes, charset) : "";
+    }
+
+    private void setCharset(Charset charset) {
+        this.currentCharset = charset;
+        if (rawBytes != null) {
+            this.content = new String(rawBytes, charset);
+        }
+    }
+
+    private byte[] readAllBytes(InputStream in, ProgressListener progress) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         int total = 0;
@@ -45,37 +103,71 @@ public class FtpFileBuffer {
             }
         }
 
-        this.rawBytes = out.toByteArray();
-        if (recordStructure) {
-            this.content = decodeWithRdwMarkers(currentCharset); // RDW wird als [Länge]Zeile interpretiert
-        } else {
-            this.content = new String(rawBytes, currentCharset);
-        }
-//        this.originalHash = sha256(this.content); // decoded hash
-        this.originalHash = sha256(rawBytes);
+        return out.toByteArray();
     }
 
-    public void applyEncoding(Charset charset) {
-        if (rawBytes != null) {
-            this.content = new String(rawBytes, charset);
+    private String mapLineEndings(String text, String marker) {
+        if (marker == null || marker.isEmpty()) return text;
+        return text.replace(marker, "\n");
+    }
+
+    private String unmapLineEndings(String text, String marker) {
+        if (marker == null || marker.isEmpty()) return text;
+        return text.replace("\n", marker);
+    }
+
+    private String sha256(byte[] data) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = digest.digest(data);
+            return Base64.getEncoder().encodeToString(hashBytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
         }
     }
 
-    public String decodeWith(Charset charset) {
-        setCharset(charset); // required later to save the file, if wanted
-        if (rawBytes != null) {
-            return new String(rawBytes, charset);
+    private void printHexDump() {
+        if (rawBytes == null || rawBytes.length == 0) {
+            System.out.println("Keine Daten vorhanden.");
+            return;
         }
+
+        int offset = 0;
+        while (offset < rawBytes.length) {
+            int len = Math.min(16, rawBytes.length - offset);
+            System.out.printf("%08X  ", offset);
+
+            for (int i = 0; i < 16; i++) {
+                if (i < len) {
+                    System.out.printf("%02X ", rawBytes[offset + i]);
+                } else {
+                    System.out.print("   ");
+                }
+                if (i == 7) System.out.print(" ");
+            }
+
+            System.out.print(" |");
+            for (int i = 0; i < len; i++) {
+                byte b = rawBytes[offset + i];
+                char c = (char) (b & 0xFF);
+                System.out.print((c >= 32 && c <= 126) ? c : '.');
+            }
+            System.out.println("|");
+            offset += len;
+        }
+    }
+
+    /**
+     * Prepare future support for RDW-based decoding in Binary Mode.
+     * Will be used if TYPE = BINARY and STRUCTURE = RECORD.
+     */
+    @SuppressWarnings("unused")
+    private String decodeRdwStructure() {
+        // ToDo: Implement binary RDW decoding logic here when needed
         return "";
     }
 
-    public InputStream toInputStream(String updatedContent) {
-        if (recordStructure) {
-            return encodeFromRdwMarkers(updatedContent, currentCharset);
-        } else {
-            return new ByteArrayInputStream(updatedContent.getBytes(currentCharset));
-        }
-    }
+    // Getter
 
     public String getRemotePath() {
         return remotePath;
@@ -97,119 +189,11 @@ public class FtpFileBuffer {
         return rawBytes;
     }
 
-    // old version uses decoding
-//    private String sha256(String input) {
-//        try {
-//            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-//            byte[] hashBytes = digest.digest(input.getBytes(Charset.defaultCharset()));
-//            return Base64.getEncoder().encodeToString(hashBytes);
-//        } catch (NoSuchAlgorithmException e) {
-//            throw new RuntimeException("SHA-256 not available", e);
-//        }
-//    }
-//
-//    public boolean isUnchanged(String currentRemoteContent) {
-//        return originalHash != null && originalHash.equals(sha256(currentRemoteContent));
-//    }
-
-    private String sha256(byte[] data) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = digest.digest(data);
-            return Base64.getEncoder().encodeToString(hashBytes);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
-    }
-
-    public boolean isUnchanged(String currentRemoteContent) {
-        byte[] currentBytes = currentRemoteContent.getBytes(currentCharset);
-        return originalHash != null && originalHash.equals(sha256(currentBytes));
-    }
-
-    public interface ProgressListener {
-        void onProgress(int percent);
-    }
-
-    private void setCharset(Charset charset) {
-        this.currentCharset = charset;
-        if (rawBytes != null) {
-            this.content = new String(rawBytes, charset);
-        }
-    }
-
     public Charset getCharset() {
         return currentCharset;
     }
 
-    // TODO: Implement this method to decode the text with RDW markers
-    public String decodeWithRdwMarkers(Charset charset) {
-        return decodeWithHexDump(charset);
-    }
-
-
-    private String toBitString(byte b) {
-        return String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0');
-    }
-
-
-
-    // ToDo: Implement this method to encode the text with RDW markers
-    public InputStream encodeFromRdwMarkers(String markedText, Charset charset) {
-        // Nichts verändern, nur plain zurückgeben
-        return new ByteArrayInputStream(markedText.getBytes(charset));
-    }
-
-
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // DEBUGGING
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    /**
-     * Gibt den Inhalt des Buffers als Hexdump aus.
-     * @param charset Der Zeichensatz, der für die Umwandlung in einen String verwendet werden soll.
-     * @return Der Inhalt des Buffers als String.
-     */
-    public String decodeWithHexDump(Charset charset) {
-        if (rawBytes == null || rawBytes.length == 0) {
-            System.out.println("Keine Daten vorhanden.");
-            return "";
-        }
-
-        // Terminalausgabe: Hexdump
-        int offset = 0;
-        while (offset < rawBytes.length) {
-            int len = Math.min(16, rawBytes.length - offset);
-            System.out.printf("%08X  ", offset);
-
-            // Hex-Werte
-            for (int i = 0; i < 16; i++) {
-                if (i < len) {
-                    System.out.printf("%02X ", rawBytes[offset + i]);
-                } else {
-                    System.out.print("   ");
-                }
-                if (i == 7) System.out.print(" ");
-            }
-
-            // ASCII-Darstellung
-            System.out.print(" |");
-            for (int i = 0; i < len; i++) {
-                byte b = rawBytes[offset + i];
-                char c = (char) (b & 0xFF);
-                if (c >= 32 && c <= 126) {
-                    System.out.print(c);
-                } else {
-                    System.out.print(".");
-                }
-            }
-            System.out.println("|");
-
-            offset += len;
-        }
-
-        // Rückgabe: Originalinhalt als String (unverändert)
-        return new String(rawBytes, charset);
+    public interface ProgressListener {
+        void onProgress(int percent);
     }
 }

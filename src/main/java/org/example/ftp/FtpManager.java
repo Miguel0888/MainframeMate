@@ -1,20 +1,12 @@
 package org.example.ftp;
 
-import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPClientConfig;
-import org.apache.commons.net.ftp.FTPCmd;
-import org.apache.commons.net.ftp.FTPFile;
-import org.example.model.Settings;
+import org.apache.commons.net.ftp.*;
+import org.example.model.*;
 import org.example.util.SettingsManager;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.util.*;
-
-// NOTE: Falls Binary Mode statt ASCII Mode verwendet wird, muss der Charset entsprechend angepasst werden.
-//        byte[] buffer = new byte[8192];
-//        new String(buffer, "IBM1047");
-
 
 public class FtpManager {
 
@@ -28,9 +20,9 @@ public class FtpManager {
     }
 
     public boolean connect(String host, String user, String password) throws IOException {
-        ftpClient.setControlEncoding(SettingsManager.load().encoding);
+        Settings settings = SettingsManager.load();
+        ftpClient.setControlEncoding(settings.encoding);
         ftpClient.connect(host);
-        int replyCode = ftpClient.getReplyCode();
 
         if (!ftpClient.login(user, password)) {
             throw new IOException("Login fehlgeschlagen");
@@ -38,23 +30,45 @@ public class FtpManager {
 
         ftpClient.enterLocalPassiveMode();
 
-//        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE);
-        // WICHTIG: diese 3 Zeilen setzen alle notwendigen Transfer-Eigenschaften
-        ftpClient.setFileType(FTPClient.ASCII_FILE_TYPE);
-        ftpClient.setFileStructure(FTPClient.RECORD_STRUCTURE);
-//        ftpClient.setFileTransferMode(FTPClient.STREAM_TRANSFER_MODE);
+        // Anwenden der konfigurierten FTP-Transferoptionen
+        applyTransferSettings(settings);
 
         String systemType = ftpClient.getSystemType();
-        System.out.println("Systemtyp laut FTP-Server: " + systemType);
         mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
+        System.out.println("Systemtyp laut FTP-Server: " + systemType);
 
-        // Setze Parser nur wenn explizit Windows erkannt wird (z. B. bei Testserver)
         if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
-            // Configure parser manually for Windows FTP
             ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_NT));
         }
 
         return true;
+    }
+
+    private void applyTransferSettings(Settings settings) throws IOException {
+        // TYPE
+        if (settings.ftpFileType != null) {
+            ftpClient.setFileType(settings.ftpFileType.getCode());
+        } else {
+            ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+        }
+
+        // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
+
+        // STRUCTURE
+        if (settings.ftpFileStructure != null) {
+            ftpClient.setFileStructure(settings.ftpFileStructure.getCode());
+        } else if (isMvsMode()) {
+            ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
+        } else {
+            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
+        }
+
+        // MODE
+        if (settings.ftpTransferMode != null) {
+            ftpClient.setFileTransferMode(settings.ftpTransferMode.getCode());
+        } else {
+            ftpClient.setFileTransferMode(FTP.STREAM_TRANSFER_MODE);
+        }
     }
 
     public boolean isConnected() {
@@ -70,12 +84,6 @@ public class FtpManager {
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    private String quoteMvsPath(String dataset) {
-        if (!dataset.startsWith("'")) dataset = "'" + dataset;
-        if (!dataset.endsWith("'")) dataset = dataset + "'";
-        return dataset;
     }
 
     public boolean changeDirectory(String path) throws IOException {
@@ -122,94 +130,70 @@ public class FtpManager {
     }
 
     public FtpFileBuffer open(String filename) throws IOException {
-        if (isMvsMode()) {
-            if (filename.contains(".")) {
-                String[] parts = filename.split("\\.");
-                for (int i = 0; i < parts.length - 1; i++) {
-                    openDirectory(parts[i]);
-                }
-                // Letzter Part ist der Member
-                filename = parts[parts.length - 1];
+        if (isMvsMode() && filename.contains(".")) {
+            String[] parts = filename.split("\\.");
+            for (int i = 0; i < parts.length - 1; i++) {
+                openDirectory(parts[i]);
             }
+            filename = parts[parts.length - 1];
         }
 
-        // Suche Meta aus aktuellem Directory
-        String finalFilename = filename;
-        String finalFilename1 = filename;
+        String finalName = filename;
         FTPFile fileMeta = Arrays.stream(ftpClient.listFiles())
-                .filter(f -> f.getName().equalsIgnoreCase(finalFilename))
+                .filter(f -> f.getName().equalsIgnoreCase(finalName))
                 .findFirst()
-                .orElseThrow(() -> new IOException("Datei nicht gefunden: " + finalFilename1));
+                .orElseThrow(() -> new IOException("Datei nicht gefunden: " + finalName));
 
-        if(fileMeta.isDirectory())
-        {
+
+        if (fileMeta.isDirectory()) {
             openDirectory(filename);
             return null;
         }
 
-        // Retrieve nur mit einfachem Dateinamen – NICHT vollqualifiziert
         InputStream in = ftpClient.retrieveFileStream(filename);
         if (in == null) {
-            throw new IOException("Konnte Datei nicht laden: " + filename +
-                    "\nAntwort: " + ftpClient.getReplyString());
+            throw new IOException("Konnte Datei nicht laden: " + filename + "\nAntwort: " + ftpClient.getReplyString());
         }
 
-        // Datei lesen – NICHT vergessen, sonst hängt completePendingCommand
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int len;
-        while ((len = in.read(buffer)) != -1) {
-            out.write(buffer, 0, len);
-        }
-        in.close();
+        FtpFileBuffer buffer = new FtpFileBuffer(filename, fileMeta, true); // recordStructure = true
+        buffer.loadContent(in, null);
+
         if (!ftpClient.completePendingCommand()) {
             throw new IOException("FTP-Übertragung unvollständig: " + filename);
         }
 
-        // Jetzt den Buffer bauen
-        FtpFileBuffer result = new FtpFileBuffer(filename, fileMeta, true);
-        result.loadContent(new ByteArrayInputStream(out.toByteArray()), null);
-        return result;
+        return buffer;
     }
 
     public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {
-        // Preprocessing: Zeilenenden normalisieren
-        Settings settings = SettingsManager.load();
-        String normalized = normalizeLineEndings(newContent, settings.lineEnding); // ToDo: Move to FtpFileBuffer
-        InputStream data = buffer.toInputStream(normalized);
+        // InputStream vorbereiten (inkl. Zeilenumbruch-Mapping)
+        InputStream data = buffer.toInputStream(newContent);
 
-        // Remote-Version neu laden
+        // Remote-Version laden
         InputStream in = ftpClient.retrieveFileStream(buffer.getRemotePath());
+        if (in == null) {
+            throw new IOException("Konnte Server-Datei zum Vergleich nicht laden");
+        }
+
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] tmp = new byte[8192];
         int len;
         while ((len = in.read(tmp)) != -1) out.write(tmp, 0, len);
         in.close();
         ftpClient.completePendingCommand();
+
         String currentRemote = new String(out.toByteArray(), buffer.getCharset());
 
         // Konfliktprüfung
         if (!buffer.isUnchanged(currentRemote)) {
-            // Stelle hier ggf. Dialog oder Logik für Konfliktbehandlung bereit
             System.err.println("Konflikt: Die Datei wurde auf dem Server geändert.");
             return false;
         }
 
-        // Upload
         return ftpClient.storeFile(buffer.getRemotePath(), data);
     }
-    private String normalizeLineEndings(String text, String mode) {
-        if ("CRLF".equalsIgnoreCase(mode)) {
-            return text.replaceAll("\\r?\\n", "\r\n");
-        } else if ("NONE".equalsIgnoreCase(mode)) {
-            return text.replaceAll("\\r?\\n", ""); // alles entfernen
-        } else { // "LF"
-            return text.replaceAll("\\r?\\n", "\n");
-        }
-    }
 
-    public boolean hasFeature(FTPCmd cmd)
-    {
+    public boolean hasFeature(FTPCmd cmd) {
         try {
             return ftpClient.hasFeature(cmd);
         } catch (IOException e) {
@@ -217,8 +201,7 @@ public class FtpManager {
         }
     }
 
-    public String getHelp()
-    {
+    public String getHelp() {
         try {
             return ftpClient.listHelp();
         } catch (IOException e) {
@@ -226,18 +209,13 @@ public class FtpManager {
         }
     }
 
-    public String getHelp(String command)
-    {
+    public String getHelp(String command) {
         try {
             return ftpClient.listHelp(command);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
-
-    /// ////////////////
-
-    // In FtpManager.java
 
     public boolean createEmptyFile(String name) throws IOException {
         return ftpClient.storeFile(name, new ByteArrayInputStream(new byte[0]));
@@ -249,15 +227,16 @@ public class FtpManager {
 
     public boolean createPds(String name) throws IOException {
         if (!mvsMode) throw new UnsupportedOperationException("Nur unter MVS möglich");
-
-        String quoted = name;
-        if (!quoted.startsWith("'")) quoted = "'" + quoted;
-        if (!quoted.endsWith("'")) quoted = quoted + "'";
-
-        return ftpClient.makeDirectory(quoted);
+        return ftpClient.makeDirectory(quoteMvsPath(name));
     }
 
     public void openDirectory(String selected) throws IOException {
         ftpClient.changeWorkingDirectory(selected);
+    }
+
+    private String quoteMvsPath(String dataset) {
+        if (!dataset.startsWith("'")) dataset = "'" + dataset;
+        if (!dataset.endsWith("'")) dataset = dataset + "'";
+        return dataset;
     }
 }
