@@ -145,13 +145,12 @@ public class FtpFileBuffer {
 
     // TODO: Implement this method to decode the text with RDW markers
     public String decodeWithRdwMarkers(Charset charset) {
-        if (rawBytes == null || rawBytes.length < 4) {
-            String msg = "Keine Daten oder zu kurz.";
-            System.out.println(msg);
-            return msg;
+        if (rawBytes == null) {
+            System.out.println("Keine Daten vorhanden.");
+            return "";
         }
 
-        StringBuilder output = new StringBuilder();
+        // RDW-Analyse auf System.out
         int pos = 0;
         int recordNum = 1;
 
@@ -163,33 +162,30 @@ public class FtpFileBuffer {
 
             int length = ((b1 & 0xFF) << 8) | (b2 & 0xFF);
 
-            String line = String.format("RDW #%03d @ pos %04d: %02X %02X %02X %02X → len=%d",
+            System.out.printf("RDW #%03d @ pos %04d: %02X %02X %02X %02X → len=%d",
                     recordNum, pos, b1, b2, b3, b4, length);
 
             if (length < 4 || pos + length > rawBytes.length) {
-                line += " ⚠ ungültig";
+                System.out.print(" ⚠ ungültig");
             }
 
-            output.append(line).append("\n");
-            System.out.println(line); // Terminalausgabe
-
+            System.out.println();
             pos += 4;
             recordNum++;
         }
 
         if (pos < rawBytes.length) {
-            StringBuilder rest = new StringBuilder();
-            rest.append(String.format("Restdaten ab pos %04d (%d Byte): ", pos, rawBytes.length - pos));
+            System.out.printf("Restdaten ab pos %04d (%d Byte): ", pos, rawBytes.length - pos);
             for (int i = pos; i < rawBytes.length; i++) {
-                rest.append(String.format("%02X ", rawBytes[i]));
+                System.out.printf("%02X ", rawBytes[i]);
             }
-            rest.append("\n");
-            System.out.print(rest);           // Terminalausgabe
-            output.append(rest);             // String-Rückgabe
+            System.out.println();
         }
 
-        return output.toString();
+        // Originaldaten als String zurückgeben – NICHT verändert
+        return new String(rawBytes, charset);
     }
+
 
 
     private String toBitString(byte b) {
