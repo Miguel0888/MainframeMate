@@ -146,10 +146,12 @@ public class FtpFileBuffer {
     // TODO: Implement this method to decode the text with RDW markers
     public String decodeWithRdwMarkers(Charset charset) {
         if (rawBytes == null || rawBytes.length < 4) {
-            System.out.println("Keine Daten oder zu kurz.");
-            return "";
+            String msg = "Keine Daten oder zu kurz.";
+            System.out.println(msg);
+            return msg;
         }
 
+        StringBuilder output = new StringBuilder();
         int pos = 0;
         int recordNum = 1;
 
@@ -161,28 +163,34 @@ public class FtpFileBuffer {
 
             int length = ((b1 & 0xFF) << 8) | (b2 & 0xFF);
 
-            System.out.printf("Record %02d @ pos %d: RDW = %s %s %s %s → length: %d",
-                    recordNum, pos,
-                    toBitString(b1), toBitString(b2), toBitString(b3), toBitString(b4),
-                    length);
+            String line = String.format("RDW #%03d @ pos %04d: %02X %02X %02X %02X → len=%d",
+                    recordNum, pos, b1, b2, b3, b4, length);
 
             if (length < 4 || pos + length > rawBytes.length) {
-                System.out.print(" ⚠ Ungültig oder unvollständig");
-                pos++; // vorsichtig weiterrücken
-            } else {
-                pos += length;
+                line += " ⚠ ungültig";
             }
 
-            System.out.println();
+            output.append(line).append("\n");
+            System.out.println(line); // Terminalausgabe
+
+            pos += 4;
             recordNum++;
         }
 
         if (pos < rawBytes.length) {
-            System.out.printf("⚠ %d Byte Rest nach letzter gültiger RDW bei pos %d\n", rawBytes.length - pos, pos);
+            StringBuilder rest = new StringBuilder();
+            rest.append(String.format("Restdaten ab pos %04d (%d Byte): ", pos, rawBytes.length - pos));
+            for (int i = pos; i < rawBytes.length; i++) {
+                rest.append(String.format("%02X ", rawBytes[i]));
+            }
+            rest.append("\n");
+            System.out.print(rest);           // Terminalausgabe
+            output.append(rest);             // String-Rückgabe
         }
 
-        return ""; // Signatur-konform
+        return output.toString();
     }
+
 
     private String toBitString(byte b) {
         return String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0');
