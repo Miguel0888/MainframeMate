@@ -72,11 +72,7 @@ public class FtpFileBuffer {
 
     public InputStream toInputStream(String updatedContent) {
         if (recordStructure) {
-            try {
-                return encodeFromRdwMarkers(updatedContent, currentCharset);
-            } catch (IOException e) {
-                throw new UncheckedIOException("Fehler beim Serialisieren von RDW-Inhalt", e);
-            }
+            return encodeFromRdwMarkers(updatedContent, currentCharset);
         } else {
             return new ByteArrayInputStream(updatedContent.getBytes(currentCharset));
         }
@@ -147,70 +143,51 @@ public class FtpFileBuffer {
         return currentCharset;
     }
 
-    public String getNormalizedContentForEditing() throws IOException {
-        if (recordStructure) {
-            return decodeWithRdwMarkers(currentCharset);
-        } else {
-            return content != null ? content : "";
+    // TODO: Implement this method to decode the text with RDW markers
+    public String decodeWithRdwMarkers(Charset charset) {
+        if (rawBytes == null || rawBytes.length < 4) {
+            return "No data or too short.";
         }
-    }
 
-    public InputStream toUploadStream(String editedContent) throws IOException {
-        if (recordStructure) {
-            return encodeFromRdwMarkers(editedContent, currentCharset);
-        } else {
-            return new ByteArrayInputStream(editedContent.getBytes(currentCharset));
-        }
-    }
-
-    public String decodeWithRdwMarkers(Charset charset) throws IOException {
-        if (rawBytes == null) return "";
-
-        StringBuilder builder = new StringBuilder();
+        StringBuilder output = new StringBuilder();
         int pos = 0;
+        int recordNum = 1;
+
         while (pos + 4 <= rawBytes.length) {
-            int recordLength = ((rawBytes[pos] & 0xFF) << 8) | (rawBytes[pos + 1] & 0xFF);
-            if (recordLength < 4 || pos + recordLength > rawBytes.length) {
-                throw new IOException("Ungültiger RDW-Record an Position " + pos);
+            byte b1 = rawBytes[pos];
+            byte b2 = rawBytes[pos + 1];
+            byte b3 = rawBytes[pos + 2];
+            byte b4 = rawBytes[pos + 3];
+
+            int length = ((b1 & 0xFF) << 8) | (b2 & 0xFF);
+            output.append(String.format("RDW [%d] @ pos %d → Bytes: %02X %02X %02X %02X → len=%d",
+                    recordNum, pos, b1, b2, b3, b4, length));
+
+            if (length < 4 || pos + length > rawBytes.length) {
+                output.append(" ⚠ Possibly invalid or incomplete");
+                pos++; // nur einen Schritt weiter, um nicht hängen zu bleiben
+            } else {
+                pos += length;
             }
 
-            byte[] content = Arrays.copyOfRange(rawBytes, pos + 4, pos + recordLength);
-            String line = new String(content, charset);
-
-            builder.append("[").append(recordLength).append("]").append(line).append("\n");
-            pos += recordLength;
-        }
-        return builder.toString();
-    }
-
-    public InputStream encodeFromRdwMarkers(String markedText, Charset charset) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        BufferedReader reader = new BufferedReader(new StringReader(markedText));
-        String line;
-
-        while ((line = reader.readLine()) != null) {
-            if (!line.startsWith("[") || !line.contains("]")) {
-                throw new IOException("Ungültige Formatierung: " + line);
-            }
-
-            int endIndex = line.indexOf("]");
-            int declaredLength = Integer.parseInt(line.substring(1, endIndex));
-            String content = line.substring(endIndex + 1);
-
-            byte[] contentBytes = content.getBytes(charset);
-            int actualLength = contentBytes.length + 4;
-            if (actualLength != declaredLength) {
-                throw new IOException("RDW-Länge stimmt nicht mit Inhalt überein: " + line);
-            }
-
-            out.write((byte) ((actualLength >> 8) & 0xFF));
-            out.write((byte) (actualLength & 0xFF));
-            out.write(0x00);
-            out.write(0x00);
-            out.write(contentBytes);
+            output.append("\n");
+            recordNum++;
         }
 
-        return new ByteArrayInputStream(out.toByteArray());
+        if (pos < rawBytes.length) {
+            output.append(String.format("⚠ Remaining %d byte(s) after last RDW at pos %d\n",
+                    rawBytes.length - pos, pos));
+        }
+
+        return output.toString();
     }
+
+
+    // ToDo: Implement this method to encode the text with RDW markers
+    public InputStream encodeFromRdwMarkers(String markedText, Charset charset) {
+        // Nichts verändern, nur plain zurückgeben
+        return new ByteArrayInputStream(markedText.getBytes(charset));
+    }
+
 
 }
