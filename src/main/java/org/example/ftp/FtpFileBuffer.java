@@ -146,47 +146,45 @@ public class FtpFileBuffer {
     // TODO: Implement this method to decode the text with RDW markers
     public String decodeWithRdwMarkers(Charset charset) {
         if (rawBytes == null || rawBytes.length == 0) {
-            return "Keine Daten vorhanden.";
+            System.out.println("Keine Daten vorhanden.");
+            return "";
         }
 
-        StringBuilder output = new StringBuilder();
+        // Terminalausgabe: Hexdump
         int offset = 0;
-
         while (offset < rawBytes.length) {
-            int lineLength = Math.min(16, rawBytes.length - offset);
-            byte[] line = Arrays.copyOfRange(rawBytes, offset, offset + lineLength);
-
-            // Offset anzeigen
-            output.append(String.format("%08X  ", offset));
+            int len = Math.min(16, rawBytes.length - offset);
+            System.out.printf("%08X  ", offset);
 
             // Hex-Werte
             for (int i = 0; i < 16; i++) {
-                if (i < lineLength) {
-                    output.append(String.format("%02X ", line[i]));
+                if (i < len) {
+                    System.out.printf("%02X ", rawBytes[offset + i]);
                 } else {
-                    output.append("   ");
+                    System.out.print("   ");
                 }
-                if (i == 7) output.append(" "); // optische Mitte
+                if (i == 7) System.out.print(" ");
             }
 
             // ASCII-Darstellung
-            output.append(" |");
-            for (int i = 0; i < lineLength; i++) {
-                char c = (char) (line[i] & 0xFF);
+            System.out.print(" |");
+            for (int i = 0; i < len; i++) {
+                byte b = rawBytes[offset + i];
+                char c = (char) (b & 0xFF);
                 if (c >= 32 && c <= 126) {
-                    output.append(c);
+                    System.out.print(c);
                 } else {
-                    output.append('.');
+                    System.out.print(".");
                 }
             }
-            output.append("|\n");
+            System.out.println("|");
 
-            offset += lineLength;
+            offset += len;
         }
 
-        return output.toString();
+        // Rückgabe: Originalinhalt als String (unverändert)
+        return new String(rawBytes, charset);
     }
-
 
 
     private String toBitString(byte b) {
