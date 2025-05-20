@@ -70,16 +70,16 @@ public class FtpManager {
             }
         }
 
-        ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
+//        ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
 //
-//        // STRUCTURE
-//        if (settings.ftpFileStructure != null) {
-//            ftpClient.setFileStructure(settings.ftpFileStructure.getCode());
-//        } else if (isMvsMode()) {
-//            ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
-//        } else {
-//            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
-//        }
+        // STRUCTURE
+        if (settings.ftpFileStructure != null) {
+            ftpClient.setFileStructure(settings.ftpFileStructure.getCode());
+        } else if (isMvsMode()) {
+            ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
+        } else {
+            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
+        }
 //
 //        // MODE
 //        if (settings.ftpTransferMode != null) {
