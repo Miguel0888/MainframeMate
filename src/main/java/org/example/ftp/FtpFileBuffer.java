@@ -35,29 +35,33 @@ public class FtpFileBuffer {
 
     public void loadContent(InputStream in, ProgressListener progress) throws IOException {
         this.rawBytes = readAllBytes(in, progress);
-
         Settings settings = SettingsManager.load();
 
-        // 🔍 Hier ausgeben, was gesetzt ist:
-        System.out.println(">> FTP loadContent – lineEnding: " + settings.lineEnding);
-        System.out.println(">> FTP loadContent – recordStructure: " + recordStructure);
-        System.out.println(">> FTP loadContent – ftpFileType: " + settings.ftpFileType);
-        System.out.println(">> FTP loadContent – ftpFileStructure: " + settings.ftpFileStructure);
-
-
         if (recordStructure) {
-            //ToDo
-            this.content = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
-//            this.content = new String(rawBytes, currentCharset);
+            String text = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
+
+            // 🆕 Datei-Ende-Marker entfernen, falls vorhanden
+            if (settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty()) {
+                byte[] marker = parseHexMarker(settings.fileEndMarker);
+                byte[] textBytes = text.getBytes(currentCharset);
+                if (endsWith(textBytes, marker)) {
+                    int newLength = textBytes.length - marker.length;
+                    text = new String(textBytes, 0, newLength, currentCharset);
+                }
+            }
+
+            this.content = text;
         } else {
             this.content = new String(rawBytes, currentCharset);
         }
+    }
 
-        this.originalHash = sha256(rawBytes);
-
-        if (settings.enableHexDump) {
-            printHexDump();
+    private boolean endsWith(byte[] data, byte[] suffix) {
+        if (data.length < suffix.length) return false;
+        for (int i = 0; i < suffix.length; i++) {
+            if (data[data.length - suffix.length + i] != suffix[i]) return false;
         }
+        return true;
     }
 
     public InputStream toInputStream(String updatedContent) {
@@ -74,6 +78,11 @@ public class FtpFileBuffer {
                 for (String line : lines) {
                     out.write(line.getBytes(currentCharset));
                     out.write(markerBytes);
+                }
+                // 🆕 Dateiende-Marker anhängen, wenn konfiguriert
+                if (settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty()) {
+                    byte[] endMarker = parseHexMarker(settings.fileEndMarker);
+                    out.write(endMarker);
                 }
             } catch (IOException e) {
                 throw new UncheckedIOException("Fehler beim Schreiben der Datei", e);

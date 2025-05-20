@@ -67,6 +67,13 @@ public class SettingsDialog {
         panel.add(lineEndingBox, gbc);
         gbc.gridy++;
 
+        // Dateiende
+        panel.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbc);
+        gbc.gridy++;
+        JTextField endMarkerField = new JTextField(settings.fileEndMarker != null ? settings.fileEndMarker : "", 6);
+        panel.add(endMarkerField, gbc);
+        gbc.gridy++;
+
         // Marker-Linie (z. B. bei Spalte 80)
         gbc.gridwidth = 2;
         panel.add(new JLabel("Vertikale Markierung bei Spalte (0 = aus):"), gbc);
@@ -230,6 +237,7 @@ public class SettingsDialog {
             settings.ftpFileStructure = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
             settings.ftpTransferMode = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
+            settings.fileEndMarker = endMarkerField.getText().trim().isEmpty() ? null : endMarkerField.getText().trim().toUpperCase();
             SettingsManager.save(settings);
 
             ftpManager.getClient().setControlEncoding(settings.encoding);
