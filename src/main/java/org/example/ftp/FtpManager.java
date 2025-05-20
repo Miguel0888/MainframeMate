@@ -30,12 +30,12 @@ public class FtpManager {
 
         ftpClient.enterLocalPassiveMode();
 
-        // Anwenden der konfigurierten FTP-Transferoptionen
-        applyTransferSettings(settings);
-
         String systemType = ftpClient.getSystemType();
         mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
         System.out.println("Systemtyp laut FTP-Server: " + systemType);
+
+        // Anwenden der konfigurierten FTP-Transferoptionen
+        applyTransferSettings(settings);
 
         if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
             ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_NT));
