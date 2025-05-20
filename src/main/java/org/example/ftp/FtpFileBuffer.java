@@ -38,7 +38,7 @@ public class FtpFileBuffer {
 
         Settings settings = SettingsManager.load();
         if (recordStructure) {
-            this.content = mapLineEndings(new String(rawBytes, currentCharset), settings.lineEnding);
+            this.content = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
         } else {
             this.content = new String(rawBytes, currentCharset);
         }
@@ -136,14 +136,25 @@ public class FtpFileBuffer {
         return out.toByteArray();
     }
 
-    private String mapLineEndings(String text, String marker) {
-        if (marker == null || marker.isEmpty()) return text;
-        return text.replace(marker, "\n");
-    }
+    private String mapLineEndings(byte[] bytes, Charset charset, String markerHex) {
+        if (markerHex == null || markerHex.length() != 4) {
+            return new String(bytes, charset);
+        }
 
-    private String unmapLineEndings(String text, String marker) {
-        if (marker == null || marker.isEmpty()) return text;
-        return text.replace("\n", marker);
+        byte high = (byte) Integer.parseInt(markerHex.substring(0, 2), 16);
+        byte low  = (byte) Integer.parseInt(markerHex.substring(2, 4), 16);
+
+        ByteArrayOutputStream transformed = new ByteArrayOutputStream();
+        for (int i = 0; i < bytes.length; i++) {
+            if (i + 1 < bytes.length && bytes[i] == high && bytes[i + 1] == low) {
+                transformed.write('\n');
+                i++; // FF01 überspringen
+            } else {
+                transformed.write(bytes[i]);
+            }
+        }
+
+        return new String(transformed.toByteArray(), charset);
     }
 
     private String sha256(byte[] data) {
