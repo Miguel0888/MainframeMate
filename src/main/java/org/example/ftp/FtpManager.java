@@ -48,7 +48,7 @@ public class FtpManager {
         //ToDo
 
 //        ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
-        ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
+
 
         // TYPE
         if (settings.ftpFileType != null) {
@@ -69,6 +69,8 @@ public class FtpManager {
                 ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
             }
         }
+
+        ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
 //
 //        // STRUCTURE
 //        if (settings.ftpFileStructure != null) {
