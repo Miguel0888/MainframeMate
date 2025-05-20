@@ -37,6 +37,14 @@ public class FtpFileBuffer {
         this.rawBytes = readAllBytes(in, progress);
 
         Settings settings = SettingsManager.load();
+
+        // 🔍 Hier ausgeben, was gesetzt ist:
+        System.out.println(">> FTP loadContent – lineEnding: " + settings.lineEnding);
+        System.out.println(">> FTP loadContent – recordStructure: " + recordStructure);
+        System.out.println(">> FTP loadContent – ftpFileType: " + settings.ftpFileType);
+        System.out.println(">> FTP loadContent – ftpFileStructure: " + settings.ftpFileStructure);
+
+
         if (recordStructure) {
             this.content = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
         } else {
