@@ -36,9 +36,22 @@ public class FtpFileBuffer {
     public void loadContent(InputStream in, ProgressListener progress) throws IOException {
         this.rawBytes = readAllBytes(in, progress);
         this.originalHash = sha256(rawBytes);
+        Settings settings = SettingsManager.load();
 
         if (recordStructure) {
-            this.content = mapLineAndFileEndings(rawBytes, currentCharset);
+            String text = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
+
+            // 🆕 Datei-Ende-Marker entfernen, falls vorhanden
+            if (settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty()) {
+                byte[] marker = parseHexMarker(settings.fileEndMarker);
+                byte[] textBytes = text.getBytes(currentCharset);
+                if (endsWith(textBytes, marker)) {
+                    int newLength = textBytes.length - marker.length;
+                    text = new String(textBytes, 0, newLength, currentCharset);
+                }
+            }
+
+            this.content = text;
         } else {
             this.content = new String(rawBytes, currentCharset);
         }
@@ -57,13 +70,7 @@ public class FtpFileBuffer {
 
         if (recordStructure) {
             String markerHex = settings.lineEnding; // z. B. "FF01"
-            byte[] markerBytes = (markerHex != null && !markerHex.isEmpty())
-                    ? parseHexMarker(markerHex)
-                    : null;
-
-            byte[] fileEndMarker = (settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty())
-                    ? parseHexMarker(settings.fileEndMarker)
-                    : null;
+            byte[] markerBytes = parseHexMarker(markerHex);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             String[] lines = updatedContent.split("\n", -1); // auch leere letzte Zeile berücksichtigen
@@ -71,19 +78,13 @@ public class FtpFileBuffer {
             try {
                 for (String line : lines) {
                     out.write(line.getBytes(currentCharset));
-                    if (markerBytes != null) {
-                        out.write(markerBytes);
-                    }
+                    out.write(markerBytes);
                 }
-
-                // 🆕 Vor dem Datei-Ende-Zeichen ggf. zusätzliches lineEnding setzen
-                if (fileEndMarker != null) {
-                    if (markerBytes != null) {
-                        out.write(markerBytes);
-                    }
-                    out.write(fileEndMarker);
+                // 🆕 Dateiende-Marker anhängen, wenn konfiguriert
+                if (settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty()) {
+                    byte[] endMarker = parseHexMarker(settings.fileEndMarker);
+                    out.write(endMarker);
                 }
-
             } catch (IOException e) {
                 throw new UncheckedIOException("Fehler beim Schreiben der Datei", e);
             }
@@ -94,7 +95,6 @@ public class FtpFileBuffer {
             return new ByteArrayInputStream(updatedContent.getBytes(currentCharset));
         }
     }
-
 
 
     private byte[] parseHexMarker(String hex) {
@@ -156,46 +156,19 @@ public class FtpFileBuffer {
         return out.toByteArray();
     }
 
-    private String mapLineAndFileEndings(byte[] bytes, Charset charset) {
-        Settings settings = SettingsManager.load();
-        String markerHex = settings.lineEnding;
-
-        // Datei-Ende-Marker parsen (unabhängig von lineEnding)
-        byte[] fileEndMarker = settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty()
-                ? parseHexMarker(settings.fileEndMarker)
-                : null;
-
-        int effectiveLength = bytes.length;
-
-        // Entferne Datei-Ende-Marker (und optional vorheriges lineEnding)
-        if (fileEndMarker != null && endsWith(bytes, fileEndMarker)) {
-            effectiveLength -= fileEndMarker.length;
-
-            if (markerHex != null && !markerHex.isEmpty()) {
-                byte[] lineMarker = parseHexMarker(markerHex);
-                if (lineMarker.length == 2 &&
-                        effectiveLength >= 2 &&
-                        bytes[effectiveLength - 2] == lineMarker[0] &&
-                        bytes[effectiveLength - 1] == lineMarker[1]) {
-                    effectiveLength -= 2;
-                }
-            }
+    private String mapLineEndings(byte[] bytes, Charset charset, String markerHex) {
+        if (markerHex == null || markerHex.length() != 4) {
+            return new String(bytes, charset);
         }
 
-        // Optional: Zeilenenden ersetzen
-        ByteArrayOutputStream transformed = new ByteArrayOutputStream();
-        byte[] lineMarker = markerHex != null && !markerHex.isEmpty()
-                ? parseHexMarker(markerHex)
-                : null;
+        byte high = (byte) Integer.parseInt(markerHex.substring(0, 2), 16);
+        byte low  = (byte) Integer.parseInt(markerHex.substring(2, 4), 16);
 
-        for (int i = 0; i < effectiveLength; i++) {
-            if (lineMarker != null &&
-                    lineMarker.length == 2 &&
-                    i + 1 < effectiveLength &&
-                    bytes[i] == lineMarker[0] &&
-                    bytes[i + 1] == lineMarker[1]) {
+        ByteArrayOutputStream transformed = new ByteArrayOutputStream();
+        for (int i = 0; i < bytes.length; i++) {
+            if (i + 1 < bytes.length && bytes[i] == high && bytes[i + 1] == low) {
                 transformed.write('\n');
-                i++; // Skip both bytes
+                i++; // FF01 überspringen
             } else {
                 transformed.write(bytes[i]);
             }
@@ -203,7 +176,6 @@ public class FtpFileBuffer {
 
         return new String(transformed.toByteArray(), charset);
     }
-
 
     private String sha256(byte[] data) {
         try {
