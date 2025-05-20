@@ -35,6 +35,7 @@ public class FtpFileBuffer {
 
     public void loadContent(InputStream in, ProgressListener progress) throws IOException {
         this.rawBytes = readAllBytes(in, progress);
+        this.originalHash = sha256(rawBytes);
         Settings settings = SettingsManager.load();
 
         if (recordStructure) {
@@ -256,4 +257,9 @@ public class FtpFileBuffer {
     public interface ProgressListener {
         void onProgress(int percent);
     }
+
+    public void updateOriginalHashFromContent(String updatedContent) {
+        this.originalHash = sha256(updatedContent.getBytes(currentCharset));
+    }
+
 }

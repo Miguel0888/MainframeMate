@@ -203,7 +203,19 @@ public class FtpManager {
             return false;
         }
 
-        return ftpClient.storeFile(buffer.getRemotePath(), data);
+        boolean success = ftpClient.storeFile(buffer.getRemotePath(), data);
+
+        if (success) {
+            // Datei nach erfolgreichem Speichern neu einlesen, um Zustand zu aktualisieren
+            InputStream reloaded = ftpClient.retrieveFileStream(buffer.getRemotePath());
+            if (reloaded != null) {
+                buffer.loadContent(reloaded, null);
+                reloaded.close();
+                ftpClient.completePendingCommand();
+            }
+        }
+
+        return success;
     }
 
     public boolean hasFeature(FTPCmd cmd) {
