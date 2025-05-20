@@ -205,8 +205,12 @@ public class SettingsDialog {
 
 
         // Dialog anzeigen
-        int result = JOptionPane.showConfirmDialog(parent, panel, "Einstellungen",
+        JScrollPane scrollPane = new JScrollPane(panel);
+        scrollPane.setPreferredSize(new Dimension(450, 800)); // Optional anpassen
+
+        int result = JOptionPane.showConfirmDialog(parent, scrollPane, "Einstellungen",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
 
         if (result == JOptionPane.OK_OPTION) {
             settings.encoding = (String) encodingCombo.getSelectedItem();
