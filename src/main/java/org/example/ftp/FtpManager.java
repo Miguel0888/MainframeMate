@@ -48,27 +48,27 @@ public class FtpManager {
         //ToDo
 
 //        ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+        ftpClient.setFileType(FTP.ASCII_FILE_TYPE, FTP.NON_PRINT_TEXT_FORMAT);
 
-
-        // TYPE
-        if (settings.ftpFileType != null) {
-            // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
-            // FORMAT
-            if (settings.ftpTextFormat != null) {
-                ftpClient.setFileType(settings.ftpFileType.getCode(), settings.ftpTextFormat.getCode());
-            }
-            else {
-                ftpClient.setFileType(settings.ftpFileType.getCode());
-            }
-        } else {
-            // FORMAT
-            if (settings.ftpTextFormat != null) {
-                ftpClient.setFileType(FTP.ASCII_FILE_TYPE, settings.ftpTextFormat.getCode());
-            }
-            else {
-                ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
-            }
-        }
+//        // TYPE
+//        if (settings.ftpFileType != null) {
+//            // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
+//            // FORMAT
+//            if (settings.ftpTextFormat != null) {
+//                ftpClient.setFileType(settings.ftpFileType.getCode(), settings.ftpTextFormat.getCode());
+//            }
+//            else {
+//                ftpClient.setFileType(settings.ftpFileType.getCode());
+//            }
+//        } else {
+//            // FORMAT
+//            if (settings.ftpTextFormat != null) {
+//                ftpClient.setFileType(FTP.ASCII_FILE_TYPE, settings.ftpTextFormat.getCode());
+//            }
+//            else {
+//                ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+//            }
+//        }
 
         ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
 //
