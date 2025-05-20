@@ -45,41 +45,46 @@ public class FtpManager {
     }
 
     private void applyTransferSettings(Settings settings) throws IOException {
-        // TYPE
-        if (settings.ftpFileType != null) {
-            // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
-            // FORMAT
-            if (settings.ftpTextFormat != null) {
-                ftpClient.setFileType(settings.ftpFileType.getCode(), settings.ftpTextFormat.getCode());
-            }
-            else {
-                ftpClient.setFileType(settings.ftpFileType.getCode());
-            }
-        } else {
-            // FORMAT
-            if (settings.ftpTextFormat != null) {
-                ftpClient.setFileType(FTP.ASCII_FILE_TYPE, settings.ftpTextFormat.getCode());
-            }
-            else {
-                ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
-            }
-        }
+        //ToDo
 
-        // STRUCTURE
-        if (settings.ftpFileStructure != null) {
-            ftpClient.setFileStructure(settings.ftpFileStructure.getCode());
-        } else if (isMvsMode()) {
-            ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
-        } else {
-            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
-        }
+        ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+        ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
 
-        // MODE
-        if (settings.ftpTransferMode != null) {
-            ftpClient.setFileTransferMode(settings.ftpTransferMode.getCode());
-        } else {
-            ftpClient.setFileTransferMode(FTP.STREAM_TRANSFER_MODE);
-        }
+//        // TYPE
+//        if (settings.ftpFileType != null) {
+//            // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
+//            // FORMAT
+//            if (settings.ftpTextFormat != null) {
+//                ftpClient.setFileType(settings.ftpFileType.getCode(), settings.ftpTextFormat.getCode());
+//            }
+//            else {
+//                ftpClient.setFileType(settings.ftpFileType.getCode());
+//            }
+//        } else {
+//            // FORMAT
+//            if (settings.ftpTextFormat != null) {
+//                ftpClient.setFileType(FTP.ASCII_FILE_TYPE, settings.ftpTextFormat.getCode());
+//            }
+//            else {
+//                ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
+//            }
+//        }
+//
+//        // STRUCTURE
+//        if (settings.ftpFileStructure != null) {
+//            ftpClient.setFileStructure(settings.ftpFileStructure.getCode());
+//        } else if (isMvsMode()) {
+//            ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
+//        } else {
+//            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
+//        }
+//
+//        // MODE
+//        if (settings.ftpTransferMode != null) {
+//            ftpClient.setFileTransferMode(settings.ftpTransferMode.getCode());
+//        } else {
+//            ftpClient.setFileTransferMode(FTP.STREAM_TRANSFER_MODE);
+//        }
     }
 
     public boolean isConnected() {
