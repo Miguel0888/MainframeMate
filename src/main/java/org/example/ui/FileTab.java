@@ -314,6 +314,7 @@ public class FileTab implements FtpTab {
     }
 
 
-
-
+    public FtpFileBuffer getBuffer() {
+        return buffer;
+    }
 }

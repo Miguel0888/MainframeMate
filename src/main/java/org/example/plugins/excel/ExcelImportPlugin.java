@@ -345,18 +345,24 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
 
     private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) {
         Optional<FileTab> optionalTab = mainFrame.getTabManager().getSelectedFileTab();
-        FileTab fileTab;
 
-        if (optionalTab.isPresent()) {
-            fileTab = optionalTab.get();
-        } else {
-            fileTab = createNewFileTab(text);
+        if (!optionalTab.isPresent()) {
+            showError(mainFrame, "Keine Datei geöffnet, in die importiert werden kann.");
+            return;
         }
 
-        fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
+        FileTab fileTab = optionalTab.get();
+        FtpFileBuffer buffer = fileTab.getBuffer();
 
+        // Buffer aktualisieren – rawBytes, content, originalHash
+        byte[] newRaw = text.getBytes(buffer.getCharset());
+        buffer.loadContent(new ByteArrayInputStream(newRaw), null);
+
+        // GUI-Tab aktualisieren
+        fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
         fileTab.markAsChanged();
     }
+
 
     private FileTab createNewFileTab(String content) {
         org.apache.commons.net.ftp.FTPFile dummyMeta = new org.apache.commons.net.ftp.FTPFile();
