@@ -52,16 +52,46 @@ public class FtpFileBuffer {
 
     public InputStream toInputStream(String updatedContent) {
         Settings settings = SettingsManager.load();
-        byte[] encoded;
 
         if (recordStructure) {
-            String restored = unmapLineEndings(updatedContent, settings.lineEnding);
-            encoded = restored.getBytes(currentCharset);
+            String markerHex = settings.lineEnding; // z. B. "FF01"
+            byte[] markerBytes = parseHexMarker(markerHex);
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            String[] lines = updatedContent.split("\n", -1); // auch leere letzte Zeile berücksichtigen
+
+            try {
+                for (String line : lines) {
+                    out.write(line.getBytes(currentCharset));
+                    out.write(markerBytes);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException("Fehler beim Schreiben der Datei", e);
+            }
+
+            return new ByteArrayInputStream(out.toByteArray());
+
         } else {
-            encoded = updatedContent.getBytes(currentCharset);
+            return new ByteArrayInputStream(updatedContent.getBytes(currentCharset));
+        }
+    }
+
+
+    private byte[] parseHexMarker(String hex) {
+        if (hex == null || hex.isEmpty()) return new byte[0];
+        if (hex.length() % 2 != 0) {
+            throw new IllegalArgumentException("Hex-Zeichenfolge muss gerade Länge haben: " + hex);
         }
 
-        return new ByteArrayInputStream(encoded);
+        int len = hex.length() / 2;
+        byte[] bytes = new byte[len];
+
+        for (int i = 0; i < len; i++) {
+            int index = i * 2;
+            bytes[i] = (byte) Integer.parseInt(hex.substring(index, index + 2), 16);
+        }
+
+        return bytes;
     }
 
     public boolean isUnchanged(String currentRemoteContent) {
