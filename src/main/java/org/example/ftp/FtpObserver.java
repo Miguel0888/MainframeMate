@@ -1,5 +1,5 @@
 package org.example.ftp;
 
-public interface FtpDirectoryObserver {
+public interface FtpObserver {
     void onDirectoryChanged(String newPath);
 }

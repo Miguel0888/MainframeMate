@@ -1,7 +1,6 @@
 package org.example.ui;
 
 import org.example.ftp.FtpFileBuffer;
-import org.example.ftp.FtpFileObserver;
 import org.example.ftp.FtpManager;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
@@ -25,7 +24,7 @@ import javax.swing.text.Highlighter;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.CannotUndoException;
 
-public class FileTab implements FtpTab, FtpFileObserver {
+public class FileTab implements FtpTab {
 
     private final FtpManager ftpManager;
     private final FtpFileBuffer buffer;
@@ -51,8 +50,6 @@ public class FileTab implements FtpTab, FtpFileObserver {
 
         mainPanel.add(scroll, BorderLayout.CENTER);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
-
-        ftpManager.addFileObserver(this); // ⬅ Registrierung
     }
 
     @Override
@@ -79,8 +76,7 @@ public class FileTab implements FtpTab, FtpFileObserver {
 
     @Override
     public void onClose() {
-        ftpManager.removeFileObserver(this);
-        // evtl. weitere Änderungen prüfen, Ressourcen freigeben
+        // evtl. Änderungen prüfen, Ressourcen freigeben
     }
 
     @Override
@@ -96,16 +92,6 @@ public class FileTab implements FtpTab, FtpFileObserver {
         menu.add(saveItem);
         menu.add(closeItem);
         return menu;
-    }
-
-    @Override
-    public void onFileReloaded(String remotePath, String newContent) {
-        if (buffer.getRemotePath().equals(remotePath)) {
-            setContent(newContent);
-            resetUndoHistory();
-            changed = false;
-            updateTabTitle();
-        }
     }
 
     private JPanel createStatusBar() {

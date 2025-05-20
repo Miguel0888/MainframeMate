@@ -5,14 +5,14 @@ import org.example.model.*;
 import org.example.util.SettingsManager;
 
 import java.io.*;
+import java.nio.charset.Charset;
 import java.util.*;
 
 public class FtpManager {
 
     private final FTPClient ftpClient = new FTPClient();
     private String currentPath = "/";
-    private final List<FtpDirectoryObserver> directoryObservers = new ArrayList<>();
-    private final List<FtpFileObserver> fileObservers = new ArrayList<>();
+    private final List<FtpObserver> observers = new ArrayList<>();
     private boolean mvsMode = false;
 
     public boolean isMvsMode() {
@@ -103,7 +103,7 @@ public class FtpManager {
             return false;
         }
         this.currentPath = path;
-        notifyDirectoryObservers();
+        notifyObservers();
         return true;
     }
 
@@ -115,34 +115,19 @@ public class FtpManager {
         }
     }
 
-    public void addDirectoryObserver(FtpDirectoryObserver observer) {
-        directoryObservers.add(observer);
+    public void addObserver(FtpObserver observer) {
+        observers.add(observer);
     }
 
-    public void removeDirectoryObserver(FtpDirectoryObserver observer) {
-        directoryObservers.remove(observer);
+    public void removeObserver(FtpObserver observer) {
+        observers.remove(observer);
     }
 
-    private void notifyDirectoryObservers() {
-        for (FtpDirectoryObserver observer : directoryObservers) {
+    private void notifyObservers() {
+        for (FtpObserver observer : observers) {
             observer.onDirectoryChanged(currentPath);
         }
     }
-
-    public void addFileObserver(FtpFileObserver observer) {
-        fileObservers.add(observer);
-    }
-
-    public void removeFileObserver(FtpFileObserver observer) {
-        fileObservers.remove(observer);
-    }
-
-    private void notifyFileObservers(String remotePath, String newContent) {
-        for (FtpFileObserver obs : fileObservers) {
-            obs.onFileReloaded(remotePath, newContent);
-        }
-    }
-
 
     public FTPClient getClient() {
         return ftpClient;
@@ -227,7 +212,6 @@ public class FtpManager {
                 buffer.loadContent(reloaded, null);
                 reloaded.close();
                 ftpClient.completePendingCommand();
-                notifyFileObservers(buffer.getRemotePath(), buffer.getContent()); // ← 🔔 Observer benachrichtigen
             }
         }
 
