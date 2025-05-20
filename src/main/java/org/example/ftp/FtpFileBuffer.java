@@ -46,7 +46,8 @@ public class FtpFileBuffer {
 
 
         if (recordStructure) {
-            this.content = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
+//            this.content = mapLineEndings(rawBytes, currentCharset, settings.lineEnding);
+            this.content = new String(rawBytes, currentCharset);
         } else {
             this.content = new String(rawBytes, currentCharset);
         }
