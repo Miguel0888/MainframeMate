@@ -1,21 +1,20 @@
 package org.example.ui;
 
 import org.example.ftp.FtpFileBuffer;
-import org.example.ftp.FtpObserver;
+import org.example.ftp.FtpDirectoryObserver;
 import org.example.ftp.FtpManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
 import java.io.IOException;
 import java.util.List;
 
-public class FtpBrowserPanel extends JPanel implements FtpObserver {
+public class FtpDirectoryBrowserPanel extends JPanel implements FtpDirectoryObserver {
 
     private final FtpManager ftpManager;
     private final JTextField pathField;
 
-    public FtpBrowserPanel(FtpManager ftpManager) {
+    public FtpDirectoryBrowserPanel(FtpManager ftpManager) {
         this.ftpManager = ftpManager;
         this.setLayout(new BorderLayout());
 
@@ -56,16 +55,8 @@ public class FtpBrowserPanel extends JPanel implements FtpObserver {
         files = ftpManager.listDirectory();
     }
 
-    private void openFileInNewTab(FtpFileBuffer buffer) {
-
-    }
-
-    public void init() {
-        ftpManager.addObserver(this);
-    }
-
     public void dispose() {
-        ftpManager.removeObserver(this);
+        ftpManager.removeDirectoryObserver(this);
     }
 
     public String getCurrentPath() {

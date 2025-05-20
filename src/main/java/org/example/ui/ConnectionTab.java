@@ -2,18 +2,16 @@ package org.example.ui;
 
 import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
-import org.example.ftp.FtpObserver;
-import org.example.util.SettingsManager;
+import org.example.ftp.FtpDirectoryObserver;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.List;
 
-public class ConnectionTab implements FtpTab, FtpObserver {
+public class ConnectionTab implements FtpTab, FtpDirectoryObserver {
 
     private final FtpManager ftpManager;
     private final JPanel mainPanel;
@@ -65,7 +63,7 @@ public class ConnectionTab implements FtpTab, FtpObserver {
 
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
-        ftpManager.addObserver(this);
+        ftpManager.addDirectoryObserver(this);
     }
 
     @Override
@@ -80,7 +78,7 @@ public class ConnectionTab implements FtpTab, FtpObserver {
 
     @Override
     public void onClose() {
-        ftpManager.removeObserver(this);
+        ftpManager.removeDirectoryObserver(this);
     }
 
     @Override
