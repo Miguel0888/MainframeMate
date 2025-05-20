@@ -45,11 +45,6 @@ public class FtpManager {
     }
 
     private void applyTransferSettings(Settings settings) throws IOException {
-        //ToDo
-
-//        ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
-//        ftpClient.setFileType(FTP.ASCII_FILE_TYPE, FTP.NON_PRINT_TEXT_FORMAT);
-
         // TYPE
         if (settings.ftpFileType != null) {
             // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
@@ -70,23 +65,22 @@ public class FtpManager {
             }
         }
 
-//        ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
-//
         // STRUCTURE
         if (settings.ftpFileStructure != null) {
             ftpClient.setFileStructure(settings.ftpFileStructure.getCode());
+            System.out.println(">> FTP setFileStructure: " + settings.ftpFileStructure);
         } else if (isMvsMode()) {
             ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);
         } else {
             ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
         }
-//
+// ToDo: Check this
 //        // MODE
-//        if (settings.ftpTransferMode != null) {
-//            ftpClient.setFileTransferMode(settings.ftpTransferMode.getCode());
-//        } else {
-//            ftpClient.setFileTransferMode(FTP.STREAM_TRANSFER_MODE);
-//        }
+        if (settings.ftpTransferMode != null) {
+            ftpClient.setFileTransferMode(settings.ftpTransferMode.getCode());
+        } else {
+            ftpClient.setFileTransferMode(FTP.STREAM_TRANSFER_MODE);
+        }
     }
 
     public boolean isConnected() {
