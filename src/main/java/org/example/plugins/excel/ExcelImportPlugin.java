@@ -114,7 +114,6 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
                 formatted = existing + separator + formatted;
             }
 
-            // ✅ Jetzt funktioniert's
             insertTextIntoEditor(formatted, felder);
 
             Map<String, String> settings = getPluginSettings();
@@ -343,25 +342,29 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return new String(chars);
     }
 
-    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) {
+    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) throws IOException {
         Optional<FileTab> optionalTab = mainFrame.getTabManager().getSelectedFileTab();
+        FileTab fileTab;
 
-        if (!optionalTab.isPresent()) {
-            showError(mainFrame, "Keine Datei geöffnet, in die importiert werden kann.");
-            return;
+        if (optionalTab.isPresent()) {
+            fileTab = optionalTab.get();
+            FtpFileBuffer buffer = fileTab.getBuffer();
+
+            // Aktualisiere Buffer, inklusive Hash
+            byte[] newRaw = text.getBytes(buffer.getCharset());
+            buffer.loadContent(new ByteArrayInputStream(newRaw), null);
+
+
+        } else {
+            // Fallback: neuer Tab für nicht gespeicherte Datei
+            fileTab = createNewFileTab(text);
         }
 
-        FileTab fileTab = optionalTab.get();
-        FtpFileBuffer buffer = fileTab.getBuffer();
-
-        // Buffer aktualisieren – rawBytes, content, originalHash
-        byte[] newRaw = text.getBytes(buffer.getCharset());
-        buffer.loadContent(new ByteArrayInputStream(newRaw), null);
-
-        // GUI-Tab aktualisieren
+        // Editor-Inhalt neu setzen
         fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
         fileTab.markAsChanged();
     }
+
 
 
     private FileTab createNewFileTab(String content) {
