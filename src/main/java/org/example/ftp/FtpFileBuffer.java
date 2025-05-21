@@ -33,9 +33,15 @@ public class FtpFileBuffer {
         this.currentCharset = Charset.forName(settings.encoding);
     }
 
+    private void setOriginalHashOnce(byte[] data) {
+        if (this.originalHash == null) {
+            this.originalHash = sha256(data);
+        }
+    }
+
     public void loadContent(InputStream in, ProgressListener progress) throws IOException {
         this.rawBytes = readAllBytes(in, progress);
-        this.originalHash = sha256(rawBytes);
+        setOriginalHashOnce(rawBytes);
         Settings settings = SettingsManager.load();
 
         if (recordStructure) {
