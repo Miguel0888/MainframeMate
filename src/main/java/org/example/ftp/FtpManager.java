@@ -167,8 +167,15 @@ public class FtpManager {
             throw new IOException("Konnte Datei nicht laden: " + filename + "\nAntwort: " + ftpClient.getReplyString());
         }
 
-        FtpFileBuffer buffer = new FtpFileBuffer(filename, fileMeta, true); // recordStructure = true
-        buffer.loadContent(in, null);
+        Charset charset = Charset.forName(SettingsManager.load().encoding);
+        FtpFileBuffer buffer = new FtpFileBuffer(
+                in,
+                charset,
+                filename,
+                fileMeta,
+                true, // recordStructure
+                null  // kein ProgressListener
+        );
 
         in.close();
         if (!ftpClient.completePendingCommand()) {
@@ -178,45 +185,60 @@ public class FtpManager {
         return buffer;
     }
 
-    public boolean storeFile(FtpFileBuffer buffer, String newContent) throws IOException {
-        // InputStream vorbereiten (inkl. Zeilenumbruch-Mapping)
-        InputStream data = buffer.toInputStream(newContent);
+    /**
+     * Versucht, die Datei zu speichern. Liefert bei Konflikt den aktuellen Stand vom Server zurück.
+     * @param original Originaler Buffer (mit gemerktem Hash)
+     * @param altered Neuer Inhalt (z. B. über withContent erzeugt)
+     * @return Optional.empty() bei Erfolg, andernfalls aktueller Remote-Buffer
+     */
+    public Optional<FtpFileBuffer> commit(FtpFileBuffer original, FtpFileBuffer altered) throws IOException {
+        FtpFileBuffer remote = readRemoteBuffer(original);
 
-        // Remote-Version laden
-        InputStream in = ftpClient.retrieveFileStream(buffer.getRemotePath());
-        if (in == null) {
-            throw new IOException("Konnte Server-Datei zum Vergleich nicht laden");
+        if (!original.equals(remote)) {
+            return Optional.of(remote); // Konflikt
         }
 
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] tmp = new byte[8192];
-        int len;
-        while ((len = in.read(tmp)) != -1) out.write(tmp, 0, len);
+        push(altered);
+        return Optional.empty(); // Erfolg
+    }
+
+    /**
+     * Speichert den gegebenen Buffer auf dem Server.
+     * @throws IOException wenn der Schreibvorgang fehlschlägt
+     */
+    public void push(FtpFileBuffer buffer) throws IOException {
+        ByteArrayInputStream in = new ByteArrayInputStream(buffer.getRawBytes());
+
+        boolean success = ftpClient.storeFile(buffer.getRemotePath(), in);
+
+        if (!success) {
+            throw new IOException("Speichern fehlgeschlagen: " + ftpClient.getReplyString());
+        }
+
+        // Optional: Zustand nach Speichern validieren
+//        InputStream check = ftpClient.retrieveFileStream(buffer.getRemotePath());
+//        if (check != null) check.close();
+//        ftpClient.completePendingCommand();
+    }
+
+    private boolean hasRemoteChanged(FtpFileBuffer original) throws IOException {
+        FtpFileBuffer remote = readRemoteBuffer(original);
+        return !original.equals(remote);
+    }
+
+    private FtpFileBuffer readRemoteBuffer(FtpFileBuffer reference) throws IOException {
+        InputStream in = ftpClient.retrieveFileStream(reference.getRemotePath());
+        if (in == null) {
+            throw new IOException("Konnte Server-Datei nicht erneut laden: " + reference.getRemotePath());
+        }
+
+        FtpFileBuffer buffer = reference.withContent(in);
+
         in.close();
         ftpClient.completePendingCommand();
-
-        String currentRemote = new String(out.toByteArray(), buffer.getCharset());
-
-        // Konfliktprüfung
-        if (!buffer.isUnchanged(currentRemote)) {
-            System.err.println("Konflikt: Die Datei wurde auf dem Server geändert.");
-            return false;
-        }
-
-        boolean success = ftpClient.storeFile(buffer.getRemotePath(), data);
-
-        if (success) {
-            // Datei nach erfolgreichem Speichern neu einlesen, um Zustand zu aktualisieren
-            InputStream reloaded = ftpClient.retrieveFileStream(buffer.getRemotePath());
-            if (reloaded != null) {
-                buffer.loadContent(reloaded, null);
-                reloaded.close();
-                ftpClient.completePendingCommand();
-            }
-        }
-
-        return success;
+        return buffer;
     }
+
 
     public boolean hasFeature(FTPCmd cmd) {
         try {
