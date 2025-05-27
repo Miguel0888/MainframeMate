@@ -10,34 +10,48 @@ import java.nio.charset.Charset;
 
 public class FileContentService {
 
-    private final FtpManager ftpManger;
+    private final FtpManager ftpManager;
 
     public FileContentService(FtpManager ftpManager) {
-        this.ftpManger = ftpManager;
+        this.ftpManager = ftpManager;
     }
 
-    public String decodeWith(FtpFileBuffer buffer, Charset charset, boolean recordStructure) {
+    public String decodeWith(FtpFileBuffer buffer) {
         byte[] raw = buffer.getRawBytes();
         if (raw == null) return "";
-        if (recordStructure) {
-            return mapLineEndings(raw, charset);
+        if (buffer.hasRecordStructure()) {
+            return mapLineEndings(raw, ftpManager.getCharset());
         }
-        return new String(raw, charset);
+        return new String(raw, ftpManager.getCharset());
     }
 
-    public boolean isUnchanged(FtpFileBuffer buffer, String newContent) {
-        // todo: use createInputStream und create new FtpFileBuffer, then compare via Hash (has to override equals in FtpFileBuffer?)
-        return true;
+    public boolean isUnchanged(FtpFileBuffer original, String newContent) {
+        InputStream newStream = createCommitStream(newContent, original.hasRecordStructure());
+        try {
+            FtpFileBuffer recreated = original.withContent(newStream);
+            return original.equals(recreated);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Vergleich fehlgeschlagen", e);
+        }
     }
 
-    public InputStream createInputStream(String content, Charset charset, boolean recordStructure) {
+    public InputStream createCommitStream(String content, boolean recordStructure) {
         Settings settings = SettingsManager.load();
         if (recordStructure) {
-            return buildLineMarkedStream(content, settings, charset);
+            return buildLineMarkedStream(content, settings, ftpManager.getCharset());
         }
-        return new ByteArrayInputStream(content.getBytes(charset));
+        return new ByteArrayInputStream(content.getBytes(ftpManager.getCharset()));
     }
 
+    /**
+     * Erzeugt einen InputStream, der Zeilen mit einem konfigurierten Zeilenende-Marker versieht. Der Stream ist nur
+     * zum Speichern gedacht. Zum Lesen muss der umgekehrte Prozess verwendet werden.
+     *
+     * @param content
+     * @param settings
+     * @param charset
+     * @return
+     */
     private InputStream buildLineMarkedStream(String content, Settings settings, Charset charset) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         String[] lines = content.split("\n", -1);

@@ -10,14 +10,18 @@ import java.util.*;
 
 public class FtpManager {
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Fields und Konstruktor
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     private final FTPClient ftpClient = new FTPClient();
     private String currentPath = "/";
     private final List<FtpObserver> observers = new ArrayList<>();
     private boolean mvsMode = false;
 
-    public boolean isMvsMode() {
-        return mvsMode;
-    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Connect und Disconnect
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public boolean connect(String host, String user, String password) throws IOException {
         Settings settings = SettingsManager.load();
@@ -43,6 +47,25 @@ public class FtpManager {
 
         return true;
     }
+
+    public boolean isConnected() {
+        return ftpClient.isConnected();
+    }
+
+    public void disconnect() {
+        try {
+            if (ftpClient.isConnected()) {
+                ftpClient.logout();
+                ftpClient.disconnect();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Query
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private void applyTransferSettings(Settings settings) throws IOException {
         // TYPE
@@ -83,21 +106,6 @@ public class FtpManager {
         }
     }
 
-    public boolean isConnected() {
-        return ftpClient.isConnected();
-    }
-
-    public void disconnect() {
-        try {
-            if (ftpClient.isConnected()) {
-                ftpClient.logout();
-                ftpClient.disconnect();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
     public boolean changeDirectory(String path) throws IOException {
         if (!ftpClient.changeWorkingDirectory(path)) {
             return false;
@@ -115,6 +123,10 @@ public class FtpManager {
         }
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Observer-Pattern für Verzeichnisänderungen
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     public void addObserver(FtpObserver observer) {
         observers.add(observer);
     }
@@ -129,9 +141,29 @@ public class FtpManager {
         }
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Getter und Setter für FTP-Client und Charset etc.
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public boolean isMvsMode() {
+        return mvsMode;
+    }
+
     public FTPClient getClient() {
         return ftpClient;
     }
+
+    public Charset getCharset() {
+        return Charset.forName(ftpClient.getControlEncoding());
+    }
+
+    public void setCharset(Charset charset) {
+        ftpClient.setControlEncoding(charset.name());
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Dateiverwaltung
+
 
     public List<String> listDirectory() {
         try {
@@ -167,10 +199,9 @@ public class FtpManager {
             throw new IOException("Konnte Datei nicht laden: " + filename + "\nAntwort: " + ftpClient.getReplyString());
         }
 
-        Charset charset = Charset.forName(SettingsManager.load().encoding);
         FtpFileBuffer buffer = new FtpFileBuffer(
                 in,
-                charset,
+                getCharset(),
                 filename,
                 fileMeta,
                 true, // recordStructure

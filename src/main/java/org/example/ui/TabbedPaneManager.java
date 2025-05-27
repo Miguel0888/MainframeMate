@@ -2,7 +2,6 @@ package org.example.ui;
 
 import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
-import org.example.ui.FtpTab;
 
 import javax.swing.*;
 import java.awt.*;
@@ -95,8 +94,22 @@ public class TabbedPaneManager {
         return tabbedPane.getSelectedComponent();
     }
 
+    /**
+     * Öffnet einen neuen FileTab, der eine neue Datei anlegt. Der Inhalt wird bis zum Speichern nur im Editor gehalten.
+     */
+    public void openFileTab(String content) {
+        FileTab fileTab = new FileTab(this, content);
+        addTab(fileTab); // handled everything
+    }
+
+    /**
+     * Öffnet einen neuen FileTab, der eine bestehende Datei anzeigt.
+     *
+     * @param ftpManager der FtpManager, der die Verbindung verwaltet
+     * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
+     */
     public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
-        FileTab fileTab = new FileTab(ftpManager, this, buffer);
+        FileTab fileTab = new FileTab(this, ftpManager, buffer);
         addTab(fileTab); // handled everything
     }
 

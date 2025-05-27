@@ -16,8 +16,10 @@ public class FtpFileBuffer {
     private final byte[] rawBytes;
     private final String originalHash;
     private final boolean recordStructure;
+    private final Charset charset;
 
     public FtpFileBuffer(InputStream in, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress) throws IOException {
+        this.charset = charset;
         this.remotePath = remotePath;
         this.fileMeta = fileMeta;
         this.expectedSize = fileMeta != null ? fileMeta.getSize() : -1;
@@ -25,6 +27,10 @@ public class FtpFileBuffer {
 
         this.rawBytes = readAllBytes(in, progress);
         this.originalHash = computeHash(this.rawBytes);
+    }
+
+    public Charset getCharset() {
+        return charset != null ? charset : Charset.defaultCharset();
     }
 
     private byte[] readAllBytes(InputStream in, ProgressListener progress) throws IOException {
@@ -107,7 +113,8 @@ public class FtpFileBuffer {
     public FtpFileBuffer withContent(InputStream input) throws IOException {
         return new FtpFileBuffer(
                 input,
-                charset, this.remotePath,
+                this.getCharset(),
+                this.remotePath,
                 this.fileMeta,
                 this.recordStructure,
                 null

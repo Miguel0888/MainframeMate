@@ -342,49 +342,17 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return new String(chars);
     }
 
-    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) throws IOException {
+    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) {
         Optional<FileTab> optionalTab = mainFrame.getTabManager().getSelectedFileTab();
-        FileTab fileTab;
 
-        if (optionalTab.isPresent()) {
-            fileTab = optionalTab.get();
-            FtpFileBuffer buffer = fileTab.getBuffer();
+        FileTab fileTab = optionalTab.orElseGet(() -> createNewFileTab(null));
 
-            // Aktualisiere Buffer, inklusive Hash
-            byte[] newRaw = text.getBytes(buffer.getCharset());
-            buffer.loadContent(new ByteArrayInputStream(newRaw), null);
-
-
-        } else {
-            // Fallback: neuer Tab für nicht gespeicherte Datei
-            fileTab = createNewFileTab(text);
-        }
-
-        // Editor-Inhalt neu setzen
         fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
         fileTab.markAsChanged();
     }
 
-
-
     private FileTab createNewFileTab(String content) {
-        org.apache.commons.net.ftp.FTPFile dummyMeta = new org.apache.commons.net.ftp.FTPFile();
-        dummyMeta.setName("import");
-        dummyMeta.setSize(content.getBytes(StandardCharsets.UTF_8).length);
-
-        FtpFileBuffer buffer = new FtpFileBuffer("import", dummyMeta, true);
-        try {
-            buffer.loadContent(
-                    new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)),
-                    null
-            );
-        } catch (IOException ex) {
-            showError(mainFrame, "Fehler beim Erstellen des neuen Datei-Tabs:\n" + ex.getMessage());
-            throw new RuntimeException(ex);
-        }
-
-        FtpManager dummyManager = new FtpManager();
-        mainFrame.getTabManager().openFileTab(dummyManager, buffer);
+        mainFrame.getTabManager().openFileTab(content);
 
         return mainFrame.getTabManager().getSelectedFileTab()
                 .orElseThrow(() -> new IllegalStateException("Datei-Tab konnte nicht erzeugt werden"));

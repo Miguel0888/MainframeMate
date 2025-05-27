@@ -3,6 +3,7 @@ package org.example.ui;
 import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
 import org.example.model.Settings;
+import org.example.service.FileContentService;
 import org.example.util.SettingsManager;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -14,9 +15,10 @@ import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
@@ -27,6 +29,7 @@ import javax.swing.undo.CannotUndoException;
 public class FileTab implements FtpTab {
 
     private final FtpManager ftpManager;
+    private final FileContentService fileContentService;
     private final FtpFileBuffer buffer;
     private final JPanel mainPanel = new JPanel(new BorderLayout());
     private final RSyntaxTextArea textArea = new RSyntaxTextArea();
@@ -36,13 +39,24 @@ public class FileTab implements FtpTab {
     private final JButton undoButton = new JButton("↶");
     private final JButton redoButton = new JButton("↷");
 
-    public FileTab(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager, FtpFileBuffer buffer) {
+    public FileTab(TabbedPaneManager tabbedPaneManager, String content) {
+        this(tabbedPaneManager, null, null);
+        if(content != null) {
+            textArea.setText(content);
+        }
+    }
+
+    public FileTab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
+        this.fileContentService = new FileContentService(ftpManager);
         this.buffer = buffer;
 
         initEditorSettings(textArea, SettingsManager.load());
-        textArea.setText(buffer.getContent());
+        if(buffer != null)
+        {
+            textArea.setText(fileContentService.decodeWith(buffer));
+        }
         textArea.getDocument().addUndoableEditListener(undoManager);
         RTextScrollPane scroll = new RTextScrollPane(textArea);
 
@@ -64,14 +78,43 @@ public class FileTab implements FtpTab {
 
     @Override
     public void saveIfApplicable() {
-        try {
-            boolean ok = ftpManager.storeFile(buffer, textArea.getText());
-            if (!ok) {
-                JOptionPane.showMessageDialog(mainPanel, "Datei wurde verändert!\nSpeichern abgebrochen.", "Konflikt", JOptionPane.WARNING_MESSAGE);
-            }
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Speichern:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        if (buffer == null) {
+            createNewBuffer();
         }
+
+        try {
+            // Aktuellen Inhalt aus dem Editor holen
+            InputStream newContent = fileContentService.createCommitStream(textArea.getText(), buffer.hasRecordStructure());
+
+            // Neuen Buffer aus aktuellem Inhalt erzeugen
+            FtpFileBuffer altered = buffer.withContent(newContent);
+
+            // Versuche, die Änderungen zu speichern (Commit prüft auf Konflikte)
+            Optional<FtpFileBuffer> conflict = ftpManager.commit(buffer, altered);
+
+            if (conflict.isPresent()) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "⚠️ Die Datei wurde auf dem Server geändert!\nSpeichern wurde abgebrochen.",
+                        "Speicherkonflikt", JOptionPane.WARNING_MESSAGE);
+            } else {
+                resetUndoHistory(); // Optional: Undo-Historie nach erfolgreichem Speichern leeren
+                changed = false;    // Optional: internen "dirty"-Status zurücksetzen
+                updateTabTitle();   // Optional: Stern entfernen
+            }
+
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Fehler beim Speichern:\n" + e.getMessage(),
+                    "Speicherfehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Diese Methode wird bei Save-Versuchen aufgerufen, wenn kein Buffer existiert.
+     * In einer späteren Version könnte hier ein neuer Buffer erstellt werden.
+     */
+    private void createNewBuffer() {
+        throw new UnsupportedOperationException("Speichern ist für diesen Tab nicht möglich (kein FTP-Buffer vorhanden).");
     }
 
     @Override
@@ -130,19 +173,20 @@ public class FileTab implements FtpTab {
 
         // Rechts: Encoding-Auswahl
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JLabel encodingLabel = new JLabel("Encoding:");
-        JComboBox<String> encodingBox = new JComboBox<>(
-                SettingsManager.SUPPORTED_ENCODINGS.toArray(new String[0])
-        );
-        encodingBox.setSelectedItem(SettingsManager.load().encoding);
-        encodingBox.addActionListener(e -> {
-            String selected = (String) encodingBox.getSelectedItem();
-            ftpManager.getClient().setControlEncoding(selected);
-            Charset charset = Charset.forName(selected);
-            textArea.setText(buffer.decodeWith(charset));
-        });
-        rightPanel.add(encodingLabel);
-        rightPanel.add(encodingBox);
+//        JLabel encodingLabel = new JLabel("Encoding:");
+//        JComboBox<String> encodingBox = new JComboBox<>(
+//                SettingsManager.SUPPORTED_ENCODINGS.toArray(new String[0])
+//        );
+//        encodingBox.setSelectedItem(SettingsManager.load().encoding);
+//        encodingBox.addActionListener(e -> {
+//            String selected = (String) encodingBox.getSelectedItem();
+//            if (selected != null) {
+//                ftpManager.setCharset(Charset.forName(selected));
+//            }
+//            textArea.setText();
+//        });
+//        rightPanel.add(encodingLabel);
+//        rightPanel.add(encodingBox);
 
         // Listener registrieren, um Buttons aktuell zu halten
         textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
