@@ -10,6 +10,8 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 
+import static org.example.util.ByteUtil.parseHex;
+
 public class FileContentService {
 
     private final FtpManager ftpManager;
@@ -109,19 +111,5 @@ public class FileContentService {
         }
 
         return new String(transformed, charset);
-    }
-
-    private byte[] parseHex(String hex) {
-        if (hex == null || hex.isEmpty()) return new byte[0];
-        if (hex.length() % 2 != 0) {
-            throw new IllegalArgumentException("Hex-Zeichenfolge muss gerade Länge haben: " + hex);
-        }
-
-        byte[] bytes = new byte[hex.length() / 2];
-        for (int i = 0; i < bytes.length; i++) {
-            bytes[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
-        }
-
-        return bytes;
     }
 }

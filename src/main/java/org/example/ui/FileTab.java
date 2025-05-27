@@ -30,7 +30,7 @@ public class FileTab implements FtpTab {
 
     private final FtpManager ftpManager;
     private final FileContentService fileContentService;
-    private final FtpFileBuffer buffer;
+    private FtpFileBuffer buffer;
     private final JPanel mainPanel = new JPanel(new BorderLayout());
     private final RSyntaxTextArea textArea = new RSyntaxTextArea();
     private final TabbedPaneManager tabbedPaneManager;
@@ -101,6 +101,10 @@ public class FileTab implements FtpTab {
                         "⚠️ Die Datei wurde auf dem Server geändert!\nSpeichern wurde abgebrochen.",
                         "Speicherkonflikt", JOptionPane.WARNING_MESSAGE);
             } else {
+                // Reload implicit server changes, otherwise next save operation will fail, since hash has changed implicitly
+//                buffer = ftpManager.open(buffer.getRemotePath());
+//                textArea.setText(fileContentService.decodeWith(buffer));
+                buffer = altered;
                 resetUndoHistory(); // Optional: Undo-Historie nach erfolgreichem Speichern leeren
                 changed = false;    // Optional: internen "dirty"-Status zurücksetzen
                 updateTabTitle();   // Optional: Stern entfernen

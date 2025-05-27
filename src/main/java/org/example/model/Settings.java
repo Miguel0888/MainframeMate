@@ -28,7 +28,8 @@ public class Settings {
     public String editorFont = "Monospaced"; // default
     public int editorFontSize = 12; // Standardgröße
     public String lineEnding = "FF01"; // Hex-Werte
-    public String fileEndMarker = "FF02"; // z. B. "FF02", oder leer/null = deaktiviert
+    public String fileEndMarker = "FF02"; // z.B. "FF02", oder leer/null = deaktiviert
+    public String padding = "00"; // "00", oder leer/null = deaktiviert
     public int marginColumn = 80; // 0 bedeutet: keine Linie
 
     public Map<String, String> fieldColorOverrides = new HashMap<>();

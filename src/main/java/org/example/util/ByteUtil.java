@@ -8,6 +8,29 @@ import java.util.Objects;
  */
 public class ByteUtil {
 
+    public static Byte parseHexByte(String hex) {
+        byte[] by = parseHex(hex);
+        if( by.length != 0) {
+            return by[0];
+        } else {
+            return null;
+        }
+    }
+
+    public static byte[] parseHex(String hex) {
+        if (hex == null || hex.isEmpty()) return new byte[0];
+        if (hex.length() % 2 != 0) {
+            throw new IllegalArgumentException("Hex-Zeichenfolge muss gerade Länge haben: " + hex);
+        }
+
+        byte[] bytes = new byte[hex.length() / 2];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+        }
+
+        return bytes;
+    }
+
     /**
      * Replaces all occurrences of a byte pattern in the input array with the given replacement.
      *

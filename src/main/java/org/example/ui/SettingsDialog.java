@@ -3,6 +3,7 @@ package org.example.ui;
 import org.example.ftp.*;
 import org.example.model.FileEndingOption;
 import org.example.model.LineEndingOption;
+import org.example.model.PaddingOption;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
 
@@ -78,6 +79,13 @@ public class SettingsDialog {
         gbc.gridy++;
         JComboBox<String> endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
         panel.add(endMarkerBox, gbc);
+        gbc.gridy++;
+
+        // Padding
+        panel.add(new JLabel("Padding (z. B. 00, leer = aus):"), gbc);
+        gbc.gridy++;
+        JComboBox<String> paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
+        panel.add(paddingBox, gbc);
         gbc.gridy++;
 
         // Marker-Linie (z. B. bei Spalte 80)
@@ -237,6 +245,7 @@ public class SettingsDialog {
             settings.lineEnding = LineEndingOption.normalizeInput(lineEndingBox.getSelectedItem());
             settings.removeFinalNewline = stripFinalNewlineBox.isSelected();
             settings.fileEndMarker = FileEndingOption.normalizeInput(endMarkerBox.getSelectedItem());
+            settings.padding = PaddingOption.normalizeInput(paddingBox.getSelectedItem());
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();

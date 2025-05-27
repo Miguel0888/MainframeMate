@@ -1,6 +1,7 @@
 package org.example.ftp;
 
 import org.apache.commons.net.ftp.FTPFile;
+import org.example.util.SettingsManager;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -17,8 +18,14 @@ public class FtpFileBuffer {
     private final String originalHash;
     private final boolean recordStructure;
     private final Charset charset;
+    private final Byte padding;
 
     public FtpFileBuffer(InputStream in, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress) throws IOException {
+        this(in, null, charset, remotePath, fileMeta, recordStructure, progress);
+    }
+
+    public FtpFileBuffer(InputStream in, Byte padding, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress) throws IOException {
+        this.padding = padding;
         this.charset = charset;
         this.remotePath = remotePath;
         this.fileMeta = fileMeta;
@@ -40,7 +47,11 @@ public class FtpFileBuffer {
         int read;
 
         while ((read = in.read(buffer)) != -1) {
-            out.write(buffer, 0, read);
+            for (int i = 0; i < read; i++) {
+                if (buffer[i] != padding) {
+                    out.write(buffer[i]);
+                }
+            }
             total += read;
             if (expectedSize > 0 && progress != null) {
                 int percent = (int) (100L * total / expectedSize);
@@ -113,6 +124,7 @@ public class FtpFileBuffer {
     public FtpFileBuffer withContent(InputStream input) throws IOException {
         return new FtpFileBuffer(
                 input,
+                this.padding,
                 this.getCharset(),
                 this.remotePath,
                 this.fileMeta,

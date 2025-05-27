@@ -8,6 +8,9 @@ import java.io.*;
 import java.nio.charset.Charset;
 import java.util.*;
 
+import static org.example.util.ByteUtil.parseHex;
+import static org.example.util.ByteUtil.parseHexByte;
+
 public class FtpManager {
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -15,9 +18,18 @@ public class FtpManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private final FTPClient ftpClient = new FTPClient();
+    private final Integer ftpFileType;
+    private final Byte padding; // null if not present or not compatible with ftpFileType
     private String currentPath = "/";
     private final List<FtpObserver> observers = new ArrayList<>();
     private boolean mvsMode = false;
+
+    public FtpManager() {
+        Settings settings = SettingsManager.load();
+        this.ftpFileType = settings.ftpFileType == null ? null : SettingsManager.load().ftpFileType.getCode();
+        this.padding = this.ftpFileType == null || this.ftpFileType == FTP.ASCII_FILE_TYPE ? parseHexByte(settings.padding) : null;
+    }
+
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Connect und Disconnect
@@ -69,14 +81,14 @@ public class FtpManager {
 
     private void applyTransferSettings(Settings settings) throws IOException {
         // TYPE
-        if (settings.ftpFileType != null) {
+        if (ftpFileType != null) {
             // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
             // FORMAT
             if (settings.ftpTextFormat != null) {
-                ftpClient.setFileType(settings.ftpFileType.getCode(), settings.ftpTextFormat.getCode());
+                ftpClient.setFileType(ftpFileType, settings.ftpTextFormat.getCode());
             }
             else {
-                ftpClient.setFileType(settings.ftpFileType.getCode());
+                ftpClient.setFileType(ftpFileType);
             }
         } else {
             // FORMAT
@@ -201,6 +213,7 @@ public class FtpManager {
 
         FtpFileBuffer buffer = new FtpFileBuffer(
                 in,
+                padding,
                 getCharset(),
                 filename,
                 fileMeta,
