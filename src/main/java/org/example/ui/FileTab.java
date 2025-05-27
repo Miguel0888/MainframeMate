@@ -68,7 +68,11 @@ public class FileTab implements FtpTab {
 
     @Override
     public String getTitle() {
-        return "📄 " + buffer.getMeta().getName();
+        String title = "[Neu]";
+        if( buffer != null) {
+            title = "📄 " + buffer.getMeta().getName();
+        }
+        return title;
     }
 
     @Override
@@ -114,7 +118,10 @@ public class FileTab implements FtpTab {
      * In einer späteren Version könnte hier ein neuer Buffer erstellt werden.
      */
     private void createNewBuffer() {
-        throw new UnsupportedOperationException("Speichern ist für diesen Tab nicht möglich (kein FTP-Buffer vorhanden).");
+        // throw new UnsupportedOperationException("Speichern ist für diesen Tab nicht möglich (kein FTP-Buffer vorhanden).");
+        JOptionPane.showMessageDialog(mainPanel,
+                "Speichern neuer Dateien ist hier aktuell nicht möglich. Bitte zunächst eine leere Datei im Verbindungs-Tab anlegen.",
+                "Nicht unterstützte Operation", JOptionPane.WARNING_MESSAGE);
     }
 
     @Override
