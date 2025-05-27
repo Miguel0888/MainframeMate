@@ -82,7 +82,7 @@ public class SettingsDialog {
         gbc.gridy++;
 
         // Padding
-        panel.add(new JLabel("Padding (z. B. 00, leer = aus):"), gbc);
+        panel.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbc);
         gbc.gridy++;
         JComboBox<String> paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
         panel.add(paddingBox, gbc);

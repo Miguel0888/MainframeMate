@@ -47,9 +47,14 @@ public class FtpFileBuffer {
         int read;
 
         while ((read = in.read(buffer)) != -1) {
-            for (int i = 0; i < read; i++) {
-                if (buffer[i] != padding) {
-                    out.write(buffer[i]);
+            if (padding == null) {
+                // Kein Padding → direkte Übernahme
+                out.write(buffer, 0, read);
+            } else {
+                for (int i = 0; i < read; i++) {
+                    if (buffer[i] != padding) { // skip padding bytes
+                        out.write(buffer[i]);
+                    }
                 }
             }
             total += read;
