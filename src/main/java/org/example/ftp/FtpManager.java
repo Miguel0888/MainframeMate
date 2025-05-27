@@ -213,6 +213,11 @@ public class FtpManager {
             throw new IOException("FTP-Übertragung unvollständig: " + filename);
         }
 
+        if (SettingsManager.load().enableHexDump) {
+            System.out.println("📥 Received:");
+            buffer.printHexDump();
+        }
+
         return buffer;
     }
 
@@ -238,6 +243,11 @@ public class FtpManager {
      * @throws IOException wenn der Schreibvorgang fehlschlägt
      */
     public void push(FtpFileBuffer buffer) throws IOException {
+        if (SettingsManager.load().enableHexDump) {
+            System.out.println("📤 Sending:");
+            buffer.printHexDump();
+        }
+
         ByteArrayInputStream in = new ByteArrayInputStream(buffer.getRawBytes());
 
         boolean success = ftpClient.storeFile(buffer.getRemotePath(), in);

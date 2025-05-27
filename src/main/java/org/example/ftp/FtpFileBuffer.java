@@ -121,4 +121,39 @@ public class FtpFileBuffer {
         );
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Debug
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public void printHexDump() {
+        if (rawBytes == null || rawBytes.length == 0) {
+            System.out.println("Keine Daten vorhanden.");
+            return;
+        }
+
+        int offset = 0;
+        while (offset < rawBytes.length) {
+            int len = Math.min(16, rawBytes.length - offset);
+            System.out.printf("%08X  ", offset);
+
+            for (int i = 0; i < 16; i++) {
+                if (i < len) {
+                    System.out.printf("%02X ", rawBytes[offset + i]);
+                } else {
+                    System.out.print("   ");
+                }
+                if (i == 7) System.out.print(" ");
+            }
+
+            System.out.print(" |");
+            for (int i = 0; i < len; i++) {
+                byte b = rawBytes[offset + i];
+                char c = (char) (b & 0xFF);
+                System.out.print((c >= 32 && c <= 126) ? c : '.');
+            }
+            System.out.println("|");
+            offset += len;
+        }
+    }
+
 }
