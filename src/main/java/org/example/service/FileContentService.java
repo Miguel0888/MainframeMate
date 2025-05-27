@@ -3,10 +3,12 @@ package org.example.service;
 import org.example.ftp.FtpFileBuffer;
 import org.example.ftp.FtpManager;
 import org.example.model.Settings;
+import org.example.util.ByteUtil;
 import org.example.util.SettingsManager;
 
 import java.io.*;
 import java.nio.charset.Charset;
+import java.util.Arrays;
 
 public class FileContentService {
 
@@ -20,7 +22,7 @@ public class FileContentService {
         byte[] raw = buffer.getRawBytes();
         if (raw == null) return "";
         if (buffer.hasRecordStructure()) {
-            return mapLineEndings(raw, ftpManager.getCharset());
+            return transformToLocal(raw, ftpManager.getCharset());
         }
         return new String(raw, ftpManager.getCharset());
     }
@@ -38,7 +40,7 @@ public class FileContentService {
     public InputStream createCommitStream(String content, boolean recordStructure) {
         Settings settings = SettingsManager.load();
         if (recordStructure) {
-            return buildLineMarkedStream(content, settings, ftpManager.getCharset());
+            return transformToRemote(content, settings, ftpManager.getCharset());
         }
         return new ByteArrayInputStream(content.getBytes(ftpManager.getCharset()));
     }
@@ -52,7 +54,7 @@ public class FileContentService {
      * @param charset
      * @return
      */
-    private InputStream buildLineMarkedStream(String content, Settings settings, Charset charset) {
+    private InputStream transformToRemote(String content, Settings settings, Charset charset) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         String[] lines = content.split("\n", -1);
         byte[] lineMarker = parseHex(settings.lineEnding);
@@ -63,6 +65,7 @@ public class FileContentService {
                 out.write(lineMarker);
             }
 
+            // Add EOF Marker for Mainframes if present in settings:
             if (settings.fileEndMarker != null && !settings.fileEndMarker.isEmpty()) {
                 byte[] endMarker = parseHex(settings.fileEndMarker);
                 out.write(endMarker);
@@ -75,28 +78,33 @@ public class FileContentService {
         return new ByteArrayInputStream(out.toByteArray());
     }
 
-    private String mapLineEndings(byte[] bytes, Charset charset) {
+    /**
+     * Transformiert die Daten, sodass sie lokal dargestellt werden können.
+     *
+     * @param bytes
+     * @param charset
+     * @return
+     */
+    private String transformToLocal(byte[] bytes, Charset charset) {
         Settings settings = SettingsManager.load();
-        String markerHex = settings.lineEnding;
 
-        if (markerHex == null || markerHex.length() != 4) {
-            return new String(bytes, charset);
+        byte[] recordMarker = parseHex(settings.lineEnding);
+        byte[] endMarker = parseHex(settings.fileEndMarker);
+
+        if (recordMarker.length == 0) {
+            return new String(bytes, charset); // kein Marker konfiguriert
         }
 
-        byte high = (byte) Integer.parseInt(markerHex.substring(0, 2), 16);
-        byte low = (byte) Integer.parseInt(markerHex.substring(2, 4), 16);
+        // Ersetze alle Record-Marker durch '\n'
+        byte[] newline = "\n".getBytes(charset);
+        byte[] transformed = ByteUtil.replaceAll(bytes, recordMarker, newline);
 
-        ByteArrayOutputStream transformed = new ByteArrayOutputStream();
-        for (int i = 0; i < bytes.length; i++) {
-            if (i + 1 < bytes.length && bytes[i] == high && bytes[i + 1] == low) {
-                transformed.write('\n');
-                i++; // Marker überspringen
-            } else {
-                transformed.write(bytes[i]);
-            }
+        // Entferne ggf. Dateiende-Marker
+        if (endMarker.length > 0 && ByteUtil.endsWith(transformed, endMarker)) {
+            transformed = Arrays.copyOf(transformed, transformed.length - endMarker.length);
         }
 
-        return new String(transformed.toByteArray(), charset);
+        return new String(transformed, charset);
     }
 
     private byte[] parseHex(String hex) {
