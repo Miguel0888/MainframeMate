@@ -67,6 +67,11 @@ public class SettingsDialog {
         panel.add(lineEndingBox, gbc);
         gbc.gridy++;
 
+        JCheckBox stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden (falls vorhanden)");
+        stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
+        panel.add(stripFinalNewlineBox, gbc);
+        gbc.gridy++;
+
         // Dateiende
         panel.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbc);
         gbc.gridy++;
@@ -229,6 +234,8 @@ public class SettingsDialog {
                     })
                     .orElse(12);
             settings.lineEnding = LineEndingOption.normalizeInput(lineEndingBox.getSelectedItem());
+            settings.removeFinalNewline = stripFinalNewlineBox.isSelected();
+            settings.fileEndMarker = endMarkerField.getText().trim().isEmpty() ? null : endMarkerField.getText().trim().toUpperCase();
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
@@ -237,7 +244,6 @@ public class SettingsDialog {
             settings.ftpFileStructure = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
             settings.ftpTransferMode = org.example.ui.components.ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
-            settings.fileEndMarker = endMarkerField.getText().trim().isEmpty() ? null : endMarkerField.getText().trim().toUpperCase();
             SettingsManager.save(settings);
 
             ftpManager.getClient().setControlEncoding(settings.encoding);

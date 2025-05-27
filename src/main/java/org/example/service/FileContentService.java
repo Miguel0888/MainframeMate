@@ -104,6 +104,10 @@ public class FileContentService {
             transformed = Arrays.copyOf(transformed, transformed.length - endMarker.length);
         }
 
+        if (settings.removeFinalNewline && transformed.length > 0 && transformed[transformed.length - 1] == '\n') {
+            transformed = Arrays.copyOf(transformed, transformed.length - 1);
+        }
+
         return new String(transformed, charset);
     }
 

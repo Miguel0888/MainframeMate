@@ -8,7 +8,6 @@ import org.example.ftp.FtpTransferMode;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.List;
 
 public class Settings {
     public String host;
@@ -40,4 +39,5 @@ public class Settings {
     public FtpTransferMode ftpTransferMode;
 
     public boolean enableHexDump = false; // Standard = aus
+    public boolean removeFinalNewline = true; // Standard = an
 }
