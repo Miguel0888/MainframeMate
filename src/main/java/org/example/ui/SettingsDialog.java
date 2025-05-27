@@ -1,6 +1,7 @@
 package org.example.ui;
 
 import org.example.ftp.*;
+import org.example.model.FileEndingOption;
 import org.example.model.LineEndingOption;
 import org.example.model.Settings;
 import org.example.util.SettingsManager;
@@ -75,8 +76,8 @@ public class SettingsDialog {
         // Dateiende
         panel.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbc);
         gbc.gridy++;
-        JTextField endMarkerField = new JTextField(settings.fileEndMarker != null ? settings.fileEndMarker : "", 6);
-        panel.add(endMarkerField, gbc);
+        JComboBox<String> endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
+        panel.add(endMarkerBox, gbc);
         gbc.gridy++;
 
         // Marker-Linie (z. B. bei Spalte 80)
@@ -235,7 +236,7 @@ public class SettingsDialog {
                     .orElse(12);
             settings.lineEnding = LineEndingOption.normalizeInput(lineEndingBox.getSelectedItem());
             settings.removeFinalNewline = stripFinalNewlineBox.isSelected();
-            settings.fileEndMarker = endMarkerField.getText().trim().isEmpty() ? null : endMarkerField.getText().trim().toUpperCase();
+            settings.fileEndMarker = FileEndingOption.normalizeInput(endMarkerBox.getSelectedItem());
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();

@@ -1,22 +1,24 @@
 package org.example.model;
 
-import org.example.util.SettingsManager;
-
 import javax.swing.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class LineEndingOption {
+public class FileEndingOption {
     public static final Map<String, String> PRESETS = new LinkedHashMap<>();
 
     static {
-        PRESETS.put("LF (\\n)", "0A");
-        PRESETS.put("CRLF (\\r\\n)", "0D0A");
-        PRESETS.put("FF 01", "FF01");
-        PRESETS.put("Keine (Mainframe)", "");
+        PRESETS.put("Keine", "");
+        PRESETS.put("FF (Form Feed)", "0C");
+        PRESETS.put("FF02", "FF02");
+        PRESETS.put("FFFF", "FFFF");
+        PRESETS.put("EOF", "1A");
     }
 
-    public static JComboBox<String> createLineEndingComboBox(String currentHexValue) {
+    /**
+     * Erzeugt eine editierbare Kombobox mit Vorschlagswerten für Datei-Endemarkierungen
+     */
+    public static JComboBox<String> createEndMarkerComboBox(String currentHexValue) {
         JComboBox<String> comboBox = new JComboBox<>();
         comboBox.setEditable(true);
 
@@ -24,10 +26,13 @@ public class LineEndingOption {
             comboBox.addItem(entry.getValue());
         }
 
-        comboBox.setSelectedItem(currentHexValue != null ? currentHexValue : "FF01");
+        comboBox.setSelectedItem(currentHexValue != null ? currentHexValue : "");
         return comboBox;
     }
 
+    /**
+     * Normalisiert Benutzereingabe (z. B. entfernt Leerzeichen, wandelt in Großbuchstaben um)
+     */
     public static String normalizeInput(Object selectedItem) {
         if (selectedItem == null) return "";
         String raw = selectedItem.toString().trim();
