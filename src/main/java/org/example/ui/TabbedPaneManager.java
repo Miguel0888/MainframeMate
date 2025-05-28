@@ -55,6 +55,28 @@ public class TabbedPaneManager {
         tabbedPane.setSelectedComponent(tab.getComponent());
     }
 
+    public void updateTitleFor(FtpTab tab) {
+        Component comp = tab.getComponent();
+        int index = tabbedPane.indexOfComponent(comp);
+        if (index >= 0) {
+            tabbedPane.setTitleAt(index, tab.getTitle());
+        }
+
+        // Optional: Wenn ein benutzerdefiniertes Tab-Panel (mit Label + Close-Button) verwendet wird:
+        Component tabComponent = tabbedPane.getTabComponentAt(index);
+        if (tabComponent instanceof JPanel) {
+            JPanel panel = (JPanel) tabComponent;
+            for (Component c : panel.getComponents()) {
+                if (c instanceof JLabel) {
+                    JLabel label = (JLabel) c;
+                    label.setText(tab.getTitle());
+                    break;
+                }
+            }
+        }
+
+    }
+
     private void addClosableTabComponent(int index, FtpTab tab) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         tabPanel.setOpaque(false);

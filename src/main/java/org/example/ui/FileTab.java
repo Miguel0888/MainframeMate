@@ -10,16 +10,15 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.FlowLayout;
-import java.awt.Font;
+import java.awt.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Highlighter;
@@ -38,6 +37,9 @@ public class FileTab implements FtpTab {
     private final UndoManager undoManager = new UndoManager();
     private final JButton undoButton = new JButton("↶");
     private final JButton redoButton = new JButton("↷");
+
+    //ToDo: Mit Hashing kombinieren
+    private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
 
     public FileTab(TabbedPaneManager tabbedPaneManager, String content) {
         this(tabbedPaneManager, null, null);
@@ -64,16 +66,39 @@ public class FileTab implements FtpTab {
 
         mainPanel.add(scroll, BorderLayout.CENTER);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
+
+        textArea.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                markAsChanged();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                markAsChanged();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                markAsChanged();
+            }
+        });
     }
 
     @Override
     public String getTitle() {
         String title = "[Neu]";
-        if( buffer != null) {
+        if (buffer != null) {
             title = "📄 " + buffer.getMeta().getName();
         }
+
+        if (changed && !title.endsWith(" *")) {
+            title += " *";
+        }
+
         return title;
     }
+
 
     @Override
     public JComponent getComponent() {
@@ -210,6 +235,12 @@ public class FileTab implements FtpTab {
     private void updateUndoRedoState() {
         undoButton.setEnabled(undoManager.canUndo());
         redoButton.setEnabled(undoManager.canRedo());
+
+        // ToDo: May compare hash too
+//        if(!undoManager.canUndo()) {
+//            changed = false;
+//            updateTabTitle();
+//        }
     }
 
 
@@ -241,24 +272,16 @@ public class FileTab implements FtpTab {
         updateUndoRedoState();
     }
 
-    //ToDo: Mit Hashing kombinieren
-    private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
-
     public void markAsChanged() {
-        this.changed = true;
-        // Optional: Tab-Titel mit Stern markieren
-        updateTabTitle();
+        if(!this.changed) {
+            this.changed = true;
+            // Optional: Tab-Titel mit Stern markieren
+            updateTabTitle();
+        }
     }
 
     private void updateTabTitle() {
-        int index = ((JTabbedPane) mainPanel.getParent()).indexOfComponent(mainPanel);
-        if (index >= 0) {
-            String title = getTitle();
-            if (changed && !title.endsWith("*")) {
-                title += " *";
-            }
-            ((JTabbedPane) mainPanel.getParent()).setTitleAt(index, title);
-        }
+        tabbedPaneManager.updateTitleFor(this);
     }
 
     public String getContent() {
