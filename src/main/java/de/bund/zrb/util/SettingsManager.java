@@ -48,6 +48,7 @@ public class SettingsManager {
         return SETTINGS_FILE.getParentFile();
     }
 
+    @Deprecated
     public static void addBookmark(String path) {
         Settings settings = load();
         Map<String, String> bookmarks = settings.bookmarks;
@@ -66,6 +67,7 @@ public class SettingsManager {
         save(settings);
     }
 
+    @Deprecated
     public static void removeBookmark(String path) {
         Settings settings = load();
         settings.bookmarks.values().removeIf(value -> value.equals(path));
