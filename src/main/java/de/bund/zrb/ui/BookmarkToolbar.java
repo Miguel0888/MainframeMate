@@ -9,6 +9,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
 
+@Deprecated
 public class BookmarkToolbar extends JPanel {
     private final Consumer<String> onBookmarkClick;
 

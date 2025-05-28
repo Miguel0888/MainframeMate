@@ -12,7 +12,8 @@ import java.util.Enumeration;
 public class MainFrame extends JFrame {
 
     private TabbedPaneManager tabManager;
-    private BookmarkToolbar bookmarkToolbar;
+    private ActionToolbar actionToolbar;
+    private BookmarkDrawer bookmarkDrawer;
 
     public MainFrame() {
         setTitle("MainframeMate");
@@ -71,19 +72,33 @@ public class MainFrame extends JFrame {
 
     private void initUI() {
         tabManager = new TabbedPaneManager();
-        bookmarkToolbar = createBookmarkToolbar();
 
         // 1. Plugins registrieren (aber noch nicht initialisieren!)
         registerPlugins();
 
         // 2. Menü erstellen → JMenuBar existiert jetzt
-        JMenuBar menuBar = createMenuBar();
-        setJMenuBar(menuBar);
+        setJMenuBar(createMenuBar());
 
         // 3. Layout
         setLayout(new BorderLayout());
-        add(bookmarkToolbar, BorderLayout.NORTH);
-        add(tabManager.getComponent(), BorderLayout.CENTER);
+
+        // Toolbar ganz oben
+        actionToolbar = new ActionToolbar(this);
+        add(actionToolbar, BorderLayout.NORTH);
+
+        // SplitPane mit Content und BookmarkDrawer links und Tabs rechts
+        bookmarkDrawer = new BookmarkDrawer(path -> {
+            final FtpManager ftpManager = new FtpManager();
+            if (ConnectDialog.show(this, ftpManager)) {
+                ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
+                tabManager.addTab(tab);
+                tab.loadDirectory(path);
+            }
+        });
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, tabManager.getComponent());
+        splitPane.setDividerLocation(220); // oder settings-basiert
+        splitPane.setOneTouchExpandable(true);
+        add(splitPane, BorderLayout.CENTER);
 
         // ✅ 4. Jetzt ist Menü verfügbar → Plugins initialisieren
         PluginManager.initializePlugins(this);
@@ -157,6 +172,7 @@ public class MainFrame extends JFrame {
         return helpMenu;
     }
 
+    @Deprecated
     private BookmarkToolbar createBookmarkToolbar() {
         return new BookmarkToolbar(path -> {
             final FtpManager ftpManager = new FtpManager();
@@ -168,10 +184,8 @@ public class MainFrame extends JFrame {
         });
     }
 
-
-
-    public BookmarkToolbar getBookmarkToolbar() {
-        return bookmarkToolbar;
+    public BookmarkDrawer getBookmarkDrawer() {
+        return bookmarkDrawer;
     }
 
     // Fix Win 11 Problem
