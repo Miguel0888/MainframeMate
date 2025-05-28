@@ -25,7 +25,6 @@ public class SettingsDialog {
     private static JButton removeRowButton;
     private static JButton addRowButton;
     private static JPanel colorButtons;
-    private static JPanel innerColorPanel;
     private static ColorOverrideTableModel colorModel;
     private static JCheckBox hexDumpBox;
     private static JComboBox<FtpTransferMode> modeBox;
@@ -44,13 +43,14 @@ public class SettingsDialog {
     private static JComboBox<String> fontCombo;
     private static JComboBox<String> encodingCombo;
     private static Settings settings;
+    private static JTable colorTable;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
 
         JPanel generalContent = new JPanel(new GridBagLayout());
         JScrollPane generalPanel = new JScrollPane(generalContent);
-        JPanel colorContent = new JPanel(new GridBagLayout());
+        JPanel colorContent = new JPanel(new BorderLayout());
         JScrollPane colorPanel = new JScrollPane(colorContent);
         JPanel transformContent = new JPanel(new GridBagLayout());
         JScrollPane transformPanel = new JScrollPane(transformContent);
@@ -58,26 +58,23 @@ public class SettingsDialog {
         JScrollPane connectPanel = new JScrollPane(connectContent);
 
         tabs.addTab("Allgemein", generalPanel);
-        tabs.addTab("Farben", colorPanel);
-        tabs.addTab("Umwandlung", transformPanel);
-        tabs.addTab("Verbindung", connectPanel);
-
-        GridBagConstraints gbcGeneral = createDefaultGbc();
-        GridBagConstraints gbcColor = createDefaultGbc();
-        GridBagConstraints gbcTransform = createDefaultGbc();
-        GridBagConstraints gbcConnect = createDefaultGbc();
+        tabs.addTab("Farbzuordnung", colorPanel);
+        tabs.addTab("Datenumwandlung", transformPanel);
+        tabs.addTab("FTP-Verbindung", connectPanel);
 
         settings = SettingsManager.load();
 
-        createGeneralContent(generalContent, gbcGeneral, parent);
-        createTransformContent(transformContent, gbcTransform);
-        createConnectContent(connectContent, gbcConnect);
-        createColorContent(parent, gbcColor, colorContent);
+        createGeneralContent(generalContent, parent);
+        createTransformContent(transformContent);
+        createConnectContent(connectContent);
+        createColorContent(colorContent, parent);
 
         showAndApply(parent, ftpManager, tabs);
     }
 
-    private static void createGeneralContent(JPanel generalContent, GridBagConstraints gbcGeneral, Component parent) {
+    private static void createGeneralContent(JPanel generalContent, Component parent) {
+        GridBagConstraints gbcGeneral = createDefaultGbc();
+
         // Schriftart-Auswahl
         gbcGeneral.gridwidth = 2;
         generalContent.add(new JLabel("Editor-Schriftart:"), gbcGeneral);
@@ -144,90 +141,94 @@ public class SettingsDialog {
         gbcGeneral.gridy++;
     }
 
-    private static void createTransformContent(JPanel expertContent, GridBagConstraints gbcExpert) {
+    private static void createTransformContent(JPanel expertContent) {
+        GridBagConstraints gbcTransform = createDefaultGbc();
+
         // Zeichensatz-Auswahl
         encodingCombo = new JComboBox<>();
         List<String> encodings = SettingsManager.SUPPORTED_ENCODINGS;
         encodings.forEach(encodingCombo::addItem);
         String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
         encodingCombo.setSelectedItem(currentEncoding);
-        addEncodingSelector(expertContent, gbcExpert, encodingCombo);
+        addEncodingSelector(expertContent, gbcTransform, encodingCombo);
 
         // Zeilenumbruch
-        expertContent.add(new JLabel("Zeilenumbruch des Servers:"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("Zeilenumbruch des Servers:"), gbcTransform);
+        gbcTransform.gridy++;
         lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
-        expertContent.add(lineEndingBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(lineEndingBox, gbcTransform);
+        gbcTransform.gridy++;
 
         stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden (falls vorhanden)");
         stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
-        expertContent.add(stripFinalNewlineBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(stripFinalNewlineBox, gbcTransform);
+        gbcTransform.gridy++;
 
         // Dateiende
-        expertContent.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbcTransform);
+        gbcTransform.gridy++;
         endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
-        expertContent.add(endMarkerBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(endMarkerBox, gbcTransform);
+        gbcTransform.gridy++;
 
         // Padding
-        expertContent.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbcTransform);
+        gbcTransform.gridy++;
         paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
-        expertContent.add(paddingBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(paddingBox, gbcTransform);
+        gbcTransform.gridy++;
     }
 
-    private static void createConnectContent(JPanel expertContent, GridBagConstraints gbcExpert) {
+    private static void createConnectContent(JPanel expertContent) {
+        GridBagConstraints gbcConnect = createDefaultGbc();
+
         // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE)
-        expertContent.add(new JLabel("FTP Datei-Typ (TYPE):"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("FTP Datei-Typ (TYPE):"), gbcConnect);
+        gbcConnect.gridy++;
         typeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileType.class, settings.ftpFileType, "Standard"
         );
-        expertContent.add(typeBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(typeBox, gbcConnect);
+        gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("FTP Text-Format (FORMAT):"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("FTP Text-Format (FORMAT):"), gbcConnect);
+        gbcConnect.gridy++;
         formatBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTextFormat.class, settings.ftpTextFormat, "Standard"
         );
-        expertContent.add(formatBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(formatBox, gbcConnect);
+        gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbcConnect);
+        gbcConnect.gridy++;
         structureBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileStructure.class, settings.ftpFileStructure, "Automatisch"
         );
-        expertContent.add(structureBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(structureBox, gbcConnect);
+        gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbcConnect);
+        gbcConnect.gridy++;
         modeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTransferMode.class, settings.ftpTransferMode, "Standard"
         );
-        expertContent.add(modeBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(modeBox, gbcConnect);
+        gbcConnect.gridy++;
 
         hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen (Debugzwecke)");
         hexDumpBox.setSelected(settings.enableHexDump);
-        expertContent.add(hexDumpBox, gbcExpert);
-        gbcExpert.gridy++;
+        expertContent.add(hexDumpBox, gbcConnect);
+        gbcConnect.gridy++;
     }
 
-    private static void createColorContent(Component parent, GridBagConstraints gbcColor, JPanel colorContent) {
+    private static void createColorContent(JPanel colorContent, Component parent) {
         // Farbüberschreibungen für Feldnamen
-        gbcColor.gridwidth = 2;
-        colorContent.add(new JLabel("Farbüberschreibungen für Feldnamen:"), gbcColor);
-        gbcColor.gridy++;
+        colorContent.add(new JLabel("Farbüberschreibungen für Feldnamen:"), BorderLayout.NORTH);
 
         colorModel = new ColorOverrideTableModel(settings.fieldColorOverrides);
-        JTable colorTable = new JTable(colorModel);
+        colorTable = new JTable(colorModel);
+//        colorTable.setPreferredScrollableViewportSize(new Dimension(400, 150));
+//        colorTable.setRowHeight(22);
         colorTable.getColumnModel().getColumn(1).setCellEditor(new ColorCellEditor());
         colorTable.getColumnModel().getColumn(1).setCellRenderer((table, value, isSelected, hasFocus, row, col) -> {
             JLabel label = new JLabel(value != null ? value.toString() : "");
@@ -254,9 +255,6 @@ public class SettingsDialog {
         colorTable.setFillsViewportHeight(true);
         colorTable.setPreferredScrollableViewportSize(new Dimension(300, 100));
 
-        innerColorPanel = new JPanel(new BorderLayout());
-        innerColorPanel.add(new JScrollPane(colorTable), BorderLayout.CENTER);
-
         colorButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         addRowButton = new JButton("➕");
         addRowButton.addActionListener(e -> {
@@ -275,10 +273,13 @@ public class SettingsDialog {
 
         colorButtons.add(addRowButton);
         colorButtons.add(removeRowButton);
+
+        JPanel innerColorPanel = new JPanel(new BorderLayout());
+        innerColorPanel.add(new JScrollPane(colorTable), BorderLayout.CENTER);
         innerColorPanel.add(colorButtons, BorderLayout.SOUTH);
 
-        colorContent.add(innerColorPanel, gbcColor);
-        gbcColor.gridy++;
+        colorContent.add(innerColorPanel, BorderLayout.CENTER);
+        colorContent.add(colorButtons, BorderLayout.SOUTH);
     }
 
     private static void showAndApply(Component parent, FtpManager ftpManager, JTabbedPane tabs) {
