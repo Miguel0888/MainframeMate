@@ -22,99 +22,114 @@ import java.util.Optional;
 
 public class SettingsDialog {
 
+    private static JButton removeRowButton;
+    private static JButton addRowButton;
+    private static JPanel colorButtons;
+    private static JPanel innerColorPanel;
+    private static ColorOverrideTableModel colorModel;
+    private static JCheckBox hexDumpBox;
+    private static JComboBox<FtpTransferMode> modeBox;
+    private static JComboBox<FtpFileStructure> structureBox;
+    private static JComboBox<FtpTextFormat> formatBox;
+    private static JComboBox<FtpFileType> typeBox;
+    private static JButton openFolderButton;
+    private static JCheckBox autoConnectBox;
+    private static JCheckBox hideLoginBox;
+    private static JSpinner marginSpinner;
+    private static JComboBox<String> paddingBox;
+    private static JComboBox<String> endMarkerBox;
+    private static JCheckBox stripFinalNewlineBox;
+    private static JComboBox<String> lineEndingBox;
+    private static JComboBox<Integer> fontSizeCombo;
+    private static JComboBox<String> fontCombo;
+    private static JComboBox<String> encodingCombo;
+    private static Settings settings;
+
     public static void show(Component parent, FtpManager ftpManager) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = createDefaultGbc();
+        JTabbedPane tabs = new JTabbedPane();
 
-        // Zeichensatz-Auswahl
-        JComboBox<String> encodingCombo = new JComboBox<>();
-        List<String> encodings = SettingsManager.SUPPORTED_ENCODINGS;
-        encodings.forEach(encodingCombo::addItem);
+        JPanel generalContent = new JPanel(new GridBagLayout());
+        JScrollPane generalPanel = new JScrollPane(generalContent);
+        JPanel colorContent = new JPanel(new GridBagLayout());
+        JScrollPane colorPanel = new JScrollPane(colorContent);
+        JPanel transformContent = new JPanel(new GridBagLayout());
+        JScrollPane transformPanel = new JScrollPane(transformContent);
+        JPanel connectContent = new JPanel(new GridBagLayout());
+        JScrollPane connectPanel = new JScrollPane(connectContent);
 
-        Settings settings = SettingsManager.load();
-        String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
-        encodingCombo.setSelectedItem(currentEncoding);
+        tabs.addTab("Allgemein", generalPanel);
+        tabs.addTab("Farben", colorPanel);
+        tabs.addTab("Umwandlung", transformPanel);
+        tabs.addTab("Verbindung", connectPanel);
 
-        addEncodingSelector(panel, gbc, encodingCombo);
+        GridBagConstraints gbcGeneral = createDefaultGbc();
+        GridBagConstraints gbcColor = createDefaultGbc();
+        GridBagConstraints gbcTransform = createDefaultGbc();
+        GridBagConstraints gbcConnect = createDefaultGbc();
 
+        settings = SettingsManager.load();
+
+        createGeneralContent(generalContent, gbcGeneral, parent);
+        createTransformContent(transformContent, gbcTransform);
+        createConnectContent(connectContent, gbcConnect);
+        createColorContent(parent, gbcColor, colorContent);
+
+        showAndApply(parent, ftpManager, tabs);
+    }
+
+    private static void createGeneralContent(JPanel generalContent, GridBagConstraints gbcGeneral, Component parent) {
         // Schriftart-Auswahl
-        gbc.gridwidth = 2;
-        panel.add(new JLabel("Editor-Schriftart:"), gbc);
-        gbc.gridy++;
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Editor-Schriftart:"), gbcGeneral);
+        gbcGeneral.gridy++;
 
-        JComboBox<String> fontCombo = new JComboBox<>(new String[] {
+        fontCombo = new JComboBox<>(new String[] {
                 "Monospaced", "Consolas", "Courier New", "Menlo", "Dialog"
         });
         fontCombo.setSelectedItem(settings.editorFont);
-        panel.add(fontCombo, gbc);
-        gbc.gridy++;
-        gbc.gridwidth = 1;
+        generalContent.add(fontCombo, gbcGeneral);
+        gbcGeneral.gridy++;
+        gbcGeneral.gridwidth = 1;
 
         // Schriftgröße
-        gbc.gridwidth = 2;
-        panel.add(new JLabel("Editor-Schriftgröße:"), gbc);
-        gbc.gridy++;
-        JComboBox<Integer> fontSizeCombo = new JComboBox<>(new Integer[] {
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Editor-Schriftgröße:"), gbcGeneral);
+        gbcGeneral.gridy++;
+        fontSizeCombo = new JComboBox<>(new Integer[] {
                 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72
         });
         fontSizeCombo.setEditable(true);
         fontSizeCombo.setSelectedItem(settings.editorFontSize);
-        panel.add(fontSizeCombo, gbc);
-        gbc.gridy++;
-        gbc.gridwidth = 1;
-
-        // Zeilenumbruch
-        panel.add(new JLabel("Zeilenumbruch des Servers:"), gbc);
-        gbc.gridy++;
-        JComboBox<String> lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
-        panel.add(lineEndingBox, gbc);
-        gbc.gridy++;
-
-        JCheckBox stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden (falls vorhanden)");
-        stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
-        panel.add(stripFinalNewlineBox, gbc);
-        gbc.gridy++;
-
-        // Dateiende
-        panel.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbc);
-        gbc.gridy++;
-        JComboBox<String> endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
-        panel.add(endMarkerBox, gbc);
-        gbc.gridy++;
-
-        // Padding
-        panel.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbc);
-        gbc.gridy++;
-        JComboBox<String> paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
-        panel.add(paddingBox, gbc);
-        gbc.gridy++;
+        generalContent.add(fontSizeCombo, gbcGeneral);
+        gbcGeneral.gridy++;
+        gbcGeneral.gridwidth = 1;
 
         // Marker-Linie (z. B. bei Spalte 80)
-        gbc.gridwidth = 2;
-        panel.add(new JLabel("Vertikale Markierung bei Spalte (0 = aus):"), gbc);
-        gbc.gridy++;
-        JSpinner marginSpinner = new JSpinner(new SpinnerNumberModel(
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Vertikale Markierung bei Spalte (0 = aus):"), gbcGeneral);
+        gbcGeneral.gridy++;
+        marginSpinner = new JSpinner(new SpinnerNumberModel(
                 Math.max(0, settings.marginColumn),  // sicherstellen, dass 0 erlaubt ist
                 0, 200, 1
         ));
-        panel.add(marginSpinner, gbc);
-        gbc.gridy++;
-        gbc.gridwidth = 1;
+        generalContent.add(marginSpinner, gbcGeneral);
+        gbcGeneral.gridy++;
+        gbcGeneral.gridwidth = 1;
 
         // Login-Dialog unterdrücken
-        JCheckBox hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
+        hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
         hideLoginBox.setSelected(settings.hideLoginDialog);
-        panel.add(hideLoginBox, gbc);
-        gbc.gridy++;
+        generalContent.add(hideLoginBox, gbcGeneral);
+        gbcGeneral.gridy++;
 
         // Login beim Start (new Session), falls Bookmarks nicht verwendet werden
-        JCheckBox autoConnectBox = new JCheckBox("Automatisch verbinden (beim Start)");
+        autoConnectBox = new JCheckBox("Automatisch verbinden (beim Start)");
         autoConnectBox.setSelected(settings.autoConnect);
-        panel.add(autoConnectBox, gbc);
-        gbc.gridy++;
+        generalContent.add(autoConnectBox, gbcGeneral);
+        gbcGeneral.gridy++;
 
         // User Profile Folder
-        JButton openFolderButton = new JButton("\uD83D\uDCC1");
+        openFolderButton = new JButton("\uD83D\uDCC1");
         openFolderButton.setToolTipText("Einstellungsordner öffnen");
         openFolderButton.setMargin(new Insets(0, 5, 0, 5));
         openFolderButton.setFocusable(false);
@@ -125,53 +140,93 @@ public class SettingsDialog {
                 JOptionPane.showMessageDialog(parent, "Ordner konnte nicht geöffnet werden:\n" + ex.getMessage());
             }
         });
-        panel.add(openFolderButton, gbc);
-        gbc.gridy++;
+        generalContent.add(openFolderButton, gbcGeneral);
+        gbcGeneral.gridy++;
+    }
 
+    private static void createTransformContent(JPanel expertContent, GridBagConstraints gbcExpert) {
+        // Zeichensatz-Auswahl
+        encodingCombo = new JComboBox<>();
+        List<String> encodings = SettingsManager.SUPPORTED_ENCODINGS;
+        encodings.forEach(encodingCombo::addItem);
+        String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
+        encodingCombo.setSelectedItem(currentEncoding);
+        addEncodingSelector(expertContent, gbcExpert, encodingCombo);
+
+        // Zeilenumbruch
+        expertContent.add(new JLabel("Zeilenumbruch des Servers:"), gbcExpert);
+        gbcExpert.gridy++;
+        lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
+        expertContent.add(lineEndingBox, gbcExpert);
+        gbcExpert.gridy++;
+
+        stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden (falls vorhanden)");
+        stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
+        expertContent.add(stripFinalNewlineBox, gbcExpert);
+        gbcExpert.gridy++;
+
+        // Dateiende
+        expertContent.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbcExpert);
+        gbcExpert.gridy++;
+        endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
+        expertContent.add(endMarkerBox, gbcExpert);
+        gbcExpert.gridy++;
+
+        // Padding
+        expertContent.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbcExpert);
+        gbcExpert.gridy++;
+        paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
+        expertContent.add(paddingBox, gbcExpert);
+        gbcExpert.gridy++;
+    }
+
+    private static void createConnectContent(JPanel expertContent, GridBagConstraints gbcExpert) {
         // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE)
-        panel.add(new JLabel("FTP Datei-Typ (TYPE):"), gbc);
-        gbc.gridy++;
-        JComboBox<FtpFileType> typeBox = ComboBoxHelper.createComboBoxWithNullOption(
+        expertContent.add(new JLabel("FTP Datei-Typ (TYPE):"), gbcExpert);
+        gbcExpert.gridy++;
+        typeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileType.class, settings.ftpFileType, "Standard"
         );
-        panel.add(typeBox, gbc);
-        gbc.gridy++;
+        expertContent.add(typeBox, gbcExpert);
+        gbcExpert.gridy++;
 
-        panel.add(new JLabel("FTP Text-Format (FORMAT):"), gbc);
-        gbc.gridy++;
-        JComboBox<FtpTextFormat> formatBox = ComboBoxHelper.createComboBoxWithNullOption(
+        expertContent.add(new JLabel("FTP Text-Format (FORMAT):"), gbcExpert);
+        gbcExpert.gridy++;
+        formatBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTextFormat.class, settings.ftpTextFormat, "Standard"
         );
-        panel.add(formatBox, gbc);
-        gbc.gridy++;
+        expertContent.add(formatBox, gbcExpert);
+        gbcExpert.gridy++;
 
-        panel.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbc);
-        gbc.gridy++;
-        JComboBox<FtpFileStructure> structureBox = ComboBoxHelper.createComboBoxWithNullOption(
+        expertContent.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbcExpert);
+        gbcExpert.gridy++;
+        structureBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileStructure.class, settings.ftpFileStructure, "Automatisch"
         );
-        panel.add(structureBox, gbc);
-        gbc.gridy++;
+        expertContent.add(structureBox, gbcExpert);
+        gbcExpert.gridy++;
 
-        panel.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbc);
-        gbc.gridy++;
-        JComboBox<FtpTransferMode> modeBox = ComboBoxHelper.createComboBoxWithNullOption(
+        expertContent.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbcExpert);
+        gbcExpert.gridy++;
+        modeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTransferMode.class, settings.ftpTransferMode, "Standard"
         );
-        panel.add(modeBox, gbc);
-        gbc.gridy++;
+        expertContent.add(modeBox, gbcExpert);
+        gbcExpert.gridy++;
 
-        JCheckBox hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen (Debugzwecke)");
+        hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen (Debugzwecke)");
         hexDumpBox.setSelected(settings.enableHexDump);
-        panel.add(hexDumpBox, gbc);
-        gbc.gridy++;
+        expertContent.add(hexDumpBox, gbcExpert);
+        gbcExpert.gridy++;
+    }
 
+    private static void createColorContent(Component parent, GridBagConstraints gbcColor, JPanel colorContent) {
         // Farbüberschreibungen für Feldnamen
-        gbc.gridwidth = 2;
-        panel.add(new JLabel("Farbüberschreibungen für Feldnamen:"), gbc);
-        gbc.gridy++;
+        gbcColor.gridwidth = 2;
+        colorContent.add(new JLabel("Farbüberschreibungen für Feldnamen:"), gbcColor);
+        gbcColor.gridy++;
 
-        ColorOverrideTableModel colorModel = new ColorOverrideTableModel(settings.fieldColorOverrides);
+        colorModel = new ColorOverrideTableModel(settings.fieldColorOverrides);
         JTable colorTable = new JTable(colorModel);
         colorTable.getColumnModel().getColumn(1).setCellEditor(new ColorCellEditor());
         colorTable.getColumnModel().getColumn(1).setCellRenderer((table, value, isSelected, hasFocus, row, col) -> {
@@ -199,18 +254,18 @@ public class SettingsDialog {
         colorTable.setFillsViewportHeight(true);
         colorTable.setPreferredScrollableViewportSize(new Dimension(300, 100));
 
-        JPanel colorPanel = new JPanel(new BorderLayout());
-        colorPanel.add(new JScrollPane(colorTable), BorderLayout.CENTER);
+        innerColorPanel = new JPanel(new BorderLayout());
+        innerColorPanel.add(new JScrollPane(colorTable), BorderLayout.CENTER);
 
-        JPanel colorButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton addRowButton = new JButton("➕");
+        colorButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        addRowButton = new JButton("➕");
         addRowButton.addActionListener(e -> {
             String key = JOptionPane.showInputDialog(parent, "Feldname eingeben:");
             if (key != null && !key.trim().isEmpty()) {
                 colorModel.addEntry(key.trim().toUpperCase(), "#00AA00");
             }
         });
-        JButton removeRowButton = new JButton("➖");
+        removeRowButton = new JButton("➖");
         removeRowButton.addActionListener(e -> {
             int selected = colorTable.getSelectedRow();
             if (selected >= 0) {
@@ -220,19 +275,27 @@ public class SettingsDialog {
 
         colorButtons.add(addRowButton);
         colorButtons.add(removeRowButton);
-        colorPanel.add(colorButtons, BorderLayout.SOUTH);
+        innerColorPanel.add(colorButtons, BorderLayout.SOUTH);
 
-        panel.add(colorPanel, gbc);
-        gbc.gridy++;
+        colorContent.add(innerColorPanel, gbcColor);
+        gbcColor.gridy++;
+    }
 
+    private static void showAndApply(Component parent, FtpManager ftpManager, JTabbedPane tabs) {
+        // Dialog formatieren
+        JPanel container = new JPanel(new BorderLayout());
+        container.add(tabs, BorderLayout.CENTER);
+
+        // Bildschirmhöhe holen
+        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        int height = (int) (screenSize.height * 0.8);  // 80% der Bildschirmhöhe
+        int width = 600;  // feste Breite
+
+        container.setPreferredSize(new Dimension(width, height));
 
         // Dialog anzeigen
-        JScrollPane scrollPane = new JScrollPane(panel);
-        scrollPane.setPreferredSize(new Dimension(450, 800)); // Optional anpassen
-
-        int result = JOptionPane.showConfirmDialog(parent, scrollPane, "Einstellungen",
+        int result = JOptionPane.showConfirmDialog(parent, container, "Einstellungen",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
 
         if (result == JOptionPane.OK_OPTION) {
             settings.encoding = (String) encodingCombo.getSelectedItem();
