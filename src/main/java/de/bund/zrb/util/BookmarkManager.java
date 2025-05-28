@@ -150,4 +150,71 @@ public class BookmarkManager {
         }
         return false;
     }
+
+    public static void moveBookmarkTo(String pathToMove, String targetParentPath, int insertIndex) {
+        List<BookmarkEntry> rootEntries = loadBookmarks();
+        BookmarkEntry entry = removeAndReturn(rootEntries, pathToMove);
+
+        if (entry == null) return;
+
+        List<BookmarkEntry> targetList;
+        if (targetParentPath == null) {
+            targetList = rootEntries;
+        } else {
+            BookmarkEntry parent = findEntryByPath(rootEntries, targetParentPath);
+            if (parent == null || !parent.folder) return;
+
+            if (parent.children == null) parent.children = new ArrayList<>();
+            targetList = parent.children;
+        }
+
+        if (insertIndex < 0 || insertIndex > targetList.size()) {
+            targetList.add(entry);
+        } else {
+            targetList.add(insertIndex, entry);
+        }
+
+        saveBookmarks(rootEntries);
+    }
+
+    private static BookmarkEntry removeAndReturn(List<BookmarkEntry> list, String path) {
+        Iterator<BookmarkEntry> it = list.iterator();
+        while (it.hasNext()) {
+            BookmarkEntry entry = it.next();
+            if (path.equals(entry.path)) {
+                it.remove();
+                return entry;
+            }
+            if (entry.folder && entry.children != null) {
+                BookmarkEntry found = removeAndReturn(entry.children, path);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static BookmarkEntry findEntryByPath(List<BookmarkEntry> list, String path) {
+        for (BookmarkEntry entry : list) {
+            if (path.equals(entry.path)) return entry;
+            if (entry.folder && entry.children != null) {
+                BookmarkEntry found = findEntryByPath(entry.children, path);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+
+    private static BookmarkEntry findFolderByLabel(List<BookmarkEntry> entries, String label) {
+        for (BookmarkEntry entry : entries) {
+            if (entry.folder && label.equals(entry.label)) {
+                return entry;
+            } else if (entry.folder && entry.children != null) {
+                BookmarkEntry found = findFolderByLabel(entry.children, label);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
 }

@@ -26,13 +26,17 @@ public class BookmarkDrawer extends JPanel {
         setPreferredSize(new Dimension(220, 0));
         setBorder(BorderFactory.createTitledBorder("📁 Bookmarks"));
 
-        rootNode = new DefaultMutableTreeNode("Bookmarks");
+        BookmarkEntry rootEntry = new BookmarkEntry("Bookmarks", null, true);
+        rootNode = new DefaultMutableTreeNode(rootEntry);
         treeModel = new DefaultTreeModel(rootNode);
         tree = new JTree(treeModel);
         tree.setRootVisible(false);
         tree.setShowsRootHandles(true);
 
         tree.setCellRenderer(new BookmarkTreeCellRenderer());
+        tree.setDragEnabled(true);
+        tree.setDropMode(DropMode.ON_OR_INSERT);
+        tree.setTransferHandler(new BookmarkTreeTransferHandler(this));
 
         JScrollPane scrollPane = new JScrollPane(tree);
         add(scrollPane, BorderLayout.CENTER);
@@ -181,4 +185,6 @@ public class BookmarkDrawer extends JPanel {
             return comp;
         }
     }
+
+
 }
