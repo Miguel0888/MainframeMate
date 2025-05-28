@@ -195,15 +195,20 @@ public class FtpManager {
         }
 
         String finalName = filename;
+        // fileMeta will be null for FBA (but FB is working)
         FTPFile fileMeta = Arrays.stream(ftpClient.listFiles())
                 .filter(f -> f.getName().equalsIgnoreCase(finalName))
-                .findFirst()
-                .orElseThrow(() -> new IOException("Datei nicht gefunden: " + finalName));
+                .findFirst().orElse(null);
 
-
-        if (fileMeta.isDirectory()) {
-            openDirectory(filename);
-            return null;
+        // Caution: Will be NULL for FBA Record Format !!!
+        if (fileMeta == null) {
+            fileMeta = new FTPFile();
+            fileMeta.setName(finalName);
+        } else {
+            if (fileMeta.isDirectory()) {
+                openDirectory(filename);
+                return null;
+            }
         }
 
         InputStream in = ftpClient.retrieveFileStream(filename);
