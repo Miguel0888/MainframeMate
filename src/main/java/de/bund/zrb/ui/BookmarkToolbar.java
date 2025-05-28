@@ -49,7 +49,7 @@ public class BookmarkToolbar extends JPanel {
         SettingsManager.addBookmark(path);
         refreshBookmarks();
 
-        JOptionPane.showMessageDialog(parent, "Bookmark gesetzt für: " + path);
+//        JOptionPane.showMessageDialog(parent, "Bookmark gesetzt für: " + path);
     }
 
     private void attachContextMenu(JButton button, String path) {
