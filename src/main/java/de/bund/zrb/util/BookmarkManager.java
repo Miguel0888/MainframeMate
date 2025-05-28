@@ -41,6 +41,30 @@ public class BookmarkManager {
         saveBookmarks(bookmarks);
     }
 
+    public static void addBookmarkToFolder(String parentLabel, BookmarkEntry newEntry) {
+        List<BookmarkEntry> bookmarks = loadBookmarks();
+        if (addToFolderRecursively(bookmarks, parentLabel, newEntry)) {
+            saveBookmarks(bookmarks);
+        }
+    }
+
+    private static boolean addToFolderRecursively(List<BookmarkEntry> entries, String parentLabel, BookmarkEntry newEntry) {
+        for (BookmarkEntry entry : entries) {
+            if (entry.folder && parentLabel.equals(entry.label)) {
+                if (entry.children == null) {
+                    entry.children = new ArrayList<>();
+                }
+                entry.children.add(newEntry);
+                return true;
+            } else if (entry.folder && entry.children != null) {
+                if (addToFolderRecursively(entry.children, parentLabel, newEntry)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public static void removeBookmarkByPath(String path) {
         List<BookmarkEntry> bookmarks = loadBookmarks();
         if (removeRecursively(bookmarks, path)) {
@@ -58,6 +82,28 @@ public class BookmarkManager {
                 modified = true;
             } else if (entry.folder && entry.children != null) {
                 modified |= removeRecursively(entry.children, path);
+            }
+        }
+        return modified;
+    }
+
+    public static void removeFolderByLabel(String label) {
+        List<BookmarkEntry> bookmarks = loadBookmarks();
+        if (removeFolderRecursively(bookmarks, label)) {
+            saveBookmarks(bookmarks);
+        }
+    }
+
+    private static boolean removeFolderRecursively(List<BookmarkEntry> entries, String label) {
+        Iterator<BookmarkEntry> iterator = entries.iterator();
+        boolean modified = false;
+        while (iterator.hasNext()) {
+            BookmarkEntry entry = iterator.next();
+            if (entry.folder && label.equals(entry.label)) {
+                iterator.remove();
+                modified = true;
+            } else if (entry.folder && entry.children != null) {
+                modified |= removeFolderRecursively(entry.children, label);
             }
         }
         return modified;
@@ -84,4 +130,24 @@ public class BookmarkManager {
         return false;
     }
 
+    public static void renameFolder(String oldLabel, String newLabel) {
+        List<BookmarkEntry> bookmarks = loadBookmarks();
+        if (renameFolderRecursively(bookmarks, oldLabel, newLabel)) {
+            saveBookmarks(bookmarks);
+        }
+    }
+
+    private static boolean renameFolderRecursively(List<BookmarkEntry> entries, String oldLabel, String newLabel) {
+        for (BookmarkEntry entry : entries) {
+            if (entry.folder && oldLabel.equals(entry.label)) {
+                entry.label = newLabel;
+                return true;
+            } else if (entry.folder && entry.children != null) {
+                if (renameFolderRecursively(entry.children, oldLabel, newLabel)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

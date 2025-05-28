@@ -62,17 +62,25 @@ public class BookmarkDrawer extends JPanel {
             @Override
             public void mousePressed(MouseEvent e) {
                 TreePath selPath = tree.getPathForLocation(e.getX(), e.getY());
-                if (selPath == null) return;
 
-                Object nodeObj = ((DefaultMutableTreeNode) selPath.getLastPathComponent()).getUserObject();
-                if (!(nodeObj instanceof BookmarkEntry)) return;
-
-                BookmarkEntry entry = (BookmarkEntry) nodeObj;
-
-                if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2 && entry.isLeaf()) {
-                    onBookmarkClick.accept(entry.path);
-                } else if (SwingUtilities.isRightMouseButton(e)) {
-                    showContextMenu(e.getComponent(), e.getX(), e.getY(), entry);
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    if (selPath == null) {
+                        showContextMenu(e.getComponent(), e.getX(), e.getY(), null); // root context
+                    } else {
+                        Object nodeObj = ((DefaultMutableTreeNode) selPath.getLastPathComponent()).getUserObject();
+                        if (nodeObj instanceof BookmarkEntry) {
+                            BookmarkEntry entry = (BookmarkEntry) nodeObj;
+                            showContextMenu(e.getComponent(), e.getX(), e.getY(), entry);
+                        }
+                    }
+                } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 2 && selPath != null) {
+                    Object nodeObj = ((DefaultMutableTreeNode) selPath.getLastPathComponent()).getUserObject();
+                    if (nodeObj instanceof BookmarkEntry) {
+                        BookmarkEntry entry = (BookmarkEntry) nodeObj;
+                        if (entry.isLeaf()) {
+                            onBookmarkClick.accept(entry.path);
+                        }
+                    }
                 }
             }
         });
@@ -81,22 +89,56 @@ public class BookmarkDrawer extends JPanel {
     private void showContextMenu(Component invoker, int x, int y, BookmarkEntry entry) {
         JPopupMenu menu = new JPopupMenu();
 
-        JMenuItem renameItem = new JMenuItem("✏️ Umbenennen");
-        renameItem.addActionListener(e -> {
-            String newLabel = JOptionPane.showInputDialog(invoker, "Neuer Name:", entry.label);
-            if (newLabel != null && !newLabel.trim().isEmpty()) {
-                BookmarkManager.renameBookmark(entry.path, newLabel.trim());
-                refreshBookmarks();
-            }
-        });
-        menu.add(renameItem);
+        if (entry == null) {
+            JMenuItem newFolder = new JMenuItem("📁 Neuer Ordner");
+            newFolder.addActionListener(e -> {
+                String name = JOptionPane.showInputDialog(invoker, "Name des neuen Ordners:");
+                if (name != null && !name.trim().isEmpty()) {
+                    BookmarkEntry folder = new BookmarkEntry(name.trim(), null, true);
+                    BookmarkManager.addBookmark(folder);
+                    refreshBookmarks();
+                }
+            });
+            menu.add(newFolder);
+        } else {
+            JMenuItem renameItem = new JMenuItem("✏️ Umbenennen");
+            renameItem.addActionListener(e -> {
+                String newLabel = JOptionPane.showInputDialog(invoker, "Neuer Name:", entry.label);
+                if (newLabel != null && !newLabel.trim().isEmpty()) {
+                    if (entry.folder) {
+                        BookmarkManager.renameFolder(entry.label, newLabel.trim());
+                    } else {
+                        BookmarkManager.renameBookmark(entry.path, newLabel.trim());
+                    }
+                    refreshBookmarks();
+                }
+            });
+            menu.add(renameItem);
 
-        JMenuItem deleteItem = new JMenuItem("❌ Entfernen");
-        deleteItem.addActionListener(e -> {
-            BookmarkManager.removeBookmarkByPath(entry.path);
-            refreshBookmarks();
-        });
-        menu.add(deleteItem);
+            if (entry.folder) {
+                JMenuItem newSubfolderItem = new JMenuItem("📁 Neuen Unterordner anlegen");
+                newSubfolderItem.addActionListener(e -> {
+                    String name = JOptionPane.showInputDialog(invoker, "Name des neuen Ordners:");
+                    if (name != null && !name.trim().isEmpty()) {
+                        BookmarkEntry folder = new BookmarkEntry(name.trim(), null, true);
+                        BookmarkManager.addBookmarkToFolder(entry.label, folder);
+                        refreshBookmarks();
+                    }
+                });
+                menu.add(newSubfolderItem);
+            }
+
+            JMenuItem deleteItem = new JMenuItem("❌ Entfernen");
+            deleteItem.addActionListener(e -> {
+                if (entry.folder) {
+                    BookmarkManager.removeFolderByLabel(entry.label);
+                } else {
+                    BookmarkManager.removeBookmarkByPath(entry.path);
+                }
+                refreshBookmarks();
+            });
+            menu.add(deleteItem);
+        }
 
         menu.show(invoker, x, y);
     }
