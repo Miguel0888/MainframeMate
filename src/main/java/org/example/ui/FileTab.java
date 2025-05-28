@@ -237,10 +237,10 @@ public class FileTab implements FtpTab {
         redoButton.setEnabled(undoManager.canRedo());
 
         // ToDo: May compare hash too
-//        if(!undoManager.canUndo()) {
-//            changed = false;
-//            updateTabTitle();
-//        }
+        if(!undoManager.canUndo() && undoManager.canRedo()) { // Hack to avoid reset after first alteration
+            changed = false;
+            updateTabTitle();
+        }
     }
 
 
