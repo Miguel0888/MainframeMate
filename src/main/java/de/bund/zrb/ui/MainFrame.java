@@ -94,21 +94,11 @@ public class MainFrame extends JFrame {
         bookmarkDrawer = new BookmarkDrawer(path -> {
             final FtpManager ftpManager = new FtpManager();
             if (ConnectDialog.show(this, ftpManager)) {
-//                if(ftpManager.isDirectory(path)) {
-//                    ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
-//                    tabManager.addTab(tab);
-//                    tab.loadDirectory(path);
-//                } else {
-//                    ftpManager.open(path);
-//                }
                 try {
                     FtpFileBuffer buffer = ftpManager.open(unquote(path));
-                    if( buffer != null) // no DIR
-                    {
+                    if( buffer != null) { // no DIR
                         tabManager.openFileTab(ftpManager, buffer);
-                    }
-                    else
-                    {
+                    } else { // Directory
                         ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
                         tabManager.addTab(tab);
                         tab.loadDirectory(ftpManager.getCurrentPath());
