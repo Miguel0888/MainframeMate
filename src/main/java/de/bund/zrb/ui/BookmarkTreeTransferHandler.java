@@ -123,8 +123,15 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
                 return false;
             }
 
-            BookmarkManager.moveBookmarkTo(moved.id, targetFolderId, insertIndex);
-            bookmarkDrawer.refreshBookmarks();
+            // Fall A: drop ON node (not between)
+            if (targetFolderId != null) {
+                BookmarkManager.moveBookmarkTo(moved.id, targetFolderId, insertIndex);
+                bookmarkDrawer.refreshBookmarks();
+            } else {
+                // Todo: drop between
+            }
+
+
             return true;
 
         } catch (Exception e) {

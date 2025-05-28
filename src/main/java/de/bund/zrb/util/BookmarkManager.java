@@ -151,35 +151,50 @@ public class BookmarkManager {
         return false;
     }
 
-    public static void moveBookmarkTo(String entryId, String targetFolderId, int insertIndex) {
-        List<BookmarkEntry> root = loadBookmarks();
+    public static void moveBookmarkTo(String entryId, String newParentId, int insertIndex) {
+        List<BookmarkEntry> bookmarks = loadBookmarks();
 
-        BookmarkEntry moved = removeAndReturn(root, entryId);
-        if (moved == null) {
-            System.err.println("Move failed: Bookmark with id " + entryId + " not found.");
-            return;
-        }
+        // Entferne den Eintrag aus seinem alten Ort
+        BookmarkEntry moved = removeById(bookmarks, entryId);
+        if (moved == null) return;
 
-        if (targetFolderId == null) {
-            // Root-Ebene
-            if (insertIndex > root.size()) insertIndex = root.size();
-            root.add(insertIndex, moved);
+        // Bestimme Ziel-Liste
+        List<BookmarkEntry> targetList;
+        if (newParentId == null) {
+            targetList = bookmarks;
         } else {
-            BookmarkEntry targetFolder = findById(root, targetFolderId);
-            if (targetFolder == null || !targetFolder.folder) {
-                System.err.println("Move failed: Target folder not found or not a folder.");
-                return;
-            }
-            if (targetFolder.children == null) {
-                targetFolder.children = new ArrayList<>();
-            }
-            if (insertIndex > targetFolder.children.size()) {
-                insertIndex = targetFolder.children.size();
-            }
-            targetFolder.children.add(insertIndex, moved);
+            BookmarkEntry parent = findById(bookmarks, newParentId);
+            if (parent == null || !parent.folder) return;
+            if (parent.children == null) parent.children = new ArrayList<>();
+            targetList = parent.children;
         }
 
-        saveBookmarks(root);
+        // Index korrigieren
+        if (insertIndex < 0 || insertIndex > targetList.size()) {
+            insertIndex = targetList.size(); // Hinten anhängen
+        }
+
+        targetList.add(insertIndex, moved);
+        saveBookmarks(bookmarks);
+    }
+
+    private static BookmarkEntry removeById(List<BookmarkEntry> entries, String id) {
+        Iterator<BookmarkEntry> it = entries.iterator();
+        while (it.hasNext()) {
+            BookmarkEntry entry = it.next();
+            if (entry == null) continue;
+
+            if (id.equals(entry.id)) {
+                it.remove();
+                return entry;
+            }
+
+            if (entry.folder && entry.children != null) {
+                BookmarkEntry found = removeById(entry.children, id);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     public static BookmarkEntry findById(List<BookmarkEntry> list, String id) {
