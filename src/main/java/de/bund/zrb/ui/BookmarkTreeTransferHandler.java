@@ -62,7 +62,6 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
         return support.isDataFlavorSupported(BOOKMARK_FLAVOR);
     }
 
-
     @Override
     public boolean importData(TransferSupport support) {
         if (!canImport(support)) return false;
@@ -70,17 +69,30 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
         try {
             BookmarkEntry moved = (BookmarkEntry)
                     support.getTransferable().getTransferData(BOOKMARK_FLAVOR);
-
             if (moved == null) return false;
 
-            TreePath dropPath = ((JTree.DropLocation) support.getDropLocation()).getPath();
+            JTree.DropLocation dropLocation = (JTree.DropLocation) support.getDropLocation();
+            TreePath dropPath = dropLocation.getPath();
+            if (dropPath == null) return false;
+
             DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) dropPath.getLastPathComponent();
-
             BookmarkEntry target = (BookmarkEntry) dropNode.getUserObject();
-            String targetFolderId = (target != null && target.folder) ? target.id : null;
 
-            int insertIndex = ((JTree.DropLocation) support.getDropLocation()).getChildIndex();
-            if (insertIndex < 0) insertIndex = dropNode.getChildCount();
+            // Bestimme Ziel-Folder oder Root
+            boolean dropOnNode = dropLocation.getChildIndex() == -1;
+            String targetFolderId = (dropOnNode && target != null && target.folder) ? target.id : null;
+
+            // Bestimme Einfügeposition
+            int insertIndex = dropLocation.getChildIndex();
+            if (insertIndex < 0) {
+                insertIndex = dropNode.getChildCount();
+            }
+
+            // Verhindere "in sich selbst ziehen"
+            if (target != null && isDescendant(moved, target)) {
+                System.err.println("Cannot move folder into its own subtree.");
+                return false;
+            }
 
             BookmarkManager.moveBookmarkTo(moved.id, targetFolderId, insertIndex);
             bookmarkDrawer.refreshBookmarks();
@@ -91,6 +103,16 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
             return false;
         }
     }
+
+    private boolean isDescendant(BookmarkEntry parent, BookmarkEntry potentialChild) {
+        if (parent == null || potentialChild == null || parent.children == null) return false;
+        for (BookmarkEntry child : parent.children) {
+            if (child.id.equals(potentialChild.id)) return true;
+            if (isDescendant(child, potentialChild)) return true;
+        }
+        return false;
+    }
+
 
 
 }

@@ -151,20 +151,32 @@ public class BookmarkManager {
         return false;
     }
 
-    public static void moveBookmarkTo(String id, String targetFolderId, int insertIndex) {
+    public static void moveBookmarkTo(String entryId, String targetFolderId, int insertIndex) {
         List<BookmarkEntry> root = loadBookmarks();
 
-        BookmarkEntry moved = removeAndReturn(root, id);
-        if (moved == null) return;
+        BookmarkEntry moved = removeAndReturn(root, entryId);
+        if (moved == null) {
+            System.err.println("Move failed: Bookmark with id " + entryId + " not found.");
+            return;
+        }
 
         if (targetFolderId == null) {
+            // Root-Ebene
+            if (insertIndex > root.size()) insertIndex = root.size();
             root.add(insertIndex, moved);
         } else {
-            BookmarkEntry folder = findById(root, targetFolderId);
-            if (folder != null && folder.folder) {
-                if (folder.children == null) folder.children = new ArrayList<>();
-                folder.children.add(insertIndex, moved);
+            BookmarkEntry targetFolder = findById(root, targetFolderId);
+            if (targetFolder == null || !targetFolder.folder) {
+                System.err.println("Move failed: Target folder not found or not a folder.");
+                return;
             }
+            if (targetFolder.children == null) {
+                targetFolder.children = new ArrayList<>();
+            }
+            if (insertIndex > targetFolder.children.size()) {
+                insertIndex = targetFolder.children.size();
+            }
+            targetFolder.children.add(insertIndex, moved);
         }
 
         saveBookmarks(root);
