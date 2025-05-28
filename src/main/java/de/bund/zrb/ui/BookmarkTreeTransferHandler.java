@@ -77,15 +77,12 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
             DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) dropPath.getLastPathComponent();
 
             BookmarkEntry target = (BookmarkEntry) dropNode.getUserObject();
-            if (moved == target || (target != null && !target.folder)) {
-                return false;
-            }
+            String targetFolderId = (target != null && target.folder) ? target.id : null;
 
-            String targetPath = (target != null && target.folder) ? target.path : null;
             int insertIndex = ((JTree.DropLocation) support.getDropLocation()).getChildIndex();
             if (insertIndex < 0) insertIndex = dropNode.getChildCount();
 
-            BookmarkManager.moveBookmarkTo(moved.path, targetPath, insertIndex);
+            BookmarkManager.moveBookmarkTo(moved.id, targetFolderId, insertIndex);
             bookmarkDrawer.refreshBookmarks();
             return true;
 
@@ -94,6 +91,7 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
             return false;
         }
     }
+
 
 }
 

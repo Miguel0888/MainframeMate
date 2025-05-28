@@ -2,8 +2,10 @@ package de.bund.zrb.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class BookmarkEntry {
+    public String id = UUID.randomUUID().toString();
     public String label;
     public String path;
     public boolean folder;

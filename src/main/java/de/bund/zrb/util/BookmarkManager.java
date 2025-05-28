@@ -151,67 +151,55 @@ public class BookmarkManager {
         return false;
     }
 
-    public static void moveBookmarkTo(String pathToMove, String targetParentPath, int insertIndex) {
-        List<BookmarkEntry> rootEntries = loadBookmarks();
-        BookmarkEntry entry = removeAndReturn(rootEntries, pathToMove);
+    public static void moveBookmarkTo(String id, String targetFolderId, int insertIndex) {
+        List<BookmarkEntry> root = loadBookmarks();
 
-        if (entry == null) return;
+        BookmarkEntry moved = removeAndReturn(root, id);
+        if (moved == null) return;
 
-        List<BookmarkEntry> targetList;
-        if (targetParentPath == null) {
-            targetList = rootEntries;
+        if (targetFolderId == null) {
+            root.add(insertIndex, moved);
         } else {
-            BookmarkEntry parent = findEntryByPath(rootEntries, targetParentPath);
-            if (parent == null || !parent.folder) return;
-
-            if (parent.children == null) parent.children = new ArrayList<>();
-            targetList = parent.children;
-        }
-
-        if (insertIndex < 0 || insertIndex > targetList.size()) {
-            targetList.add(entry);
-        } else {
-            targetList.add(insertIndex, entry);
-        }
-
-        saveBookmarks(rootEntries);
-    }
-
-    private static BookmarkEntry removeAndReturn(List<BookmarkEntry> list, String path) {
-        Iterator<BookmarkEntry> it = list.iterator();
-        while (it.hasNext()) {
-            BookmarkEntry entry = it.next();
-            if (path.equals(entry.path)) {
-                it.remove();
-                return entry;
-            }
-            if (entry.folder && entry.children != null) {
-                BookmarkEntry found = removeAndReturn(entry.children, path);
-                if (found != null) return found;
+            BookmarkEntry folder = findById(root, targetFolderId);
+            if (folder != null && folder.folder) {
+                if (folder.children == null) folder.children = new ArrayList<>();
+                folder.children.add(insertIndex, moved);
             }
         }
-        return null;
+
+        saveBookmarks(root);
     }
 
-    private static BookmarkEntry findEntryByPath(List<BookmarkEntry> list, String path) {
+    public static BookmarkEntry findById(List<BookmarkEntry> list, String id) {
         for (BookmarkEntry entry : list) {
-            if (path.equals(entry.path)) return entry;
+            if (entry == null) continue;
+
+            if (id.equals(entry.id)) {
+                return entry;
+            }
+
             if (entry.folder && entry.children != null) {
-                BookmarkEntry found = findEntryByPath(entry.children, path);
+                BookmarkEntry found = findById(entry.children, id);
                 if (found != null) return found;
             }
         }
         return null;
     }
 
+    private static BookmarkEntry removeAndReturn(List<BookmarkEntry> entries, String id) {
+        Iterator<BookmarkEntry> iterator = entries.iterator();
+        while (iterator.hasNext()) {
+            BookmarkEntry entry = iterator.next();
+            if (entry == null) continue;
 
-    private static BookmarkEntry findFolderByLabel(List<BookmarkEntry> entries, String label) {
-        for (BookmarkEntry entry : entries) {
-            if (entry.folder && label.equals(entry.label)) {
+            if (id.equals(entry.id)) {
+                iterator.remove();
                 return entry;
-            } else if (entry.folder && entry.children != null) {
-                BookmarkEntry found = findFolderByLabel(entry.children, label);
-                if (found != null) return found;
+            }
+
+            if (entry.folder && entry.children != null) {
+                BookmarkEntry removed = removeAndReturn(entry.children, id);
+                if (removed != null) return removed;
             }
         }
         return null;
