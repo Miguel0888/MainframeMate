@@ -3,8 +3,8 @@ plugins {
     id 'com.github.johnrengelman.shadow' version '7.1.2' // FatJar-Support
 }
 
-group = 'org.example'
-version = '1.1.0'
+group = 'de.bund.zrb'
+version = '1.2.0'
 
 repositories {
     mavenCentral()
@@ -73,14 +73,14 @@ tasks.withType(JavaCompile) {
 jar {
     manifest {
         attributes(
-                'Main-Class': 'org.example.Main'
+                'Main-Class': 'de.bund.zrb.Main'
         )
     }
 }
 
 shadowJar {
     manifest {
-        attributes 'Main-Class': 'org.example.Main'
+        attributes 'Main-Class': 'de.bund.zrb.Main'
     }
 }
 
