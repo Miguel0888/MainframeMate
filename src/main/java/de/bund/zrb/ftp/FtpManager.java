@@ -2,6 +2,7 @@ package de.bund.zrb.ftp;
 
 import com.google.gson.stream.JsonToken;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.util.StringUtil;
 import org.apache.commons.net.ftp.*;
 import de.bund.zrb.util.SettingsManager;
 
@@ -188,12 +189,19 @@ public class FtpManager {
     }
 
     public FtpFileBuffer open(String filename) throws IOException {
-        if (isMvsMode() && filename.contains(".")) {
-            String[] parts = filename.split("\\.");
-            for (int i = 0; i < parts.length - 1; i++) {
-                openDirectory(parts[i]);
+        if (isMvsMode()) {
+            if(filename.contains(".")) {
+                String[] parts = filename.split("\\.");
+                for (int i = 0; i < parts.length - 1; i++) {
+                    openDirectory(parts[i]);
+                }
+                filename = parts[parts.length - 1];
+            } else {
+                if(StringUtil.unquote(ftpClient.printWorkingDirectory()).isEmpty()) {
+                    ftpClient.changeWorkingDirectory(filename);
+                    return null; // must be the high level qualifier, cannot be a dataset
+                }
             }
-            filename = parts[parts.length - 1];
         }
 
         String remotePath = getCurrentPath();
