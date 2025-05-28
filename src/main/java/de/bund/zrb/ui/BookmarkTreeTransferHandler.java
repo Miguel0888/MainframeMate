@@ -57,10 +57,39 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
     @Override
     public boolean canImport(TransferSupport support) {
         if (!support.isDrop()) return false;
+        if (!support.isDataFlavorSupported(BOOKMARK_FLAVOR)) return false;
 
-        // Akzeptiere nur unseren Bookmark-Flavor
-        return support.isDataFlavorSupported(BOOKMARK_FLAVOR);
+        try {
+            // Hole die zu verschiebende Entry
+            BookmarkEntry moved = (BookmarkEntry)
+                    support.getTransferable().getTransferData(BOOKMARK_FLAVOR);
+            if (moved == null) return false;
+
+            TreePath dropPath = ((JTree.DropLocation) support.getDropLocation()).getPath();
+            if (dropPath == null) return false;
+
+            DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) dropPath.getLastPathComponent();
+            Object userObj = dropNode.getUserObject();
+            if (!(userObj instanceof BookmarkEntry)) return false;
+
+            BookmarkEntry target = (BookmarkEntry) userObj;
+
+            // ❌ Blockiere Drop eines Folders auf einem Bookmark
+            boolean isMovingFolder = moved.folder;
+            boolean isDroppingOnFile = !target.folder;
+            if (isMovingFolder && isDroppingOnFile) return false;
+
+            // ❌ Verhindere Drop in eigene Substruktur
+            if (isDescendant(moved, target)) return false;
+
+            return true;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
     }
+
 
     @Override
     public boolean importData(TransferSupport support) {
