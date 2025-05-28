@@ -151,31 +151,51 @@ public class BookmarkManager {
         return false;
     }
 
-    public static void moveBookmarkTo(String entryId, String newParentId, int insertIndex) {
-        List<BookmarkEntry> bookmarks = loadBookmarks();
-
-        // Entferne den Eintrag aus seinem alten Ort
-        BookmarkEntry moved = removeById(bookmarks, entryId);
+    public static void moveBookmarkTo(String id, String targetFolderId) {
+        if(id.equals(targetFolderId)) {
+            return; // WICHTIG: Würde das Element ansonsten löschen!!!
+        }
+        List<BookmarkEntry> root = loadBookmarks();
+        BookmarkEntry moved = removeAndReturn(root, id);
         if (moved == null) return;
 
-        // Bestimme Ziel-Liste
-        List<BookmarkEntry> targetList;
-        if (newParentId == null) {
-            targetList = bookmarks;
+        if (targetFolderId == null) {
+            root.add(moved);
         } else {
-            BookmarkEntry parent = findById(bookmarks, newParentId);
-            if (parent == null || !parent.folder) return;
-            if (parent.children == null) parent.children = new ArrayList<>();
-            targetList = parent.children;
+            BookmarkEntry folder = findById(root, targetFolderId);
+            if (folder != null && folder.folder) {
+                if (folder.children == null) folder.children = new ArrayList<>();
+                folder.children.add(moved);
+            }
         }
 
-        // Index korrigieren
+        saveBookmarks(root);
+    }
+
+    public static void moveBookmarkTo(String id, String targetFolderId, int insertIndex) {
+        if(id.equals(targetFolderId)) {
+            return; // WICHTIG: Würde das Element ansonsten löschen!!!
+        }
+        List<BookmarkEntry> root = loadBookmarks();
+        BookmarkEntry moved = removeAndReturn(root, id);
+        if (moved == null) return;
+
+        List<BookmarkEntry> targetList;
+        if (targetFolderId == null) {
+            targetList = root;
+        } else {
+            BookmarkEntry folder = findById(root, targetFolderId);
+            if (folder == null || !folder.folder) return;
+            if (folder.children == null) folder.children = new ArrayList<>();
+            targetList = folder.children;
+        }
+
         if (insertIndex < 0 || insertIndex > targetList.size()) {
-            insertIndex = targetList.size(); // Hinten anhängen
+            insertIndex = targetList.size();
         }
 
         targetList.add(insertIndex, moved);
-        saveBookmarks(bookmarks);
+        saveBookmarks(root);
     }
 
     private static BookmarkEntry removeById(List<BookmarkEntry> entries, String id) {

@@ -107,33 +107,14 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
             DefaultMutableTreeNode dropNode = (DefaultMutableTreeNode) dropPath.getLastPathComponent();
             BookmarkEntry target = (BookmarkEntry) dropNode.getUserObject();
 
-            // Bestimme Ziel-Folder oder Root
             boolean dropOnNode = dropLocation.getChildIndex() == -1;
-            String targetFolderId = (dropOnNode && target != null && target.folder) ? target.id : null;
-
-            // Bestimme Einfügeposition
-            int insertIndex = dropLocation.getChildIndex();
-            if (insertIndex < 0) {
-                insertIndex = dropNode.getChildCount();
-            }
-
-            // Verhindere "in sich selbst ziehen"
-            if (target != null && isDescendant(moved, target)) {
-                System.err.println("Cannot move folder into its own subtree.");
-                return false;
-            }
-
-            // Fall A: drop ON node (not between)
-            if (targetFolderId != null) {
-                BookmarkManager.moveBookmarkTo(moved.id, targetFolderId, insertIndex);
-                bookmarkDrawer.refreshBookmarks();
+            if (dropOnNode) {
+                BookmarkManager.moveBookmarkTo(moved.id, target.id);
             } else {
-                // Todo: drop between
+                BookmarkManager.moveBookmarkTo(moved.id, target.id, dropLocation.getChildIndex());
             }
-
-
+            SwingUtilities.invokeLater(() -> bookmarkDrawer.refreshBookmarks());
             return true;
-
         } catch (Exception e) {
             e.printStackTrace();
             return false;
