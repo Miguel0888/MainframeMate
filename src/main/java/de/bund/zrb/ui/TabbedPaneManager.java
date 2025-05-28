@@ -63,17 +63,17 @@ public class TabbedPaneManager {
         }
 
         // Optional: Wenn ein benutzerdefiniertes Tab-Panel (mit Label + Close-Button) verwendet wird:
-//        Component tabComponent = tabbedPane.getTabComponentAt(index);
-//        if (tabComponent instanceof JPanel) {
-//            JPanel panel = (JPanel) tabComponent;
-//            for (Component c : panel.getComponents()) {
-//                if (c instanceof JLabel) {
-//                    JLabel label = (JLabel) c;
-//                    label.setText(tab.getTitle());
-//                    break;
-//                }
-//            }
-//        }
+        Component tabComponent = tabbedPane.getTabComponentAt(index);
+        if (tabComponent instanceof JPanel) {
+            JPanel panel = (JPanel) tabComponent;
+            for (Component c : panel.getComponents()) {
+                if (c instanceof JLabel) {
+                    JLabel label = (JLabel) c;
+                    label.setText(tab.getTitle());
+                    break;
+                }
+            }
+        }
     }
 
     public void updateTooltipFor(FtpTab tab) {
