@@ -1,5 +1,6 @@
 package de.bund.zrb.ftp;
 
+import com.google.gson.stream.JsonToken;
 import de.bund.zrb.model.Settings;
 import org.apache.commons.net.ftp.*;
 import de.bund.zrb.util.SettingsManager;
@@ -55,6 +56,8 @@ public class FtpManager {
         if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
             ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_NT));
         }
+
+        ftpClient.changeWorkingDirectory("''"); // root instead of user home dir
 
         return true;
     }
@@ -193,6 +196,7 @@ public class FtpManager {
             filename = parts[parts.length - 1];
         }
 
+        String remotePath = getCurrentPath();
         String finalName = filename;
         // fileMeta will be null for FBA (but FB is working)
         FTPFile fileMeta = Arrays.stream(ftpClient.listFiles())
@@ -219,10 +223,11 @@ public class FtpManager {
                 in,
                 padding,
                 getCharset(),
-                filename,
+                remotePath,
                 fileMeta,
                 true, // recordStructure
-                null  // kein ProgressListener
+                null,  // kein ProgressListener
+                mvsMode
         );
 
         in.close();
@@ -267,7 +272,7 @@ public class FtpManager {
 
         ByteArrayInputStream in = new ByteArrayInputStream(buffer.getRawBytes());
 
-        boolean success = ftpClient.storeFile(buffer.getRemotePath(), in);
+        boolean success = ftpClient.storeFile(buffer.getName(), in);
 
         if (!success) {
             throw new IOException("Speichern fehlgeschlagen: " + ftpClient.getReplyString());
@@ -285,9 +290,9 @@ public class FtpManager {
     }
 
     private FtpFileBuffer readRemoteBuffer(FtpFileBuffer reference) throws IOException {
-        InputStream in = ftpClient.retrieveFileStream(reference.getRemotePath());
+        InputStream in = ftpClient.retrieveFileStream(reference.getName());
         if (in == null) {
-            throw new IOException("Konnte Server-Datei nicht erneut laden: " + reference.getRemotePath());
+            throw new IOException("Konnte Server-Datei nicht erneut laden: " + reference.getName());
         }
 
         FtpFileBuffer buffer = reference.withContent(in);
@@ -344,4 +349,14 @@ public class FtpManager {
         if (!dataset.endsWith("'")) dataset = dataset + "'";
         return dataset;
     }
+
+    // ToDo: Funktioniert eventuell nur auf dem Großrechner, daher evtl. anders lösen
+    public boolean isDirectory(String path) {
+        try {
+            return ftpClient.listDirectories(path).length > 0; // ein Verzeichnis listet sich immer mindestens selbst
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 }

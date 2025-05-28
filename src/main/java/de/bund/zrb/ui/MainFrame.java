@@ -1,5 +1,6 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.plugins.PluginManager;
 import de.bund.zrb.plugins.excel.ExcelImportPlugin;
@@ -7,7 +8,10 @@ import de.bund.zrb.plugins.excel.ExcelImportPlugin;
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
 import java.awt.*;
+import java.io.IOException;
 import java.util.Enumeration;
+
+import static de.bund.zrb.util.StringUtil.unquote;
 
 public class MainFrame extends JFrame {
 
@@ -90,9 +94,29 @@ public class MainFrame extends JFrame {
         bookmarkDrawer = new BookmarkDrawer(path -> {
             final FtpManager ftpManager = new FtpManager();
             if (ConnectDialog.show(this, ftpManager)) {
-                ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
-                tabManager.addTab(tab);
-                tab.loadDirectory(path);
+//                if(ftpManager.isDirectory(path)) {
+//                    ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
+//                    tabManager.addTab(tab);
+//                    tab.loadDirectory(path);
+//                } else {
+//                    ftpManager.open(path);
+//                }
+                try {
+                    FtpFileBuffer buffer = ftpManager.open(unquote(path));
+                    if( buffer != null) // no DIR
+                    {
+                        tabManager.openFileTab(ftpManager, buffer);
+                    }
+                    else
+                    {
+                        ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
+                        tabManager.addTab(tab);
+                        tab.loadDirectory(ftpManager.getCurrentPath());
+                    }
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
             }
         });
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, tabManager.getComponent());
@@ -170,18 +194,6 @@ public class MainFrame extends JFrame {
         helpMenu.add(aboutItem);
 
         return helpMenu;
-    }
-
-    @Deprecated
-    private BookmarkToolbar createBookmarkToolbar() {
-        return new BookmarkToolbar(path -> {
-            final FtpManager ftpManager = new FtpManager();
-            if (ConnectDialog.show(this, ftpManager)) {
-                ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
-                tabManager.addTab(tab);
-                tab.loadDirectory(path);
-            }
-        });
     }
 
     public BookmarkDrawer getBookmarkDrawer() {

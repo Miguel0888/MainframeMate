@@ -8,6 +8,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
+import static de.bund.zrb.util.StringUtil.insertBeforeTrailingQuote;
+
 public class FtpFileBuffer {
 
     private final String remotePath;
@@ -16,20 +18,22 @@ public class FtpFileBuffer {
     private final byte[] rawBytes;
     private final String originalHash;
     private final boolean recordStructure;
+    private final boolean mvsMode;
     private final Charset charset;
     private final Byte padding;
 
-    public FtpFileBuffer(InputStream in, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress) throws IOException {
-        this(in, null, charset, remotePath, fileMeta, recordStructure, progress);
+    public FtpFileBuffer(InputStream in, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress, boolean mvsMode) throws IOException {
+        this(in, null, charset, remotePath, fileMeta, recordStructure, progress, mvsMode);
     }
 
-    public FtpFileBuffer(InputStream in, Byte padding, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress) throws IOException {
+    public FtpFileBuffer(InputStream in, Byte padding, Charset charset, String remotePath, FTPFile fileMeta, boolean recordStructure, ProgressListener progress, boolean mvsMode) throws IOException {
         this.padding = padding;
         this.charset = charset;
         this.remotePath = remotePath;
         this.fileMeta = fileMeta;
         this.expectedSize = fileMeta != null ? fileMeta.getSize() : -1;
         this.recordStructure = recordStructure;
+        this.mvsMode = mvsMode;
 
         this.rawBytes = readAllBytes(in, progress);
         this.originalHash = computeHash(this.rawBytes);
@@ -95,6 +99,23 @@ public class FtpFileBuffer {
         return rawBytes;
     }
 
+    public String getName() {
+        return fileMeta != null ? fileMeta.getName() : null;
+    }
+
+    public String getLink() {
+        if (fileMeta.getLink() != null) {
+            return fileMeta.getLink();
+        }
+
+        String remotePath = getRemotePath();
+        String name = getName();
+        String separator = mvsMode || recordStructure ? "." : "/";
+
+        return insertBeforeTrailingQuote(remotePath, name, separator);
+    }
+
+
     public String getRemotePath() {
         return remotePath;
     }
@@ -133,7 +154,8 @@ public class FtpFileBuffer {
                 this.remotePath,
                 this.fileMeta,
                 this.recordStructure,
-                null
+                null,
+                this.mvsMode
         );
     }
 

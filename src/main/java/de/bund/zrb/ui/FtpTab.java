@@ -4,6 +4,7 @@ import javax.swing.*;
 
 public interface FtpTab {
     String getTitle();
+    String getTooltip();
     JComponent getComponent();
     void onClose();
     void saveIfApplicable();

@@ -41,7 +41,7 @@ public class ConnectionTab implements FtpTab, FtpObserver {
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     String selected = fileList.getSelectedValue();
-                    if (selected == null || selected.endsWith("/")) return;
+                    if (selected == null) return;
                     try {
                         FtpFileBuffer buffer = ftpManager.open(selected);
                         if( buffer != null) // no DIR
@@ -69,6 +69,11 @@ public class ConnectionTab implements FtpTab, FtpObserver {
     @Override
     public String getTitle() {
         return "📁 Verbindung";
+    }
+
+    @Override
+    public String getTooltip() {
+        return "";
     }
 
     @Override

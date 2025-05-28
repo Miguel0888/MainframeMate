@@ -63,18 +63,25 @@ public class TabbedPaneManager {
         }
 
         // Optional: Wenn ein benutzerdefiniertes Tab-Panel (mit Label + Close-Button) verwendet wird:
-        Component tabComponent = tabbedPane.getTabComponentAt(index);
-        if (tabComponent instanceof JPanel) {
-            JPanel panel = (JPanel) tabComponent;
-            for (Component c : panel.getComponents()) {
-                if (c instanceof JLabel) {
-                    JLabel label = (JLabel) c;
-                    label.setText(tab.getTitle());
-                    break;
-                }
-            }
-        }
+//        Component tabComponent = tabbedPane.getTabComponentAt(index);
+//        if (tabComponent instanceof JPanel) {
+//            JPanel panel = (JPanel) tabComponent;
+//            for (Component c : panel.getComponents()) {
+//                if (c instanceof JLabel) {
+//                    JLabel label = (JLabel) c;
+//                    label.setText(tab.getTitle());
+//                    break;
+//                }
+//            }
+//        }
+    }
 
+    public void updateTooltipFor(FtpTab tab) {
+        Component comp = tab.getComponent();
+        int index = tabbedPane.indexOfComponent(comp);
+        if (index >= 0) {
+            tabbedPane.setToolTipTextAt(index, tab.getTooltip());
+        }
     }
 
     private void addClosableTabComponent(int index, FtpTab tab) {
@@ -133,6 +140,7 @@ public class TabbedPaneManager {
     public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
         FileTab fileTab = new FileTab(this, ftpManager, buffer);
         addTab(fileTab); // handled everything
+        updateTooltipFor(fileTab);
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -99,6 +99,11 @@ public class FileTab implements FtpTab {
         return title;
     }
 
+    @Override
+    public String getTooltip() {
+        return buffer != null ? buffer.getLink() : "Wird nicht gespeichert";
+    }
+
 
     @Override
     public JComponent getComponent() {
@@ -162,12 +167,23 @@ public class FileTab implements FtpTab {
     public JPopupMenu createContextMenu(Runnable onCloseCallback) {
         JPopupMenu menu = new JPopupMenu();
 
+        JMenuItem bookmarkItem = new JMenuItem("🕮 Bookmark setzen");
+        bookmarkItem.addActionListener(e -> {
+            if (buffer != null) {
+                MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
+                main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), buffer.getLink());
+            } else {
+                JOptionPane.showMessageDialog(mainPanel, "Kein FTP-Pfad verfügbar für Bookmark.");
+            }
+        });
+
         JMenuItem saveItem = new JMenuItem("💾 Speichern");
         saveItem.addActionListener(e -> saveIfApplicable());
 
         JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
         closeItem.addActionListener(e -> onCloseCallback.run());
 
+        menu.add(bookmarkItem);
         menu.add(saveItem);
         menu.add(closeItem);
         return menu;
