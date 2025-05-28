@@ -163,7 +163,9 @@ public class BookmarkManager {
             root.add(moved);
         } else {
             BookmarkEntry folder = findById(root, targetFolderId);
-            if (folder != null && folder.folder) {
+            if(folder == null) {     // Sonderfall: Ziel ist Root → füge in root-Liste ein
+                root.add(moved);
+            } else if (folder.folder) {
                 if (folder.children == null) folder.children = new ArrayList<>();
                 folder.children.add(moved);
             }
@@ -185,9 +187,16 @@ public class BookmarkManager {
             targetList = root;
         } else {
             BookmarkEntry folder = findById(root, targetFolderId);
-            if (folder == null || !folder.folder) return;
-            if (folder.children == null) folder.children = new ArrayList<>();
-            targetList = folder.children;
+            if(folder == null) {     // Sonderfall: Ziel ist Root → füge in root-Liste ein
+                targetList = root;
+            } else if (!folder.folder) {
+                return;
+            } else {
+                if (folder.children == null) {
+                    folder.children = new ArrayList<>();
+                }
+                targetList = folder.children;
+            }
         }
 
         if (insertIndex < 0 || insertIndex > targetList.size()) {
