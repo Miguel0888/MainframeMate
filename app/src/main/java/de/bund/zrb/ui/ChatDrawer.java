@@ -1,5 +1,9 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.ui.chat.ChatFormatter;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rtextarea.RTextScrollPane;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -8,33 +12,34 @@ import java.util.function.Consumer;
 
 public class ChatDrawer extends JPanel {
 
-    private final JTextArea chatArea;
+    private final JTextPane chatArea;
     private final JTextArea inputArea;
     private final JButton sendButton;
     private final JButton attachButton;
+    private final ChatFormatter chatFormatter;
 
     public ChatDrawer(Consumer<String> onSend) {
         setLayout(new BorderLayout());
         setPreferredSize(new Dimension(300, 0));
         setBorder(BorderFactory.createTitledBorder("💬 Chat"));
 
-        chatArea = new JTextArea();
+        // RSyntaxTextArea für Ausgabe
+        chatArea = new JTextPane();
+        chatFormatter = new ChatFormatter(chatArea);
+
         chatArea.setEditable(false);
-        chatArea.setLineWrap(true);
-        chatArea.setWrapStyleWord(true);
         chatArea.setBackground(UIManager.getColor("Panel.background")); // systemgrau
         chatArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
 
         JScrollPane chatScroll = new JScrollPane(chatArea);
         add(chatScroll, BorderLayout.CENTER);
 
+        // Eingabefeld
         inputArea = new JTextArea(3, 30);
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
         inputArea.setBackground(Color.WHITE);
         inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
 
         JScrollPane inputScroll = new JScrollPane(inputArea);
         inputScroll.setBorder(BorderFactory.createEmptyBorder());
@@ -54,7 +59,7 @@ public class ChatDrawer extends JPanel {
             }
         });
 
-        // Buttons: Stil & Größe an Statusbar anpassen
+        // Button-Leiste unten
         attachButton = new JButton("+");
         attachButton.setMargin(new Insets(3, 6, 3, 6)); // optional
         attachButton.setToolTipText("Aktiven Tab teilen");
@@ -66,7 +71,6 @@ public class ChatDrawer extends JPanel {
         sendButton.addActionListener(e -> send(onSend));
 
         JPanel buttonBar = new JPanel(new BorderLayout());
-//        buttonBar.setBackground(Color.WHITE);
         buttonBar.add(attachButton, BorderLayout.WEST);
         buttonBar.add(sendButton, BorderLayout.EAST);
 
@@ -81,18 +85,18 @@ public class ChatDrawer extends JPanel {
     private void send(Consumer<String> onSend) {
         String message = inputArea.getText().trim();
         if (!message.isEmpty()) {
-            appendUserMessage(message);
+            chatFormatter.appendUserMessage(message);
             onSend.accept(message);
             inputArea.setText("");
         }
     }
 
-    public void appendUserMessage(String message) {
-        chatArea.append("👤 Du: " + message + "\n");
+    public void appendBotMessage(String message) {
+        chatFormatter.appendBotMessage(message);
     }
 
-    public void appendBotMessage(String message) {
-        chatArea.append("🤖 Bot: " + message + "\n");
+    public void appendBotMessageChunk(String chunk) {
+        chatFormatter.appendBotMessageChunk(chunk);
     }
 
     public void setUserInput(String text) {
@@ -102,9 +106,4 @@ public class ChatDrawer extends JPanel {
     public void onAttachClick(Runnable handler) {
         attachButton.addActionListener(e -> handler.run());
     }
-
-    public void appendBotMessageChunk(String chunk) {
-        chatArea.append(chunk); // oder auch Styles für farbliche Unterschiede
-    }
-
 }

@@ -1,0 +1,3 @@
+<RSyntaxTextArea>
+    <TokenMakerClass>org.fife.ui.rsyntaxtextarea.modes.CobolTokenMaker</TokenMakerClass>
+</RSyntaxTextArea>
