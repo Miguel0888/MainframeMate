@@ -4,6 +4,7 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.plugins.PluginManager;
 import de.bund.zrb.plugins.excel.ExcelImportPlugin;
+import de.bund.zrb.ui.commands.*;
 
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
@@ -18,6 +19,7 @@ public class MainFrame extends JFrame {
     private TabbedPaneManager tabManager;
     private ActionToolbar actionToolbar;
     private BookmarkDrawer bookmarkDrawer;
+    private JMenuBar menuBar;
 
     public MainFrame() {
         setTitle("MainframeMate");
@@ -33,6 +35,16 @@ public class MainFrame extends JFrame {
             tabManager.addTab(new ConnectionTab(ftpManager, tabManager));
         }
     }
+
+    private void registerCoreCommands() {
+        CommandRegistry.register(new SaveCommand(tabManager));
+        CommandRegistry.register(new ConnectCommand(this, tabManager));
+        CommandRegistry.register(new ExitCommand());
+        CommandRegistry.register(new ShowSettingsDialogCommand(this));
+        CommandRegistry.register(new ShowFeatureDialogCommand(this));
+        CommandRegistry.register(new ShowAboutDialogCommand(this));
+    }
+
 
     /**
      * Setze den Font auf "Segoe UI", wenn verfügbar.
@@ -77,11 +89,14 @@ public class MainFrame extends JFrame {
     private void initUI() {
         tabManager = new TabbedPaneManager();
 
-        // 1. Plugins registrieren (aber noch nicht initialisieren!)
+        // 0. Plugins registrieren (aber noch nicht initialisieren!)
         registerPlugins();
 
-        // 2. Menü erstellen → JMenuBar existiert jetzt
-        setJMenuBar(createMenuBar());
+        // 1. Command Registry
+        registerCoreCommands();
+
+        // 2. Automatisch erzeugtes Menü
+        setJMenuBar(MenuTreeBuilder.buildMenuBar());
 
         // 3. Layout
         setLayout(new BorderLayout());
@@ -116,74 +131,6 @@ public class MainFrame extends JFrame {
 
         // ✅ 4. Jetzt ist Menü verfügbar → Plugins initialisieren
         PluginManager.initializePlugins(this);
-    }
-
-
-
-    private JMenuBar createMenuBar() {
-        JMenuBar menuBar = new JMenuBar();
-        menuBar.add(createFileMenu());
-        menuBar.add(createSettingsMenu());
-        menuBar.add(createHelpMenu());
-        return menuBar;
-    }
-
-    private JMenu createFileMenu() {
-        JMenu fileMenu = new JMenu("Datei");
-
-        JMenuItem saveItem = new JMenuItem("Speichern");
-        saveItem.addActionListener(e -> tabManager.saveSelectedComponent());
-
-        JMenuItem connectItem = new JMenuItem("Neue Verbindung...");
-        connectItem.addActionListener(e -> {
-            final FtpManager ftpManager = new FtpManager();
-            if (ConnectDialog.show(this, ftpManager)) {
-                tabManager.addTab(new ConnectionTab(ftpManager, tabManager));
-            }
-        });
-
-        JMenuItem exitItem = new JMenuItem("Beenden");
-        exitItem.addActionListener(e -> System.exit(0));
-
-        fileMenu.add(saveItem);
-        fileMenu.add(connectItem);
-        fileMenu.add(exitItem);
-        return fileMenu;
-    }
-
-    private JMenu createSettingsMenu() {
-        JMenu settingsMenu = new JMenu("Einstellungen");
-
-        JMenuItem settingsItem = new JMenuItem("Allgemein...");
-        settingsItem.addActionListener(e -> {
-            FtpManager dummy = new FtpManager();
-            SettingsDialog.show(this, dummy);
-        });
-        settingsMenu.add(settingsItem);
-
-        PluginManager.getPlugins().forEach(plugin ->
-                plugin.getSettingsMenuItem(this).ifPresent(settingsMenu::add)
-        );
-
-        return settingsMenu;
-    }
-
-    private JMenu createHelpMenu() {
-        JMenu helpMenu = new JMenu("Hilfe");
-
-        JMenuItem featureItem = new JMenuItem("📋 Server-Features anzeigen");
-        featureItem.addActionListener(e -> FeatureDialog.show(this));
-        helpMenu.add(featureItem);
-
-        JMenuItem aboutItem = new JMenuItem("ℹ️ Über MainframeMate");
-        aboutItem.addActionListener(e -> {
-            JOptionPane.showMessageDialog(this,
-                    "MainframeMate\nVersion 1.1.0\n© 2025 GZD",
-                    "Über", JOptionPane.INFORMATION_MESSAGE);
-        });
-        helpMenu.add(aboutItem);
-
-        return helpMenu;
     }
 
     public BookmarkDrawer getBookmarkDrawer() {
