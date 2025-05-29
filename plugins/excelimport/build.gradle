@@ -1,3 +1,5 @@
+import org.gradle.internal.os.OperatingSystem
+
 plugins {
     id 'java'
 }
@@ -30,4 +32,15 @@ tasks.register('copyToAppPlugins', Copy) {
     }
     into "${rootProject.projectDir}/app/build/plugins"
 }
+
+task installPlugin(type: Copy) {
+    def userHome = System.getProperty("user.home")
+    def pluginDir = new File(userHome, ".mainframemate/plugins")
+
+    from jar  // Oder jar, je nachdem was du baust
+    into pluginDir
+}
+
+build.finalizedBy installPlugin
+
 

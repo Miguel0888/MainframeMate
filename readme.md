@@ -174,3 +174,11 @@ Settings → Appearance & Behavior → System Settings → HTTP Proxy:
 * steht auf Auto-detect proxy settings
 * oder manuell mit den richtigen Daten (falls "auto" nicht ausreicht die Box für den Link anhaken)
   Die URL für die halbautomatische Einstellung bekommt man über ein Klick auf den blauen Link zu den Systemeinstellugen, die URL dort einfach kopieren.
+
+### Plugins
+
+Um ein Plugin zu nutzen muss es unter "<userHome>.mainframemate/plugins" liegen (wo auch die Settings sind). In Gradle reicht es aus diesen Task zu starten:
+
+```plugins > excelimport > Tasks > build > build```
+
+Das JAR wird dann automatisch in das richtige Verzeichnis kopiert. Für andere Plugins verfährt man ähnlich.
