@@ -5,22 +5,7 @@ import java.util.*;
 
 public class MenuTreeBuilder {
 
-    private static final Map<String, String> labelMap = new HashMap<>();
-
-    static {
-        labelMap.put("file", "Datei");
-        labelMap.put("settings", "Einstellungen");
-        labelMap.put("help", "Hilfe");
-        labelMap.put("plugin", "Plugins");
-        labelMap.put("connect", "Verbindung");
-        labelMap.put("save", "Speichern");
-        labelMap.put("about", "Über");
-        // Optional: Rest nach Bedarf ergänzen
-    }
-
-    private static String resolveLabel(String part) {
-        return labelMap.getOrDefault(part, capitalize(part));
-    }
+    private static final ResourceBundle bundle = ResourceBundle.getBundle("menu", Locale.getDefault());
 
     public static JMenuBar buildMenuBar() {
         JMenuBar menuBar = new JMenuBar();
@@ -44,22 +29,20 @@ public class MenuTreeBuilder {
     }
 
     private static void insert(Node current, String[] path, Command command) {
-        for (int i = 0; i < path.length; i++) {
-            String part = path[i];
+        for (String part : path) {
             current = current.children.computeIfAbsent(part, k -> new Node());
         }
         current.command = command;
     }
 
-    private static JMenu buildMenu(Node node, String label) {
+    private static JMenu buildMenu(Node node, String labelKey) {
         if (node.command != null) {
-            // Sonderfall: Command liegt auf Menüebene, selten, aber möglich
-            JMenu menu = new JMenu(resolveLabel(label));
+            JMenu menu = new JMenu(resolveLabel(labelKey));
             menu.add(CommandMenuFactory.createMenuItem(node.command));
             return menu;
         }
 
-        JMenu menu = new JMenu(resolveLabel(label));
+        JMenu menu = new JMenu(resolveLabel(labelKey));
 
         List<String> sortedKeys = new ArrayList<>(node.children.keySet());
         Collections.sort(sortedKeys);
@@ -74,6 +57,14 @@ public class MenuTreeBuilder {
         }
 
         return menu;
+    }
+
+    private static String resolveLabel(String key) {
+        try {
+            return bundle.getString(key);
+        } catch (MissingResourceException e) {
+            return capitalize(key);
+        }
     }
 
     private static String capitalize(String text) {

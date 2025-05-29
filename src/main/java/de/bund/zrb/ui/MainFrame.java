@@ -11,6 +11,7 @@ import javax.swing.plaf.FontUIResource;
 import java.awt.*;
 import java.io.IOException;
 import java.util.Enumeration;
+import java.util.Locale;
 
 import static de.bund.zrb.util.StringUtil.unquote;
 
@@ -22,6 +23,9 @@ public class MainFrame extends JFrame {
     private JMenuBar menuBar;
 
     public MainFrame() {
+        // Sprache explizit setzen (nur zu Demo-Zwecken):
+        Locale.setDefault(Locale.GERMAN); // oder Locale.ENGLISH
+
         setTitle("MainframeMate");
         setCompatibleFontIfNecessary();
         setSize(1000, 700);
