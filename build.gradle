@@ -1,86 +1,9 @@
-plugins {
-    id 'java'
-    id 'com.github.johnrengelman.shadow' version '7.1.2' // FatJar-Support
-}
+// Root-Buildscript
+allprojects {
+    group = 'de.bund.zrb'
+    version = '1.2.0'
 
-group = 'de.bund.zrb'
-version = '1.2.0'
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    // FTP
-    implementation 'commons-net:commons-net:3.9.0'
-
-    // JSON
-    implementation 'com.google.code.gson:gson:2.10.1'
-
-    // Windows Key Store
-    implementation 'net.java.dev.jna:jna:5.13.0'
-    implementation 'net.java.dev.jna:jna-platform:5.13.0'
-
-    // Excel processing
-    implementation 'org.apache.poi:poi:5.2.3'
-    implementation 'org.apache.poi:poi-ooxml:5.2.3'
-
-    // GUI
-    implementation 'com.fifesoft:rsyntaxtextarea:3.3.3'
-
-    // Grep functionality
-//    implementation 'org.apache.commons:commons-lang3:3.12.0'
-
-    testImplementation platform('org.junit:junit-bom:5.10.0')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-}
-
-test {
-    useJUnitPlatform()
-}
-
-// Erzeugt ein zusätzliches JAR mit den Sourcen
-task sourcesJar(type: Jar) {
-    from sourceSets.main.allSource
-    archiveClassifier.set('sources')
-}
-
-// Stellt sicher, dass das sourcesJar beim "assemble" mitgebaut wird
-artifacts {
-    archives sourcesJar
-}
-
-// Setzt die Encoding auf UTF-8 für Compilierung unter Windows 11
-tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
-}
-
-// Release-Mode: Debug-Infos deaktivieren
-// Use via: "./gradlew clean build -Prelease=true"
-tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
-
-    // Debug-Infos standardmäßig aktiv (wie gewohnt)
-    if (project.hasProperty('release') && project.release == 'true') {
-        println "Building without debug info (release mode)"
-        options.debug = false
-    } else {
-        println "Building with debug info (default)"
-        options.debug = true
+    repositories {
+        mavenCentral()
     }
 }
-
-jar {
-    manifest {
-        attributes(
-                'Main-Class': 'de.bund.zrb.Main'
-        )
-    }
-}
-
-shadowJar {
-    manifest {
-        attributes 'Main-Class': 'de.bund.zrb.Main'
-    }
-}
-

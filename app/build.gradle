@@ -1,0 +1,61 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'de.bund.zrb'
+version = '1.2.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':core')
+
+    // FTP
+    implementation 'commons-net:commons-net:3.9.0'
+
+    // JSON
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // Windows Key Store
+    implementation 'net.java.dev.jna:jna:5.13.0'
+    implementation 'net.java.dev.jna:jna-platform:5.13.0'
+
+    // Excel
+    implementation 'org.apache.poi:poi:5.2.3'
+    implementation 'org.apache.poi:poi-ooxml:5.2.3'
+
+    // GUI (RSyntaxTextArea)
+    implementation 'com.fifesoft:rsyntaxtextarea:3.3.3'
+
+    // Eigene Plugins lokal zur Laufzeit verfügbar machen
+    runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
+}
+
+application {
+    mainClass = 'de.bund.zrb.Main'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// UTF-8 Encoding
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+
+    // Optionaler Release-Modus
+    if (project.hasProperty('release') && project.release == 'true') {
+        println "🔧 Building without debug info (release mode)"
+        options.debug = false
+    } else {
+        println "🔧 Building with debug info (default)"
+        options.debug = true
+    }
+}
+
+tasks.named('build') {
+    dependsOn ':plugins:excelimport:copyToAppPlugins'
+}

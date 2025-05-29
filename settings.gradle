@@ -1,2 +1,5 @@
 rootProject.name = 'MainframeMate'
 
+include 'core'
+include 'app'
+include 'plugins:excelimport'
