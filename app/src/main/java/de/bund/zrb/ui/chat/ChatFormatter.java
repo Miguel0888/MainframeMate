@@ -36,14 +36,6 @@ public class ChatFormatter {
         updatePane();
     }
 
-    public void appendBotMessage(String message) {
-        flushCodeBlock();
-        buffer.append("<div style='background-color:#f0ffe6; padding:4px;'><b>🤖 Bot:</b><br/>");
-        appendFormatted(message);
-        buffer.append("</div>");
-        updatePane();
-    }
-
     public void appendBotMessageChunk(String chunk) {
         appendFormatted(chunk);
         updatePane();
@@ -92,4 +84,18 @@ public class ChatFormatter {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
     }
+
+    public void startBotMessage() {
+        flushCodeBlock(); // falls noch offen
+        buffer.append("<div style='background-color:#f0ffe6; padding:6px; margin-top:6px; border-left:4px solid #aaddaa;'>");
+        buffer.append("<b>🤖 Bot:</b><br/>");
+    }
+
+
+    public void endBotMessage() {
+        flushCodeBlock(); // falls offener Block
+        buffer.append("</div>");
+        updatePane(); // finaler Render
+    }
+
 }

@@ -10,10 +10,7 @@ import de.bund.zrb.service.OllamaChatService;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.util.BookmarkManagerImpl;
 import de.bund.zrb.util.SettingsManager;
-import de.zrb.bund.api.BookmarkManager;
-import de.zrb.bund.api.ChatService;
-import de.zrb.bund.api.TabAdapter;
-import de.zrb.bund.api.MainframeContext;
+import de.zrb.bund.api.*;
 
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
@@ -181,13 +178,45 @@ public class MainFrame extends JFrame implements MainframeContext {
 
             new Thread(() -> {
                 try {
-                    chatService.streamAnswer(userInput, chunk -> {
-                        SwingUtilities.invokeLater(() -> chatDrawer.appendBotMessageChunk(chunk));
+                    chatService.streamAnswer(userInput, new ChatStreamListener() {
+                        @Override
+                        public void onStreamStart() {
+                            SwingUtilities.invokeLater(() -> {
+                                chatDrawer.startBotMessage();
+                                chatDrawer.setStatus("🤖 Bot schreibt...");
+                            });
+                        }
+
+                        @Override
+                        public void onStreamChunk(String chunk) {
+                            SwingUtilities.invokeLater(() -> chatDrawer.appendBotMessageChunk(chunk));
+                        }
+
+                        @Override
+                        public void onStreamEnd() {
+                            SwingUtilities.invokeLater(() -> {
+                                chatDrawer.endBotMessage();
+                                chatDrawer.setStatus(" ");
+                            });
+                        }
+
+                        @Override
+                        public void onError(Exception e) {
+                            SwingUtilities.invokeLater(() -> {
+                                chatDrawer.setStatus("⚠️ Fehler");
+                                JOptionPane.showMessageDialog(chatDrawer,
+                                        "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
+                                        "AI-Fehler", JOptionPane.ERROR_MESSAGE);
+                            });
+                        }
                     });
                 } catch (IOException e) {
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
-                            "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
-                            "AI-Fehler", JOptionPane.ERROR_MESSAGE));
+                    SwingUtilities.invokeLater(() -> {
+                        chatDrawer.setStatus("⚠️ Fehler");
+                        JOptionPane.showMessageDialog(chatDrawer,
+                                "Fehler beim Starten der Anfrage:\n" + e.getMessage(),
+                                "AI-Fehler", JOptionPane.ERROR_MESSAGE);
+                    });
                 }
             }).start();
         });

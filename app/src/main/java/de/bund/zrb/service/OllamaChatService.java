@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.SettingsManager;
 import de.zrb.bund.api.ChatService;
+import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
 
 import java.io.BufferedReader;
@@ -37,13 +38,25 @@ public class OllamaChatService implements ChatService {
         this.gson = new Gson();
     }
 
+    // Gson-basiertes Parsen des JSON-Zeile
+    private String extractResponse(String jsonLine) {
+    try {
+        JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
+        if (obj.has("response") && !obj.get("response").isJsonNull()) {
+            return obj.get("response").getAsString();
+        }
+    } catch (Exception ignored) {}
+    return null;
+}
+
+
     @Override
-    public void streamAnswer(String prompt, Consumer<String> onChunk) throws IOException {
+    public void streamAnswer(String prompt, ChatStreamListener listener) throws IOException {
         Settings settings = SettingsManager.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
-        // JSON-Request-Body mit Gson
+        Gson gson = new Gson();
         String jsonPayload = gson.toJson(new OllamaRequest(model, prompt));
 
         Request request = new Request.Builder()
@@ -54,14 +67,17 @@ public class OllamaChatService implements ChatService {
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                e.printStackTrace(); // Oder Callback für Fehler, falls du ChatStreamListener nutzt
+                listener.onError(e);
             }
 
             @Override
             public void onResponse(Call call, Response response) {
+                listener.onStreamStart();
+
                 try (ResponseBody body = response.body()) {
                     if (!response.isSuccessful() || body == null) {
-                        throw new IOException("Unsuccessful response: " + response.code());
+                        listener.onError(new IOException("Unsuccessful response: " + response.code()));
+                        return;
                     }
 
                     BufferedReader reader = new BufferedReader(body.charStream());
@@ -69,38 +85,30 @@ public class OllamaChatService implements ChatService {
                     while ((line = reader.readLine()) != null) {
                         String chunk = extractResponse(line);
                         if (chunk != null && !chunk.isEmpty()) {
-                            onChunk.accept(chunk);
+                            listener.onStreamChunk(chunk);
                         }
                     }
+
+                    listener.onStreamEnd();
+
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    listener.onError(e);
                 }
             }
         });
     }
 
-    // Gson-basiertes Parsen des JSON-Zeile
-    private String extractResponse(String jsonLine) {
-        try {
-            JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
-            if (obj.has("response") && !obj.get("response").isJsonNull()) {
-                return obj.get("response").getAsString();
-            }
-        } catch (Exception e) {
-            // Optional: Logging bei Parsing-Fehlern
-        }
-        return null;
-    }
 
     // Request-DTO für das JSON
     private static class OllamaRequest {
-        final String model;
-        final String prompt;
-        final boolean stream = true;
+    String model;
+    String prompt;
+    boolean stream = true;
 
-        OllamaRequest(String model, String prompt) {
-            this.model = model;
-            this.prompt = prompt;
-        }
+    OllamaRequest(String model, String prompt) {
+        this.model = model;
+        this.prompt = prompt;
     }
+}
+
 }

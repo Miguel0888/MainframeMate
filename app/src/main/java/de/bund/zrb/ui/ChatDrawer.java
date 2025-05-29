@@ -14,7 +14,10 @@ public class ChatDrawer extends JPanel {
     private final JTextArea inputArea;
     private final JButton sendButton;
     private final JButton attachButton;
+    private final JLabel statusLabel;
     private final ChatFormatter formatter;
+
+    private boolean awaitingBotResponse = false;
 
     public ChatDrawer(Consumer<String> onSend) {
         setLayout(new BorderLayout());
@@ -61,10 +64,15 @@ public class ChatDrawer extends JPanel {
         JScrollPane inputScroll = new JScrollPane(inputArea);
         inputScroll.setBorder(BorderFactory.createEmptyBorder());
 
+        statusLabel = new JLabel(" ");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 4));
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
         bottomPanel.add(inputScroll, BorderLayout.CENTER);
         bottomPanel.add(buttonBar, BorderLayout.SOUTH);
+        bottomPanel.add(statusLabel, BorderLayout.NORTH);
 
         add(bottomPanel, BorderLayout.SOUTH);
     }
@@ -73,13 +81,16 @@ public class ChatDrawer extends JPanel {
         String message = inputArea.getText().trim();
         if (!message.isEmpty()) {
             formatter.appendUserMessage(message);
-            onSend.accept(message);
             inputArea.setText("");
+            awaitingBotResponse = true;
+            onSend.accept(message);
         }
     }
 
     public void appendBotMessageChunk(String chunk) {
-        formatter.appendBotMessageChunk(chunk);
+        if (awaitingBotResponse) {
+            formatter.appendBotMessageChunk(chunk);
+        }
     }
 
     public void setUserInput(String text) {
@@ -89,4 +100,20 @@ public class ChatDrawer extends JPanel {
     public void onAttachClick(Runnable handler) {
         attachButton.addActionListener(e -> handler.run());
     }
+
+    public void startBotMessage() {
+        formatter.startBotMessage(); // erzeugt <div> mit Kopfzeile
+        setStatus("🤖 Bot schreibt...");
+    }
+
+    public void endBotMessage() {
+        formatter.endBotMessage();
+        setStatus(" ");
+    }
+
+    public void setStatus(String status) {
+        statusLabel.setText(status);
+    }
+
+
 }
