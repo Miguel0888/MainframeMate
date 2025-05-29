@@ -3,7 +3,6 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.AiProvider;
-import de.bund.zrb.model.ChatSession;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.PluginManager;
 import de.bund.zrb.service.LocalAiChatService;
@@ -174,54 +173,50 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private Component initChatDrawer(Component content) {
-        ChatSession session = new ChatSession();
         chatDrawer = new ChatDrawer(userInput -> {
             if (chatService == null) return;
 
-            boolean useContext = chatDrawer.isContextMemoryEnabled();
-            boolean keepAlive = chatDrawer.isKeepAliveEnabled();
-
-            String prompt = useContext
-                    ? session.buildPrompt() + "Du: " + userInput
-                    : userInput;
-
-            session.addUserMessage(userInput);
-
             new Thread(() -> {
                 try {
-                    chatService.streamAnswer(prompt, new ChatStreamListener() {
-                        final StringBuilder botReplyBuffer = new StringBuilder();
-
+                    chatService.streamAnswer(userInput, new ChatStreamListener() {
                         @Override
                         public void onStreamStart() {
-                            SwingUtilities.invokeLater(chatDrawer::startBotMessage);
+                            SwingUtilities.invokeLater(() -> {
+                                chatDrawer.startBotMessage();
+                                chatDrawer.setStatus("🤖 Bot schreibt...");
+                            });
                         }
 
                         @Override
                         public void onStreamChunk(String chunk) {
-                            botReplyBuffer.append(chunk);
                             SwingUtilities.invokeLater(() -> chatDrawer.appendBotMessageChunk(chunk));
                         }
 
                         @Override
                         public void onStreamEnd() {
-                            String fullReply = botReplyBuffer.toString();
-                            if (useContext) {
-                                session.addBotMessage(fullReply);
-                            }
-                            SwingUtilities.invokeLater(chatDrawer::endBotMessage);
+                            SwingUtilities.invokeLater(() -> {
+                                chatDrawer.endBotMessage();
+                                chatDrawer.setStatus(" ");
+                            });
                         }
 
                         @Override
                         public void onError(Exception e) {
-                            SwingUtilities.invokeLater(() ->
-                                    JOptionPane.showMessageDialog(chatDrawer,
-                                            "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
-                                            "AI-Fehler", JOptionPane.ERROR_MESSAGE));
+                            SwingUtilities.invokeLater(() -> {
+                                chatDrawer.setStatus("⚠️ Fehler");
+                                JOptionPane.showMessageDialog(chatDrawer,
+                                        "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
+                                        "AI-Fehler", JOptionPane.ERROR_MESSAGE);
+                            });
                         }
-                    }, keepAlive);
+                    });
                 } catch (IOException e) {
-                    // Fehlerbehandlung...
+                    SwingUtilities.invokeLater(() -> {
+                        chatDrawer.setStatus("⚠️ Fehler");
+                        JOptionPane.showMessageDialog(chatDrawer,
+                                "Fehler beim Starten der Anfrage:\n" + e.getMessage(),
+                                "AI-Fehler", JOptionPane.ERROR_MESSAGE);
+                    });
                 }
             }).start();
         });
