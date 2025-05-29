@@ -1,11 +1,8 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.*;
+import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ComboBoxHelper;
-import de.bund.zrb.model.FileEndingOption;
-import de.bund.zrb.model.LineEndingOption;
-import de.bund.zrb.model.PaddingOption;
-import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.SettingsManager;
 
 import javax.swing.*;
@@ -44,6 +41,9 @@ public class SettingsDialog {
     private static JComboBox<String> encodingCombo;
     private static Settings settings;
     private static JTable colorTable;
+    private static JTextField ollamaUrlField;
+    private static JTextField ollamaModelField;
+    private static JComboBox<AiProvider> providerCombo;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -56,11 +56,14 @@ public class SettingsDialog {
         JScrollPane transformPanel = new JScrollPane(transformContent);
         JPanel connectContent = new JPanel(new GridBagLayout());
         JScrollPane connectPanel = new JScrollPane(connectContent);
+        JPanel aiContent = new JPanel(new GridBagLayout());
+        JScrollPane aiPanel = new JScrollPane(aiContent);
 
         tabs.addTab("Allgemein", generalPanel);
         tabs.addTab("Farbzuordnung", colorPanel);
         tabs.addTab("Datenumwandlung", transformPanel);
         tabs.addTab("FTP-Verbindung", connectPanel);
+        tabs.add("KI", aiPanel);
 
         settings = SettingsManager.load();
 
@@ -68,6 +71,7 @@ public class SettingsDialog {
         createTransformContent(transformContent);
         createConnectContent(connectContent);
         createColorContent(colorContent, parent);
+        createAiContent(aiContent);
 
         showAndApply(parent, ftpManager, tabs);
     }
@@ -282,6 +286,63 @@ public class SettingsDialog {
         colorContent.add(colorButtons, BorderLayout.SOUTH);
     }
 
+    private static void createAiContent(JPanel aiContent) {
+        GridBagConstraints gbc = createDefaultGbc();
+
+        providerCombo = new JComboBox<>(AiProvider.values());
+        aiContent.add(new JLabel("KI-Provider:"), gbc);
+        gbc.gridy++;
+        aiContent.add(providerCombo, gbc);
+        gbc.gridy++;
+
+        JPanel providerOptionsPanel = new JPanel(new CardLayout());
+        aiContent.add(providerOptionsPanel, gbc);
+        gbc.gridy++;
+
+        // Panels für Provider
+        JPanel disabledPanel = new JPanel();
+        JPanel ollamaPanel = new JPanel(new GridBagLayout());
+        JPanel localAiPanel = new JPanel(new GridBagLayout());
+
+        providerOptionsPanel.add(disabledPanel, AiProvider.DISABLED.name());
+        providerOptionsPanel.add(ollamaPanel, AiProvider.OLLAMA.name());
+        providerOptionsPanel.add(localAiPanel, AiProvider.LOCAL_AI.name());
+
+        // OLLAMA-Felder
+        GridBagConstraints gbcOllama = createDefaultGbc();
+        ollamaPanel.add(new JLabel("OLLAMA URL:"), gbcOllama);
+        gbcOllama.gridy++;
+        ollamaUrlField = new JTextField(30);
+        ollamaPanel.add(ollamaUrlField, gbcOllama);
+        gbcOllama.gridy++;
+        ollamaPanel.add(new JLabel("Modellname:"), gbcOllama);
+        gbcOllama.gridy++;
+        ollamaModelField = new JTextField(20);
+        ollamaPanel.add(ollamaModelField, gbcOllama);
+
+        // LOCAL_AI-Felder (optional, hier nur ein Hinweistext)
+        GridBagConstraints gbcLocal = createDefaultGbc();
+        localAiPanel.add(new JLabel("Konfiguration für LocalAI folgt."), gbcLocal);
+
+        // Initiale Werte aus Settings
+        String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
+        AiProvider selectedProvider = AiProvider.valueOf(providerName);
+        providerCombo.setSelectedItem(selectedProvider);
+
+        ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/generate"));
+        ollamaModelField.setText(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
+
+        // Umschalten je nach Provider
+        providerCombo.addActionListener(e -> {
+            AiProvider selected = (AiProvider) providerCombo.getSelectedItem();
+            CardLayout cl = (CardLayout) providerOptionsPanel.getLayout();
+            cl.show(providerOptionsPanel, selected.name());
+        });
+
+        ((CardLayout) providerOptionsPanel.getLayout()).show(providerOptionsPanel, selectedProvider.name());
+    }
+
+
     private static void showAndApply(Component parent, FtpManager ftpManager, JTabbedPane tabs) {
         // Dialog formatieren
         JPanel container = new JPanel(new BorderLayout());
@@ -319,6 +380,10 @@ public class SettingsDialog {
             settings.ftpFileStructure = ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
             settings.ftpTransferMode = ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
+            settings.aiConfig.put("provider", providerCombo.getSelectedItem().toString());
+            settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
+            settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
+
             SettingsManager.save(settings);
 
             ftpManager.getClient().setControlEncoding(settings.encoding);

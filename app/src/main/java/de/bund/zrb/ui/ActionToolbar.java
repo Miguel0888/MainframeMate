@@ -34,6 +34,7 @@ public class ActionToolbar extends JToolBar {
             if (!activeCommandIds.contains(cmd.getId())) continue;
 
             JButton btn = new JButton(getIconFor(cmd));
+            btn.setMargin(new Insets(0, 0, 0, 0)); // optional
             btn.setToolTipText(cmd.getLabel());
             btn.setPreferredSize(new Dimension(buttonSizePx, buttonSizePx));
             btn.addActionListener(e -> cmd.perform());
@@ -42,6 +43,7 @@ public class ActionToolbar extends JToolBar {
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
         JButton config = new JButton("⚙");
+        config.setMargin(new Insets(0, 0, 0, 0)); // optional
         config.setToolTipText("Toolbar anpassen");
         config.setPreferredSize(new Dimension(buttonSizePx, buttonSizePx));
         config.addActionListener(e -> openConfigDialog());

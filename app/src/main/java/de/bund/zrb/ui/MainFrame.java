@@ -32,7 +32,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     private ActionToolbar actionToolbar;
     private BookmarkDrawer bookmarkDrawer;
     private ChatDrawer chatDrawer;
-    private final ChatService chatService;
+    private volatile ChatService chatService;
 
 
     @Override
@@ -68,16 +68,26 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private ChatService getAiService() {
-        final ChatService chatService;
-        if(SettingsManager.load().aiProvider == AiProvider.OLLAMA) {
-            chatService = new OllamaChatService();
-        } else if(SettingsManager.load().aiProvider == AiProvider.LOCAL_AI) {
-            chatService = new LocalAiChatService();
-        } else {
-            chatService = null; // disabled
+        Settings settings = SettingsManager.load();
+        String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
+
+        AiProvider provider;
+        try {
+            provider = AiProvider.valueOf(providerName);
+        } catch (IllegalArgumentException ex) {
+            provider = AiProvider.DISABLED;
         }
-        return chatService;
+
+        switch (provider) {
+            case OLLAMA:
+                return new OllamaChatService(); // verwendet intern settings.aiConfig
+            case LOCAL_AI:
+                return new LocalAiChatService(); // analog auf settings.aiConfig zugreifen
+            default:
+                return null; // DISABLED oder unbekannt
+        }
     }
+
 
     private void registerCoreCommands() {
         CommandRegistry.register(new SaveCommand(tabManager));
@@ -167,16 +177,28 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     private Component initChatDrawer(Component content) {
         chatDrawer = new ChatDrawer(userInput -> {
-            String antwort = chatService.send(userInput);
-            SwingUtilities.invokeLater(() -> chatDrawer.appendBotMessage(antwort));
+            if (chatService == null) return;
+
+            new Thread(() -> {
+                try {
+                    chatService.streamAnswer(userInput, chunk -> {
+                        SwingUtilities.invokeLater(() -> chatDrawer.appendBotMessageChunk(chunk));
+                    });
+                } catch (IOException e) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                            "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
+                            "AI-Fehler", JOptionPane.ERROR_MESSAGE));
+                }
+            }).start();
         });
 
         JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
-        rightSplit.setDividerLocation(content.getPreferredSize().width - 300); // oder dynamisch
-        rightSplit.setResizeWeight(1.0); // Inhalt soll bei Resize wachsen
+        rightSplit.setDividerLocation(content.getPreferredSize().width - 300);
+        rightSplit.setResizeWeight(1.0);
         rightSplit.setOneTouchExpandable(true);
         return rightSplit;
     }
+
 
     private Component initBookmarkDrawer(Component content) {
         bookmarkDrawer = new BookmarkDrawer(path -> {
