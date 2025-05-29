@@ -11,7 +11,9 @@ import okhttp3.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.function.Consumer;
+import java.sql.Timestamp;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class OllamaChatService implements ChatService {
 
@@ -23,12 +25,10 @@ public class OllamaChatService implements ChatService {
     private final OkHttpClient client;
     private final Gson gson;
 
+    private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
+
     public OllamaChatService() {
         this(DEBUG_URL, DEBUG_MODEL);
-    }
-
-    public OllamaChatService(String apiUrlDefault) {
-        this(apiUrlDefault, DEBUG_MODEL);
     }
 
     public OllamaChatService(String apiUrlDefault, String modelDefault) {
@@ -38,31 +38,58 @@ public class OllamaChatService implements ChatService {
         this.gson = new Gson();
     }
 
-    // Gson-basiertes Parsen des JSON-Zeile
-    private String extractResponse(String jsonLine) {
-    try {
-        JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
-        if (obj.has("response") && !obj.get("response").isJsonNull()) {
-            return obj.get("response").getAsString();
-        }
-    } catch (Exception ignored) {}
-    return null;
-}
-
+    @Override
+    public UUID newSession() {
+        UUID sessionId = UUID.randomUUID();
+        sessionHistories.put(sessionId, new ChatHistory(sessionId));
+        return sessionId;
+    }
 
     @Override
-    public void streamAnswer(String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException {
+    public void clearHistory(UUID sessionId) {
+        ChatHistory history = sessionHistories.get(sessionId);
+        if (history != null) {
+            history.clear();
+        }
+    }
+
+    @Override
+    public List<String> getHistory(UUID sessionId) {
+        ChatHistory history = sessionHistories.get(sessionId);
+        return history != null ? history.getFormattedHistory() : Collections.emptyList();
+    }
+
+    @Override
+    public void addUserMessage(UUID sessionId, String message) {
+        sessionHistories.computeIfAbsent(sessionId, ChatHistory::new).addUserMessage(message);
+    }
+
+    @Override
+    public void addBotMessage(UUID sessionId, String message) {
+        sessionHistories.computeIfAbsent(sessionId, ChatHistory::new).addBotMessage(message);
+    }
+
+    @Override
+    public void streamAnswer(UUID sessionId, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
         Settings settings = SettingsManager.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
-        Gson gson = new Gson();
+        boolean useContext = settings.aiConfig.getOrDefault("ollama.useContext", "true").equalsIgnoreCase("true");
+
+        ChatHistory history = sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
+        history.addUserMessage(userInput);
+
+        String prompt = useContext ? buildPrompt(history, userInput) : userInput;
+
         String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, keepAlive));
 
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
                 .build();
+
+        final StringBuilder currentBotResponse = new StringBuilder();
 
         client.newCall(request).enqueue(new Callback() {
             @Override
@@ -85,10 +112,12 @@ public class OllamaChatService implements ChatService {
                     while ((line = reader.readLine()) != null) {
                         String chunk = extractResponse(line);
                         if (chunk != null && !chunk.isEmpty()) {
+                            currentBotResponse.append(chunk);
                             listener.onStreamChunk(chunk);
                         }
                     }
 
+                    history.addBotMessage(currentBotResponse.toString());
                     listener.onStreamEnd();
 
                 } catch (IOException e) {
@@ -98,13 +127,31 @@ public class OllamaChatService implements ChatService {
         });
     }
 
+    private String buildPrompt(ChatHistory history, String userInput) {
+        StringBuilder prompt = new StringBuilder();
+        for (ChatHistory.Message msg : history.getMessages()) {
+            prompt.append(msg.role.equals("user") ? "Du: " : "Bot: ");
+            prompt.append(msg.content).append("\n");
+        }
+        prompt.append("Du: ").append(userInput);
+        return prompt.toString();
+    }
 
-    // Request-DTO für das JSON
+    private String extractResponse(String jsonLine) {
+        try {
+            JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
+            if (obj.has("response") && !obj.get("response").isJsonNull()) {
+                return obj.get("response").getAsString();
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     private static class OllamaRequest {
         String model;
         String prompt;
         boolean stream = true;
-        Object keep_alive; // String oder boolean zulässig
+        Object keep_alive;
 
         OllamaRequest(String model, String prompt, boolean keepAlive) {
             this.model = model;

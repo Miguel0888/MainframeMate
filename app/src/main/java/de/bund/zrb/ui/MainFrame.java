@@ -48,6 +48,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     public MainFrame() {
         // Sprache explizit setzen (nur zu Demo-Zwecken):
         Locale.setDefault(Locale.GERMAN); // oder Locale.ENGLISH
+        chatService = getAiService();
 
         setTitle("MainframeMate");
         setCompatibleFontIfNecessary();
@@ -61,7 +62,6 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (ConnectDialog.connectIfNeeded(this, ftpManager)) {
             tabManager.addTab(new ConnectionTab(ftpManager, tabManager));
         }
-        chatService = getAiService();
     }
 
     private ChatService getAiService() {
@@ -173,14 +173,19 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private Component initChatDrawer(Component content) {
+        if (chatService == null) {
+            System.err.println("⚠️ Kein ChatService verfügbar – Eingabe wird ignoriert");
+        }
+        UUID sessionId = chatService != null ? chatService.newSession() : null;
+
         chatDrawer = new ChatDrawer(userInput -> {
-            if (chatService == null) return;
+            if (chatService == null || sessionId == null) return;
 
             boolean keepAlive = chatDrawer.isKeepAliveEnabled();
 
             new Thread(() -> {
                 try {
-                    chatService.streamAnswer(userInput, new ChatStreamListener() {
+                    chatService.streamAnswer(sessionId, userInput, new ChatStreamListener() {
                         @Override
                         public void onStreamStart() {
                             SwingUtilities.invokeLater(() -> {
@@ -229,6 +234,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         rightSplit.setOneTouchExpandable(true);
         return rightSplit;
     }
+
 
 
     private Component initBookmarkDrawer(Component content) {
