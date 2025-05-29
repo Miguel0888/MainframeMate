@@ -15,8 +15,12 @@ public class PluginManager {
     public static void initializePlugins(MainFrame mainFrame) {
         for (MainframeMatePlugin plugin : plugins) {
             plugin.initialize(mainFrame);
+
+            // Commands registrieren
+            plugin.getCommands(mainFrame).forEach(de.bund.zrb.ui.commands.CommandRegistry::register);
         }
     }
+
 
     public static List<MainframeMatePlugin> getPlugins() {
         return plugins;

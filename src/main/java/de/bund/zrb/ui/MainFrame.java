@@ -99,10 +99,13 @@ public class MainFrame extends JFrame {
         // 1. Command Registry
         registerCoreCommands();
 
-        // 2. Automatisch erzeugtes Menü
+        // 2. Plugins initialisieren (inkl. Command-Registrierung)
+        PluginManager.initializePlugins(this);
+
+        // 3. Menübaum aufbauen (nachdem alle Commands da sind!)
         setJMenuBar(MenuTreeBuilder.buildMenuBar());
 
-        // 3. Layout
+        // 4. Layout
         setLayout(new BorderLayout());
 
         // Toolbar ganz oben
@@ -132,9 +135,6 @@ public class MainFrame extends JFrame {
         splitPane.setDividerLocation(220); // oder settings-basiert
         splitPane.setOneTouchExpandable(true);
         add(splitPane, BorderLayout.CENTER);
-
-        // ✅ 4. Jetzt ist Menü verfügbar → Plugins initialisieren
-        PluginManager.initializePlugins(this);
     }
 
     public BookmarkDrawer getBookmarkDrawer() {

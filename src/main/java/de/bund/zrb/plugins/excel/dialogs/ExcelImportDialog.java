@@ -1,4 +1,4 @@
-package de.bund.zrb.plugins.excel;
+package de.bund.zrb.plugins.excel.dialogs;
 
 import com.google.gson.Gson;
 import de.bund.zrb.model.Settings;

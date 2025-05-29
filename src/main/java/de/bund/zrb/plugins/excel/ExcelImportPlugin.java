@@ -1,5 +1,10 @@
 package de.bund.zrb.plugins.excel;
 
+import de.bund.zrb.plugins.excel.commands.ExcelImportCommand;
+import de.bund.zrb.plugins.excel.commands.ExcelSettingsCommand;
+import de.bund.zrb.plugins.excel.dialogs.ExcelImportDialog;
+import de.bund.zrb.plugins.excel.dialogs.ExcelImportSettingsDialog;
+import de.bund.zrb.ui.commands.Command;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.plugins.MainframeMatePlugin;
@@ -44,12 +49,14 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     @Override
     public void initialize(MainFrame mainFrame) {
         this.mainFrame = mainFrame;
-        JMenu pluginMenu = mainFrame.getOrCreatePluginMenu();
-        JMenuItem importItem = new JMenuItem("Excel-Import");
+    }
 
-        importItem.addActionListener(e -> handleImport());
-
-        pluginMenu.add(importItem);
+    @Override
+    public List<Command> getCommands(MainFrame mainFrame) {
+        return Arrays.asList(
+                new ExcelImportCommand(mainFrame),
+                new ExcelSettingsCommand(mainFrame)
+        );
     }
 
     private void handleImport() {
@@ -358,8 +365,6 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         JOptionPane.showMessageDialog(parent, message, "Fehler", JOptionPane.ERROR_MESSAGE);
     }
 
-
-
     private File chooseFile(Component parent, String title, String fileDesc, String... extensions) {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle(title);
@@ -369,16 +374,6 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
             return chooser.getSelectedFile();
         }
         return null;
-    }
-
-    @Override
-    public Optional<JMenuItem> getSettingsMenuItem(MainFrame mainFrame) {
-        JMenuItem item = new JMenuItem("Excel-Importer...");
-        item.addActionListener(e -> {
-            ExcelImportSettingsDialog dialog = new ExcelImportSettingsDialog(mainFrame);
-            dialog.setVisible(true);
-        });
-        return Optional.of(item);
     }
 
     private int getMaxRowNumber(List<Map<String, Object>> felder) {

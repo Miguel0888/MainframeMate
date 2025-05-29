@@ -1,4 +1,4 @@
-package de.bund.zrb.plugins.excel;
+package de.bund.zrb.plugins.excel.dialogs;
 
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.SettingsManager;
