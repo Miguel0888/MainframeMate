@@ -1,8 +1,6 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.ui.chat.ChatFormatter;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import java.awt.*;
@@ -12,29 +10,23 @@ import java.util.function.Consumer;
 
 public class ChatDrawer extends JPanel {
 
-    private final JTextPane chatArea;
+    private final JTextPane chatPane;
     private final JTextArea inputArea;
     private final JButton sendButton;
     private final JButton attachButton;
-    private final ChatFormatter chatFormatter;
+    private final ChatFormatter formatter;
 
     public ChatDrawer(Consumer<String> onSend) {
         setLayout(new BorderLayout());
         setPreferredSize(new Dimension(300, 0));
         setBorder(BorderFactory.createTitledBorder("💬 Chat"));
 
-        // RSyntaxTextArea für Ausgabe
-        chatArea = new JTextPane();
-        chatFormatter = new ChatFormatter(chatArea);
+        chatPane = new JTextPane();
+        formatter = new ChatFormatter(chatPane);
 
-        chatArea.setEditable(false);
-        chatArea.setBackground(UIManager.getColor("Panel.background")); // systemgrau
-        chatArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        JScrollPane chatScroll = new JScrollPane(chatArea);
+        JScrollPane chatScroll = new JScrollPane(chatPane);
         add(chatScroll, BorderLayout.CENTER);
 
-        // Eingabefeld
         inputArea = new JTextArea(3, 30);
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
@@ -44,7 +36,6 @@ public class ChatDrawer extends JPanel {
         JScrollPane inputScroll = new JScrollPane(inputArea);
         inputScroll.setBorder(BorderFactory.createEmptyBorder());
 
-        // KeyListener für Enter / Shift+Enter
         inputArea.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -59,13 +50,10 @@ public class ChatDrawer extends JPanel {
             }
         });
 
-        // Button-Leiste unten
         attachButton = new JButton("+");
-        attachButton.setMargin(new Insets(3, 6, 3, 6)); // optional
         attachButton.setToolTipText("Aktiven Tab teilen");
 
         sendButton = new JButton("⏎");
-        attachButton.setMargin(new Insets(3, 6, 3, 6)); // optional
         sendButton.setToolTipText("Nachricht senden");
 
         sendButton.addActionListener(e -> send(onSend));
@@ -85,18 +73,18 @@ public class ChatDrawer extends JPanel {
     private void send(Consumer<String> onSend) {
         String message = inputArea.getText().trim();
         if (!message.isEmpty()) {
-            chatFormatter.appendUserMessage(message);
+            formatter.appendUserMessage(message);
             onSend.accept(message);
             inputArea.setText("");
         }
     }
 
     public void appendBotMessage(String message) {
-        chatFormatter.appendBotMessage(message);
+        formatter.appendBotMessage(message);
     }
 
     public void appendBotMessageChunk(String chunk) {
-        chatFormatter.appendBotMessageChunk(chunk);
+        formatter.appendBotMessageChunk(chunk);
     }
 
     public void setUserInput(String text) {

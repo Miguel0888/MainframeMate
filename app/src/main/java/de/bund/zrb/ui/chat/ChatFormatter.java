@@ -2,74 +2,94 @@ package de.bund.zrb.ui.chat;
 
 import javax.swing.*;
 import javax.swing.text.*;
+import javax.swing.text.html.HTMLDocument;
+import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
 
 public class ChatFormatter {
 
     private final JTextPane chatPane;
-    private final StyledDocument doc;
+    private final HTMLEditorKit kit;
+    private final HTMLDocument doc;
 
     private boolean insideCodeBlock = false;
-
-    private static final Color USER_BG = new Color(230, 240, 255);
-    private static final Color BOT_BG = new Color(240, 255, 230);
-    private static final Color CODE_BG = new Color(250, 250, 250);
+    private final StringBuilder buffer = new StringBuilder();
 
     public ChatFormatter(JTextPane chatPane) {
         this.chatPane = chatPane;
-        this.doc = chatPane.getStyledDocument();
+        this.kit = new HTMLEditorKit();
+        this.doc = new HTMLDocument();
+        chatPane.setEditorKit(kit);
+        chatPane.setDocument(doc);
+        chatPane.setContentType("text/html");
         chatPane.setEditable(false);
-        chatPane.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        chatPane.setBackground(Color.WHITE);
+        chatPane.setBackground(UIManager.getColor("Panel.background"));
+
+        buffer.append("<html><body style='font-family:sans-serif; font-size:12px;'>");
     }
 
     public void appendUserMessage(String message) {
-        appendHeader("👤 Du:", USER_BG);
-        appendFormatted(message, USER_BG);
+        flushCodeBlock(); // falls offener Block existiert
+        buffer.append("<div style='background-color:#e6f0ff; padding:4px;'><b>👤 Du:</b><br/>");
+        appendFormatted(message);
+        buffer.append("</div>");
+        updatePane();
     }
 
     public void appendBotMessage(String message) {
-        appendHeader("🤖 Bot:", BOT_BG);
-        appendFormatted(message, BOT_BG);
+        flushCodeBlock();
+        buffer.append("<div style='background-color:#f0ffe6; padding:4px;'><b>🤖 Bot:</b><br/>");
+        appendFormatted(message);
+        buffer.append("</div>");
+        updatePane();
     }
 
     public void appendBotMessageChunk(String chunk) {
-        appendFormatted(chunk, BOT_BG);
+        appendFormatted(chunk);
+        updatePane();
     }
 
-    private void appendHeader(String label, Color bgColor) {
-        appendStyledText(label + "\n", bgColor, "SansSerif", Font.BOLD, 12);
-    }
-
-    private void appendFormatted(String text, Color bgColor) {
+    private void appendFormatted(String text) {
         String[] lines = text.split("\n");
 
         for (String line : lines) {
             if (line.trim().startsWith("```")) {
                 insideCodeBlock = !insideCodeBlock;
-                continue; // Marker selbst nicht anzeigen
+                if (insideCodeBlock) {
+                    buffer.append("<pre style='background:#f9f9f9; border:1px solid #ccc; padding:4px;'>");
+                } else {
+                    buffer.append("</pre>");
+                }
+                continue;
             }
 
             if (insideCodeBlock) {
-                appendStyledText(line + "\n", CODE_BG, "Monospaced", Font.PLAIN, 12);
+                buffer.append(escapeHtml(line));
             } else {
-                appendStyledText(line + "\n", bgColor, "SansSerif", Font.PLAIN, 12);
+                buffer.append(escapeHtml(line));
             }
         }
     }
 
-    private void appendStyledText(String text, Color bg, String fontName, int style, int size) {
-        SimpleAttributeSet attrs = new SimpleAttributeSet();
-        StyleConstants.setFontFamily(attrs, fontName);
-        StyleConstants.setFontSize(attrs, size);
-        StyleConstants.setBold(attrs, (style & Font.BOLD) != 0);
-        StyleConstants.setItalic(attrs, (style & Font.ITALIC) != 0);
-        StyleConstants.setBackground(attrs, bg);
-
-        try {
-            doc.insertString(doc.getLength(), text, attrs);
-        } catch (BadLocationException e) {
-            e.printStackTrace();
+    private void flushCodeBlock() {
+        if (insideCodeBlock) {
+            buffer.append("</pre>");
+            insideCodeBlock = false;
         }
+    }
+
+    private void updatePane() {
+        buffer.append("</body></html>");
+        chatPane.setText(buffer.toString());
+        chatPane.setCaretPosition(chatPane.getDocument().getLength());
+        // danach wieder <body> anhängen, da sonst keine weiteren Nachrichten gehen
+        buffer.setLength(buffer.length() - "</body></html>".length());
+    }
+
+    private String escapeHtml(String input) {
+        return input
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 }
