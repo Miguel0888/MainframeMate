@@ -63,7 +63,10 @@ public class ChatDrawer extends JPanel {
         JPanel headerLine = new JPanel(new BorderLayout());
         headerLine.add(titleLabel, BorderLayout.WEST);
         headerLine.add(checkboxPanel, BorderLayout.EAST);
-        headerLine.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        headerLine.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY),
+                BorderFactory.createEmptyBorder(0, 0, 4, 0)
+        ));
 
         return headerLine;
     }
@@ -96,6 +99,9 @@ public class ChatDrawer extends JPanel {
 
         attachButton = new JButton("+");
         attachButton.setToolTipText("Aktiven Tab teilen");
+
+        sendButton.setMargin(new Insets(2, 8, 2, 8));
+        attachButton.setMargin(new Insets(2, 6, 2, 6));
 
         JPanel buttonPanel = new JPanel(new BorderLayout());
         buttonPanel.add(attachButton, BorderLayout.WEST);
@@ -151,4 +157,13 @@ public class ChatDrawer extends JPanel {
     public void setStatus(String status) {
         statusLabel.setText(status);
     }
+
+    public boolean isKeepAliveEnabled() {
+        return keepAliveCheckbox.isSelected();
+    }
+
+    public boolean isContextMemoryEnabled() {
+        return contextMemoryCheckbox.isSelected();
+    }
+
 }

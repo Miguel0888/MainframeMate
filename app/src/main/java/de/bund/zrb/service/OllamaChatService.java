@@ -11,7 +11,6 @@ import okhttp3.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.function.Consumer;
 
 public class OllamaChatService implements ChatService {
 
@@ -51,13 +50,13 @@ public class OllamaChatService implements ChatService {
 
 
     @Override
-    public void streamAnswer(String prompt, ChatStreamListener listener) throws IOException {
+    public void streamAnswer(String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException {
         Settings settings = SettingsManager.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
         Gson gson = new Gson();
-        String jsonPayload = gson.toJson(new OllamaRequest(model, prompt));
+        String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, keepAlive));
 
         Request request = new Request.Builder()
                 .url(url)
@@ -101,14 +100,16 @@ public class OllamaChatService implements ChatService {
 
     // Request-DTO für das JSON
     private static class OllamaRequest {
-    String model;
-    String prompt;
-    boolean stream = true;
+        String model;
+        String prompt;
+        boolean stream = true;
+        Object keep_alive; // String oder boolean zulässig
 
-    OllamaRequest(String model, String prompt) {
-        this.model = model;
-        this.prompt = prompt;
+        OllamaRequest(String model, String prompt, boolean keepAlive) {
+            this.model = model;
+            this.prompt = prompt;
+            this.keep_alive = keepAlive ? "30m" : false;
+        }
     }
-}
 
 }
