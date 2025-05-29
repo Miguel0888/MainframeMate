@@ -4,7 +4,7 @@ import de.bund.zrb.excel.commands.ExcelImportCommand;
 import de.bund.zrb.excel.commands.ExcelSettingsCommand;
 import de.bund.zrb.excel.dialogs.ExcelImportDialog;
 import de.zrb.bund.api.Command;
-import de.zrb.bund.api.FileTabAdapter;
+import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
@@ -110,8 +110,8 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
 
             // 🔁 An bestehende Datei anhängen?
             if (dialog.shouldAppend()) {
-                Optional<FileTabAdapter> optionalTab = context.getSelectedFileTab();
-                String existing = optionalTab.map(FileTabAdapter::getContent).orElse("");
+                Optional<TabAdapter> optionalTab = context.getSelectedTab();
+                String existing = optionalTab.map(TabAdapter::getContent).orElse("");
                 String trennzeile = dialog.getTrennzeile();
 
                 String separator = (trennzeile != null && !trennzeile.trim().isEmpty())
@@ -350,19 +350,19 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     }
 
     private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) {
-        Optional<FileTabAdapter> optionalTab = context.getSelectedFileTab();
+        Optional<TabAdapter> optionalTab = context.getSelectedTab();
 
-        FileTabAdapter fileTab = optionalTab.orElseGet(() -> createNewFileTab(null));
+        TabAdapter fileTab = optionalTab.orElseGet(() -> createNewFileTab(null));
 
         fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
         fileTab.markAsChanged();
     }
 
-    private FileTabAdapter createNewFileTab(String content) {
+    private TabAdapter createNewFileTab(String content) {
         context.openFileTab(content);
-        FileTabAdapter fileTabAdapter = context.getSelectedFileTab()
+        TabAdapter tabAdapter = context.getSelectedTab()
                 .orElseThrow(() -> new IllegalStateException("Datei-Tab konnte nicht erzeugt werden"));
-        return fileTabAdapter;
+        return tabAdapter;
     }
 
     private void showError(Component parent, String message) {

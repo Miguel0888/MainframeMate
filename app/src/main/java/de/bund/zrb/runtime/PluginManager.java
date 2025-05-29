@@ -1,6 +1,7 @@
 package de.bund.zrb.runtime;
 
 import de.bund.zrb.ui.MainFrame;
+import de.bund.zrb.ui.commands.InstallPluginCommand;
 import de.zrb.bund.api.Command;
 import de.bund.zrb.ui.commands.CommandRegistry;
 import de.zrb.bund.api.MainframeMatePlugin;
@@ -20,6 +21,8 @@ public class PluginManager {
     }
 
     public static void initializePlugins(MainFrame mainFrame) {
+        CommandRegistry.register(new InstallPluginCommand());
+
         // 1. Statisch registrierte Plugins initialisieren
         for (MainframeMatePlugin plugin : plugins) {
             plugin.initialize(mainFrame);

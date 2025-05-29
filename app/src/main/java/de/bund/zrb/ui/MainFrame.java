@@ -6,7 +6,7 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.PluginManager;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.util.SettingsManager;
-import de.zrb.bund.api.FileTabAdapter;
+import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
@@ -14,6 +14,8 @@ import javax.swing.plaf.FontUIResource;
 import java.awt.*;
 import java.io.IOException;
 import java.util.*;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static de.bund.zrb.util.StringUtil.unquote;
 
@@ -172,8 +174,10 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
-    public Optional<FileTabAdapter> getSelectedFileTab() {
-        return getTabManager().getSelectedFileTab();
+    public Optional<TabAdapter> getSelectedTab() {
+        return tabManager.getSelectedTab()
+                .filter(tab -> tab instanceof TabAdapter)
+                .map(tab -> (TabAdapter) tab);
     }
 
 
@@ -186,4 +190,18 @@ public class MainFrame extends JFrame implements MainframeContext {
     public JFrame getMainFrame() {
         return this;
     }
+
+    @Override
+    public List<TabAdapter> getAllFileTabs() {
+        return tabManager.getAllTabs().stream()
+                .filter(t -> t instanceof TabAdapter)
+                .map(t -> (TabAdapter) t)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void focusFileTab(TabAdapter tab) {
+        tabManager.focusTabByAdapter(tab);
+    }
+
 }

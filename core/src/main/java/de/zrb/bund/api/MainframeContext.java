@@ -1,6 +1,7 @@
 package de.zrb.bund.api;
 
 import javax.swing.*;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -10,10 +11,19 @@ public interface MainframeContext {
 
     void savePluginSettings(String pluginKey, Map<String, String> settings);
 
-    Optional<FileTabAdapter> getSelectedFileTab();
+    Optional<TabAdapter> getSelectedTab();
     void openFileTab(String content);
 
     JFrame getMainFrame();
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // For Extensions
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    List<TabAdapter> getAllFileTabs();
+    void focusFileTab(TabAdapter tab);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // ToDo
 

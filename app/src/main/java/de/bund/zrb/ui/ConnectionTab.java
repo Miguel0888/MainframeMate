@@ -3,7 +3,8 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ftp.FtpObserver;
-import de.zrb.bund.api.ConnectionTabAdapter;
+import de.zrb.bund.api.TabAdapter;
+import de.zrb.bund.api.TabType;
 
 import javax.swing.*;
 import java.awt.*;
@@ -11,8 +12,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
-public class ConnectionTab implements FtpTab, FtpObserver, ConnectionTabAdapter {
+public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
 
     private final FtpManager ftpManager;
     private final JPanel mainPanel;
@@ -235,4 +237,33 @@ public class ConnectionTab implements FtpTab, FtpObserver, ConnectionTabAdapter 
         }
     }
 
+    @Override
+    public String getContent() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < listModel.size(); i++) {
+            sb.append(listModel.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public void setStructuredContent(String content, List<Map<String, Object>> feldDefinitionen, int maxRowCount) {
+        // No write support here
+    }
+
+    @Override
+    public void markAsChanged() {
+        // Optional: Visual indication, if ever needed
+        // tabbedPaneManager.updateTitleFor(this);
+    }
+
+    @Override
+    public String getPath() {
+        return getCurrentPath(); // oder pathField.getText()
+    }
+
+    @Override
+    public TabType getType() {
+        return TabType.CONNECTION;
+    }
 }

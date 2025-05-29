@@ -5,7 +5,8 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.util.SettingsManager;
-import de.zrb.bund.api.FileTabAdapter;
+import de.zrb.bund.api.TabAdapter;
+import de.zrb.bund.api.TabType;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -26,7 +27,7 @@ import javax.swing.text.Highlighter;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.CannotUndoException;
 
-public class FileTab implements FtpTab, FileTabAdapter {
+public class Tab implements FtpTab, TabAdapter {
 
     private final FtpManager ftpManager;
     private final FileContentService fileContentService;
@@ -42,14 +43,14 @@ public class FileTab implements FtpTab, FileTabAdapter {
     //ToDo: Mit Hashing kombinieren
     private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, String content) {
+    public Tab(TabbedPaneManager tabbedPaneManager, String content) {
         this(tabbedPaneManager, null, null);
         if(content != null) {
             textArea.setText(content);
         }
     }
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
+    public Tab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.fileContentService = new FileContentService(ftpManager);
@@ -295,6 +296,16 @@ public class FileTab implements FtpTab, FileTabAdapter {
             // Optional: Tab-Titel mit Stern markieren
             updateTabTitle();
         }
+    }
+
+    @Override
+    public String getPath() {
+        return (buffer != null) ? buffer.getRemotePath() : null;
+    }
+
+    @Override
+    public TabType getType() {
+        return TabType.FILE;
     }
 
     private void updateTabTitle() {
