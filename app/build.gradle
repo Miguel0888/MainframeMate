@@ -31,6 +31,9 @@ dependencies {
     // GUI (RSyntaxTextArea)
     implementation 'com.fifesoft:rsyntaxtextarea:3.3.3'
 
+    // REST (AI)
+    implementation 'com.squareup.okhttp3:okhttp:4.9.3'
+
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
 }

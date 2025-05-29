@@ -33,9 +33,6 @@ public class ChatDrawer extends JPanel {
         inputArea.setBackground(Color.WHITE);
         inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createEmptyBorder());
-
         inputArea.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
@@ -44,23 +41,25 @@ public class ChatDrawer extends JPanel {
                         inputArea.append("\n");
                     } else {
                         e.consume();
-                        send(onSend);
+                        onSend(onSend);
                     }
                 }
             }
         });
 
-        attachButton = new JButton("+");
-        attachButton.setToolTipText("Aktiven Tab teilen");
-
         sendButton = new JButton("⏎");
         sendButton.setToolTipText("Nachricht senden");
+        sendButton.addActionListener(e -> onSend(onSend));
 
-        sendButton.addActionListener(e -> send(onSend));
+        attachButton = new JButton("+");
+        attachButton.setToolTipText("Aktiven Tab teilen");
 
         JPanel buttonBar = new JPanel(new BorderLayout());
         buttonBar.add(attachButton, BorderLayout.WEST);
         buttonBar.add(sendButton, BorderLayout.EAST);
+
+        JScrollPane inputScroll = new JScrollPane(inputArea);
+        inputScroll.setBorder(BorderFactory.createEmptyBorder());
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
@@ -70,17 +69,13 @@ public class ChatDrawer extends JPanel {
         add(bottomPanel, BorderLayout.SOUTH);
     }
 
-    private void send(Consumer<String> onSend) {
+    private void onSend(Consumer<String> onSend) {
         String message = inputArea.getText().trim();
         if (!message.isEmpty()) {
             formatter.appendUserMessage(message);
             onSend.accept(message);
             inputArea.setText("");
         }
-    }
-
-    public void appendBotMessage(String message) {
-        formatter.appendBotMessage(message);
     }
 
     public void appendBotMessageChunk(String chunk) {
