@@ -1,9 +1,8 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.model.BookmarkEntry;
-import de.bund.zrb.util.BookmarkManager;
+import de.bund.zrb.util.BookmarkManagerImpl;
 
-import javax.activation.DataHandler;
 import javax.swing.*;
 import javax.swing.tree.*;
 import java.awt.datatransfer.*;
@@ -109,9 +108,9 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
 
             boolean dropOnNode = dropLocation.getChildIndex() == -1;
             if (dropOnNode) {
-                BookmarkManager.moveBookmarkTo(moved.id, target.id);
+                BookmarkManagerImpl.moveBookmarkTo(moved.id, target.id);
             } else {
-                BookmarkManager.moveBookmarkTo(moved.id, target.id, dropLocation.getChildIndex());
+                BookmarkManagerImpl.moveBookmarkTo(moved.id, target.id, dropLocation.getChildIndex());
             }
             SwingUtilities.invokeLater(() -> bookmarkDrawer.refreshBookmarks());
             return true;

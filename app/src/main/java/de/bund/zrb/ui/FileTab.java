@@ -27,7 +27,7 @@ import javax.swing.text.Highlighter;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.CannotUndoException;
 
-public class Tab implements FtpTab, TabAdapter {
+public class FileTab implements FtpTab, TabAdapter {
 
     private final FtpManager ftpManager;
     private final FileContentService fileContentService;
@@ -43,14 +43,14 @@ public class Tab implements FtpTab, TabAdapter {
     //ToDo: Mit Hashing kombinieren
     private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
 
-    public Tab(TabbedPaneManager tabbedPaneManager, String content) {
+    public FileTab(TabbedPaneManager tabbedPaneManager, String content) {
         this(tabbedPaneManager, null, null);
         if(content != null) {
             textArea.setText(content);
         }
     }
 
-    public Tab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
+    public FileTab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.fileContentService = new FileContentService(ftpManager);

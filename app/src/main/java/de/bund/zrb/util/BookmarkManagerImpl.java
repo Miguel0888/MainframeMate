@@ -3,12 +3,14 @@ package de.bund.zrb.util;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import de.bund.zrb.model.BookmarkEntry;
+import de.zrb.bund.api.BookmarkManager;
 
+import javax.swing.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class BookmarkManager {
+public class BookmarkManagerImpl implements BookmarkManager {
 
     private static final File BOOKMARK_FILE = new File(SettingsManager.getSettingsFolder(), "bookmarks.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -261,4 +263,13 @@ public class BookmarkManager {
         return null;
     }
 
+    @Override
+    public void addBookmark(String label, String path) {
+        BookmarkEntry entry = new BookmarkEntry();
+        entry.label = label;
+        entry.path = path;
+        entry.folder = false;
+        BookmarkManagerImpl.addBookmark(entry);
+
+    }
 }

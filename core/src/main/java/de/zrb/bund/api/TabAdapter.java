@@ -9,4 +9,6 @@ public interface TabAdapter {
     void markAsChanged();
     String getPath();
     TabType getType();
+
+    String getTitle();
 }

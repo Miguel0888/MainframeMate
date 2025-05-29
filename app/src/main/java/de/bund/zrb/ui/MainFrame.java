@@ -5,7 +5,9 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.PluginManager;
 import de.bund.zrb.ui.commands.*;
+import de.bund.zrb.util.BookmarkManagerImpl;
 import de.bund.zrb.util.SettingsManager;
+import de.zrb.bund.api.BookmarkManager;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.MainframeContext;
 
@@ -63,6 +65,10 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistry.register(new ShowSettingsDialogCommand(this));
         CommandRegistry.register(new ShowFeatureDialogCommand(this));
         CommandRegistry.register(new ShowAboutDialogCommand(this));
+
+        // Advanced
+        CommandRegistry.register(new BookmarkCommand(this));
+
     }
 
 
@@ -192,6 +198,11 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
+    public BookmarkManager getBookmarkManager() {
+        return new BookmarkManagerImpl();
+    }
+
+    @Override
     public List<TabAdapter> getAllFileTabs() {
         return tabManager.getAllTabs().stream()
                 .filter(t -> t instanceof TabAdapter)
@@ -202,6 +213,12 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public void focusFileTab(TabAdapter tab) {
         tabManager.focusTabByAdapter(tab);
+    }
+
+    @Override
+    public void refresh() {
+        SwingUtilities.invokeLater(() -> bookmarkDrawer.refreshBookmarks());
+        // ToDo: And mayby active tabs too..
     }
 
 }

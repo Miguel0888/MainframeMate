@@ -128,7 +128,7 @@ public class TabbedPaneManager {
      * Öffnet einen neuen FileTab, der eine neue Datei anlegt. Der Inhalt wird bis zum Speichern nur im Editor gehalten.
      */
     public void openFileTab(String content) {
-        Tab fileTab = new Tab(this, content);
+        FileTab fileTab = new FileTab(this, content);
         addTab(fileTab); // handled everything
     }
 
@@ -139,7 +139,7 @@ public class TabbedPaneManager {
      * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
      */
     public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
-        Tab fileTab = new Tab(this, ftpManager, buffer);
+        FileTab fileTab = new FileTab(this, ftpManager, buffer);
         addTab(fileTab); // handled everything
         updateTooltipFor(fileTab);
     }
@@ -156,8 +156,8 @@ public class TabbedPaneManager {
     public Optional<TabAdapter> getSelectedFileTab() {
         Component selected = tabbedPane.getSelectedComponent();
         FtpTab tab = tabMap.get(selected);
-        if (tab instanceof Tab) {
-            return Optional.of((Tab) tab);
+        if (tab instanceof FileTab) {
+            return Optional.of((FileTab) tab);
         }
         return Optional.empty();
     }
