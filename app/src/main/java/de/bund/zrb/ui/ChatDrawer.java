@@ -151,4 +151,12 @@ public class ChatDrawer extends JPanel {
     public void setStatus(String status) {
         statusLabel.setText(status);
     }
+
+    public boolean isKeepAliveEnabled() {
+        return keepAliveCheckbox.isSelected();
+    }
+
+    public boolean isContextMemoryEnabled() {
+        return contextMemoryCheckbox.isSelected();
+    }
 }

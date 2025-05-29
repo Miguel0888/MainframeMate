@@ -176,6 +176,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         chatDrawer = new ChatDrawer(userInput -> {
             if (chatService == null) return;
 
+            boolean keepAlive = chatDrawer.isKeepAliveEnabled();
+
             new Thread(() -> {
                 try {
                     chatService.streamAnswer(userInput, new ChatStreamListener() {
@@ -209,7 +211,7 @@ public class MainFrame extends JFrame implements MainframeContext {
                                         "AI-Fehler", JOptionPane.ERROR_MESSAGE);
                             });
                         }
-                    });
+                    }, keepAlive);
                 } catch (IOException e) {
                     SwingUtilities.invokeLater(() -> {
                         chatDrawer.setStatus("⚠️ Fehler");
