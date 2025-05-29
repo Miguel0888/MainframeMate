@@ -173,9 +173,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public Optional<FileTabAdapter> getSelectedFileTab() {
-        return Optional.ofNullable(getTabManager().getSelectedFileTab()
-                .orElseThrow(() -> new IllegalStateException("Datei-Tab konnte nicht erzeugt werden")));
+        return getTabManager().getSelectedFileTab();
     }
+
 
     @Override
     public void openFileTab(String content) {

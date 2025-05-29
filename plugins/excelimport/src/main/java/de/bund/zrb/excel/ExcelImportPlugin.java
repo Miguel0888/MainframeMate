@@ -58,12 +58,12 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     @Override
     public List<Command> getCommands(MainframeContext mainFrame) {
         return Arrays.asList(
-                new ExcelImportCommand(mainFrame),
+                new ExcelImportCommand(mainFrame, this), // ← this mitgeben
                 new ExcelSettingsCommand(mainFrame)
         );
     }
 
-    private void handleImport() {
+    public void handleImport() {
         ExcelImportDialog dialog = new ExcelImportDialog(context);
         dialog.setVisible(true);
         if (!dialog.isConfirmed()) return;
@@ -360,9 +360,9 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
 
     private FileTabAdapter createNewFileTab(String content) {
         context.openFileTab(content);
-
-        return context.getSelectedFileTab()
+        FileTabAdapter fileTabAdapter = context.getSelectedFileTab()
                 .orElseThrow(() -> new IllegalStateException("Datei-Tab konnte nicht erzeugt werden"));
+        return fileTabAdapter;
     }
 
     private void showError(Component parent, String message) {

@@ -2,6 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
+import de.zrb.bund.api.FileTabAdapter;
 
 import javax.swing.*;
 import java.awt.*;
@@ -152,7 +153,7 @@ public class TabbedPaneManager {
         return Optional.ofNullable(tabMap.get(selected));
     }
 
-    public Optional<FileTab> getSelectedFileTab() {
+    public Optional<FileTabAdapter> getSelectedFileTab() {
         Component selected = tabbedPane.getSelectedComponent();
         FtpTab tab = tabMap.get(selected);
         if (tab instanceof FileTab) {

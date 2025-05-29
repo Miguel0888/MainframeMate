@@ -1,15 +1,18 @@
 package de.bund.zrb.excel.commands;
 
+import de.bund.zrb.excel.ExcelImportPlugin;
 import de.bund.zrb.excel.dialogs.ExcelImportDialog;
 import de.zrb.bund.api.Command;
 import de.zrb.bund.api.MainframeContext;
 
 public class ExcelImportCommand implements Command {
 
+    private final ExcelImportPlugin plugin;
     private final MainframeContext mainFrame;
 
-    public ExcelImportCommand(MainframeContext mainFrame) {
+    public ExcelImportCommand(MainframeContext mainFrame, ExcelImportPlugin plugin) {
         this.mainFrame = mainFrame;
+        this.plugin = plugin;
     }
 
     @Override
@@ -24,8 +27,6 @@ public class ExcelImportCommand implements Command {
 
     @Override
     public void perform() {
-        ExcelImportDialog dialog = new ExcelImportDialog(mainFrame);
-        dialog.setVisible(true);
-        // Das eigentliche Handling wird von der Dialogklasse übernommen
+        plugin.handleImport(); // ✅ Import-Vorgang auslösen
     }
 }
