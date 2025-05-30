@@ -16,8 +16,9 @@ public class Settings {
     public boolean savePassword = false;
     public boolean autoConnect = false;
 
+    @Deprecated // können entfernt, werden da sie in eine seperate JSON ausgelagert wurden
     public Map<String, String> bookmarks = new HashMap<>(); // Pfad → Name
-    public Map<String, String> pathActions = new HashMap<>(); // Pfad → Aktion
+    public Map<String, String> applicationState = new HashMap<>(); // Zustände wie Seitenleiste ein oder aus
 
     public String encoding = "ISO-8859-1"; // Standardwert
     public boolean hideLoginDialog = false;

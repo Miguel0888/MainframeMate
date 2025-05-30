@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static de.bund.zrb.util.StringUtil.tryParseInt;
 import static de.bund.zrb.util.StringUtil.unquote;
 
 public class MainFrame extends JFrame implements MainframeContext {
@@ -184,7 +185,13 @@ public class MainFrame extends JFrame implements MainframeContext {
         chatDrawer = chatDrawer = new ChatDrawer(chatService);
 
         JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
-        rightSplit.setDividerLocation(content.getPreferredSize().width - 300);
+        int defaultDivider = content.getPreferredSize().width - 300;
+
+        Settings settings = SettingsManager.load();
+        String dividerValue = settings.applicationState.get("drawer.chat.divider");
+
+        int divider = tryParseInt(dividerValue, defaultDivider);
+        rightSplit.setDividerLocation(divider);
         rightSplit.setResizeWeight(1.0);
         rightSplit.setOneTouchExpandable(true);
         return rightSplit;
@@ -213,8 +220,14 @@ public class MainFrame extends JFrame implements MainframeContext {
         });
 
         JSplitPane leftSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, content);
-        leftSplit.setDividerLocation(220);
         leftSplit.setOneTouchExpandable(true);
+
+        Settings settings = SettingsManager.load();
+        String dividerValue = settings.applicationState.get("drawer.bookmark.divider");
+
+        int divider = tryParseInt(dividerValue, 220); // Fallback default
+        leftSplit.setDividerLocation(divider);
+
         return leftSplit;
     }
 
@@ -281,6 +294,39 @@ public class MainFrame extends JFrame implements MainframeContext {
     public void refresh() {
         SwingUtilities.invokeLater(() -> bookmarkDrawer.refreshBookmarks());
         // ToDo: And mayby active tabs too..
+    }
+
+    @Override
+    public void dispose() {
+        saveApplicationsState();
+        super.dispose();
+    }
+
+    private void saveApplicationsState() {
+        Settings settings = SettingsManager.load();
+        saveDrawerState(settings);
+        SettingsManager.save(settings);
+    }
+
+    private void saveDrawerState(Settings settings) {
+        // Links: BookmarkDrawer Split
+        Container contentPane = getContentPane();
+        if (contentPane.getComponentCount() > 0) {
+            Component center = contentPane.getComponent(0);
+            if (center instanceof JSplitPane) {
+                JSplitPane leftSplit = (JSplitPane) center;
+                int leftDivider = leftSplit.getDividerLocation();
+
+                Component rightComponent = leftSplit.getRightComponent();
+                if (rightComponent instanceof JSplitPane) {
+                    JSplitPane rightSplit = (JSplitPane) rightComponent;
+                    int rightDivider = rightSplit.getDividerLocation();
+
+                    settings.applicationState.put("drawer.bookmark.divider", String.valueOf(leftDivider));
+                    settings.applicationState.put("drawer.chat.divider", String.valueOf(rightDivider));
+                }
+            }
+        }
     }
 
 }
