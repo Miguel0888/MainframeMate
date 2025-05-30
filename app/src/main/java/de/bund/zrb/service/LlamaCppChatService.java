@@ -13,7 +13,7 @@ import java.util.concurrent.*;
 
 public class LlamaCppChatService implements ChatService {
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client;
     private final Gson gson = new Gson();
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
@@ -22,6 +22,12 @@ public class LlamaCppChatService implements ChatService {
     private Process llamaProcess;
 
     public LlamaCppChatService() {
+        this.client = new OkHttpClient.Builder()
+                .connectTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .writeTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build();
+
         if (Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.enabled", "false"))) {
             startLlamaServer();
         }
@@ -46,7 +52,7 @@ public class LlamaCppChatService implements ChatService {
         command.add(threads);
 
         ProcessBuilder builder = new ProcessBuilder(command);
-        builder.redirectErrorStream(true); // combine stdout and stderr
+        builder.redirectErrorStream(true);
 
         try {
             llamaProcess = builder.start();
@@ -54,7 +60,7 @@ public class LlamaCppChatService implements ChatService {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(llamaProcess.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        System.out.println("[llama-server] " + line); // optional: logging
+                        System.out.println("[llama-server] " + line);
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -64,9 +70,8 @@ public class LlamaCppChatService implements ChatService {
             throw new RuntimeException("Fehler beim Starten von llama-server", e);
         }
 
-        // Optional: auf Verfügbarkeit des Ports warten
         try {
-            Thread.sleep(3000); // einfacher Start-Delay
+            Thread.sleep(3000);
         } catch (InterruptedException ignored) {}
     }
 
@@ -99,31 +104,30 @@ public class LlamaCppChatService implements ChatService {
     }
 
     @Override
-    public boolean streamAnswer(UUID sessionId, boolean useContext, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
+    public boolean streamAnswer(UUID sessionId, boolean useContext, String userInput,
+                                ChatStreamListener listener, boolean keepAlive) throws IOException {
+
         if (activeCalls.containsKey(sessionId)) return false;
 
         String port = settings.aiConfig.getOrDefault("llama.port", "8080");
         String url = "http://localhost:" + port + "/completion";
 
+        boolean stream = Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.streaming", "true"));
+        float temp = Float.parseFloat(settings.aiConfig.getOrDefault("llama.temp", "0.7"));
+
         ChatHistory history = useContext ? sessionHistories.computeIfAbsent(sessionId, ChatHistory::new) : null;
         String prompt = history != null ? buildPrompt(history, userInput) : userInput;
 
-        JsonObject requestJson = new JsonObject();
-        requestJson.addProperty("prompt", "<s>[INST] " + prompt + " [/INST]");
-        requestJson.addProperty("n_predict", 200);
-        requestJson.addProperty("temperature", Float.parseFloat(settings.aiConfig.getOrDefault("llama.temp", "0.7")));
-        requestJson.add("stop", new Gson().toJsonTree(Arrays.asList("</s>")));
-        boolean streamEnabled = Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.streaming", "true"));
-        requestJson.addProperty("stream", streamEnabled);
+        LlamaRequest requestPayload = new LlamaRequest("<s>[INST] " + prompt + " [/INST]", temp, stream);
+        String jsonBody = gson.toJson(requestPayload);
 
         Request request = new Request.Builder()
                 .url(url)
-                .post(RequestBody.create(gson.toJson(requestJson), MediaType.get("application/json")))
+                .post(RequestBody.create(jsonBody, MediaType.get("application/json")))
                 .build();
 
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
-
         listener.onStreamStart();
 
         call.enqueue(new Callback() {
@@ -138,12 +142,32 @@ public class LlamaCppChatService implements ChatService {
             @Override
             public void onResponse(Call call, Response response) {
                 try (BufferedReader reader = new BufferedReader(response.body().charStream())) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        String chunk = extractContent(line);
-                        if (chunk != null && !chunk.isEmpty()) {
-                            botResponse.append(chunk);
-                            listener.onStreamChunk(chunk);
+                    if (stream) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            line = line.trim();
+                            if (line.isEmpty()) continue;
+
+                            if (line.startsWith("data:")) {
+                                line = line.substring("data:".length()).trim();
+                            }
+
+                            try {
+                                LlamaStreamResponseChunk chunk = gson.fromJson(line, LlamaStreamResponseChunk.class);
+                                if (chunk != null && chunk.content != null) {
+                                    botResponse.append(chunk.content);
+                                    listener.onStreamChunk(chunk.content);
+                                }
+                            } catch (JsonSyntaxException e) {
+                                System.err.println("Ungültige JSON-Zeile im Stream: " + line);
+                            }
+                        }
+
+                    } else {
+                        LlamaNonStreamResponse result = gson.fromJson(reader, LlamaNonStreamResponse.class);
+                        if (result != null && result.content != null) {
+                            botResponse.append(result.content);
+                            listener.onStreamChunk(result.content);
                         }
                     }
 
@@ -164,19 +188,6 @@ public class LlamaCppChatService implements ChatService {
         return true;
     }
 
-    private String extractContent(String jsonLine) {
-        try {
-            JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
-            if (obj.has("content")) {
-                return obj.get("content").getAsString();
-            }
-        } catch (Exception e) {
-            System.err.println("Fehler beim Parsen des Chunks: " + jsonLine);
-            e.printStackTrace();
-        }
-        return null;
-    }
-
     private String buildPrompt(ChatHistory history, String userInput) {
         StringBuilder prompt = new StringBuilder();
         for (ChatHistory.Message msg : history.getMessages()) {
@@ -192,10 +203,35 @@ public class LlamaCppChatService implements ChatService {
         if (call != null) call.cancel();
     }
 
-    // Optional: Shutdown-Methode, z. B. beim Programmende
     public void shutdown() {
         if (llamaProcess != null) {
             llamaProcess.destroy();
         }
+    }
+
+    // Request DTO
+    private static class LlamaRequest {
+        String prompt;
+        int n_predict = 200;
+        float temperature;
+        boolean stream;
+        List<String> stop;
+
+        public LlamaRequest(String prompt, float temperature, boolean stream) {
+            this.prompt = prompt;
+            this.temperature = temperature;
+            this.stream = stream;
+            this.stop = Collections.singletonList("</s>");
+        }
+    }
+
+    // Response DTO für Streaming
+    private static class LlamaStreamResponseChunk {
+        String content;
+    }
+
+    // Response DTO für Non-Streaming
+    private static class LlamaNonStreamResponse {
+        String content;
     }
 }
