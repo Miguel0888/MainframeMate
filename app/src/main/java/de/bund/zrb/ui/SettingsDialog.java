@@ -12,10 +12,8 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 public class SettingsDialog {
 
@@ -53,6 +51,7 @@ public class SettingsDialog {
     private static JSpinner llamaThreadsSpinner;
     private static JSpinner llamaContextSpinner;
     private static JTextField llamaTempField;
+    private static JCheckBox llamaStreamingBox;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -348,6 +347,12 @@ public class SettingsDialog {
         providerOptionsPanel.add(llamaCppServerPanel, AiProvider.LLAMA_CPP_SERVER.name());
         GridBagConstraints gbcLlama = createDefaultGbc();
 
+        llamaStreamingBox = new JCheckBox("Streaming aktiviert");
+        llamaStreamingBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.streaming", "true")));
+        llamaCppServerPanel.add(llamaStreamingBox, gbcLlama);
+        gbcLlama.gridx = 0;
+        gbcLlama.gridy++;
+
         llamaEnabledBox = new JCheckBox("llama.cpp Server beim Start starten");
         llamaEnabledBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.enabled", "false")));
         llamaCppServerPanel.add(llamaEnabledBox, gbcLlama);
@@ -395,6 +400,21 @@ public class SettingsDialog {
         llamaCppServerPanel.add(llamaTempField, gbcLlama);
         gbcLlama.gridy++;
 
+        // Dynamisches Deaktivieren bei "Server starten"
+        List<Component> llamaConfigFields = Arrays.asList(
+                llamaBinaryField, llamaModelField, llamaPortSpinner,
+                llamaThreadsSpinner, llamaContextSpinner, llamaTempField
+        );
+        llamaEnabledBox.addActionListener(e -> {
+            boolean enabled = llamaEnabledBox.isSelected();
+            for (Component comp : llamaConfigFields) {
+                comp.setEnabled(enabled);
+            }
+        });
+        boolean initiallyEnabled = llamaEnabledBox.isSelected();
+        for (Component comp : llamaConfigFields) {
+            comp.setEnabled(initiallyEnabled);
+        }
 
         // Initiale Werte aus Settings
         String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
@@ -464,7 +484,7 @@ public class SettingsDialog {
             settings.aiConfig.put("llama.threads", llamaThreadsSpinner.getValue().toString());
             settings.aiConfig.put("llama.context", llamaContextSpinner.getValue().toString());
             settings.aiConfig.put("llama.temp", llamaTempField.getText().trim());
-
+            settings.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
 
             SettingsManager.save(settings);
 
