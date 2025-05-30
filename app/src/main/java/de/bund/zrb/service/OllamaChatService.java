@@ -75,7 +75,10 @@ public class OllamaChatService implements ChatService {
     }
 
     @Override
-    public boolean streamAnswer(UUID sessionId, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
+    public boolean streamAnswer(UUID sessionId, boolean useContext, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
+        if(sessionId == null) {
+            return false;
+        }
         if (activeCalls.containsKey(sessionId)) {
             // Eine Anfrage läuft bereits mit dieser SessionId → keine neue starten
             return false;
@@ -84,7 +87,12 @@ public class OllamaChatService implements ChatService {
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
-        ChatHistory history = sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
+        ChatHistory history;
+        if(useContext) {
+            history = sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
+        } else {
+            history = null;
+        }
 
         String prompt = (history != null)
                 ? buildPrompt(history, userInput)
@@ -176,12 +184,13 @@ public class OllamaChatService implements ChatService {
         String model;
         String prompt;
         boolean stream = true;
-        Object keep_alive;
+        String keep_alive;
 
         OllamaRequest(String model, String prompt, boolean keepAlive) {
             this.model = model;
             this.prompt = prompt;
-            this.keep_alive = keepAlive ? "30m" : false;
+            String keepAliveValue = SettingsManager.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
+            this.keep_alive = keepAlive ? keepAliveValue : "0m";
         }
     }
 }

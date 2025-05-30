@@ -143,7 +143,7 @@ public class ChatDrawer extends JPanel {
 
         new Thread(() -> {
             try {
-                boolean success = chatService.streamAnswer(isContextMemoryEnabled() ? sessionId : null, message, new ChatStreamListener() {
+                boolean success = chatService.streamAnswer(sessionId, isContextMemoryEnabled() , message, new ChatStreamListener() {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {

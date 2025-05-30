@@ -43,6 +43,8 @@ public class SettingsDialog {
     private static JTable colorTable;
     private static JTextField ollamaUrlField;
     private static JTextField ollamaModelField;
+    private static JTextField ollamaKeepAliveField;
+
     private static JComboBox<AiProvider> providerCombo;
 
     public static void show(Component parent, FtpManager ftpManager) {
@@ -319,6 +321,13 @@ public class SettingsDialog {
         gbcOllama.gridy++;
         ollamaModelField = new JTextField(20);
         ollamaPanel.add(ollamaModelField, gbcOllama);
+        gbcOllama.gridy++;
+        ollamaPanel.add(new JLabel("Modell beibehalten für (z. B. 30m, 0, -1):"), gbcOllama);
+        gbcOllama.gridy++;
+        ollamaKeepAliveField = new JTextField(20);
+        ollamaPanel.add(ollamaKeepAliveField, gbcOllama);
+        gbcOllama.gridy++;
+
 
         // LOCAL_AI-Felder (optional, hier nur ein Hinweistext)
         GridBagConstraints gbcLocal = createDefaultGbc();
@@ -331,6 +340,7 @@ public class SettingsDialog {
 
         ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/generate"));
         ollamaModelField.setText(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
+        ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
 
         // Umschalten je nach Provider
         providerCombo.addActionListener(e -> {
@@ -383,6 +393,7 @@ public class SettingsDialog {
             settings.aiConfig.put("provider", providerCombo.getSelectedItem().toString());
             settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
             settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
+            settings.aiConfig.put("ollama.keepalive", ollamaKeepAliveField.getText().trim());
 
             SettingsManager.save(settings);
 

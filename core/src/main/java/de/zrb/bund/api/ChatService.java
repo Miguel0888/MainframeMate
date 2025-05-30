@@ -17,13 +17,14 @@ public interface ChatService {
      * Antwortet auf eine Benutzereingabe in einer bestimmten Sitzung.
      *
      * @param sessionId  eindeutige Sitzungs-ID
+     * @param useContext
      * @param prompt     Benutzereingabe
      * @param listener   Callback für Streaming-Ereignisse
      * @param keepAlive  ob das Modell aktiv gehalten werden soll
      * @return
      * @throws IOException bei Transportfehlern
      */
-    boolean streamAnswer(UUID sessionId, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException;
+    boolean streamAnswer(UUID sessionId, boolean useContext, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException;
 
     /**
      * Gibt die komplette Nachrichten-Historie für eine Session zurück.

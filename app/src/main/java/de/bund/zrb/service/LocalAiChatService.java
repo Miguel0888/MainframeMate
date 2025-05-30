@@ -16,7 +16,7 @@ public class LocalAiChatService implements ChatService {
     }
 
     @Override
-    public boolean streamAnswer(UUID sessionId, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException {
+    public boolean streamAnswer(UUID sessionId, boolean useContext, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException {
 
         return keepAlive;
     }
