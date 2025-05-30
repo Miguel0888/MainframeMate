@@ -113,7 +113,8 @@ public class LlamaCppChatService implements ChatService {
         requestJson.addProperty("n_predict", 200);
         requestJson.addProperty("temperature", Float.parseFloat(settings.aiConfig.getOrDefault("llama.temp", "0.7")));
         requestJson.add("stop", new Gson().toJsonTree(Arrays.asList("</s>")));
-        requestJson.addProperty("stream", true);
+        boolean streamEnabled = Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.streaming", "true"));
+        requestJson.addProperty("stream", streamEnabled);
 
         Request request = new Request.Builder()
                 .url(url)
