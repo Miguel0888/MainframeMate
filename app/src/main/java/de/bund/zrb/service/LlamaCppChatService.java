@@ -166,10 +166,13 @@ public class LlamaCppChatService implements ChatService {
     private String extractContent(String jsonLine) {
         try {
             JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
-            if (obj.has("content") && !obj.get("content").isJsonNull()) {
+            if (obj.has("content")) {
                 return obj.get("content").getAsString();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("Fehler beim Parsen des Chunks: " + jsonLine);
+            e.printStackTrace();
+        }
         return null;
     }
 
