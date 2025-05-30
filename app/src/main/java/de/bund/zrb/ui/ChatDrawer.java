@@ -178,7 +178,7 @@ public class ChatDrawer extends JPanel {
                         });
                     }
                 }, isKeepAliveEnabled());
-                if(success) {
+                if(!success) {
                     // Anfrage wurde unterdrückt – nicht anzeigen
                     awaitingBotResponse = false;
                 }
