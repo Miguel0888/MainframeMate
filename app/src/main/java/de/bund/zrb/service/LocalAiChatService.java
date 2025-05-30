@@ -45,4 +45,9 @@ public class LocalAiChatService implements ChatService {
     public void cancel(UUID sessionId) {
 
     }
+
+    @Override
+    public void onDispose() {
+
+    }
 }

@@ -16,6 +16,8 @@ import de.zrb.bund.api.*;
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.*;
@@ -32,6 +34,8 @@ public class MainFrame extends JFrame implements MainframeContext {
     private BookmarkDrawer bookmarkDrawer;
     private ChatDrawer chatDrawer;
     private volatile ChatService chatService;
+    private JSplitPane rightSplitPane;
+    private JSplitPane leftSplitPane;
 
 
     @Override
@@ -48,6 +52,15 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
     
     public MainFrame() {
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                dispose(); // sauber beenden
+                System.exit(0); // oder dispatchEvent(new WindowEvent(..., WINDOW_CLOSING));
+            }
+        });
+
         // Sprache explizit setzen (nur zu Demo-Zwecken):
         Locale.setDefault(Locale.GERMAN); // oder Locale.ENGLISH
         chatService = getAiService();
@@ -58,6 +71,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
+        restoreWindowState();
         initUI();
 
         final FtpManager ftpManager = new FtpManager();
@@ -180,21 +194,19 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (chatService == null) {
             System.err.println("⚠️ Kein ChatService verfügbar – Eingabe wird ignoriert");
         }
-        UUID sessionId = chatService != null ? chatService.newSession() : null;
+        chatDrawer = new ChatDrawer(chatService);
 
-        chatDrawer = chatDrawer = new ChatDrawer(chatService);
-
-        JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
+        rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
         int defaultDivider = content.getPreferredSize().width - 300;
 
         Settings settings = SettingsManager.load();
         String dividerValue = settings.applicationState.get("drawer.chat.divider");
 
         int divider = tryParseInt(dividerValue, defaultDivider);
-        rightSplit.setDividerLocation(divider);
-        rightSplit.setResizeWeight(1.0);
-        rightSplit.setOneTouchExpandable(true);
-        return rightSplit;
+        rightSplitPane.setDividerLocation(divider);
+        rightSplitPane.setResizeWeight(1.0);
+        rightSplitPane.setOneTouchExpandable(true);
+        return rightSplitPane;
     }
 
 
@@ -219,16 +231,16 @@ public class MainFrame extends JFrame implements MainframeContext {
             }
         });
 
-        JSplitPane leftSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, content);
-        leftSplit.setOneTouchExpandable(true);
+        leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, content);
+        leftSplitPane.setOneTouchExpandable(true);
 
         Settings settings = SettingsManager.load();
         String dividerValue = settings.applicationState.get("drawer.bookmark.divider");
 
         int divider = tryParseInt(dividerValue, 220); // Fallback default
-        leftSplit.setDividerLocation(divider);
+        leftSplitPane.setDividerLocation(divider);
 
-        return leftSplit;
+        return leftSplitPane;
     }
 
     public BookmarkDrawer getBookmarkDrawer() {
@@ -296,37 +308,70 @@ public class MainFrame extends JFrame implements MainframeContext {
         // ToDo: And mayby active tabs too..
     }
 
-    @Override
-    public void dispose() {
-        saveApplicationsState();
-        super.dispose();
+    private void restoreWindowState() {
+        Settings settings = SettingsManager.load();
+        Map<String, String> state = settings.applicationState;
+
+        // Fenstergröße
+        int width = tryParseInt(state.get("window.width"), 1000);
+        int height = tryParseInt(state.get("window.height"), 700);
+        setSize(width, height);
+
+        // Fensterposition
+        int x = tryParseInt(state.get("window.x"), -1);
+        int y = tryParseInt(state.get("window.y"), -1);
+        if (x >= 0 && y >= 0) {
+            setLocation(x, y);
+        } else {
+            setLocationRelativeTo(null);
+        }
+
+        // Maximierungsstatus (muss nach setSize erfolgen)
+        int extendedState = tryParseInt(state.get("window.extendedState"), JFrame.NORMAL);
+        setExtendedState(extendedState);
     }
 
-    private void saveApplicationsState() {
+    private void saveApplicationState() {
         Settings settings = SettingsManager.load();
-        saveDrawerState(settings);
+        Map<String, String> state = settings.applicationState;
+
+        saveWindowState(state);
+        saveDrawerState(state);
+
         SettingsManager.save(settings);
     }
 
-    private void saveDrawerState(Settings settings) {
-        // Links: BookmarkDrawer Split
-        Container contentPane = getContentPane();
-        if (contentPane.getComponentCount() > 0) {
-            Component center = contentPane.getComponent(0);
-            if (center instanceof JSplitPane) {
-                JSplitPane leftSplit = (JSplitPane) center;
-                int leftDivider = leftSplit.getDividerLocation();
+    private void saveWindowState(Map<String, String> state) {
+        // Allgemeine Fensterinformationen
+        state.put("window.width", String.valueOf(getWidth()));
+        state.put("window.height", String.valueOf(getHeight()));
+        state.put("window.x", String.valueOf(getX()));
+        state.put("window.y", String.valueOf(getY()));
+        state.put("window.extendedState", String.valueOf(getExtendedState()));
+    }
 
-                Component rightComponent = leftSplit.getRightComponent();
-                if (rightComponent instanceof JSplitPane) {
-                    JSplitPane rightSplit = (JSplitPane) rightComponent;
-                    int rightDivider = rightSplit.getDividerLocation();
-
-                    settings.applicationState.put("drawer.bookmark.divider", String.valueOf(leftDivider));
-                    settings.applicationState.put("drawer.chat.divider", String.valueOf(rightDivider));
-                }
-            }
+    private void saveDrawerState(Map<String, String> state) {
+        // Drawer-Zustände
+        if (leftSplitPane != null) {
+            state.put("drawer.bookmark.divider", String.valueOf(leftSplitPane.getDividerLocation()));
         }
+
+        if (rightSplitPane != null) {
+            state.put("drawer.chat.divider", String.valueOf(rightSplitPane.getDividerLocation()));
+        }
+
+        // ChatDrawer-interne Settings
+        if (chatDrawer != null) {
+            chatDrawer.addApplicationState(state);
+        }
+
+    }
+
+    @Override
+    public void dispose() {
+        chatService.onDispose();
+        saveApplicationState();
+        super.dispose();
     }
 
 }

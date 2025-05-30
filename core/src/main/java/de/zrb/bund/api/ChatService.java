@@ -45,4 +45,6 @@ public interface ChatService {
     void addBotMessage(UUID sessionId, String message);
 
     void cancel(UUID sessionId);
+
+    void onDispose();
 }

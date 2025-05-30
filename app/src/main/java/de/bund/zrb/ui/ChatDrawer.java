@@ -1,6 +1,8 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.chat.ChatFormatter;
+import de.bund.zrb.util.SettingsManager;
 import de.zrb.bund.api.ChatService;
 import de.zrb.bund.api.ChatStreamListener;
 
@@ -9,6 +11,7 @@ import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
+import java.util.Map;
 import java.util.UUID;
 
 public class ChatDrawer extends JPanel {
@@ -48,8 +51,14 @@ public class ChatDrawer extends JPanel {
         JLabel titleLabel = new JLabel("💬 Chat");
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 13f));
 
-        keepAliveCheckbox = new JCheckBox("Modell behalten", true);
-        contextMemoryCheckbox = new JCheckBox("Kontext merken", true);
+        Settings settings = SettingsManager.load();
+        Map<String, String> state = settings.applicationState;
+
+        boolean keepAlive = Boolean.parseBoolean(state.getOrDefault("chat.keepAlive", "true"));
+        boolean rememberContext = Boolean.parseBoolean(state.getOrDefault("chat.rememberContext", "true"));
+
+        keepAliveCheckbox = new JCheckBox("Modell behalten", keepAlive);
+        contextMemoryCheckbox = new JCheckBox("Kontext merken", rememberContext);
         for (JCheckBox box : new JCheckBox[]{keepAliveCheckbox, contextMemoryCheckbox}) {
             box.setFont(new Font("Dialog", Font.PLAIN, 11));
             box.setHorizontalTextPosition(SwingConstants.LEFT);
@@ -233,4 +242,12 @@ public class ChatDrawer extends JPanel {
     public UUID getSessionId() {
         return sessionId;
     }
+
+    public void addApplicationState(Map<String, String> state) {
+        if (state == null) return;
+
+        state.put("chat.keepAlive", String.valueOf(keepAliveCheckbox.isSelected()));
+        state.put("chat.rememberContext", String.valueOf(contextMemoryCheckbox.isSelected()));
+    }
+
 }

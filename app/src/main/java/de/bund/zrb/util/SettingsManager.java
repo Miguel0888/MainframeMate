@@ -49,25 +49,6 @@ public class SettingsManager {
     }
 
     @Deprecated
-    public static void addBookmark(String path) {
-        Settings settings = load();
-        Map<String, String> bookmarks = settings.bookmarks;
-
-        // Einfacher Name als Schlüssel vorschlagen (falls leerer Schlüssel ok ist, sonst Dialog)
-        String label = new File(path).getName();
-
-        // Stelle sicher, dass Schlüssel eindeutig ist
-        int suffix = 1;
-        String originalLabel = label;
-        while (bookmarks.containsKey(label)) {
-            label = originalLabel + "_" + suffix++;
-        }
-
-        bookmarks.put(label, path);
-        save(settings);
-    }
-
-    @Deprecated
     public static void removeBookmark(String path) {
         Settings settings = load();
         settings.bookmarks.values().removeIf(value -> value.equals(path));

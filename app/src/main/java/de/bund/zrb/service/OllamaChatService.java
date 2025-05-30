@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.util.SettingsManager;
 import de.zrb.bund.api.ChatService;
 import de.zrb.bund.api.ChatStreamListener;
@@ -13,6 +14,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public class OllamaChatService implements ChatService {
 
@@ -36,9 +38,10 @@ public class OllamaChatService implements ChatService {
         this.apiUrlDefault = apiUrlDefault;
         this.modelDefault = modelDefault;
         this.client = new OkHttpClient.Builder()
-                .connectTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .writeTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .addInterceptor(new RetryInterceptor(7, 1000))
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.MILLISECONDS) // streamt unendlich
+                .writeTimeout(0, TimeUnit.MILLISECONDS)
                 .build();
         this.gson = new Gson();
     }
@@ -158,6 +161,11 @@ public class OllamaChatService implements ChatService {
         if (call != null) {
             call.cancel();
         }
+    }
+
+    @Override
+    public void onDispose() {
+        // not required
     }
 
     private String buildPrompt(ChatHistory history, String userInput) {

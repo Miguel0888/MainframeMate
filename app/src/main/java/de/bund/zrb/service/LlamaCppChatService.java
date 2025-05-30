@@ -2,6 +2,7 @@ package de.bund.zrb.service;
 
 import com.google.gson.*;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.util.SettingsManager;
 import de.zrb.bund.api.ChatService;
 import de.zrb.bund.api.ChatStreamListener;
@@ -23,9 +24,10 @@ public class LlamaCppChatService implements ChatService {
 
     public LlamaCppChatService() {
         this.client = new OkHttpClient.Builder()
-                .connectTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .writeTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .addInterceptor(new RetryInterceptor(7, 1000))
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.MILLISECONDS) // streamt unendlich
+                .writeTimeout(0, TimeUnit.MILLISECONDS)
                 .build();
 
         startLlamaServer();
@@ -254,5 +256,11 @@ public class LlamaCppChatService implements ChatService {
     // Response DTO für Non-Streaming
     private static class LlamaNonStreamResponse {
         String content;
+    }
+
+    @Override
+    public void onDispose()
+    {
+        shutdown();
     }
 }
