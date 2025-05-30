@@ -16,13 +16,14 @@ public interface ChatService {
     /**
      * Antwortet auf eine Benutzereingabe in einer bestimmten Sitzung.
      *
-     * @param sessionId eindeutige Sitzungs-ID
-     * @param prompt Benutzereingabe
-     * @param listener Callback für Streaming-Ereignisse
-     * @param keepAlive ob das Modell aktiv gehalten werden soll
+     * @param sessionId  eindeutige Sitzungs-ID
+     * @param prompt     Benutzereingabe
+     * @param listener   Callback für Streaming-Ereignisse
+     * @param keepAlive  ob das Modell aktiv gehalten werden soll
+     * @return
      * @throws IOException bei Transportfehlern
      */
-    void streamAnswer(UUID sessionId, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException;
+    boolean streamAnswer(UUID sessionId, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException;
 
     /**
      * Gibt die komplette Nachrichten-Historie für eine Session zurück.
@@ -41,4 +42,6 @@ public interface ChatService {
 
     void addUserMessage(UUID sessionId, String message);
     void addBotMessage(UUID sessionId, String message);
+
+    void cancel(UUID sessionId);
 }

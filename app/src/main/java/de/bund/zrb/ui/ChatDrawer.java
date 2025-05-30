@@ -1,12 +1,15 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.ui.chat.ChatFormatter;
+import de.zrb.bund.api.ChatService;
+import de.zrb.bund.api.ChatStreamListener;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.util.function.Consumer;
+import java.io.IOException;
+import java.util.UUID;
 
 public class ChatDrawer extends JPanel {
 
@@ -18,26 +21,27 @@ public class ChatDrawer extends JPanel {
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
     private final ChatFormatter formatter;
+    private final ChatService chatService;
+    private final UUID sessionId;
+    private JButton cancelButton;
     private boolean awaitingBotResponse = false;
 
-    public ChatDrawer(Consumer<String> onSend) {
+    public ChatDrawer(ChatService chatService) {
+        this.chatService = chatService;
+        this.sessionId = UUID.randomUUID();
+
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        // Header (Titel + Checkboxen)
-        JPanel headerPanel = createHeader();
-        add(headerPanel, BorderLayout.NORTH);
+        add(createHeader(), BorderLayout.NORTH);
 
-        // Chat-Ausgabe
         chatPane = new JTextPane();
         chatPane.setEditable(false);
         formatter = new ChatFormatter(chatPane);
         JScrollPane chatScroll = new JScrollPane(chatPane);
         add(chatScroll, BorderLayout.CENTER);
 
-        // Eingabebereich
-        JPanel inputPanel = createInputPanel(onSend);
-        add(inputPanel, BorderLayout.SOUTH);
+        add(createInputPanel(), BorderLayout.SOUTH);
     }
 
     private JPanel createHeader() {
@@ -68,7 +72,7 @@ public class ChatDrawer extends JPanel {
         return headerLine;
     }
 
-    private JPanel createInputPanel(Consumer<String> onSend) {
+    private JPanel createInputPanel() {
         inputArea = new JTextArea(3, 30);
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
@@ -84,7 +88,7 @@ public class ChatDrawer extends JPanel {
                         inputArea.append("\n");
                     } else {
                         e.consume();
-                        sendMessage(onSend);
+                        sendMessage();
                     }
                 }
             }
@@ -92,7 +96,7 @@ public class ChatDrawer extends JPanel {
 
         sendButton = new JButton("⏎");
         sendButton.setToolTipText("Nachricht senden");
-        sendButton.addActionListener(e -> sendMessage(onSend));
+        sendButton.addActionListener(e -> sendMessage());
 
         attachButton = new JButton("+");
         attachButton.setToolTipText("Aktiven Tab teilen");
@@ -101,26 +105,92 @@ public class ChatDrawer extends JPanel {
         buttonPanel.add(attachButton, BorderLayout.WEST);
         buttonPanel.add(sendButton, BorderLayout.EAST);
 
-        statusLabel = new JLabel(" ");
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
         JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
-        bottomPanel.add(statusLabel, BorderLayout.NORTH);
+        bottomPanel.add(createStatusPanel(), BorderLayout.NORTH);
         bottomPanel.add(inputScroll, BorderLayout.CENTER);
         bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         return bottomPanel;
     }
 
-    private void sendMessage(Consumer<String> onSend) {
+    private JPanel createStatusPanel() {
+        statusLabel = new JLabel(" ");
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+
+        cancelButton = new JButton("⛔");
+        cancelButton.setToolTipText("Abbrechen");
+        cancelButton.setVisible(false);
+        cancelButton.setFocusable(false);
+        cancelButton.setMargin(new Insets(0, 4, 0, 4));
+        cancelButton.addActionListener(e -> {
+            chatService.cancel(sessionId);
+            setStatus("❌ Abgebrochen");
+            cancelButton.setVisible(false);
+        });
+
+        JPanel statusPanel = new JPanel(new BorderLayout());
+        statusPanel.add(statusLabel, BorderLayout.CENTER);
+        statusPanel.add(cancelButton, BorderLayout.EAST);
+        statusPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        return statusPanel;
+    }
+
+    private void sendMessage() {
         String message = inputArea.getText().trim();
-        if (!message.isEmpty()) {
-            formatter.appendUserMessage(message);
-            inputArea.setText("");
-            awaitingBotResponse = true;
-            onSend.accept(message);
-        }
+        if (message.isEmpty()) return;
+
+        awaitingBotResponse = true;
+
+        new Thread(() -> {
+            try {
+                boolean success = chatService.streamAnswer(isContextMemoryEnabled() ? sessionId : null, message, new ChatStreamListener() {
+                    @Override
+                    public void onStreamStart() {
+                        SwingUtilities.invokeLater(() -> {
+                            formatter.appendUserMessage(message);
+                            inputArea.setText("");
+                            startBotMessage();
+                            cancelButton.setVisible(true);
+                        });
+                    }
+
+                    @Override
+                    public void onStreamChunk(String chunk) {
+                        SwingUtilities.invokeLater(() -> appendBotMessageChunk(chunk));
+                    }
+
+                    @Override
+                    public void onStreamEnd() {
+                        SwingUtilities.invokeLater(() -> {
+                            endBotMessage();
+                            setStatus(" ");
+                        });
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        SwingUtilities.invokeLater(() -> {
+                            setStatus("⚠️ Fehler");
+                            cancelButton.setVisible(false);
+                            JOptionPane.showMessageDialog(ChatDrawer.this,
+                                    "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
+                                    "AI-Fehler", JOptionPane.ERROR_MESSAGE);
+                        });
+                    }
+                }, isKeepAliveEnabled());
+                if(success) {
+                    // Anfrage wurde unterdrückt – nicht anzeigen
+                    awaitingBotResponse = false;
+                }
+            } catch (IOException e) {
+                SwingUtilities.invokeLater(() -> {
+                    setStatus("⚠️ Fehler");
+                    JOptionPane.showMessageDialog(this,
+                            "Fehler beim Starten der Anfrage:\n" + e.getMessage(),
+                            "AI-Fehler", JOptionPane.ERROR_MESSAGE);
+                });
+            }
+        }).start();
     }
 
     public void appendBotMessageChunk(String chunk) {
@@ -144,8 +214,8 @@ public class ChatDrawer extends JPanel {
 
     public void endBotMessage() {
         formatter.endBotMessage();
-        setStatus(" ");
         awaitingBotResponse = false;
+        cancelButton.setVisible(false);
     }
 
     public void setStatus(String status) {
@@ -158,5 +228,9 @@ public class ChatDrawer extends JPanel {
 
     public boolean isContextMemoryEnabled() {
         return contextMemoryCheckbox.isSelected();
+    }
+
+    public UUID getSessionId() {
+        return sessionId;
     }
 }

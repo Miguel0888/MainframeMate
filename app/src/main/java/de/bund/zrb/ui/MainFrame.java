@@ -178,55 +178,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
         UUID sessionId = chatService != null ? chatService.newSession() : null;
 
-        chatDrawer = new ChatDrawer(userInput -> {
-            if (chatService == null || sessionId == null) return;
-
-            boolean keepAlive = chatDrawer.isKeepAliveEnabled();
-
-            new Thread(() -> {
-                try {
-                    chatService.streamAnswer(sessionId, userInput, new ChatStreamListener() {
-                        @Override
-                        public void onStreamStart() {
-                            SwingUtilities.invokeLater(() -> {
-                                chatDrawer.startBotMessage();
-                                chatDrawer.setStatus("🤖 Bot schreibt...");
-                            });
-                        }
-
-                        @Override
-                        public void onStreamChunk(String chunk) {
-                            SwingUtilities.invokeLater(() -> chatDrawer.appendBotMessageChunk(chunk));
-                        }
-
-                        @Override
-                        public void onStreamEnd() {
-                            SwingUtilities.invokeLater(() -> {
-                                chatDrawer.endBotMessage();
-                                chatDrawer.setStatus(" ");
-                            });
-                        }
-
-                        @Override
-                        public void onError(Exception e) {
-                            SwingUtilities.invokeLater(() -> {
-                                chatDrawer.setStatus("⚠️ Fehler");
-                                JOptionPane.showMessageDialog(chatDrawer,
-                                        "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
-                                        "AI-Fehler", JOptionPane.ERROR_MESSAGE);
-                            });
-                        }
-                    }, keepAlive);
-                } catch (IOException e) {
-                    SwingUtilities.invokeLater(() -> {
-                        chatDrawer.setStatus("⚠️ Fehler");
-                        JOptionPane.showMessageDialog(chatDrawer,
-                                "Fehler beim Starten der Anfrage:\n" + e.getMessage(),
-                                "AI-Fehler", JOptionPane.ERROR_MESSAGE);
-                    });
-                }
-            }).start();
-        });
+        chatDrawer = chatDrawer = new ChatDrawer(chatService);
 
         JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
         rightSplit.setDividerLocation(content.getPreferredSize().width - 300);

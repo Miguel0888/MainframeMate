@@ -16,8 +16,9 @@ public class LocalAiChatService implements ChatService {
     }
 
     @Override
-    public void streamAnswer(UUID sessionId, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException {
+    public boolean streamAnswer(UUID sessionId, String prompt, ChatStreamListener listener, boolean keepAlive) throws IOException {
 
+        return keepAlive;
     }
 
     @Override
@@ -37,6 +38,11 @@ public class LocalAiChatService implements ChatService {
 
     @Override
     public void addBotMessage(UUID sessionId, String message) {
+
+    }
+
+    @Override
+    public void cancel(UUID sessionId) {
 
     }
 }

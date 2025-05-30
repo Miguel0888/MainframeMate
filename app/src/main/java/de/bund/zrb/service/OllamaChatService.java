@@ -11,11 +11,12 @@ import okhttp3.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.sql.Timestamp;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class OllamaChatService implements ChatService {
+
+    private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
 
     public static final String DEBUG_MODEL = "custom-modell";
     public static final String DEBUG_URL = "http://localhost:11434/api/generate";
@@ -34,7 +35,11 @@ public class OllamaChatService implements ChatService {
     public OllamaChatService(String apiUrlDefault, String modelDefault) {
         this.apiUrlDefault = apiUrlDefault;
         this.modelDefault = modelDefault;
-        this.client = new OkHttpClient();
+        this.client = new OkHttpClient.Builder()
+                .connectTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .writeTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build();
         this.gson = new Gson();
     }
 
@@ -70,37 +75,43 @@ public class OllamaChatService implements ChatService {
     }
 
     @Override
-    public void streamAnswer(UUID sessionId, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
+    public boolean streamAnswer(UUID sessionId, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
+        if (activeCalls.containsKey(sessionId)) {
+            // Eine Anfrage läuft bereits mit dieser SessionId → keine neue starten
+            return false;
+        }
         Settings settings = SettingsManager.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
-        boolean useContext = settings.aiConfig.getOrDefault("ollama.useContext", "true").equalsIgnoreCase("true");
-
         ChatHistory history = sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
-        history.addUserMessage(userInput);
 
-        String prompt = useContext ? buildPrompt(history, userInput) : userInput;
+        String prompt = (history != null)
+                ? buildPrompt(history, userInput)
+                : userInput;
 
         String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, keepAlive));
-
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
                 .build();
 
-        final StringBuilder currentBotResponse = new StringBuilder();
+        Call call = client.newCall(request);
+        activeCalls.put(sessionId, call); // Optional: auch bei null erlaubt, oder nicht eintragen
 
-        client.newCall(request).enqueue(new Callback() {
+        listener.onStreamStart();
+
+        call.enqueue(new Callback() {
+            final StringBuilder currentBotResponse = new StringBuilder();
+
             @Override
             public void onFailure(Call call, IOException e) {
+                activeCalls.remove(sessionId);
                 listener.onError(e);
             }
 
             @Override
             public void onResponse(Call call, Response response) {
-                listener.onStreamStart();
-
                 try (ResponseBody body = response.body()) {
                     if (!response.isSuccessful() || body == null) {
                         listener.onError(new IOException("Unsuccessful response: " + response.code()));
@@ -117,14 +128,28 @@ public class OllamaChatService implements ChatService {
                         }
                     }
 
-                    history.addBotMessage(currentBotResponse.toString());
-                    listener.onStreamEnd();
+                    if (history != null) {
+                        history.addUserMessage(userInput);
+                        history.addBotMessage(currentBotResponse.toString());
+                    }
 
+                    listener.onStreamEnd();
                 } catch (IOException e) {
                     listener.onError(e);
+                } finally {
+                    activeCalls.remove(sessionId);
                 }
             }
         });
+        return true;
+    }
+
+    @Override
+    public void cancel(UUID sessionId) {
+        Call call = activeCalls.remove(sessionId);
+        if (call != null) {
+            call.cancel();
+        }
     }
 
     private String buildPrompt(ChatHistory history, String userInput) {
