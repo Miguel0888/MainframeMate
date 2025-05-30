@@ -5,6 +5,7 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.PluginManager;
+import de.bund.zrb.service.LlamaCppChatService;
 import de.bund.zrb.service.LocalAiChatService;
 import de.bund.zrb.service.OllamaChatService;
 import de.bund.zrb.ui.commands.*;
@@ -80,6 +81,8 @@ public class MainFrame extends JFrame implements MainframeContext {
                 return new OllamaChatService(); // verwendet intern settings.aiConfig
             case LOCAL_AI:
                 return new LocalAiChatService(); // analog auf settings.aiConfig zugreifen
+            case LLAMA_CPP_SERVER:
+                return new LlamaCppChatService();
             default:
                 return null; // DISABLED oder unbekannt
         }

@@ -46,6 +46,13 @@ public class SettingsDialog {
     private static JTextField ollamaKeepAliveField;
 
     private static JComboBox<AiProvider> providerCombo;
+    private static JCheckBox llamaEnabledBox;
+    private static JTextField llamaBinaryField;
+    private static JTextField llamaModelField;
+    private static JSpinner llamaPortSpinner;
+    private static JSpinner llamaThreadsSpinner;
+    private static JSpinner llamaContextSpinner;
+    private static JTextField llamaTempField;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -328,10 +335,66 @@ public class SettingsDialog {
         ollamaPanel.add(ollamaKeepAliveField, gbcOllama);
         gbcOllama.gridy++;
 
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
         // LOCAL_AI-Felder (optional, hier nur ein Hinweistext)
         GridBagConstraints gbcLocal = createDefaultGbc();
         localAiPanel.add(new JLabel("Konfiguration für LocalAI folgt."), gbcLocal);
+
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        // LLAMA_CPP_SERVER-Felder
+        JPanel llamaCppServerPanel = new JPanel(new GridBagLayout());
+        providerOptionsPanel.add(llamaCppServerPanel, AiProvider.LLAMA_CPP_SERVER.name());
+        GridBagConstraints gbcLlama = createDefaultGbc();
+
+        llamaEnabledBox = new JCheckBox("llama.cpp Server beim Start starten");
+        llamaEnabledBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.enabled", "false")));
+        llamaCppServerPanel.add(llamaEnabledBox, gbcLlama);
+        gbcLlama.gridy++;
+
+        llamaCppServerPanel.add(new JLabel("Pfad zur llama-server Binary:"), gbcLlama);
+        gbcLlama.gridy++;
+        llamaBinaryField = new JTextField(settings.aiConfig.getOrDefault("llama.binary", "C:/llamacpp/llama-server"), 30);
+        llamaCppServerPanel.add(llamaBinaryField, gbcLlama);
+        gbcLlama.gridy++;
+
+        llamaCppServerPanel.add(new JLabel("Modellpfad (.gguf):"), gbcLlama);
+        gbcLlama.gridy++;
+        llamaModelField = new JTextField(settings.aiConfig.getOrDefault("llama.model", "models/mistral.gguf"), 30);
+        llamaCppServerPanel.add(llamaModelField, gbcLlama);
+        gbcLlama.gridy++;
+
+        llamaCppServerPanel.add(new JLabel("Port (z. B. 8080):"), gbcLlama);
+        gbcLlama.gridy++;
+        llamaPortSpinner = new JSpinner(new SpinnerNumberModel(
+                Integer.parseInt(settings.aiConfig.getOrDefault("llama.port", "8080")),
+                1024, 65535, 1));
+        llamaCppServerPanel.add(llamaPortSpinner, gbcLlama);
+        gbcLlama.gridy++;
+
+        llamaCppServerPanel.add(new JLabel("Threads (z. B. 6):"), gbcLlama);
+        gbcLlama.gridy++;
+        llamaThreadsSpinner = new JSpinner(new SpinnerNumberModel(
+                Integer.parseInt(settings.aiConfig.getOrDefault("llama.threads", "4")),
+                1, 64, 1));
+        llamaCppServerPanel.add(llamaThreadsSpinner, gbcLlama);
+        gbcLlama.gridy++;
+
+        llamaCppServerPanel.add(new JLabel("Kontextgröße (Tokens):"), gbcLlama);
+        gbcLlama.gridy++;
+        llamaContextSpinner = new JSpinner(new SpinnerNumberModel(
+                Integer.parseInt(settings.aiConfig.getOrDefault("llama.context", "2048")),
+                512, 8192, 64));
+        llamaCppServerPanel.add(llamaContextSpinner, gbcLlama);
+        gbcLlama.gridy++;
+
+        llamaCppServerPanel.add(new JLabel("Temperatur (z. B. 0.7):"), gbcLlama);
+        gbcLlama.gridy++;
+        llamaTempField = new JTextField(settings.aiConfig.getOrDefault("llama.temp", "0.7"), 5);
+        llamaCppServerPanel.add(llamaTempField, gbcLlama);
+        gbcLlama.gridy++;
+
 
         // Initiale Werte aus Settings
         String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
@@ -394,6 +457,14 @@ public class SettingsDialog {
             settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
             settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
             settings.aiConfig.put("ollama.keepalive", ollamaKeepAliveField.getText().trim());
+            settings.aiConfig.put("llama.enabled", String.valueOf(llamaEnabledBox.isSelected()));
+            settings.aiConfig.put("llama.binary", llamaBinaryField.getText().trim());
+            settings.aiConfig.put("llama.model", llamaModelField.getText().trim());
+            settings.aiConfig.put("llama.port", llamaPortSpinner.getValue().toString());
+            settings.aiConfig.put("llama.threads", llamaThreadsSpinner.getValue().toString());
+            settings.aiConfig.put("llama.context", llamaContextSpinner.getValue().toString());
+            settings.aiConfig.put("llama.temp", llamaTempField.getText().trim());
+
 
             SettingsManager.save(settings);
 
