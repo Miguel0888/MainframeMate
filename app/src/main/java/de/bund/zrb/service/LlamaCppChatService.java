@@ -28,51 +28,52 @@ public class LlamaCppChatService implements ChatService {
                 .writeTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build();
 
-        if (Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.enabled", "false"))) {
-            startLlamaServer();
-        }
+        startLlamaServer();
     }
 
     private void startLlamaServer() {
-        String binary = settings.aiConfig.getOrDefault("llama.binary", "./llama-server");
-        String model = settings.aiConfig.getOrDefault("llama.model", "C:/models/mistral.gguf");
-        String port = settings.aiConfig.getOrDefault("llama.port", "8080");
-        String threads = settings.aiConfig.getOrDefault("llama.threads", "4");
-        String context = settings.aiConfig.getOrDefault("llama.context", "2048");
+        if (Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.enabled", "false"))) {
+            String binary = settings.aiConfig.getOrDefault("llama.binary", "./llama-server");
+            String model = settings.aiConfig.getOrDefault("llama.model", "C:/models/mistral.gguf");
+            String port = settings.aiConfig.getOrDefault("llama.port", "8080");
+            String threads = settings.aiConfig.getOrDefault("llama.threads", "4");
+            String context = settings.aiConfig.getOrDefault("llama.context", "2048");
 
-        List<String> command = new ArrayList<>();
-        command.add(binary);
-        command.add("-m");
-        command.add(model);
-        command.add("--port");
-        command.add(port);
-        command.add("--ctx-size");
-        command.add(context);
-        command.add("--threads");
-        command.add(threads);
+            List<String> command = new ArrayList<>();
+            command.add(binary);
+            command.add("-m");
+            command.add(model);
+            command.add("--port");
+            command.add(port);
+            command.add("--ctx-size");
+            command.add(context);
+            command.add("--threads");
+            command.add(threads);
 
-        ProcessBuilder builder = new ProcessBuilder(command);
-        builder.redirectErrorStream(true);
+            ProcessBuilder builder = new ProcessBuilder(command);
+            builder.redirectErrorStream(true);
 
-        try {
-            llamaProcess = builder.start();
-            new Thread(() -> {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(llamaProcess.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        System.out.println("[llama-server] " + line);
+            try {
+                llamaProcess = builder.start();
+                new Thread(() -> {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(llamaProcess.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            System.out.println("[llama-server] " + line);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
                     }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }).start();
-        } catch (IOException e) {
-            throw new RuntimeException("Fehler beim Starten von llama-server", e);
-        }
+                }).start();
+            } catch (IOException e) {
+                throw new RuntimeException("Fehler beim Starten von llama-server", e);
+            }
 
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ignored) {
+            }
+        }
     }
 
     @Override
@@ -109,6 +110,13 @@ public class LlamaCppChatService implements ChatService {
 
         if (activeCalls.containsKey(sessionId)) return false;
 
+        // Server ggf. starten, wenn er nicht läuft
+        synchronized (this) {
+            if (llamaProcess == null || !llamaProcess.isAlive()) {
+                startLlamaServer();
+            }
+        }
+
         String port = settings.aiConfig.getOrDefault("llama.port", "8080");
         String url = "http://localhost:" + port + "/completion";
 
@@ -137,6 +145,7 @@ public class LlamaCppChatService implements ChatService {
             public void onFailure(Call call, IOException e) {
                 activeCalls.remove(sessionId);
                 listener.onError(e);
+                if (!keepAlive) shutdown(); // Server bei Fehler trotzdem stoppen
             }
 
             @Override
@@ -181,6 +190,7 @@ public class LlamaCppChatService implements ChatService {
                     listener.onError(e);
                 } finally {
                     activeCalls.remove(sessionId);
+                    if (!keepAlive) shutdown(); // Server bei Bedarf beenden
                 }
             }
         });
@@ -206,6 +216,17 @@ public class LlamaCppChatService implements ChatService {
     public void shutdown() {
         if (llamaProcess != null) {
             llamaProcess.destroy();
+            try {
+                if (!llamaProcess.waitFor(5, TimeUnit.SECONDS)) {
+                    System.err.println("llama-server reagiert nicht – wird forciert beendet.");
+                    llamaProcess.destroyForcibly();
+                    llamaProcess.waitFor(3, TimeUnit.SECONDS);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                llamaProcess = null;
+            }
         }
     }
 
