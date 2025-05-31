@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-public interface ChatService {
+public interface ChatManager {
 
     /**
      * Startet eine neue Konversationssitzung.

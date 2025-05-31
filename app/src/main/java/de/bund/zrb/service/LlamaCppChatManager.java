@@ -4,7 +4,7 @@ import com.google.gson.*;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.util.SettingsManager;
-import de.zrb.bund.api.ChatService;
+import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
 
@@ -12,7 +12,7 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-public class LlamaCppChatService implements ChatService {
+public class LlamaCppChatManager implements ChatManager {
 
     private final OkHttpClient client;
     private final Gson gson = new Gson();
@@ -22,7 +22,7 @@ public class LlamaCppChatService implements ChatService {
 
     private Process llamaProcess;
 
-    public LlamaCppChatService() {
+    public LlamaCppChatManager() {
         this.client = new OkHttpClient.Builder()
                 .addInterceptor(new RetryInterceptor(7, 1000))
                 .connectTimeout(3, TimeUnit.SECONDS)
@@ -262,5 +262,16 @@ public class LlamaCppChatService implements ChatService {
     public void onDispose()
     {
         shutdown();
+    }
+
+    // ToDo
+    private boolean answerChunkContainsToolCall(String chunk) {
+        // Implementiere Logik, um zu prüfen, ob die Antwort einen Tool-Call enthält
+//        if (chunk.content.trim().startsWith("{") && chunk.content.contains("\"tool_name\"")) {
+//            JsonObject toolCall = gson.fromJson(chunk.content, JsonObject.class);
+//            mpcService.handleToolCall(sessionId, toolCall);
+//        }
+
+        return false; // Platzhalter
     }
 }

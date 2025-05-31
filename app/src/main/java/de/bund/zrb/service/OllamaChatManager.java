@@ -6,7 +6,7 @@ import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.util.SettingsManager;
-import de.zrb.bund.api.ChatService;
+import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
 
@@ -16,7 +16,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
-public class OllamaChatService implements ChatService {
+public class OllamaChatManager implements ChatManager {
 
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
 
@@ -30,11 +30,11 @@ public class OllamaChatService implements ChatService {
 
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
 
-    public OllamaChatService() {
+    public OllamaChatManager() {
         this(DEBUG_URL, DEBUG_MODEL);
     }
 
-    public OllamaChatService(String apiUrlDefault, String modelDefault) {
+    public OllamaChatManager(String apiUrlDefault, String modelDefault) {
         this.apiUrlDefault = apiUrlDefault;
         this.modelDefault = modelDefault;
         this.client = new OkHttpClient.Builder()

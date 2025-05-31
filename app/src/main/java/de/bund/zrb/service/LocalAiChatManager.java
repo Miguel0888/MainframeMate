@@ -1,6 +1,6 @@
 package de.bund.zrb.service;
 
-import de.zrb.bund.api.ChatService;
+import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 
 import java.io.IOException;
@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-public class LocalAiChatService implements ChatService {
+public class LocalAiChatManager implements ChatManager {
 
     @Override
     public UUID newSession() {

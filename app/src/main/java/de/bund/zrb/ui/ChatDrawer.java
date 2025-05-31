@@ -3,7 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.chat.ChatFormatter;
 import de.bund.zrb.util.SettingsManager;
-import de.zrb.bund.api.ChatService;
+import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 
 import javax.swing.*;
@@ -24,13 +24,13 @@ public class ChatDrawer extends JPanel {
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
     private final ChatFormatter formatter;
-    private final ChatService chatService;
+    private final ChatManager chatManager;
     private final UUID sessionId;
     private JButton cancelButton;
     private boolean awaitingBotResponse = false;
 
-    public ChatDrawer(ChatService chatService) {
-        this.chatService = chatService;
+    public ChatDrawer(ChatManager chatManager) {
+        this.chatManager = chatManager;
         this.sessionId = UUID.randomUUID();
 
         setLayout(new BorderLayout(8, 8));
@@ -132,7 +132,7 @@ public class ChatDrawer extends JPanel {
         cancelButton.setFocusable(false);
         cancelButton.setMargin(new Insets(0, 4, 0, 4));
         cancelButton.addActionListener(e -> {
-            chatService.cancel(sessionId);
+            chatManager.cancel(sessionId);
             setStatus("❌ Abgebrochen");
             cancelButton.setVisible(false);
         });
@@ -152,7 +152,7 @@ public class ChatDrawer extends JPanel {
 
         new Thread(() -> {
             try {
-                boolean success = chatService.streamAnswer(sessionId, isContextMemoryEnabled() , message, new ChatStreamListener() {
+                boolean success = chatManager.streamAnswer(sessionId, isContextMemoryEnabled() , message, new ChatStreamListener() {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
