@@ -45,5 +45,6 @@ public class PromptBuilder {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         String json = gson.toJson(tool.getSpec());
         System.out.println(json);
+        return json;
     }
 }
