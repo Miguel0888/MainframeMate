@@ -47,4 +47,6 @@ public interface ChatManager {
     void cancel(UUID sessionId);
 
     void onDispose();
+
+    void closeSession(UUID sessionId);
 }

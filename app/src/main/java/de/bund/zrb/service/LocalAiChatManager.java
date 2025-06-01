@@ -50,4 +50,9 @@ public class LocalAiChatManager implements ChatManager {
     public void onDispose() {
 
     }
+
+    @Override
+    public void closeSession(UUID sessionId) {
+
+    }
 }

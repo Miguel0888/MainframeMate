@@ -264,6 +264,19 @@ public class LlamaCppChatManager implements ChatManager {
         shutdown();
     }
 
+    @Override
+    public void closeSession(UUID sessionId) {
+        // Cancel any active call associated with the session
+        Call call = activeCalls.remove(sessionId);
+        if (call != null) {
+            call.cancel();
+        }
+
+        // Remove associated chat history
+        sessionHistories.remove(sessionId);
+    }
+
+
     // ToDo
     private boolean answerChunkContainsToolCall(String chunk) {
         // Implementiere Logik, um zu prüfen, ob die Antwort einen Tool-Call enthält

@@ -168,6 +168,19 @@ public class OllamaChatManager implements ChatManager {
         // not required
     }
 
+    @Override
+    public void closeSession(UUID sessionId) {
+        // Cancel any active call associated with the session
+        Call call = activeCalls.remove(sessionId);
+        if (call != null) {
+            call.cancel();
+        }
+
+        // Remove associated chat history
+        sessionHistories.remove(sessionId);
+    }
+
+
     private String buildPrompt(ChatHistory history, String userInput) {
         StringBuilder prompt = new StringBuilder();
         for (ChatHistory.Message msg : history.getMessages()) {
