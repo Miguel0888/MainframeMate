@@ -6,9 +6,6 @@ import java.awt.*;
 
 public class ChatFormatter {
 
-    private static final int MESSAGE_WIDTH = 500;
-
-
     private final JPanel messageContainer;
     private JTextPane currentBotPane;
     private boolean insideCodeBlock = false;
@@ -88,14 +85,6 @@ public class ChatFormatter {
         rootView.setSize(width, Integer.MAX_VALUE);
         return (int) rootView.getPreferredSpan(View.Y_AXIS);
     }
-
-    private int getActualHTMLHeight(JTextPane pane, int width) {
-        pane.setSize(new Dimension(width, Short.MAX_VALUE));
-        View rootView = pane.getUI().getRootView(pane);
-        rootView.setSize(width, Integer.MAX_VALUE);
-        return (int) rootView.getPreferredSpan(View.Y_AXIS);
-    }
-
 
     public void endBotMessage() {
         currentBotPane = null;
