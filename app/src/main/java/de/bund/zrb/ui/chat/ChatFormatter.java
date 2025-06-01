@@ -75,7 +75,15 @@ public class ChatFormatter {
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
         titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JTextPane textPane = new JTextPane();
+        JTextPane textPane = new JTextPane() {
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension pref = getPreferredSize();
+                // maximale Breite auf messageContainer beschränken, Höhe dynamisch
+                return new Dimension(Integer.MAX_VALUE, pref.height);
+            }
+        };
+
         textPane.setContentType("text/html");
         textPane.setEditable(false);
         textPane.setOpaque(false);
