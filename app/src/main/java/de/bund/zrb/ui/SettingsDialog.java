@@ -3,7 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ftp.*;
 import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ComboBoxHelper;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -43,6 +43,11 @@ public class SettingsDialog {
     private static JTextField ollamaModelField;
     private static JTextField ollamaKeepAliveField;
 
+    private static JComboBox<String> aiEditorFontCombo;
+    private static JComboBox<String> aiEditorFontSizeCombo;
+    private static JSpinner aiEditorHeightSpinner;
+    private static JTextArea aiToolPrefix;
+    private static JTextArea aiToolPostfix;
     private static JComboBox<AiProvider> providerCombo;
     private static JCheckBox llamaEnabledBox;
     private static JTextField llamaBinaryField;
@@ -73,7 +78,7 @@ public class SettingsDialog {
         tabs.addTab("FTP-Verbindung", connectPanel);
         tabs.add("KI", aiPanel);
 
-        settings = SettingsManager.load();
+        settings = SettingsHelper.load();
 
         createGeneralContent(generalContent, parent);
         createTransformContent(transformContent);
@@ -144,7 +149,7 @@ public class SettingsDialog {
         openFolderButton.setFocusable(false);
         openFolderButton.addActionListener(e -> {
             try {
-                Desktop.getDesktop().open(SettingsManager.getSettingsFolder());
+                Desktop.getDesktop().open(SettingsHelper.getSettingsFolder());
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(parent, "Ordner konnte nicht geöffnet werden:\n" + ex.getMessage());
             }
@@ -158,7 +163,7 @@ public class SettingsDialog {
 
         // Zeichensatz-Auswahl
         encodingCombo = new JComboBox<>();
-        List<String> encodings = SettingsManager.SUPPORTED_ENCODINGS;
+        List<String> encodings = SettingsHelper.SUPPORTED_ENCODINGS;
         encodings.forEach(encodingCombo::addItem);
         String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
         encodingCombo.setSelectedItem(currentEncoding);
@@ -296,6 +301,56 @@ public class SettingsDialog {
 
     private static void createAiContent(JPanel aiContent) {
         GridBagConstraints gbc = createDefaultGbc();
+
+        // Tool-Prefix
+        aiContent.add(new JLabel("KI-Anweisung vor dem JSON-Format (Prefix):"), gbc);
+        gbc.gridy++;
+        aiToolPrefix = new JTextArea(3, 30);
+        aiToolPrefix.setLineWrap(true);
+        aiToolPrefix.setWrapStyleWord(true);
+        aiToolPrefix.setText(settings.aiConfig.getOrDefault("toolPrefix", "Gib den Aufruf als JSON im folgenden Format aus:\n"));
+        aiContent.add(new JScrollPane(aiToolPrefix), gbc);
+        gbc.gridy++;
+
+        // Tool-Postfix
+        aiContent.add(new JLabel("KI-Anweisung nach dem JSON-Format (Postfix):"), gbc);
+        gbc.gridy++;
+        aiToolPostfix = new JTextArea(2, 30);
+        aiToolPostfix.setLineWrap(true);
+        aiToolPostfix.setWrapStyleWord(true);
+        aiToolPostfix.setText(settings.aiConfig.getOrDefault("toolPostfix", ""));
+        aiContent.add(new JScrollPane(aiToolPostfix), gbc);
+        gbc.gridy++;
+
+        // Editor-Schriftart
+        aiContent.add(new JLabel("KI-Editor Schriftart:"), gbc);
+        gbc.gridy++;
+        aiEditorFontCombo = new JComboBox<>(new String[] {
+                "Monospaced", "Consolas", "Courier New", "Dialog", "Menlo"
+        });
+        aiEditorFontCombo.setSelectedItem(settings.aiConfig.getOrDefault("editor.font", "Monospaced"));
+        aiContent.add(aiEditorFontCombo, gbc);
+        gbc.gridy++;
+
+        // Schriftgröße
+        aiContent.add(new JLabel("KI-Editor Schriftgröße:"), gbc);
+        gbc.gridy++;
+        aiEditorFontSizeCombo = new JComboBox<>(new String[] {
+                "10", "11", "12", "13", "14", "16", "18", "20", "24", "28", "32"
+        });
+        aiEditorFontSizeCombo.setEditable(true);
+        aiEditorFontSizeCombo.setSelectedItem(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
+        aiContent.add(aiEditorFontSizeCombo, gbc);
+        gbc.gridy++;
+
+        // Editorhöhe
+        aiContent.add(new JLabel("Editor-Höhe (in Zeilen):"), gbc);
+        gbc.gridy++;
+        aiEditorHeightSpinner = new JSpinner(new SpinnerNumberModel(
+                Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3")), 1, 1000, 1
+        ));
+        aiContent.add(aiEditorHeightSpinner, gbc);
+        gbc.gridy++;
 
         providerCombo = new JComboBox<>(AiProvider.values());
         aiContent.add(new JLabel("KI-Provider:"), gbc);
@@ -473,6 +528,11 @@ public class SettingsDialog {
             settings.ftpFileStructure = ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
             settings.ftpTransferMode = ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
+            settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
+            settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());
+            settings.aiConfig.put("editor.lines", aiEditorHeightSpinner.getValue().toString());
+            settings.aiConfig.put("toolPrefix", aiToolPrefix.getText().trim()); // default: "Gib den Aufruf als JSON im folgenden Format aus:\n"
+            settings.aiConfig.put("toolPostfix", aiToolPostfix.getText().trim()); // default empty
             settings.aiConfig.put("provider", providerCombo.getSelectedItem().toString());
             settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
             settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
@@ -486,7 +546,7 @@ public class SettingsDialog {
             settings.aiConfig.put("llama.temp", llamaTempField.getText().trim());
             settings.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
 
-            SettingsManager.save(settings);
+            SettingsHelper.save(settings);
 
             ftpManager.getClient().setControlEncoding(settings.encoding);
 

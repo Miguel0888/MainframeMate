@@ -43,6 +43,5 @@ public class Settings {
     public boolean enableHexDump = false; // Standard = aus
     public boolean removeFinalNewline = true; // Standard = an
 
-    public AiProvider aiProvider = AiProvider.OLLAMA; // Standard = Ollama
     public HashMap<String, String> aiConfig = new HashMap<>();
 }

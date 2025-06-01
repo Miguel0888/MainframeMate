@@ -1,10 +1,9 @@
 package de.bund.zrb.ftp;
 
-import com.google.gson.stream.JsonToken;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.StringUtil;
 import org.apache.commons.net.ftp.*;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -26,8 +25,8 @@ public class FtpManager {
     private boolean mvsMode = false;
 
     public FtpManager() {
-        Settings settings = SettingsManager.load();
-        this.ftpFileType = settings.ftpFileType == null ? null : SettingsManager.load().ftpFileType.getCode();
+        Settings settings = SettingsHelper.load();
+        this.ftpFileType = settings.ftpFileType == null ? null : SettingsHelper.load().ftpFileType.getCode();
         this.padding = this.ftpFileType == null || this.ftpFileType == FTP.ASCII_FILE_TYPE ? parseHexByte(settings.padding) : null;
     }
 
@@ -37,7 +36,7 @@ public class FtpManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public boolean connect(String host, String user, String password) throws IOException {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         ftpClient.setControlEncoding(settings.encoding);
         ftpClient.connect(host);
 
@@ -243,7 +242,7 @@ public class FtpManager {
             throw new IOException("FTP-Übertragung unvollständig: " + filename);
         }
 
-        if (SettingsManager.load().enableHexDump) {
+        if (SettingsHelper.load().enableHexDump) {
             System.out.println("📥 Received:");
             buffer.printHexDump();
         }
@@ -273,7 +272,7 @@ public class FtpManager {
      * @throws IOException wenn der Schreibvorgang fehlschlägt
      */
     public void push(FtpFileBuffer buffer) throws IOException {
-        if (SettingsManager.load().enableHexDump) {
+        if (SettingsHelper.load().enableHexDump) {
             System.out.println("📤 Sending:");
             buffer.printHexDump();
         }

@@ -5,7 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.RetryInterceptor;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
@@ -86,7 +86,7 @@ public class OllamaChatManager implements ChatManager {
             // Eine Anfrage läuft bereits mit dieser SessionId → keine neue starten
             return false;
         }
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
@@ -197,7 +197,7 @@ public class OllamaChatManager implements ChatManager {
         OllamaRequest(String model, String prompt, boolean keepAlive) {
             this.model = model;
             this.prompt = prompt;
-            String keepAliveValue = SettingsManager.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
+            String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
             this.keep_alive = keepAlive ? keepAliveValue : "0m";
         }
     }

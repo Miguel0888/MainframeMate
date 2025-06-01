@@ -4,7 +4,7 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.ByteUtil;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -40,7 +40,7 @@ public class FileContentService {
     }
 
     public InputStream createCommitStream(String content, boolean recordStructure) {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         if (recordStructure) {
             return transformToRemote(content, settings, ftpManager.getCharset());
         }
@@ -88,7 +88,7 @@ public class FileContentService {
      * @return
      */
     private String transformToLocal(byte[] bytes, Charset charset) {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
 
         byte[] recordMarker = parseHex(settings.lineEnding);
         byte[] endMarker = parseHex(settings.fileEndMarker);

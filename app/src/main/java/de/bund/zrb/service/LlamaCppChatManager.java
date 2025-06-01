@@ -3,7 +3,7 @@ package de.bund.zrb.service;
 import com.google.gson.*;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.RetryInterceptor;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
@@ -18,7 +18,7 @@ public class LlamaCppChatManager implements ChatManager {
     private final Gson gson = new Gson();
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
-    private final Settings settings = SettingsManager.load();
+    private final Settings settings = SettingsHelper.load();
 
     private Process llamaProcess;
 

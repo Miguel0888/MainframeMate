@@ -1,18 +1,18 @@
-package de.bund.zrb.util;
+package de.bund.zrb.helper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import de.bund.zrb.model.BookmarkEntry;
 import de.zrb.bund.api.BookmarkManager;
 
-import javax.swing.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class BookmarkManagerImpl implements BookmarkManager {
+// ToDo: BookmarkManager sauber in BookmarkManagerImpl implementieren
+public class BookmarkHelper implements BookmarkManager {
 
-    private static final File BOOKMARK_FILE = new File(SettingsManager.getSettingsFolder(), "bookmarks.json");
+    private static final File BOOKMARK_FILE = new File(SettingsHelper.getSettingsFolder(), "bookmarks.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public static List<BookmarkEntry> loadBookmarks() {
@@ -269,7 +269,7 @@ public class BookmarkManagerImpl implements BookmarkManager {
         entry.label = label;
         entry.path = path;
         entry.folder = false;
-        BookmarkManagerImpl.addBookmark(entry);
+        BookmarkHelper.addBookmark(entry);
 
     }
 }

@@ -3,10 +3,12 @@ package de.bund.zrb.excel;
 import de.bund.zrb.excel.commands.ExcelImportCommand;
 import de.bund.zrb.excel.commands.ExcelSettingsCommand;
 import de.bund.zrb.excel.dialogs.ExcelImportDialog;
+import de.bund.zrb.excel.mcp.ImportExcelTool;
 import de.zrb.bund.api.Command;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
+import de.zrb.bund.newApi.mcp.McpTool;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 
 import javax.swing.*;
@@ -58,9 +60,14 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     @Override
     public List<Command> getCommands(MainframeContext mainFrame) {
         return Arrays.asList(
-                new ExcelImportCommand(mainFrame, this), // ← this mitgeben
+                new ExcelImportCommand(mainFrame, this),
                 new ExcelSettingsCommand(mainFrame)
         );
+    }
+
+    @Override
+    public List<McpTool> getTools() {
+        return Collections.singletonList(new ImportExcelTool());
     }
 
     public void handleImport() {
@@ -108,7 +115,7 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
                 return;
             }
 
-            // 🔁 An bestehende Datei anhängen?
+            // An bestehende Datei anhängen?
             if (dialog.shouldAppend()) {
                 Optional<TabAdapter> optionalTab = context.getSelectedTab();
                 String existing = optionalTab.map(TabAdapter::getContent).orElse("");
@@ -244,7 +251,7 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
                 String name = (String) feld.get(KEY_NAME);
                 List<String> column = findColumnByName(table, name);
                 if (column == null) {
-                    System.err.println("⚠️ Spalte \"" + name + "\" nicht in Tabelle enthalten.");
+                    System.err.println(" Spalte \"" + name + "\" nicht in Tabelle enthalten.");
                     continue;
                 }
                 String value = rowIndex < column.size() ? column.get(rowIndex) : "";

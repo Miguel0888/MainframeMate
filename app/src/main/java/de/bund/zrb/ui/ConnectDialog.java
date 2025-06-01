@@ -2,7 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.util.WindowsCryptoUtil;
 
 import javax.swing.*;
@@ -12,7 +12,7 @@ import java.io.IOException;
 public class ConnectDialog {
 
     public static boolean connectIfNeeded(Component parent, FtpManager ftpManager) {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
 
         if (settings.autoConnect) {
             return show(parent, ftpManager, settings);
@@ -21,7 +21,7 @@ public class ConnectDialog {
     }
 
     public static boolean show(Component parent, FtpManager ftpManager) {
-        return show(parent, ftpManager, SettingsManager.load());
+        return show(parent, ftpManager, SettingsHelper.load());
     }
 
     private static boolean show(Component parent, FtpManager ftpManager, Settings settings) {
@@ -78,7 +78,7 @@ public class ConnectDialog {
                     settings.savePassword = false;
                     settings.encryptedPassword = null;
                 }
-                SettingsManager.save(settings);
+                SettingsHelper.save(settings);
                 return true;
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(parent, "Verbindung fehlgeschlagen:\n" + ex.getMessage(),

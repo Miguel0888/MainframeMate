@@ -5,13 +5,15 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.PluginManager;
+import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.service.LlamaCppChatManager;
 import de.bund.zrb.service.LocalAiChatManager;
 import de.bund.zrb.service.OllamaChatManager;
 import de.bund.zrb.ui.commands.*;
-import de.bund.zrb.util.BookmarkManagerImpl;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.BookmarkHelper;
+import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.*;
+import de.zrb.bund.newApi.ToolRegistry;
 
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
@@ -36,22 +38,24 @@ public class MainFrame extends JFrame implements MainframeContext {
     private volatile ChatManager chatManager;
     private JSplitPane rightSplitPane;
     private JSplitPane leftSplitPane;
+    private ToolRegistry toolregistry;
 
 
     @Override
     public Map<String, String> loadPluginSettings(String pluginKey) {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         return settings.pluginSettings.computeIfAbsent(pluginKey, k -> new LinkedHashMap<>());
     }
 
     @Override
     public void savePluginSettings(String pluginKey, Map<String, String> newValues) {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         settings.pluginSettings.put(pluginKey, new LinkedHashMap<>(newValues));
-        SettingsManager.save(settings);
+        SettingsHelper.save(settings);
     }
     
     public MainFrame() {
+        this.toolregistry = ToolRegistryImpl.getInstance();
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -81,7 +85,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private ChatManager getAiService() {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
 
         AiProvider provider;
@@ -109,6 +113,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistry.register(new ConnectCommand(this, tabManager));
         CommandRegistry.register(new ExitCommand());
         CommandRegistry.register(new ShowSettingsDialogCommand(this));
+        CommandRegistry.register(new ShowToolDialogCommand(this));
         CommandRegistry.register(new ShowFeatureDialogCommand(this));
         CommandRegistry.register(new ShowAboutDialogCommand(this));
 
@@ -199,7 +204,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
         int defaultDivider = content.getPreferredSize().width - 300;
 
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         String dividerValue = settings.applicationState.get("drawer.chat.divider");
 
         int divider = tryParseInt(dividerValue, defaultDivider);
@@ -234,7 +239,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
 
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         String dividerValue = settings.applicationState.get("drawer.bookmark.divider");
 
         int divider = tryParseInt(dividerValue, 220); // Fallback default
@@ -286,7 +291,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public BookmarkManager getBookmarkManager() {
-        return new BookmarkManagerImpl();
+        return new BookmarkHelper();
     }
 
     @Override
@@ -309,7 +314,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private void restoreWindowState() {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         Map<String, String> state = settings.applicationState;
 
         // Fenstergröße
@@ -332,13 +337,13 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private void saveApplicationState() {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         Map<String, String> state = settings.applicationState;
 
         saveWindowState(state);
         saveDrawerState(state);
 
-        SettingsManager.save(settings);
+        SettingsHelper.save(settings);
     }
 
     private void saveWindowState(Map<String, String> state) {
@@ -374,4 +379,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         super.dispose();
     }
 
+    @Override
+    public ToolRegistry getToolRegistry() {
+        return toolregistry;
+    }
 }

@@ -1,5 +1,7 @@
 package de.zrb.bund.api;
 
+import de.zrb.bund.newApi.ToolRegistry;
+
 import javax.swing.*;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +27,8 @@ public interface MainframeContext {
     void focusFileTab(TabAdapter tab);
 
     void refresh();
+
+    ToolRegistry getToolRegistry();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

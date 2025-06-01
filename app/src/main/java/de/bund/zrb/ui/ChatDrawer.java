@@ -2,7 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.chat.ChatFormatter;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 
@@ -51,7 +51,7 @@ public class ChatDrawer extends JPanel {
         JLabel titleLabel = new JLabel("💬 Chat");
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 13f));
 
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
         Map<String, String> state = settings.applicationState;
 
         boolean keepAlive = Boolean.parseBoolean(state.getOrDefault("chat.keepAlive", "true"));
@@ -82,7 +82,7 @@ public class ChatDrawer extends JPanel {
     }
 
     private JPanel createInputPanel() {
-        inputArea = new JTextArea(3, 30);
+        inputArea = new JTextArea(Integer.parseInt(SettingsHelper.load().aiConfig.getOrDefault("editor.lines" , "3")), 30);
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
         inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));

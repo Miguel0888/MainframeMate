@@ -1,5 +1,7 @@
 package de.zrb.bund.api;
 
+import de.zrb.bund.newApi.mcp.McpTool;
+
 import java.util.List;
 
 public interface MainframeMatePlugin {
@@ -15,4 +17,6 @@ public interface MainframeMatePlugin {
     void initialize(MainframeContext mainFrame);
 
     List<Command> getCommands(MainframeContext mainFrame);
+
+    List<McpTool> getTools();
 }

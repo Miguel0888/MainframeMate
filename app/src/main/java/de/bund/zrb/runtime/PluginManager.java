@@ -5,6 +5,8 @@ import de.bund.zrb.ui.commands.InstallPluginCommand;
 import de.zrb.bund.api.Command;
 import de.bund.zrb.ui.commands.CommandRegistry;
 import de.zrb.bund.api.MainframeMatePlugin;
+import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.mcp.McpTool;
 
 import java.io.IOException;
 import java.net.URL;
@@ -27,6 +29,7 @@ public class PluginManager {
         for (MainframeMatePlugin plugin : plugins) {
             plugin.initialize(mainFrame);
             registerCommandsSafely(plugin, mainFrame);
+            registerToolsSafely(plugin, mainFrame);
         }
 
         // 2. Dynamisch geladene Plugins aus JARs
@@ -71,6 +74,7 @@ public class PluginManager {
                 System.out.println("✅ Plugin geladen: " + plugin.getPluginName());
                 plugin.initialize(mainFrame);
                 registerCommandsSafely(plugin, mainFrame);
+                registerToolsSafely(plugin, mainFrame);
                 plugins.add(plugin);
             }
 
@@ -90,4 +94,23 @@ public class PluginManager {
             }
         }
     }
+
+    private static void registerToolsSafely(MainframeMatePlugin plugin, MainFrame mainFrame) {
+        ToolRegistry registry = mainFrame.getToolRegistry();
+
+        if (registry == null) {
+            System.err.println("⚠️ ToolRegistry nicht verfügbar.");
+            return;
+        }
+
+        for (McpTool tool : plugin.getTools()) {
+            if (tool != null) {
+                registry.registerTool(tool);
+            } else {
+                System.err.println("⚠️ Plugin \"" + plugin.getPluginName() + "\" liefert null bei getTools().");
+            }
+        }
+    }
+
+
 }

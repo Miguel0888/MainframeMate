@@ -4,7 +4,7 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.service.FileContentService;
-import de.bund.zrb.util.SettingsManager;
+import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.TabType;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -56,7 +56,7 @@ public class FileTab implements FtpTab, TabAdapter {
         this.fileContentService = new FileContentService(ftpManager);
         this.buffer = buffer;
 
-        initEditorSettings(textArea, SettingsManager.load());
+        initEditorSettings(textArea, SettingsHelper.load());
         if(buffer != null)
         {
             textArea.setText(fileContentService.decodeWith(buffer));
@@ -391,7 +391,7 @@ public class FileTab implements FtpTab, TabAdapter {
 
 
     private Color getColorFor(String name, Map<String, Object> feld) {
-        Settings settings = SettingsManager.load();
+        Settings settings = SettingsHelper.load();
 
         if (name == null && feld != null && feld.containsKey("value")) {
             // Konstante, aber ohne Namen → grau, außer Settings-Override

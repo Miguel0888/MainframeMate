@@ -1,7 +1,7 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.model.BookmarkEntry;
-import de.bund.zrb.util.BookmarkManagerImpl;
+import de.bund.zrb.helper.BookmarkHelper;
 
 import javax.swing.*;
 import javax.swing.tree.*;
@@ -47,7 +47,7 @@ public class BookmarkDrawer extends JPanel {
 
     public void refreshBookmarks() {
         rootNode.removeAllChildren();
-        List<BookmarkEntry> entries = BookmarkManagerImpl.loadBookmarks();
+        List<BookmarkEntry> entries = BookmarkHelper.loadBookmarks();
         for (BookmarkEntry entry : entries) {
             rootNode.add(createNode(entry));
         }
@@ -57,7 +57,7 @@ public class BookmarkDrawer extends JPanel {
 
     public void setBookmarkForCurrentPath(Component parent, String path) {
         String label = new File(path).getName();
-        BookmarkManagerImpl.addBookmark(new BookmarkEntry(label, path, false));
+        BookmarkHelper.addBookmark(new BookmarkEntry(label, path, false));
         refreshBookmarks();
     }
 
@@ -99,7 +99,7 @@ public class BookmarkDrawer extends JPanel {
                 String name = JOptionPane.showInputDialog(invoker, "Name des neuen Ordners:");
                 if (name != null && !name.trim().isEmpty()) {
                     BookmarkEntry folder = new BookmarkEntry(name.trim(), null, true);
-                    BookmarkManagerImpl.addBookmark(folder);
+                    BookmarkHelper.addBookmark(folder);
                     refreshBookmarks();
                 }
             });
@@ -110,9 +110,9 @@ public class BookmarkDrawer extends JPanel {
                 String newLabel = JOptionPane.showInputDialog(invoker, "Neuer Name:", entry.label);
                 if (newLabel != null && !newLabel.trim().isEmpty()) {
                     if (entry.folder) {
-                        BookmarkManagerImpl.renameFolder(entry.label, newLabel.trim());
+                        BookmarkHelper.renameFolder(entry.label, newLabel.trim());
                     } else {
-                        BookmarkManagerImpl.renameBookmark(entry.path, newLabel.trim());
+                        BookmarkHelper.renameBookmark(entry.path, newLabel.trim());
                     }
                     refreshBookmarks();
                 }
@@ -125,7 +125,7 @@ public class BookmarkDrawer extends JPanel {
                     String name = JOptionPane.showInputDialog(invoker, "Name des neuen Ordners:");
                     if (name != null && !name.trim().isEmpty()) {
                         BookmarkEntry folder = new BookmarkEntry(name.trim(), null, true);
-                        BookmarkManagerImpl.addBookmarkToFolder(entry.label, folder);
+                        BookmarkHelper.addBookmarkToFolder(entry.label, folder);
                         refreshBookmarks();
                     }
                 });
@@ -135,9 +135,9 @@ public class BookmarkDrawer extends JPanel {
             JMenuItem deleteItem = new JMenuItem("❌ Entfernen");
             deleteItem.addActionListener(e -> {
                 if (entry.folder) {
-                    BookmarkManagerImpl.removeFolderByLabel(entry.label);
+                    BookmarkHelper.removeFolderByLabel(entry.label);
                 } else {
-                    BookmarkManagerImpl.removeBookmarkByPath(entry.path);
+                    BookmarkHelper.removeBookmarkByPath(entry.path);
                 }
                 refreshBookmarks();
             });

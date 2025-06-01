@@ -1,4 +1,4 @@
-package de.bund.zrb.util;
+package de.bund.zrb.helper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -8,9 +8,8 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
-public class SettingsManager {
+public class SettingsHelper {
     private static final File SETTINGS_FILE = new File(System.getProperty("user.home"), ".mainframemate/settings.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
