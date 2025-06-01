@@ -62,4 +62,11 @@ public class UiMessage extends JPanel {
         style.addRule("body { margin: 0; padding: 0; }");
         return kit;
     }
+
+    public void setText(String string) {
+        buffer.setLength(0); // Clear the buffer
+        buffer.append(string);
+        textPane.setText(wrapHtml(buffer.toString()));
+        revalidate();
+    }
 }
