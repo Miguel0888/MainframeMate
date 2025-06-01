@@ -15,43 +15,81 @@ public class ChatFormatter {
     }
 
     public void appendUserMessage(String text) {
-        JTextPane pane = createStyledPane("👤 Du:", "#e6f0ff", "#000000");
-        appendFormatted(pane, text);
-        messageContainer.add(pane);
+        JPanel userPanel = createMessagePanel("👤 Du:", "#e6f0ff", text);
+        messageContainer.add(userPanel);
         messageContainer.add(Box.createVerticalStrut(6));
-        pane.setText(formatHtml(text));
         scrollToBottom();
     }
 
+
     public void startBotMessage() {
-        currentBotPane = createStyledPane("🤖 Bot:", "#f0ffe6", "#000000");
-        messageContainer.add(currentBotPane);
-        messageContainer.add(Box.createVerticalStrut(6));
         buffer.setLength(0);
+        currentBotPane = new JTextPane();
+        currentBotPane.setContentType("text/html");
+        currentBotPane.setEditable(false);
+        currentBotPane.setOpaque(false);
+        currentBotPane.setBorder(null);
+        currentBotPane.setText(""); // Start leer
+        currentBotPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel wrapper = new JPanel();
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        wrapper.setBackground(Color.decode("#f0ffe6"));
+        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel titleLabel = new JLabel("🤖 Bot:");
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        wrapper.add(titleLabel);
+        wrapper.add(Box.createVerticalStrut(4));
+        wrapper.add(currentBotPane);
+
+        messageContainer.add(wrapper);
+        messageContainer.add(Box.createVerticalStrut(6));
+        scrollToBottom();
     }
+
 
     public void appendBotMessageChunk(String chunk) {
         buffer.append(chunk);
-        currentBotPane.setText(formatHtml(buffer.toString()));
-        scrollToBottom();
+        if (currentBotPane != null) {
+            currentBotPane.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+            scrollToBottom();
+        }
     }
 
     public void endBotMessage() {
         currentBotPane = null;
     }
 
-    private JTextPane createStyledPane(String title, String bgColor, String fgColor) {
-        JTextPane pane = new JTextPane();
-        pane.setContentType("text/html");
-        pane.setEditable(false);
-        pane.setOpaque(true);
-        pane.setBackground(Color.decode(bgColor));
-        pane.setForeground(Color.decode(fgColor));
-        pane.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-        pane.setText(formatHtml("<b>" + title + "</b><br/>"));
-        pane.setAlignmentX(Component.LEFT_ALIGNMENT);
-        return pane;
+    private JPanel createMessagePanel(String title, String bgColor, String text) {
+        JPanel wrapper = new JPanel();
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        wrapper.setBackground(Color.decode(bgColor));
+        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JTextPane textPane = new JTextPane();
+        textPane.setContentType("text/html");
+        textPane.setEditable(false);
+        textPane.setOpaque(false);
+        textPane.setBorder(null);
+        textPane.setText(formatHtml(escapeHtml(text).replace("\n", "<br/>")));
+        textPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        wrapper.add(titleLabel);
+        wrapper.add(Box.createVerticalStrut(4));
+        wrapper.add(textPane);
+
+        return wrapper;
     }
+
 
     private void appendFormatted(JTextPane pane, String raw) {
         pane.setText(formatHtml("<b>" + pane.getText() + "</b><br/>" + escapeHtml(raw).replace("\n", "<br/>")));
