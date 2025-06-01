@@ -1,10 +1,12 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.ui.chat.ChatFormatter;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
+import de.zrb.bund.newApi.mcp.McpTool;
 
 import javax.swing.*;
 import java.awt.*;
@@ -20,6 +22,7 @@ public class ChatDrawer extends JPanel {
     private JTextArea inputArea;
     private JButton sendButton;
     private JButton attachButton;
+    private JComboBox<String> toolComboBox;
     private JLabel statusLabel;
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
@@ -82,7 +85,12 @@ public class ChatDrawer extends JPanel {
     }
 
     private JPanel createInputPanel() {
-        inputArea = new JTextArea(Integer.parseInt(SettingsHelper.load().aiConfig.getOrDefault("editor.lines" , "3")), 30);
+        Settings settings = SettingsHelper.load();
+        String fontName = settings.aiConfig.getOrDefault("editor.font", "Monospaced");
+        int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
+
+        inputArea = new JTextArea(Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines" , "3")), 30);
+        inputArea.setFont(new Font(fontName, Font.PLAIN, fontSize));
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
         inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -110,8 +118,20 @@ public class ChatDrawer extends JPanel {
         attachButton = new JButton("+");
         attachButton.setToolTipText("Aktiven Tab teilen");
 
-        JPanel buttonPanel = new JPanel(new BorderLayout());
-        buttonPanel.add(attachButton, BorderLayout.WEST);
+        toolComboBox = new JComboBox<>();
+        toolComboBox.addItem(""); // Leerer Eintrag
+        ToolRegistryImpl.getInstance().getAllTools().forEach(tool ->
+                toolComboBox.addItem(tool.getSpec().getName())
+        );
+        toolComboBox.setPreferredSize(new Dimension(150, 24));
+        toolComboBox.setFocusable(false);
+
+        JPanel buttonPanel = new JPanel(new BorderLayout(4, 0));
+        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        leftButtons.add(attachButton);
+        leftButtons.add(toolComboBox);
+
+        buttonPanel.add(leftButtons, BorderLayout.WEST);
         buttonPanel.add(sendButton, BorderLayout.EAST);
 
         JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
@@ -147,16 +167,18 @@ public class ChatDrawer extends JPanel {
     private void sendMessage() {
         String message = inputArea.getText().trim();
         if (message.isEmpty()) return;
+        message = applyTool(message);
 
         awaitingBotResponse = true;
 
+        String finalMessage = message;
         new Thread(() -> {
             try {
-                boolean success = chatManager.streamAnswer(sessionId, isContextMemoryEnabled() , message, new ChatStreamListener() {
+                boolean success = chatManager.streamAnswer(sessionId, isContextMemoryEnabled() , finalMessage, new ChatStreamListener() {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
-                            formatter.appendUserMessage(message);
+                            formatter.appendUserMessage(finalMessage);
                             inputArea.setText("");
                             startBotMessage();
                             cancelButton.setVisible(true);
@@ -200,6 +222,38 @@ public class ChatDrawer extends JPanel {
                 });
             }
         }).start();
+    }
+
+    private String applyTool(String userInput) {
+        String selectedToolName = (String) toolComboBox.getSelectedItem();
+        String message;
+
+        if (selectedToolName != null && !selectedToolName.trim().isEmpty()) {
+            // Tool gefunden?
+            ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
+            McpTool tool = registry.getAllTools().stream()
+                    .filter(t -> t.getSpec().getName().equals(selectedToolName))
+                    .findFirst()
+                    .orElse(null);
+
+            if (tool != null) {
+                // Einstellungen holen
+                Settings settings = SettingsHelper.load();
+                String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
+                String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
+
+                String toolJson = tool.getSpec().toJson();
+
+                // Prompt zusammensetzen
+                message = String.format("%s\n%s\n%s\n\n%s",
+                        prefix, toolJson, postfix, userInput);
+            } else {
+                message = userInput; // Fallback, falls Tool nicht gefunden
+            }
+        } else {
+            message = userInput;
+        }
+        return message;
     }
 
     public void appendBotMessageChunk(String chunk) {

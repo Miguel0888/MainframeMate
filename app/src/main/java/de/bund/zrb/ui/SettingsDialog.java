@@ -308,7 +308,7 @@ public class SettingsDialog {
         aiToolPrefix = new JTextArea(3, 30);
         aiToolPrefix.setLineWrap(true);
         aiToolPrefix.setWrapStyleWord(true);
-        aiToolPrefix.setText(settings.aiConfig.getOrDefault("toolPrefix", "Gib den Aufruf als JSON im folgenden Format aus:\n"));
+        aiToolPrefix.setText(settings.aiConfig.getOrDefault("toolPrefix", "Gib den JSON-Aufruf (nur den Tool Call) aus – ohne zusätzliche Beschreibung oder Wiederholung der Tool-Spezifikation.\n"));
         aiContent.add(new JScrollPane(aiToolPrefix), gbc);
         gbc.gridy++;
 

@@ -42,9 +42,11 @@ public class ChatFormatter {
     }
 
     private void appendFormatted(String text) {
-        String[] lines = text.split("\n");
+        String[] lines = text.split("(?<=\n)"); // erhält \n am Zeilenende
 
-        for (String line : lines) {
+        for (String lineWithBreak : lines) {
+            String line = lineWithBreak.replace("\n", ""); // \n separat behandeln
+
             if (line.trim().startsWith("```")) {
                 insideCodeBlock = !insideCodeBlock;
                 if (insideCodeBlock) {
@@ -55,10 +57,11 @@ public class ChatFormatter {
                 continue;
             }
 
-            if (insideCodeBlock) {
-                buffer.append(escapeHtml(line));
-            } else {
-                buffer.append(escapeHtml(line));
+            buffer.append(escapeHtml(line));
+
+            // Falls die Zeile ursprünglich mit \n endete: HTML-Zeilenumbruch hinzufügen
+            if (lineWithBreak.endsWith("\n") && !insideCodeBlock) {
+                buffer.append("<br/>");
             }
         }
     }
