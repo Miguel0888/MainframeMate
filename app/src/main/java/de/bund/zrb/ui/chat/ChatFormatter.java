@@ -24,7 +24,14 @@ public class ChatFormatter {
 
     public void startBotMessage() {
         buffer.setLength(0);
-        currentBotPane = new JTextPane();
+        currentBotPane = new JTextPane() {
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension pref = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, pref.height);
+            }
+        };
+
         currentBotPane.setContentType("text/html");
         currentBotPane.setEditable(false);
         currentBotPane.setOpaque(false);
@@ -58,6 +65,8 @@ public class ChatFormatter {
             currentBotPane.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
             scrollToBottom();
         }
+        currentBotPane.setSize(messageContainer.getWidth(), Short.MAX_VALUE);
+        currentBotPane.setPreferredSize(currentBotPane.getPreferredSize());
     }
 
     public void endBotMessage() {
