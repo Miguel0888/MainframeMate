@@ -1,211 +1,186 @@
-package de.bund.zrb.ui.components;
-
-import de.bund.zrb.helper.SettingsHelper;
-import de.bund.zrb.model.Settings;
-import de.bund.zrb.runtime.ToolRegistryImpl;
-import de.bund.zrb.ui.ChatDrawer;
-import de.bund.zrb.ui.components.UiMessage;
-import de.zrb.bund.api.ChatManager;
-import de.zrb.bund.api.ChatStreamListener;
-import de.zrb.bund.newApi.mcp.McpTool;
-
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.io.IOException;
-import java.util.UUID;
-
-public class ChatSessionPanel extends JPanel {
-
-    private final UUID sessionId;
-    private final ChatManager chatManager;
-    private final ChatDrawer parentDrawer;
-
-    private final JPanel messageContainer;
-    private final JTextArea inputArea;
-    private final JComboBox<String> toolComboBox;
-    private final JButton cancelButton;
-    private UiMessage currentBotMessage;
-
-    private final StringBuilder botBuffer = new StringBuilder();
-    private boolean awaitingBotResponse = false;
-
-    public ChatSessionPanel(ChatManager chatManager, ChatDrawer parentDrawer) {
-        this.chatManager = chatManager;
-        this.parentDrawer = parentDrawer;
-        this.sessionId = UUID.randomUUID();
-
-        setLayout(new BorderLayout(8, 8));
-
-        messageContainer = new JPanel();
-        messageContainer.setLayout(new BoxLayout(messageContainer, BoxLayout.Y_AXIS));
-        JScrollPane chatScroll = new JScrollPane(messageContainer);
-        chatScroll.setBorder(null);
-        chatScroll.getVerticalScrollBar().setUnitIncrement(16);
-        add(chatScroll, BorderLayout.CENTER);
-
-        inputArea = new JTextArea(3, 30);
-        inputArea.setLineWrap(true);
-        inputArea.setWrapStyleWord(true);
-        inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        inputArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
-        inputArea.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    if (e.isShiftDown()) {
-                        inputArea.append("\n");
-                    } else {
-                        e.consume();
-                        sendMessage();
-                    }
-                }
-            }
-        });
-
-        JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-
-        JButton sendButton = new JButton("⏎");
-        sendButton.addActionListener(e -> sendMessage());
-
-        JButton attachButton = new JButton("+");
-
-        toolComboBox = new JComboBox<>();
-        toolComboBox.addItem("");
-        ToolRegistryImpl.getInstance().getAllTools().forEach(tool ->
-                toolComboBox.addItem(tool.getSpec().getName())
-        );
-
-        cancelButton = new JButton("⛔");
-        cancelButton.setVisible(false);
-        cancelButton.addActionListener(e -> {
-            chatManager.cancel(sessionId);
-            cancelButton.setVisible(false);
-        });
-
-        JPanel buttonPanel = new JPanel(new BorderLayout(4, 0));
-        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        leftButtons.add(attachButton);
-        leftButtons.add(toolComboBox);
-
-        buttonPanel.add(leftButtons, BorderLayout.WEST);
-        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        rightButtons.add(cancelButton);
-        rightButtons.add(sendButton);
-        buttonPanel.add(rightButtons, BorderLayout.EAST);
-
-        JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
-        bottomPanel.add(inputScroll, BorderLayout.CENTER);
-        bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
-
-        add(bottomPanel, BorderLayout.SOUTH);
-    }
-
-    private void sendMessage() {
-        String message = inputArea.getText().trim();
-        if (message.isEmpty()) return;
-        message = applyTool(message);
-        inputArea.setText("");
-        addMessage(message, true);
-
-        botBuffer.setLength(0);
-        awaitingBotResponse = true;
-        currentBotMessage = new UiMessage("", false);
-        messageContainer.add(currentBotMessage);
-        revalidate();
-        scrollToBottom();
-
-        String finalMessage = message;
-        new Thread(() -> {
-            try {
-                boolean success = chatManager.streamAnswer(
-                        sessionId,
-                        parentDrawer.isContextMemoryEnabled(),
-                        finalMessage,
-                        new ChatStreamListener() {
-                            @Override
-                            public void onStreamStart() {
-                                SwingUtilities.invokeLater(() -> cancelButton.setVisible(true));
-                            }
-
-                            @Override
-                            public void onStreamChunk(String chunk) {
-                                botBuffer.append(chunk);
-                                SwingUtilities.invokeLater(() -> {
-                                    currentBotMessage.setText(botBuffer.toString());
-                                    scrollToBottom();
-                                });
-                            }
-
-                            @Override
-                            public void onStreamEnd() {
-                                awaitingBotResponse = false;
-                                SwingUtilities.invokeLater(() -> {
-                                    cancelButton.setVisible(false);
-                                    currentBotMessage.setText(botBuffer.toString());
-                                });
-                            }
-
-                            @Override
-                            public void onError(Exception e) {
-                                awaitingBotResponse = false;
-                                SwingUtilities.invokeLater(() -> {
-                                    cancelButton.setVisible(false);
-                                    JOptionPane.showMessageDialog(ChatSessionPanel.this,
-                                            "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
-                                            "AI-Fehler", JOptionPane.ERROR_MESSAGE);
-                                });
-                            }
-                        },
-                        parentDrawer.isKeepAliveEnabled()
-                );
-
-                if (!success) awaitingBotResponse = false;
-
-            } catch (IOException e) {
-                awaitingBotResponse = false;
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
-                        "Fehler beim Starten der Anfrage:\n" + e.getMessage(),
-                        "AI-Fehler", JOptionPane.ERROR_MESSAGE));
-            }
-        }).start();
-    }
-
-    private String applyTool(String userInput) {
-        String selectedToolName = (String) toolComboBox.getSelectedItem();
-        if (selectedToolName == null || selectedToolName.trim().isEmpty()) {
-            return userInput;
-        }
-
-        McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
-                .filter(t -> selectedToolName.equals(t.getSpec().getName()))
-                .findFirst().orElse(null);
-
-        if (tool == null) return userInput;
-
-        Settings settings = SettingsHelper.load();
-        String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
-        String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
-        String toolJson = tool.getSpec().toJson();
-
-        return String.format("%s\n%s\n%s\n\n%s", prefix, toolJson, postfix, userInput);
-    }
-
-    private void addMessage(String message, boolean fromUser) {
-        UiMessage uiMessage = new UiMessage(message, fromUser);
-        messageContainer.add(uiMessage);
-        revalidate();
-        scrollToBottom();
-    }
-
-    private void scrollToBottom() {
-        JScrollBar vertical = ((JScrollPane) messageContainer.getParent().getParent()).getVerticalScrollBar();
-        vertical.setValue(vertical.getMaximum());
-    }
-
-    public UUID getSessionId() {
-        return sessionId;
-    }
-}
+//package de.bund.zrb.ui.components;
+//
+//import de.bund.zrb.helper.SettingsHelper;
+//import de.bund.zrb.model.Settings;
+//import de.bund.zrb.runtime.ToolRegistryImpl;
+//import de.zrb.bund.api.ChatManager;
+//import de.zrb.bund.api.ChatStreamListener;
+//import de.zrb.bund.newApi.mcp.McpTool;
+//
+//import javax.swing.*;
+//import java.awt.*;
+//import java.awt.event.KeyAdapter;
+//import java.awt.event.KeyEvent;
+//import java.io.IOException;
+//import java.util.UUID;
+//
+//public class ChatSessionPanel extends JPanel {
+//
+//    private final UUID sessionId = UUID.randomUUID();
+//    private final ChatManager chatManager;
+//    private final JPanel messagePanel;
+//    private final JTextArea inputArea;
+//    private final JScrollPane scrollPane;
+//    private final JComboBox<String> toolComboBox;
+//    private final JButton sendButton;
+//
+//    private UiMessage currentBotMessage;
+//
+//    public ChatSessionPanel(ChatManager chatManager, de.bund.zrb.ui.ChatDrawer drawer) {
+//        this.chatManager = chatManager;
+//        setLayout(new BorderLayout(8, 8));
+//
+//        // Chat area
+//        messagePanel = new JPanel();
+//        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
+//        messagePanel.setBackground(Color.WHITE);
+//
+//        scrollPane = new JScrollPane(messagePanel);
+//        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+//        scrollPane.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+//        add(scrollPane, BorderLayout.CENTER);
+//
+//        // Input area
+//        JPanel inputPanel = new JPanel(new BorderLayout(4, 4));
+//        Settings settings = SettingsHelper.load();
+//        int rows = Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3"));
+//        String fontName = settings.aiConfig.getOrDefault("editor.font", "Monospaced");
+//        int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
+//
+//        inputArea = new JTextArea(rows, 30);
+//        inputArea.setFont(new Font(fontName, Font.PLAIN, fontSize));
+//        inputArea.setLineWrap(true);
+//        inputArea.setWrapStyleWord(true);
+//        inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+//        JScrollPane inputScroll = new JScrollPane(inputArea);
+//        inputScroll.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
+//
+//        inputArea.addKeyListener(new KeyAdapter() {
+//            @Override
+//            public void keyPressed(KeyEvent e) {
+//                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
+//                    e.consume();
+//                    sendMessage(drawer);
+//                }
+//            }
+//        });
+//
+//        sendButton = new JButton("⏎");
+//        sendButton.addActionListener(e -> sendMessage(drawer));
+//
+//        toolComboBox = new JComboBox<>();
+//        toolComboBox.addItem("");
+//        ToolRegistryImpl.getInstance().getAllTools().forEach(tool ->
+//                toolComboBox.addItem(tool.getSpec().getName())
+//        );
+//
+//        JPanel comboPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+//        comboPanel.add(toolComboBox);
+//
+//        JPanel lower = new JPanel(new BorderLayout(4, 4));
+//        lower.add(comboPanel, BorderLayout.WEST);
+//        lower.add(sendButton, BorderLayout.EAST);
+//
+//        inputPanel.add(inputScroll, BorderLayout.CENTER);
+//        inputPanel.add(lower, BorderLayout.SOUTH);
+//        add(inputPanel, BorderLayout.SOUTH);
+//    }
+//
+//    public UUID getSessionId() {
+//        return sessionId;
+//    }
+//
+//    private void sendMessage(de.bund.zrb.ui.ChatDrawer drawer) {
+//        String userText = inputArea.getText().trim();
+//        if (userText.isEmpty()) return;
+//
+//        inputArea.setText("");
+//
+//        // Tool Prompt
+//        String message = applyTool(userText);
+//
+//        // User Message anzeigen
+//        appendMessage(message, true);
+//
+//        currentBotMessage = appendMessage("", false); // Initial leere Bot-Nachricht
+//
+//        new Thread(() -> {
+//            try {
+//                chatManager.streamAnswer(sessionId,
+//                        drawer.isContextMemoryEnabled(),
+//                        message,
+//                        new ChatStreamListener() {
+//                            @Override
+//                            public void onStreamStart() {}
+//
+//                            @Override
+//                            public void onStreamChunk(String chunk) {
+//                                SwingUtilities.invokeLater(() -> {
+//                                    if (currentBotMessage != null) {
+//                                        currentBotMessage.appendText(chunk);
+//                                        scrollToBottom();
+//                                    }
+//                                });
+//                            }
+//
+//                            @Override
+//                            public void onStreamEnd() {
+//                                currentBotMessage = null;
+//                            }
+//
+//                            @Override
+//                            public void onError(Exception e) {
+//                                SwingUtilities.invokeLater(() ->
+//                                        JOptionPane.showMessageDialog(ChatSessionPanel.this,
+//                                                "Fehler: " + e.getMessage(),
+//                                                "Chat-Fehler",
+//                                                JOptionPane.ERROR_MESSAGE));
+//                            }
+//                        },
+//                        drawer.isKeepAliveEnabled()
+//                );
+//            } catch (IOException e) {
+//                SwingUtilities.invokeLater(() ->
+//                        JOptionPane.showMessageDialog(this,
+//                                "Sendeproblem: " + e.getMessage(),
+//                                "Chat-Fehler",
+//                                JOptionPane.ERROR_MESSAGE));
+//            }
+//        }).start();
+//    }
+//
+//    private UiMessage appendMessage(String text, boolean fromUser) {
+//        UiMessage msg = new UiMessage(text, fromUser);
+//        msg.setAlignmentX(Component.LEFT_ALIGNMENT);
+//        messagePanel.add(msg);
+//        messagePanel.add(Box.createVerticalStrut(4));
+//        messagePanel.revalidate();
+//        messagePanel.repaint();
+//        scrollToBottom();
+//        return msg;
+//    }
+//
+//    private void scrollToBottom() {
+//        SwingUtilities.invokeLater(() -> {
+//            JScrollBar vertical = scrollPane.getVerticalScrollBar();
+//            vertical.setValue(vertical.getMaximum());
+//        });
+//    }
+//
+//    private String applyTool(String userInput) {
+//        String selected = (String) toolComboBox.getSelectedItem();
+//        if (selected == null || selected.trim().isEmpty()) return userInput;
+//
+//        McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
+//                .filter(t -> t.getSpec().getName().equals(selected))
+//                .findFirst().orElse(null);
+//
+//        if (tool == null) return userInput;
+//
+//        Settings settings = SettingsHelper.load();
+//        String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
+//        String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
+//
+//        return String.format("%s\n%s\n%s\n\n%s", prefix, tool.getSpec().toJson(), postfix, userInput);
+//    }
+//}
