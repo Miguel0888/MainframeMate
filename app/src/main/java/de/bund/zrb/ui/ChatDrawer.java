@@ -2,42 +2,24 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.runtime.ToolRegistryImpl;
-import de.bund.zrb.ui.chat.ChatFormatter;
+import de.bund.zrb.ui.components.ChatSession;
 import de.zrb.bund.api.ChatManager;
-import de.zrb.bund.api.ChatStreamListener;
-import de.zrb.bund.newApi.mcp.McpTool;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 
 public class ChatDrawer extends JPanel {
 
     private final ChatManager chatManager;
-    private final UUID sessionId;
-
     private final JTabbedPane tabbedPane;
+
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
 
-    private JPanel messageContainer;
-    private ChatFormatter formatter;
-    private JTextArea inputArea;
-    private JButton sendButton;
-    private JButton attachButton;
-    private JComboBox<String> toolComboBox;
-    private JLabel statusLabel;
-    private JButton cancelButton;
-    private boolean awaitingBotResponse = false;
-
     public ChatDrawer(ChatManager chatManager) {
         this.chatManager = chatManager;
-        this.sessionId = UUID.randomUUID();
 
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -53,6 +35,12 @@ public class ChatDrawer extends JPanel {
     private JPanel createHeader() {
         JLabel titleLabel = new JLabel("💬 Chat");
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 13f));
+
+        JButton newTabButton = new JButton("+");
+        newTabButton.setFocusable(false);
+        newTabButton.setMargin(new Insets(0, 5, 0, 5));
+        newTabButton.setToolTipText("Neue Session starten");
+        newTabButton.addActionListener(e -> addNewChatSession());
 
         Settings settings = SettingsHelper.load();
         Map<String, String> state = settings.applicationState;
@@ -70,6 +58,8 @@ public class ChatDrawer extends JPanel {
         JPanel checkboxPanel = new JPanel();
         checkboxPanel.setLayout(new BoxLayout(checkboxPanel, BoxLayout.X_AXIS));
         checkboxPanel.setOpaque(false);
+        checkboxPanel.add(newTabButton);
+        checkboxPanel.add(Box.createHorizontalStrut(12));
         checkboxPanel.add(contextMemoryCheckbox);
         checkboxPanel.add(Box.createHorizontalStrut(8));
         checkboxPanel.add(keepAliveCheckbox);
@@ -83,228 +73,39 @@ public class ChatDrawer extends JPanel {
     }
 
     private void addNewChatSession() {
-        JPanel sessionPanel = createChatSessionPanel();
-        tabbedPane.addTab("Chat", sessionPanel);
+        ChatSession sessionPanel = new ChatSession(chatManager, keepAliveCheckbox, contextMemoryCheckbox);
+        String shortId = sessionPanel.getSessionId().toString().substring(0, 6);
+
+        tabbedPane.addTab(null, sessionPanel);
+        int index = tabbedPane.indexOfComponent(sessionPanel);
+        tabbedPane.setTabComponentAt(index, createTabTitle("💬 " + shortId, sessionPanel));
         tabbedPane.setSelectedComponent(sessionPanel);
     }
 
-    private JPanel createChatSessionPanel() {
-        JPanel sessionPanel = new JPanel(new BorderLayout(4, 4));
+    private Component createTabTitle(String title, Component tabContent) {
+        JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabPanel.setOpaque(false);
 
-        messageContainer = new JPanel();
-        messageContainer.setLayout(new BoxLayout(messageContainer, BoxLayout.Y_AXIS));
-        messageContainer.setBackground(UIManager.getColor("Panel.background"));
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
+        tabPanel.add(titleLabel);
 
-        formatter = new ChatFormatter(messageContainer);
+        JButton closeButton = new JButton("×");
+        closeButton.setMargin(new Insets(0, 5, 0, 5));
+        closeButton.setBorder(BorderFactory.createEmptyBorder());
+        closeButton.setFocusable(false);
+        closeButton.setContentAreaFilled(false);
+        closeButton.setToolTipText("Tab schließen");
 
-        JScrollPane chatScroll = new JScrollPane(messageContainer);
-        chatScroll.setBorder(BorderFactory.createEmptyBorder());
-        chatScroll.getVerticalScrollBar().setUnitIncrement(16);
-
-        sessionPanel.add(chatScroll, BorderLayout.CENTER);
-        sessionPanel.add(createInputPanel(), BorderLayout.SOUTH);
-
-        return sessionPanel;
-    }
-
-    private JPanel createInputPanel() {
-        Settings settings = SettingsHelper.load();
-        String fontName = settings.aiConfig.getOrDefault("editor.font", "Monospaced");
-        int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
-
-        inputArea = new JTextArea(Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3")), 30);
-        inputArea.setFont(new Font(fontName, Font.PLAIN, fontSize));
-        inputArea.setLineWrap(true);
-        inputArea.setWrapStyleWord(true);
-        inputArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
-
-        inputArea.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    if (e.isShiftDown()) {
-                        inputArea.append("\n");
-                    } else {
-                        e.consume();
-                        sendMessage();
-                    }
-                }
+        closeButton.addActionListener(e -> {
+            int index = tabbedPane.indexOfComponent(tabContent);
+            if (index >= 0) {
+                tabbedPane.remove(index);
             }
         });
 
-        sendButton = new JButton("⏎");
-        sendButton.setToolTipText("Nachricht senden");
-        sendButton.addActionListener(e -> sendMessage());
-
-        attachButton = new JButton("+");
-        attachButton.setToolTipText("Aktiven Tab teilen");
-
-        toolComboBox = new JComboBox<>();
-        toolComboBox.addItem(""); // Leerer Eintrag
-        ToolRegistryImpl.getInstance().getAllTools().forEach(tool ->
-                toolComboBox.addItem(tool.getSpec().getName())
-        );
-        toolComboBox.setPreferredSize(new Dimension(150, 24));
-        toolComboBox.setFocusable(false);
-
-        JPanel buttonPanel = new JPanel(new BorderLayout(4, 0));
-        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        leftButtons.add(attachButton);
-        leftButtons.add(toolComboBox);
-
-        buttonPanel.add(leftButtons, BorderLayout.WEST);
-        buttonPanel.add(sendButton, BorderLayout.EAST);
-
-        JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
-        bottomPanel.add(createStatusPanel(), BorderLayout.NORTH);
-        bottomPanel.add(inputScroll, BorderLayout.CENTER);
-        bottomPanel.add(buttonPanel, BorderLayout.SOUTH);
-
-        return bottomPanel;
-    }
-
-    private JPanel createStatusPanel() {
-        statusLabel = new JLabel(" ");
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
-
-        cancelButton = new JButton("⛔");
-        cancelButton.setToolTipText("Abbrechen");
-        cancelButton.setVisible(false);
-        cancelButton.setFocusable(false);
-        cancelButton.setMargin(new Insets(0, 4, 0, 4));
-        cancelButton.addActionListener(e -> {
-            chatManager.cancel(sessionId);
-            setStatus("❌ Abgebrochen");
-            cancelButton.setVisible(false);
-        });
-
-        JPanel statusPanel = new JPanel(new BorderLayout());
-        statusPanel.add(statusLabel, BorderLayout.CENTER);
-        statusPanel.add(cancelButton, BorderLayout.EAST);
-        statusPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        return statusPanel;
-    }
-
-    private void sendMessage() {
-        String message = inputArea.getText().trim();
-        if (message.isEmpty()) return;
-        message = applyTool(message);
-
-        awaitingBotResponse = true;
-
-        String finalMessage = message;
-        new Thread(() -> {
-            try {
-                boolean success = chatManager.streamAnswer(sessionId, isContextMemoryEnabled(), finalMessage, new ChatStreamListener() {
-                    @Override
-                    public void onStreamStart() {
-                        SwingUtilities.invokeLater(() -> {
-                            formatter.appendUserMessage(finalMessage);
-                            inputArea.setText("");
-                            startBotMessage();
-                            cancelButton.setVisible(true);
-                        });
-                    }
-
-                    @Override
-                    public void onStreamChunk(String chunk) {
-                        SwingUtilities.invokeLater(() -> appendBotMessageChunk(chunk));
-                    }
-
-                    @Override
-                    public void onStreamEnd() {
-                        SwingUtilities.invokeLater(() -> {
-                            endBotMessage();
-                            setStatus(" ");
-                        });
-                    }
-
-                    @Override
-                    public void onError(Exception e) {
-                        SwingUtilities.invokeLater(() -> {
-                            setStatus("⚠️ Fehler");
-                            cancelButton.setVisible(false);
-                            JOptionPane.showMessageDialog(ChatDrawer.this,
-                                    "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
-                                    "AI-Fehler", JOptionPane.ERROR_MESSAGE);
-                        });
-                    }
-                }, isKeepAliveEnabled());
-                if (!success) {
-                    awaitingBotResponse = false;
-                }
-            } catch (IOException e) {
-                SwingUtilities.invokeLater(() -> {
-                    setStatus("⚠️ Fehler");
-                    JOptionPane.showMessageDialog(this,
-                            "Fehler beim Starten der Anfrage:\n" + e.getMessage(),
-                            "AI-Fehler", JOptionPane.ERROR_MESSAGE);
-                });
-            }
-        }).start();
-    }
-
-    private String applyTool(String userInput) {
-        String selectedToolName = (String) toolComboBox.getSelectedItem();
-        String message;
-
-        if (selectedToolName != null && !selectedToolName.trim().isEmpty()) {
-            ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
-            McpTool tool = registry.getAllTools().stream()
-                    .filter(t -> t.getSpec().getName().equals(selectedToolName))
-                    .findFirst()
-                    .orElse(null);
-
-            if (tool != null) {
-                Settings settings = SettingsHelper.load();
-                String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
-                String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
-                String toolJson = tool.getSpec().toJson();
-
-                message = String.format("%s\n%s\n%s\n\n### Eingabe:\n%s",
-                        prefix, toolJson, postfix, userInput);
-            } else {
-                message = userInput;
-            }
-        } else {
-            message = userInput;
-        }
-        return message;
-    }
-
-    public void appendBotMessageChunk(String chunk) {
-        if (awaitingBotResponse) {
-            formatter.appendBotMessageChunk(chunk);
-        }
-    }
-
-    public void startBotMessage() {
-        formatter.startBotMessage();
-        setStatus("🤖 Bot schreibt...");
-    }
-
-    public void endBotMessage() {
-        formatter.endBotMessage();
-        awaitingBotResponse = false;
-        cancelButton.setVisible(false);
-    }
-
-    public void setStatus(String status) {
-        statusLabel.setText(status);
-    }
-
-    public boolean isKeepAliveEnabled() {
-        return keepAliveCheckbox.isSelected();
-    }
-
-    public boolean isContextMemoryEnabled() {
-        return contextMemoryCheckbox.isSelected();
-    }
-
-    public UUID getSessionId() {
-        return sessionId;
+        tabPanel.add(closeButton);
+        return tabPanel;
     }
 
     public void addApplicationState(Map<String, String> state) {
