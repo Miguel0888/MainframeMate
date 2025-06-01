@@ -1,9 +1,9 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.ui.chat.ChatFormatter;
-import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -18,17 +18,20 @@ import java.util.UUID;
 
 public class ChatDrawer extends JPanel {
 
-    private final JPanel messageContainer;
-    private final ChatFormatter formatter;
+    private final ChatManager chatManager;
+    private final UUID sessionId;
+
+    private final JTabbedPane tabbedPane;
+    private JCheckBox keepAliveCheckbox;
+    private JCheckBox contextMemoryCheckbox;
+
+    private JPanel messageContainer;
+    private ChatFormatter formatter;
     private JTextArea inputArea;
     private JButton sendButton;
     private JButton attachButton;
     private JComboBox<String> toolComboBox;
     private JLabel statusLabel;
-    private JCheckBox keepAliveCheckbox;
-    private JCheckBox contextMemoryCheckbox;
-    private final ChatManager chatManager;
-    private final UUID sessionId;
     private JButton cancelButton;
     private boolean awaitingBotResponse = false;
 
@@ -41,19 +44,10 @@ public class ChatDrawer extends JPanel {
 
         add(createHeader(), BorderLayout.NORTH);
 
-        messageContainer = new JPanel();
-        messageContainer.setLayout(new BoxLayout(messageContainer, BoxLayout.Y_AXIS));
-        messageContainer.setBackground(UIManager.getColor("Panel.background"));
+        tabbedPane = new JTabbedPane();
+        add(tabbedPane, BorderLayout.CENTER);
 
-        formatter = new ChatFormatter(messageContainer);
-
-        JScrollPane chatScroll = new JScrollPane(messageContainer);
-        chatScroll.setBorder(BorderFactory.createEmptyBorder());
-        chatScroll.getVerticalScrollBar().setUnitIncrement(16);
-
-        add(chatScroll, BorderLayout.CENTER);
-
-        add(createInputPanel(), BorderLayout.SOUTH);
+        addNewChatSession();
     }
 
     private JPanel createHeader() {
@@ -63,11 +57,9 @@ public class ChatDrawer extends JPanel {
         Settings settings = SettingsHelper.load();
         Map<String, String> state = settings.applicationState;
 
-        boolean keepAlive = Boolean.parseBoolean(state.getOrDefault("chat.keepAlive", "true"));
-        boolean rememberContext = Boolean.parseBoolean(state.getOrDefault("chat.rememberContext", "true"));
+        keepAliveCheckbox = new JCheckBox("Modell behalten", Boolean.parseBoolean(state.getOrDefault("chat.keepAlive", "true")));
+        contextMemoryCheckbox = new JCheckBox("Kontext merken", Boolean.parseBoolean(state.getOrDefault("chat.rememberContext", "true")));
 
-        keepAliveCheckbox = new JCheckBox("Modell behalten", keepAlive);
-        contextMemoryCheckbox = new JCheckBox("Kontext merken", rememberContext);
         for (JCheckBox box : new JCheckBox[]{keepAliveCheckbox, contextMemoryCheckbox}) {
             box.setFont(new Font("Dialog", Font.PLAIN, 11));
             box.setHorizontalTextPosition(SwingConstants.LEFT);
@@ -90,12 +82,37 @@ public class ChatDrawer extends JPanel {
         return headerLine;
     }
 
+    private void addNewChatSession() {
+        JPanel sessionPanel = createChatSessionPanel();
+        tabbedPane.addTab("Chat", sessionPanel);
+        tabbedPane.setSelectedComponent(sessionPanel);
+    }
+
+    private JPanel createChatSessionPanel() {
+        JPanel sessionPanel = new JPanel(new BorderLayout(4, 4));
+
+        messageContainer = new JPanel();
+        messageContainer.setLayout(new BoxLayout(messageContainer, BoxLayout.Y_AXIS));
+        messageContainer.setBackground(UIManager.getColor("Panel.background"));
+
+        formatter = new ChatFormatter(messageContainer);
+
+        JScrollPane chatScroll = new JScrollPane(messageContainer);
+        chatScroll.setBorder(BorderFactory.createEmptyBorder());
+        chatScroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        sessionPanel.add(chatScroll, BorderLayout.CENTER);
+        sessionPanel.add(createInputPanel(), BorderLayout.SOUTH);
+
+        return sessionPanel;
+    }
+
     private JPanel createInputPanel() {
         Settings settings = SettingsHelper.load();
         String fontName = settings.aiConfig.getOrDefault("editor.font", "Monospaced");
         int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
 
-        inputArea = new JTextArea(Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines" , "3")), 30);
+        inputArea = new JTextArea(Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3")), 30);
         inputArea.setFont(new Font(fontName, Font.PLAIN, fontSize));
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
@@ -180,7 +197,7 @@ public class ChatDrawer extends JPanel {
         String finalMessage = message;
         new Thread(() -> {
             try {
-                boolean success = chatManager.streamAnswer(sessionId, isContextMemoryEnabled() , finalMessage, new ChatStreamListener() {
+                boolean success = chatManager.streamAnswer(sessionId, isContextMemoryEnabled(), finalMessage, new ChatStreamListener() {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
@@ -215,8 +232,7 @@ public class ChatDrawer extends JPanel {
                         });
                     }
                 }, isKeepAliveEnabled());
-                if(!success) {
-                    // Anfrage wurde unterdrückt – nicht anzeigen
+                if (!success) {
                     awaitingBotResponse = false;
                 }
             } catch (IOException e) {
@@ -235,7 +251,6 @@ public class ChatDrawer extends JPanel {
         String message;
 
         if (selectedToolName != null && !selectedToolName.trim().isEmpty()) {
-            // Tool gefunden?
             ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
             McpTool tool = registry.getAllTools().stream()
                     .filter(t -> t.getSpec().getName().equals(selectedToolName))
@@ -243,18 +258,15 @@ public class ChatDrawer extends JPanel {
                     .orElse(null);
 
             if (tool != null) {
-                // Einstellungen holen
                 Settings settings = SettingsHelper.load();
                 String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
                 String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
-
                 String toolJson = tool.getSpec().toJson();
 
-                // Prompt zusammensetzen
                 message = String.format("%s\n%s\n%s\n\n### Eingabe:\n%s",
                         prefix, toolJson, postfix, userInput);
             } else {
-                message = userInput; // Fallback, falls Tool nicht gefunden
+                message = userInput;
             }
         } else {
             message = userInput;
@@ -266,14 +278,6 @@ public class ChatDrawer extends JPanel {
         if (awaitingBotResponse) {
             formatter.appendBotMessageChunk(chunk);
         }
-    }
-
-    public void setUserInput(String text) {
-        inputArea.setText(text);
-    }
-
-    public void onAttachClick(Runnable handler) {
-        attachButton.addActionListener(e -> handler.run());
     }
 
     public void startBotMessage() {
@@ -305,9 +309,7 @@ public class ChatDrawer extends JPanel {
 
     public void addApplicationState(Map<String, String> state) {
         if (state == null) return;
-
         state.put("chat.keepAlive", String.valueOf(keepAliveCheckbox.isSelected()));
         state.put("chat.rememberContext", String.valueOf(contextMemoryCheckbox.isSelected()));
     }
-
 }
