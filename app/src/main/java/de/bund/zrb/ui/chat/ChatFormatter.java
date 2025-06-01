@@ -1,84 +1,64 @@
 package de.bund.zrb.ui.chat;
 
 import javax.swing.*;
-import javax.swing.text.*;
-import javax.swing.text.html.HTMLDocument;
-import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
 
 public class ChatFormatter {
 
-    private final JTextPane chatPane;
-    private final HTMLEditorKit kit;
-    private final HTMLDocument doc;
-
+    private final JPanel messageContainer;
+    private JTextPane currentBotPane;
     private boolean insideCodeBlock = false;
     private final StringBuilder buffer = new StringBuilder();
 
-    public ChatFormatter(JTextPane chatPane) {
-        this.chatPane = chatPane;
-        this.kit = new HTMLEditorKit();
-        this.doc = new HTMLDocument();
-        chatPane.setEditorKit(kit);
-        chatPane.setDocument(doc);
-        chatPane.setContentType("text/html");
-        chatPane.setEditable(false);
-        chatPane.setBackground(UIManager.getColor("Panel.background"));
-
-        buffer.append("<html><body style='font-family:sans-serif; font-size:12px;'>");
+    public ChatFormatter(JPanel messageContainer) {
+        this.messageContainer = messageContainer;
     }
 
-    public void appendUserMessage(String message) {
-        flushCodeBlock(); // falls offener Block existiert
-        buffer.append("<div style='background-color:#e6f0ff; padding:4px;'><b>👤 Du:</b><br/>");
-        appendFormatted(message);
-        buffer.append("</div>");
-        updatePane();
+    public void appendUserMessage(String text) {
+        JTextPane pane = createStyledPane("👤 Du:", "#e6f0ff", "#000000");
+        appendFormatted(pane, text);
+        messageContainer.add(pane);
+        messageContainer.add(Box.createVerticalStrut(6));
+        pane.setText(formatHtml(text));
+        scrollToBottom();
+    }
+
+    public void startBotMessage() {
+        currentBotPane = createStyledPane("🤖 Bot:", "#f0ffe6", "#000000");
+        messageContainer.add(currentBotPane);
+        messageContainer.add(Box.createVerticalStrut(6));
+        buffer.setLength(0);
     }
 
     public void appendBotMessageChunk(String chunk) {
-        appendFormatted(chunk);
-        updatePane();
+        buffer.append(chunk);
+        currentBotPane.setText(formatHtml(buffer.toString()));
+        scrollToBottom();
     }
 
-    private void appendFormatted(String text) {
-        String[] lines = text.split("(?<=\n)"); // erhält \n am Zeilenende
-
-        for (String lineWithBreak : lines) {
-            String line = lineWithBreak.replace("\n", ""); // \n separat behandeln
-
-            if (line.trim().startsWith("```")) {
-                insideCodeBlock = !insideCodeBlock;
-                if (insideCodeBlock) {
-                    buffer.append("<pre style='background:#f9f9f9; border:1px solid #ccc; padding:4px;'>");
-                } else {
-                    buffer.append("</pre>");
-                }
-                continue;
-            }
-
-            buffer.append(escapeHtml(line));
-
-            // Falls die Zeile ursprünglich mit \n endete: HTML-Zeilenumbruch hinzufügen
-            if (lineWithBreak.endsWith("\n") && !insideCodeBlock) {
-                buffer.append("<br/>");
-            }
-        }
+    public void endBotMessage() {
+        currentBotPane = null;
     }
 
-    private void flushCodeBlock() {
-        if (insideCodeBlock) {
-            buffer.append("</pre>");
-            insideCodeBlock = false;
-        }
+    private JTextPane createStyledPane(String title, String bgColor, String fgColor) {
+        JTextPane pane = new JTextPane();
+        pane.setContentType("text/html");
+        pane.setEditable(false);
+        pane.setOpaque(true);
+        pane.setBackground(Color.decode(bgColor));
+        pane.setForeground(Color.decode(fgColor));
+        pane.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        pane.setText(formatHtml("<b>" + title + "</b><br/>"));
+        pane.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return pane;
     }
 
-    private void updatePane() {
-        buffer.append("</body></html>");
-        chatPane.setText(buffer.toString());
-        chatPane.setCaretPosition(chatPane.getDocument().getLength());
-        // danach wieder <body> anhängen, da sonst keine weiteren Nachrichten gehen
-        buffer.setLength(buffer.length() - "</body></html>".length());
+    private void appendFormatted(JTextPane pane, String raw) {
+        pane.setText(formatHtml("<b>" + pane.getText() + "</b><br/>" + escapeHtml(raw).replace("\n", "<br/>")));
+    }
+
+    private String formatHtml(String html) {
+        return "<html><body style='font-family:sans-serif; font-size:12px;'>" + html + "</body></html>";
     }
 
     private String escapeHtml(String input) {
@@ -88,17 +68,17 @@ public class ChatFormatter {
                 .replace(">", "&gt;");
     }
 
-    public void startBotMessage() {
-        flushCodeBlock(); // falls noch offen
-        buffer.append("<div style='background-color:#f0ffe6; padding:6px; margin-top:6px; border-left:4px solid #aaddaa;'>");
-        buffer.append("<b>🤖 Bot:</b><br/>");
+    private void scrollToBottom() {
+        SwingUtilities.invokeLater(() -> {
+            Container parent = messageContainer.getParent();
+            while (!(parent instanceof JScrollPane) && parent != null) {
+                parent = parent.getParent();
+            }
+            if (parent instanceof JScrollPane) {
+                JScrollPane scrollPane = (JScrollPane) parent;
+                JScrollBar vBar = scrollPane.getVerticalScrollBar();
+                vBar.setValue(vBar.getMaximum());
+            }
+        });
     }
-
-
-    public void endBotMessage() {
-        flushCodeBlock(); // falls offener Block
-        buffer.append("</div>");
-        updatePane(); // finaler Render
-    }
-
 }

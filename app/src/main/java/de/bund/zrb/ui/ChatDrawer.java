@@ -18,7 +18,8 @@ import java.util.UUID;
 
 public class ChatDrawer extends JPanel {
 
-    private final JTextPane chatPane;
+    private final JPanel messageContainer;
+    private final ChatFormatter formatter;
     private JTextArea inputArea;
     private JButton sendButton;
     private JButton attachButton;
@@ -26,7 +27,6 @@ public class ChatDrawer extends JPanel {
     private JLabel statusLabel;
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
-    private final ChatFormatter formatter;
     private final ChatManager chatManager;
     private final UUID sessionId;
     private JButton cancelButton;
@@ -41,10 +41,16 @@ public class ChatDrawer extends JPanel {
 
         add(createHeader(), BorderLayout.NORTH);
 
-        chatPane = new JTextPane();
-        chatPane.setEditable(false);
-        formatter = new ChatFormatter(chatPane);
-        JScrollPane chatScroll = new JScrollPane(chatPane);
+        messageContainer = new JPanel();
+        messageContainer.setLayout(new BoxLayout(messageContainer, BoxLayout.Y_AXIS));
+        messageContainer.setBackground(UIManager.getColor("Panel.background"));
+
+        formatter = new ChatFormatter(messageContainer);
+
+        JScrollPane chatScroll = new JScrollPane(messageContainer);
+        chatScroll.setBorder(BorderFactory.createEmptyBorder());
+        chatScroll.getVerticalScrollBar().setUnitIncrement(16);
+
         add(chatScroll, BorderLayout.CENTER);
 
         add(createInputPanel(), BorderLayout.SOUTH);
