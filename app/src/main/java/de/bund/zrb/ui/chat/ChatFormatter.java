@@ -93,7 +93,12 @@ public class ChatFormatter {
         JPanel wrapper = new JPanel();
         wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
         wrapper.setBackground(Color.decode(role.bgColor));
-        wrapper.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        wrapper.setBorder(BorderFactory.createCompoundBorder(
+                role == Role.BOT
+                        ? BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(0x66AA66)) // Grüner Balken links
+                        : BorderFactory.createEmptyBorder(),
+                BorderFactory.createEmptyBorder(6, 8, 6, 8)
+        ));
         wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel titleLabel = new JLabel(role.label);
@@ -106,6 +111,7 @@ public class ChatFormatter {
 
         return wrapper;
     }
+
 
     private void applyDynamicSizing(JTextPane pane) {
         int width = (messageContainer.getParent() != null)
