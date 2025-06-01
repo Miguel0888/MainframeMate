@@ -1,9 +1,13 @@
 package de.bund.zrb.ui.chat;
 
 import javax.swing.*;
+import javax.swing.text.View;
 import java.awt.*;
 
 public class ChatFormatter {
+
+    private static final int MESSAGE_WIDTH = 500;
+
 
     private final JPanel messageContainer;
     private JTextPane currentBotPane;
@@ -24,13 +28,7 @@ public class ChatFormatter {
 
     public void startBotMessage() {
         buffer.setLength(0);
-        currentBotPane = new JTextPane() {
-            @Override
-            public Dimension getMaximumSize() {
-                Dimension pref = getPreferredSize();
-                return new Dimension(Integer.MAX_VALUE, pref.height);
-            }
-        };
+        currentBotPane = new JTextPane();
 
         currentBotPane.setContentType("text/html");
         currentBotPane.setEditable(false);
@@ -58,16 +56,46 @@ public class ChatFormatter {
         scrollToBottom();
     }
 
-
     public void appendBotMessageChunk(String chunk) {
         buffer.append(chunk);
-        if (currentBotPane != null) {
+        SwingUtilities.invokeLater(() -> {
             currentBotPane.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+
+            int width = messageContainer.getWidth() - 32;
+            if (width <= 0) {
+                // Layout ist noch nicht bereit – später nochmal versuchen
+                Timer retry = new Timer(20, e -> appendBotMessageChunk(""));
+                retry.setRepeats(false);
+                retry.start();
+                return;
+            }
+
+            // Jetzt HTML-Höhe korrekt berechnen
+            int height = calculateHtmlContentHeight(currentBotPane, width);
+
+            currentBotPane.setPreferredSize(new Dimension(width, height));
+            currentBotPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+
+            currentBotPane.revalidate();
+            currentBotPane.repaint();
             scrollToBottom();
-        }
-        currentBotPane.setSize(messageContainer.getWidth(), Short.MAX_VALUE);
-        currentBotPane.setPreferredSize(currentBotPane.getPreferredSize());
+        });
     }
+
+    private int calculateHtmlContentHeight(JTextPane pane, int width) {
+        pane.setSize(new Dimension(width, Integer.MAX_VALUE)); // zwingend nötig
+        View rootView = pane.getUI().getRootView(pane);
+        rootView.setSize(width, Integer.MAX_VALUE);
+        return (int) rootView.getPreferredSpan(View.Y_AXIS);
+    }
+
+    private int getActualHTMLHeight(JTextPane pane, int width) {
+        pane.setSize(new Dimension(width, Short.MAX_VALUE));
+        View rootView = pane.getUI().getRootView(pane);
+        rootView.setSize(width, Integer.MAX_VALUE);
+        return (int) rootView.getPreferredSpan(View.Y_AXIS);
+    }
+
 
     public void endBotMessage() {
         currentBotPane = null;
