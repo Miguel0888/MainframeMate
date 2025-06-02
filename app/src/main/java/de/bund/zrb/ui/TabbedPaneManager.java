@@ -2,6 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
+import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.TabAdapter;
 
 import javax.swing.*;
@@ -16,8 +17,10 @@ public class TabbedPaneManager {
 
     private final JTabbedPane tabbedPane = new JTabbedPane();
     private final Map<Component, FtpTab> tabMap = new HashMap<>();
+    private final MainframeContext mainframeContext;
 
-    public TabbedPaneManager() {
+    public TabbedPaneManager(MainframeContext mainFrame) {
+        this.mainframeContext = mainFrame;
         tabbedPane.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -181,5 +184,9 @@ public class TabbedPaneManager {
         if (index >= 0) {
             tabbedPane.setSelectedIndex(index);
         }
+    }
+
+    public MainframeContext getMainframeContext() {
+        return mainframeContext;
     }
 }

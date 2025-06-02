@@ -280,9 +280,17 @@ public class FileTab implements FtpTab, TabAdapter {
         highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
     }
 
+    @Deprecated // seitdem der editor selbst entscheidet, wie er inhalte highlightet, use setContent(String text, String sentenceType) instead
     public void setStructuredContent(String text, List<Map<String, Object>> feldDefinitionen, int zeilenSchema) {
         setContent(text); // Inhalt setzen (inkl. Undo)
         highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
+    }
+
+    public void setContent(String text, String sentenceType) {
+        setContent(text); // Inhalt setzen (inkl. Undo)
+
+        // ToDo: Implement Highlighting based on sentenceType, override highlightStructuredContent
+        //highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
     }
 
     public void resetUndoHistory() {

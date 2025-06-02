@@ -165,7 +165,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     private void initUI() {
-        tabManager = new TabbedPaneManager();
+        tabManager = new TabbedPaneManager(this);
 
         // 1. Command Registry
         registerCoreCommands();

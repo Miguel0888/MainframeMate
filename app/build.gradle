@@ -63,3 +63,14 @@ tasks.withType(JavaCompile) {
 tasks.named('build') {
     dependsOn ':plugins:excelimport:copyToAppPlugins'
 }
+
+// Includes the AI driver and license files into the JAR
+sourceSets {
+    main {
+        resources {
+            srcDir 'src/main/resources'
+            include '**/*.exe'
+            include '**/*.txt'
+        }
+    }
+}

@@ -142,9 +142,28 @@ Die Konfiguration in den allgemeinen Einstellungen überschreibt die Farbe in de
 Namenlose felder (value) können ebenfalls mit einer Farbe versehen. Dafür kann als Bezeichner CONST_ und dann der Inhalt der value-Angabe verwenden werden.
 Beispielsweise steht in value 01, dann wird CONST_01 als Bezeichner verwendet.
 
+### Künstliche Intelligenz
+
+MainframeMate nutzt KI-gestützte Funktionen, um die Benutzererfahrung zu verbessern. Diese Funktionen sind experimentell und können in den Einstellungen aktiviert werden. Sie bieten Unterstützung bei der Satzartenerstellung und der Datenvalidierung.
+Das Modell dafür ist lokal und benötigt keine Internetverbindung. Es muss allerdings einmalig von extern bezogen werden, geeignet ist z.B. das Mistral-7B-Modell von Hugging Face. Bitte auf das Format achten, das Modell muss als grun-quantisiertes GGUF-Modell vorliegen.
+Für reine CPU-Beschleunigung kann der interne Treiber, basierend auf llama.cpp, verwendet werden. Für GPU-Beschleunigung muss der Treiber entweder neu kompiliert werden oder es wird auf OLLAMA ausgewichen, das ebenfalls vollständig unterstützt wird und bei der Modellauswahl auch freier ist.
+
 ---
 
-### Automatische Proxy-Konfiguration per WPAD/PAC-Datei
+### Plugins
+
+Um ein Plugin zu nutzen muss es unter "<userHome>.mainframemate/plugins" liegen (wo auch die Settings sind). In Gradle reicht es aus diesen Task zu starten:
+
+```plugins > excelimport > Tasks > build > build```
+
+Das JAR wird dann automatisch in das richtige Verzeichnis kopiert. Für andere Plugins verfährt man ähnlich.
+
+---
+
+## Für Entwickler
+
+### Proxy-Konfiguration
+#### Automatische Proxy-Konfiguration per WPAD/PAC-Datei
 
 Wenn unter Windows ein Setupskript mit URL für das Netzwerk hinterlegt ist, muss das Projekt wie folgt über die PowerShell gebaut werden:
 
@@ -156,7 +175,7 @@ Dadurch werden die nötigen Dependencies in den Gradle-Cache geladen. Anschließ
 
 **Tipp:** Wer sich das wiederholte Ausführen im Terminal sparen möchte, kann die Datei `proxy-init.gradle` auch global unter `%USERPROFILE%\.gradle\init.gradle` ablegen. Damit wird die automatische Proxy-Konfiguration dauerhaft für alle Gradle-Projekte übernommen – unabhängig davon, wie sie gestartet werden. (Die Datei muss zwingend in init.gradle umbenannt werden, ansonsten funktioniert es nicht.)
 
-### Proxy-Konfiguration für GIT-Versionsverwaltung
+#### Proxy-Konfiguration für GIT-Versionsverwaltung
 
 Da GIT analog zu Gradle die Proxy Konfiguration aus Windows nicht automatisch übernimmt, muss einmalig für dem ersten Push folgendes Script ausgeführt werden:
 
@@ -166,7 +185,7 @@ Da GIT analog zu Gradle die Proxy Konfiguration aus Windows nicht automatisch ü
 
 Hierbei wird ein minimalistischer JavaScript Parser verwendet, um an die notwendigen Informationen aus der PAC-Datei zu gelangen.
 
-### Proxy-Konfiguration für IDEA (funktioniert aber nicht für Gradle und GIT)
+#### Proxy-Konfiguration für IDEA (funktioniert aber nicht für Gradle und GIT)
 
 Im obigen Fall muss auch IDEA angepasst werden, damit die GIT-Versionsverwaltung wie gewohnt funktioniert. Das geht am einfachsten wie folgt:
 Settings → Appearance & Behavior → System Settings → HTTP Proxy:
@@ -175,10 +194,24 @@ Settings → Appearance & Behavior → System Settings → HTTP Proxy:
 * oder manuell mit den richtigen Daten (falls "auto" nicht ausreicht die Box für den Link anhaken)
   Die URL für die halbautomatische Einstellung bekommt man über ein Klick auf den blauen Link zu den Systemeinstellugen, die URL dort einfach kopieren.
 
-### Plugins
+### KI-Unterstützung
+Der gebündelte KI-Treiber kann mittels CMAKE und gcc / g++ oder ggf. mittels des MSVC-Plugins von Clang / LLVM in VS Code kompiliert werden.
+Der neuen Hashwert ermittelt sich dann am leichtesten mittels:
+##### Windows (PowerShell)
+```powershell
+Get-FileHash .\driver.exe -Algorithm SHA256
+```
+#### Linux/macOS
+```bash
+sha256sum driver.exe
+```
 
-Um ein Plugin zu nutzen muss es unter "<userHome>.mainframemate/plugins" liegen (wo auch die Settings sind). In Gradle reicht es aus diesen Task zu starten:
+(Linux wird aktuell nicht unterstützt - wurde nicht getestet)
 
-```plugins > excelimport > Tasks > build > build```
+---
 
-Das JAR wird dann automatisch in das richtige Verzeichnis kopiert. Für andere Plugins verfährt man ähnlich.
+## Third-party components used in this project:
+
+- llama.cpp (MIT License)
+  https://github.com/ggerganov/llama.cpp
+  See: /llama/LICENSE-LLAMACPP.txt
