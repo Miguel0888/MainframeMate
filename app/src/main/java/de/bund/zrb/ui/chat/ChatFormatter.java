@@ -114,14 +114,12 @@ public class ChatFormatter {
         JLabel titleLabel = new JLabel(role.label);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
         titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        onDelete.ifPresent((action) -> {
-            addDeleteButton(wrapper, header, action);
-        });
-
         header.add(titleLabel);
         header.setName("header"); // Set the name for later retrieval if needed
         header.add(Box.createHorizontalGlue());
+        onDelete.ifPresent((action) -> {
+            addDeleteButton(wrapper, header, action);
+        });
 
         wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
