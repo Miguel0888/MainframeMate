@@ -130,8 +130,8 @@ public class TabbedPaneManager {
     /**
      * Öffnet einen neuen FileTab, der eine neue Datei anlegt. Der Inhalt wird bis zum Speichern nur im Editor gehalten.
      */
-    public void openFileTab(String content) {
-        FileTab fileTab = new FileTab(this, content);
+    public void openFileTab(String content, String sentenceType) {
+        FileTab fileTab = new FileTab(this, content, sentenceType);
         addTab(fileTab); // handled everything
     }
 

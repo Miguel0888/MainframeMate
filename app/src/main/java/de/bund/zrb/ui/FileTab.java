@@ -5,8 +5,12 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.helper.SettingsHelper;
+import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.TabType;
+import de.zrb.bund.newApi.sentence.SentenceDefinition;
+import de.zrb.bund.newApi.sentence.SentenceField;
+import de.zrb.bund.newApi.sentence.SentenceMeta;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -15,6 +19,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,9 +47,11 @@ public class FileTab implements FtpTab, TabAdapter {
 
     //ToDo: Mit Hashing kombinieren
     private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
+    private String currentSentenceType = null; // Aktuelle Satzart, falls bekannt
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, String content) {
-        this(tabbedPaneManager, null, null);
+    public FileTab(TabbedPaneManager tabbedPaneManager, String content, String sentenceType) {
+        this(tabbedPaneManager, (FtpManager) null, (FtpFileBuffer) null);
+        this.currentSentenceType = sentenceType; // Aktuelle Satzart speichern
         if(content != null) {
             textArea.setText(content);
         }
@@ -225,22 +232,32 @@ public class FileTab implements FtpTab, TabAdapter {
         leftPanel.add(undoButton);
         leftPanel.add(redoButton);
 
-        // Rechts: Encoding-Auswahl
+        // Rechts: Satzart-Auswahl
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-//        JLabel encodingLabel = new JLabel("Encoding:");
-//        JComboBox<String> encodingBox = new JComboBox<>(
-//                SettingsManager.SUPPORTED_ENCODINGS.toArray(new String[0])
-//        );
-//        encodingBox.setSelectedItem(SettingsManager.load().encoding);
-//        encodingBox.addActionListener(e -> {
-//            String selected = (String) encodingBox.getSelectedItem();
-//            if (selected != null) {
-//                ftpManager.setCharset(Charset.forName(selected));
-//            }
-//            textArea.setText();
-//        });
-//        rightPanel.add(encodingLabel);
-//        rightPanel.add(encodingBox);
+        JLabel sentenceLabel = new JLabel("Satzart:");
+
+        JComboBox<String> sentenceBox = new JComboBox<>();
+        // Erst den leeren Eintrag hinzufügen
+        sentenceBox.addItem(""); // entspricht "Keine Auswahl"
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        registry.getSentenceTypeSpec().getDefinitions()
+                .keySet().stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .forEach(sentenceBox::addItem);
+
+        // Optional: aktuelle Satzart setzen (wenn bekannt)
+        sentenceBox.setSelectedItem(getCurrentSentenceTypeGuess(textArea.getText()));
+
+        sentenceBox.addActionListener(e -> {
+            String selected = (String) sentenceBox.getSelectedItem();
+            if (selected != null && !selected.trim().isEmpty()) {
+                setContent(textArea.getText(), selected);
+            }
+        });
+
+        rightPanel.add(sentenceLabel);
+        rightPanel.add(sentenceBox);
+
 
         // Listener registrieren, um Buttons aktuell zu halten
         textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
@@ -248,6 +265,64 @@ public class FileTab implements FtpTab, TabAdapter {
         statusBar.add(leftPanel, BorderLayout.WEST);
         statusBar.add(rightPanel, BorderLayout.EAST);
         return statusBar;
+    }
+
+    /**
+     * Versucht, die aktuelle Satzart anhand des Remote-Pfads (falls vorhanden) zu erraten.
+     * Zuerst wird gegen die bekannten Pfade (`paths`) geprüft, dann gegen das Pfad-Pattern (`pathPattern`).
+     * Erst wenn nichts passt, wird der Inhalt als Fallback herangezogen.
+     *
+     * @param content Der aktuelle Dateiinhalt (nur sekundär genutzt).
+     * @return Der Name der vermuteten Satzart oder null, wenn keine passende gefunden wurde.
+     */
+    private String getCurrentSentenceTypeGuess(String content) {
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+
+        String filePath = getPath();     // z. B. /zrb/data/abc/SA300.DAT
+        String fullPath = getFullPath(); // z. B. ftp://server/zrb/data/abc/SA300.DAT
+
+        if (filePath == null && (fullPath == null || fullPath.isEmpty())) {
+            return null; // Kein Pfad vorhanden, keine sinnvolle Prüfung möglich
+        }
+
+        for (Map.Entry<String, SentenceDefinition> entry : registry.getSentenceTypeSpec().getDefinitions().entrySet()) {
+            String name = entry.getKey();
+            SentenceDefinition def = entry.getValue();
+            SentenceMeta meta = def.getMeta();
+            if (meta == null) continue;
+
+            List<String> paths = meta.getPaths();
+            String pattern = meta.getPathPattern();
+
+            // 1. Prüfe feste Pfade (case-insensitive enthält)
+            if (paths != null && !paths.isEmpty()) {
+                for (String path : paths) {
+                    if (path != null && !path.trim().isEmpty()) {
+                        String normalized = path.trim().toLowerCase();
+                        if ((filePath != null && filePath.toLowerCase().contains(normalized)) ||
+                                (fullPath != null && fullPath.toLowerCase().contains(normalized))) {
+                            return name;
+                        }
+                    }
+                }
+            }
+
+            // 2. Prüfe Regex-Pattern
+            if (pattern != null && !pattern.trim().isEmpty()) {
+                try {
+                    if ((filePath != null && filePath.matches(pattern)) ||
+                            (fullPath != null && fullPath.matches(pattern))) {
+                        return name;
+                    }
+                } catch (Exception e) {
+                    // Logge fehlerhafte Patterns (nicht abbrechen)
+                    System.err.println("⚠️ Ungültiges Pfad-Pattern bei Satzart '" + name + "': " + pattern);
+                }
+            }
+        }
+
+        // 3. Fallback: kein Match anhand des Pfads – evtl. später: heuristische Content-Prüfung
+        return null;
     }
 
     private void updateUndoRedoState() {
@@ -261,9 +336,6 @@ public class FileTab implements FtpTab, TabAdapter {
         }
     }
 
-
-
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Plugin-Management
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -275,11 +347,6 @@ public class FileTab implements FtpTab, TabAdapter {
         updateUndoRedoState();
     }
 
-    public void setContent(String text, List<Map<String, Object>> feldDefinitionen, int zeilenSchema) {
-        setContent(text); // Basismethode aufrufen
-        highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
-    }
-
     @Deprecated // seitdem der editor selbst entscheidet, wie er inhalte highlightet, use setContent(String text, String sentenceType) instead
     public void setStructuredContent(String text, List<Map<String, Object>> feldDefinitionen, int zeilenSchema) {
         setContent(text); // Inhalt setzen (inkl. Undo)
@@ -287,10 +354,39 @@ public class FileTab implements FtpTab, TabAdapter {
     }
 
     public void setContent(String text, String sentenceType) {
+        this.currentSentenceType = sentenceType; // Aktuelle Satzart speichern
         setContent(text); // Inhalt setzen (inkl. Undo)
 
-        // ToDo: Implement Highlighting based on sentenceType, override highlightStructuredContent
-        //highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
+        if (sentenceType == null || sentenceType.trim().isEmpty()) return;
+
+        // Satzart-Schema laden (case-insensitive Key-Suche)
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        Map<String, SentenceDefinition> definitions = registry.getSentenceTypeSpec().getDefinitions();
+
+        SentenceDefinition def = definitions.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(sentenceType))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(null);
+
+        if (def == null || def.getFields() == null || def.getMeta() == null) return;
+
+        // Felder vorbereiten für Highlighting
+        List<Map<String, Object>> feldDefinitionen = new ArrayList<>();
+        for (SentenceField f : def.getFields()) {
+            Map<String, Object> feldMap = new java.util.HashMap<>();
+            feldMap.put("name", f.getName());
+            feldMap.put("pos", f.getPosition());
+            feldMap.put("len", f.getLength());
+            feldMap.put("row", f.getRow());
+            feldMap.put("pattern", f.getValuePattern()); // valuePattern // ToDo: validate value
+            feldMap.put("color", f.getColor());
+            feldDefinitionen.add(feldMap);
+        }
+
+        int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
+
+        highlightStructuredContent(text, feldDefinitionen, schemaLines);
     }
 
     public void resetUndoHistory() {
@@ -306,9 +402,25 @@ public class FileTab implements FtpTab, TabAdapter {
         }
     }
 
+    /**
+     * Liefert den Pfad des Remote-Objekts, falls vorhanden.
+     * Andernfalls wird null zurückgegeben.
+     *
+     * @return Der Pfad des Remote-Objekts oder null.
+     */
     @Override
     public String getPath() {
         return (buffer != null) ? buffer.getRemotePath() : null;
+    }
+
+    /**
+     * Liefert den vollständigen Pfad des Remote-Objekts inclusive Dateinamen.
+     * Andernfalls wird ein leerer String zurückgegeben.
+     *
+     * @return Der vollständige Pfad oder ein leerer String.
+     */
+    public String getFullPath() {
+        return buffer != null ? buffer.getLink() : "";
     }
 
     @Override

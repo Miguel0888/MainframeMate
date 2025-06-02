@@ -5,6 +5,7 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.PluginManager;
+import de.bund.zrb.runtime.SentenceTypeRegistryImpl;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.service.LlamaCppChatManager;
 import de.bund.zrb.service.LocalAiChatManager;
@@ -281,8 +282,8 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     @Override
-    public void openFileTab(String content) {
-        getTabManager().openFileTab(content);
+    public void openFileTab(String content, String sentenceType) {
+        getTabManager().openFileTab(content, sentenceType);
     }
 
     @Override
@@ -383,5 +384,10 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public ToolRegistry getToolRegistry() {
         return toolregistry;
+    }
+
+    @Override
+    public SentenceTypeRegistry getSentenceTypeRegistry() {
+        return SentenceTypeRegistryImpl.getInstance();
     }
 }

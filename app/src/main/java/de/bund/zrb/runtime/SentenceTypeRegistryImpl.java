@@ -1,33 +1,37 @@
 package de.bund.zrb.runtime;
 
 import de.bund.zrb.helper.SentenceTypeSettingsHelper;
+import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
 
-public class SentenceTypeRegistry {
+public class SentenceTypeRegistryImpl implements SentenceTypeRegistry {
 
-    private static SentenceTypeRegistry instance;
+    private static SentenceTypeRegistryImpl instance;
 
     private SentenceTypeSpec loadedSpec;
 
-    private SentenceTypeRegistry() {
+    private SentenceTypeRegistryImpl() {
         loadedSpec = SentenceTypeSettingsHelper.loadSentenceTypes();
     }
 
-    public static synchronized SentenceTypeRegistry getInstance() {
+    public static synchronized SentenceTypeRegistryImpl getInstance() {
         if (instance == null) {
-            instance = new SentenceTypeRegistry();
+            instance = new SentenceTypeRegistryImpl();
         }
         return instance;
     }
 
+    @Override
     public SentenceTypeSpec getSentenceTypeSpec() {
         return loadedSpec;
     }
 
+    @Override
     public void reload() {
         loadedSpec = SentenceTypeSettingsHelper.loadSentenceTypes();
     }
 
+    @Override
     public void save() {
         SentenceTypeSettingsHelper.saveSentenceTypes(loadedSpec);
     }

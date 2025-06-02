@@ -128,7 +128,7 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
                 formatted = existing + separator + formatted;
             }
 
-            insertTextIntoEditor(formatted, felder);
+            insertTextIntoEditor(formatted, felder, satzartName);
 
             Map<String, String> settings = getPluginSettings();
             boolean showConfirmation = Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"));
@@ -356,17 +356,18 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return new String(chars);
     }
 
-    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen) {
+    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen, String sentenceType) {
         Optional<TabAdapter> optionalTab = context.getSelectedTab();
 
-        TabAdapter fileTab = optionalTab.orElseGet(() -> createNewFileTab(null));
+        String content = null;
+        TabAdapter fileTab = optionalTab.orElseGet(() -> createNewFileTab(content, sentenceType)); // ToDo: Set content here
 
-        fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen));
-        fileTab.markAsChanged();
+        fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen)); // ToDo: Remove
+        fileTab.markAsChanged(); // ToDo: Remove
     }
 
-    private TabAdapter createNewFileTab(String content) {
-        context.openFileTab(content);
+    private TabAdapter createNewFileTab(String content, String sentenceType) {
+        context.openFileTab(content, sentenceType);
         TabAdapter tabAdapter = context.getSelectedTab()
                 .orElseThrow(() -> new IllegalStateException("Datei-Tab konnte nicht erzeugt werden"));
         return tabAdapter;

@@ -14,7 +14,7 @@ public interface MainframeContext {
     void savePluginSettings(String pluginKey, Map<String, String> settings);
 
     Optional<TabAdapter> getSelectedTab();
-    void openFileTab(String content);
+    void openFileTab(String content, String sentenceType);
 
     JFrame getMainFrame();
 
@@ -29,6 +29,8 @@ public interface MainframeContext {
     void refresh();
 
     ToolRegistry getToolRegistry();
+
+    SentenceTypeRegistry getSentenceTypeRegistry();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
