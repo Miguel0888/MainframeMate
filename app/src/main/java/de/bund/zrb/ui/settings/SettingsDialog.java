@@ -4,6 +4,7 @@ import de.bund.zrb.ftp.*;
 import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ComboBoxHelper;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.util.ExecutableLauncher;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -11,7 +12,12 @@ import javax.swing.table.TableCellEditor;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.List;
 
@@ -418,6 +424,49 @@ public class SettingsDialog {
         llamaBinaryField = new JTextField(settings.aiConfig.getOrDefault("llama.binary", "C:/llamacpp/llama-server"), 30);
         llamaCppServerPanel.add(llamaBinaryField, gbcLlama);
         gbcLlama.gridy++;
+
+        JButton extractDriverButton = new JButton("🔄 Entpacken, falls fehlt");
+        llamaCppServerPanel.add(extractDriverButton, gbcLlama);
+        gbcLlama.gridy++;
+
+        extractDriverButton.addActionListener(e -> {
+            String path = llamaBinaryField.getText().trim();
+            if (path.isEmpty()) {
+                JOptionPane.showMessageDialog(aiContent, "Bitte gib den Zielpfad an.", "Pfad fehlt", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Vorschlagswert für den Hash (aus Launcher-Klasse oder config)
+            final String defaultHash = ExecutableLauncher.getHash();
+
+            String inputHash = (String) JOptionPane.showInputDialog(
+                    aiContent,
+                    "Gib den erwarteten SHA-256-Hash der Binary an:",
+                    "Hashprüfung vor Entpacken",
+                    JOptionPane.PLAIN_MESSAGE,
+                    null,
+                    null,
+                    defaultHash
+            );
+
+            if (inputHash == null || inputHash.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(aiContent, "Hashprüfung abgebrochen – keine Datei entpackt.", "Abbruch", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            File target = new File(path);
+            ExecutableLauncher launcher = new ExecutableLauncher();
+            try {
+                launcher.extractTo(target, inputHash.trim());
+                JOptionPane.showMessageDialog(aiContent, "Binary wurde erfolgreich extrahiert und verifiziert:\n" + path, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+            } catch (SecurityException se) {
+                JOptionPane.showMessageDialog(aiContent, "Hash stimmt nicht:\n" + se.getMessage(), "Sicherheitswarnung", JOptionPane.ERROR_MESSAGE);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(aiContent, "Fehler beim Extrahieren:\n" + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+
 
         llamaCppServerPanel.add(new JLabel("Modellpfad (.gguf):"), gbcLlama);
         gbcLlama.gridy++;
