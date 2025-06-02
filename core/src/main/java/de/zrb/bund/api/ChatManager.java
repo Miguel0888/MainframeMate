@@ -32,7 +32,7 @@ public interface ChatManager {
      * @param sessionId eindeutige Sitzungs-ID
      * @return Liste aller bisherigen Nachrichten (inkl. Rolleninfo)
      */
-    List<String> getHistory(UUID sessionId);
+    List<String> getFormattedHistory(UUID sessionId);
 
     /**
      * Löscht die Historie einer bestimmten Sitzung.
@@ -40,6 +40,8 @@ public interface ChatManager {
      * @param sessionId eindeutige Sitzungs-ID
      */
     void clearHistory(UUID sessionId);
+
+    ChatHistory getHistory(UUID sessionId);
 
     void addUserMessage(UUID sessionId, String message);
     void addBotMessage(UUID sessionId, String message);

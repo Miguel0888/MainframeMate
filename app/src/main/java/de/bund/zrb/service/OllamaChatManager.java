@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.helper.SettingsHelper;
+import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
@@ -62,9 +63,14 @@ public class OllamaChatManager implements ChatManager {
     }
 
     @Override
-    public List<String> getHistory(UUID sessionId) {
+    public List<String> getFormattedHistory(UUID sessionId) {
         ChatHistory history = sessionHistories.get(sessionId);
         return history != null ? history.getFormattedHistory() : Collections.emptyList();
+    }
+
+    @Override
+    public ChatHistory getHistory(UUID sessionId) {
+        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
     }
 
     @Override
@@ -113,7 +119,6 @@ public class OllamaChatManager implements ChatManager {
         listener.onStreamStart();
 
         call.enqueue(new Callback() {
-            final StringBuilder currentBotResponse = new StringBuilder();
 
             @Override
             public void onFailure(Call call, IOException e) {
@@ -134,14 +139,8 @@ public class OllamaChatManager implements ChatManager {
                     while ((line = reader.readLine()) != null) {
                         String chunk = extractResponse(line);
                         if (chunk != null && !chunk.isEmpty()) {
-                            currentBotResponse.append(chunk);
                             listener.onStreamChunk(chunk);
                         }
-                    }
-
-                    if (history != null) {
-                        history.addUserMessage(userInput);
-                        history.addBotMessage(currentBotResponse.toString());
                     }
 
                     listener.onStreamEnd();
@@ -179,7 +178,6 @@ public class OllamaChatManager implements ChatManager {
         // Remove associated chat history
         sessionHistories.remove(sessionId);
     }
-
 
     private String buildPrompt(ChatHistory history, String userInput) {
         StringBuilder prompt = new StringBuilder();

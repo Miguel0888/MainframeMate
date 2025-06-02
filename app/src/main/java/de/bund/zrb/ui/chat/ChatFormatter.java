@@ -1,10 +1,16 @@
 package de.bund.zrb.ui.chat;
 
+import de.bund.zrb.ui.util.SwingComponentFinder;
+import org.jetbrains.annotations.NotNull;
+
 import javax.swing.*;
 import javax.swing.text.View;
 import java.awt.*;
+import java.util.Optional;
 
 public class ChatFormatter {
+
+    private JPanel currentBotWrapper;
 
     public enum Role {
         USER("👤 Du:", "#e6f0ff"),
@@ -23,7 +29,7 @@ public class ChatFormatter {
 
     private final JPanel messageContainer;
     private final StringBuilder buffer = new StringBuilder();
-    private JTextPane currentBotPane;
+    private JTextPane currentBotContent;
 
     public ChatFormatter(JPanel messageContainer) {
         this.messageContainer = messageContainer;
@@ -44,12 +50,12 @@ public class ChatFormatter {
         });
     }
 
-    public void appendUserMessage(String text) {
+    public void appendUserMessage(String text, @NotNull Runnable onDelete) {
         JTextPane pane = createConfiguredTextPane();
         pane.setText(formatHtml(escapeHtml(text).replace("\n", "<br/>")));
         applyDynamicSizing(pane);
 
-        JPanel panel = createMessagePanel(Role.USER, pane);
+        JPanel panel = createMessagePanel(Role.USER, pane, Optional.ofNullable(onDelete));
         messageContainer.add(panel);
         messageContainer.add(Box.createVerticalStrut(6));
         scrollToBottom();
@@ -57,10 +63,10 @@ public class ChatFormatter {
 
     public void startBotMessage() {
         buffer.setLength(0);
-        currentBotPane = createConfiguredTextPane();
+        currentBotContent = createConfiguredTextPane();
 
-        JPanel panel = createMessagePanel(Role.BOT, currentBotPane);
-        messageContainer.add(panel);
+        currentBotWrapper = createMessagePanel(Role.BOT, currentBotContent, Optional.empty());
+        messageContainer.add(currentBotWrapper);
         messageContainer.add(Box.createVerticalStrut(6));
         scrollToBottom();
     }
@@ -68,18 +74,26 @@ public class ChatFormatter {
     public void appendBotMessageChunk(String chunk) {
         buffer.append(chunk);
         SwingUtilities.invokeLater(() -> {
-            currentBotPane.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
-            applyDynamicSizing(currentBotPane);
+            currentBotContent.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+            applyDynamicSizing(currentBotContent);
             scrollToBottom();
         });
     }
 
-    public void endBotMessage() {
-        currentBotPane = null;
+    public void endBotMessage(@NotNull Runnable runnable) {
+        Component header = SwingComponentFinder.findByName(currentBotWrapper, "header");
+        if (header instanceof JPanel) {
+            JPanel headerPanel = (JPanel) header;
+            // Delete-Button hinzufügen
+            addDeleteButton(currentBotWrapper, headerPanel, runnable);
+        }
+        currentBotContent = null;
+        currentBotWrapper = null;
     }
 
     private JTextPane createConfiguredTextPane() {
         JTextPane pane = new JTextPane();
+        pane.setName("contentPane");
         allTextPanes.add(pane);
         pane.setContentType("text/html");
         pane.setEditable(false);
@@ -89,26 +103,63 @@ public class ChatFormatter {
         return pane;
     }
 
-    private JPanel createMessagePanel(Role role, JTextPane textPane) {
-        JPanel wrapper = new JPanel();
-        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
-        wrapper.setBackground(Color.decode(role.bgColor));
-        wrapper.setBorder(BorderFactory.createCompoundBorder(
-                role == Role.BOT
-                        ? BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(0x66AA66)) // Grüner Balken links
-                        : BorderFactory.createEmptyBorder(),
-                BorderFactory.createEmptyBorder(6, 8, 6, 8)
-        ));
-        wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private JPanel createMessagePanel(Role role, JTextPane textPane, Optional<Runnable> onDelete) {
+        JPanel wrapper = createMessagePanelWrapper(role);
+
+        // Titel + Lösch-Button
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setOpaque(false);
 
         JLabel titleLabel = new JLabel(role.label);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
         titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        wrapper.add(titleLabel);
+        onDelete.ifPresent((action) -> {
+            addDeleteButton(wrapper, header, action);
+        });
+
+        header.add(titleLabel);
+        header.setName("header"); // Set the name for later retrieval if needed
+        header.add(Box.createHorizontalGlue());
+
+        wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
         wrapper.add(textPane);
 
+        return wrapper;
+    }
+
+    private void addDeleteButton(JPanel wrapper, JPanel header, Runnable onDelete) {
+        JButton deleteButton = new JButton("🗑");
+        deleteButton.setName("deleteButton");
+        deleteButton.setToolTipText("Nachricht löschen");
+        deleteButton.setPreferredSize(new Dimension(32, 32));
+        deleteButton.setFont(deleteButton.getFont().deriveFont(Font.BOLD, 24f));
+        deleteButton.setMargin(new Insets(0, 4, 0, 4));
+        deleteButton.setFocusable(false);
+        deleteButton.setContentAreaFilled(false);
+        deleteButton.setBorder(BorderFactory.createEmptyBorder());
+        deleteButton.addActionListener(e -> {
+            onDelete.run(); // Entfernt aus History und GUI
+            messageContainer.remove(wrapper);
+            messageContainer.revalidate();
+            messageContainer.repaint();
+        });
+        header.add(deleteButton);
+    }
+
+    private @NotNull JPanel createMessagePanelWrapper(Role role) {
+        JPanel wrapper = new JPanel();
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.Y_AXIS));
+        wrapper.setBackground(Color.decode(role.bgColor));
+        wrapper.setBorder(BorderFactory.createCompoundBorder(
+                role == Role.BOT
+                        ? BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(0x66AA66))
+                        : BorderFactory.createEmptyBorder(),
+                BorderFactory.createEmptyBorder(6, 8, 6, 8)
+        ));
+        wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
         return wrapper;
     }
 

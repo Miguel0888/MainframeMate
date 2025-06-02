@@ -1,14 +1,16 @@
 package de.bund.zrb.service;
 
+import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class LocalAiChatManager implements ChatManager {
+
+    private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
 
     @Override
     public UUID newSession() {
@@ -22,7 +24,12 @@ public class LocalAiChatManager implements ChatManager {
     }
 
     @Override
-    public List<String> getHistory(UUID sessionId) {
+    public ChatHistory getHistory(UUID sessionId) {
+        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
+    }
+
+    @Override
+    public List<String> getFormattedHistory(UUID sessionId) {
         return Collections.emptyList();
     }
 
@@ -30,6 +37,8 @@ public class LocalAiChatManager implements ChatManager {
     public void clearHistory(UUID sessionId) {
 
     }
+
+
 
     @Override
     public void addUserMessage(UUID sessionId, String message) {

@@ -1,4 +1,4 @@
-package de.bund.zrb.service;
+package de.zrb.bund.api;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -15,12 +15,16 @@ public class ChatHistory {
         this.sessionId = sessionId;
     }
 
-    public void addUserMessage(String content) {
-        messages.add(new Message(sessionId, new Timestamp(System.currentTimeMillis()), "user", content));
+    public Timestamp addUserMessage(String content) {
+        Message msg = new Message(sessionId, "user", content);
+        messages.add(msg);
+        return msg.timestamp;
     }
 
-    public void addBotMessage(String content) {
-        messages.add(new Message(sessionId, new Timestamp(System.currentTimeMillis()), "assistant", content));
+    public Timestamp addBotMessage(String content) {
+        Message msg = new Message(sessionId,"assistant", content);
+        messages.add(msg);
+        return msg.timestamp;
     }
 
     public List<Message> getMessages() {
@@ -48,15 +52,18 @@ public class ChatHistory {
         return messages.isEmpty();
     }
 
+    public void remove(Timestamp timestamp) {
+        messages.removeIf(msg -> msg.timestamp.equals(timestamp));
+    }
+
     public static class Message {
+        public Timestamp timestamp = new Timestamp(System.currentTimeMillis());
         public final UUID sessionId;
-        public final Timestamp timestamp;
         public final String role;   // "user" oder "assistant"
         public final String content;
 
-        public Message(UUID sessionId, Timestamp timestamp, String role, String content) {
+        public Message(UUID sessionId, String role, String content) {
             this.sessionId = sessionId;
-            this.timestamp = timestamp;
             this.role = role;
             this.content = content;
         }

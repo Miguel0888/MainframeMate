@@ -4,6 +4,7 @@ import com.google.gson.*;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.helper.SettingsHelper;
+import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import okhttp3.*;
@@ -92,7 +93,12 @@ public class LlamaCppChatManager implements ChatManager {
     }
 
     @Override
-    public List<String> getHistory(UUID sessionId) {
+    public ChatHistory getHistory(UUID sessionId) {
+        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
+    }
+
+    @Override
+    public List<String> getFormattedHistory(UUID sessionId) {
         return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId)).getFormattedHistory();
     }
 
@@ -141,7 +147,6 @@ public class LlamaCppChatManager implements ChatManager {
         listener.onStreamStart();
 
         call.enqueue(new Callback() {
-            final StringBuilder botResponse = new StringBuilder();
 
             @Override
             public void onFailure(Call call, IOException e) {
@@ -166,7 +171,6 @@ public class LlamaCppChatManager implements ChatManager {
                             try {
                                 LlamaStreamResponseChunk chunk = gson.fromJson(line, LlamaStreamResponseChunk.class);
                                 if (chunk != null && chunk.content != null) {
-                                    botResponse.append(chunk.content);
                                     listener.onStreamChunk(chunk.content);
                                 }
                             } catch (JsonSyntaxException e) {
@@ -177,14 +181,8 @@ public class LlamaCppChatManager implements ChatManager {
                     } else {
                         LlamaNonStreamResponse result = gson.fromJson(reader, LlamaNonStreamResponse.class);
                         if (result != null && result.content != null) {
-                            botResponse.append(result.content);
                             listener.onStreamChunk(result.content);
                         }
-                    }
-
-                    if (history != null) {
-                        history.addUserMessage(userInput);
-                        history.addBotMessage(botResponse.toString());
                     }
 
                     listener.onStreamEnd();

@@ -4,16 +4,35 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.ui.chat.ChatFormatter;
+import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.newApi.mcp.McpTool;
 
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Insets;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
+import java.sql.Timestamp;
 import java.util.UUID;
+import java.util.List;
 
 public class ChatSession extends JPanel {
 
@@ -135,26 +154,36 @@ public class ChatSession extends JPanel {
         String finalMessage = message;
         new Thread(() -> {
             try {
+                final StringBuilder currentBotResponse = new StringBuilder();
                 boolean success = chatManager.streamAnswer(sessionId, contextMemoryCheckbox.isSelected(), finalMessage, new ChatStreamListener() {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
-                            formatter.appendUserMessage(finalMessage);
+                            Timestamp usrId = chatManager.getHistory(sessionId).addUserMessage(finalMessage);
+                            formatter.appendUserMessage(finalMessage, () -> {
+                                chatManager.getHistory(sessionId).remove(usrId);
+                            });
                             inputArea.setText("");
-                            startBotMessage();
+                            formatter.startBotMessage();
+                            setStatus("🤖 Bot schreibt...");
                             cancelButton.setVisible(true);
                         });
                     }
 
                     @Override
                     public void onStreamChunk(String chunk) {
+                        currentBotResponse.append(chunk);
                         SwingUtilities.invokeLater(() -> formatter.appendBotMessageChunk(chunk));
                     }
 
                     @Override
                     public void onStreamEnd() {
                         SwingUtilities.invokeLater(() -> {
-                            formatter.endBotMessage();
+
+                            Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(currentBotResponse.toString());
+                            formatter.endBotMessage(() -> {
+                                chatManager.getHistory(sessionId).remove(botId);
+                            });
                             awaitingBotResponse = false;
                             cancelButton.setVisible(false);
                             setStatus(" ");
@@ -206,11 +235,6 @@ public class ChatSession extends JPanel {
 
         return String.format("%s\n%s\n%s\n\n%s",
                 prefix, toolJson, postfix, userInput);
-    }
-
-    private void startBotMessage() {
-        formatter.startBotMessage();
-        setStatus("🤖 Bot schreibt...");
     }
 
     private void setStatus(String status) {
