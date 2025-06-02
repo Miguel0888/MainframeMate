@@ -109,6 +109,7 @@ public class ChatFormatter {
         // Titel + Lösch-Button
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
         header.setOpaque(false);
 
         JLabel titleLabel = new JLabel(role.label);
@@ -123,6 +124,7 @@ public class ChatFormatter {
 
         wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
+        textPane.setAlignmentX(Component.LEFT_ALIGNMENT);
         wrapper.add(textPane);
 
         return wrapper;
