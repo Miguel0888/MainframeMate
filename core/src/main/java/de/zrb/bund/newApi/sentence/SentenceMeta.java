@@ -1,17 +1,20 @@
 package de.zrb.bund.newApi.sentence;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class SentenceMeta {
 
-    private String path;
-    private boolean append;
-    private String pathPattern; // für regulären Ausdruck
+    private List<String> paths = new ArrayList<>();          // Konkrete Pfade (optional)
+    private String pathPattern;          // Regex-Muster (optional)
+    private boolean append;             // Ob an bestehende Sätze angehängt werden soll
 
-    public String getPath() {
-        return path;
+    public List<String> getPaths() {
+        return paths;
     }
 
-    public void setPath(String path) {
-        this.path = path;
+    public void setPaths(List<String> path) {
+        this.paths = path == null ? new ArrayList<>() : path;
     }
 
     public boolean isAppend() {

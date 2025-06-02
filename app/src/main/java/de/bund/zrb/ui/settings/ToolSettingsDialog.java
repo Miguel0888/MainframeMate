@@ -35,7 +35,7 @@ public class ToolSettingsDialog {
             }
         });
 
-        JButton editButton = new JButton("✏️ Bearbeiten");
+        JButton editButton = new JButton("✏ Bearbeiten");
         editButton.addActionListener(e -> {
             int selected = table.getSelectedRow();
             if (selected >= 0) {
@@ -53,7 +53,7 @@ public class ToolSettingsDialog {
             }
         });
 
-        JButton removeButton = new JButton("🗑️ Entfernen");
+        JButton removeButton = new JButton("❌ Entfernen");
         removeButton.addActionListener(e -> {
             int selected = table.getSelectedRow();
             if (selected >= 0) {

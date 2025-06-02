@@ -4,9 +4,17 @@ import de.bund.zrb.helper.SentenceTypeSettingsHelper;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
 
-import javax.swing.*;
+import javax.swing.JButton;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
 import javax.swing.table.AbstractTableModel;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.util.List;
 import java.util.Map;
 
 public class SentenceTypeSettingsDialog {
@@ -21,37 +29,63 @@ public class SentenceTypeSettingsDialog {
         JTable table = new JTable(tableModel);
         table.setFillsViewportHeight(true);
         table.setPreferredScrollableViewportSize(new Dimension(600, 300));
+        table.getTableHeader().setToolTipText("Pfade: durch Semikolon getrennt. Pattern: regulärer Ausdruck.");
 
         JButton addButton = new JButton("➕ Satzart");
         addButton.addActionListener(e -> {
             SentenceTypeEditor editor = new SentenceTypeEditor();
+            editor.originalKey = ""; // wichtig beim Neuanlegen
+
             if (showEditorDialog(parent, editor, "Neue Satzart")) {
                 SentenceDefinition def = editor.getDefinition();
-                String key = editor.getKey();
-                if (def != null && key != null) {
-                    sentenceTypeSpec.getDefinitions().put(key, def);
+                String newKey = editor.getKey();
+
+                if (def != null && newKey != null && !newKey.isEmpty()) {
+                    boolean exists = sentenceTypeSpec.getDefinitions().keySet().stream()
+                            .anyMatch(existingKey -> existingKey.equalsIgnoreCase(newKey));
+
+                    if (exists) {
+                        JOptionPane.showMessageDialog(parent,
+                                "Eine Satzart mit dem Namen \"" + newKey + "\" existiert bereits (Groß-/Kleinschreibung ignoriert).",
+                                "Fehler beim Speichern", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    sentenceTypeSpec.getDefinitions().put(newKey, def);
                     tableModel.fireTableDataChanged();
                     SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
                 }
             }
         });
 
-        JButton editButton = new JButton("✏️ Bearbeiten");
+        JButton editButton = new JButton("✏ Bearbeiten");
         editButton.addActionListener(e -> {
             int selected = table.getSelectedRow();
             if (selected >= 0) {
                 String key = (String) tableModel.getValueAt(selected, 0);
                 SentenceTypeEditor editor = new SentenceTypeEditor();
                 editor.setData(key, sentenceTypeSpec.getDefinitions().get(key));
+                editor.originalKey = key; // Originalschlüssel merken
+
                 if (showEditorDialog(parent, editor, "Satzart bearbeiten")) {
-                    sentenceTypeSpec.getDefinitions().put(editor.getKey(), editor.getDefinition());
-                    tableModel.fireTableDataChanged();
-                    SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
+                    String newKey = editor.getKey();
+                    SentenceDefinition def = editor.getDefinition();
+
+                    if (def != null && newKey != null && !newKey.isEmpty()) {
+                        // Falls umbenannt, alten Key entfernen
+                        if (!newKey.equals(editor.originalKey)) {
+                            sentenceTypeSpec.getDefinitions().remove(editor.originalKey);
+                        }
+
+                        sentenceTypeSpec.getDefinitions().put(newKey, def);
+                        tableModel.fireTableDataChanged();
+                        SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
+                    }
                 }
             }
         });
 
-        JButton removeButton = new JButton("🗑️ Entfernen");
+        JButton removeButton = new JButton("❌ Entfernen");
         removeButton.addActionListener(e -> {
             int selected = table.getSelectedRow();
             if (selected >= 0) {
@@ -92,7 +126,7 @@ public class SentenceTypeSettingsDialog {
     }
 
     private static class SentenceTableModel extends AbstractTableModel {
-        private final String[] columns = {"Satzart", "Pfad", "Anzahl Felder"};
+        private final String[] columns = {"Satzart", "Pfade", "Pattern", "Feldzahl"};
 
         @Override
         public int getRowCount() {
@@ -123,8 +157,19 @@ public class SentenceTypeSettingsDialog {
                 if (index == row) {
                     switch (column) {
                         case 0: return entry.getKey();
-                        case 1: return entry.getValue().getMeta() != null ? entry.getValue().getMeta().getPath() : "";
-                        case 2: return entry.getValue().getFields() != null ? entry.getValue().getFields().size() : 0;
+                        case 1:
+                            List<String> paths = entry.getValue().getMeta() != null
+                                    ? entry.getValue().getMeta().getPaths()
+                                    : null;
+                            return paths != null ? String.join(";", paths) : "";
+                        case 2:
+                            return entry.getValue().getMeta() != null
+                                    ? entry.getValue().getMeta().getPathPattern()
+                                    : "";
+                        case 3:
+                            return entry.getValue().getFields() != null
+                                    ? entry.getValue().getFields().size()
+                                    : 0;
                         default: return "";
                     }
                 }
