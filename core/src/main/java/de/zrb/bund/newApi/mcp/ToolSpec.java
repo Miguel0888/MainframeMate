@@ -3,7 +3,6 @@ package de.zrb.bund.newApi.mcp;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +35,7 @@ public class ToolSpec {
     public Map<String, Object> getExampleInput() {
         return example_input;
     }
+
 
     /**
      * Serialisiert dieses ToolSpec-Objekt als kompaktes JSON – z. B. für die Weitergabe an das Modell.
@@ -70,6 +70,29 @@ public class ToolSpec {
             return required;
         }
     }
+
+    /**
+     * Serialisiert dieses ToolSpec-Objekt als JSON und umschließt es in Markdown-Codeblöcken.
+     * Dies ist nützlich für die Anzeige in Discord oder anderen Markdown-kompatiblen Umgebungen.
+     *
+     * @param wrap     true, um das JSON in ```json-Blöcke zu setzen, false für reines JSON
+     * @param beautify true, um das JSON schön formatiert auszugeben, false für kompaktes JSON
+     * @return das formatierte JSON
+     */
+    public String toWrappedJson(boolean wrap, boolean pretty) {
+        Gson gson = pretty
+                ? new GsonBuilder().setPrettyPrinting().create()
+                : new Gson();
+
+        String json = gson.toJson(this);
+
+        if (!wrap) {
+            return json;
+        }
+
+        return "```json\n" + json + "\n```";
+    }
+
 
     public static class Property {
         private final String type;

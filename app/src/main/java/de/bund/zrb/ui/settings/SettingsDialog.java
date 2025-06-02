@@ -48,6 +48,9 @@ public class SettingsDialog {
     private static JTextField ollamaUrlField;
     private static JTextField ollamaModelField;
     private static JTextField ollamaKeepAliveField;
+    private static JCheckBox wrapJsonBox;
+    private static JCheckBox prettyJsonBox;
+
 
     private static JComboBox<String> aiEditorFontCombo;
     private static JComboBox<String> aiEditorFontSizeCombo;
@@ -358,6 +361,17 @@ public class SettingsDialog {
         aiContent.add(aiEditorHeightSpinner, gbc);
         gbc.gridy++;
 
+        // JSON-Formatierungsoptionen
+        wrapJsonBox = new JCheckBox("JSON als Markdown-Codeblock einrahmen");
+        wrapJsonBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("wrapjson", "true")));
+        aiContent.add(wrapJsonBox, gbc);
+        gbc.gridy++;
+
+        prettyJsonBox = new JCheckBox("JSON schön formatieren (Pretty-Print)");
+        prettyJsonBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("prettyjson", "true")));
+        aiContent.add(prettyJsonBox, gbc);
+        gbc.gridy++;
+
         providerCombo = new JComboBox<>(AiProvider.values());
         aiContent.add(new JLabel("KI-Provider:"), gbc);
         gbc.gridy++;
@@ -594,6 +608,9 @@ public class SettingsDialog {
             settings.aiConfig.put("llama.context", llamaContextSpinner.getValue().toString());
             settings.aiConfig.put("llama.temp", llamaTempField.getText().trim());
             settings.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
+            settings.aiConfig.put("wrapjson", String.valueOf(wrapJsonBox.isSelected()));
+            settings.aiConfig.put("prettyjson", String.valueOf(prettyJsonBox.isSelected()));
+
 
             SettingsHelper.save(settings);
 

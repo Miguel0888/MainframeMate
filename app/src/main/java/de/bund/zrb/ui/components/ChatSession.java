@@ -257,9 +257,11 @@ public class ChatSession extends JPanel {
         Settings settings = SettingsHelper.load();
         String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
         String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
-        String toolJson = tool.getSpec().toJson();
+        boolean wrap = Boolean.parseBoolean(settings.aiConfig.getOrDefault("wrapjson", "true"));
+        boolean pretty = Boolean.parseBoolean(settings.aiConfig.getOrDefault("prettyjson", "true"));
+        String toolJson = tool.getSpec().toWrappedJson(wrap, pretty);
 
-        return String.format("%s\n%s\n%s\n\n%s",
+        return String.format("%s\n%s\n%s\n%s",
                 prefix, toolJson, postfix, userInput);
     }
 
