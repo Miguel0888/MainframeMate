@@ -6,7 +6,7 @@ public class SentenceField {
     private Integer position;
     private Integer length;
     private Integer row;
-    private String value;
+    private String valuePattern; // z. B. "[0-9]{8}" oder "[A-Z]{3}[0-9]{5}"
     private String color;
 
     public String getName() {
@@ -41,12 +41,12 @@ public class SentenceField {
         this.row = row;
     }
 
-    public String getValue() {
-        return value;
+    public String getValuePattern() {
+        return valuePattern;
     }
 
-    public void setValue(String value) {
-        this.value = value;
+    public void setValuePattern(String valuePattern) {
+        this.valuePattern = valuePattern;
     }
 
     public String getColor() {

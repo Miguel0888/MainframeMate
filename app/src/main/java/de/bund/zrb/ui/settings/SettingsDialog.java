@@ -1,4 +1,4 @@
-package de.bund.zrb.ui;
+package de.bund.zrb.ui.settings;
 
 import de.bund.zrb.ftp.*;
 import de.bund.zrb.model.*;

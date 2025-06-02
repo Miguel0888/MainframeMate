@@ -3,7 +3,8 @@ package de.zrb.bund.newApi.sentence;
 public class SentenceMeta {
 
     private String path;
-    private Boolean append;
+    private boolean append;
+    private String pathPattern; // für regulären Ausdruck
 
     public String getPath() {
         return path;
@@ -13,11 +14,19 @@ public class SentenceMeta {
         this.path = path;
     }
 
-    public Boolean getAppend() {
+    public boolean isAppend() {
         return append;
     }
 
-    public void setAppend(Boolean append) {
+    public void setAppend(boolean append) {
         this.append = append;
+    }
+
+    public String getPathPattern() {
+        return pathPattern;
+    }
+
+    public void setPathPattern(String pathPattern) {
+        this.pathPattern = pathPattern;
     }
 }

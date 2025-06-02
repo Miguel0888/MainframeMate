@@ -1,4 +1,4 @@
-package de.bund.zrb.ui;
+package de.bund.zrb.ui.settings;
 
 import de.bund.zrb.helper.ToolSettingsHelper;
 import de.bund.zrb.runtime.ToolRegistryImpl;
@@ -9,7 +9,7 @@ import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.util.List;
 
-public class ToolDialog {
+public class ToolSettingsDialog {
 
     private static List<ToolSpec> tools;
     private static ToolTableModel tableModel;

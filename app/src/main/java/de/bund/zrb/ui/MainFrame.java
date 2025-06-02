@@ -113,6 +113,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistry.register(new ConnectCommand(this, tabManager));
         CommandRegistry.register(new ExitCommand());
         CommandRegistry.register(new ShowSettingsDialogCommand(this));
+        CommandRegistry.register(new ShowSentenceDialogCommand(this));
         CommandRegistry.register(new ShowToolDialogCommand(this));
         CommandRegistry.register(new ShowFeatureDialogCommand(this));
         CommandRegistry.register(new ShowAboutDialogCommand(this));

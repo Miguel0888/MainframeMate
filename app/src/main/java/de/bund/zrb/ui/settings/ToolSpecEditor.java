@@ -1,4 +1,4 @@
-package de.bund.zrb.ui;
+package de.bund.zrb.ui.settings;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
