@@ -2,7 +2,6 @@ package de.bund.zrb.excel.mcp;
 
 import com.google.gson.JsonObject;
 import de.zrb.bund.newApi.mcp.McpTool;
-import de.zrb.bund.newApi.mcp.ParameterSpec;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.Arrays;
