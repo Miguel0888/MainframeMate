@@ -4,9 +4,9 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.ui.chat.ChatFormatter;
-import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
+import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 
 import javax.swing.BorderFactory;
@@ -32,7 +32,6 @@ import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.util.UUID;
-import java.util.List;
 
 public class ChatSession extends JPanel {
 
@@ -44,12 +43,14 @@ public class ChatSession extends JPanel {
     private final JComboBox<String> toolComboBox;
     private final JLabel statusLabel;
     private final JButton cancelButton;
+    private final MainframeContext maeinframeContext;
     private boolean awaitingBotResponse = false;
 
     private final JCheckBox keepAliveCheckbox;
     private final JCheckBox contextMemoryCheckbox;
 
-    public ChatSession(ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
+    public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
+        this.maeinframeContext = mainframeContext;
         this.chatManager = chatManager;
         this.keepAliveCheckbox = keepAliveCheckbox;
         this.contextMemoryCheckbox = contextMemoryCheckbox;
@@ -100,6 +101,10 @@ public class ChatSession extends JPanel {
 
         JButton attachButton = new JButton("+");
         attachButton.setToolTipText("Aktiven Tab teilen");
+        attachButton.addActionListener(e -> {
+            onAttachContent();
+        });
+
 
         toolComboBox = new JComboBox<>();
         toolComboBox.addItem("");
@@ -142,6 +147,27 @@ public class ChatSession extends JPanel {
         inputPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(inputPanel, BorderLayout.SOUTH);
+    }
+
+    private void onAttachContent() {
+        maeinframeContext.getSelectedTab().ifPresent(tab -> {
+            String code = tab.getContent();
+            if (code != null && !code.trim().isEmpty()) {
+                String escaped = code.replace("```", "ʼʼʼ"); // Triple backtick schützen
+                String wrapped = "```\n" + escaped + "\n```";
+
+                // Optional: ans Eingabefeld anhängen oder ersetzen
+                inputArea.setText(inputArea.getText().isEmpty()
+                        ? wrapped
+                        : inputArea.getText() + "\n\n" + wrapped);
+                inputArea.requestFocus();
+                inputArea.setCaretPosition(inputArea.getText().length());
+            } else {
+                JOptionPane.showMessageDialog(this,
+                        "Der aktuelle Editor-Tab ist leer oder nicht lesbar.",
+                        "Kein Inhalt", JOptionPane.WARNING_MESSAGE);
+            }
+        });
     }
 
     private void sendMessage() {

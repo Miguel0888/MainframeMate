@@ -4,21 +4,23 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.components.ChatSession;
 import de.zrb.bund.api.ChatManager;
+import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.Map;
-import java.util.UUID;
 
 public class ChatDrawer extends JPanel {
 
     private final ChatManager chatManager;
     private final JTabbedPane tabbedPane;
+    private final MainframeContext mainframeContext;
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
 
-    public ChatDrawer(ChatManager chatManager) {
+    public ChatDrawer(MainframeContext mainFrame, ChatManager chatManager) {
+        this.mainframeContext = mainFrame;
         this.chatManager = chatManager;
 
         setLayout(new BorderLayout(8, 8));
@@ -73,7 +75,7 @@ public class ChatDrawer extends JPanel {
     }
 
     private void addNewChatSession() {
-        ChatSession sessionPanel = new ChatSession(chatManager, keepAliveCheckbox, contextMemoryCheckbox);
+        ChatSession sessionPanel = new ChatSession(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox);
         String shortId = sessionPanel.getSessionId().toString().substring(0, 6);
 
         tabbedPane.addTab(null, sessionPanel);

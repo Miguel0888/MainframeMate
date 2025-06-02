@@ -13,7 +13,7 @@ public class ChatMarkdownFormatter {
     public static String format(String rawText) {
         String escaped = escapeHtml(rawText);
 
-        // Pattern: ```lang\ncontent\n```
+        // Sprache-spezifische Codeblöcke: ```lang\n...\n```
         Pattern codeBlockPattern = Pattern.compile("(?s)```(\\w+)\\s+(.*?)```");
         Matcher matcher = codeBlockPattern.matcher(escaped);
 
@@ -21,7 +21,6 @@ public class ChatMarkdownFormatter {
         while (matcher.find()) {
             String language = matcher.group(1).toLowerCase();
             String code = matcher.group(2);
-
             String color = getBackgroundColorFor(language);
 
             String replacement = String.format(
@@ -34,9 +33,24 @@ public class ChatMarkdownFormatter {
         }
         matcher.appendTail(result);
 
-        // Nach allen Ersetzungen, <br/> für einfache Zeilenumbrüche
-        return result.toString().replace("\n", "<br/>");
+        // Sprachlose Codeblöcke: ``` irgendwas ```
+        Pattern genericBlockPattern = Pattern.compile("(?s)```\\s*(.*?)```");
+        Matcher fallbackMatcher = genericBlockPattern.matcher(result.toString());
+        StringBuffer finalResult = new StringBuffer();
+        while (fallbackMatcher.find()) {
+            String code = fallbackMatcher.group(1);
+            String replacement = String.format(
+                    "<pre style='background:#f8f9fa; padding:6px; border-radius:6px; border:1px solid #ccc; " +
+                            "font-family:monospace; white-space:pre-wrap;'>%s</pre>",
+                    code
+            );
+            fallbackMatcher.appendReplacement(finalResult, Matcher.quoteReplacement(replacement));
+        }
+        fallbackMatcher.appendTail(finalResult);
+
+        return finalResult.toString().replace("\n", "<br/>");
     }
+
 
     private static String getBackgroundColorFor(String language) {
         switch (language) {
