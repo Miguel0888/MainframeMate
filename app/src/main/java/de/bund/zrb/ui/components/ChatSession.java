@@ -69,8 +69,8 @@ public class ChatSession extends JPanel {
         add(chatScroll, BorderLayout.CENTER);
 
         Settings settings = SettingsHelper.load();
-        String fontName = settings.aiConfig.getOrDefault("editor.font", "Monospaced");
-        int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
+        String fontName = settings.aiConfig.getOrDefault("editor.font", "SansSerif");
+        int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "18"));
 
         inputArea = new JTextArea(Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3")), 30);
         inputArea.setFont(new Font(fontName, Font.PLAIN, fontSize));

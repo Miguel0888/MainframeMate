@@ -1,5 +1,8 @@
 package de.bund.zrb.ui.chat;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
+import de.bund.zrb.ui.util.ChatMarkdownFormatter;
 import de.bund.zrb.ui.util.SwingComponentFinder;
 import org.jetbrains.annotations.NotNull;
 
@@ -52,7 +55,9 @@ public class ChatFormatter {
 
     public void appendUserMessage(String text, @NotNull Runnable onDelete) {
         JTextPane pane = createConfiguredTextPane();
-        pane.setText(formatHtml(escapeHtml(text).replace("\n", "<br/>")));
+//        pane.setText(formatHtml(escapeHtml(text).replace("\n", "<br/>")));
+        String html = ChatMarkdownFormatter.format(text);
+        pane.setText(formatHtml(html));
         applyDynamicSizing(pane);
 
         JPanel panel = createMessagePanel(Role.USER, pane, Optional.ofNullable(onDelete));
@@ -74,7 +79,9 @@ public class ChatFormatter {
     public void appendBotMessageChunk(String chunk) {
         buffer.append(chunk);
         SwingUtilities.invokeLater(() -> {
-            currentBotContent.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+//            currentBotContent.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+            String html = ChatMarkdownFormatter.format(buffer.toString());
+            currentBotContent.setText(formatHtml(html));
             applyDynamicSizing(currentBotContent);
             scrollToBottom();
         });
@@ -200,7 +207,13 @@ public class ChatFormatter {
     }
 
     private String formatHtml(String html) {
-        return "<html><body style='font-family:sans-serif; font-size:12px;'>" + html + "</body></html>";
+        Settings settings = SettingsHelper.load();
+        String fontName = settings.aiConfig.getOrDefault("editor.font", "SansSerif");
+        int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "16"));
+        return String.format(
+                "<html><body style='font-family:%s; font-size:%dpx; margin:0; text-align:left;'>%s</body></html>",
+                fontName, fontSize, html
+        );
     }
 
     private String escapeHtml(String input) {
