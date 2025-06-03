@@ -5,6 +5,7 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.util.RegexFoldParser;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.TabType;
@@ -13,6 +14,7 @@ import de.zrb.bund.newApi.sentence.SentenceField;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.folding.Fold;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -101,6 +105,7 @@ public class FileTab implements FtpTab, TabAdapter {
         });
 
         textArea.addCaretListener(e -> updateLegendByCaret()); // set the corresponding legend automatically
+        textArea.setCodeFoldingEnabled(true);
     }
 
     @Override
@@ -210,19 +215,45 @@ public class FileTab implements FtpTab, TabAdapter {
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        // Links: Undo/Redo Buttons
+        // Undo-Panel links
         JPanel leftPanel = createUndoPanel();
 
-        // Rechts: Satzart-Auswahl mit Legende
+        // Satzart-Panel rechts (Legende & ComboBox)
         JPanel rightPanel = createSentencePanel();
 
-        // Listener registrieren, um Buttons aktuell zu halten
+        // RegGrep-Suchleiste in der Mitte
+        JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 2));
+        JTextField grepField = new JTextField(30);
+        grepField.setToolTipText("Regulärer Ausdruck für Zeilenfilterung");
+        centerPanel.add(new JLabel("🔍 Grep:"));
+        centerPanel.add(grepField);
+
+        grepField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                applyGrepFilter(grepField.getText());
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                applyGrepFilter(grepField.getText());
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                applyGrepFilter(grepField.getText());
+            }
+        });
+
         textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
 
         statusBar.add(leftPanel, BorderLayout.WEST);
+        statusBar.add(centerPanel, BorderLayout.CENTER);
         statusBar.add(rightPanel, BorderLayout.EAST);
+
         return statusBar;
     }
+
 
     @NotNull
     private JPanel createUndoPanel() {
@@ -655,4 +686,29 @@ public class FileTab implements FtpTab, TabAdapter {
     public String getCurrentSentenceType() {
         return Objects.requireNonNull(sentenceComboBox.getSelectedItem()).toString();
     }
+
+    private void applyGrepFilter(String regex) {
+        if (regex == null || regex.trim().isEmpty()) {
+            textArea.getFoldManager().clear();
+            textArea.repaint();
+            return;
+        }
+
+        try {
+            // Regex parsen und Folds berechnen
+            RegexFoldParser parser = new RegexFoldParser(regex);
+            List<Fold> folds = parser.getFolds(textArea);
+
+            // Auf TextArea anwenden
+            textArea.getFoldManager().setFolds(folds);
+            textArea.repaint();
+
+        } catch (PatternSyntaxException e) {
+            // Bei ungültigem Pattern: alles zeigen
+            textArea.getFoldManager().clear();
+            textArea.repaint();
+        }
+    }
+
+
 }
