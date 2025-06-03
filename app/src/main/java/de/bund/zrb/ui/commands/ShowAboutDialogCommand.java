@@ -25,7 +25,7 @@ public class ShowAboutDialogCommand implements Command {
     @Override
     public void perform() {
         JOptionPane.showMessageDialog(parent,
-                "MainframeMate\nVersion 1.1.0\n© 2025 GZD",
+                "MainframeMate\nVersion 1.3.0\n© 2025 GZD",
                 "Über", JOptionPane.INFORMATION_MESSAGE);
     }
 }

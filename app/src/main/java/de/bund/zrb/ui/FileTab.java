@@ -251,7 +251,7 @@ public class FileTab implements FtpTab, TabAdapter {
         sentenceBox.addActionListener(e -> {
             String selected = (String) sentenceBox.getSelectedItem();
             if (selected != null && !selected.trim().isEmpty()) {
-                setContent(textArea.getText(), selected);
+                setContent(textArea.getText(), selected); // ToDo: just highlight
             }
         });
 

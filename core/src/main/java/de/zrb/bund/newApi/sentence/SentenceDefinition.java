@@ -37,6 +37,6 @@ public class SentenceDefinition {
                 maxRow = field.getRow();
             }
         }
-        return maxRow + 1; // Rows are 0-indexed, so add 1 for count
+        return maxRow;
     }
 }

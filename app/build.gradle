@@ -4,9 +4,6 @@ plugins {
     id 'application'
 }
 
-group = 'de.bund.zrb'
-version = '1.2.0'
-
 repositories {
     mavenCentral()
 }
