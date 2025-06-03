@@ -169,19 +169,21 @@ public class NewExcelImportDialog extends JDialog {
     }
 
     private void updateTemplateBox() {
-        String previousSelection = (String) templateBox.getEditor().getItem(); // vorheriger Eintrag
+        String selected = (String) templateBox.getEditor().getItem();
 
         templateBox.removeAllItems();
         for (String name : mappings.keySet()) {
             templateBox.addItem(name);
         }
 
-        // nach dem Neuladen wieder setzen (wenn vorhanden)
-        if (previousSelection != null && !previousSelection.trim().isEmpty()) {
-            templateBox.setSelectedItem(previousSelection);
+        if (selected != null && mappings.containsKey(selected)) {
+            templateBox.setSelectedItem(selected);
+        } else if (!mappings.isEmpty()) {
+            templateBox.setSelectedItem(mappings.keySet().iterator().next());
+        } else {
+            templateBox.setSelectedItem(null);
         }
     }
-
 
     private void loadMappingToTable(ExcelMapping mapping) {
         sentenceTypeBox.setSelectedItem(mapping.getSentenceType());
