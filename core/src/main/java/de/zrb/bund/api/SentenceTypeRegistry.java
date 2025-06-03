@@ -1,6 +1,9 @@
 package de.zrb.bund.api;
 
+import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
+
+import java.util.Optional;
 
 public interface SentenceTypeRegistry {
     SentenceTypeSpec getSentenceTypeSpec();
@@ -8,4 +11,6 @@ public interface SentenceTypeRegistry {
     void reload();
 
     void save();
+
+    Optional<SentenceDefinition> findDefinition(String sentenceType);
 }

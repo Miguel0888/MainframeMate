@@ -2,7 +2,11 @@ package de.bund.zrb.runtime;
 
 import de.bund.zrb.helper.SentenceTypeSettingsHelper;
 import de.zrb.bund.api.SentenceTypeRegistry;
+import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
+
+import java.util.Map;
+import java.util.Optional;
 
 public class SentenceTypeRegistryImpl implements SentenceTypeRegistry {
 
@@ -35,4 +39,17 @@ public class SentenceTypeRegistryImpl implements SentenceTypeRegistry {
     public void save() {
         SentenceTypeSettingsHelper.saveSentenceTypes(loadedSpec);
     }
+
+    @Override
+    public Optional<SentenceDefinition> findDefinition(String sentenceType) {
+        if (sentenceType == null || sentenceType.trim().isEmpty()) {
+            return Optional.empty();
+        }
+
+        return getSentenceTypeSpec().getDefinitions().entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(sentenceType))
+                .map(Map.Entry::getValue)
+                .findFirst();
+    }
+
 }

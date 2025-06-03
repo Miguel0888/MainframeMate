@@ -14,13 +14,11 @@ import de.zrb.bund.newApi.sentence.SentenceMeta;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
-import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -252,7 +250,11 @@ public class FileTab implements FtpTab, TabAdapter {
         sentenceBox.addActionListener(e -> {
             String selected = (String) sentenceBox.getSelectedItem();
             if (selected != null && !selected.trim().isEmpty()) {
-                setContent(textArea.getText(), selected); // ToDo: just highlight
+                highlight(selected);
+            } else {
+                // Satzart wurde abgewählt → Highlighting entfernen
+                textArea.getHighlighter().removeAllHighlights();
+                currentSentenceType = null;
             }
         });
 
@@ -351,25 +353,18 @@ public class FileTab implements FtpTab, TabAdapter {
     public void setContent(String text, String sentenceType) {
         this.currentSentenceType = sentenceType;
         setContent(text); // Undo etc.
+        highlight(sentenceType);
+    }
 
-        if (sentenceType == null || sentenceType.trim().isEmpty()) return;
-
-        SentenceDefinition def = tabbedPaneManager
-                .getMainframeContext()
+    public void highlight(String sentenceType) {
+        this.currentSentenceType = sentenceType;
+        tabbedPaneManager.getMainframeContext()
                 .getSentenceTypeRegistry()
-                .getSentenceTypeSpec()
-                .getDefinitions()
-                .entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase(sentenceType))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse(null);
-
-        if (def == null || def.getFields() == null || def.getMeta() == null) return;
-
-        int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
-
-        highlightStructuredContent(text, def.getFields(), schemaLines);
+                .findDefinition(sentenceType)
+                .ifPresent(def -> {
+                    int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
+                    highlightFields(def.getFields(), schemaLines);
+                });
     }
 
     public void resetUndoHistory() {
@@ -446,11 +441,11 @@ public class FileTab implements FtpTab, TabAdapter {
         editor.setPaintTabLines(true);
     }
 
-    private void highlightStructuredContent(String content, List<SentenceField> fields, int schemaLines) {
+    private void highlightFields(List<SentenceField> fields, int schemaLines) {
         Highlighter highlighter = textArea.getHighlighter();
         highlighter.removeAllHighlights();
 
-        String[] lines = content.split("\n");
+        String[] lines = textArea.getText().split("\n");
 
         for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             int schemaRow = lineIndex % schemaLines;
@@ -471,7 +466,8 @@ public class FileTab implements FtpTab, TabAdapter {
                     highlighter.addHighlight(
                             lineOffset + start,
                             lineOffset + end,
-                            new DefaultHighlighter.DefaultHighlightPainter(getColorFor(field.getName(), field.getColor()))
+                            new DefaultHighlighter.DefaultHighlightPainter(
+                                    getColorFor(field.getName(), field.getColor()))
                     );
                 } catch (BadLocationException e) {
                     e.printStackTrace();
@@ -479,6 +475,7 @@ public class FileTab implements FtpTab, TabAdapter {
             }
         }
     }
+
 
 
 
