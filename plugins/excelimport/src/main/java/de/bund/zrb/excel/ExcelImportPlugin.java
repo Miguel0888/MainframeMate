@@ -2,7 +2,8 @@ package de.bund.zrb.excel;
 
 import de.bund.zrb.excel.commands.ExcelImportCommand;
 import de.bund.zrb.excel.commands.ExcelSettingsCommand;
-import de.bund.zrb.excel.dialogs.ExcelImportDialog;
+import de.bund.zrb.excel.dialogs.ExcelImportUiDialog;
+import de.bund.zrb.excel.dialogs.ExcelImportUiPanel;
 import de.bund.zrb.excel.dialogs.NewExcelImportDialog;
 import de.bund.zrb.excel.mcp.ImportExcelTool;
 import de.zrb.bund.api.Command;
@@ -10,12 +11,10 @@ import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.newApi.mcp.McpTool;
-import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 
 import javax.swing.*;
 import java.awt.Component;
 import java.io.File;
-import java.io.IOException;
 import java.util.*;
 
 public class ExcelImportPlugin implements MainframeMatePlugin {
@@ -72,7 +71,7 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     }
 
     public void handleImport() {
-        NewExcelImportDialog dialog = new NewExcelImportDialog(context);
+        ExcelImportUiDialog dialog = new ExcelImportUiDialog(context);
         dialog.setVisible(true);
 //        if (!dialog.isConfirmed()) return;
 

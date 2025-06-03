@@ -13,7 +13,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class ExcelImportDialog extends JDialog {
+public class old_ExcelImportDialog extends JDialog {
     private final MainframeContext context;
     private static final String KEY_TRENNZEILE = "trennzeile";
 
@@ -37,7 +37,7 @@ public class ExcelImportDialog extends JDialog {
     private JLabel excelFileLabel;
     private Map<String, Object> satzartenMap;
 
-    public ExcelImportDialog(MainframeContext context) {
+    public old_ExcelImportDialog(MainframeContext context) {
         super(context.getMainFrame(), "Excel-Import", true);
         this.context = context;
         setLayout(new BorderLayout());

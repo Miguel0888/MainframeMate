@@ -34,6 +34,8 @@ public class NewExcelImportDialog extends JDialog {
     private final Map<String, List<String>> sentenceFields = new HashMap<>();
     private Map<String, ExcelMapping> mappings;
 
+    private String lastSavedTemplateName;
+
     public NewExcelImportDialog(MainframeContext context) {
         super(context.getMainFrame(), "Neue Excel-Mapping-Vorlage", true);
         this.context = context;
@@ -112,11 +114,19 @@ public class NewExcelImportDialog extends JDialog {
         JScrollPane tableScroll = new JScrollPane(mappingTable);
 
         // Button Panel
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel buttonPanel = new JPanel(new BorderLayout());
         JButton addRowBtn = new JButton("➕ Feld hinzufügen");
         JButton removeRowBtn = new JButton("🗑 Entfernen");
         JButton exportBtn = new JButton("💾 Exportieren...");
         JButton persistBtn = new JButton("✅ Speichern");
+        JButton okButton = new JButton("OK");
+        okButton.addActionListener(e -> {
+            String selected = ((String) templateBox.getEditor().getItem()).trim();
+            if (selected != null && !selected.isEmpty()) {
+                lastSavedTemplateName = selected;
+            }
+            dispose();
+        });
         persistBtn.addActionListener(e -> saveMappingToDisk());
 
         JButton cancelBtn = new JButton("Abbrechen");
@@ -129,11 +139,18 @@ public class NewExcelImportDialog extends JDialog {
         cancelBtn.addActionListener(e -> dispose());
         exportBtn.addActionListener(e -> saveMapping());
 
-        buttonPanel.add(addRowBtn);
-        buttonPanel.add(removeRowBtn);
-        buttonPanel.add(exportBtn);
-        buttonPanel.add(persistBtn);
-        buttonPanel.add(cancelBtn);
+        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        leftButtons.add(addRowBtn);
+        leftButtons.add(removeRowBtn);
+        leftButtons.add(exportBtn);
+        leftButtons.add(persistBtn);
+
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        rightButtons.add(okButton);
+        rightButtons.add(cancelBtn);
+
+        buttonPanel.add(leftButtons, BorderLayout.WEST);
+        buttonPanel.add(rightButtons, BorderLayout.EAST);
 
         // Add to dialog
         add(topPanel, BorderLayout.NORTH);
@@ -302,6 +319,7 @@ public class NewExcelImportDialog extends JDialog {
 
     private void saveMappingToDisk() {
         String name = ((String) templateBox.getEditor().getItem()).trim();
+        lastSavedTemplateName = name;
         String sentenceType = (String) sentenceTypeBox.getSelectedItem();
 
         if (name.isEmpty() || sentenceType == null) {
@@ -333,7 +351,7 @@ public class NewExcelImportDialog extends JDialog {
         try (FileWriter writer = new FileWriter(mappingsFile)) {
             gson.toJson(mappings, writer);
             updateTemplateBox();
-            JOptionPane.showMessageDialog(this, "Mapping gespeichert.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+//            JOptionPane.showMessageDialog(this, "Mapping gespeichert.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this, "Fehler beim Speichern:\n" + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
@@ -343,5 +361,9 @@ public class NewExcelImportDialog extends JDialog {
     private String getString(int row, int col) {
         Object val = tableModel.getValueAt(row, col);
         return val != null ? val.toString().trim() : "";
+    }
+
+    public String getLastSavedTemplateName() {
+        return lastSavedTemplateName;
     }
 }

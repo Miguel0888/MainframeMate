@@ -616,9 +616,9 @@ public class SettingsDialog {
 
             ftpManager.getClient().setControlEncoding(settings.encoding);
 
-            JOptionPane.showMessageDialog(parent,
-                    "Einstellungen wurden gespeichert.",
-                    "Info", JOptionPane.INFORMATION_MESSAGE);
+//            JOptionPane.showMessageDialog(parent,
+//                    "Einstellungen wurden gespeichert.",
+//                    "Info", JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
