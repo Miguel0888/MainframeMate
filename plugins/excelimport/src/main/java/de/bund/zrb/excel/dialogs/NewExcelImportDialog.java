@@ -13,6 +13,7 @@ import de.zrb.bund.newApi.sentence.SentenceField;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -38,9 +39,12 @@ public class NewExcelImportDialog extends JDialog {
 
     private String lastSavedTemplateName;
 
-    public NewExcelImportDialog(MainframeContext context) {
+    private final List<String> availableExcelColumns;
+
+    public NewExcelImportDialog(MainframeContext context, List<String> availableExcelColumns) {
         super(context.getMainFrame(), "Neue Excel-Mapping-Vorlage", true);
         this.context = context;
+        this.availableExcelColumns = availableExcelColumns != null ? availableExcelColumns : Collections.emptyList();
         this.templateRepo = new TemplateRepository(context.getSettingsFolder());
         mappingsFile = new File(context.getSettingsFolder(), "import.json");
         setSize(750, 500);
@@ -51,6 +55,18 @@ public class NewExcelImportDialog extends JDialog {
         String[] columns = {"Herkunft", "Wert", "Feldname"};
         tableModel = new DefaultTableModel(columns, 0);
         mappingTable = new JTable(tableModel);
+
+        // Editor für Herkunft
+        JComboBox<String> sourceBox = new JComboBox<>(new String[]{"Excel", "Fixwert", "Ausdruck"});
+        mappingTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(sourceBox));
+
+        // Editor für Wert (Excel-Spalten)
+        JComboBox<String> excelColumnBox = new JComboBox<>(availableExcelColumns.toArray(new String[0]));
+        excelColumnBox.setEditable(true);
+        mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(excelColumnBox));
+
+        // Editor für Feldnamen (aus Satzart)
+        updateFieldComboBoxes(); // setzt Column 2 korrekt
 
         // Top Panel
         JPanel topPanel = new JPanel(new GridLayout(2, 2, 5, 5));
@@ -124,13 +140,16 @@ public class NewExcelImportDialog extends JDialog {
         JButton persistBtn = new JButton("✅ Speichern");
         JButton okButton = new JButton("OK");
         okButton.addActionListener(e -> {
+            saveMappingToDisk();
             String selected = ((String) templateBox.getEditor().getItem()).trim();
             if (selected != null && !selected.isEmpty()) {
                 lastSavedTemplateName = selected;
             }
             dispose();
         });
-        persistBtn.addActionListener(e -> saveMappingToDisk());
+        persistBtn.addActionListener(e -> { // ToDo: improve dirty fix
+            suppressEventAndSave();
+        });
 
         JButton cancelBtn = new JButton("Abbrechen");
 
@@ -162,6 +181,21 @@ public class NewExcelImportDialog extends JDialog {
 
         loadMappingsFromDisk();
         updateTemplateBox();
+    }
+
+    private void suppressEventAndSave() {
+        // Listener temporär deaktivieren
+        ActionListener[] listeners = templateBox.getActionListeners();
+        for (ActionListener l : listeners) {
+            templateBox.removeActionListener(l);
+        }
+
+        saveMappingToDisk();
+
+        // Listener wieder aktivieren
+        for (ActionListener l : listeners) {
+            templateBox.addActionListener(l);
+        }
     }
 
     private void saveAllMappings() {
@@ -255,15 +289,6 @@ public class NewExcelImportDialog extends JDialog {
     }
 
     private void addRow() {
-        JComboBox<String> sourceBox = new JComboBox<>(new String[]{"Excel", "Fixwert", "Ausdruck"});
-        mappingTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(sourceBox));
-
-        String selectedType = (String) sentenceTypeBox.getSelectedItem();
-        List<String> fields = sentenceFields.getOrDefault(selectedType, Collections.emptyList());
-        JComboBox<String> fieldBox = new JComboBox<>(fields.toArray(new String[0]));
-        fieldBox.setEditable(true);
-        mappingTable.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(fieldBox));
-
         tableModel.addRow(new Object[]{"Excel", "", ""});
     }
 
@@ -322,6 +347,10 @@ public class NewExcelImportDialog extends JDialog {
     }
 
     private void saveMappingToDisk() {
+        // Übernehme ggf. Editierungen
+        if (mappingTable.isEditing()) {
+            mappingTable.getCellEditor().stopCellEditing();
+        }
         String name = ((String) templateBox.getEditor().getItem()).trim();
         lastSavedTemplateName = name;
         String sentenceType = (String) sentenceTypeBox.getSelectedItem();
@@ -363,4 +392,6 @@ public class NewExcelImportDialog extends JDialog {
     public String getLastSavedTemplateName() {
         return lastSavedTemplateName;
     }
+
+
 }

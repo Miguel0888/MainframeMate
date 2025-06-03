@@ -1,12 +1,21 @@
 package de.bund.zrb.excel.dialogs;
 
+import de.bund.zrb.excel.ExcelImportParser;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Map;
+
+import java.util.List;
 
 public class ExcelImportUiPanel extends JPanel {
 
@@ -119,7 +128,9 @@ public class ExcelImportUiPanel extends JPanel {
         );
 
         templateEditButton.addActionListener(e -> {
-            NewExcelImportDialog dialog = new NewExcelImportDialog(context);
+            List<String> headers = readColumnHeaders();
+            NewExcelImportDialog dialog = new NewExcelImportDialog(context, headers);
+
             dialog.setModal(true);
             dialog.setVisible(true);
 
@@ -225,5 +236,30 @@ public class ExcelImportUiPanel extends JPanel {
 
         context.savePluginSettings(PLUGIN_KEY, settings);
     }
+
+    public List<String> readColumnHeaders() {
+        if (selectedExcelFile == null || !selectedExcelFile.exists()) {
+            return Collections.emptyList();
+        }
+
+        try {
+            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(
+                    selectedExcelFile,
+                    headerCheckbox.isSelected(),
+                    getHeaderRowIndex()
+            );
+            return new ArrayList<>(table.keySet());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Collections.emptyList();
+        }
+    }
+
+    private int getHeaderRowIndex() {
+        return headerCheckbox.isSelected()
+                ? ((Integer) headerRowSpinner.getValue()) - 1
+                : 0;
+    }
+
 
 }
