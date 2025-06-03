@@ -1,15 +1,27 @@
 package de.bund.zrb.excel.dialogs;
 
+import de.bund.zrb.excel.ExcelImportParser;
+import de.bund.zrb.excel.controller.ExcelImportController;
+import de.bund.zrb.excel.model.ExcelMapping;
+import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
+import java.util.Map;
 
 public class ExcelImportUiDialog extends JDialog {
 
     private final ExcelImportUiPanel uiPanel;
+
+    private boolean confirmed = false;
+
+    public boolean isConfirmed() {
+        return confirmed;
+    }
 
     public ExcelImportUiDialog(MainframeContext context) {
         super(context.getMainFrame(), "Excel-Import", true);
@@ -27,11 +39,13 @@ public class ExcelImportUiDialog extends JDialog {
         okButton.addActionListener(e -> {
             // Hier ggf. Logik
             uiPanel.saveSettingsToContext(context);
-            setVisible(false);
+            confirmed = true;
+            dispose();
         });
 
         cancelButton.addActionListener(e -> {
-            setVisible(false);
+            confirmed = false;
+            dispose();
         });
 
         buttonPanel.add(okButton);

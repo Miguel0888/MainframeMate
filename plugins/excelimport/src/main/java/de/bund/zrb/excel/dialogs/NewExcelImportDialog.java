@@ -346,7 +346,7 @@ public class NewExcelImportDialog extends JDialog {
         }
     }
 
-    private void saveMappingToDisk() {
+    public void saveMappingToDisk() {
         // Übernehme ggf. Editierungen
         if (mappingTable.isEditing()) {
             mappingTable.getCellEditor().stopCellEditing();

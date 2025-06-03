@@ -25,6 +25,7 @@ public class ExcelImportUiPanel extends JPanel {
     private static final String KEY_HEADER_ROW = "headerRow";
     private static final String KEY_APPEND = "append";
     private static final String KEY_TRENNZEILE = "trennzeile";
+    private String lastSaved;
 
     private File selectedExcelFile;
 
@@ -136,7 +137,7 @@ public class ExcelImportUiPanel extends JPanel {
 
             updateTemplateDropdown();
 
-            String lastSaved = dialog.getLastSavedTemplateName();
+            lastSaved = dialog.getLastSavedTemplateName();
             if (lastSaved != null && !lastSaved.trim().isEmpty()) {
                 templateDropdown.setSelectedItem(lastSaved);
             }
@@ -255,11 +256,30 @@ public class ExcelImportUiPanel extends JPanel {
         }
     }
 
-    private int getHeaderRowIndex() {
+    public int getHeaderRowIndex() {
         return headerCheckbox.isSelected()
                 ? ((Integer) headerRowSpinner.getValue()) - 1
                 : 0;
     }
 
 
+    public File getExcelFile() {
+        return selectedExcelFile;
+    }
+
+    public String getSelectedTemplateName() {
+        return (String) templateDropdown.getSelectedItem();
+    }
+
+    public boolean isHeaderEnabled() {
+        return headerCheckbox.isSelected();
+    }
+
+    public boolean shouldAppend() {
+        return appendCheckbox.isSelected();
+    }
+
+    public String getTrennzeile() {
+        return trennzeileField.getText().trim();
+    }
 }

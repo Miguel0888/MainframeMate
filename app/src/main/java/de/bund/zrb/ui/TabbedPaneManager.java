@@ -64,17 +64,17 @@ public class TabbedPaneManager {
         int index = tabbedPane.indexOfComponent(comp);
         if (index >= 0) {
             tabbedPane.setTitleAt(index, tab.getTitle());
-        }
 
-        // Optional: Wenn ein benutzerdefiniertes Tab-Panel (mit Label + Close-Button) verwendet wird:
-        Component tabComponent = tabbedPane.getTabComponentAt(index);
-        if (tabComponent instanceof JPanel) {
-            JPanel panel = (JPanel) tabComponent;
-            for (Component c : panel.getComponents()) {
-                if (c instanceof JLabel) {
-                    JLabel label = (JLabel) c;
-                    label.setText(tab.getTitle());
-                    break;
+            // Optional: Wenn ein benutzerdefiniertes Tab-Panel (mit Label + Close-Button) verwendet wird:
+            Component tabComponent = tabbedPane.getTabComponentAt(index);
+            if (tabComponent instanceof JPanel) {
+                JPanel panel = (JPanel) tabComponent;
+                for (Component c : panel.getComponents()) {
+                    if (c instanceof JLabel) {
+                        JLabel label = (JLabel) c;
+                        label.setText(tab.getTitle());
+                        break;
+                    }
                 }
             }
         }

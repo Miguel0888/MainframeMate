@@ -2,6 +2,7 @@ package de.bund.zrb.excel;
 
 import de.bund.zrb.excel.commands.ExcelImportCommand;
 import de.bund.zrb.excel.commands.ExcelSettingsCommand;
+import de.bund.zrb.excel.controller.ExcelImportController;
 import de.bund.zrb.excel.dialogs.ExcelImportUiDialog;
 import de.bund.zrb.excel.dialogs.ExcelImportUiPanel;
 import de.bund.zrb.excel.dialogs.NewExcelImportDialog;
@@ -71,8 +72,8 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     }
 
     public void handleImport() {
-        ExcelImportUiDialog dialog = new ExcelImportUiDialog(context);
-        dialog.setVisible(true);
+        ExcelImportController.handleImport(context);
+//        dialog.setVisible(true);
 //        if (!dialog.isConfirmed()) return;
 
 //        File excelFile = dialog.getExcelFile();
