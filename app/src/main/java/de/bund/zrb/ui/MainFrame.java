@@ -377,7 +377,10 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public void dispose() {
-        chatManager.onDispose();
+        if(chatManager != null)
+        {
+            chatManager.onDispose();
+        }
         saveApplicationState();
         super.dispose();
     }

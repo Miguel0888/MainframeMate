@@ -10,8 +10,7 @@ public class ExecutableLauncher {
     private static final String EXECUTABLE_NAME = "driver.exe";
 
     // Hardcoded, geprüfter Hashwert (z. B. von der Originaldatei erzeugt)
-    private static final String EXPECTED_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // ToDo: Replace with actual hash
-
+    private static final String EXPECTED_SHA256 = "0C1C370BD1FD2941FDDCCD65C3796322ACDBD68AD717A361D16EE4924C63EEC3";
     public static String getHash() {
         return EXPECTED_SHA256;
     }
