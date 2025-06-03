@@ -6,7 +6,6 @@ import de.bund.zrb.excel.service.ExcelParser;
 import de.bund.zrb.excel.ui.ExcelImportUiDialog;
 import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.bund.zrb.excel.model.ExcelMapping;
-import de.bund.zrb.excel.model.ExcelMappingEntry;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
@@ -110,7 +109,7 @@ public class ExcelImportController {
 
             plugin.getContext().openFileTab(result, satzartName);
 
-            Map<String, String> settings = getPluginSettings();
+            Map<String, String> settings = plugin.getSettings();
             if (Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"))) {
                 JOptionPane.showMessageDialog(plugin.getMainFrame(),
                         "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
@@ -129,46 +128,5 @@ public class ExcelImportController {
 
     private static void showError(Component parent, String msg) {
         JOptionPane.showMessageDialog(parent, msg, "Fehler", JOptionPane.ERROR_MESSAGE);
-    }
-
-    private static Map<String, String> getPluginSettings() {
-        return Collections.emptyMap(); // oder über Plugin-Konfiguration
-    }
-
-    private static String formatFixedWidthBySatzart(Map<String, List<String>> table,
-                                                    List<SentenceField> felder,
-                                                    ExcelMapping mapping) {
-        // Erzeuge jede Zeile aus dem Mapping
-        StringBuilder builder = new StringBuilder();
-        int rowCount = table.values().stream().findFirst().map(List::size).orElse(0);
-
-        for (int i = 0; i < rowCount; i++) {
-            StringBuilder row = new StringBuilder();
-
-            for (ExcelMappingEntry entry : mapping.getEntries()) {
-                String fieldName = entry.getFieldName();
-                String value = "";
-
-                if (entry.getExcelColumn() != null) {
-                    List<String> col = table.get(entry.getExcelColumn());
-                    if (col != null && i < col.size()) {
-                        value = col.get(i);
-                    }
-                } else if (entry.getFixedValue() != null) {
-                    value = entry.getFixedValue();
-                } else if (entry.getExpression() != null) {
-                    // TODO: Ausdruck evaluieren
-                    value = entry.getExpression();
-                }
-
-                // Padding oder Zuschnitt je nach Satzart-Definition
-                row.append(value);
-                row.append(" "); // Trennung (anpassen!)
-            }
-
-            builder.append(row.toString().trim()).append("\n");
-        }
-
-        return builder.toString();
     }
 }

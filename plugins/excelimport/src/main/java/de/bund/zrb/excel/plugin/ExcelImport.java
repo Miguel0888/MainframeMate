@@ -73,7 +73,7 @@ public class ExcelImport implements MainframeMatePlugin {
         return null;
     }
 
-    Map<String, String> getPluginSettings() {
+    public Map<String, String> getSettings() {
         return context.loadPluginSettings(PLUGIN_KEY);
     }
 

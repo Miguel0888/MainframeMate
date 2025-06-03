@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import javax.swing.event.DocumentEvent;
@@ -46,14 +47,15 @@ public class FileTab implements FtpTab, TabAdapter {
 
     //ToDo: Mit Hashing kombinieren
     private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
-    private String currentSentenceType = null; // Aktuelle Satzart, falls bekannt
+    // Aktuelle Satzart, falls bekannt
+    private JComboBox<String> sentenceComboBox;
 
     public FileTab(TabbedPaneManager tabbedPaneManager, String content, String sentenceType) {
         this(tabbedPaneManager, (FtpManager) null, (FtpFileBuffer) null);
-        this.currentSentenceType = sentenceType; // Aktuelle Satzart speichern
         if(content != null) {
             textArea.setText(content);
         }
+        highlight(sentenceType);
     }
 
     public FileTab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
@@ -235,31 +237,31 @@ public class FileTab implements FtpTab, TabAdapter {
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JLabel sentenceLabel = new JLabel("Satzart:");
 
-        JComboBox<String> sentenceBox = new JComboBox<>();
+        sentenceComboBox = new JComboBox<>();
         // Erst den leeren Eintrag hinzufügen
-        sentenceBox.addItem(""); // entspricht "Keine Auswahl"
+        sentenceComboBox.addItem(""); // entspricht "Keine Auswahl"
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
         registry.getSentenceTypeSpec().getDefinitions()
                 .keySet().stream()
                 .sorted(String.CASE_INSENSITIVE_ORDER)
-                .forEach(sentenceBox::addItem);
+                .forEach(sentenceComboBox::addItem);
 
         // Optional: aktuelle Satzart setzen (wenn bekannt)
-        sentenceBox.setSelectedItem(getCurrentSentenceTypeGuess(textArea.getText()));
+        sentenceComboBox.setSelectedItem(getCurrentSentenceTypeGuess(textArea.getText()));
 
-        sentenceBox.addActionListener(e -> {
-            String selected = (String) sentenceBox.getSelectedItem();
+        sentenceComboBox.addActionListener(e -> {
+            String selected = (String) sentenceComboBox.getSelectedItem();
             if (selected != null && !selected.trim().isEmpty()) {
                 highlight(selected);
             } else {
                 // Satzart wurde abgewählt → Highlighting entfernen
                 textArea.getHighlighter().removeAllHighlights();
-                currentSentenceType = null;
+                sentenceComboBox.setSelectedItem("");
             }
         });
 
         rightPanel.add(sentenceLabel);
-        rightPanel.add(sentenceBox);
+        rightPanel.add(sentenceComboBox);
 
 
         // Listener registrieren, um Buttons aktuell zu halten
@@ -343,6 +345,10 @@ public class FileTab implements FtpTab, TabAdapter {
     // Plugin-Management
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    /** Adds Content with Undo support
+     *
+     * @param newText
+     */
     public void setContent(String newText) {
         textArea.selectAll();
         textArea.replaceSelection(""); // erlaubt Undo des Löschens
@@ -351,19 +357,19 @@ public class FileTab implements FtpTab, TabAdapter {
     }
 
     public void setContent(String text, String sentenceType) {
-        this.currentSentenceType = sentenceType;
+        sentenceComboBox.setSelectedItem(sentenceType);
         setContent(text); // Undo etc.
         highlight(sentenceType);
     }
 
     public void highlight(String sentenceType) {
-        this.currentSentenceType = sentenceType;
         tabbedPaneManager.getMainframeContext()
                 .getSentenceTypeRegistry()
                 .findDefinition(sentenceType)
                 .ifPresent(def -> {
                     int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
                     highlightFields(def.getFields(), schemaLines);
+                    sentenceComboBox.setSelectedItem(sentenceType);
                 });
     }
 
@@ -524,5 +530,9 @@ public class FileTab implements FtpTab, TabAdapter {
 
     public FtpFileBuffer getBuffer() {
         return buffer;
+    }
+
+    public String getCurrentSentenceType() {
+        return Objects.requireNonNull(sentenceComboBox.getSelectedItem()).toString();
     }
 }
