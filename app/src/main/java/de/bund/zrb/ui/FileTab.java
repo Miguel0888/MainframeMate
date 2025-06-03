@@ -14,6 +14,7 @@ import de.zrb.bund.newApi.sentence.SentenceMeta;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -49,6 +50,10 @@ public class FileTab implements FtpTab, TabAdapter {
     private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
     // Aktuelle Satzart, falls bekannt
     private JComboBox<String> sentenceComboBox;
+    private JPanel legendWrapper;
+
+    private int currentLegendRowIndex = 0;
+    private int currentMaxRows = 1;
 
     public FileTab(TabbedPaneManager tabbedPaneManager, String content, String sentenceType) {
         this(tabbedPaneManager, (FtpManager) null, (FtpFileBuffer) null);
@@ -65,6 +70,7 @@ public class FileTab implements FtpTab, TabAdapter {
         this.buffer = buffer;
 
         initEditorSettings(textArea, SettingsHelper.load());
+
         if(buffer != null)
         {
             textArea.setText(fileContentService.decodeWith(buffer));
@@ -93,6 +99,8 @@ public class FileTab implements FtpTab, TabAdapter {
                 markAsChanged();
             }
         });
+
+        textArea.addCaretListener(e -> updateLegendByCaret()); // set the corresponding legend automatically
     }
 
     @Override
@@ -203,6 +211,21 @@ public class FileTab implements FtpTab, TabAdapter {
         JPanel statusBar = new JPanel(new BorderLayout());
 
         // Links: Undo/Redo Buttons
+        JPanel leftPanel = createUndoPanel();
+
+        // Rechts: Satzart-Auswahl mit Legende
+        JPanel rightPanel = createSentencePanel();
+
+        // Listener registrieren, um Buttons aktuell zu halten
+        textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
+
+        statusBar.add(leftPanel, BorderLayout.WEST);
+        statusBar.add(rightPanel, BorderLayout.EAST);
+        return statusBar;
+    }
+
+    @NotNull
+    private JPanel createUndoPanel() {
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         undoButton.setToolTipText("Änderung rückgängig machen");
         undoButton.setEnabled(false);
@@ -232,44 +255,112 @@ public class FileTab implements FtpTab, TabAdapter {
 
         leftPanel.add(undoButton);
         leftPanel.add(redoButton);
+        return leftPanel;
+    }
 
-        // Rechts: Satzart-Auswahl
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JLabel sentenceLabel = new JLabel("Satzart:");
+    @NotNull
+    private JPanel createSentencePanel() {
+        JPanel rightPanel = new JPanel();
+        rightPanel.setLayout(new BoxLayout(rightPanel, BoxLayout.X_AXIS));
+
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+
+        // Initialsatzart bestimmen
+        String initialType = getCurrentSentenceTypeGuess(textArea.getText());
+        SentenceDefinition initialDef = registry.findDefinition(initialType).orElse(null);
+        currentMaxRows = initialDef != null && initialDef.getRowCount() != null ? initialDef.getRowCount() : 1;
+        currentLegendRowIndex = 0;
+
+        legendWrapper = new JPanel(new BorderLayout());
+        legendWrapper.add(createLegendPanelForRow(initialType, currentLegendRowIndex), BorderLayout.CENTER);
 
         sentenceComboBox = new JComboBox<>();
-        // Erst den leeren Eintrag hinzufügen
-        sentenceComboBox.addItem(""); // entspricht "Keine Auswahl"
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-        registry.getSentenceTypeSpec().getDefinitions()
-                .keySet().stream()
+        sentenceComboBox.addItem("");
+        registry.getSentenceTypeSpec().getDefinitions().keySet().stream()
                 .sorted(String.CASE_INSENSITIVE_ORDER)
                 .forEach(sentenceComboBox::addItem);
-
-        // Optional: aktuelle Satzart setzen (wenn bekannt)
-        sentenceComboBox.setSelectedItem(getCurrentSentenceTypeGuess(textArea.getText()));
+        sentenceComboBox.setSelectedItem(initialType);
 
         sentenceComboBox.addActionListener(e -> {
             String selected = (String) sentenceComboBox.getSelectedItem();
             if (selected != null && !selected.trim().isEmpty()) {
                 highlight(selected);
+                Optional<SentenceDefinition> defOpt = registry.findDefinition(selected);
+                if (defOpt.isPresent()) {
+                    SentenceDefinition def = defOpt.get();
+                    currentMaxRows = def.getRowCount() != null ? def.getRowCount() : 1;
+                    currentLegendRowIndex = 0;
+                    updateLegend(legendWrapper);
+                }
             } else {
-                // Satzart wurde abgewählt → Highlighting entfernen
-                textArea.getHighlighter().removeAllHighlights();
-                sentenceComboBox.setSelectedItem("");
+                currentMaxRows = 1;
+                currentLegendRowIndex = 0;
+                legendWrapper.removeAll();
+                legendWrapper.revalidate();
+                legendWrapper.repaint();
             }
         });
 
-        rightPanel.add(sentenceLabel);
+        rightPanel.add(legendWrapper);
+        rightPanel.add(Box.createHorizontalStrut(10));
+//        rightPanel.add(new JLabel("Satzart:"));
         rightPanel.add(sentenceComboBox);
 
+        return rightPanel;
+    }
 
-        // Listener registrieren, um Buttons aktuell zu halten
-        textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
+    private void styleAsClickable(JLabel label) {
+        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        label.setForeground(Color.BLUE);
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
+        label.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                label.setForeground(Color.RED);
+            }
 
-        statusBar.add(leftPanel, BorderLayout.WEST);
-        statusBar.add(rightPanel, BorderLayout.EAST);
-        return statusBar;
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                label.setForeground(Color.BLUE);
+            }
+        });
+    }
+
+    private void updateLegend(JPanel legendWrapper) {
+        String selectedType = (String) sentenceComboBox.getSelectedItem();
+        if (selectedType == null || selectedType.trim().isEmpty()) return;
+
+        legendWrapper.removeAll();
+        legendWrapper.add(createLegendPanelForRow(selectedType, currentLegendRowIndex), BorderLayout.CENTER);
+        legendWrapper.revalidate();
+        legendWrapper.repaint();
+    }
+
+    private void updateLegendByCaret() {
+        String sentenceType = (String) sentenceComboBox.getSelectedItem();
+        if (sentenceType == null || sentenceType.trim().isEmpty()) return;
+
+        Optional<SentenceDefinition> defOpt = tabbedPaneManager
+                .getMainframeContext()
+                .getSentenceTypeRegistry()
+                .findDefinition(sentenceType);
+
+        if (!defOpt.isPresent()) return;
+
+        int rowCount = defOpt.get().getRowCount() != null ? defOpt.get().getRowCount() : 1;
+
+        try {
+            int caretPos = textArea.getCaretPosition();
+            int line = textArea.getLineOfOffset(caretPos);
+            int effectiveRow = line % rowCount;
+
+            if (effectiveRow != currentLegendRowIndex) {
+                currentLegendRowIndex = effectiveRow;
+                updateLegend(legendWrapper);
+            }
+        } catch (BadLocationException ex) {
+            ex.printStackTrace();
+        }
     }
 
     /**
@@ -530,6 +621,35 @@ public class FileTab implements FtpTab, TabAdapter {
 
     public FtpFileBuffer getBuffer() {
         return buffer;
+    }
+
+    private JPanel createLegendPanelForRow(String sentenceType, int rowIndex) {
+        JPanel legendPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        Optional<SentenceDefinition> defOpt = registry.findDefinition(sentenceType);
+        if (!defOpt.isPresent()) return legendPanel;
+
+        for (SentenceField field : defOpt.get().getFields()) {
+            int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
+            if (fieldRow != rowIndex) continue;
+
+            String name = field.getName();
+            if (name == null || name.trim().isEmpty()) continue;
+
+            Color color = getColorFor(name, field.getColor());
+            JLabel label = new JLabel(name);
+            label.setOpaque(true);
+            label.setBackground(color);
+            label.setForeground(Color.BLACK);
+            label.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Color.DARK_GRAY),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)
+            ));
+            legendPanel.add(label);
+        }
+
+        return legendPanel;
     }
 
     public String getCurrentSentenceType() {
