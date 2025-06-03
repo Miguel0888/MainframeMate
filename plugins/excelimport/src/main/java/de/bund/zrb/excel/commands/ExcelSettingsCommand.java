@@ -1,6 +1,6 @@
 package de.bund.zrb.excel.commands;
 
-import de.bund.zrb.excel.dialogs.ExcelImportSettingsDialog;
+import de.bund.zrb.excel.ui.ExcelImportSettingsDialog;
 import de.zrb.bund.api.Command;
 import de.zrb.bund.api.MainframeContext;
 

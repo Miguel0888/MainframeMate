@@ -8,8 +8,6 @@ public interface MainframeMatePlugin {
 
     String getPluginName();
 
-    void initialize(Object context); // kein MainFrame
-
     default List<Object> getCommands(Object context) {
         return java.util.Collections.emptyList();
     }

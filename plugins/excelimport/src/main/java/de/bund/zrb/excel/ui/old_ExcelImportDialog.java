@@ -1,4 +1,4 @@
-package de.bund.zrb.excel.dialogs;
+package de.bund.zrb.excel.ui;
 
 import com.google.gson.Gson;
 import de.zrb.bund.api.MainframeContext;

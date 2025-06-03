@@ -1,6 +1,6 @@
-package de.bund.zrb.excel.dialogs;
+package de.bund.zrb.excel.ui;
 
-import de.bund.zrb.excel.ExcelImportParser;
+import de.bund.zrb.excel.service.ExcelParser;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
 
@@ -244,7 +244,7 @@ public class ExcelImportUiPanel extends JPanel {
         }
 
         try {
-            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(
+            Map<String, List<String>> table = ExcelParser.readExcelAsTable(
                     selectedExcelFile,
                     headerCheckbox.isSelected(),
                     getHeaderRowIndex()

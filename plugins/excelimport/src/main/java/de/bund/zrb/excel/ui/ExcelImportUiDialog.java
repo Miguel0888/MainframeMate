@@ -1,17 +1,9 @@
-package de.bund.zrb.excel.dialogs;
+package de.bund.zrb.excel.ui;
 
-import de.bund.zrb.excel.ExcelImportParser;
-import de.bund.zrb.excel.controller.ExcelImportController;
-import de.bund.zrb.excel.model.ExcelMapping;
-import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-import java.io.File;
-import java.util.Map;
 
 public class ExcelImportUiDialog extends JDialog {
 

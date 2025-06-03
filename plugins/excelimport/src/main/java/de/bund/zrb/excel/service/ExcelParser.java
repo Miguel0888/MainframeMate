@@ -1,4 +1,4 @@
-package de.bund.zrb.excel;
+package de.bund.zrb.excel.service;
 
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.ss.usermodel.*;
@@ -8,7 +8,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-public class ExcelImportParser {
+public class ExcelParser {
 
     public static Map<String, List<String>> readExcelAsTable(File excelFile, boolean evaluateFormulas, int headerRowIndex)
             throws IOException, InvalidFormatException {

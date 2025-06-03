@@ -1,4 +1,4 @@
-package de.bund.zrb.excel.dialogs;
+package de.bund.zrb.excel.ui;
 
 import de.zrb.bund.api.MainframeContext;
 
