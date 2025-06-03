@@ -6,4 +6,19 @@ allprojects {
     repositories {
         mavenCentral()
     }
+
+    // UTF-8 Encoding
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+
+        // Optionaler Release-Modus
+        if (project.hasProperty('release') && project.release == 'true') {
+            println "🔧 Building without debug info (release mode)"
+            options.debug = false
+        } else {
+            println "🔧 Building with debug info (default)"
+            options.debug = true
+        }
+    }
+
 }

@@ -42,10 +42,20 @@ public class NewExcelImportDialog extends JDialog {
         setLocationRelativeTo(context.getMainFrame());
         setLayout(new BorderLayout());
 
+        // Table
+        String[] columns = {"Herkunft", "Wert", "Feldname"};
+        tableModel = new DefaultTableModel(columns, 0);
+        mappingTable = new JTable(tableModel);
+
         // Top Panel
         JPanel topPanel = new JPanel(new GridLayout(2, 2, 5, 5));
         topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+
         topPanel.add(new JLabel("Vorlagen-Name:"));
+
+        // Wrapper mit ComboBox + Button-Leiste
+        JPanel templatePanel = new JPanel(new BorderLayout(5, 0));
         templateBox.setEditable(true);
         templateBox.addActionListener(e -> {
             String name = (String) templateBox.getEditor().getItem();
@@ -53,18 +63,51 @@ public class NewExcelImportDialog extends JDialog {
                 loadMappingToTable(mappings.get(name));
             }
         });
+        templatePanel.add(templateBox, BorderLayout.CENTER);
 
-        topPanel.add(templateBox);
+        // ➕ Neu-Button
+        JButton newBtn = new JButton("➕");
+        newBtn.setMargin(new Insets(2, 4, 2, 4));
+        newBtn.addActionListener(e -> {
+            templateBox.setSelectedItem(""); // leeren Namen setzen
+            tableModel.setRowCount(0); // Tabelle leeren
+        });
+
+        // 🗑 Löschen-Button
+        JButton deleteBtn = new JButton("❌");
+        deleteBtn.setMargin(new Insets(2, 4, 2, 4));
+        deleteBtn.addActionListener(e -> {
+            String name = (String) templateBox.getEditor().getItem();
+            if (name != null && mappings.containsKey(name)) {
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        "Vorlage „" + name + "“ wirklich löschen?",
+                        "Bestätigung",
+                        JOptionPane.YES_NO_OPTION
+                );
+                if (confirm == JOptionPane.YES_OPTION) {
+                    mappings.remove(name);
+                    saveAllMappings();
+                    updateTemplateBox();
+                    templateBox.setSelectedItem("");
+                    tableModel.setRowCount(0);
+                }
+            }
+        });
+
+        JPanel buttonRow = new JPanel(new GridLayout(1, 2, 2, 0));
+        buttonRow.add(newBtn);
+        buttonRow.add(deleteBtn);
+        templatePanel.add(buttonRow, BorderLayout.EAST);
+
+        topPanel.add(templatePanel);
+
+
         topPanel.add(new JLabel("Ziel-Satzart:"));
         topPanel.add(sentenceTypeBox);
 
         loadSentenceTypes();
         sentenceTypeBox.addActionListener(e -> updateFieldComboBoxes());
-
-        // Table
-        String[] columns = {"Herkunft", "Wert", "Feldname"};
-        tableModel = new DefaultTableModel(columns, 0);
-        mappingTable = new JTable(tableModel);
 
         JScrollPane tableScroll = new JScrollPane(mappingTable);
 
@@ -99,6 +142,16 @@ public class NewExcelImportDialog extends JDialog {
 
         loadMappingsFromDisk();
         updateTemplateBox();
+    }
+
+    private void saveAllMappings() {
+        try (FileWriter writer = new FileWriter(mappingsFile)) {
+            gson.toJson(mappings, writer);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Fehler beim Speichern:\n" + ex.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void loadMappingsFromDisk() {
