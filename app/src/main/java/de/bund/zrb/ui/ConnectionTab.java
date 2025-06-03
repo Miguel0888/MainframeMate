@@ -247,11 +247,6 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
     }
 
     @Override
-    public void setStructuredContent(String content, List<Map<String, Object>> feldDefinitionen, int maxRowCount) {
-        // No write support here
-    }
-
-    @Override
     public void markAsChanged() {
         // Optional: Visual indication, if ever needed
         // tabbedPaneManager.updateTitleFor(this);

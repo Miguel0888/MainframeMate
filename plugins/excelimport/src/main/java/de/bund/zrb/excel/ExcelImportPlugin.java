@@ -357,16 +357,6 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
         return new String(chars);
     }
 
-    private void insertTextIntoEditor(String text, List<Map<String, Object>> feldDefinitionen, String sentenceType) {
-        Optional<TabAdapter> optionalTab = context.getSelectedTab();
-
-        String content = null;
-        TabAdapter fileTab = optionalTab.orElseGet(() -> createNewFileTab(content, sentenceType)); // ToDo: Set content here
-
-        fileTab.setStructuredContent(text, feldDefinitionen, getMaxRowNumber(feldDefinitionen)); // ToDo: Remove
-        fileTab.markAsChanged(); // ToDo: Remove
-    }
-
     private TabAdapter createNewFileTab(String content, String sentenceType) {
         context.openFileTab(content, sentenceType);
         TabAdapter tabAdapter = context.getSelectedTab()

@@ -14,6 +14,7 @@ import de.zrb.bund.newApi.sentence.SentenceMeta;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -347,23 +348,18 @@ public class FileTab implements FtpTab, TabAdapter {
         updateUndoRedoState();
     }
 
-    @Deprecated // seitdem der editor selbst entscheidet, wie er inhalte highlightet, use setContent(String text, String sentenceType) instead
-    public void setStructuredContent(String text, List<Map<String, Object>> feldDefinitionen, int zeilenSchema) {
-        setContent(text); // Inhalt setzen (inkl. Undo)
-        highlightStructuredContent(text, feldDefinitionen, zeilenSchema);
-    }
-
     public void setContent(String text, String sentenceType) {
-        this.currentSentenceType = sentenceType; // Aktuelle Satzart speichern
-        setContent(text); // Inhalt setzen (inkl. Undo)
+        this.currentSentenceType = sentenceType;
+        setContent(text); // Undo etc.
 
         if (sentenceType == null || sentenceType.trim().isEmpty()) return;
 
-        // Satzart-Schema laden (case-insensitive Key-Suche)
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-        Map<String, SentenceDefinition> definitions = registry.getSentenceTypeSpec().getDefinitions();
-
-        SentenceDefinition def = definitions.entrySet().stream()
+        SentenceDefinition def = tabbedPaneManager
+                .getMainframeContext()
+                .getSentenceTypeRegistry()
+                .getSentenceTypeSpec()
+                .getDefinitions()
+                .entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(sentenceType))
                 .map(Map.Entry::getValue)
                 .findFirst()
@@ -371,22 +367,9 @@ public class FileTab implements FtpTab, TabAdapter {
 
         if (def == null || def.getFields() == null || def.getMeta() == null) return;
 
-        // Felder vorbereiten für Highlighting
-        List<Map<String, Object>> feldDefinitionen = new ArrayList<>();
-        for (SentenceField f : def.getFields()) {
-            Map<String, Object> feldMap = new java.util.HashMap<>();
-            feldMap.put("name", f.getName());
-            feldMap.put("pos", f.getPosition());
-            feldMap.put("len", f.getLength());
-            feldMap.put("row", f.getRow());
-            feldMap.put("pattern", f.getValuePattern()); // valuePattern // ToDo: validate value
-            feldMap.put("color", f.getColor());
-            feldDefinitionen.add(feldMap);
-        }
-
         int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
 
-        highlightStructuredContent(text, feldDefinitionen, schemaLines);
+        highlightStructuredContent(text, def.getFields(), schemaLines);
     }
 
     public void resetUndoHistory() {
@@ -463,7 +446,7 @@ public class FileTab implements FtpTab, TabAdapter {
         editor.setPaintTabLines(true);
     }
 
-    private void highlightStructuredContent(String content, List<Map<String, Object>> felder, int schemaLines) {
+    private void highlightStructuredContent(String content, List<SentenceField> fields, int schemaLines) {
         Highlighter highlighter = textArea.getHighlighter();
         highlighter.removeAllHighlights();
 
@@ -474,12 +457,12 @@ public class FileTab implements FtpTab, TabAdapter {
             int lineOffset = getLineStartOffset(lines, lineIndex);
             String line = lines[lineIndex];
 
-            for (Map<String, Object> feld : felder) {
-                int feldRow = feld.containsKey("row") ? getIntValue(feld.get("row")) - 1 : 0;
-                if (feldRow != schemaRow) continue;
+            for (SentenceField field : fields) {
+                int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
+                if (fieldRow != schemaRow) continue;
 
-                int start = getIntValue(feld.get("pos")) - 1;
-                int len = getIntValue(feld.get("len"));
+                int start = field.getPosition() != null ? field.getPosition() - 1 : 0;
+                int len = field.getLength() != null ? field.getLength() : 0;
                 if (start >= line.length()) continue;
 
                 int end = Math.min(line.length(), start + len);
@@ -488,7 +471,7 @@ public class FileTab implements FtpTab, TabAdapter {
                     highlighter.addHighlight(
                             lineOffset + start,
                             lineOffset + end,
-                            new DefaultHighlighter.DefaultHighlightPainter(getColorFor((String) feld.get("name"), feld))
+                            new DefaultHighlighter.DefaultHighlightPainter(getColorFor(field.getName(), field.getColor()))
                     );
                 } catch (BadLocationException e) {
                     e.printStackTrace();
@@ -496,6 +479,8 @@ public class FileTab implements FtpTab, TabAdapter {
             }
         }
     }
+
+
 
     private int getLineStartOffset(String[] lines, int lineIndex) {
         int offset = 0;
@@ -510,35 +495,35 @@ public class FileTab implements FtpTab, TabAdapter {
     }
 
 
-    private Color getColorFor(String name, Map<String, Object> feld) {
+    private Color getColorFor(String fieldName, String overrideColor) {
         Settings settings = SettingsHelper.load();
 
-        if (name == null && feld != null && feld.containsKey("value")) {
-            // Konstante, aber ohne Namen → grau, außer Settings-Override
-            String valueKey = "CONST_" + String.valueOf(feld.get("value")).toUpperCase();
+        if (fieldName == null && overrideColor != null) {
+            // Konstante ohne Namen, Farbe aus Settings versuchen (z. B. CONST_<VALUE>)
+            String valueKey = "CONST_" + overrideColor.toUpperCase();
             String hex = settings.fieldColorOverrides.get(valueKey);
             return hex != null ? Color.decode(hex) : Color.GRAY;
         }
 
-        if (name == null) {
+        if (fieldName == null) {
             return Color.GRAY;
         }
 
-        String hex = settings.fieldColorOverrides.get(name.toUpperCase());
+        // Settings-Override prüfen
+        String hex = settings.fieldColorOverrides.get(fieldName.toUpperCase());
         if (hex != null) {
             try {
                 return Color.decode(hex);
             } catch (NumberFormatException e) {
-                System.err.println("⚠️ Ungültige Farbdefinition für " + name + ": " + hex);
+                System.err.println("⚠️ Ungültige Farbdefinition für " + fieldName + ": " + hex);
             }
         }
 
-        // Dynamische Farbgenerierung für Felder mit Namen
-        int hash = Math.abs(name.hashCode());
+        // Dynamisch berechnete Farbe
+        int hash = Math.abs(fieldName.hashCode());
         float hue = (hash % 360) / 360f;
         return Color.getHSBColor(hue, 0.5f, 0.85f);
     }
-
 
     public FtpFileBuffer getBuffer() {
         return buffer;
