@@ -6,7 +6,6 @@ import de.zrb.bund.api.MainframeContext;
 import javax.swing.*;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
-import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -108,7 +107,7 @@ public class ExcelImportDialog extends JDialog {
         loadJsonButton = new JButton("...");
         loadJsonButton.setPreferredSize(new Dimension(30, 25));
         loadJsonButton.setToolTipText("Satzarten-Layout aus JSON laden");
-        loadJsonButton.addActionListener(e -> loadSatzartenJson());
+        loadJsonButton.addActionListener(e -> loadImportJson());
         gbc.gridx = 2;
         formPanel.add(loadJsonButton, gbc);
 
@@ -181,7 +180,7 @@ public class ExcelImportDialog extends JDialog {
         if (jsonPath != null && !jsonPath.isEmpty()) {
             File jsonFile = new File(jsonPath);
             if (jsonFile.exists()) {
-                loadSatzartenJson(jsonFile);
+                loadImportJson(jsonFile);
             }
         }
 
@@ -191,16 +190,16 @@ public class ExcelImportDialog extends JDialog {
         }
     }
 
-    private void loadSatzartenJson() {
+    private void loadImportJson() {
         JFileChooser chooser = new JFileChooser();
         int result = chooser.showOpenDialog(this);
         if (result == JFileChooser.APPROVE_OPTION) {
             File jsonFile = chooser.getSelectedFile();
-            loadSatzartenJson(jsonFile);
+            loadImportJson(jsonFile);
         }
     }
 
-    private void loadSatzartenJson(File jsonFile) {
+    private void loadImportJson(File jsonFile) {
         try (Reader reader = new InputStreamReader(new FileInputStream(jsonFile), StandardCharsets.UTF_8)) {
 
             com.google.gson.reflect.TypeToken<java.util.Map<String, Object>> typeToken =

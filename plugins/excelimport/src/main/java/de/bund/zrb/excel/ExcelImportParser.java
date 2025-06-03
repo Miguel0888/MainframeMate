@@ -10,30 +10,6 @@ import java.util.*;
 
 public class ExcelImportParser {
 
-    public static String readExcelAsCsv(File excelFile, boolean evaluateFormulas) throws IOException, InvalidFormatException {
-        Workbook workbook = new XSSFWorkbook(excelFile);
-        Sheet sheet = workbook.getSheetAt(0);
-        FormulaEvaluator evaluator = evaluateFormulas ? workbook.getCreationHelper().createFormulaEvaluator() : null;
-
-        StringBuilder sb = new StringBuilder();
-        for (Row row : sheet) {
-            boolean first = true;
-            for (Cell cell : row) {
-                if (!first) sb.append(",");
-                sb.append(getCellValue(cell, evaluator));
-                first = false;
-            }
-            sb.append("\n");
-        }
-        workbook.close();
-        return sb.toString();
-    }
-
-    public static Map<String, List<String>> readExcelAsTable(File excelFile, boolean evaluateFormulas)
-            throws IOException, InvalidFormatException {
-        return readExcelAsTable(excelFile, evaluateFormulas, -1);
-    }
-
     public static Map<String, List<String>> readExcelAsTable(File excelFile, boolean evaluateFormulas, int headerRowIndex)
             throws IOException, InvalidFormatException {
         Workbook workbook = new XSSFWorkbook(excelFile);

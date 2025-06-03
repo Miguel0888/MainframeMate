@@ -3,6 +3,7 @@ package de.zrb.bund.api;
 import de.zrb.bund.newApi.ToolRegistry;
 
 import javax.swing.*;
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +32,8 @@ public interface MainframeContext {
     ToolRegistry getToolRegistry();
 
     SentenceTypeRegistry getSentenceTypeRegistry();
+
+    File getSettingsFolder();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

@@ -21,6 +21,7 @@ import javax.swing.plaf.FontUIResource;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.*;
@@ -389,5 +390,10 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public SentenceTypeRegistry getSentenceTypeRegistry() {
         return SentenceTypeRegistryImpl.getInstance();
+    }
+
+    @Override
+    public File getSettingsFolder() {
+        return SettingsHelper.getSettingsFolder();
     }
 }

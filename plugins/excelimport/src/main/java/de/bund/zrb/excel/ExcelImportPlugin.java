@@ -3,6 +3,7 @@ package de.bund.zrb.excel;
 import de.bund.zrb.excel.commands.ExcelImportCommand;
 import de.bund.zrb.excel.commands.ExcelSettingsCommand;
 import de.bund.zrb.excel.dialogs.ExcelImportDialog;
+import de.bund.zrb.excel.dialogs.NewExcelImportDialog;
 import de.bund.zrb.excel.mcp.ImportExcelTool;
 import de.zrb.bund.api.Command;
 import de.zrb.bund.api.TabAdapter;
@@ -71,82 +72,82 @@ public class ExcelImportPlugin implements MainframeMatePlugin {
     }
 
     public void handleImport() {
-        ExcelImportDialog dialog = new ExcelImportDialog(context);
+        NewExcelImportDialog dialog = new NewExcelImportDialog(context);
         dialog.setVisible(true);
-        if (!dialog.isConfirmed()) return;
+//        if (!dialog.isConfirmed()) return;
 
-        File excelFile = dialog.getExcelFile();
-        if (excelFile == null || !excelFile.exists()) {
-            showError(context.getMainFrame(), "Excel-Datei wurde nicht gefunden.");
-            return;
-        }
+//        File excelFile = dialog.getExcelFile();
+//        if (excelFile == null || !excelFile.exists()) {
+//            showError(context.getMainFrame(), "Excel-Datei wurde nicht gefunden.");
+//            return;
+//        }
+//
+//        String satzartName = dialog.getSelectedSatzart();
+//        if (satzartName == null || satzartName.trim().isEmpty()) {
+//            showError(context.getMainFrame(), "Bitte wähle eine Satzart aus.");
+//            return;
+//        }
 
-        String satzartName = dialog.getSelectedSatzart();
-        if (satzartName == null || satzartName.trim().isEmpty()) {
-            showError(context.getMainFrame(), "Bitte wähle eine Satzart aus.");
-            return;
-        }
+//        Map<String, Object> satzartenMap = dialog.getSatzartenMap();
+//        if (satzartenMap == null || satzartenMap.isEmpty()) {
+//            showError(context.getMainFrame(), "Es wurde kein gültiges Satzarten-Layout geladen.");
+//            return;
+//        }
 
-        Map<String, Object> satzartenMap = dialog.getSatzartenMap();
-        if (satzartenMap == null || satzartenMap.isEmpty()) {
-            showError(context.getMainFrame(), "Es wurde kein gültiges Satzarten-Layout geladen.");
-            return;
-        }
-
-        try {
-            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(
-                    excelFile,
-                    dialog.isHeaderEnabled(),
-                    dialog.getHeaderRowIndex()
-            );
-
-            // 🆕 Satzart und Felder extrahieren
-            Map<String, Object> satzart = getSatzartDefinition(satzartenMap, satzartName);
-            if (satzart == null) return;
-
-            List<Map<String, Object>> felder = getFeldDefinitionen(satzart, satzartName);
-            if (felder == null) return;
-
-            // 🆕 Übergib felder explizit
-            String formatted = formatFixedWidthBySatzart(table, felder, satzartName);
-
-            if (formatted == null || formatted.trim().isEmpty()) {
-                showError(context.getMainFrame(), "Kein Inhalt wurde erzeugt – bitte prüfe die Felddefinition oder die Excel-Datei.");
-                return;
-            }
-
-            // An bestehende Datei anhängen?
-            if (dialog.shouldAppend()) {
-                Optional<TabAdapter> optionalTab = context.getSelectedTab();
-                String existing = optionalTab.map(TabAdapter::getContent).orElse("");
-                String trennzeile = dialog.getTrennzeile();
-
-                String separator = (trennzeile != null && !trennzeile.trim().isEmpty())
-                        ? trennzeile + "\n"
-                        : "";
-
-                formatted = existing + separator + formatted;
-            }
-
-            insertTextIntoEditor(formatted, felder, satzartName);
-
-            Map<String, String> settings = getPluginSettings();
-            boolean showConfirmation = Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"));
-
-            if (showConfirmation) {
-                JOptionPane.showMessageDialog(context.getMainFrame(),
-                        "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
-                        "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
-            }
-
-        } catch (InvalidFormatException ex) {
-            showError(context.getMainFrame(), "Die gewählte Datei ist kein gültiges Excel-Dokument.");
-        } catch (IOException ex) {
-            showError(context.getMainFrame(), "Fehler beim Lesen der Datei:\n" + ex.getMessage());
-        } catch (Exception ex) {
-            showError(context.getMainFrame(), "Unerwarteter Fehler:\n" + ex.getMessage());
-            ex.printStackTrace();
-        }
+//        try {
+//            Map<String, List<String>> table = ExcelImportParser.readExcelAsTable(
+//                    excelFile,
+//                    dialog.isHeaderEnabled(),
+//                    dialog.getHeaderRowIndex()
+//            );
+//
+//            // 🆕 Satzart und Felder extrahieren
+//            Map<String, Object> satzart = getSatzartDefinition(satzartenMap, satzartName);
+//            if (satzart == null) return;
+//
+//            List<Map<String, Object>> felder = getFeldDefinitionen(satzart, satzartName);
+//            if (felder == null) return;
+//
+//            // 🆕 Übergib felder explizit
+//            String formatted = formatFixedWidthBySatzart(table, felder, satzartName);
+//
+//            if (formatted == null || formatted.trim().isEmpty()) {
+//                showError(context.getMainFrame(), "Kein Inhalt wurde erzeugt – bitte prüfe die Felddefinition oder die Excel-Datei.");
+//                return;
+//            }
+//
+//            // An bestehende Datei anhängen?
+//            if (dialog.shouldAppend()) {
+//                Optional<TabAdapter> optionalTab = context.getSelectedTab();
+//                String existing = optionalTab.map(TabAdapter::getContent).orElse("");
+//                String trennzeile = dialog.getTrennzeile();
+//
+//                String separator = (trennzeile != null && !trennzeile.trim().isEmpty())
+//                        ? trennzeile + "\n"
+//                        : "";
+//
+//                formatted = existing + separator + formatted;
+//            }
+//
+//            insertTextIntoEditor(formatted, felder, satzartName);
+//
+//            Map<String, String> settings = getPluginSettings();
+//            boolean showConfirmation = Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"));
+//
+//            if (showConfirmation) {
+//                JOptionPane.showMessageDialog(context.getMainFrame(),
+//                        "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
+//                        "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
+//            }
+//
+//        } catch (InvalidFormatException ex) {
+//            showError(context.getMainFrame(), "Die gewählte Datei ist kein gültiges Excel-Dokument.");
+//        } catch (IOException ex) {
+//            showError(context.getMainFrame(), "Fehler beim Lesen der Datei:\n" + ex.getMessage());
+//        } catch (Exception ex) {
+//            showError(context.getMainFrame(), "Unerwarteter Fehler:\n" + ex.getMessage());
+//            ex.printStackTrace();
+//        }
     }
 
     private String formatFixedWidthBySatzart(Map<String, List<String>> table, List<Map<String, Object>> felder, String satzartName) {
