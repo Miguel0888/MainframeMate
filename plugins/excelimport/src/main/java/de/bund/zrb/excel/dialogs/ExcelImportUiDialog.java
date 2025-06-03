@@ -4,6 +4,8 @@ import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 public class ExcelImportUiDialog extends JDialog {
 
@@ -24,6 +26,7 @@ public class ExcelImportUiDialog extends JDialog {
 
         okButton.addActionListener(e -> {
             // Hier ggf. Logik
+            uiPanel.saveSettingsToContext(context);
             setVisible(false);
         });
 

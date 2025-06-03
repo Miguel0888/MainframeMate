@@ -5,8 +5,19 @@ import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.File;
+import java.util.Map;
 
 public class ExcelImportUiPanel extends JPanel {
+
+    private static final String PLUGIN_KEY = "excelImporter";
+    private static final String KEY_EXCEL = "lastExcelPath";
+    private static final String KEY_HEADER_ENABLED = "headerEnabled";
+    private static final String KEY_HEADER_ROW = "headerRow";
+    private static final String KEY_APPEND = "append";
+    private static final String KEY_TRENNZEILE = "trennzeile";
+
+    private File selectedExcelFile;
 
     private final JLabel excelFileLabel = new JLabel("<keine Datei ausgewählt>");
     private final JButton excelFileButton = new JButton("...");
@@ -43,6 +54,14 @@ public class ExcelImportUiPanel extends JPanel {
         gbc.weightx = 0;
         excelFileButton.setPreferredSize(new Dimension(30, 25));
         excelFileButton.setToolTipText("Excel-Datei auswählen");
+        excelFileButton.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            int result = chooser.showOpenDialog(this);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                selectedExcelFile = chooser.getSelectedFile();
+                excelFileLabel.setText(selectedExcelFile.getAbsolutePath());
+            }
+        });
         formPanel.add(excelFileButton, gbc);
 
         // Zeile 2: Header-Checkbox + Spinner
@@ -113,6 +132,7 @@ public class ExcelImportUiPanel extends JPanel {
         });
 
         updateTemplateDropdown();
+        loadSettingsFromContext(context);
     }
 
     private void updateTemplateDropdown() {
@@ -155,4 +175,55 @@ public class ExcelImportUiPanel extends JPanel {
     public JTextField getTrennzeileField() {
         return trennzeileField;
     }
+
+    public void loadSettingsFromContext(MainframeContext context) {
+        Map<String, String> settings = context.loadPluginSettings(PLUGIN_KEY);
+
+        // Excel-Datei
+        String excelPath = settings.get(KEY_EXCEL);
+        if (excelPath != null && !excelPath.isEmpty()) {
+            File file = new File(excelPath);
+            if (file.exists()) {
+                selectedExcelFile = file;
+                excelFileLabel.setText(file.getAbsolutePath());
+            }
+        }
+
+        // Header-Zeile
+        headerCheckbox.setSelected(Boolean.parseBoolean(settings.getOrDefault(KEY_HEADER_ENABLED, "true")));
+        headerRowSpinner.setEnabled(headerCheckbox.isSelected());
+
+        try {
+            int headerRow = Integer.parseInt(settings.getOrDefault(KEY_HEADER_ROW, "1"));
+            headerRowSpinner.setValue(Math.max(1, headerRow));
+        } catch (NumberFormatException e) {
+            headerRowSpinner.setValue(1);
+        }
+
+        // Anfügen
+        appendCheckbox.setSelected(Boolean.parseBoolean(settings.getOrDefault(KEY_APPEND, "false")));
+        trennzeileField.setEnabled(appendCheckbox.isSelected());
+
+        // Trennzeile
+        String trennzeile = settings.get(KEY_TRENNZEILE);
+        if (trennzeile != null) {
+            trennzeileField.setText(trennzeile);
+        }
+    }
+
+    public void saveSettingsToContext(MainframeContext context) {
+        Map<String, String> settings = context.loadPluginSettings(PLUGIN_KEY);
+
+        if (selectedExcelFile != null) {
+            settings.put(KEY_EXCEL, selectedExcelFile.getAbsolutePath());
+        }
+
+        settings.put(KEY_HEADER_ENABLED, Boolean.toString(headerCheckbox.isSelected()));
+        settings.put(KEY_HEADER_ROW, String.valueOf(headerRowSpinner.getValue()));
+        settings.put(KEY_APPEND, Boolean.toString(appendCheckbox.isSelected()));
+        settings.put(KEY_TRENNZEILE, trennzeileField.getText());
+
+        context.savePluginSettings(PLUGIN_KEY, settings);
+    }
+
 }
