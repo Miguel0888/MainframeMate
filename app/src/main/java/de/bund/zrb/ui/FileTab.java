@@ -106,6 +106,7 @@ public class FileTab implements FtpTab, TabAdapter {
 
         textArea.addCaretListener(e -> updateLegendByCaret()); // set the corresponding legend automatically
         textArea.setCodeFoldingEnabled(true);
+
     }
 
     @Override
