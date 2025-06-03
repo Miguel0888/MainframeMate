@@ -1,5 +1,6 @@
 package de.bund.zrb.excel.dialogs;
 
+import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
@@ -18,8 +19,10 @@ public class ExcelImportUiPanel extends JPanel {
 
     private final JCheckBox appendCheckbox = new JCheckBox("An bestehende Datei anhängen");
     private final JTextField trennzeileField = new JTextField();
+    private final TemplateRepository templateRepo;
 
     public ExcelImportUiPanel(MainframeContext context) {
+        this.templateRepo = new TemplateRepository(context.getSettingsFolder());
 
         setLayout(new BorderLayout());
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -101,17 +104,24 @@ public class ExcelImportUiPanel extends JPanel {
             dialog.setModal(true);
             dialog.setVisible(true);
 
-            // Wenn Dialog geschlossen wurde, neue Vorlage übernehmen
+            updateTemplateDropdown();
+
             String lastSaved = dialog.getLastSavedTemplateName();
             if (lastSaved != null && !lastSaved.trim().isEmpty()) {
-                if (((DefaultComboBoxModel<String>) templateDropdown.getModel()).getIndexOf(lastSaved) == -1) {
-                    templateDropdown.addItem(lastSaved);
-                }
                 templateDropdown.setSelectedItem(lastSaved);
             }
         });
 
+        updateTemplateDropdown();
     }
+
+    private void updateTemplateDropdown() {
+        templateDropdown.removeAllItems();
+        for (String name : templateRepo.getTemplateNames()) {
+            templateDropdown.addItem(name);
+        }
+    }
+
 
     // Getter für externe Logik
     public JButton getExcelFileButton() {

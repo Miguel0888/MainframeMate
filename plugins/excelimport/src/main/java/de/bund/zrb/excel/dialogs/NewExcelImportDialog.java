@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.model.ExcelMappingEntry;
+import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceField;
@@ -32,6 +33,7 @@ public class NewExcelImportDialog extends JDialog {
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     private final Map<String, List<String>> sentenceFields = new HashMap<>();
+    private final TemplateRepository templateRepo;
     private Map<String, ExcelMapping> mappings;
 
     private String lastSavedTemplateName;
@@ -39,6 +41,7 @@ public class NewExcelImportDialog extends JDialog {
     public NewExcelImportDialog(MainframeContext context) {
         super(context.getMainFrame(), "Neue Excel-Mapping-Vorlage", true);
         this.context = context;
+        this.templateRepo = new TemplateRepository(context.getSettingsFolder());
         mappingsFile = new File(context.getSettingsFolder(), "import.json");
         setSize(750, 500);
         setLocationRelativeTo(context.getMainFrame());
@@ -80,7 +83,7 @@ public class NewExcelImportDialog extends JDialog {
         deleteBtn.setMargin(new Insets(2, 4, 2, 4));
         deleteBtn.addActionListener(e -> {
             String name = (String) templateBox.getEditor().getItem();
-            if (name != null && mappings.containsKey(name)) {
+            if (name != null && templateRepo.getTemplate(name) != null) {
                 int confirm = JOptionPane.showConfirmDialog(
                         this,
                         "Vorlage „" + name + "“ wirklich löschen?",
@@ -88,14 +91,14 @@ public class NewExcelImportDialog extends JDialog {
                         JOptionPane.YES_NO_OPTION
                 );
                 if (confirm == JOptionPane.YES_OPTION) {
-                    mappings.remove(name);
-                    saveAllMappings();
+                    templateRepo.deleteTemplate(name);
                     updateTemplateBox();
                     templateBox.setSelectedItem("");
                     tableModel.setRowCount(0);
                 }
             }
         });
+
 
         JPanel buttonRow = new JPanel(new GridLayout(1, 2, 2, 0));
         buttonRow.add(newBtn);
@@ -189,18 +192,19 @@ public class NewExcelImportDialog extends JDialog {
         String selected = (String) templateBox.getEditor().getItem();
 
         templateBox.removeAllItems();
-        for (String name : mappings.keySet()) {
+        for (String name : templateRepo.getTemplateNames()) {
             templateBox.addItem(name);
         }
 
-        if (selected != null && mappings.containsKey(selected)) {
+        if (selected != null && templateRepo.getTemplateNames().contains(selected)) {
             templateBox.setSelectedItem(selected);
-        } else if (!mappings.isEmpty()) {
-            templateBox.setSelectedItem(mappings.keySet().iterator().next());
+        } else if (!templateRepo.getTemplateNames().isEmpty()) {
+            templateBox.setSelectedItem(templateRepo.getTemplateNames().iterator().next());
         } else {
             templateBox.setSelectedItem(null);
         }
     }
+
 
     private void loadMappingToTable(ExcelMapping mapping) {
         sentenceTypeBox.setSelectedItem(mapping.getSentenceType());
@@ -347,16 +351,9 @@ public class NewExcelImportDialog extends JDialog {
             mapping.addEntry(entry);
         }
 
-        mappings.put(name, mapping);
-        try (FileWriter writer = new FileWriter(mappingsFile)) {
-            gson.toJson(mappings, writer);
-            updateTemplateBox();
-//            JOptionPane.showMessageDialog(this, "Mapping gespeichert.", "Erfolg", JOptionPane.INFORMATION_MESSAGE);
-        } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this, "Fehler beim Speichern:\n" + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
+        templateRepo.saveTemplate(name, mapping);
+        updateTemplateBox();
     }
-
 
     private String getString(int row, int col) {
         Object val = tableModel.getValueAt(row, col);
