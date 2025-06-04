@@ -42,14 +42,14 @@ public class RegexFoldParser implements org.fife.ui.rsyntaxtextarea.folding.Fold
             int lastVisibleLine = 0; // Erste Zeile immer sichtbar
             for (int matchLine : matchLines) {
                 if (matchLine - lastVisibleLine > 1) {  // nur falten wenn es dazwischen mindestens eine Zeile zu verbergen gibt
-                    addFold(textArea, folds, lastVisibleLine, matchLine-1);
+                    addFold(textArea, folds, lastVisibleLine, matchLine-2);
                 }
                 lastVisibleLine = matchLine;
             }
 
             // Bereich nach letztem sichtbaren Match
             if (lastVisibleLine < lineCount - 1) {
-                addFold(textArea, folds, lastVisibleLine, lineCount - 1);
+                addFold(textArea, folds, lastVisibleLine, lineCount - 2);
             }
 
         } catch (BadLocationException e) {
@@ -67,7 +67,7 @@ public class RegexFoldParser implements org.fife.ui.rsyntaxtextarea.folding.Fold
         if (startLine > endLine) return;
 
         int startOffset = textArea.getLineStartOffset(startLine);
-        int endOffset = textArea.getLineEndOffset(endLine-1);
+        int endOffset = textArea.getLineEndOffset(endLine);
 
         Fold fold = new Fold(FoldType.CODE, textArea, startOffset);
         fold.setEndOffset(endOffset);

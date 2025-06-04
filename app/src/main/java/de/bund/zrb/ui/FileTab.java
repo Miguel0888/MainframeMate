@@ -226,7 +226,7 @@ public class FileTab implements FtpTab, TabAdapter {
         JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 2));
         JTextField grepField = new JTextField(30);
         grepField.setToolTipText("Regulärer Ausdruck für Zeilenfilterung");
-        centerPanel.add(new JLabel("🔍 Grep:"));
+//        centerPanel.add(new JLabel("🔍 Grep:"));
         centerPanel.add(grepField);
 
         grepField.getDocument().addDocumentListener(new DocumentListener() {
