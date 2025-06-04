@@ -22,6 +22,7 @@ public class Settings {
 
     public String encoding = "ISO-8859-1"; // Standardwert
     public boolean hideLoginDialog = false;
+    public boolean soundEnabled = true;
 
     // Plugin-Settings pro Plugin-Name
     public Map<String, Map<String, String>> pluginSettings = new LinkedHashMap<>();

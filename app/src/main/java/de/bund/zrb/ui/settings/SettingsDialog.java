@@ -35,6 +35,7 @@ public class SettingsDialog {
     private static JButton openFolderButton;
     private static JCheckBox autoConnectBox;
     private static JCheckBox hideLoginBox;
+    private static JCheckBox enableSound;
     private static JSpinner marginSpinner;
     private static JComboBox<String> paddingBox;
     private static JComboBox<String> endMarkerBox;
@@ -149,6 +150,12 @@ public class SettingsDialog {
         autoConnectBox = new JCheckBox("Automatisch verbinden (beim Start)");
         autoConnectBox.setSelected(settings.autoConnect);
         generalContent.add(autoConnectBox, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Sounds abspielen
+        enableSound = new JCheckBox("Sounds abspielen");
+        enableSound.setSelected(settings.soundEnabled);
+        generalContent.add(enableSound, gbcGeneral);
         gbcGeneral.gridy++;
 
         // User Profile Folder
@@ -585,6 +592,7 @@ public class SettingsDialog {
             settings.padding = PaddingOption.normalizeInput(paddingBox.getSelectedItem());
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.hideLoginDialog = hideLoginBox.isSelected();
+            settings.soundEnabled = enableSound.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
             settings.ftpFileType = ComboBoxHelper.getSelectedEnumValue(typeBox, FtpFileType.class);
             settings.ftpTextFormat = ComboBoxHelper.getSelectedEnumValue(formatBox, FtpTextFormat.class);

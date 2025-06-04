@@ -58,9 +58,11 @@ public class FileTab implements FtpTab, TabAdapter {
 
     private int currentLegendRowIndex = 0;
     private int currentMaxRows = 1;
+    private boolean soundEnabled = true;
 
     public FileTab(TabbedPaneManager tabbedPaneManager, String content, String sentenceType) {
         this(tabbedPaneManager, (FtpManager) null, (FtpFileBuffer) null);
+        soundEnabled = SettingsHelper.load().soundEnabled;
         if(content != null) {
             textArea.setText(content);
         }
@@ -226,6 +228,22 @@ public class FileTab implements FtpTab, TabAdapter {
         JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 2));
         JTextField grepField = new JTextField(30);
         grepField.setToolTipText("Regulärer Ausdruck für Zeilenfilterung");
+        grepField.setToolTipText(
+                "<html>" +
+                        "Regulärer Ausdruck für die Zeilenfilterung<br>" +
+                        "<br>" +
+                        "<b>Beispiele:</b><br>" +
+                        "&bull; <code>abc</code> – enthält 'abc'<br>" +
+                        "&bull; <code>^abc</code> – beginnt mit 'abc'<br>" +
+                        "&bull; <code>abc$</code> – endet mit 'abc'<br>" +
+                        "&bull; <code>.*test.*</code> – enthält 'test' (beliebiger Kontext)<br>" +
+                        "&bull; <code>\\d+</code> – enthält eine oder mehrere Ziffern<br>" +
+                        "&bull; <code>[A-Z]{3}</code> – genau drei Großbuchstaben<br>" +
+                        "<br>" +
+                        "Hinweis: Die Suche ist <b>nicht</b> groß-/kleinschreibungssensitiv.<br>" +
+                        "Alle Zeilen, die nicht passen, werden gefaltet." +
+                        "</html>"
+        );
 //        centerPanel.add(new JLabel("🔍 Grep:"));
         centerPanel.add(grepField);
 
@@ -243,6 +261,23 @@ public class FileTab implements FtpTab, TabAdapter {
             @Override
             public void changedUpdate(DocumentEvent e) {
                 applyGrepFilter(grepField.getText());
+            }
+
+            private void applyGrepFilter(String input) {
+                RegexFoldParser parser = new RegexFoldParser(input, hasMatch -> {
+                    if (!hasMatch && !input.trim().isEmpty()) {
+                        grepField.setBackground(new Color(255, 200, 200));
+                        if(soundEnabled)
+                        {
+                            Toolkit.getDefaultToolkit().beep(); // einfacher Standardsound
+                        }
+                    } else {
+                        grepField.setBackground(UIManager.getColor("TextField.background"));
+                    }
+                });
+
+                textArea.getFoldManager().setFolds(parser.getFolds(textArea));
+                textArea.repaint();
             }
         });
 
@@ -687,29 +722,5 @@ public class FileTab implements FtpTab, TabAdapter {
     public String getCurrentSentenceType() {
         return Objects.requireNonNull(sentenceComboBox.getSelectedItem()).toString();
     }
-
-    private void applyGrepFilter(String regex) {
-        if (regex == null || regex.trim().isEmpty()) {
-            textArea.getFoldManager().clear();
-            textArea.repaint();
-            return;
-        }
-
-        try {
-            // Regex parsen und Folds berechnen
-            RegexFoldParser parser = new RegexFoldParser(regex);
-            List<Fold> folds = parser.getFolds(textArea);
-
-            // Auf TextArea anwenden
-            textArea.getFoldManager().setFolds(folds);
-            textArea.repaint();
-
-        } catch (PatternSyntaxException e) {
-            // Bei ungültigem Pattern: alles zeigen
-            textArea.getFoldManager().clear();
-            textArea.repaint();
-        }
-    }
-
 
 }

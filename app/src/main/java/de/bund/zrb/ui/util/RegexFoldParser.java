@@ -7,18 +7,33 @@ import org.fife.ui.rsyntaxtextarea.folding.FoldType;
 import javax.swing.text.BadLocationException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 public class RegexFoldParser implements org.fife.ui.rsyntaxtextarea.folding.FoldParser {
 
-    private final String searchString;
+    private final Pattern pattern;
+    private final Consumer<Boolean> matchResultCallback;
 
-    public RegexFoldParser(String searchString) {
-        this.searchString = searchString != null ? searchString.trim() : "";
+    public RegexFoldParser(String searchString, Consumer<Boolean> matchResultCallback) {
+        if (searchString == null || searchString.trim().isEmpty()) {
+            this.pattern = null;
+        } else {
+            // Alles in Großbuchstaben wandeln und case-insensitive Pattern erzeugen
+            this.pattern = Pattern.compile(searchString.toUpperCase(), Pattern.CASE_INSENSITIVE);
+        }
+
+        this.matchResultCallback = matchResultCallback != null ? matchResultCallback : matched -> {};
     }
 
     @Override
     public List<Fold> getFolds(RSyntaxTextArea textArea) {
         List<Fold> folds = new ArrayList<>();
+
+        if (pattern == null) {
+            matchResultCallback.accept(false);
+            return folds;
+        }
 
         try {
             int lineCount = textArea.getLineCount();
@@ -29,10 +44,14 @@ public class RegexFoldParser implements org.fife.ui.rsyntaxtextarea.folding.Fold
                 int startOffset = textArea.getLineStartOffset(i);
                 int endOffset = textArea.getLineEndOffset(i);
                 String line = textArea.getText(startOffset, endOffset - startOffset);
+
                 if (matches(line)) {
                     matchLines.add(i);
                 }
             }
+
+            // Ergebnis an Callback melden
+            matchResultCallback.accept(!matchLines.isEmpty());
 
             if (matchLines.isEmpty()) {
                 return folds; // Nichts zu tun
@@ -60,7 +79,7 @@ public class RegexFoldParser implements org.fife.ui.rsyntaxtextarea.folding.Fold
     }
 
     private boolean matches(String line) {
-        return !searchString.isEmpty() && line.contains(searchString);
+        return pattern.matcher(line.toUpperCase()).find();
     }
 
     private void addFold(RSyntaxTextArea textArea, List<Fold> folds, int startLine, int endLine) throws BadLocationException {
