@@ -7,10 +7,13 @@ import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.TabType;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -22,6 +25,9 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
     private final DefaultListModel<String> listModel = new DefaultListModel<>();
     private final JList<String> fileList = new JList<>(listModel);
     private final TabbedPaneManager tabbedPaneManager;
+
+    private final JTextField searchField = new JTextField();
+    private List<String> currentDirectoryFiles = new ArrayList<>();
 
     public ConnectionTab(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
@@ -118,21 +124,6 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
         }
     }
 
-    private void updateFileList() {
-        SwingUtilities.invokeLater(() -> {
-            listModel.clear();
-            try {
-                List<String> files = ftpManager.listDirectory();
-                for (String file : files) {
-                    listModel.addElement(file);
-                }
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        });
-    }
-
     @Override
     public JPopupMenu createContextMenu(Runnable onCloseCallback) {
         JPopupMenu menu = new JPopupMenu();
@@ -151,6 +142,7 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
         return menu;
     }
 
+    // Statusleiste mit Filterfeld in der Mitte
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
@@ -176,6 +168,7 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
 
         // Einfügen
         statusBar.add(leftPanel, BorderLayout.WEST);
+        statusBar.add(createFilterPanel(), BorderLayout.CENTER);
         statusBar.add(rightPanel, BorderLayout.EAST);
 
         return statusBar;
@@ -261,4 +254,52 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
     public TabType getType() {
         return TabType.CONNECTION;
     }
+
+    // Suchfeld ins UI einbauen
+    private JPanel createFilterPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        searchField.setToolTipText("Zeilenfilter: Teilstring oder Regex, groß/klein ignoriert");
+        panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
+        panel.add(searchField, BorderLayout.CENTER);
+
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            private void filter() {
+                String query = searchField.getText().trim().toUpperCase();
+                listModel.clear();
+                boolean hasMatch = false;
+                for (String file : currentDirectoryFiles) {
+                    if (file.toUpperCase().contains(query)) {
+                        listModel.addElement(file);
+                        hasMatch = true;
+                    }
+                }
+                searchField.setBackground(hasMatch || query.isEmpty()
+                        ? UIManager.getColor("TextField.background")
+                        : new Color(255, 200, 200));
+            }
+            public void insertUpdate(DocumentEvent e) { filter(); }
+            public void removeUpdate(DocumentEvent e) { filter(); }
+            public void changedUpdate(DocumentEvent e) { filter(); }
+        });
+        return panel;
+    }
+
+    // updateFileList anpassen:
+    private void updateFileList() {
+        SwingUtilities.invokeLater(() -> {
+            listModel.clear();
+            try {
+                List<String> files = ftpManager.listDirectory();
+                currentDirectoryFiles = files;
+                for (String file : files) {
+                    listModel.addElement(file);
+                }
+                searchField.setText(""); // Filter zurücksetzen
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+    }
+
 }
