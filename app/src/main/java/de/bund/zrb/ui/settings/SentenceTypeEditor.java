@@ -1,5 +1,7 @@
 package de.bund.zrb.ui.settings;
 
+import de.bund.zrb.ui.settings.pojo.FieldTableModel;
+import de.bund.zrb.ui.settings.pojo.PathsTableModel;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceField;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
@@ -7,10 +9,8 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.table.AbstractTableModel;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Set;
 
 public class SentenceTypeEditor extends JPanel {
 
@@ -138,16 +138,17 @@ public class SentenceTypeEditor extends JPanel {
         // Buttons für Felder
         JButton addFieldButton = new JButton("➕ Feld");
         addFieldButton.addActionListener(e -> {
-            fieldModel.fields.add(new SentenceField());
-            fieldModel.fireTableDataChanged();
+            SentenceField newField = new SentenceField();
+            newField.setPosition(generateFreePosition()); // z. B. nächste freie Position
+            fieldModel.addField(newField);
+
         });
 
         JButton removeFieldButton = new JButton("❌ Entfernen");
         removeFieldButton.addActionListener(e -> {
             int selected = fieldTable.getSelectedRow();
             if (selected >= 0) {
-                fieldModel.fields.remove(selected);
-                fieldModel.fireTableDataChanged();
+                fieldModel.removeField(selected);
             }
         });
 
@@ -155,7 +156,7 @@ public class SentenceTypeEditor extends JPanel {
         colorButton.addActionListener(e -> {
             int selected = fieldTable.getSelectedRow();
             if (selected >= 0) {
-                SentenceField f = fieldModel.fields.get(selected);
+                SentenceField f = fieldModel.getFieldAt(selected);
                 String colorValue = f.getColor();
                 if (colorValue == null || colorValue.trim().isEmpty()) {
                     colorValue = "#000000";
@@ -216,7 +217,7 @@ public class SentenceTypeEditor extends JPanel {
         meta.setAppend(appendCheckbox.isSelected());
 
         def.setMeta(meta);
-        def.setFields(new ArrayList<>(fieldModel.fields));
+        def.setFields(fieldModel.getFields());
 
         if (!sanitizeAndCheck(def)) return null;
 
@@ -224,7 +225,7 @@ public class SentenceTypeEditor extends JPanel {
     }
 
     private boolean sanitizeAndCheck(SentenceDefinition def) {
-        for (SentenceField f : def.getFields()) {
+        for (SentenceField f : def.getFields().values()) {
             // Set default color if empty or null
             if (f.getColor() == null || f.getColor().trim().isEmpty()) {
                 f.setColor("#FFFFFF");
@@ -259,7 +260,6 @@ public class SentenceTypeEditor extends JPanel {
      */
     public void setData(String name, SentenceDefinition def) {
         nameField.setText(name);
-        // merken!
         originalKey = name;
 
         if (def.getMeta() != null) {
@@ -268,134 +268,17 @@ public class SentenceTypeEditor extends JPanel {
             pathsModel.setPaths(def.getMeta().getPaths());
         }
 
-        fieldModel.fields = new ArrayList<>(def.getFields());
-        fieldModel.fireTableDataChanged();
+        fieldModel.setFields(def.getFields());
     }
 
-    private static class FieldTableModel extends AbstractTableModel {
-        private final String[] cols = {"Name", "Pos", "Länge", "Zeile", "Schema", "Farbe"};
-        private List<SentenceField> fields = new ArrayList<>();
-
-        @Override
-        public int getRowCount() {
-            return fields.size();
+    private int generateFreePosition() {
+        Set<Integer> used = fieldModel.getFields().keySet();
+        int pos = 1;
+        while (used.contains(pos)) {
+            pos++;
         }
-
-        @Override
-        public int getColumnCount() {
-            return cols.length;
-        }
-
-        @Override
-        public String getColumnName(int col) {
-            return cols[col];
-        }
-
-        @Override
-        public Object getValueAt(int row, int col) {
-            SentenceField f = fields.get(row);
-            switch (col) {
-                case 0: return f.getName();
-                case 1: return f.getPosition();
-                case 2: return f.getLength();
-                case 3: return f.getRow();
-                case 4: return f.getValuePattern();
-                case 5: return f.getColor();
-                default: return null;
-            }
-        }
-
-        @Override
-        public void setValueAt(Object value, int row, int col) {
-            SentenceField f = fields.get(row);
-            switch (col) {
-                case 0: f.setName((String) value); break;
-                case 1: f.setPosition(toInt(value)); break;
-                case 2: f.setLength(toInt(value)); break;
-                case 3: f.setRow(toInt(value)); break;
-                case 4: f.setValuePattern((String) value); break;
-                case 5: f.setColor((String) value); break;
-            }
-        }
-
-        @Override
-        public boolean isCellEditable(int row, int col) {
-            return true;
-        }
-
-        @Override
-        public Class<?> getColumnClass(int col) {
-            return String.class;
-        }
-
-        private Integer toInt(Object val) {
-            try {
-                return val == null ? null : Integer.parseInt(val.toString());
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
+        return pos;
     }
 
-    private static class PathsTableModel extends AbstractTableModel {
-        private final List<String> paths = new ArrayList<>();
-
-        @Override
-        public int getRowCount() {
-            return paths.size();
-        }
-
-        @Override
-        public int getColumnCount() {
-            return 1;
-        }
-
-        @Override
-        public String getColumnName(int column) {
-            return "Pfad";
-        }
-
-        @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
-            return paths.get(rowIndex);
-        }
-
-        @Override
-        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-            paths.set(rowIndex, aValue.toString());
-        }
-
-        @Override
-        public boolean isCellEditable(int rowIndex, int columnIndex) {
-            return true;
-        }
-
-        @Override
-        public Class<?> getColumnClass(int columnIndex) {
-            return String.class;
-        }
-
-        public void setPaths(List<String> newPaths) {
-            paths.clear();
-            if (newPaths != null) {
-                paths.addAll(newPaths);
-            }
-            fireTableDataChanged();
-        }
-
-        public List<String> getPaths() {
-            return new ArrayList<>(paths);
-        }
-
-        public void addPath(String path) {
-            paths.add(path);
-            fireTableRowsInserted(paths.size() - 1, paths.size() - 1);
-        }
-
-        public void removePath(int index) {
-            paths.remove(index);
-            fireTableRowsDeleted(index, index);
-        }
-    }
 
 }

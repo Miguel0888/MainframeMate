@@ -292,7 +292,7 @@ public class NewExcelImportDialog extends JDialog {
                     sentenceTypeBox.addItem(name);
                     List<String> fields = new ArrayList<>();
                     if (def.getFields() != null) {
-                        for (SentenceField field : def.getFields()) {
+                        for (SentenceField field : def.getFields().values()) {
                             fields.add(field.getName());
                         }
                     }

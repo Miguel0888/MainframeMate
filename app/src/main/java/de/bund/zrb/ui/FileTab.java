@@ -605,7 +605,7 @@ public class FileTab implements FtpTab, TabAdapter {
         editor.setPaintTabLines(true);
     }
 
-    private void highlightFields(List<SentenceField> fields, int schemaLines) {
+    private void highlightFields(Map<Integer, SentenceField> fields, int schemaLines) {
         Highlighter highlighter = textArea.getHighlighter();
         highlighter.removeAllHighlights();
 
@@ -616,7 +616,7 @@ public class FileTab implements FtpTab, TabAdapter {
             int lineOffset = getLineStartOffset(lines, lineIndex);
             String line = lines[lineIndex];
 
-            for (SentenceField field : fields) {
+        for (SentenceField field : fields.values()) {
                 int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
                 if (fieldRow != schemaRow) continue;
 
@@ -697,7 +697,7 @@ public class FileTab implements FtpTab, TabAdapter {
         Optional<SentenceDefinition> defOpt = registry.findDefinition(sentenceType);
         if (!defOpt.isPresent()) return legendPanel;
 
-        for (SentenceField field : defOpt.get().getFields()) {
+        for (SentenceField field : defOpt.get().getFields().values()) {
             int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
             if (fieldRow != rowIndex) continue;
 

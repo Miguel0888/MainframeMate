@@ -61,7 +61,7 @@ public class ExcelImportController {
             return;
         }
 
-        List<SentenceField> felder = satzart.getFields();
+        Map<Integer, SentenceField> felder = satzart.getFields();
         int schemaLines = satzart.getRowCount() != null ? satzart.getRowCount() : 1;
 
         boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));

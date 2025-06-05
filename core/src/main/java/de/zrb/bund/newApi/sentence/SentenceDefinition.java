@@ -1,11 +1,13 @@
 package de.zrb.bund.newApi.sentence;
 
-import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.TreeMap;
 
 public class SentenceDefinition {
 
     private SentenceMeta meta;
-    private List<SentenceField> fields;
+    private Map<Integer, SentenceField> fields = new TreeMap<>();
 
     public SentenceMeta getMeta() {
         return meta;
@@ -15,28 +17,29 @@ public class SentenceDefinition {
         this.meta = meta;
     }
 
-    public List<SentenceField> getFields() {
+    public Map<Integer, SentenceField> getFields() {
         return fields;
     }
 
-    public void setFields(List<SentenceField> fields) {
-        this.fields = fields;
+    public void setFields(Map<Integer, SentenceField> fields) {
+        this.fields = fields != null ? fields : new TreeMap<>();
     }
 
-    /** Calculate the maximum row count based on the fields
-     * This method iterates through the fields and determines the highest row index.
-     * @return The total number of rows, which is the highest row index plus one.
-     */
     public Integer getRowCount() {
-        int maxRow = 0;
-        if (fields == null || fields.isEmpty()) {
-            return null; // No fields, no rows
-        }
-        for (SentenceField field : fields) {
-            if (field.getRow() != null && field.getRow() > maxRow) {
-                maxRow = field.getRow();
-            }
-        }
-        return maxRow;
+        return fields.values().stream()
+                .map(SentenceField::getRow)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(null);
     }
+
+    public boolean addField(SentenceDefinition def, SentenceField field) {
+        Integer pos = field.getPosition();
+        if (pos == null || def.getFields().containsKey(pos)) {
+            return false; // pos already in use
+        }
+        def.getFields().put(pos, field);
+        return true;
+    }
+
 }

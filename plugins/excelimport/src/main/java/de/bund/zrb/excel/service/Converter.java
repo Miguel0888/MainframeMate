@@ -3,7 +3,7 @@ package de.bund.zrb.excel.service;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.zrb.bund.newApi.sentence.SentenceField;
 
-import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 public class Converter {
@@ -12,7 +12,7 @@ public class Converter {
     private Converter() {}
     public static Converter getInstance() { return instance; }
 
-    public String generateRecordLines(List<SentenceField> fields,
+    public String generateRecordLines(Map<Integer, SentenceField> fields,
                                       int schemaLines,
                                       ExcelMapping mapping,
                                       Function<String, String> valueProvider) {
@@ -21,7 +21,7 @@ public class Converter {
             lines[i] = new StringBuilder(); // optional: mit Leerzeichen initialisieren
         }
 
-        for (SentenceField field : fields) {
+        for (SentenceField field : fields.values()) {
             int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
             int start = field.getPosition() != null ? field.getPosition() - 1 : 0;
             int len = field.getLength() != null ? field.getLength() : 0;
