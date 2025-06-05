@@ -64,11 +64,16 @@ public class ExcelImportController {
         List<SentenceField> felder = satzart.getFields();
         int schemaLines = satzart.getRowCount() != null ? satzart.getRowCount() : 1;
 
+        boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
+        boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
+
         try {
             Map<String, List<String>> excelData = ExcelParser.readExcelAsTable(
                     excelFile,
                     ui.isHeaderEnabled(),
-                    ui.getHeaderRowIndex()
+                    ui.getHeaderRowIndex(),
+                    stopOnEmptyRequiredCheck,
+                    requireAllFieldsEmptyCheck
             );
 
             int rowCount = excelData.values().stream()

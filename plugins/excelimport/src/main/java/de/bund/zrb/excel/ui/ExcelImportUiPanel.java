@@ -247,8 +247,8 @@ public class ExcelImportUiPanel extends JPanel {
             Map<String, List<String>> table = ExcelParser.readExcelAsTable(
                     selectedExcelFile,
                     headerCheckbox.isSelected(),
-                    getHeaderRowIndex()
-            );
+                    getHeaderRowIndex(),
+                    true, true);
             return new ArrayList<>(table.keySet());
         } catch (Exception e) {
             e.printStackTrace();
