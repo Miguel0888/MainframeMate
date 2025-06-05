@@ -4,6 +4,7 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.runtime.ExpressionRegistryImpl;
 import de.bund.zrb.runtime.PluginManager;
 import de.bund.zrb.runtime.SentenceTypeRegistryImpl;
 import de.bund.zrb.runtime.ToolRegistryImpl;
@@ -116,6 +117,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistry.register(new ExitCommand());
         CommandRegistry.register(new ShowSettingsDialogCommand(this));
         CommandRegistry.register(new ShowSentenceDialogCommand(this));
+        CommandRegistry.register(new ShowExpressionEditorCommand(this));
         CommandRegistry.register(new ShowToolDialogCommand(this));
         CommandRegistry.register(new ShowFeatureDialogCommand(this));
         CommandRegistry.register(new ShowAboutDialogCommand(this));
@@ -393,6 +395,11 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public SentenceTypeRegistry getSentenceTypeRegistry() {
         return SentenceTypeRegistryImpl.getInstance();
+    }
+
+    @Override
+    public ExpressionRegistry getExpressionRegistry() {
+        return ExpressionRegistryImpl.getInstance();
     }
 
     @Override

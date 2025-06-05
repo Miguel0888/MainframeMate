@@ -28,6 +28,9 @@ dependencies {
     // GUI (RSyntaxTextArea)
     implementation 'com.fifesoft:rsyntaxtextarea:3.3.3'
 
+    // Pretty Print
+    implementation 'com.google.googlejavaformat:google-java-format:1.7'
+
     // REST (AI)
     implementation 'com.squareup.okhttp3:okhttp:4.9.3'
 

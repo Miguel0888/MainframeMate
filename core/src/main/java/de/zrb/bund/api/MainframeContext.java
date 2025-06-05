@@ -32,6 +32,7 @@ public interface MainframeContext {
     ToolRegistry getToolRegistry();
 
     SentenceTypeRegistry getSentenceTypeRegistry();
+    ExpressionRegistry getExpressionRegistry();
 
     File getSettingsFolder();
 
