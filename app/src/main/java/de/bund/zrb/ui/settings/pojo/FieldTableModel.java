@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.settings.pojo;
 
+import de.zrb.bund.newApi.sentence.FieldCoordinate;
 import de.zrb.bund.newApi.sentence.SentenceField;
 
 import javax.swing.*;
@@ -8,7 +9,7 @@ import java.util.*;
 
 public class FieldTableModel extends AbstractTableModel {
     private final String[] cols = {"Name", "Pos", "Länge", "Zeile", "Schema", "Farbe"};
-    private final Map<Integer, SentenceField> fieldMap = new TreeMap<>();
+    private final Map<FieldCoordinate, SentenceField> fieldMap = new TreeMap<>();
 
     @Override
     public int getRowCount() {
@@ -82,7 +83,7 @@ public class FieldTableModel extends AbstractTableModel {
         }
     }
 
-    public void setFields(Map<Integer, SentenceField> fields) {
+    public void setFields(Map<FieldCoordinate, SentenceField> fields) {
         fieldMap.clear();
         if (fields != null) {
             fieldMap.putAll(fields);
@@ -90,7 +91,7 @@ public class FieldTableModel extends AbstractTableModel {
         fireTableDataChanged();
     }
 
-    public Map<Integer, SentenceField> getFields() {
+    public Map<FieldCoordinate, SentenceField> getFields() {
         return new TreeMap<>(fieldMap);
     }
 

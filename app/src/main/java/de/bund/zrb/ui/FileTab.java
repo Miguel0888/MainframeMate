@@ -9,6 +9,7 @@ import de.bund.zrb.ui.util.RegexFoldParser;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.api.TabType;
+import de.zrb.bund.newApi.sentence.FieldCoordinate;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceField;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
@@ -605,7 +606,7 @@ public class FileTab implements FtpTab, TabAdapter {
         editor.setPaintTabLines(true);
     }
 
-    private void highlightFields(Map<Integer, SentenceField> fields, int schemaLines) {
+    private void highlightFields(Map<FieldCoordinate, SentenceField> fields, int schemaLines) {
         Highlighter highlighter = textArea.getHighlighter();
         highlighter.removeAllHighlights();
 

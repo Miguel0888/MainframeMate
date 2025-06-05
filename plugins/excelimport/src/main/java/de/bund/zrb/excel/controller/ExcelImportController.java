@@ -8,6 +8,7 @@ import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.TabAdapter;
+import de.zrb.bund.newApi.sentence.FieldCoordinate;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceField;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
@@ -61,7 +62,7 @@ public class ExcelImportController {
             return;
         }
 
-        Map<Integer, SentenceField> felder = satzart.getFields();
+        Map<FieldCoordinate, SentenceField> felder = satzart.getFields();
         int schemaLines = satzart.getRowCount() != null ? satzart.getRowCount() : 1;
 
         boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));

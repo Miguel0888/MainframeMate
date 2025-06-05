@@ -7,7 +7,7 @@ import java.util.TreeMap;
 public class SentenceDefinition {
 
     private SentenceMeta meta;
-    private Map<Integer, SentenceField> fields = new TreeMap<>();
+    private Map<FieldCoordinate, SentenceField> fields = new TreeMap<>();
 
     public SentenceMeta getMeta() {
         return meta;
@@ -17,11 +17,11 @@ public class SentenceDefinition {
         this.meta = meta;
     }
 
-    public Map<Integer, SentenceField> getFields() {
+    public Map<FieldCoordinate, SentenceField> getFields() {
         return fields;
     }
 
-    public void setFields(Map<Integer, SentenceField> fields) {
+    public void setFields(Map<FieldCoordinate, SentenceField> fields) {
         this.fields = fields != null ? fields : new TreeMap<>();
     }
 
