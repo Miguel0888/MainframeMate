@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.model.ExcelMappingEntry;
 import de.bund.zrb.excel.repo.TemplateRepository;
+import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceField;
@@ -54,6 +55,29 @@ public class NewExcelImportDialog extends JDialog {
         String[] columns = {"Herkunft", "Wert", "Feldname"};
         tableModel = new DefaultTableModel(columns, 0);
         mappingTable = new JTable(tableModel);
+        mappingTable.getModel().addTableModelListener(e -> {
+            int row = e.getFirstRow();
+            int col = e.getColumn();
+
+            if (row < 0 || col != 0) return;
+
+            Object value = tableModel.getValueAt(row, col);
+            if (!(value instanceof String)) return;
+
+            String source = ((String) value).trim().toLowerCase();
+            if ("ausdruck".equals(source)) {
+                JComboBox<String> expressionBox = new JComboBox<>(context.getExpressionRegistry().getKeys());
+                expressionBox.setEditable(true);
+                mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(expressionBox));
+            } else if ("excel".equals(source)) {
+                JComboBox<String> excelBox = new JComboBox<>(availableExcelColumns.toArray(new String[0]));
+                excelBox.setEditable(true);
+                mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(excelBox));
+            } else {
+                mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(new JTextField()));
+            }
+        });
+
 
         // Editor für Herkunft
         JComboBox<String> sourceBox = new JComboBox<>(new String[]{"Excel", "Fixwert", "Ausdruck"});
@@ -318,8 +342,10 @@ public class NewExcelImportDialog extends JDialog {
                     entry.setFixedValue(value);
                     break;
                 case "ausdruck":
-                    entry.setExpression(value);
+                    ExpressionRegistry registry = context.getExpressionRegistry();
+                    registry.getCode(value).ifPresent(entry::setExpression);
                     break;
+
             }
 
             if (targetField != null && !targetField.isEmpty()) {
