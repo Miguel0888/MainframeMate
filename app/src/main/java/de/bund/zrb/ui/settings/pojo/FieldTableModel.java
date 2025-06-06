@@ -28,33 +28,67 @@ public class FieldTableModel extends AbstractTableModel {
 
     @Override
     public Object getValueAt(int row, int col) {
-        SentenceField f = getFieldAt(row);
-        if (f == null) return null;
+        Map.Entry<FieldCoordinate, SentenceField> entry = getEntryAt(row);
+        if (entry == null) return null;
+        FieldCoordinate coord = entry.getKey();
+        SentenceField field = entry.getValue();
+
         switch (col) {
-            case 0: return f.getName();
-            case 1: return f.getPosition();
-            case 2: return f.getLength();
-            case 3: return f.getRow();
-            case 4: return f.getValuePattern();
-            case 5: return f.getColor();
+            case 0: return field.getName();
+            case 1: return coord.getPosition();
+            case 2: return field.getLength();
+            case 3: return coord.getRow();
+            case 4: return field.getValuePattern();
+            case 5: return field.getColor();
             default: return null;
         }
     }
 
     @Override
     public void setValueAt(Object value, int row, int col) {
-        SentenceField f = getFieldAt(row);
-        if (f == null) return;
+        Map.Entry<FieldCoordinate, SentenceField> entry = getEntryAt(row);
+        if (entry == null) return;
+
+        FieldCoordinate oldKey = entry.getKey();
+        SentenceField field = entry.getValue();
+
+        FieldCoordinate newKey = oldKey;
 
         switch (col) {
-            case 0: f.setName((String) value); break;
-            case 1: f.setPosition(toInt(value)); break;
-            case 2: f.setLength(toInt(value)); break;
-            case 3: f.setRow(toInt(value)); break;
-            case 4: f.setValuePattern((String) value); break;
-            case 5: f.setColor((String) value); break;
+            case 0:
+                field.setName((String) value);
+                break;
+            case 1:
+                Integer newPos = toInt(value);
+                if (newPos != null) newKey = new FieldCoordinate(oldKey.getRow(), newPos);
+                break;
+            case 2:
+                field.setLength(toInt(value));
+                break;
+            case 3:
+                Integer newRow = toInt(value);
+                if (newRow != null) newKey = new FieldCoordinate(newRow, oldKey.getPosition());
+                break;
+            case 4:
+                field.setValuePattern((String) value);
+                break;
+            case 5:
+                field.setColor((String) value);
+                break;
         }
-        updateKey(row, f); // handle repositioning in map
+
+        // Wenn sich der Key geändert hat, prüfen und neu einfügen
+        if (!newKey.equals(oldKey)) {
+            if (fieldMap.containsKey(newKey)) {
+                JOptionPane.showMessageDialog(null, "Position/Zeile " + newKey + " ist bereits vergeben.",
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            } else {
+                fieldMap.remove(oldKey);
+                fieldMap.put(newKey, field);
+            }
+        }
+
+        fireTableDataChanged();
     }
 
     @Override
@@ -68,15 +102,23 @@ public class FieldTableModel extends AbstractTableModel {
     }
 
     public void addField(SentenceField field) {
-        Integer pos = field.getPosition();
-        if (pos == null) return;
-        if (fieldMap.containsKey(pos)) return;
-        fieldMap.put(pos, field);
-        fireTableDataChanged();
+        // Default: suche freien Platz
+        for (int row = 1; row <= 99; row++) {
+            for (int pos = 1; pos <= 999; pos++) {
+                FieldCoordinate key = new FieldCoordinate(row, pos);
+                if (!fieldMap.containsKey(key)) {
+                    fieldMap.put(key, field);
+                    fireTableDataChanged();
+                    return;
+                }
+            }
+        }
+
+        JOptionPane.showMessageDialog(null, "Kein freier Feldplatz gefunden", "Fehler", JOptionPane.ERROR_MESSAGE);
     }
 
     public void removeField(int index) {
-        Integer key = getKeyAt(index);
+        FieldCoordinate key = getKeyAt(index);
         if (key != null) {
             fieldMap.remove(key);
             fireTableDataChanged();
@@ -91,33 +133,12 @@ public class FieldTableModel extends AbstractTableModel {
         fireTableDataChanged();
     }
 
-    public Map<FieldCoordinate, SentenceField> getFields() {
-        return new TreeMap<>(fieldMap);
+    private Map.Entry<FieldCoordinate, SentenceField> getEntryAt(int rowIndex) {
+        return fieldMap.entrySet().stream().skip(rowIndex).findFirst().orElse(null);
     }
 
-    private Integer getKeyAt(int row) {
-        return fieldMap.keySet().stream().skip(row).findFirst().orElse(null);
-    }
-
-    public SentenceField getFieldAt(int row) {
-        return fieldMap.values().stream().skip(row).findFirst().orElse(null);
-    }
-
-    private void updateKey(int oldRowIndex, SentenceField updated) {
-        // If position has changed, re-insert field at new key
-        Integer oldKey = getKeyAt(oldRowIndex);
-        Integer newKey = updated.getPosition();
-        if (newKey == null || Objects.equals(oldKey, newKey)) return;
-
-        fieldMap.remove(oldKey);
-        if (fieldMap.containsKey(newKey)) {
-            // Position conflict
-            JOptionPane.showMessageDialog(null, "Position " + newKey + " ist bereits vergeben.", "Fehler", JOptionPane.ERROR_MESSAGE);
-            updated.setPosition(oldKey); // zurücksetzen
-        } else {
-            fieldMap.put(newKey, updated);
-        }
-        fireTableDataChanged();
+    private FieldCoordinate getKeyAt(int rowIndex) {
+        return fieldMap.keySet().stream().skip(rowIndex).findFirst().orElse(null);
     }
 
     private Integer toInt(Object val) {
@@ -127,4 +148,32 @@ public class FieldTableModel extends AbstractTableModel {
             return null;
         }
     }
+
+    public void addField(FieldCoordinate key, SentenceField field) {
+        if (!fieldMap.containsKey(key)) {
+            fieldMap.put(key, field);
+            fireTableDataChanged();
+        }
+    }
+
+    public SentenceField getFieldAt(int rowIndex) {
+        return fieldMap.values().stream()
+                .skip(rowIndex)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public FieldCoordinate getCoordinateAt(int rowIndex) {
+        return fieldMap.keySet().stream()
+                .skip(rowIndex)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public Map<FieldCoordinate, SentenceField> getInternalMap() {
+        return fieldMap;
+    }
+
+
+
 }

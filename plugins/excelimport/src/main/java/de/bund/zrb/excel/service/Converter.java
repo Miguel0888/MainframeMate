@@ -19,20 +19,22 @@ public class Converter {
                                       Function<String, String> valueProvider) {
         StringBuilder[] lines = new StringBuilder[schemaLines];
         for (int i = 0; i < schemaLines; i++) {
-            lines[i] = new StringBuilder(); // optional: mit Leerzeichen initialisieren
+            lines[i] = new StringBuilder();
         }
 
-        for (SentenceField field : fields.values()) {
-            int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
-            int start = field.getPosition() != null ? field.getPosition() - 1 : 0;
+        for (Map.Entry<FieldCoordinate, SentenceField> entry : fields.entrySet()) {
+            FieldCoordinate coord = entry.getKey();
+            SentenceField field = entry.getValue();
+
+            int fieldRow = coord.getRow() - 1;
+            int start = coord.getPosition() - 1;
             int len = field.getLength() != null ? field.getLength() : 0;
 
-            if (fieldRow >= schemaLines || start < 0 || len <= 0) continue;
+            if (fieldRow < 0 || fieldRow >= schemaLines || start < 0 || len <= 0) continue;
 
             String value = mapping.getContentForFieldName(field.getName(), valueProvider);
             String padded = padOrTruncate(value, len);
 
-            // Stelle sicher, dass der StringBuilder mindestens so lang ist wie die Position
             StringBuilder line = lines[fieldRow];
             while (line.length() < start) {
                 line.append(' ');
@@ -57,6 +59,4 @@ public class Converter {
         }
         return String.format("%-" + length + "s", input);
     }
-
-
 }

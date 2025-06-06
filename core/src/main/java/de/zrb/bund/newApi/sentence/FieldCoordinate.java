@@ -1,39 +1,48 @@
 package de.zrb.bund.newApi.sentence;
 
+import com.google.gson.*;
+import com.google.gson.annotations.JsonAdapter;
+
+import java.lang.reflect.Type;
 import java.util.Objects;
 
-public final class FieldCoordinate {
-    private final int position; // 1-basiert
-    private final int row;      // 1-basiert
+public class FieldCoordinate implements Comparable<FieldCoordinate> {
+    private final int row;
+    private final int position;
 
-    public FieldCoordinate(int position, int row) {
-        this.position = position;
+    public FieldCoordinate(int row, int position) {
         this.row = row;
-    }
-
-    public int getPosition() {
-        return position;
+        this.position = position;
     }
 
     public int getRow() {
         return row;
     }
 
+    public int getPosition() {
+        return position;
+    }
+
+    @Override
+    public int compareTo(FieldCoordinate o) {
+        int cmp = Integer.compare(this.row, o.row);
+        return cmp != 0 ? cmp : Integer.compare(this.position, o.position);
+    }
+
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
         if (!(o instanceof FieldCoordinate)) return false;
-        FieldCoordinate that = (FieldCoordinate) o;
-        return position == that.position && row == that.row;
+        FieldCoordinate other = (FieldCoordinate) o;
+        return row == other.row && position == other.position;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(position, row);
+        return Objects.hash(row, position);
     }
 
     @Override
     public String toString() {
-        return position + "/" + row;
+        return row + "/" + position;
     }
 }

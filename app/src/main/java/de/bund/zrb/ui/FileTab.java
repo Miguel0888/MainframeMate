@@ -617,11 +617,14 @@ public class FileTab implements FtpTab, TabAdapter {
             int lineOffset = getLineStartOffset(lines, lineIndex);
             String line = lines[lineIndex];
 
-        for (SentenceField field : fields.values()) {
-                int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
+            for (Map.Entry<FieldCoordinate, SentenceField> entry : fields.entrySet()) {
+                FieldCoordinate coord = entry.getKey();
+                SentenceField field = entry.getValue();
+
+                int fieldRow = coord.getRow() - 1;
                 if (fieldRow != schemaRow) continue;
 
-                int start = field.getPosition() != null ? field.getPosition() - 1 : 0;
+                int start = coord.getPosition() - 1;
                 int len = field.getLength() != null ? field.getLength() : 0;
                 if (start >= line.length()) continue;
 
@@ -640,8 +643,6 @@ public class FileTab implements FtpTab, TabAdapter {
             }
         }
     }
-
-
 
 
     private int getLineStartOffset(String[] lines, int lineIndex) {
@@ -698,9 +699,11 @@ public class FileTab implements FtpTab, TabAdapter {
         Optional<SentenceDefinition> defOpt = registry.findDefinition(sentenceType);
         if (!defOpt.isPresent()) return legendPanel;
 
-        for (SentenceField field : defOpt.get().getFields().values()) {
-            int fieldRow = field.getRow() != null ? field.getRow() - 1 : 0;
-            if (fieldRow != rowIndex) continue;
+        for (Map.Entry<FieldCoordinate, SentenceField> entry : defOpt.get().getFields().entrySet()) {
+            FieldCoordinate coord = entry.getKey();
+            SentenceField field = entry.getValue();
+
+            if (coord.getRow() - 1 != rowIndex) continue;
 
             String name = field.getName();
             if (name == null || name.trim().isEmpty()) continue;

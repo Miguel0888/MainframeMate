@@ -2,6 +2,7 @@ package de.bund.zrb.ui.settings;
 
 import de.bund.zrb.ui.settings.pojo.FieldTableModel;
 import de.bund.zrb.ui.settings.pojo.PathsTableModel;
+import de.zrb.bund.newApi.sentence.FieldCoordinate;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceField;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
@@ -139,9 +140,8 @@ public class SentenceTypeEditor extends JPanel {
         JButton addFieldButton = new JButton("➕ Feld");
         addFieldButton.addActionListener(e -> {
             SentenceField newField = new SentenceField();
-            newField.setPosition(generateFreePosition()); // z. B. nächste freie Position
-            fieldModel.addField(newField);
-
+            FieldCoordinate coord = generateFreeCoordinate();
+            fieldModel.addField(coord, newField);
         });
 
         JButton removeFieldButton = new JButton("❌ Entfernen");
@@ -217,7 +217,7 @@ public class SentenceTypeEditor extends JPanel {
         meta.setAppend(appendCheckbox.isSelected());
 
         def.setMeta(meta);
-        def.setFields(fieldModel.getFields());
+        def.setFields(fieldModel.getInternalMap());
 
         if (!sanitizeAndCheck(def)) return null;
 
@@ -271,14 +271,19 @@ public class SentenceTypeEditor extends JPanel {
         fieldModel.setFields(def.getFields());
     }
 
-    private int generateFreePosition() {
-        Set<Integer> used = fieldModel.getFields().keySet();
-        int pos = 1;
-        while (used.contains(pos)) {
-            pos++;
+    private FieldCoordinate generateFreeCoordinate() {
+        Set<FieldCoordinate> used = fieldModel.getInternalMap().keySet();
+        for (int row = 1; row <= 10; row++) {
+            for (int pos = 1; pos <= 999; pos++) {
+                FieldCoordinate coord = new FieldCoordinate(row, pos);
+                if (!used.contains(coord)) {
+                    return coord;
+                }
+            }
         }
-        return pos;
+        throw new IllegalStateException("No free coordinate found");
     }
+
 
 
 }
