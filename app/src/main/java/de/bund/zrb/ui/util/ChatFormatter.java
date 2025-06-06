@@ -92,8 +92,6 @@ public class ChatFormatter {
             // Delete-Button hinzufügen
             addDeleteButton(currentBotWrapper, headerPanel, runnable);
         }
-        currentBotContent = null;
-        currentBotWrapper = null;
     }
 
     private JTextPane createConfiguredTextPane() {
