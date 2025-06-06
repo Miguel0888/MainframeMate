@@ -61,7 +61,7 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
     public String evaluate(String key) throws Exception {
         String source = expressions.get(key);
         if (source == null || source.trim().isEmpty()) {
-            throw new IllegalArgumentException("Kein Quelltext für Schlüssel: " + key);
+            throw new IllegalArgumentException("Kein Quelltext für Ausdrucks-Schlüssel: '" + key + "'.\nBitte im Ausdruckseditor hinterlegen und speichern.");
         }
 
         String className = extractClassName(source, key);

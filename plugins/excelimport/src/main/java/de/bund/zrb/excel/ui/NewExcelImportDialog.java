@@ -221,16 +221,6 @@ public class NewExcelImportDialog extends JDialog {
         }
     }
 
-    private void saveAllMappings() {
-        try (FileWriter writer = new FileWriter(mappingsFile)) {
-            gson.toJson(mappings, writer);
-        } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this,
-                    "Fehler beim Speichern:\n" + ex.getMessage(),
-                    "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
     private void loadMappingsFromDisk() {
         if (!mappingsFile.exists()) {
             mappings = new LinkedHashMap<>();

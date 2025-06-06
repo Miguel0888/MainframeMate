@@ -7,6 +7,7 @@ import de.bund.zrb.excel.ui.ExcelImportUiDialog;
 import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.repo.TemplateRepository;
+import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.newApi.sentence.FieldCoordinate;
 import de.zrb.bund.newApi.sentence.FieldMap;
@@ -20,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
+import java.util.function.Function;
 
 public class ExcelImportController {
 
@@ -86,17 +88,18 @@ public class ExcelImportController {
             StringBuilder builder = new StringBuilder();
             Converter converter = Converter.getInstance();
 
+            ExpressionRegistry registry = plugin.getContext().getExpressionRegistry();
             for (int i = 0; i < rowCount; i++) {
-                int finalI = i;
+                Function<String, String> valueProvider = createValueResolver(
+                        registry, excelData, mapping, i
+                );
 
                 String record = converter.generateRecordLines(
                         felder,
                         schemaLines,
                         mapping,
-                        columnName -> {
-                            List<String> column = excelData.get(columnName);
-                            return (column != null && finalI < column.size()) ? column.get(finalI) : "";
-                        });
+                        valueProvider
+                );
 
                 builder.append(record).append("\n");
             }
@@ -135,5 +138,32 @@ public class ExcelImportController {
 
     private static void showError(Component parent, String msg) {
         JOptionPane.showMessageDialog(parent, msg, "Fehler", JOptionPane.ERROR_MESSAGE);
+    }
+
+    private static Function<String, String> createValueResolver(
+            ExpressionRegistry registry,
+            Map<String, List<String>> excelData,
+            ExcelMapping mapping,
+            int rowIndex) {
+
+        return fieldName -> mapping.getEntries().stream()
+                .filter(e -> fieldName.equals(e.getFieldName()))
+                .findFirst()
+                .map(e -> {
+                    if (e.isFixed()) {
+                        return e.getFixedValue();
+                    } else if (e.isDynamic()) {
+                        try {
+                            return registry.evaluate(e.getExpression());
+                        } catch (Exception ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    } else if (e.isFromColumn()) {
+                        List<String> column = excelData.get(e.getExcelColumn());
+                        return (column != null && rowIndex < column.size()) ? column.get(rowIndex) : "";
+                    }
+                    return "";
+                })
+                .orElse("");
     }
 }

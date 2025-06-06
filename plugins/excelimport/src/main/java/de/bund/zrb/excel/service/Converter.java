@@ -33,7 +33,8 @@ public class Converter {
 
             if (fieldRow < 0 || fieldRow >= schemaLines || start < 0 || len <= 0) continue;
 
-            String value = mapping.getContentForFieldName(field.getName(), valueProvider);
+            // Use valueProvider for all logic
+            String value = valueProvider.apply(field.getName());
             String padded = padOrTruncate(value, len);
 
             StringBuilder line = lines[fieldRow];

@@ -111,6 +111,9 @@ public class ExpressionEditorPanel extends JPanel {
         String newKey = JOptionPane.showInputDialog(this, "Name für neuen Ausdruck:");
         if (newKey != null && !newKey.trim().isEmpty()) {
             registry.register(newKey, codeArea.getText());
+
+            ExpressionRegistryImpl.getInstance().save();
+
             keyDropdown.addItem(newKey);
             keyDropdown.setSelectedItem(newKey);
         }
@@ -120,12 +123,16 @@ public class ExpressionEditorPanel extends JPanel {
         String key = (String) keyDropdown.getSelectedItem();
         if (key != null && !key.trim().isEmpty()) {
             registry.remove(key);
+
+            ExpressionRegistryImpl.getInstance().save();
+
             keyDropdown.removeItem(key);
             keyDropdown.setSelectedItem("");
             codeArea.setText("");
             resultArea.setText("");
         }
     }
+
 
     public void saveChanges() {
         ExpressionRegistryImpl.getInstance().save();

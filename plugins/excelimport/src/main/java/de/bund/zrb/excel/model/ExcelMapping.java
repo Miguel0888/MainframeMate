@@ -41,28 +41,4 @@ public class ExcelMapping {
     public void addEntry(ExcelMappingEntry entry) {
         this.entries.add(entry);
     }
-
-    public String getContentForFieldName(String fieldName, Function<String, String> columnValueProvider) {
-        for (ExcelMappingEntry entry : entries) {
-            if (entry.getFieldName() != null && entry.getFieldName().equals(fieldName)) {
-                if (entry.isFixed()) {
-                    return entry.getFixedValue();
-                }
-                if (entry.isDynamic()) {
-                    return evaluateExpression(entry.getExpression());
-                }
-                if (entry.isFromColumn()) {
-                    return columnValueProvider.apply(entry.getExcelColumn());
-                }
-            }
-        }
-        return ""; // kein Mapping? → leer lassen
-    }
-
-    private String evaluateExpression(String expression) {
-
-        // TODO
-        return "";
-    }
-
 }
