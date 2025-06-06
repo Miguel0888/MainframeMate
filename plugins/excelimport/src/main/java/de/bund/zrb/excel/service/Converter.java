@@ -2,6 +2,7 @@ package de.bund.zrb.excel.service;
 
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.zrb.bund.newApi.sentence.FieldCoordinate;
+import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceField;
 
 import java.util.Map;
@@ -13,7 +14,7 @@ public class Converter {
     private Converter() {}
     public static Converter getInstance() { return instance; }
 
-    public String generateRecordLines(Map<FieldCoordinate, SentenceField> fields,
+    public String generateRecordLines(FieldMap fields,
                                       int schemaLines,
                                       ExcelMapping mapping,
                                       Function<String, String> valueProvider) {

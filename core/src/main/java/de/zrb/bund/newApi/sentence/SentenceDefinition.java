@@ -8,21 +8,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
-@JsonAdapter(SentenceDefinition.SentenceDefinitionAdapter.class)
 public class SentenceDefinition {
     private SentenceMeta meta;
-    private final Map<FieldCoordinate, SentenceField> fields = new TreeMap<>();
-
-    class SentenceDefinitionAdapter implements JsonSerializer<FieldCoordinate>, JsonDeserializer<FieldCoordinate> {
-        @Override
-        public JsonElement serialize(FieldCoordinate src, Type typeOfSrc, JsonSerializationContext context) throws JsonParseException {
-            return context.serialize(src);
-        }
-        @Override
-        public SentenceDefinition deserialize( JsonElement json, Type typeOfT, JsonSerializationContext context) {
-            return null;
-        }
-    }
+    private final FieldMap fields = new FieldMap();
 
     public SentenceMeta getMeta() {
         return meta;
@@ -32,11 +20,11 @@ public class SentenceDefinition {
         this.meta = meta;
     }
 
-    public Map<FieldCoordinate, SentenceField> getFields() {
+    public FieldMap getFields() {
         return fields;
     }
 
-    public void setFields(Map<FieldCoordinate, SentenceField> newFields) {
+    public void setFields(FieldMap newFields) {
         this.fields.clear();
         if (newFields != null) {
             this.fields.putAll(newFields);
