@@ -1,0 +1,185 @@
+package de.bund.zrb.ui.file;
+
+import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.File;
+
+public class ExcelImportDialog extends JDialog {
+
+    private static final String[] DUMMY_TEMPLATES = {"Standard-Template", "Finanzbericht", "Inventarliste"};
+    private static final int COUNTDOWN_SECONDS = 3;
+
+    private Timer countdownTimer;
+    private int timeLeft = COUNTDOWN_SECONDS;
+    private final JLabel timerLabel;
+    private final JComboBox<String> templateBox;
+    private final JCheckBox rememberBox;
+    private boolean userInteracted = false;
+    private final AnimatedTimerCircle animatedCircle;
+
+    public ExcelImportDialog(Frame owner, File file) {
+        super(owner, "Excel-Import: " + file.getName(), true);
+        setLayout(new BorderLayout());
+
+        // Timeranzeige mit Animation
+        timerLabel = new JLabel(String.valueOf(COUNTDOWN_SECONDS), SwingConstants.CENTER);
+        timerLabel.setFont(new Font("Arial", Font.BOLD, 48));
+
+        animatedCircle = new AnimatedTimerCircle(timerLabel);
+        int diameter = timerLabel.getPreferredSize().height + 20;
+        animatedCircle.setPreferredSize(new Dimension(diameter, diameter));
+
+
+        JPanel timerPanel = new JPanel(new GridBagLayout());
+        timerPanel.add(animatedCircle);
+
+        // Rechte Seite mit Template- und Checkbox-Bereich
+        templateBox = new JComboBox<>(DUMMY_TEMPLATES);
+        templateBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+
+        rememberBox = new JCheckBox("als Standard merken");
+        JPanel rememberPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        rememberPanel.add(rememberBox);
+
+        JPanel templatePanel = new JPanel();
+        templatePanel.setLayout(new BoxLayout(templatePanel, BoxLayout.Y_AXIS));
+        templatePanel.setMaximumSize(new Dimension(200, 100));
+        templatePanel.add(templateBox);
+        templatePanel.add(Box.createVerticalStrut(10));
+        templatePanel.add(rememberPanel);
+
+        JPanel centerPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.insets = new Insets(0, 0, 0, 20);
+        centerPanel.add(timerPanel, gbc);
+
+        gbc.gridx = 1;
+        centerPanel.add(templatePanel, gbc);
+
+        add(centerPanel, BorderLayout.CENTER);
+
+        // Button Panel zentriert
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        JButton okButton = new JButton("OK");
+        JButton cancelButton = new JButton("Abbrechen");
+        okButton.addActionListener(e -> confirm(file));
+        cancelButton.addActionListener(e -> dispose());
+        buttonPanel.add(okButton);
+        buttonPanel.add(cancelButton);
+
+        add(buttonPanel, BorderLayout.SOUTH);
+
+        // Timer + Interaktion
+        countdownTimer = new Timer(1000, e -> {
+            if (--timeLeft <= 0) {
+                countdownTimer.stop();
+                timerLabel.setForeground(Color.RED);
+                animatedCircle.stop();
+                confirm(file);
+            } else {
+                timerLabel.setText(String.valueOf(timeLeft));
+            }
+        });
+
+        templateBox.addPopupMenuListener(new PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                cancelTimer();
+            }
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                cancelTimer();
+            }
+            public void popupMenuCanceled(PopupMenuEvent e) {
+                cancelTimer();
+            }
+        });
+
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                cancelTimer();
+            }
+        });
+
+        countdownTimer.start();
+        animatedCircle.start();
+
+        pack();
+        setLocationRelativeTo(owner);
+    }
+
+    private void cancelTimer() {
+        if (!userInteracted) {
+            countdownTimer.stop();
+            timerLabel.setForeground(Color.RED);
+            animatedCircle.stop();
+            userInteracted = true;
+        }
+    }
+
+    private void confirm(File file) {
+        dispose();
+        JOptionPane.showMessageDialog(getOwner(),
+                "Import von Datei '" + file.getName() + "' wurde gestartet.",
+                "Import gestartet", JOptionPane.INFORMATION_MESSAGE);
+        // TODO: implement actual import using selected template
+    }
+
+    // Komponente mit animiertem rotierendem Pfeilkreis
+    private static class AnimatedTimerCircle extends JComponent {
+        private final JLabel centerLabel;
+        private double angle = 0;
+        private Timer animationTimer;
+
+        public AnimatedTimerCircle(JLabel centerLabel) {
+            this.centerLabel = centerLabel;
+            setLayout(new GridBagLayout());
+            add(centerLabel);
+        }
+
+        public void start() {
+            animationTimer = new Timer(50, e -> {
+                angle += Math.PI / 30;
+                repaint();
+            });
+            animationTimer.start();
+        }
+
+        public void stop() {
+            if (animationTimer != null) {
+                animationTimer.stop();
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int size = Math.min(getWidth(), getHeight()) - 10;
+            int x = (getWidth() - size) / 2;
+            int y = (getHeight() - size) / 2;
+
+            g2.setStroke(new BasicStroke(3f));
+            g2.setColor(Color.LIGHT_GRAY);
+            g2.drawOval(x, y, size, size);
+
+            // Rotierender Pfeil
+            int cx = getWidth() / 2;
+            int cy = getHeight() / 2;
+            int radius = size / 2;
+            int px = (int) (cx + radius * Math.cos(angle));
+            int py = (int) (cy + radius * Math.sin(angle));
+
+            g2.setColor(Color.BLUE);
+            g2.fillOval(px - 5, py - 5, 10, 10);
+
+            g2.dispose();
+        }
+    }
+}

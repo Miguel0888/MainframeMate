@@ -14,6 +14,7 @@ import de.bund.zrb.service.OllamaChatManager;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.helper.BookmarkHelper;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.file.DragAndDropImportHandler;
 import de.zrb.bund.api.*;
 import de.zrb.bund.newApi.ToolRegistry;
 
@@ -43,6 +44,10 @@ public class MainFrame extends JFrame implements MainframeContext {
     private JSplitPane leftSplitPane;
     private ToolRegistry toolregistry;
 
+    public BookmarkDrawer getBookmarkDrawer() {
+        return bookmarkDrawer;
+    }
+    private DragAndDropImportHandler importHandler;
 
     @Override
     public Map<String, String> loadPluginSettings(String pluginKey) {
@@ -198,6 +203,8 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Das ist dann der eigentliche Inhalt
         add(withBookmarks, BorderLayout.CENTER);
+
+        initDragAndDropImport();
     }
 
     private Component initChatDrawer(Component content) {
@@ -253,8 +260,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         return leftSplitPane;
     }
 
-    public BookmarkDrawer getBookmarkDrawer() {
-        return bookmarkDrawer;
+    private void initDragAndDropImport() {
+        this.importHandler = new DragAndDropImportHandler(this);
+        this.importHandler.init();
     }
 
     // Fix Win 11 Problem

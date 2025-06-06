@@ -19,7 +19,7 @@ public class ShowAboutDialogCommand implements Command {
 
     @Override
     public String getLabel() {
-        return "ℹ️ Über MainframeMate";
+        return "ℹ Über MainframeMate";
     }
 
     @Override
