@@ -1,16 +1,15 @@
 package de.bund.zrb.ui.components;
 
-import de.bund.zrb.helper.SettingsHelper;
-import de.bund.zrb.model.Settings;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Map;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 /**
- * Displays the full chat tab with header and session area.
+ * Displays the full chat tab with session tabs and controls.
  */
 public class Chat extends JPanel {
 
@@ -29,53 +28,53 @@ public class Chat extends JPanel {
         add(createHeader(), BorderLayout.NORTH);
         add(chatTabs, BorderLayout.CENTER);
 
-        addNewChatSession();
+        addPlusTab();          // 1. "+"-Tab hinzufügen
+        addNewChatSession();   // 2. Session davor einfügen
+
+        chatTabs.addChangeListener(e -> {
+            int index = chatTabs.getSelectedIndex();
+            if (index == chatTabs.getTabCount() - 1) {
+                SwingUtilities.invokeLater(this::addNewChatSession);
+            }
+        });
     }
 
     private JPanel createHeader() {
-        JButton newTabButton = new JButton("+");
-        newTabButton.setFocusable(false);
-        newTabButton.setMargin(new Insets(0, 5, 0, 5));
-        newTabButton.setToolTipText("Neue Session starten");
-        newTabButton.addActionListener(e -> addNewChatSession());
+        JPanel header = new JPanel(new BorderLayout());
 
-        Settings settings = SettingsHelper.load();
-        Map<String, String> state = settings.applicationState;
+        // Rechtsbündige Checkbox-Gruppe
+        keepAliveCheckbox = new JCheckBox("Modell behalten", true);
+        contextMemoryCheckbox = new JCheckBox("Kontext merken", true);
+        Font smallFont = new Font("Dialog", Font.PLAIN, 11);
+        keepAliveCheckbox.setFont(smallFont);
+        contextMemoryCheckbox.setFont(smallFont);
 
-        keepAliveCheckbox = new JCheckBox("Modell behalten", Boolean.parseBoolean(state.getOrDefault("chat.keepAlive", "true")));
-        contextMemoryCheckbox = new JCheckBox("Kontext merken", Boolean.parseBoolean(state.getOrDefault("chat.rememberContext", "true")));
-
-        for (JCheckBox box : new JCheckBox[]{keepAliveCheckbox, contextMemoryCheckbox}) {
-            box.setFont(new Font("Dialog", Font.PLAIN, 11));
-            box.setHorizontalTextPosition(SwingConstants.LEFT);
-            box.setMargin(new Insets(0, 0, 0, 0));
-            box.setFocusable(false);
-        }
-
-        JPanel checkboxPanel = new JPanel();
-        checkboxPanel.setLayout(new BoxLayout(checkboxPanel, BoxLayout.X_AXIS));
-        checkboxPanel.setOpaque(false);
-        checkboxPanel.add(newTabButton);
-        checkboxPanel.add(Box.createHorizontalStrut(12));
+        JPanel checkboxPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         checkboxPanel.add(contextMemoryCheckbox);
-        checkboxPanel.add(Box.createHorizontalStrut(8));
         checkboxPanel.add(keepAliveCheckbox);
 
-        JPanel headerLine = new JPanel(new BorderLayout());
-        headerLine.add(checkboxPanel, BorderLayout.EAST);
-        headerLine.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        return headerLine;
+        header.add(checkboxPanel, BorderLayout.EAST);
+        header.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        return header;
     }
 
     private void addNewChatSession() {
         ChatSession sessionPanel = new ChatSession(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox);
         String shortId = sessionPanel.getSessionId().toString().substring(0, 6);
 
-        chatTabs.addTab(null, sessionPanel);
-        int index = chatTabs.indexOfComponent(sessionPanel);
-        chatTabs.setTabComponentAt(index, createTabTitle("💬 " + shortId, sessionPanel));
+        int insertIndex = Math.max(chatTabs.getTabCount() - 1, 0);
+        chatTabs.insertTab(null, null, sessionPanel, null, insertIndex);
+        chatTabs.setTabComponentAt(insertIndex, createTabTitle("💬 " + shortId, sessionPanel));
         chatTabs.setSelectedComponent(sessionPanel);
+    }
+
+
+    private void addPlusTab() {
+        JPanel plusPanel = new JPanel();
+        plusPanel.setOpaque(false);
+
+        chatTabs.addTab("＋", plusPanel); // immer letzter Tab
+        chatTabs.setEnabledAt(chatTabs.getTabCount() - 1, true);
     }
 
     private Component createTabTitle(String title, Component tabContent) {
