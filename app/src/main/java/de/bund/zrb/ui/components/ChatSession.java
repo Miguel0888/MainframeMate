@@ -3,7 +3,7 @@ package de.bund.zrb.ui.components;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
-import de.bund.zrb.ui.chat.ChatFormatter;
+import de.bund.zrb.ui.util.ChatFormatter;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.api.MainframeContext;

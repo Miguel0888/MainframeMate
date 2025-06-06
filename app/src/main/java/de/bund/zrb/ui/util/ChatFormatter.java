@@ -1,9 +1,7 @@
-package de.bund.zrb.ui.chat;
+package de.bund.zrb.ui.util;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.ui.util.ChatMarkdownFormatter;
-import de.bund.zrb.ui.util.SwingComponentFinder;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;

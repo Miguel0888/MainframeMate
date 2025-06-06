@@ -1,7 +1,8 @@
-package de.bund.zrb.ui;
+package de.bund.zrb.ui.drawer;
 
 import de.bund.zrb.model.BookmarkEntry;
 import de.bund.zrb.helper.BookmarkHelper;
+import de.bund.zrb.ui.util.BookmarkTreeTransferHandler;
 
 import javax.swing.*;
 import javax.swing.tree.*;
@@ -12,14 +13,14 @@ import java.io.File;
 import java.util.List;
 import java.util.function.Consumer;
 
-public class BookmarkDrawer extends JPanel {
+public class LeftDrawer extends JPanel {
 
     private final JTree tree;
     private final DefaultTreeModel treeModel;
     private final DefaultMutableTreeNode rootNode;
     private final Consumer<String> onBookmarkClick;
 
-    public BookmarkDrawer(Consumer<String> onBookmarkClick) {
+    public LeftDrawer(Consumer<String> onBookmarkClick) {
         this.onBookmarkClick = onBookmarkClick;
 
         setLayout(new BorderLayout());

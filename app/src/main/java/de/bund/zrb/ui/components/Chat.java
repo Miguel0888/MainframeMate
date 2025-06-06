@@ -1,8 +1,7 @@
-package de.bund.zrb.ui;
+package de.bund.zrb.ui.components;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.ui.components.ChatSession;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 
@@ -10,34 +9,30 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.Map;
 
-public class ChatDrawer extends JPanel {
+/**
+ * Displays the full chat tab with header and session area.
+ */
+public class Chat extends JPanel {
 
-    private final ChatManager chatManager;
-    private final JTabbedPane tabbedPane;
     private final MainframeContext mainframeContext;
+    private final ChatManager chatManager;
+    private final JTabbedPane chatTabs = new JTabbedPane();
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
 
-    public ChatDrawer(MainframeContext mainFrame, ChatManager chatManager) {
-        this.mainframeContext = mainFrame;
+    public Chat(MainframeContext mainframeContext, ChatManager chatManager) {
+        this.mainframeContext = mainframeContext;
         this.chatManager = chatManager;
 
         setLayout(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
         add(createHeader(), BorderLayout.NORTH);
-
-        tabbedPane = new JTabbedPane();
-        add(tabbedPane, BorderLayout.CENTER);
+        add(chatTabs, BorderLayout.CENTER);
 
         addNewChatSession();
     }
 
     private JPanel createHeader() {
-        JLabel titleLabel = new JLabel("💬 Chat");
-        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 13f));
-
         JButton newTabButton = new JButton("+");
         newTabButton.setFocusable(false);
         newTabButton.setMargin(new Insets(0, 5, 0, 5));
@@ -67,7 +62,6 @@ public class ChatDrawer extends JPanel {
         checkboxPanel.add(keepAliveCheckbox);
 
         JPanel headerLine = new JPanel(new BorderLayout());
-        headerLine.add(titleLabel, BorderLayout.WEST);
         headerLine.add(checkboxPanel, BorderLayout.EAST);
         headerLine.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
@@ -78,10 +72,10 @@ public class ChatDrawer extends JPanel {
         ChatSession sessionPanel = new ChatSession(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox);
         String shortId = sessionPanel.getSessionId().toString().substring(0, 6);
 
-        tabbedPane.addTab(null, sessionPanel);
-        int index = tabbedPane.indexOfComponent(sessionPanel);
-        tabbedPane.setTabComponentAt(index, createTabTitle("💬 " + shortId, sessionPanel));
-        tabbedPane.setSelectedComponent(sessionPanel);
+        chatTabs.addTab(null, sessionPanel);
+        int index = chatTabs.indexOfComponent(sessionPanel);
+        chatTabs.setTabComponentAt(index, createTabTitle("💬 " + shortId, sessionPanel));
+        chatTabs.setSelectedComponent(sessionPanel);
     }
 
     private Component createTabTitle(String title, Component tabContent) {
@@ -100,19 +94,13 @@ public class ChatDrawer extends JPanel {
         closeButton.setToolTipText("Tab schließen");
 
         closeButton.addActionListener(e -> {
-            int index = tabbedPane.indexOfComponent(tabContent);
+            int index = chatTabs.indexOfComponent(tabContent);
             if (index >= 0) {
-                tabbedPane.remove(index);
+                chatTabs.remove(index);
             }
         });
 
         tabPanel.add(closeButton);
         return tabPanel;
-    }
-
-    public void addApplicationState(Map<String, String> state) {
-        if (state == null) return;
-        state.put("chat.keepAlive", String.valueOf(keepAliveCheckbox.isSelected()));
-        state.put("chat.rememberContext", String.valueOf(contextMemoryCheckbox.isSelected()));
     }
 }

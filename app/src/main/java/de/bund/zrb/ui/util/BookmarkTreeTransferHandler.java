@@ -1,7 +1,8 @@
-package de.bund.zrb.ui;
+package de.bund.zrb.ui.util;
 
 import de.bund.zrb.model.BookmarkEntry;
 import de.bund.zrb.helper.BookmarkHelper;
+import de.bund.zrb.ui.drawer.LeftDrawer;
 
 import javax.swing.*;
 import javax.swing.tree.*;
@@ -13,10 +14,10 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
 
     private final DataFlavor nodeFlavor;
     private DefaultMutableTreeNode draggedNode;
-    private BookmarkDrawer bookmarkDrawer;
+    private LeftDrawer leftDrawer;
 
-    public BookmarkTreeTransferHandler(BookmarkDrawer bookmarkDrawer) {
-        this.bookmarkDrawer = bookmarkDrawer;
+    public BookmarkTreeTransferHandler(LeftDrawer leftDrawer) {
+        this.leftDrawer = leftDrawer;
         nodeFlavor = new DataFlavor(DefaultMutableTreeNode.class, "TreeNode");
     }
 
@@ -112,7 +113,7 @@ public class BookmarkTreeTransferHandler extends TransferHandler {
             } else {
                 BookmarkHelper.moveBookmarkTo(moved.id, target.id, dropLocation.getChildIndex());
             }
-            SwingUtilities.invokeLater(() -> bookmarkDrawer.refreshBookmarks());
+            SwingUtilities.invokeLater(() -> leftDrawer.refreshBookmarks());
             return true;
         } catch (Exception e) {
             e.printStackTrace();

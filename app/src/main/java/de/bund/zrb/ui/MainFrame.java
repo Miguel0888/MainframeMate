@@ -14,6 +14,8 @@ import de.bund.zrb.service.OllamaChatManager;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.helper.BookmarkHelper;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.drawer.LeftDrawer;
+import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.file.DragAndDropImportHandler;
 import de.zrb.bund.api.*;
 import de.zrb.bund.newApi.ToolRegistry;
@@ -37,15 +39,15 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     private TabbedPaneManager tabManager;
     private ActionToolbar actionToolbar;
-    private BookmarkDrawer bookmarkDrawer;
-    private ChatDrawer chatDrawer;
+    private LeftDrawer leftDrawer;
+    private RightDrawer rightDrawer;
     private volatile ChatManager chatManager;
     private JSplitPane rightSplitPane;
     private JSplitPane leftSplitPane;
     private ToolRegistry toolregistry;
 
-    public BookmarkDrawer getBookmarkDrawer() {
-        return bookmarkDrawer;
+    public LeftDrawer getBookmarkDrawer() {
+        return leftDrawer;
     }
     private DragAndDropImportHandler importHandler;
 
@@ -211,9 +213,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (chatManager == null) {
             System.err.println("⚠️ Kein ChatService verfügbar – Eingabe wird ignoriert");
         }
-        chatDrawer = new ChatDrawer(this, chatManager);
+        rightDrawer = new RightDrawer(this, chatManager);
 
-        rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, chatDrawer);
+        rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, rightDrawer);
         int defaultDivider = content.getPreferredSize().width - 300;
 
         Settings settings = SettingsHelper.load();
@@ -229,7 +231,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     private Component initBookmarkDrawer(Component content) {
-        bookmarkDrawer = new BookmarkDrawer(path -> {
+        leftDrawer = new LeftDrawer(path -> {
             final FtpManager ftpManager = new FtpManager();
             if (ConnectDialog.show(this, ftpManager)) {
                 try {
@@ -248,7 +250,7 @@ public class MainFrame extends JFrame implements MainframeContext {
             }
         });
 
-        leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, bookmarkDrawer, content);
+        leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
 
         Settings settings = SettingsHelper.load();
@@ -322,7 +324,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public void refresh() {
-        SwingUtilities.invokeLater(() -> bookmarkDrawer.refreshBookmarks());
+        SwingUtilities.invokeLater(() -> leftDrawer.refreshBookmarks());
         // ToDo: And mayby active tabs too..
     }
 
@@ -379,8 +381,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
 
         // ChatDrawer-interne Settings
-        if (chatDrawer != null) {
-            chatDrawer.addApplicationState(state);
+        if (rightDrawer != null) {
+            rightDrawer.addApplicationState(state);
         }
 
     }
