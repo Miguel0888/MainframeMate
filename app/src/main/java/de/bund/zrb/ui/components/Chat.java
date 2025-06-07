@@ -4,14 +4,16 @@ import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
+import javax.swing.event.ChangeListener;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Displays the full chat tab with session tabs and controls.
  */
 public class Chat extends JPanel {
+
+    private AtomicBoolean suppressTabEvents = new AtomicBoolean(false);
 
     private final MainframeContext mainframeContext;
     private final ChatManager chatManager;
@@ -30,13 +32,6 @@ public class Chat extends JPanel {
 
         addPlusTab();          // 1. "+"-Tab hinzufügen
         addNewChatSession();   // 2. Session davor einfügen
-
-        chatTabs.addChangeListener(e -> {
-            int index = chatTabs.getSelectedIndex();
-            if (index == chatTabs.getTabCount() - 1) {
-                SwingUtilities.invokeLater(this::addNewChatSession);
-            }
-        });
     }
 
     private JPanel createHeader() {
@@ -59,6 +54,13 @@ public class Chat extends JPanel {
     }
 
     private void addNewChatSession() {
+//        if (suppressTabEvents.getAndSet(false)) return;
+
+//        ChangeListener[] changeListeners = chatTabs.getChangeListeners();
+//        if(changeListeners.length > 0) {
+//            chatTabs.removeChangeListener(changeListeners[0]);
+//        }
+
         ChatSession sessionPanel = new ChatSession(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox);
         String shortId = sessionPanel.getSessionId().toString().substring(0, 6);
 
@@ -66,15 +68,39 @@ public class Chat extends JPanel {
         chatTabs.insertTab(null, null, sessionPanel, null, insertIndex);
         chatTabs.setTabComponentAt(insertIndex, createTabTitle("💬 " + shortId, sessionPanel));
         chatTabs.setSelectedComponent(sessionPanel);
+
+//        // Events wieder aktivieren:
+//        chatTabs.addChangeListener(e -> {
+//            int index = chatTabs.getSelectedIndex();
+//            if (index == chatTabs.getTabCount() - 1) {
+//                SwingUtilities.invokeLater(this::addNewChatSession);
+//            }
+//        });
     }
 
-
     private void addPlusTab() {
-        JPanel plusPanel = new JPanel();
-        plusPanel.setOpaque(false);
+        JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabPanel.setOpaque(false);
 
-        chatTabs.addTab("＋", plusPanel); // immer letzter Tab
-        chatTabs.setEnabledAt(chatTabs.getTabCount() - 1, true);
+        JButton closeButton = new JButton("＋");
+        closeButton.setMargin(new Insets(0, 5, 0, 5));
+        closeButton.setBorder(BorderFactory.createEmptyBorder());
+        closeButton.setFocusable(false);
+        closeButton.setContentAreaFilled(false);
+        closeButton.setToolTipText("Neuen Tab öffnen..");
+
+        closeButton.addActionListener(e -> {
+            addNewChatSession();
+        });
+
+        tabPanel.add(closeButton);
+
+        int insertIndex = Math.max(chatTabs.getTabCount() - 1, 0);
+        chatTabs.insertTab(null, null, null, null, insertIndex);
+        chatTabs.setTabComponentAt(insertIndex, tabPanel);
+
+
+        chatTabs.setEnabledAt(chatTabs.getTabCount() - 1, false);
     }
 
     private Component createTabTitle(String title, Component tabContent) {
@@ -94,7 +120,8 @@ public class Chat extends JPanel {
 
         closeButton.addActionListener(e -> {
             int index = chatTabs.indexOfComponent(tabContent);
-            if (index >= 0) {
+            if (index >= 0 && index != chatTabs.getTabCount() - 1) {
+                suppressTabEvents.set(true);
                 chatTabs.remove(index);
             }
         });
