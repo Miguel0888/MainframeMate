@@ -1,16 +1,34 @@
 package de.bund.zrb.ui.file;
 
+import de.bund.zrb.helper.WorkflowStorage;
+import de.bund.zrb.workflow.WorkflowRunnerImpl;
+import de.zrb.bund.newApi.workflow.WorkflowRunner;
+import de.zrb.bund.newApi.workflow.WorkflowStep;
+
 import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Frame;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.RenderingHints;
 import java.awt.event.*;
 import java.io.File;
+import java.util.List;
 
 public class ExcelImportDialog extends JDialog {
 
-    private static final String[] DUMMY_TEMPLATES = {"Standard-Template", "Finanzbericht", "Inventarliste"};
     private static final int COUNTDOWN_SECONDS = 3;
+    private final WorkflowRunner workflowRunner;
 
     private Timer countdownTimer;
     private int timeLeft = COUNTDOWN_SECONDS;
@@ -20,8 +38,9 @@ public class ExcelImportDialog extends JDialog {
     private boolean userInteracted = false;
     private final AnimatedTimerCircle animatedCircle;
 
-    public ExcelImportDialog(Frame owner, File file) {
+    public ExcelImportDialog(Frame owner, File file, WorkflowRunner workflowRunner) {
         super(owner, "Excel-Import: " + file.getName(), true);
+        this.workflowRunner = workflowRunner;
         setLayout(new BorderLayout());
 
         // Timeranzeige mit Animation
@@ -37,7 +56,7 @@ public class ExcelImportDialog extends JDialog {
         timerPanel.add(animatedCircle);
 
         // Rechte Seite mit Template- und Checkbox-Bereich
-        templateBox = new JComboBox<>(DUMMY_TEMPLATES);
+        templateBox = new JComboBox<>(WorkflowStorage.listWorkflowNames().toArray(new String[0]));
         templateBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
 
         rememberBox = new JCheckBox("als Standard merken");
@@ -123,11 +142,30 @@ public class ExcelImportDialog extends JDialog {
 
     private void confirm(File file) {
         dispose();
+
+        String selected = (String) templateBox.getSelectedItem();
+        if (selected == null || selected.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(getOwner(),
+                    "Kein Workflow ausgewählt.",
+                    "Fehler", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        List<WorkflowStep> steps = WorkflowStorage.loadWorkflow(selected);
+        if (steps.isEmpty()) {
+            JOptionPane.showMessageDialog(getOwner(),
+                    "Workflow \"" + selected + "\" ist leer oder nicht vorhanden.",
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        workflowRunner.execute(steps);
+
         JOptionPane.showMessageDialog(getOwner(),
                 "Import von Datei '" + file.getName() + "' wurde gestartet.",
                 "Import gestartet", JOptionPane.INFORMATION_MESSAGE);
-        // TODO: implement actual import using selected template
     }
+
 
     // Komponente mit animiertem rotierendem Pfeilkreis
     private static class AnimatedTimerCircle extends JComponent {
@@ -181,5 +219,11 @@ public class ExcelImportDialog extends JDialog {
 
             g2.dispose();
         }
+    }
+
+    @Override
+    public void dispose() {
+        cancelTimer();   // ← Wichtig: Timer & Animation stoppen
+        super.dispose();
     }
 }

@@ -55,6 +55,12 @@ public class ToolRegistryImpl implements ToolRegistry {
         return new ArrayList<>(toolsByName.values());
     }
 
+    @Override
+    public McpTool getToolByName(String toolName) {
+        return toolsByName.values().stream().filter((t) ->
+                toolName.equals(t.getSpec().getName())).findFirst().get();
+    }
+
     /**
      * Liefert alle Tool-Spezifikationen.
      */

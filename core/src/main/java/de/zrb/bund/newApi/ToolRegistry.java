@@ -9,4 +9,6 @@ public interface ToolRegistry {
     void registerTool(McpTool tool);
 
     List<McpTool> getAllTools();
+
+    McpTool getToolByName(String toolName);
 }

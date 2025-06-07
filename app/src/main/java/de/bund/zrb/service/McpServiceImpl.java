@@ -1,28 +1,30 @@
-package de.bund.zrb.mcp;
+package de.bund.zrb.service;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import de.zrb.bund.newApi.ChatMessage;
+import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
-import de.zrb.bund.newApi.MpcService;
-import de.zrb.bund.newApi.PluginRegistry;
+import de.zrb.bund.newApi.McpService;
 
-public class DefaultMpcService implements MpcService {
+import java.util.UUID;
 
-    private final PluginRegistry pluginRegistry;
+public class McpServiceImpl implements McpService {
 
-    public DefaultMpcService(PluginRegistry registry) {
-        this.pluginRegistry = registry;
+    private final ToolRegistry toolRegistry;
+
+    public McpServiceImpl(ToolRegistry registry) {
+        this.toolRegistry = registry;
     }
 
     @Override
-    public void handleToolCall(String sessionId, JsonElement toolCall) {
+    public void handleToolCall(UUID sessionId, JsonElement toolCall) {
         JsonObject obj = toolCall.getAsJsonObject();
         String toolName = obj.get("tool_name").getAsString();
         JsonObject input = obj.getAsJsonObject("tool_input");
         String callId = obj.get("tool_call_id").getAsString();
 
-        McpTool tool = pluginRegistry.get(toolName);
+        McpTool tool = toolRegistry.getToolByName(toolName);
         if (tool == null) {
             throw new IllegalArgumentException("Unknown tool: " + toolName);
         }

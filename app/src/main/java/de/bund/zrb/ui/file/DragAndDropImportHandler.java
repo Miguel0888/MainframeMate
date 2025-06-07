@@ -1,5 +1,7 @@
 package de.bund.zrb.ui.file;
 
+import de.bund.zrb.ui.MainFrame;
+
 import javax.swing.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
@@ -8,9 +10,9 @@ import java.util.List;
 
 public class DragAndDropImportHandler {
 
-    private final JFrame parentFrame;
+    private final MainFrame parentFrame;
 
-    public DragAndDropImportHandler(JFrame parentFrame) {
+    public DragAndDropImportHandler(MainFrame parentFrame) {
         this.parentFrame = parentFrame;
     }
 
@@ -55,7 +57,7 @@ public class DragAndDropImportHandler {
                 return;
             }
         }
-        new ExcelImportDialog(parentFrame, file).setVisible(true);
+        new ExcelImportDialog(parentFrame, file, parentFrame.getWorkflowRunner()).setVisible(true);
     }
 
     private boolean isExcelFile(File file) {

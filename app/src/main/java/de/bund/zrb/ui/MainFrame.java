@@ -10,6 +10,7 @@ import de.bund.zrb.runtime.SentenceTypeRegistryImpl;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.service.LlamaCppChatManager;
 import de.bund.zrb.service.LocalAiChatManager;
+import de.bund.zrb.service.McpServiceImpl;
 import de.bund.zrb.service.OllamaChatManager;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.helper.BookmarkHelper;
@@ -17,8 +18,11 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.file.DragAndDropImportHandler;
+import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.api.*;
+import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
@@ -44,7 +48,9 @@ public class MainFrame extends JFrame implements MainframeContext {
     private volatile ChatManager chatManager;
     private JSplitPane rightSplitPane;
     private JSplitPane leftSplitPane;
-    private ToolRegistry toolregistry;
+    private final ToolRegistry toolRegistry;
+    private final McpService mcpService;
+    private final WorkflowRunner workflowRunner;
 
     public LeftDrawer getBookmarkDrawer() {
         return leftDrawer;
@@ -65,7 +71,9 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
     
     public MainFrame() {
-        this.toolregistry = ToolRegistryImpl.getInstance();
+        this.toolRegistry = ToolRegistryImpl.getInstance();
+        this.mcpService = new McpServiceImpl(toolRegistry);
+        this.workflowRunner = new WorkflowRunnerImpl(toolRegistry, mcpService);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -213,7 +221,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (chatManager == null) {
             System.err.println("⚠️ Kein ChatService verfügbar – Eingabe wird ignoriert");
         }
-        rightDrawer = new RightDrawer(this, chatManager);
+        rightDrawer = new RightDrawer(this, chatManager, toolRegistry, mcpService);
 
         rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, rightDrawer);
         int defaultDivider = content.getPreferredSize().width - 300;
@@ -399,7 +407,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public ToolRegistry getToolRegistry() {
-        return toolregistry;
+        return toolRegistry;
     }
 
     @Override
@@ -415,5 +423,10 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public File getSettingsFolder() {
         return SettingsHelper.getSettingsFolder();
+    }
+
+    @Override
+    public WorkflowRunner getWorkflowRunner() {
+        return workflowRunner;
     }
 }

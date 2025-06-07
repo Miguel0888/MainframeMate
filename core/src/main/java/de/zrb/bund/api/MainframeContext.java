@@ -1,6 +1,7 @@
 package de.zrb.bund.api;
 
 import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import javax.swing.*;
 import java.io.File;
@@ -35,6 +36,8 @@ public interface MainframeContext {
     ExpressionRegistry getExpressionRegistry();
 
     File getSettingsFolder();
+
+    WorkflowRunner getWorkflowRunner();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
