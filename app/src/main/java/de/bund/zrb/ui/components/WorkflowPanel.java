@@ -9,14 +9,12 @@ import de.zrb.bund.newApi.workflow.WorkflowStep;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
 
 public class WorkflowPanel extends JPanel {
 
     private final JComboBox<String> workflowSelector;
-    private final JTable stepTable;
-    private final StepTableModel tableModel;
+    private final JPanel stepListPanel;
     private final JTextArea previewArea;
     private final WorkflowRunner runner;
     private final ToolRegistry registry;
@@ -31,26 +29,22 @@ public class WorkflowPanel extends JPanel {
         reloadWorkflowNames();
         add(workflowSelector, BorderLayout.NORTH);
 
-        tableModel = new StepTableModel();
-        stepTable = new JTable(tableModel);
-        stepTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(createToolComboBox()));
-        stepTable.getColumnModel().getColumn(1)
-                .setCellEditor(new ParameterCellEditor(stepTable, tableModel, registry, this));
+        stepListPanel = new JPanel();
+        stepListPanel.setLayout(new BoxLayout(stepListPanel, BoxLayout.Y_AXIS));
+        JScrollPane stepScrollPane = new JScrollPane(stepListPanel);
 
         previewArea = new JTextArea();
         previewArea.setEditable(false);
         previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
 
         JTabbedPane contentTabs = new JTabbedPane();
-        contentTabs.addTab("📦 Schritte", new JScrollPane(stepTable));
-        contentTabs.addTab("\uD83D\uDCC4 Vorschau", new JScrollPane(previewArea));
+        contentTabs.addTab("📦 Schritte", stepScrollPane);
+        contentTabs.addTab("📄 Vorschau", new JScrollPane(previewArea));
         add(contentTabs, BorderLayout.CENTER);
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton addStep = new JButton("+");
         addStep.setToolTipText("Schritt hinzufügen");
-        JButton removeStep = new JButton("-");
-        removeStep.setToolTipText("Schritt entfernen");
         JButton runWorkflow = new JButton("▶");
         runWorkflow.setToolTipText("Ausführen");
         JButton saveWorkflow = new JButton("💾");
@@ -61,7 +55,6 @@ public class WorkflowPanel extends JPanel {
         deleteWorkflow.setToolTipText("Löschen");
 
         buttonPanel.add(addStep);
-        buttonPanel.add(removeStep);
         buttonPanel.add(runWorkflow);
         buttonPanel.add(saveWorkflow);
         buttonPanel.add(renameWorkflow);
@@ -71,23 +64,16 @@ public class WorkflowPanel extends JPanel {
         workflowSelector.addActionListener(e -> {
             String selected = (String) workflowSelector.getSelectedItem();
             if (selected != null) {
-                tableModel.setSteps(WorkflowStorage.loadWorkflow(selected));
+                setWorkflowSteps(WorkflowStorage.loadWorkflow(selected));
             }
         });
 
         addStep.addActionListener(e -> {
-            tableModel.addStep(new WorkflowStep("", new LinkedHashMap<>()));
-        });
-
-        removeStep.addActionListener(e -> {
-            int row = stepTable.getSelectedRow();
-            if (row >= 0) {
-                tableModel.removeStep(row);
-            }
+            addStepPanel(new WorkflowStep("", new java.util.LinkedHashMap<>()));
         });
 
         runWorkflow.addActionListener(e -> {
-            List<WorkflowStep> steps = tableModel.getSteps();
+            List<WorkflowStep> steps = getWorkflowSteps();
             previewArea.setText(getPreviewJson(steps));
             runner.execute(steps);
         });
@@ -95,7 +81,7 @@ public class WorkflowPanel extends JPanel {
         saveWorkflow.addActionListener(e -> {
             String name = JOptionPane.showInputDialog(this, "Workflowname eingeben:", "Speichern unter", JOptionPane.PLAIN_MESSAGE);
             if (name != null && !name.trim().isEmpty()) {
-                WorkflowStorage.saveWorkflow(name.trim(), tableModel.getSteps());
+                WorkflowStorage.saveWorkflow(name.trim(), getWorkflowSteps());
                 reloadWorkflowNames();
                 workflowSelector.setSelectedItem(name.trim());
             }
@@ -120,7 +106,7 @@ public class WorkflowPanel extends JPanel {
                     "Löschen bestätigen", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
                 WorkflowStorage.deleteWorkflow(current);
                 reloadWorkflowNames();
-                tableModel.setSteps(Collections.emptyList());
+                setWorkflowSteps(java.util.Collections.emptyList());
             }
         });
     }
@@ -141,10 +127,32 @@ public class WorkflowPanel extends JPanel {
         return gson.toJson(steps);
     }
 
-    private JComboBox<String> createToolComboBox() {
-        return new JComboBox<>(registry.getAllTools().stream()
-                .map(t -> t.getSpec().getName())
-                .sorted().toArray(String[]::new));
+    private void addStepPanel(WorkflowStep step) {
+        StepPanel panel = new StepPanel(registry, step);
+        panel.setDeleteListener(e -> {
+            stepListPanel.remove(panel);
+            stepListPanel.revalidate();
+            stepListPanel.repaint();
+        });
+        stepListPanel.add(panel);
+        stepListPanel.revalidate();
+        stepListPanel.repaint();
     }
 
+    private void setWorkflowSteps(List<WorkflowStep> steps) {
+        stepListPanel.removeAll();
+        for (WorkflowStep step : steps) {
+            addStepPanel(step);
+        }
+    }
+
+    private List<WorkflowStep> getWorkflowSteps() {
+        List<WorkflowStep> steps = new java.util.ArrayList<>();
+        for (Component comp : stepListPanel.getComponents()) {
+            if (comp instanceof StepPanel) {
+                steps.add(((StepPanel) comp).toWorkflowStep());
+            }
+        }
+        return steps;
+    }
 }
