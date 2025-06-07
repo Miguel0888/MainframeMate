@@ -4,7 +4,7 @@ import java.util.Map;
 
 public class WorkflowStep {
     private final String toolName;
-    private final Map<String, Object> parameters;
+    private Map<String, Object> parameters;
 
     public WorkflowStep(String toolName, Map<String, Object> parameters) {
         this.toolName = toolName;
@@ -17,5 +17,9 @@ public class WorkflowStep {
 
     public Map<String, Object> getParameters() {
         return parameters;
+    }
+
+    public void setParameters(Map<String, Object> edited) {
+        this.parameters = edited;
     }
 }
