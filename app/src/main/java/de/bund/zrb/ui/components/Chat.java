@@ -78,10 +78,10 @@ public class Chat extends JPanel {
         tabPanel.setOpaque(false);
 
         JButton openButton = new JButton("＋");
-        openButton.setMargin(new Insets(0, 5, 0, 5));
+        openButton.setMargin(new Insets(0, 0, 0, 0));
         openButton.setBorder(BorderFactory.createEmptyBorder());
         openButton.setFocusable(false);
-        openButton.setContentAreaFilled(false);
+        openButton.setContentAreaFilled(true);
         openButton.setToolTipText("Neuen Tab öffnen..");
 
         openButton.addActionListener(e -> {
