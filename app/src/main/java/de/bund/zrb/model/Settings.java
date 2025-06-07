@@ -45,4 +45,5 @@ public class Settings {
     public boolean removeFinalNewline = true; // Standard = an
 
     public HashMap<String, String> aiConfig = new HashMap<>();
+    public String defaultWorkflow = "";
 }

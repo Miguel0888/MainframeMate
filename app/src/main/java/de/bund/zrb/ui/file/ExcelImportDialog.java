@@ -1,6 +1,8 @@
 package de.bund.zrb.ui.file;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.helper.WorkflowStorage;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 import de.zrb.bund.newApi.workflow.WorkflowStep;
@@ -41,6 +43,10 @@ public class ExcelImportDialog extends JDialog {
     public ExcelImportDialog(Frame owner, File file, WorkflowRunner workflowRunner) {
         super(owner, "Excel-Import: " + file.getName(), true);
         this.workflowRunner = workflowRunner;
+
+        Settings settings = SettingsHelper.load();
+        String defaultWorkflow = settings.defaultWorkflow;
+
         setLayout(new BorderLayout());
 
         // Timeranzeige mit Animation
@@ -58,6 +64,9 @@ public class ExcelImportDialog extends JDialog {
         // Rechte Seite mit Template- und Checkbox-Bereich
         templateBox = new JComboBox<>(WorkflowStorage.listWorkflowNames().toArray(new String[0]));
         templateBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        if (defaultWorkflow != null) {
+            templateBox.setSelectedItem(defaultWorkflow);
+        }
 
         rememberBox = new JCheckBox("als Standard merken");
         JPanel rememberPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -157,6 +166,12 @@ public class ExcelImportDialog extends JDialog {
                     "Workflow \"" + selected + "\" ist leer oder nicht vorhanden.",
                     "Fehler", JOptionPane.ERROR_MESSAGE);
             return;
+        }
+
+        if (rememberBox.isSelected()) {
+            Settings settings = SettingsHelper.load();
+            settings.defaultWorkflow = selected;
+            SettingsHelper.save(settings);
         }
 
         workflowRunner.execute(steps);

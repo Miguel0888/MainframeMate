@@ -51,7 +51,7 @@ public class SettingsDialog {
     private static JTextField ollamaKeepAliveField;
     private static JCheckBox wrapJsonBox;
     private static JCheckBox prettyJsonBox;
-
+    private static JTextField defaultWorkflow;
 
     private static JComboBox<String> aiEditorFontCombo;
     private static JComboBox<String> aiEditorFontSizeCombo;
@@ -171,6 +171,12 @@ public class SettingsDialog {
             }
         });
         generalContent.add(openFolderButton, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Sounds abspielen
+        defaultWorkflow = new JTextField("Standard Workflow:");
+        defaultWorkflow.setText(settings.defaultWorkflow);
+        generalContent.add(defaultWorkflow, gbcGeneral);
         gbcGeneral.gridy++;
     }
 
@@ -599,6 +605,7 @@ public class SettingsDialog {
             settings.ftpFileStructure = ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
             settings.ftpTransferMode = ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
+            settings.defaultWorkflow = defaultWorkflow.getText();
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.lines", aiEditorHeightSpinner.getValue().toString());

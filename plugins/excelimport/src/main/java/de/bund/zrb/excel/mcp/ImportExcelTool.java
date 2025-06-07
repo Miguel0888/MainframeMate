@@ -40,6 +40,6 @@ public class ImportExcelTool implements McpTool {
     @Override
     public JsonObject execute(JsonObject input) {
         // Business-Logik wie gehabt
-        return new JsonObject(); // Dummy
+        return new JsonObject(); // Dummy // TODO
     }
 }
