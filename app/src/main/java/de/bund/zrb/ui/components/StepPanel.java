@@ -19,6 +19,7 @@ public class StepPanel extends JPanel {
     private final JComboBox<String> toolSelector;
     private final RSyntaxTextArea jsonEditor;
     private final JButton paramEditorButton;
+    private final JButton reformatButton;
     private final JButton deleteButton;
     private final ToolRegistry registry;
 
@@ -31,42 +32,57 @@ public class StepPanel extends JPanel {
                 BorderFactory.createEmptyBorder(8, 8, 8, 8),
                 BorderFactory.createLineBorder(Color.LIGHT_GRAY)));
 
-        // Tool Dropdown & Delete Button
+        // Tool Dropdown
         toolSelector = new JComboBox<>(registry.getAllTools().stream()
                 .map(t -> t.getSpec().getName())
                 .sorted().toArray(String[]::new));
         toolSelector.setSelectedItem(initialStep.getToolName());
 
+        // Buttons
+        paramEditorButton = new JButton("...");
+        paramEditorButton.setToolTipText("Parameter bearbeiten");
+        paramEditorButton.setMargin(new Insets(2, 6, 2, 6));
+        paramEditorButton.addActionListener(e -> openParamEditor());
+
+        reformatButton = new JButton("⭳");
+        reformatButton.setToolTipText("Reformat JSON");
+        reformatButton.setMargin(new Insets(2, 6, 2, 6));
+        reformatButton.addActionListener(e -> reformatJson());
+
         deleteButton = new JButton("✖");
-        deleteButton.setMargin(new Insets(2, 8, 2, 8));
+        deleteButton.setToolTipText("Schritt entfernen");
+        deleteButton.setMargin(new Insets(2, 6, 2, 6));
         deleteButton.addActionListener(e -> {
-            if (deleteListener != null) deleteListener.actionPerformed(e);
+            int confirm = JOptionPane.showConfirmDialog(
+                    this,
+                    "Diesen Schritt wirklich löschen?",
+                    "Löschen bestätigen",
+                    JOptionPane.YES_NO_OPTION
+            );
+            if (confirm == JOptionPane.YES_OPTION && deleteListener != null) {
+                deleteListener.actionPerformed(e);
+            }
         });
 
         JPanel topRow = new JPanel(new BorderLayout());
         topRow.add(toolSelector, BorderLayout.CENTER);
-        topRow.add(deleteButton, BorderLayout.EAST);
+
+        JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        buttonBar.add(reformatButton);
+        buttonBar.add(paramEditorButton);
+        buttonBar.add(deleteButton);
+        topRow.add(buttonBar, BorderLayout.EAST);
+
         add(topRow, BorderLayout.NORTH);
 
-        // JSON Editor & Parameter Dialog Button
+        // JSON Editor
         jsonEditor = new RSyntaxTextArea(6, 40);
         jsonEditor.setSyntaxEditingStyle("text/json");
         jsonEditor.setCodeFoldingEnabled(true);
         jsonEditor.setAntiAliasingEnabled(true);
+        jsonEditor.setText(prettyJson(initialStep.getParameters()));
 
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        jsonEditor.setText(gson.toJson(initialStep.getParameters()));
-
-        paramEditorButton = new JButton("...");
-        paramEditorButton.setMargin(new Insets(2, 10, 2, 10));
-        paramEditorButton.setToolTipText("Parameter bearbeiten");
-        paramEditorButton.addActionListener(e -> openParamEditor());
-
-        JPanel editorPanel = new JPanel(new BorderLayout(4, 4));
-        editorPanel.add(new RTextScrollPane(jsonEditor), BorderLayout.CENTER);
-        editorPanel.add(paramEditorButton, BorderLayout.EAST);
-
-        add(editorPanel, BorderLayout.CENTER);
+        add(new RTextScrollPane(jsonEditor), BorderLayout.CENTER);
     }
 
     private void openParamEditor() {
@@ -78,11 +94,30 @@ public class StepPanel extends JPanel {
             Map<String, Object> currentParams = new Gson().fromJson(jsonEditor.getText(), Map.class);
             Map<String, Object> result = ParameterEditorDialog.showDialog(this, tool, currentParams);
             if (result != null) {
-                jsonEditor.setText(new GsonBuilder().setPrettyPrinting().create().toJson(result));
+                jsonEditor.setText(prettyJson(result));
             }
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this, "Ungültiges JSON in Parameterfeld: " + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "Ungültiges JSON in Parameterfeld: " + ex.getMessage(),
+                    "Fehler",
+                    JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void reformatJson() {
+        try {
+            Map<String, Object> params = new Gson().fromJson(jsonEditor.getText(), Map.class);
+            jsonEditor.setText(prettyJson(params));
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Kann JSON nicht formatieren: " + ex.getMessage(),
+                    "Fehler",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private String prettyJson(Map<String, Object> map) {
+        return new GsonBuilder().setPrettyPrinting().create().toJson(map);
     }
 
     public WorkflowStep toWorkflowStep() {

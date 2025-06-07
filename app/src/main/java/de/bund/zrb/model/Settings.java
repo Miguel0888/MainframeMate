@@ -5,9 +5,8 @@ import de.bund.zrb.ftp.FtpFileType;
 import de.bund.zrb.ftp.FtpTextFormat;
 import de.bund.zrb.ftp.FtpTransferMode;
 
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.lang.reflect.Array;
+import java.util.*;
 
 public class Settings {
     public String host;
@@ -23,6 +22,8 @@ public class Settings {
     public String encoding = "ISO-8859-1"; // Standardwert
     public boolean hideLoginDialog = false;
     public boolean soundEnabled = true;
+    public int importDelay = 3;
+    public List<String> supportedFiles = Arrays.asList( ".xls", ".xlsx", ".xlsm");
 
     // Plugin-Settings pro Plugin-Name
     public Map<String, Map<String, String>> pluginSettings = new LinkedHashMap<>();

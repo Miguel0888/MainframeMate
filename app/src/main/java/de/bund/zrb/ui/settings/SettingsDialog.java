@@ -67,6 +67,8 @@ public class SettingsDialog {
     private static JSpinner llamaContextSpinner;
     private static JTextField llamaTempField;
     private static JCheckBox llamaStreamingBox;
+    private static JSpinner importDelaySpinner;
+    private static JList<String> supportedFileList;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -113,7 +115,6 @@ public class SettingsDialog {
         fontCombo.setSelectedItem(settings.editorFont);
         generalContent.add(fontCombo, gbcGeneral);
         gbcGeneral.gridy++;
-        gbcGeneral.gridwidth = 1;
 
         // Schriftgröße
         gbcGeneral.gridwidth = 2;
@@ -126,7 +127,6 @@ public class SettingsDialog {
         fontSizeCombo.setSelectedItem(settings.editorFontSize);
         generalContent.add(fontSizeCombo, gbcGeneral);
         gbcGeneral.gridy++;
-        gbcGeneral.gridwidth = 1;
 
         // Marker-Linie (z. B. bei Spalte 80)
         gbcGeneral.gridwidth = 2;
@@ -158,6 +158,58 @@ public class SettingsDialog {
         generalContent.add(enableSound, gbcGeneral);
         gbcGeneral.gridy++;
 
+        // Default Worklow
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Default Workflow:"), gbcGeneral);
+        gbcGeneral.gridy++;
+        defaultWorkflow = new JTextField("Standard Workflow:");
+        defaultWorkflow.setText(settings.defaultWorkflow);
+        generalContent.add(defaultWorkflow, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Import-Verzögerung
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Import-Verzögerung (in Sekunden):"), gbcGeneral);
+        gbcGeneral.gridy++;
+        importDelaySpinner = new JSpinner(new SpinnerNumberModel(settings.importDelay, 0, 60, 1));
+        generalContent.add(importDelaySpinner, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Unterstützte Dateiendungen
+        generalContent.add(new JLabel("Unterstützte Dateiendungen:"), gbcGeneral);
+        gbcGeneral.gridy++;
+        DefaultListModel<String> fileListModel = new DefaultListModel<>();
+        for (String ext : settings.supportedFiles) fileListModel.addElement(ext);
+        supportedFileList = new JList<>(fileListModel);
+        supportedFileList.setVisibleRowCount(4);
+        JScrollPane fileScrollPane = new JScrollPane(supportedFileList);
+        generalContent.add(fileScrollPane, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Buttons zum Bearbeiten der Liste
+        JPanel fileButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton addExtButton = new JButton("➕");
+        JButton removeExtButton = new JButton("➖");
+
+        addExtButton.addActionListener(e -> {
+            String ext = JOptionPane.showInputDialog(parent, "Neue Dateiendung eingeben (mit Punkt):", ".xyz");
+            if (ext != null && !ext.trim().isEmpty()) {
+                fileListModel.addElement(ext.trim());
+            }
+        });
+
+        removeExtButton.addActionListener(e -> {
+            int index = supportedFileList.getSelectedIndex();
+            if (index >= 0) {
+                fileListModel.remove(index);
+            }
+        });
+
+        fileButtonPanel.add(addExtButton);
+        fileButtonPanel.add(removeExtButton);
+        generalContent.add(fileButtonPanel, gbcGeneral);
+        gbcGeneral.gridy++;
+
         // User Profile Folder
         openFolderButton = new JButton("\uD83D\uDCC1");
         openFolderButton.setToolTipText("Einstellungsordner öffnen");
@@ -171,12 +223,6 @@ public class SettingsDialog {
             }
         });
         generalContent.add(openFolderButton, gbcGeneral);
-        gbcGeneral.gridy++;
-
-        // Sounds abspielen
-        defaultWorkflow = new JTextField("Standard Workflow:");
-        defaultWorkflow.setText(settings.defaultWorkflow);
-        generalContent.add(defaultWorkflow, gbcGeneral);
         gbcGeneral.gridy++;
     }
 
@@ -606,6 +652,14 @@ public class SettingsDialog {
             settings.ftpTransferMode = ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
             settings.defaultWorkflow = defaultWorkflow.getText();
+            settings.importDelay = (Integer) importDelaySpinner.getValue();
+            DefaultListModel<String> model = (DefaultListModel<String>) supportedFileList.getModel();
+            List<String> extensions = new ArrayList<>();
+            for (int i = 0; i < model.size(); i++) {
+                extensions.add(model.get(i));
+            }
+            settings.supportedFiles = extensions;
+
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.lines", aiEditorHeightSpinner.getValue().toString());
@@ -625,7 +679,6 @@ public class SettingsDialog {
             settings.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
             settings.aiConfig.put("wrapjson", String.valueOf(wrapJsonBox.isSelected()));
             settings.aiConfig.put("prettyjson", String.valueOf(prettyJsonBox.isSelected()));
-
 
             SettingsHelper.save(settings);
 

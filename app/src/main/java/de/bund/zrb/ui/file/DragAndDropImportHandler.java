@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.file;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.MainFrame;
 
 import javax.swing.*;
@@ -47,21 +48,28 @@ public class DragAndDropImportHandler {
     }
 
     private void handleDroppedFile(File file) {
-        if (!isExcelFile(file)) {
+        if (!isSupportedFile(file)) {
             int result = JOptionPane.showConfirmDialog(parentFrame,
-                    "Die Datei '" + file.getName() + "' ist kein bekanntes Excel-Format.\n" +
-                            "Unterstützte Formate sind: .xls, .xlsx, .xlsm\n\n" +
+                    "Die Datei '" + file.getName() + "' ist kein vorkonfiguriertes Format.\n" +
+                            "Unterstützte Formate sind: " + getFormattedFileList() + "\n\n" +
                             "Möchtest du den Import trotzdem fortsetzen?",
                     "Unbekanntes Format", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result != JOptionPane.YES_OPTION) {
                 return;
             }
         }
-        new ExcelImportDialog(parentFrame, file, parentFrame.getWorkflowRunner()).setVisible(true);
+        new FileImportDialog(parentFrame, file, parentFrame.getWorkflowRunner()).setVisible(true);
     }
 
-    private boolean isExcelFile(File file) {
+    private boolean isSupportedFile(File file) {
         String name = file.getName().toLowerCase();
-        return name.endsWith(".xls") || name.endsWith(".xlsx") || name.endsWith(".xlsm");
+        List<String> extensions = SettingsHelper.load().supportedFiles;
+        return extensions.stream().anyMatch(name::endsWith);
     }
+
+    private String getFormattedFileList() {
+        List<String> extensions = SettingsHelper.load().supportedFiles;
+        return String.join(", ", extensions);
+    }
+
 }

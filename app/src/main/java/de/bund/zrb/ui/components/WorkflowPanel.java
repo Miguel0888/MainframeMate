@@ -9,13 +9,19 @@ import de.zrb.bund.newApi.workflow.WorkflowStep;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyVetoException;
+import java.beans.VetoableChangeListener;
 import java.util.List;
 
 public class WorkflowPanel extends JPanel {
 
     private final JComboBox<String> workflowSelector;
     private final JPanel stepListPanel;
-    private final JTextArea previewArea;
     private final WorkflowRunner runner;
     private final ToolRegistry registry;
 
@@ -25,40 +31,50 @@ public class WorkflowPanel extends JPanel {
 
         setLayout(new BorderLayout(8, 8));
 
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        JPanel selectorPanel = new JPanel(new BorderLayout(4, 0));
+
+        JButton runWorkflow = new JButton("▶");
+        runWorkflow.setToolTipText("Workflow ausführen");
+        runWorkflow.setBackground(new Color(76, 175, 80)); // Saftiges Grün
+        runWorkflow.setForeground(Color.WHITE);
+        selectorPanel.add(runWorkflow, BorderLayout.EAST);
+
         workflowSelector = new JComboBox<>();
         reloadWorkflowNames();
-        add(workflowSelector, BorderLayout.NORTH);
+        selectorPanel.add(workflowSelector, BorderLayout.CENTER);
 
-        stepListPanel = new JPanel();
-        stepListPanel.setLayout(new BoxLayout(stepListPanel, BoxLayout.Y_AXIS));
-        JScrollPane stepScrollPane = new JScrollPane(stepListPanel);
+        headerPanel.add(selectorPanel, BorderLayout.CENTER);
 
-        previewArea = new JTextArea();
-        previewArea.setEditable(false);
-        previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
-
-        JTabbedPane contentTabs = new JTabbedPane();
-        contentTabs.addTab("📦 Schritte", stepScrollPane);
-        contentTabs.addTab("📄 Vorschau", new JScrollPane(previewArea));
-        add(contentTabs, BorderLayout.CENTER);
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton addStep = new JButton("+");
-        addStep.setToolTipText("Schritt hinzufügen");
-        JButton runWorkflow = new JButton("▶");
-        runWorkflow.setToolTipText("Ausführen");
-        JButton saveWorkflow = new JButton("💾");
-        saveWorkflow.setToolTipText("Speichern unter...");
+        JPanel headerButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         JButton renameWorkflow = new JButton("✏");
         renameWorkflow.setToolTipText("Umbenennen");
+        JButton saveWorkflow = new JButton("💾");
+        saveWorkflow.setToolTipText("Speichern unter...");
         JButton deleteWorkflow = new JButton("🗑");
         deleteWorkflow.setToolTipText("Löschen");
 
-        buttonPanel.add(addStep);
-        buttonPanel.add(runWorkflow);
-        buttonPanel.add(saveWorkflow);
-        buttonPanel.add(renameWorkflow);
-        buttonPanel.add(deleteWorkflow);
+        headerButtons.add(renameWorkflow);
+        headerButtons.add(saveWorkflow);
+        headerButtons.add(deleteWorkflow);
+
+        headerPanel.add(headerButtons, BorderLayout.EAST);
+        add(headerPanel, BorderLayout.NORTH);
+
+        stepListPanel = new JPanel();
+        stepListPanel.setLayout(new BoxLayout(stepListPanel, BoxLayout.Y_AXIS));
+        stepListPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JScrollPane stepScrollPane = new JScrollPane(stepListPanel);
+        stepScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        add(stepScrollPane, BorderLayout.CENTER);
+
+        JPanel buttonPanel = new JPanel(new BorderLayout());
+        buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        JButton addStep = new JButton("<<< Schritt hinzufügen >>>");
+        addStep.setToolTipText("Schritt hinzufügen");
+        addStep.setPreferredSize(new Dimension(100, 28));
+        buttonPanel.add(addStep, BorderLayout.CENTER);
         add(buttonPanel, BorderLayout.SOUTH);
 
         workflowSelector.addActionListener(e -> {
@@ -74,16 +90,36 @@ public class WorkflowPanel extends JPanel {
 
         runWorkflow.addActionListener(e -> {
             List<WorkflowStep> steps = getWorkflowSteps();
-            previewArea.setText(getPreviewJson(steps));
             runner.execute(steps);
         });
 
         saveWorkflow.addActionListener(e -> {
-            String name = JOptionPane.showInputDialog(this, "Workflowname eingeben:", "Speichern unter", JOptionPane.PLAIN_MESSAGE);
-            if (name != null && !name.trim().isEmpty()) {
-                WorkflowStorage.saveWorkflow(name.trim(), getWorkflowSteps());
-                reloadWorkflowNames();
-                workflowSelector.setSelectedItem(name.trim());
+            String currentName = (String) workflowSelector.getSelectedItem();
+            JTextField input = new JTextField(currentName != null ? currentName : "");
+            if (currentName != null) {
+                if (currentName != null) {
+                    input.addFocusListener(new FocusAdapter() {
+                        @Override
+                        public void focusGained(FocusEvent e) {
+                            SwingUtilities.invokeLater(() -> {
+                                input.selectAll();
+                            });
+                        }
+                    });
+                }
+            }
+            if (currentName != null) {
+                input.selectAll(); // Markiert den bestehenden Text
+            }
+
+            int result = JOptionPane.showConfirmDialog(this, input, "Workflowname eingeben:", JOptionPane.OK_CANCEL_OPTION);
+            if (result == JOptionPane.OK_OPTION) {
+                String name = input.getText().trim();
+                if (!name.isEmpty()) {
+                    WorkflowStorage.saveWorkflow(name, getWorkflowSteps());
+                    reloadWorkflowNames();
+                    workflowSelector.setSelectedItem(name);
+                }
             }
         });
 
@@ -120,11 +156,6 @@ public class WorkflowPanel extends JPanel {
         if (previous != null && WorkflowStorage.workflowExists(previous)) {
             workflowSelector.setSelectedItem(previous);
         }
-    }
-
-    private String getPreviewJson(List<WorkflowStep> steps) {
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(steps);
     }
 
     private void addStepPanel(WorkflowStep step) {

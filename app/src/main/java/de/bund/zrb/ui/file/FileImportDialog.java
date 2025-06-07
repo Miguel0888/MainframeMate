@@ -3,7 +3,6 @@ package de.bund.zrb.ui.file;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.helper.WorkflowStorage;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 import de.zrb.bund.newApi.workflow.WorkflowStep;
 
@@ -27,30 +26,30 @@ import java.awt.event.*;
 import java.io.File;
 import java.util.List;
 
-public class ExcelImportDialog extends JDialog {
+public class FileImportDialog extends JDialog {
 
-    private static final int COUNTDOWN_SECONDS = 3;
     private final WorkflowRunner workflowRunner;
 
     private Timer countdownTimer;
-    private int timeLeft = COUNTDOWN_SECONDS;
+    private int timeLeft = Integer.MAX_VALUE;
     private final JLabel timerLabel;
     private final JComboBox<String> templateBox;
     private final JCheckBox rememberBox;
     private boolean userInteracted = false;
     private final AnimatedTimerCircle animatedCircle;
 
-    public ExcelImportDialog(Frame owner, File file, WorkflowRunner workflowRunner) {
-        super(owner, "Excel-Import: " + file.getName(), true);
+    public FileImportDialog(Frame owner, File file, WorkflowRunner workflowRunner) {
+        super(owner, "Datei-Import: " + file.getName(), true);
         this.workflowRunner = workflowRunner;
 
         Settings settings = SettingsHelper.load();
         String defaultWorkflow = settings.defaultWorkflow;
+        timeLeft = settings.importDelay;
 
         setLayout(new BorderLayout());
 
         // Timeranzeige mit Animation
-        timerLabel = new JLabel(String.valueOf(COUNTDOWN_SECONDS), SwingConstants.CENTER);
+        timerLabel = new JLabel(String.valueOf(timeLeft), SwingConstants.CENTER);
         timerLabel.setFont(new Font("Arial", Font.BOLD, 48));
 
         animatedCircle = new AnimatedTimerCircle(timerLabel);
