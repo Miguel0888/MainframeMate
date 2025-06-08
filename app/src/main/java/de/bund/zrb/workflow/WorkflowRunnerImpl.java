@@ -6,11 +6,10 @@ import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
-import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowMcpData;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 public class WorkflowRunnerImpl implements WorkflowRunner {
 
@@ -23,10 +22,10 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
     }
 
     @Override
-    public void execute(List<WorkflowStep> steps) {
+    public void execute(List<WorkflowMcpData> steps) {
         List<JsonObject> jsonCalls = new ArrayList<>();
 
-        for (WorkflowStep step : steps) {
+        for (WorkflowMcpData step : steps) {
             McpTool tool = registry.getToolByName(step.getToolName());
             if (tool == null) continue;
 

@@ -1,7 +1,7 @@
 package de.bund.zrb.ui.components;
 
 import de.zrb.bund.newApi.ToolRegistry;
-import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowMcpData;
 
 import javax.swing.*;
 import javax.swing.table.TableCellEditor;
@@ -31,7 +31,7 @@ class ParameterCellEditor extends AbstractCellEditor implements TableCellEditor 
 
         button.addActionListener(e -> {
             stopCellEditing(); // commit text
-            WorkflowStep step = tableModel.getSteps().get(editingRow);
+            WorkflowMcpData step = tableModel.getSteps().get(editingRow);
             String toolName = step.getToolName();
             Map<String, Object> edited = ParameterEditorDialog.showDialog(
                     parent,

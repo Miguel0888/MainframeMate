@@ -4,7 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
-import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowMcpData;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
@@ -25,7 +25,7 @@ public class StepPanel extends JPanel {
 
     private ActionListener deleteListener;
 
-    public StepPanel(ToolRegistry registry, WorkflowStep initialStep) {
+    public StepPanel(ToolRegistry registry, WorkflowMcpData initialStep) {
         this.registry = registry;
         setLayout(new BorderLayout(4, 4));
         setBorder(BorderFactory.createCompoundBorder(
@@ -120,13 +120,13 @@ public class StepPanel extends JPanel {
         return new GsonBuilder().setPrettyPrinting().create().toJson(map);
     }
 
-    public WorkflowStep toWorkflowStep() {
+    public WorkflowMcpData toWorkflowStep() {
         String toolName = (String) toolSelector.getSelectedItem();
         try {
             Map<String, Object> params = new Gson().fromJson(jsonEditor.getText(), Map.class);
-            return new WorkflowStep(toolName, params);
+            return new WorkflowMcpData(toolName, params);
         } catch (Exception ex) {
-            return new WorkflowStep(toolName, new LinkedHashMap<>());
+            return new WorkflowMcpData(toolName, new LinkedHashMap<>());
         }
     }
 

@@ -4,7 +4,7 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.helper.WorkflowStorage;
 import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
-import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowMcpData;
 import de.zrb.bund.newApi.workflow.WorkflowStepContainer;
 import de.zrb.bund.newApi.workflow.WorkflowTemplate;
 
@@ -182,7 +182,7 @@ public class FileImportDialog extends JDialog {
 
     // ToDo: Runner auf neue Struktur ändern
     List<WorkflowStepContainer> containers = template.getData();
-    List<WorkflowStep> steps = new java.util.ArrayList<>();
+    List<WorkflowMcpData> steps = new java.util.ArrayList<>();
     for (WorkflowStepContainer container : containers) {
         steps.add(container.getMcp()); // MCP-Step extrahieren
     }

@@ -3,11 +3,11 @@ package de.zrb.bund.newApi.workflow;
 import java.util.Map;
 
 @Deprecated
-public class WorkflowStep {
+public class WorkflowMcpData {
     private final String toolName;
     private Map<String, Object> parameters;
 
-    public WorkflowStep(String toolName, Map<String, Object> parameters) {
+    public WorkflowMcpData(String toolName, Map<String, Object> parameters) {
         this.toolName = toolName;
         this.parameters = parameters;
     }

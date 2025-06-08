@@ -5,14 +5,14 @@ import java.util.List;
 
 public class WorkflowStepContainer {
     private String id; // optional
-    private WorkflowStep mcp; // Pflichtfeld
+    private WorkflowMcpData mcp; // Pflichtfeld
     private List<String> dependsOn; // optional
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
 
-    public WorkflowStep getMcp() { return mcp; }
-    public void setMcp(WorkflowStep mcp) { this.mcp = mcp; }
+    public WorkflowMcpData getMcp() { return mcp; }
+    public void setMcp(WorkflowMcpData mcp) { this.mcp = mcp; }
 
     public List<String> getDependsOn() {
         return dependsOn != null ? dependsOn : Collections.emptyList();

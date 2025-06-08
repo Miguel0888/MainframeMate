@@ -3,10 +3,9 @@ package de.bund.zrb.ui.components;
 import de.bund.zrb.helper.WorkflowStorage;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
-import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowMcpData;
 import de.zrb.bund.newApi.workflow.WorkflowStepContainer;
 import de.zrb.bund.newApi.workflow.WorkflowTemplate;
-import de.zrb.bund.newApi.workflow.WorkflowMeta;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -82,12 +81,11 @@ public class WorkflowPanel extends JPanel {
             onSelectWorkflow();
         });
 
-        addStep.addActionListener(e -> addStepPanel(new WorkflowStep("", new LinkedHashMap<>())));
+        addStep.addActionListener(e -> addStepPanel(new WorkflowMcpData("", new LinkedHashMap<>())));
 
         runWorkflow.addActionListener(e -> {
-            WorkflowTemplate template = getWorkflowTemplate();
-            List<WorkflowStep> steps = new ArrayList<>();
-            for (WorkflowStepContainer c : template.getData()) {
+            List<WorkflowMcpData> steps = new ArrayList<>();
+            for (WorkflowStepContainer c : currentTemplate.getData()) {
                 if (c.getMcp() != null) {
                     steps.add(c.getMcp());
                 }
@@ -110,7 +108,7 @@ public class WorkflowPanel extends JPanel {
             if (result == JOptionPane.OK_OPTION) {
                 String name = input.getText().trim();
                 if (!name.isEmpty()) {
-                    WorkflowStorage.saveWorkflow(name, getWorkflowTemplate());
+                    WorkflowStorage.saveWorkflow(name, currentTemplate);
                     reloadWorkflowNames();
                     workflowSelector.setSelectedItem(name);
                 }
@@ -140,7 +138,7 @@ public class WorkflowPanel extends JPanel {
             }
         });
 
-        envVarsButton.addActionListener(e -> showEnvironmentDialog());
+        envVarsButton.addActionListener(e -> showVariableDialog());
         onSelectWorkflow(); //refresh stepPanel
     }
 
@@ -164,7 +162,7 @@ public class WorkflowPanel extends JPanel {
         }
     }
 
-    private void addStepPanel(WorkflowStep step) {
+    private void addStepPanel(WorkflowMcpData step) {
         StepPanel panel = new StepPanel(registry, step);
         panel.setDeleteListener(e -> {
             stepListPanel.remove(panel);
@@ -192,36 +190,7 @@ public class WorkflowPanel extends JPanel {
         }
     }
 
-    public WorkflowTemplate getWorkflowTemplate() {
-        WorkflowTemplate template = new WorkflowTemplate();
-
-        List<WorkflowStepContainer> containers = new ArrayList<>();
-        for (Component comp : stepListPanel.getComponents()) {
-            if (comp instanceof StepPanel) {
-                WorkflowStep step = ((StepPanel) comp).toWorkflowStep();
-                WorkflowStepContainer container = new WorkflowStepContainer();
-                container.setMcp(step);
-                containers.add(container);
-            }
-        }
-        template.setData(containers);
-
-        Map<String, String> vars = new LinkedHashMap<>();
-        for (int i = 0; i < variableModel.getRowCount(); i++) {
-            String key = variableModel.getValueAt(i, 0).toString().trim();
-            String value = variableModel.getValueAt(i, 1).toString().trim();
-            if (!key.isEmpty()) {
-                vars.put(key, value);
-            }
-        }
-        WorkflowMeta meta = new WorkflowMeta();
-        meta.setVariables(vars);
-        template.setMeta(meta);
-
-        return template;
-    }
-
-    private void showEnvironmentDialog() {
+    private void showVariableDialog() {
         if (currentTemplate == null || currentTemplate.getMeta() == null) {
             JOptionPane.showMessageDialog(this, "Kein Workflow geladen.", "Fehler", JOptionPane.ERROR_MESSAGE);
             return;
@@ -307,7 +276,7 @@ public class WorkflowPanel extends JPanel {
         Set<String> vars = new TreeSet<>();
         for (Component comp : stepListPanel.getComponents()) {
             if (comp instanceof StepPanel) {
-                WorkflowStep step = ((StepPanel) comp).toWorkflowStep();
+                WorkflowMcpData step = ((StepPanel) comp).toWorkflowStep();
                 for (Object val : step.getParameters().values()) {
                     if (val instanceof String) {
                         String s = (String) val;
