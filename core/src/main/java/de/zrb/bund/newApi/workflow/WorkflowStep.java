@@ -2,6 +2,7 @@ package de.zrb.bund.newApi.workflow;
 
 import java.util.Map;
 
+@Deprecated
 public class WorkflowStep {
     private final String toolName;
     private Map<String, Object> parameters;

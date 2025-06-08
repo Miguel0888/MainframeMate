@@ -1,29 +1,32 @@
 package de.bund.zrb.ui.components;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import de.bund.zrb.helper.WorkflowStorage;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowStepContainer;
+import de.zrb.bund.newApi.workflow.WorkflowTemplate;
+import de.zrb.bund.newApi.workflow.WorkflowMeta;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellEditor;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyVetoException;
-import java.beans.VetoableChangeListener;
+import java.util.*;
 import java.util.List;
 
 public class WorkflowPanel extends JPanel {
+
+    private WorkflowTemplate currentTemplate;
 
     private final JComboBox<String> workflowSelector;
     private final JPanel stepListPanel;
     private final WorkflowRunner runner;
     private final ToolRegistry registry;
+
+    private final DefaultTableModel variableModel;
 
     public WorkflowPanel(WorkflowRunner runner, ToolRegistry registry) {
         this.runner = runner;
@@ -36,7 +39,7 @@ public class WorkflowPanel extends JPanel {
 
         JButton runWorkflow = new JButton("▶");
         runWorkflow.setToolTipText("Workflow ausführen");
-        runWorkflow.setBackground(new Color(76, 175, 80)); // Saftiges Grün
+        runWorkflow.setBackground(new Color(76, 175, 80));
         runWorkflow.setForeground(Color.WHITE);
         selectorPanel.add(runWorkflow, BorderLayout.EAST);
 
@@ -48,11 +51,8 @@ public class WorkflowPanel extends JPanel {
 
         JPanel headerButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         JButton renameWorkflow = new JButton("✏");
-        renameWorkflow.setToolTipText("Umbenennen");
         JButton saveWorkflow = new JButton("💾");
-        saveWorkflow.setToolTipText("Speichern unter...");
         JButton deleteWorkflow = new JButton("🗑");
-        deleteWorkflow.setToolTipText("Löschen");
 
         headerButtons.add(renameWorkflow);
         headerButtons.add(saveWorkflow);
@@ -63,33 +63,35 @@ public class WorkflowPanel extends JPanel {
 
         stepListPanel = new JPanel();
         stepListPanel.setLayout(new BoxLayout(stepListPanel, BoxLayout.Y_AXIS));
-        stepListPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JScrollPane stepScrollPane = new JScrollPane(stepListPanel);
         stepScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         add(stepScrollPane, BorderLayout.CENTER);
 
         JPanel buttonPanel = new JPanel(new BorderLayout());
-        buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
-        JButton addStep = new JButton("<<< Schritt hinzufügen >>>");
-        addStep.setToolTipText("Schritt hinzufügen");
-        addStep.setPreferredSize(new Dimension(100, 28));
-        buttonPanel.add(addStep, BorderLayout.CENTER);
+        buttonPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        JButton addStep = new JButton("📦");
+        buttonPanel.add(addStep, BorderLayout.WEST);
+        JButton envVarsButton = new JButton("📝 Variablen");
+        buttonPanel.add(envVarsButton, BorderLayout.EAST);
         add(buttonPanel, BorderLayout.SOUTH);
 
+        variableModel = new DefaultTableModel(new String[]{"Name", "Wert"}, 0);
+
         workflowSelector.addActionListener(e -> {
-            String selected = (String) workflowSelector.getSelectedItem();
-            if (selected != null) {
-                setWorkflowSteps(WorkflowStorage.loadWorkflow(selected));
-            }
+            onSelectWorkflow();
         });
 
-        addStep.addActionListener(e -> {
-            addStepPanel(new WorkflowStep("", new java.util.LinkedHashMap<>()));
-        });
+        addStep.addActionListener(e -> addStepPanel(new WorkflowStep("", new LinkedHashMap<>())));
 
         runWorkflow.addActionListener(e -> {
-            List<WorkflowStep> steps = getWorkflowSteps();
+            WorkflowTemplate template = getWorkflowTemplate();
+            List<WorkflowStep> steps = new ArrayList<>();
+            for (WorkflowStepContainer c : template.getData()) {
+                if (c.getMcp() != null) {
+                    steps.add(c.getMcp());
+                }
+            }
             runner.execute(steps);
         });
 
@@ -97,26 +99,18 @@ public class WorkflowPanel extends JPanel {
             String currentName = (String) workflowSelector.getSelectedItem();
             JTextField input = new JTextField(currentName != null ? currentName : "");
             if (currentName != null) {
-                if (currentName != null) {
-                    input.addFocusListener(new FocusAdapter() {
-                        @Override
-                        public void focusGained(FocusEvent e) {
-                            SwingUtilities.invokeLater(() -> {
-                                input.selectAll();
-                            });
-                        }
-                    });
-                }
+                input.addFocusListener(new FocusAdapter() {
+                    @Override
+                    public void focusGained(FocusEvent e) {
+                        SwingUtilities.invokeLater(input::selectAll);
+                    }
+                });
             }
-            if (currentName != null) {
-                input.selectAll(); // Markiert den bestehenden Text
-            }
-
             int result = JOptionPane.showConfirmDialog(this, input, "Workflowname eingeben:", JOptionPane.OK_CANCEL_OPTION);
             if (result == JOptionPane.OK_OPTION) {
                 String name = input.getText().trim();
                 if (!name.isEmpty()) {
-                    WorkflowStorage.saveWorkflow(name, getWorkflowSteps());
+                    WorkflowStorage.saveWorkflow(name, getWorkflowTemplate());
                     reloadWorkflowNames();
                     workflowSelector.setSelectedItem(name);
                 }
@@ -142,9 +136,19 @@ public class WorkflowPanel extends JPanel {
                     "Löschen bestätigen", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
                 WorkflowStorage.deleteWorkflow(current);
                 reloadWorkflowNames();
-                setWorkflowSteps(java.util.Collections.emptyList());
+                setWorkflowTemplate(new WorkflowTemplate());
             }
         });
+
+        envVarsButton.addActionListener(e -> showEnvironmentDialog());
+        onSelectWorkflow(); //refresh stepPanel
+    }
+
+    private void onSelectWorkflow() {
+        String selected = (String) workflowSelector.getSelectedItem();
+        if (selected != null) {
+            setWorkflowTemplate(WorkflowStorage.loadWorkflow(selected));
+        }
     }
 
     private void reloadWorkflowNames() {
@@ -155,6 +159,8 @@ public class WorkflowPanel extends JPanel {
         }
         if (previous != null && WorkflowStorage.workflowExists(previous)) {
             workflowSelector.setSelectedItem(previous);
+        } else if (workflowSelector.getItemCount() > 0) {
+            workflowSelector.setSelectedIndex(0); // ← neue Zeile!
         }
     }
 
@@ -170,20 +176,149 @@ public class WorkflowPanel extends JPanel {
         stepListPanel.repaint();
     }
 
-    private void setWorkflowSteps(List<WorkflowStep> steps) {
+    public void setWorkflowTemplate(WorkflowTemplate template) {
+        this.currentTemplate = template;
         stepListPanel.removeAll();
-        for (WorkflowStep step : steps) {
-            addStepPanel(step);
+        variableModel.setRowCount(0);
+        if (template.getMeta() != null && template.getMeta().getVariables() != null) {
+            for (Map.Entry<String, String> entry : template.getMeta().getVariables().entrySet()) {
+                variableModel.addRow(new Object[]{entry.getKey(), entry.getValue()});
+            }
+        }
+        for (WorkflowStepContainer container : template.getData()) {
+            if (container.getMcp() != null) {
+                addStepPanel(container.getMcp());
+            }
         }
     }
 
-    private List<WorkflowStep> getWorkflowSteps() {
-        List<WorkflowStep> steps = new java.util.ArrayList<>();
+    public WorkflowTemplate getWorkflowTemplate() {
+        WorkflowTemplate template = new WorkflowTemplate();
+
+        List<WorkflowStepContainer> containers = new ArrayList<>();
         for (Component comp : stepListPanel.getComponents()) {
             if (comp instanceof StepPanel) {
-                steps.add(((StepPanel) comp).toWorkflowStep());
+                WorkflowStep step = ((StepPanel) comp).toWorkflowStep();
+                WorkflowStepContainer container = new WorkflowStepContainer();
+                container.setMcp(step);
+                containers.add(container);
             }
         }
-        return steps;
+        template.setData(containers);
+
+        Map<String, String> vars = new LinkedHashMap<>();
+        for (int i = 0; i < variableModel.getRowCount(); i++) {
+            String key = variableModel.getValueAt(i, 0).toString().trim();
+            String value = variableModel.getValueAt(i, 1).toString().trim();
+            if (!key.isEmpty()) {
+                vars.put(key, value);
+            }
+        }
+        WorkflowMeta meta = new WorkflowMeta();
+        meta.setVariables(vars);
+        template.setMeta(meta);
+
+        return template;
+    }
+
+    private void showEnvironmentDialog() {
+        if (currentTemplate == null || currentTemplate.getMeta() == null) {
+            JOptionPane.showMessageDialog(this, "Kein Workflow geladen.", "Fehler", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Variablen bearbeiten", Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setSize(400, 300);
+        dialog.setLocationRelativeTo(this);
+
+        Map<String, String> variables = new LinkedHashMap<>(currentTemplate.getMeta().getVariables());
+        DefaultTableModel variableModel = new DefaultTableModel(new String[]{"Name", "Wert"}, 0);
+
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            variableModel.addRow(new Object[]{entry.getKey(), entry.getValue()});
+        }
+
+        JTable table = new JTable(variableModel) {
+            @Override
+            public TableCellEditor getCellEditor(int row, int column) {
+                if (column == 0) {
+                    List<String> suggestions = getUsedVariablePlaceholders();
+                    JComboBox<String> comboBox = new JComboBox<>(suggestions.toArray(new String[0]));
+                    comboBox.setEditable(true);
+                    return new DefaultCellEditor(comboBox);
+                } else {
+                    return super.getCellEditor(row, column);
+                }
+            }
+        };
+
+        JScrollPane scrollPane = new JScrollPane(table);
+
+        JButton addRowButton = new JButton("+");
+        addRowButton.addActionListener(e -> variableModel.addRow(new Object[]{"", ""}));
+
+        JButton deleteRowButton = new JButton("−");
+        deleteRowButton.addActionListener(e -> {
+            int selected = table.getSelectedRow();
+            if (selected != -1) variableModel.removeRow(selected);
+        });
+
+        JButton saveButton = new JButton("Speichern");
+        saveButton.addActionListener(e -> {
+            Map<String, String> newVars = new LinkedHashMap<>();
+            for (int i = 0; i < variableModel.getRowCount(); i++) {
+                String key = variableModel.getValueAt(i, 0).toString().trim();
+                String value = variableModel.getValueAt(i, 1).toString().trim();
+                if (!key.isEmpty()) {
+                    newVars.put(key, value);
+                }
+            }
+            currentTemplate.getMeta().setVariables(newVars);
+            dialog.dispose();
+        });
+
+        JButton cancelButton = new JButton("Abbrechen");
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        leftPanel.add(addRowButton);
+        leftPanel.add(deleteRowButton);
+
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        rightPanel.add(saveButton);
+        rightPanel.add(cancelButton);
+
+        JPanel bottomBar = new JPanel(new BorderLayout());
+        bottomBar.add(leftPanel, BorderLayout.WEST);
+        bottomBar.add(rightPanel, BorderLayout.EAST);
+
+        JPanel contentPanel = new JPanel(new BorderLayout(4, 4));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        contentPanel.add(scrollPane, BorderLayout.CENTER);
+        contentPanel.add(bottomBar, BorderLayout.SOUTH);
+
+        dialog.setContentPane(contentPanel);
+        dialog.setVisible(true);
+    }
+
+
+    private List<String> getUsedVariablePlaceholders() {
+        Set<String> vars = new TreeSet<>();
+        for (Component comp : stepListPanel.getComponents()) {
+            if (comp instanceof StepPanel) {
+                WorkflowStep step = ((StepPanel) comp).toWorkflowStep();
+                for (Object val : step.getParameters().values()) {
+                    if (val instanceof String) {
+                        String s = (String) val;
+                        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(s);
+                        while (matcher.find()) {
+                            vars.add(matcher.group(1));
+                        }
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(vars);
     }
 }

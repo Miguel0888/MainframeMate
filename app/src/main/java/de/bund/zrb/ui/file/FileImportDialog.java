@@ -5,6 +5,8 @@ import de.bund.zrb.helper.WorkflowStorage;
 import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 import de.zrb.bund.newApi.workflow.WorkflowStep;
+import de.zrb.bund.newApi.workflow.WorkflowStepContainer;
+import de.zrb.bund.newApi.workflow.WorkflowTemplate;
 
 import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
@@ -159,8 +161,8 @@ public class FileImportDialog extends JDialog {
             return;
         }
 
-        List<WorkflowStep> steps = WorkflowStorage.loadWorkflow(selected);
-        if (steps.isEmpty()) {
+        WorkflowTemplate template = WorkflowStorage.loadWorkflow(selected);
+    if (template == null || template.getData().isEmpty()) {
             JOptionPane.showMessageDialog(getOwner(),
                     "Workflow \"" + selected + "\" ist leer oder nicht vorhanden.",
                     "Fehler", JOptionPane.ERROR_MESSAGE);
@@ -178,8 +180,16 @@ public class FileImportDialog extends JDialog {
                 "Import von Datei '" + file.getName() + "' (Pfad: " + file.getAbsolutePath() + ") wird jetzt gestartet...",
                 "Import starten", JOptionPane.INFORMATION_MESSAGE);
 
-        workflowRunner.execute(steps);
+    // ToDo: Runner auf neue Struktur ändern
+    List<WorkflowStepContainer> containers = template.getData();
+    List<WorkflowStep> steps = new java.util.ArrayList<>();
+    for (WorkflowStepContainer container : containers) {
+        steps.add(container.getMcp()); // MCP-Step extrahieren
     }
+
+    workflowRunner.execute(steps);
+}
+
 
 
     // Komponente mit animiertem rotierendem Pfeilkreis

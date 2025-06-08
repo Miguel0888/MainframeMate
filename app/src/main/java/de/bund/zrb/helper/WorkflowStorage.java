@@ -2,9 +2,11 @@ package de.bund.zrb.helper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import de.zrb.bund.newApi.workflow.WorkflowStep;
+import com.google.gson.reflect.TypeToken;
+import de.zrb.bund.newApi.workflow.WorkflowTemplate;
 
 import java.io.*;
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
@@ -13,23 +15,18 @@ public class WorkflowStorage {
     private static final File WORKFLOW_FILE = new File(SettingsHelper.getSettingsFolder(), "workflow.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    public static Map<String, List<WorkflowStep>> loadWorkflows() {
+    public static Map<String, WorkflowTemplate> loadWorkflows() {
         if (!WORKFLOW_FILE.exists()) return new LinkedHashMap<>();
         try (Reader reader = new InputStreamReader(new FileInputStream(WORKFLOW_FILE), StandardCharsets.UTF_8)) {
-            Map<String, WorkflowStep[]> raw = GSON.fromJson(reader, Map.class);
-            Map<String, List<WorkflowStep>> result = new LinkedHashMap<>();
-            for (Map.Entry<String, WorkflowStep[]> entry : raw.entrySet()) {
-                WorkflowStep[] steps = GSON.fromJson(GSON.toJsonTree(entry.getValue()), WorkflowStep[].class);
-                result.put(entry.getKey(), Arrays.asList(steps));
-            }
-            return result;
+            Type type = new TypeToken<Map<String, WorkflowTemplate>>() {}.getType();
+            return GSON.fromJson(reader, type);
         } catch (IOException e) {
             e.printStackTrace();
             return new LinkedHashMap<>();
         }
     }
 
-    public static void saveWorkflows(Map<String, List<WorkflowStep>> workflows) {
+    public static void saveWorkflows(Map<String, WorkflowTemplate> workflows) {
         try {
             WORKFLOW_FILE.getParentFile().mkdirs();
             try (Writer writer = new OutputStreamWriter(new FileOutputStream(WORKFLOW_FILE), StandardCharsets.UTF_8)) {
@@ -40,15 +37,14 @@ public class WorkflowStorage {
         }
     }
 
-    public static void saveWorkflow(String name, List<WorkflowStep> steps) {
-        Map<String, List<WorkflowStep>> existing = loadWorkflows();
-        existing.put(name, steps);
-        saveWorkflows(existing);
+    public static void saveWorkflow(String name, WorkflowTemplate template) {
+        Map<String, WorkflowTemplate> all = loadWorkflows();
+        all.put(name, template);
+        saveWorkflows(all);
     }
 
-    public static List<WorkflowStep> loadWorkflow(String name) {
-        Map<String, List<WorkflowStep>> workflows = loadWorkflows();
-        return workflows.getOrDefault(name, Collections.emptyList());
+    public static WorkflowTemplate loadWorkflow(String name) {
+        return loadWorkflows().getOrDefault(name, new WorkflowTemplate());
     }
 
     public static Set<String> listWorkflowNames() {
@@ -57,16 +53,16 @@ public class WorkflowStorage {
 
     public static void renameWorkflow(String oldName, String newName) {
         if (oldName.equals(newName)) return;
-        Map<String, List<WorkflowStep>> workflows = loadWorkflows();
+        Map<String, WorkflowTemplate> workflows = loadWorkflows();
         if (workflows.containsKey(oldName)) {
-            List<WorkflowStep> steps = workflows.remove(oldName);
-            workflows.put(newName, steps);
+            WorkflowTemplate template = workflows.remove(oldName);
+            workflows.put(newName, template);
             saveWorkflows(workflows);
         }
     }
 
     public static void deleteWorkflow(String name) {
-        Map<String, List<WorkflowStep>> workflows = loadWorkflows();
+        Map<String, WorkflowTemplate> workflows = loadWorkflows();
         if (workflows.remove(name) != null) {
             saveWorkflows(workflows);
         }
