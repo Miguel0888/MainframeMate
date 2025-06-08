@@ -20,13 +20,17 @@ public class McpServiceImpl implements McpService {
     @Override
     public void accept(JsonElement toolCall, UUID sessionId) {
         JsonObject obj = toolCall.getAsJsonObject();
-        String toolName = obj.get("tool_name").getAsString();
+        JsonElement toolName = obj.get("tool_name");
+        if(toolName == null) {
+            throw new IllegalArgumentException("MCP Tool not found!");
+        }
+        String toolNameAsString = toolName.getAsString();
         JsonObject input = obj.getAsJsonObject("tool_input");
         String callId = obj.get("tool_call_id").getAsString();
 
-        McpTool tool = toolRegistry.getToolByName(toolName);
+        McpTool tool = toolRegistry.getToolByName(toolNameAsString);
         if (tool == null) {
-            throw new IllegalArgumentException("Unknown tool: " + toolName);
+            throw new IllegalArgumentException("Unknown tool: " + toolNameAsString);
         }
 
         JsonObject result = tool.execute(input);

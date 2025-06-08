@@ -78,7 +78,11 @@ public class FileImportDialog extends JDialog {
         templatePanel.setLayout(new BoxLayout(templatePanel, BoxLayout.Y_AXIS));
         templatePanel.setMaximumSize(new Dimension(200, 100));
         templatePanel.add(templateBox);
+        JLabel notice = new JLabel("{{file}} muss deklariert sein!");
+        notice.setFont(notice.getFont().deriveFont(10f));
+        templatePanel.add(notice);
         templatePanel.add(Box.createVerticalStrut(10));
+        notice.setBorder(BorderFactory.createEmptyBorder(4, 2, 0, 2));
         templatePanel.add(rememberPanel);
 
         JPanel centerPanel = new JPanel(new GridBagLayout());
@@ -180,13 +184,15 @@ public class FileImportDialog extends JDialog {
         Map<String, String> overrides = new java.util.LinkedHashMap<>();
         overrides.put("file", file.getAbsolutePath());
 
-        // Optional: Dialog zur Information
-        JOptionPane.showMessageDialog(getOwner(),
-                "Import von Datei '" + file.getName() + "' (Pfad: " + file.getAbsolutePath() + ") wird jetzt gestartet...",
-                "Import starten", JOptionPane.INFORMATION_MESSAGE);
-
         // Neuen Runner aufrufen (inkl. overrides für {{file}})
-        workflowRunner.execute(template, overrides);
+        try {
+            workflowRunner.execute(template, overrides);
+        } catch (IllegalArgumentException e) {
+            JOptionPane.showMessageDialog(getOwner(),
+                    "Import von Datei '" + file.getName() + "' (Pfad: " + file.getAbsolutePath() + ") fehlgeschlagen: " + e.getMessage(),
+                    "Import starten", JOptionPane.INFORMATION_MESSAGE);
+        }
+
     }
 
     // Komponente mit animiertem rotierendem Pfeilkreis

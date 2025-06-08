@@ -4,7 +4,9 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Set the value from the map for a placeholder or an empty string if not found
+ * Set the value from the map for a placeholder
+ *
+ * throws  IllegalArgumenteException if a value is not set
  */
 public final class PlaceholderResolver {
 
@@ -25,8 +27,12 @@ public final class PlaceholderResolver {
             result.append(input, lastEnd, matcher.start());
 
             String key = matcher.group(1);
-            String value = variables.getOrDefault(key, "");
-            result.append(value);
+            if (!variables.containsKey(key)) {
+                throw new IllegalArgumentException("Variable not set: \"" + key + "\"");
+            }
+
+            String value = variables.get(key);
+            result.append(value != null ? value : "");
 
             lastEnd = matcher.end();
         }
