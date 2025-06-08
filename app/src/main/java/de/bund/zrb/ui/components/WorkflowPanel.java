@@ -235,6 +235,10 @@ public class WorkflowPanel extends JPanel {
 
         JButton saveButton = new JButton("Speichern");
         saveButton.addActionListener(e -> {
+            if (table.isEditing()) { // sicherstellen, dass zuletzt bearbeiter Wert auch gespeichert wird
+                table.getCellEditor().stopCellEditing();
+            }
+
             Map<String, String> newVars = new LinkedHashMap<>();
             for (int i = 0; i < variableModel.getRowCount(); i++) {
                 String key = variableModel.getValueAt(i, 0).toString().trim();

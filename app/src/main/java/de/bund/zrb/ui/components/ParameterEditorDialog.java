@@ -14,7 +14,7 @@ public class ParameterEditorDialog {
     public static Map<String, Object> showDialog(Component parent, McpTool tool, Map<String, Object> existing) {
         if (tool == null || tool.getSpec() == null) return existing;
 
-        ToolSpec.InputSchema schema =  tool.getSpec().getInputSchema();
+        ToolSpec.InputSchema schema = tool.getSpec().getInputSchema();
         if (schema == null) return existing;
 
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -24,7 +24,8 @@ public class ParameterEditorDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
 
-        Map<String, JComponent> fieldMap = new HashMap<>();
+        Map<String, JTextField> textFields = new HashMap<>();
+        Map<String, JCheckBox> checkboxes = new HashMap<>();
 
         int row = 0;
         for (Map.Entry<String, ToolSpec.Property> entry : schema.getProperties().entrySet()) {
@@ -36,13 +37,29 @@ public class ParameterEditorDialog {
             gbc.gridy = row;
             formPanel.add(label, gbc);
 
-            JTextField field = new JTextField(20);
+            JTextField textField = new JTextField(20);
+            JCheckBox variableCheckBox = new JCheckBox("Variable");
+
             Object existingValue = existing != null ? existing.get(key) : null;
-            if (existingValue != null) field.setText(existingValue.toString());
+            if (existingValue instanceof String) {
+                String valueStr = (String) existingValue;
+                if (valueStr.matches("\\{\\{[^{}]+}}")) {
+                    variableCheckBox.setSelected(true);
+                    textField.setText(valueStr.substring(2, valueStr.length() - 2)); // unwrap
+                } else {
+                    textField.setText(valueStr);
+                }
+            }
+
+            JPanel fieldPanel = new JPanel(new BorderLayout());
+            fieldPanel.add(textField, BorderLayout.CENTER);
+            fieldPanel.add(variableCheckBox, BorderLayout.EAST);
 
             gbc.gridx = 1;
-            formPanel.add(field, gbc);
-            fieldMap.put(key, field);
+            formPanel.add(fieldPanel, gbc);
+
+            textFields.put(key, textField);
+            checkboxes.put(key, variableCheckBox);
 
             row++;
         }
@@ -51,11 +68,14 @@ public class ParameterEditorDialog {
 
         if (result == JOptionPane.OK_OPTION) {
             Map<String, Object> resultMap = new HashMap<>();
-            for (Map.Entry<String, JComponent> entry : fieldMap.entrySet()) {
-                String key = entry.getKey();
-                JComponent comp = entry.getValue();
-                if (comp instanceof JTextField) {
-                    resultMap.put(key, ((JTextField) comp).getText());
+            for (String key : textFields.keySet()) {
+                String value = textFields.get(key).getText().trim();
+                boolean isVariable = checkboxes.get(key).isSelected();
+                if (!value.isEmpty()) {
+                    if (isVariable && !value.matches("\\{\\{[^{}]+}}")) {
+                        value = "{{" + value + "}}";
+                    }
+                    resultMap.put(key, value);
                 }
             }
             return resultMap;
@@ -63,4 +83,5 @@ public class ParameterEditorDialog {
 
         return null; // Cancelled
     }
+
 }
