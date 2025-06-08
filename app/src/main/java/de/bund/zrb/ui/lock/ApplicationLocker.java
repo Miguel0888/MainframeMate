@@ -158,72 +158,52 @@ public class ApplicationLocker {
     }
 
     private void retroLocker(JDialog lockDialog) {
-        // ╔═╗ Retro-Design ║ ╚═╝
-//        JTextArea retroArea = new JTextArea();
-//        retroArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
-//        retroArea.setEditable(false);
-//        retroArea.setBackground(Color.BLACK);
-//        retroArea.setForeground(Color.GREEN);
+        // Container mit OverlayLayout
+        JPanel overlayPanel = new JPanel();
+        overlayPanel.setLayout(new OverlayLayout(overlayPanel));
+        overlayPanel.setBackground(Color.BLACK);
 
-        String ceiling = "╔═════════════════╗\n";
-//        String middle = "║  Zugang gesperrt!            ║\n" +
-//                        "║  Passwort eingeben:          ║\n";
-        String left =  "║\n" + "║\n";
-        String right =  "║\n" + "║\n";
-        String bottom = "╚═════════════════╝\n";
-//        retroArea.setText(border + middle);
-//        retroArea.setMargin(new Insets(10, 10, 0, 10));
+        // ASCII-Art-Hintergrund
+        JTextArea asciiBackground = new JTextArea();
+        asciiBackground.setEditable(false);
+        asciiBackground.setFocusable(false);
+        asciiBackground.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        asciiBackground.setForeground(Color.GREEN);
+        asciiBackground.setBackground(Color.BLACK);
+        asciiBackground.setText(
+                        "╔═══════════════════════╗\n" +
+                        "║   Zugang gesperrt!                     ║\n" +
+                        "║   Passwort eingeben:                   ║\n" +
+                        "║                                        ║\n" +
+                        "║                                        ║\n" +
+                        "║                                        ║\n" +
+                        "║                                        ║\n" +
+                        "╚═══════════════════════╝"
+        );
+        asciiBackground.setAlignmentX(0.5f);
+        asciiBackground.setAlignmentY(0.5f);
 
-
-        JTextArea ceilingArea = new JTextArea();
-        ceilingArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        ceilingArea.setEditable(false);
-        ceilingArea.setBackground(Color.BLACK);
-        ceilingArea.setForeground(Color.GREEN);
-        ceilingArea.setText(ceiling);
-
-        JTextArea leftArea = new JTextArea();
-        leftArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        leftArea.setEditable(false);
-        leftArea.setBackground(Color.BLACK);
-        leftArea.setForeground(Color.GREEN);
-        leftArea.setText(left);
-
-        JTextArea rightArea = new JTextArea();
-        rightArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        rightArea.setEditable(false);
-        rightArea.setBackground(Color.BLACK);
-        rightArea.setForeground(Color.GREEN);
-        rightArea.setText(right);
-
-        JTextArea bottomArea = new JTextArea();
-        bottomArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        bottomArea.setEditable(false);
-        bottomArea.setBackground(Color.BLACK);
-        bottomArea.setForeground(Color.GREEN);
-        bottomArea.setText(bottom);
-
-        /// /////////////
-
-        JPanel logOn = new JPanel(new BorderLayout());
-        JTextArea centerArea = new JTextArea();
-        logOn.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        logOn.setBackground(Color.BLACK);
-        logOn.setForeground(Color.GREEN);
+        // Zentrum mit Passwort und Button
+        JPanel inputPanel = new JPanel();
+        inputPanel.setOpaque(false);
+        inputPanel.setLayout(new BoxLayout(inputPanel, BoxLayout.Y_AXIS));
+        inputPanel.setAlignmentX(0.5f);
+        inputPanel.setAlignmentY(0.5f);
 
         final JPasswordField passField = new JPasswordField(20);
+        passField.setMaximumSize(new Dimension(200, 24));
         passField.setFont(new Font("Monospaced", Font.BOLD, 14));
         passField.setForeground(Color.GREEN);
         passField.setBackground(Color.BLACK);
         passField.setCaretColor(Color.GREEN);
         passField.setBorder(BorderFactory.createLineBorder(Color.GREEN));
-//        passField.setMargin(new Insets(0, 0, 10, 0));
 
         JButton unlock = new JButton("ENTSPERR");
         unlock.setBackground(Color.BLACK);
         unlock.setForeground(Color.GREEN);
         unlock.setFocusPainted(false);
         unlock.setFont(new Font("Monospaced", Font.BOLD, 12));
+        unlock.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         unlock.addActionListener(e -> {
             char[] input = passField.getPassword();
@@ -236,26 +216,29 @@ public class ApplicationLocker {
             }
         });
 
-        logOn.add(passField, BorderLayout.NORTH);
-        logOn.add(unlock, BorderLayout.SOUTH);
-
         lockDialog.getRootPane().setDefaultButton(unlock);
 
-        JPanel container = new JPanel(new BorderLayout());
-        container.setBackground(Color.BLACK);
-        container.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        inputPanel.add(Box.createVerticalStrut(20));
+        inputPanel.add(passField);
+        inputPanel.add(Box.createVerticalStrut(10));
+        inputPanel.add(unlock);
 
-        container.add(ceilingArea, BorderLayout.NORTH);
-        container.add(leftArea, BorderLayout.EAST);
-        container.add(rightArea, BorderLayout.WEST);
-        container.add(bottomArea, BorderLayout.SOUTH);
-        container.add(logOn, BorderLayout.CENTER);
+        // Baue die Schichten im Overlay
+        overlayPanel.add(inputPanel);
+        overlayPanel.add(asciiBackground);
 
-        lockDialog.setContentPane(container);
-        lockDialog.setSize(300, 200);
+        // Rahmen um alles
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setBackground(Color.BLACK);
+        wrapper.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        wrapper.add(overlayPanel, BorderLayout.CENTER);
+
+        lockDialog.setContentPane(wrapper);
+        lockDialog.setSize(370, 185);
         lockDialog.setLocationRelativeTo(parentFrame);
         lockDialog.setVisible(true);
     }
+
 
     private byte[] hashPassword(String password) {
         try {
