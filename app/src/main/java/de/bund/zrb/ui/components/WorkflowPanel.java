@@ -202,11 +202,12 @@ public class WorkflowPanel extends JPanel {
         dialog.setSize(400, 300);
         dialog.setLocationRelativeTo(this);
 
-        Map<String, String> variables = new LinkedHashMap<>(currentTemplate.getMeta().getVariables());
-        DefaultTableModel variableModel = new DefaultTableModel(new String[]{"Name", "Wert"}, 0);
-
-        for (Map.Entry<String, String> entry : variables.entrySet()) {
-            variableModel.addRow(new Object[]{entry.getKey(), entry.getValue()});
+        variableModel.setRowCount(0); // vorher aufräumen
+        Map<String, String> variables = currentTemplate.getMeta().getVariables();
+        if (variables != null) {
+            for (Map.Entry<String, String> entry : variables.entrySet()) {
+                variableModel.addRow(new Object[]{entry.getKey(), entry.getValue()});
+            }
         }
 
         JTable table = new JTable(variableModel) {
