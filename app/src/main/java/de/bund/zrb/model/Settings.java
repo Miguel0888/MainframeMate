@@ -27,7 +27,7 @@ public class Settings {
     public boolean lockEnabled = true;
     public int lockDelay = 180_000;
     public int lockPrenotification = 10_000;
-    public boolean lockRetro = true;
+    public boolean lockRetro = false;
 
     // Plugin-Settings pro Plugin-Name
     public Map<String, Map<String, String>> pluginSettings = new LinkedHashMap<>();
