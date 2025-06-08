@@ -2,6 +2,7 @@ package de.bund.zrb.workflow;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import de.bund.zrb.util.PlaceholderResolver;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.*;
 import de.zrb.bund.newApi.McpService;
@@ -34,13 +35,17 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         }
 
         // 2. Schritte durchlaufen und vorbereiten
+        PlaceholderResolver resolver = new PlaceholderResolver(vars);
         UUID runId = UUID.randomUUID(); // create workflow id
         for (WorkflowStepContainer container : template.getData()) {
             WorkflowMcpData step = container.getMcp();
             if (step == null || step.getToolName() == null) continue;
 
             McpTool tool = registry.getToolByName(step.getToolName());
-            if (tool == null) continue;
+            if (tool == null) {
+                System.err.println("Tool \"" + step.getToolName() + "\" nicht gefunden.");
+                continue;
+            }
 
             Map<String, Object> rawParams = step.getParameters();
             Map<String, Object> resolvedParams = new LinkedHashMap<>();
@@ -49,7 +54,7 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
                 Object val = entry.getValue();
                 if (val instanceof String) {
                     String str = (String) val;
-                    resolvedParams.put(entry.getKey(), resolvePlaceholders(str, vars));
+                    resolvedParams.put(entry.getKey(), resolver.resolve(str));
                 } else {
                     resolvedParams.put(entry.getKey(), val); // andere Typen direkt übernehmen
                 }
@@ -64,25 +69,5 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
             mcpService.accept(jsonCall, runId);
         }
         return runId;
-    }
-
-    private String resolvePlaceholders(String input, Map<String, String> vars) {
-        StringBuilder result = new StringBuilder();
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}");
-        java.util.regex.Matcher matcher = pattern.matcher(input);
-
-        int lastEnd = 0;
-        while (matcher.find()) {
-            result.append(input, lastEnd, matcher.start());
-
-            String key = matcher.group(1);
-            String value = vars.getOrDefault(key, "");
-            result.append(value);
-
-            lastEnd = matcher.end();
-        }
-
-        result.append(input.substring(lastEnd));
-        return result.toString();
     }
 }
