@@ -1,5 +1,8 @@
 package de.bund.zrb.ui.lock;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -16,22 +19,24 @@ public class ApplicationLocker {
     private final JFrame parentFrame;
     private final int timeoutMillis;
     private final int warningPhaseMillis;
+    private boolean retroDesign;
     private final byte[] passwordHash;
 
     private Timer inactivityTimer;
     private Timer countdownTimer;
     private JWindow countdownWindow;
 
-    private boolean retroDesign = false;
-
-    public ApplicationLocker(JFrame parentFrame, int timeoutMillis, int warningPhaseMillis, String plainPassword) {
+    public ApplicationLocker(JFrame parentFrame, String plainPassword) {
         this.parentFrame = parentFrame;
-        this.timeoutMillis = timeoutMillis;
-        this.warningPhaseMillis = warningPhaseMillis;
+        Settings settings = SettingsHelper.load();
+        this.timeoutMillis = settings.lockDelay;
+        this.warningPhaseMillis = settings.lockPrenotification;
+        this.retroDesign = settings.lockRetro;
         this.passwordHash = hashPassword(plainPassword);
     }
 
     public void start() {
+        if(!SettingsHelper.load().lockEnabled) return;
         inactivityTimer = new Timer(timeoutMillis, e -> startWarningCountdown());
         inactivityTimer.setRepeats(false);
         inactivityTimer.start();
@@ -269,9 +274,5 @@ public class ApplicationLocker {
         } catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
             return false;
         }
-    }
-
-    public void setRetroDesign(boolean retro) {
-        this.retroDesign = retro;
     }
 }

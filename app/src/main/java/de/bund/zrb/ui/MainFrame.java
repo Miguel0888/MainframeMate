@@ -41,9 +41,6 @@ import static de.bund.zrb.util.StringUtil.tryParseInt;
 import static de.bund.zrb.util.StringUtil.unquote;
 
 public class MainFrame extends JFrame implements MainframeContext {
-    private static final int LOCK_TIMEOUT_MILLIS = 3_000; // 1 Minute Inaktivität // ToDO: move to settings
-    private static final int LOCK_WARN_TIMEOUT_MILLIS = 1_000;
-
     private final ApplicationLocker locker;
     private TabbedPaneManager tabManager;
     private ActionToolbar actionToolbar;
@@ -77,11 +74,8 @@ public class MainFrame extends JFrame implements MainframeContext {
     public MainFrame() {
         locker = new ApplicationLocker(
                 this,                 // parent frame
-                LOCK_TIMEOUT_MILLIS,              // Timeout bis Warnung (z. B. 1 Min.)
-                LOCK_WARN_TIMEOUT_MILLIS,         // Countdown-Dauer (z. B. 10 Sek.)
                 "psw"     // ToDo: Set from LoginManager
         );
-        locker.setRetroDesign(true); // ToDo: Move to settings
         locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);

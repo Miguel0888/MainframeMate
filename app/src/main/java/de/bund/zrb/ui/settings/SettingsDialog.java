@@ -13,11 +13,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.List;
 
@@ -69,6 +65,10 @@ public class SettingsDialog {
     private static JCheckBox llamaStreamingBox;
     private static JSpinner importDelaySpinner;
     private static JList<String> supportedFileList;
+    private static JSpinner lockDelay;
+    private static JSpinner lockPre;
+    private static JCheckBox enableLock;
+    private static JCheckBox enableLockRetroStyle;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -208,6 +208,35 @@ public class SettingsDialog {
         fileButtonPanel.add(addExtButton);
         fileButtonPanel.add(removeExtButton);
         generalContent.add(fileButtonPanel, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Screen Lock
+        // Delay
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Bildschirmsperre nach (ms):"), gbcGeneral);
+        gbcGeneral.gridy++;
+        lockDelay = new JSpinner(new SpinnerNumberModel(settings.lockDelay, 0, Integer.MAX_VALUE, 100));
+        generalContent.add(lockDelay, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Pre-Notification
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Sperrankündigung (in ms):"), gbcGeneral);
+        gbcGeneral.gridy++;
+        lockPre = new JSpinner(new SpinnerNumberModel(settings.lockPrenotification, 0, Integer.MAX_VALUE, 100));
+        generalContent.add(lockPre, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Lock Disabled
+        enableLock = new JCheckBox("Bildschirmsperre aktivieren");
+        enableLock.setSelected(settings.lockEnabled);
+        generalContent.add(enableLock, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Lock Style
+        enableLockRetroStyle = new JCheckBox("Retro-Sperrdesign");
+        enableLockRetroStyle.setSelected(settings.lockRetro);
+        generalContent.add(enableLockRetroStyle, gbcGeneral);
         gbcGeneral.gridy++;
 
         // User Profile Folder
@@ -659,6 +688,10 @@ public class SettingsDialog {
                 extensions.add(model.get(i));
             }
             settings.supportedFiles = extensions;
+            settings.lockDelay = (Integer) lockDelay.getValue();
+            settings.lockPrenotification = (Integer) lockPre.getValue();
+            settings.lockEnabled = enableLock.isSelected();
+            settings.lockRetro = enableLockRetroStyle.isSelected();
 
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());

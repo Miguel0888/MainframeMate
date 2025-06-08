@@ -5,7 +5,6 @@ import de.bund.zrb.ftp.FtpFileType;
 import de.bund.zrb.ftp.FtpTextFormat;
 import de.bund.zrb.ftp.FtpTransferMode;
 
-import java.lang.reflect.Array;
 import java.util.*;
 
 public class Settings {
@@ -24,6 +23,11 @@ public class Settings {
     public boolean soundEnabled = true;
     public int importDelay = 3;
     public List<String> supportedFiles = Arrays.asList( ".xls", ".xlsx", ".xlsm");
+
+    public boolean lockEnabled = true;
+    public int lockDelay = 180_000;
+    public int lockPrenotification = 10_000;
+    public boolean lockRetro = true;
 
     // Plugin-Settings pro Plugin-Name
     public Map<String, Map<String, String>> pluginSettings = new LinkedHashMap<>();
