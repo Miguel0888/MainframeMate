@@ -159,22 +159,57 @@ public class ApplicationLocker {
 
     private void retroLocker(JDialog lockDialog) {
         // ╔═╗ Retro-Design ║ ╚═╝
-        JTextArea retroArea = new JTextArea();
-        retroArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        retroArea.setEditable(false);
-        retroArea.setBackground(Color.BLACK);
-        retroArea.setForeground(Color.GREEN);
+//        JTextArea retroArea = new JTextArea();
+//        retroArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+//        retroArea.setEditable(false);
+//        retroArea.setBackground(Color.BLACK);
+//        retroArea.setForeground(Color.GREEN);
 
-        String border = "╔═════════════════╗\n";
-        String middle = "║  Zugang gesperrt!            ║\n" +
-                        "║  Passwort eingeben:          ║\n" +
-                        "╚═════════════════╝\n";
-        retroArea.setText(border + middle);
-        retroArea.setMargin(new Insets(10, 10, 0, 10));
+        String ceiling = "╔═════════════════╗\n";
+//        String middle = "║  Zugang gesperrt!            ║\n" +
+//                        "║  Passwort eingeben:          ║\n";
+        String left =  "║\n" + "║\n";
+        String right =  "║\n" + "║\n";
+        String bottom = "╚═════════════════╝\n";
+//        retroArea.setText(border + middle);
+//        retroArea.setMargin(new Insets(10, 10, 0, 10));
 
-        JPanel container = new JPanel(new BorderLayout());
-        container.setBackground(Color.BLACK);
-        container.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JTextArea ceilingArea = new JTextArea();
+        ceilingArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        ceilingArea.setEditable(false);
+        ceilingArea.setBackground(Color.BLACK);
+        ceilingArea.setForeground(Color.GREEN);
+        ceilingArea.setText(ceiling);
+
+        JTextArea leftArea = new JTextArea();
+        leftArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        leftArea.setEditable(false);
+        leftArea.setBackground(Color.BLACK);
+        leftArea.setForeground(Color.GREEN);
+        leftArea.setText(left);
+
+        JTextArea rightArea = new JTextArea();
+        rightArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        rightArea.setEditable(false);
+        rightArea.setBackground(Color.BLACK);
+        rightArea.setForeground(Color.GREEN);
+        rightArea.setText(right);
+
+        JTextArea bottomArea = new JTextArea();
+        bottomArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        bottomArea.setEditable(false);
+        bottomArea.setBackground(Color.BLACK);
+        bottomArea.setForeground(Color.GREEN);
+        bottomArea.setText(bottom);
+
+        /// /////////////
+
+        JPanel logOn = new JPanel(new BorderLayout());
+        JTextArea centerArea = new JTextArea();
+        logOn.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        logOn.setBackground(Color.BLACK);
+        logOn.setForeground(Color.GREEN);
 
         final JPasswordField passField = new JPasswordField(20);
         passField.setFont(new Font("Monospaced", Font.BOLD, 14));
@@ -201,11 +236,20 @@ public class ApplicationLocker {
             }
         });
 
+        logOn.add(passField, BorderLayout.NORTH);
+        logOn.add(unlock, BorderLayout.SOUTH);
+
         lockDialog.getRootPane().setDefaultButton(unlock);
 
-        container.add(retroArea, BorderLayout.NORTH);
-        container.add(passField, BorderLayout.CENTER);
-        container.add(unlock, BorderLayout.SOUTH);
+        JPanel container = new JPanel(new BorderLayout());
+        container.setBackground(Color.BLACK);
+        container.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        container.add(ceilingArea, BorderLayout.NORTH);
+        container.add(leftArea, BorderLayout.EAST);
+        container.add(rightArea, BorderLayout.WEST);
+        container.add(bottomArea, BorderLayout.SOUTH);
+        container.add(logOn, BorderLayout.CENTER);
 
         lockDialog.setContentPane(container);
         lockDialog.setSize(300, 200);
