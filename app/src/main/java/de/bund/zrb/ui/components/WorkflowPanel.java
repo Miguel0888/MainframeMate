@@ -84,63 +84,89 @@ public class WorkflowPanel extends JPanel {
         addStep.addActionListener(e -> addStepPanel(new WorkflowMcpData("", new LinkedHashMap<>())));
 
         runWorkflow.addActionListener(e -> {
-            List<WorkflowMcpData> steps = new ArrayList<>();
-            for (WorkflowStepContainer c : currentTemplate.getData()) {
-                if (c.getMcp() != null) {
-                    steps.add(c.getMcp());
-                }
-            }
-            runner.execute(steps);
+            onRun();
         });
 
         saveWorkflow.addActionListener(e -> {
-            String currentName = (String) workflowSelector.getSelectedItem();
-            JTextField input = new JTextField(currentName != null ? currentName : "");
-            if (currentName != null) {
-                input.addFocusListener(new FocusAdapter() {
-                    @Override
-                    public void focusGained(FocusEvent e) {
-                        SwingUtilities.invokeLater(input::selectAll);
-                    }
-                });
-            }
-            int result = JOptionPane.showConfirmDialog(this, input, "Workflowname eingeben:", JOptionPane.OK_CANCEL_OPTION);
-            if (result == JOptionPane.OK_OPTION) {
-                String name = input.getText().trim();
-                if (!name.isEmpty()) {
-                    updateCurrentTemplateFromUI(); // ← WICHTIG!
-                    WorkflowStorage.saveWorkflow(name, currentTemplate);
-                    reloadWorkflowNames();
-                    workflowSelector.setSelectedItem(name);
-                }
-            }
+            onSave();
         });
 
         renameWorkflow.addActionListener(e -> {
-            String current = (String) workflowSelector.getSelectedItem();
-            if (current != null) {
-                String newName = JOptionPane.showInputDialog(this, "Neuer Name für Workflow:", current);
-                if (newName != null && !newName.trim().isEmpty()) {
-                    WorkflowStorage.renameWorkflow(current, newName.trim());
-                    reloadWorkflowNames();
-                    workflowSelector.setSelectedItem(newName.trim());
-                }
-            }
+            onRename();
         });
 
         deleteWorkflow.addActionListener(e -> {
-            String current = (String) workflowSelector.getSelectedItem();
-            if (current != null && JOptionPane.showConfirmDialog(this,
-                    "Workflow \"" + current + "\" wirklich löschen?",
-                    "Löschen bestätigen", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
-                WorkflowStorage.deleteWorkflow(current);
-                reloadWorkflowNames();
-                setWorkflowTemplate(new WorkflowTemplate());
-            }
+            onDelete();
         });
 
         envVarsButton.addActionListener(e -> showVariableDialog());
         onSelectWorkflow(); //refresh stepPanel
+    }
+
+    private void onDelete() {
+        String current = (String) workflowSelector.getSelectedItem();
+        if (current != null && JOptionPane.showConfirmDialog(this,
+                "Workflow \"" + current + "\" wirklich löschen?",
+                "Löschen bestätigen", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+            WorkflowStorage.deleteWorkflow(current);
+            reloadWorkflowNames();
+            setWorkflowTemplate(new WorkflowTemplate());
+        }
+    }
+
+    private void onRename() {
+        String current = (String) workflowSelector.getSelectedItem();
+        if (current != null) {
+            String newName = JOptionPane.showInputDialog(this, "Neuer Name für Workflow:", current);
+            if (newName != null && !newName.trim().isEmpty()) {
+                WorkflowStorage.renameWorkflow(current, newName.trim());
+                reloadWorkflowNames();
+                workflowSelector.setSelectedItem(newName.trim());
+            }
+        }
+    }
+
+    private void onSave() {
+        String currentName = (String) workflowSelector.getSelectedItem();
+        JTextField input = new JTextField(currentName != null ? currentName : "");
+        if (currentName != null) {
+            input.addFocusListener(new FocusAdapter() {
+                @Override
+                public void focusGained(FocusEvent e) {
+                    SwingUtilities.invokeLater(input::selectAll);
+                }
+            });
+        }
+        int result = JOptionPane.showConfirmDialog(this, input, "Workflowname eingeben:", JOptionPane.OK_CANCEL_OPTION);
+        if (result == JOptionPane.OK_OPTION) {
+            String name = input.getText().trim();
+            if (!name.isEmpty()) {
+                updateCurrentTemplateFromUI(); // ← WICHTIG!
+                WorkflowStorage.saveWorkflow(name, currentTemplate);
+                reloadWorkflowNames();
+                workflowSelector.setSelectedItem(name);
+            }
+        }
+    }
+
+    private void onRun() {
+        updateCurrentTemplateFromUI(); // sicherstellen, dass UI-Daten im Template sind
+
+        Map<String, String> overrides = new LinkedHashMap<>();
+        for (int i = 0; i < variableModel.getRowCount(); i++) {
+            String key = variableModel.getValueAt(i, 0).toString().trim();
+            String value = variableModel.getValueAt(i, 1).toString().trim();
+            if (!key.isEmpty()) {
+                overrides.put(key, value);
+            }
+        }
+
+        UUID runId = runner.execute(currentTemplate, overrides);
+
+        JOptionPane.showMessageDialog(this,
+                "Workflow gestartet mit ID:\n" + runId,
+                "Ausführung gestartet",
+                JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void onSelectWorkflow() {

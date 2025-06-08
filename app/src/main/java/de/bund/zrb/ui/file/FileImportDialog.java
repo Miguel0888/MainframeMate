@@ -27,6 +27,7 @@ import java.awt.RenderingHints;
 import java.awt.event.*;
 import java.io.File;
 import java.util.List;
+import java.util.Map;
 
 public class FileImportDialog extends JDialog {
 
@@ -162,7 +163,7 @@ public class FileImportDialog extends JDialog {
         }
 
         WorkflowTemplate template = WorkflowStorage.loadWorkflow(selected);
-    if (template == null || template.getData().isEmpty()) {
+        if (template == null || template.getData().isEmpty()) {
             JOptionPane.showMessageDialog(getOwner(),
                     "Workflow \"" + selected + "\" ist leer oder nicht vorhanden.",
                     "Fehler", JOptionPane.ERROR_MESSAGE);
@@ -175,22 +176,18 @@ public class FileImportDialog extends JDialog {
             SettingsHelper.save(settings);
         }
 
-        // ToDo: Remove this
+        // Variable "file" aus dem Dateipfad erzeugen
+        Map<String, String> overrides = new java.util.LinkedHashMap<>();
+        overrides.put("file", file.getAbsolutePath());
+
+        // Optional: Dialog zur Information
         JOptionPane.showMessageDialog(getOwner(),
                 "Import von Datei '" + file.getName() + "' (Pfad: " + file.getAbsolutePath() + ") wird jetzt gestartet...",
                 "Import starten", JOptionPane.INFORMATION_MESSAGE);
 
-    // ToDo: Runner auf neue Struktur ändern
-    List<WorkflowStepContainer> containers = template.getData();
-    List<WorkflowMcpData> steps = new java.util.ArrayList<>();
-    for (WorkflowStepContainer container : containers) {
-        steps.add(container.getMcp()); // MCP-Step extrahieren
+        // Neuen Runner aufrufen (inkl. overrides für {{file}})
+        workflowRunner.execute(template, overrides);
     }
-
-    workflowRunner.execute(steps);
-}
-
-
 
     // Komponente mit animiertem rotierendem Pfeilkreis
     private static class AnimatedTimerCircle extends JComponent {
