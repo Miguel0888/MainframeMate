@@ -18,7 +18,7 @@ import java.util.List;
 
 public class WorkflowPanel extends JPanel {
 
-    private WorkflowTemplate currentTemplate;
+    private WorkflowTemplate currentTemplate = new WorkflowTemplate(); //wenn keines vorhanden ist nötig!
 
     private final JComboBox<String> workflowSelector;
     private final JPanel stepListPanel;

@@ -62,8 +62,8 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
 
             // 3. JSON-Call vorbereiten
             JsonObject jsonCall = new JsonObject();
-            jsonCall.addProperty("toolName", step.getToolName());
-            jsonCall.add("parameters", gson.toJsonTree(resolvedParams));
+            jsonCall.addProperty("name", step.getToolName());
+            jsonCall.add("tool_input", gson.toJsonTree(resolvedParams));
 
             // 4. Fire-and-Forget an MCP-Service
             mcpService.accept(jsonCall, runId);

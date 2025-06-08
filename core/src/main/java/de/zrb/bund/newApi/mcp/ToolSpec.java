@@ -2,6 +2,7 @@ package de.zrb.bund.newApi.mcp;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 import java.util.Map;
@@ -10,7 +11,9 @@ public class ToolSpec {
 
     private final String name;
     private final String description;
+    @SerializedName("input_schema")
     private final InputSchema input_schema;
+    @SerializedName("example_input")
     private final Map<String, Object> example_input; // optional, nullable
 
     public ToolSpec(String name, String description, InputSchema inputSchema, Map<String, Object> exampleInput) {
