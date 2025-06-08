@@ -1,14 +1,14 @@
 package de.bund.zrb.excel.commands;
 
 import de.bund.zrb.excel.ui.ExcelImportSettingsDialog;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
 
-public class ExcelSettingsCommand implements Command {
+public class ExcelSettingsMenuCommand implements MenuCommand {
 
     private final MainframeContext mainFrame;
 
-    public ExcelSettingsCommand(MainframeContext mainFrame) {
+    public ExcelSettingsMenuCommand(MainframeContext mainFrame) {
         this.mainFrame = mainFrame;
     }
 

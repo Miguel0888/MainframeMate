@@ -1,13 +1,13 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ui.TabbedPaneManager;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
-public class SaveCommand implements Command {
+public class SaveMenuCommand implements MenuCommand {
 
     private final TabbedPaneManager tabManager;
 
-    public SaveCommand(TabbedPaneManager tabManager) {
+    public SaveMenuCommand(TabbedPaneManager tabManager) {
         this.tabManager = tabManager;
     }
 

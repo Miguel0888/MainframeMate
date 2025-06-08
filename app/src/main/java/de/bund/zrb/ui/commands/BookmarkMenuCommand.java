@@ -1,16 +1,16 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.TabAdapter;
 
 import javax.swing.*;
 
-public class BookmarkCommand implements Command {
+public class BookmarkMenuCommand implements MenuCommand {
 
     private final MainframeContext context;
 
-    public BookmarkCommand(MainframeContext context) {
+    public BookmarkMenuCommand(MainframeContext context) {
         this.context = context;
     }
 

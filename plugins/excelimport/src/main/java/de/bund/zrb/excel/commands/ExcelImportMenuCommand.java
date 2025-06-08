@@ -1,15 +1,15 @@
 package de.bund.zrb.excel.commands;
 
 import de.bund.zrb.excel.plugin.ExcelImport;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
 
-public class ExcelImportCommand implements Command {
+public class ExcelImportMenuCommand implements MenuCommand {
 
     private final ExcelImport plugin;
     private final MainframeContext mainFrame;
 
-    public ExcelImportCommand(MainframeContext mainFrame, ExcelImport plugin) {
+    public ExcelImportMenuCommand(MainframeContext mainFrame, ExcelImport plugin) {
         this.mainFrame = mainFrame;
         this.plugin = plugin;
     }

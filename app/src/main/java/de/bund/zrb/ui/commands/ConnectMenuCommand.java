@@ -4,16 +4,16 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ui.ConnectDialog;
 import de.bund.zrb.ui.ConnectionTab;
 import de.bund.zrb.ui.TabbedPaneManager;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ConnectCommand implements Command {
+public class ConnectMenuCommand implements MenuCommand {
 
     private final JFrame parent;
     private final TabbedPaneManager tabManager;
 
-    public ConnectCommand(JFrame parent, TabbedPaneManager tabManager) {
+    public ConnectMenuCommand(JFrame parent, TabbedPaneManager tabManager) {
         this.parent = parent;
         this.tabManager = tabManager;
     }

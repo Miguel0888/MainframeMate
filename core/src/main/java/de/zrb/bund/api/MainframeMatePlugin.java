@@ -14,7 +14,7 @@ public interface MainframeMatePlugin {
 
     void initialize(MainframeContext mainFrame);
 
-    List<Command> getCommands(MainframeContext mainFrame);
+    List<MenuCommand> getCommands(MainframeContext mainFrame);
 
     List<McpTool> getTools();
 }

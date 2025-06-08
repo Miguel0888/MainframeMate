@@ -1,15 +1,15 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ui.settings.ToolSettingsDialog;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ShowToolDialogCommand implements Command {
+public class ShowToolDialogMenuCommand implements MenuCommand {
 
     private final JFrame parent;
 
-    public ShowToolDialogCommand(JFrame parent) {
+    public ShowToolDialogMenuCommand(JFrame parent) {
         this.parent = parent;
     }
 

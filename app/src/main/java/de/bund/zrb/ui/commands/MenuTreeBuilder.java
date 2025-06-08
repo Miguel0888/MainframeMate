@@ -1,6 +1,6 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 import java.util.*;
@@ -15,8 +15,8 @@ public class MenuTreeBuilder {
         Node root = new Node();
 
         // Schritt 1: Baumstruktur aus Command-IDs aufbauen
-        for (Command command : CommandRegistry.getAll()) {
-            insert(root, command.getId().split("\\."), command);
+        for (MenuCommand menuCommand : CommandRegistry.getAll()) {
+            insert(root, menuCommand.getId().split("\\."), menuCommand);
         }
 
         // Schritt 2: Rekursiv Menüstruktur aus dem Baum erzeugen
@@ -30,17 +30,17 @@ public class MenuTreeBuilder {
         return menuBar;
     }
 
-    private static void insert(Node current, String[] path, Command command) {
+    private static void insert(Node current, String[] path, MenuCommand menuCommand) {
         for (String part : path) {
             current = current.children.computeIfAbsent(part, k -> new Node());
         }
-        current.command = command;
+        current.menuCommand = menuCommand;
     }
 
     private static JMenu buildMenu(Node node, String labelKey) {
-        if (node.command != null) {
+        if (node.menuCommand != null) {
             JMenu menu = new JMenu(resolveLabel(labelKey));
-            menu.add(CommandMenuFactory.createMenuItem(node.command));
+            menu.add(CommandMenuFactory.createMenuItem(node.menuCommand));
             return menu;
         }
 
@@ -51,8 +51,8 @@ public class MenuTreeBuilder {
 
         for (String key : sortedKeys) {
             Node child = node.children.get(key);
-            if (child.command != null && child.children.isEmpty()) {
-                menu.add(CommandMenuFactory.createMenuItem(child.command));
+            if (child.menuCommand != null && child.children.isEmpty()) {
+                menu.add(CommandMenuFactory.createMenuItem(child.menuCommand));
             } else {
                 menu.add(buildMenu(child, key));
             }
@@ -75,6 +75,6 @@ public class MenuTreeBuilder {
 
     private static class Node {
         Map<String, Node> children = new LinkedHashMap<>();
-        Command command = null;
+        MenuCommand menuCommand = null;
     }
 }

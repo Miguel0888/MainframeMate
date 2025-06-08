@@ -1,22 +1,22 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import java.util.*;
 
 public class CommandRegistry {
 
-    private static final Map<String, Command> registry = new LinkedHashMap<>();
+    private static final Map<String, MenuCommand> registry = new LinkedHashMap<>();
 
-    public static void register(Command command) {
-        registry.put(command.getId(), command);
+    public static void register(MenuCommand menuCommand) {
+        registry.put(menuCommand.getId(), menuCommand);
     }
 
-    public static Optional<Command> getById(String id) {
+    public static Optional<MenuCommand> getById(String id) {
         return Optional.ofNullable(registry.get(id));
     }
 
-    public static Collection<Command> getAll() {
+    public static Collection<MenuCommand> getAll() {
         return Collections.unmodifiableCollection(registry.values());
     }
 

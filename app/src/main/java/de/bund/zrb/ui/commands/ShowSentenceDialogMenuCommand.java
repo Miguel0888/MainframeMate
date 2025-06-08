@@ -1,15 +1,15 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ui.settings.SentenceTypeSettingsDialog;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ShowSentenceDialogCommand implements Command {
+public class ShowSentenceDialogMenuCommand implements MenuCommand {
 
     private final JFrame parent;
 
-    public ShowSentenceDialogCommand(JFrame parent) {
+    public ShowSentenceDialogMenuCommand(JFrame parent) {
         this.parent = parent;
     }
 

@@ -1,14 +1,14 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ShowAboutDialogCommand implements Command {
+public class ShowAboutDialogMenuCommand implements MenuCommand {
 
     private final JFrame parent;
 
-    public ShowAboutDialogCommand(JFrame parent) {
+    public ShowAboutDialogMenuCommand(JFrame parent) {
         this.parent = parent;
     }
 

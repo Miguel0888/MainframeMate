@@ -14,8 +14,7 @@ public class ParameterEditorDialog {
     public static Map<String, Object> showDialog(Component parent, McpTool tool, Map<String, Object> existing) {
         if (tool == null || tool.getSpec() == null) return existing;
 
-        ToolSpec spec = tool.getSpec();
-        ToolSpec.InputSchema schema = spec.getInputSchema();
+        ToolSpec.InputSchema schema =  tool.getSpec().getInputSchema();
         if (schema == null) return existing;
 
         JPanel formPanel = new JPanel(new GridBagLayout());

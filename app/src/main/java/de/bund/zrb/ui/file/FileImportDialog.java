@@ -173,11 +173,12 @@ public class FileImportDialog extends JDialog {
             SettingsHelper.save(settings);
         }
 
-        workflowRunner.execute(steps);
-
+        // ToDo: Remove this
         JOptionPane.showMessageDialog(getOwner(),
-                "Import von Datei '" + file.getName() + "' wurde gestartet.",
-                "Import gestartet", JOptionPane.INFORMATION_MESSAGE);
+                "Import von Datei '" + file.getName() + "' (Pfad: " + file.getAbsolutePath() + ") wird jetzt gestartet...",
+                "Import starten", JOptionPane.INFORMATION_MESSAGE);
+
+        workflowRunner.execute(steps);
     }
 
 

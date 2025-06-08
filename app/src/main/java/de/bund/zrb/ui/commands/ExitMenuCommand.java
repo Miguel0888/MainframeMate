@@ -1,8 +1,8 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
-public class ExitCommand implements Command {
+public class ExitMenuCommand implements MenuCommand {
 
     @Override
     public String getId() {

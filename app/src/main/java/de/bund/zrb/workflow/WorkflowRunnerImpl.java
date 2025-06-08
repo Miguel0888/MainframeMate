@@ -31,15 +31,18 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
             if (tool == null) continue;
 
             JsonObject input = new Gson().toJsonTree(step.getParameters()).getAsJsonObject();
-            JsonObject result = tool.execute(input); // oder serialisiere nur für Modell
+            // TODO: Ab hier haben wir denselben Inhalt wie die EXTRAHIERTEN PARAMETER aus einer Bot-Nachricht, die ein Tool steuern soll..
+            //  Wir können jetzt einerseits die volle Tool-Usage JSON (mit tool = ExcelImport etc.) zusammenbauen und
+            //  an den MCB-Service übergeben
+            JsonObject result = tool.execute(input); // TODO: Die Ausführung muss im MCP-Service erfolgen, nicht hier!
 
             jsonCalls.add(result);
         }
 
-        JsonObject message = new JsonObject();
-        message.add("workflow", new Gson().toJsonTree(jsonCalls));
+//        JsonObject message = new JsonObject();
+//        message.add("workflow", new Gson().toJsonTree(jsonCalls));
 
-        UUID uuid = null; // ToDo
-        mcpService.handleToolCall(uuid, message);
+//        UUID uuid = null; // ToDo
+//        mcpService.handleToolCall(uuid, message);
     }
 }

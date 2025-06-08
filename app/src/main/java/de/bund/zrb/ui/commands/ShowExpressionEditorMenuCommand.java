@@ -1,15 +1,15 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ui.settings.ExpressionEditorDialog;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ShowExpressionEditorCommand implements Command {
+public class ShowExpressionEditorMenuCommand implements MenuCommand {
 
     private final JFrame parent;
 
-    public ShowExpressionEditorCommand(JFrame parent) {
+    public ShowExpressionEditorMenuCommand(JFrame parent) {
         this.parent = parent;
     }
 

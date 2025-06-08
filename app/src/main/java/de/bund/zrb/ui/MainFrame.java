@@ -15,6 +15,7 @@ import de.bund.zrb.service.OllamaChatManager;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.helper.BookmarkHelper;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.lock.ApplicationLocker;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.file.DragAndDropImportHandler;
@@ -40,7 +41,10 @@ import static de.bund.zrb.util.StringUtil.tryParseInt;
 import static de.bund.zrb.util.StringUtil.unquote;
 
 public class MainFrame extends JFrame implements MainframeContext {
+    private static final int LOCK_TIMEOUT_MILLIS = 3_000; // 1 Minute Inaktivität // ToDO: move to settings
+    private static final int LOCK_WARN_TIMEOUT_MILLIS = 1_000;
 
+    private final ApplicationLocker locker;
     private TabbedPaneManager tabManager;
     private ActionToolbar actionToolbar;
     private LeftDrawer leftDrawer;
@@ -71,6 +75,14 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
     
     public MainFrame() {
+        locker = new ApplicationLocker(
+                this,                 // parent frame
+                LOCK_TIMEOUT_MILLIS,              // Timeout bis Warnung (z. B. 1 Min.)
+                LOCK_WARN_TIMEOUT_MILLIS,         // Countdown-Dauer (z. B. 10 Sek.)
+                "psw"     // ToDo: Set from LoginManager
+        );
+        locker.setRetroDesign(true); // ToDo: Move to settings
+        locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);
         this.workflowRunner = new WorkflowRunnerImpl(toolRegistry, mcpService);
@@ -127,18 +139,18 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     private void registerCoreCommands() {
-        CommandRegistry.register(new SaveCommand(tabManager));
-        CommandRegistry.register(new ConnectCommand(this, tabManager));
-        CommandRegistry.register(new ExitCommand());
-        CommandRegistry.register(new ShowSettingsDialogCommand(this));
-        CommandRegistry.register(new ShowSentenceDialogCommand(this));
-        CommandRegistry.register(new ShowExpressionEditorCommand(this));
-        CommandRegistry.register(new ShowToolDialogCommand(this));
-        CommandRegistry.register(new ShowFeatureDialogCommand(this));
-        CommandRegistry.register(new ShowAboutDialogCommand(this));
+        CommandRegistry.register(new SaveMenuCommand(tabManager));
+        CommandRegistry.register(new ConnectMenuCommand(this, tabManager));
+        CommandRegistry.register(new ExitMenuCommand());
+        CommandRegistry.register(new ShowSettingsDialogMenuCommand(this));
+        CommandRegistry.register(new ShowSentenceDialogMenuCommand(this));
+        CommandRegistry.register(new ShowExpressionEditorMenuCommand(this));
+        CommandRegistry.register(new ShowToolDialogMenuCommand(this));
+        CommandRegistry.register(new ShowFeatureDialogMenuCommand(this));
+        CommandRegistry.register(new ShowAboutDialogMenuCommand(this));
 
         // Advanced
-        CommandRegistry.register(new BookmarkCommand(this));
+        CommandRegistry.register(new BookmarkMenuCommand(this));
 
     }
 

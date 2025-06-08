@@ -1,15 +1,15 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 
 public class CommandMenuFactory {
 
-    public static JMenuItem createMenuItem(Command command) {
-        JMenuItem item = new JMenuItem(command.getLabel());
-        item.addActionListener((ActionEvent e) -> command.perform());
+    public static JMenuItem createMenuItem(MenuCommand menuCommand) {
+        JMenuItem item = new JMenuItem(menuCommand.getLabel());
+        item.addActionListener((ActionEvent e) -> menuCommand.perform());
         return item;
     }
 }

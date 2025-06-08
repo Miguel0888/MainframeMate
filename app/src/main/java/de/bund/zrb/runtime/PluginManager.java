@@ -1,8 +1,8 @@
 package de.bund.zrb.runtime;
 
 import de.bund.zrb.ui.MainFrame;
-import de.bund.zrb.ui.commands.InstallPluginCommand;
-import de.zrb.bund.api.Command;
+import de.bund.zrb.ui.commands.InstallPluginMenuCommand;
+import de.zrb.bund.api.MenuCommand;
 import de.bund.zrb.ui.commands.CommandRegistry;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.newApi.ToolRegistry;
@@ -23,7 +23,7 @@ public class PluginManager {
     }
 
     public static void initializePlugins(MainFrame mainFrame) {
-        CommandRegistry.register(new InstallPluginCommand());
+        CommandRegistry.register(new InstallPluginMenuCommand());
 
         // 1. Statisch registrierte Plugins initialisieren
         for (MainframeMatePlugin plugin : plugins) {
@@ -86,8 +86,8 @@ public class PluginManager {
 
     private static void registerCommandsSafely(MainframeMatePlugin plugin, MainFrame mainFrame) {
         for (Object obj : plugin.getCommands(mainFrame)) {
-            if (obj instanceof Command) {
-                CommandRegistry.register((Command) obj);
+            if (obj instanceof MenuCommand) {
+                CommandRegistry.register((MenuCommand) obj);
             } else {
                 System.err.println("⚠️ Plugin \"" + plugin.getPluginName()
                         + "\" liefert ungültigen Command-Typ: " + obj.getClass().getName());

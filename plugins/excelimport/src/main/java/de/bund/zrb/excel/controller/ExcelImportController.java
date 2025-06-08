@@ -1,5 +1,6 @@
 package de.bund.zrb.excel.controller;
 
+import de.bund.zrb.excel.model.ExcelImportConfig;
 import de.bund.zrb.excel.plugin.ExcelImport;
 import de.bund.zrb.excel.service.Converter;
 import de.bund.zrb.excel.service.ExcelParser;
@@ -18,6 +19,7 @@ import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
@@ -166,4 +168,48 @@ public class ExcelImportController {
                 })
                 .orElse("");
     }
+
+    public static String importFromConfig(ExcelImport plugin, ExcelImportConfig config) throws Exception {
+        if (!config.getFile().exists()) {
+            throw new FileNotFoundException("Datei nicht gefunden: " + config.getFile());
+        }
+
+        TemplateRepository repo = plugin.getTemplateRepository();
+        ExcelMapping mapping = repo.getTemplate(config.getTemplateName());
+        if (mapping == null) {
+            throw new IllegalArgumentException("Mapping nicht gefunden: " + config.getTemplateName());
+        }
+
+        SentenceDefinition satzart = plugin.getContext().getSentenceTypeRegistry()
+                .getSentenceTypeSpec()
+                .getDefinitions()
+                .get(mapping.getSentenceType());
+
+        if (satzart == null) {
+            throw new IllegalArgumentException("Satzart nicht bekannt: " + mapping.getSentenceType());
+        }
+
+        Map<String, List<String>> excelData = ExcelParser.readExcelAsTable(
+                config.getFile(),
+                true,
+                config.isHasHeader() ? config.getHeaderRowIndex() : -1,
+                true,   // stopOnEmpty
+                false   // requireAllEmpty
+        );
+
+        FieldMap felder = satzart.getFields();
+        int schemaLines = satzart.getRowCount() != null ? satzart.getRowCount() : 1;
+
+        Converter converter = Converter.getInstance();
+        ExpressionRegistry registry = plugin.getContext().getExpressionRegistry();
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < excelData.values().stream().mapToInt(List::size).max().orElse(0); i++) {
+            Function<String, String> resolver = createValueResolver(registry, excelData, mapping, i);
+            result.append(converter.generateRecordLines(felder, schemaLines, mapping, resolver)).append("\n");
+        }
+
+        return result.toString().trim();
+    }
+
 }

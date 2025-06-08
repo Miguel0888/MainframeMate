@@ -1,7 +1,7 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.ui.commands.CommandRegistry;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
@@ -30,7 +30,7 @@ public class ActionToolbar extends JToolBar {
         removeAll();
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        for (Command cmd : CommandRegistry.getAll()) {
+        for (MenuCommand cmd : CommandRegistry.getAll()) {
             if (!activeCommandIds.contains(cmd.getId())) continue;
 
             JButton btn = new JButton(getIconFor(cmd));
@@ -58,11 +58,11 @@ public class ActionToolbar extends JToolBar {
     }
 
     private void openConfigDialog() {
-        List<Command> all = new ArrayList<>(CommandRegistry.getAll());
-        Map<Command, JCheckBox> checkboxes = new LinkedHashMap<>();
+        List<MenuCommand> all = new ArrayList<>(CommandRegistry.getAll());
+        Map<MenuCommand, JCheckBox> checkboxes = new LinkedHashMap<>();
 
         JPanel commandPanel = new JPanel(new GridLayout(0, 1));
-        for (Command cmd : all) {
+        for (MenuCommand cmd : all) {
             JCheckBox box = new JCheckBox(cmd.getLabel(), activeCommandIds.contains(cmd.getId()));
             checkboxes.put(cmd, box);
             commandPanel.add(box);
@@ -127,7 +127,7 @@ public class ActionToolbar extends JToolBar {
         }
     }
 
-    private String getIconFor(Command cmd) {
+    private String getIconFor(MenuCommand cmd) {
         String id = cmd.getId();
         if (id.contains("connect")) return "🔌";
         if (id.contains("import")) return "📥";

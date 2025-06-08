@@ -1,15 +1,15 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ui.FeatureDialog;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ShowFeatureDialogCommand implements Command {
+public class ShowFeatureDialogMenuCommand implements MenuCommand {
 
     private final JFrame parent;
 
-    public ShowFeatureDialogCommand(JFrame parent) {
+    public ShowFeatureDialogMenuCommand(JFrame parent) {
         this.parent = parent;
     }
 

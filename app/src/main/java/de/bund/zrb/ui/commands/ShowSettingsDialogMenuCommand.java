@@ -2,15 +2,15 @@ package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ui.settings.SettingsDialog;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
 
-public class ShowSettingsDialogCommand implements Command {
+public class ShowSettingsDialogMenuCommand implements MenuCommand {
 
     private final JFrame parent;
 
-    public ShowSettingsDialogCommand(JFrame parent) {
+    public ShowSettingsDialogMenuCommand(JFrame parent) {
         this.parent = parent;
     }
 

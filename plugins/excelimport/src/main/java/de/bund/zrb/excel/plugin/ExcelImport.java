@@ -1,11 +1,11 @@
 package de.bund.zrb.excel.plugin;
 
-import de.bund.zrb.excel.commands.ExcelImportCommand;
-import de.bund.zrb.excel.commands.ExcelSettingsCommand;
+import de.bund.zrb.excel.commands.ExcelImportMenuCommand;
+import de.bund.zrb.excel.commands.ExcelSettingsMenuCommand;
 import de.bund.zrb.excel.controller.ExcelImportController;
 import de.bund.zrb.excel.mcp.ImportExcelTool;
 import de.bund.zrb.excel.repo.TemplateRepository;
-import de.zrb.bund.api.Command;
+import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -15,12 +15,17 @@ import java.awt.Component;
 import java.io.File;
 import java.util.*;
 
+/**
+ * This ist the Entry Class for the Java Service Loader, since it implements the MainframeMatePlugin Interface!
+ * Therefor this class is necessary for the Plugin to be recognized and to work properly.
+ */
 public class ExcelImport implements MainframeMatePlugin {
 
     private static final String PLUGIN_KEY = "excelImporter";
 
-    MainframeContext context;
+    private MainframeContext context;
     private TemplateRepository templateRepository;
+    private ImportExcelTool tool;
 
     @Override
     public String getPluginName() {
@@ -35,20 +40,32 @@ public class ExcelImport implements MainframeMatePlugin {
     @Override
     public void initialize(MainframeContext mainFrame) {
         this.context = mainFrame;
+        this.tool = new ImportExcelTool(this);
         templateRepository = new TemplateRepository(context.getSettingsFolder());
     }
 
+    /** To register all menu commands from this plugin
+     *
+     * @param mainFrame
+     * @return all available commands from this plugin
+     */
     @Override
-    public List<Command> getCommands(MainframeContext mainFrame) {
+    public List<MenuCommand> getCommands(MainframeContext mainFrame) {
         return Arrays.asList(
-                new ExcelImportCommand(mainFrame, this),
-                new ExcelSettingsCommand(mainFrame)
+                new ExcelImportMenuCommand(mainFrame, this),
+                new ExcelSettingsMenuCommand(mainFrame)
         );
     }
 
+    /**
+     * To register all mcps tools from this plugin.
+     * (MCP Tools are AI compatible, but usable for workflows, too.)
+     *
+     * @return all available mcps tools from this plugin
+     */
     @Override
     public List<McpTool> getTools() {
-        return Collections.singletonList(new ImportExcelTool());
+        return Collections.singletonList(tool);
     }
 
     public MainframeContext getContext() { return context; }
@@ -56,21 +73,6 @@ public class ExcelImport implements MainframeMatePlugin {
 
     public void onImport() {
         ExcelImportController.handleImport(this);
-    }
-
-    void showError(Component parent, String message) {
-        JOptionPane.showMessageDialog(parent, message, "Fehler", JOptionPane.ERROR_MESSAGE);
-    }
-
-    File chooseFile(Component parent, String title, String fileDesc, String... extensions) {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(title);
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(fileDesc, extensions));
-        int result = chooser.showOpenDialog(parent);
-        if (result == JFileChooser.APPROVE_OPTION) {
-            return chooser.getSelectedFile();
-        }
-        return null;
     }
 
     public Map<String, String> getSettings() {
@@ -83,5 +85,23 @@ public class ExcelImport implements MainframeMatePlugin {
 
     public TemplateRepository getTemplateRepository() {
         return templateRepository;
+    }
+
+
+    @Deprecated
+    void showError(Component parent, String message) {
+        JOptionPane.showMessageDialog(parent, message, "Fehler", JOptionPane.ERROR_MESSAGE);
+    }
+
+    @Deprecated
+    File chooseFile(Component parent, String title, String fileDesc, String... extensions) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(title);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(fileDesc, extensions));
+        int result = chooser.showOpenDialog(parent);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            return chooser.getSelectedFile();
+        }
+        return null;
     }
 }
