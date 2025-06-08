@@ -262,7 +262,6 @@ public class WorkflowPanel extends JPanel {
         dialog.setContentPane(contentPanel);
         dialog.setVisible(true);
     }
-
     private void onVarApply(JTable table, DefaultTableModel variableModel, JDialog dialog) {
         if (table.isEditing()) {
             int editingRow = table.getEditingRow();
@@ -276,16 +275,29 @@ public class WorkflowPanel extends JPanel {
         }
 
         Map<String, String> newVars = new LinkedHashMap<>();
+        Set<String> seenKeys = new HashSet<>();
+
         for (int i = 0; i < variableModel.getRowCount(); i++) {
             String key = variableModel.getValueAt(i, 0).toString().trim();
             String value = variableModel.getValueAt(i, 1).toString().trim();
+
             if (!key.isEmpty()) {
+                if (seenKeys.contains(key)) {
+                    JOptionPane.showMessageDialog(dialog,
+                            "Der Variablenname \"" + key + "\" ist mehrfach vorhanden.",
+                            "Fehlerhafte Eingabe",
+                            JOptionPane.ERROR_MESSAGE);
+                    return; // Abbruch bei Duplikat
+                }
+                seenKeys.add(key);
                 newVars.put(key, value);
             }
         }
+
         currentTemplate.getMeta().setVariables(newVars);
         dialog.dispose();
     }
+
 
 
     private List<String> getUsedVariablePlaceholders() {
