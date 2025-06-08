@@ -108,6 +108,7 @@ public class WorkflowPanel extends JPanel {
             if (result == JOptionPane.OK_OPTION) {
                 String name = input.getText().trim();
                 if (!name.isEmpty()) {
+                    updateCurrentTemplateFromUI(); // ← WICHTIG!
                     WorkflowStorage.saveWorkflow(name, currentTemplate);
                     reloadWorkflowNames();
                     workflowSelector.setSelectedItem(name);
@@ -233,25 +234,12 @@ public class WorkflowPanel extends JPanel {
             if (selected != -1) variableModel.removeRow(selected);
         });
 
-        JButton saveButton = new JButton("Speichern");
+        JButton saveButton = new JButton("Anwenden");
         saveButton.addActionListener(e -> {
-            if (table.isEditing()) { // sicherstellen, dass zuletzt bearbeiter Wert auch gespeichert wird
-                table.getCellEditor().stopCellEditing();
-            }
-
-            Map<String, String> newVars = new LinkedHashMap<>();
-            for (int i = 0; i < variableModel.getRowCount(); i++) {
-                String key = variableModel.getValueAt(i, 0).toString().trim();
-                String value = variableModel.getValueAt(i, 1).toString().trim();
-                if (!key.isEmpty()) {
-                    newVars.put(key, value);
-                }
-            }
-            currentTemplate.getMeta().setVariables(newVars);
-            dialog.dispose();
+            onVarApply(table, variableModel, dialog);
         });
 
-        JButton cancelButton = new JButton("Abbrechen");
+        JButton cancelButton = new JButton("Verwerfen");
         cancelButton.addActionListener(e -> dialog.dispose());
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -275,6 +263,30 @@ public class WorkflowPanel extends JPanel {
         dialog.setVisible(true);
     }
 
+    private void onVarApply(JTable table, DefaultTableModel variableModel, JDialog dialog) {
+        if (table.isEditing()) {
+            int editingRow = table.getEditingRow();
+            int editingCol = table.getEditingColumn();
+            if (editingRow >= 0 && editingRow < variableModel.getRowCount()
+                    && editingCol >= 0 && editingCol < variableModel.getColumnCount()) {
+                table.getCellEditor().stopCellEditing();
+            } else {
+                table.editingCanceled(null);
+            }
+        }
+
+        Map<String, String> newVars = new LinkedHashMap<>();
+        for (int i = 0; i < variableModel.getRowCount(); i++) {
+            String key = variableModel.getValueAt(i, 0).toString().trim();
+            String value = variableModel.getValueAt(i, 1).toString().trim();
+            if (!key.isEmpty()) {
+                newVars.put(key, value);
+            }
+        }
+        currentTemplate.getMeta().setVariables(newVars);
+        dialog.dispose();
+    }
+
 
     private List<String> getUsedVariablePlaceholders() {
         Set<String> vars = new TreeSet<>();
@@ -294,4 +306,33 @@ public class WorkflowPanel extends JPanel {
         }
         return new ArrayList<>(vars);
     }
+
+    private void updateCurrentTemplateFromUI() {
+        List<WorkflowStepContainer> containers = new ArrayList<>();
+
+        for (Component comp : stepListPanel.getComponents()) {
+            if (comp instanceof StepPanel) {
+                WorkflowMcpData step = ((StepPanel) comp).toWorkflowStep();
+                WorkflowStepContainer container = new WorkflowStepContainer();
+                container.setMcp(step);
+                containers.add(container);
+            }
+        }
+
+        currentTemplate.setData(containers);
+
+        // Falls du sicherstellen willst, dass Variablen auch aktuell sind:
+        Map<String, String> vars = new LinkedHashMap<>();
+        for (int i = 0; i < variableModel.getRowCount(); i++) {
+            String key = variableModel.getValueAt(i, 0).toString().trim();
+            String value = variableModel.getValueAt(i, 1).toString().trim();
+            if (!key.isEmpty()) {
+                vars.put(key, value);
+            }
+        }
+        if (currentTemplate.getMeta() != null) {
+            currentTemplate.getMeta().setVariables(vars);
+        }
+    }
+
 }
