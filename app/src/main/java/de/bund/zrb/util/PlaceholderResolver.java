@@ -3,6 +3,9 @@ package de.bund.zrb.util;
 import java.util.Collections;
 import java.util.Map;
 
+/**
+ * Set the value from the map for a placeholder or an empty string if not found
+ */
 public final class PlaceholderResolver {
 
     private final Map<String, String> variables;
