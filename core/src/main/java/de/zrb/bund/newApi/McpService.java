@@ -5,5 +5,5 @@ import com.google.gson.JsonElement;
 import java.util.UUID;
 
 public interface McpService {
-    void handleToolCall(UUID sessionId, JsonElement toolCall);
+    void accept(JsonElement toolCall, UUID sessionId);
 }

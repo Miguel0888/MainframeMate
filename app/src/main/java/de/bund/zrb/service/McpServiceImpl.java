@@ -18,7 +18,7 @@ public class McpServiceImpl implements McpService {
     }
 
     @Override
-    public void handleToolCall(UUID sessionId, JsonElement toolCall) {
+    public void accept(JsonElement toolCall, UUID sessionId) {
         JsonObject obj = toolCall.getAsJsonObject();
         String toolName = obj.get("tool_name").getAsString();
         JsonObject input = obj.getAsJsonObject("tool_input");
