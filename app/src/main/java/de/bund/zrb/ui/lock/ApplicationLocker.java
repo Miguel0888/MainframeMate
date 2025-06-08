@@ -10,6 +10,9 @@ import java.util.Arrays;
 
 public class ApplicationLocker {
 
+    private volatile boolean locked = false;
+    private volatile boolean warningActive = false;
+
     private final JFrame parentFrame;
     private final int timeoutMillis;
     private final int warningPhaseMillis;
@@ -50,6 +53,8 @@ public class ApplicationLocker {
     }
 
     private void startWarningCountdown() {
+        if (locked || warningActive) return; // ← doppelte Vorwarnung verhindern
+        warningActive = true;
         final int totalSeconds = warningPhaseMillis / 1000;
         final JLabel timerLabel = new JLabel(String.valueOf(totalSeconds), SwingConstants.CENTER);
         timerLabel.setFont(new Font("Arial", Font.BOLD, 48));
@@ -93,9 +98,13 @@ public class ApplicationLocker {
         if (countdownWindow != null) {
             countdownWindow.dispose();
         }
+        warningActive = false; // ← zurücksetzen
     }
 
     public void lock() {
+        if (locked) return;
+        locked = true;
+        warningActive = false;
         final JDialog lockDialog = new JDialog(parentFrame, "Sperre", true);
         lockDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         lockDialog.setUndecorated(true);
@@ -135,6 +144,7 @@ public class ApplicationLocker {
             if (verifyPassword(input)) {
                 Arrays.fill(input, '\0');
                 lockDialog.dispose();
+                locked = false;
                 inactivityTimer.start();
                 resetAllTimers(false);
             } else {
@@ -210,6 +220,8 @@ public class ApplicationLocker {
             if (verifyPassword(input)) {
                 Arrays.fill(input, '\0');
                 lockDialog.dispose();
+                locked = false;
+                inactivityTimer.start();
                 resetAllTimers(false);
             } else {
                 passField.setText("");
