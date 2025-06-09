@@ -38,6 +38,8 @@ public class ParameterEditorDialog {
             JCheckBox variableCheckBox = new JCheckBox("Variable");
 
             Object existingValue = existing != null ? existing.get(key) : null;
+            String detectedType = "string";
+
             if (existingValue instanceof String) {
                 String valueStr = (String) existingValue;
                 if (valueStr.matches("\\{\\{[^{}]+}}")) {
@@ -48,6 +50,11 @@ public class ParameterEditorDialog {
                 }
             } else if (existingValue != null) {
                 textField.setText(existingValue.toString());
+                if (existingValue instanceof Number) {
+                    detectedType = "number";
+                } else if (existingValue instanceof Boolean) {
+                    detectedType = "boolean";
+                }
             }
 
             JPanel fieldPanel = new JPanel(new BorderLayout());
@@ -55,11 +62,13 @@ public class ParameterEditorDialog {
             fieldPanel.add(variableCheckBox, BorderLayout.EAST);
 
             JComboBox<String> typeBox = new JComboBox<>(new String[]{"string", "number", "boolean"});
-            String type = prop.getType() != null ? prop.getType() : "string";
-            if (!type.equals("string") && !type.equals("number") && !type.equals("boolean")) {
-                type = "string"; // fallback für unbekannte Typen
+
+            String typeFromSpec = prop.getType() != null ? prop.getType() : "string";
+            if (!typeFromSpec.equals("string") && !typeFromSpec.equals("number") && !typeFromSpec.equals("boolean")) {
+                typeFromSpec = "string";
             }
-            typeBox.setSelectedItem(type);
+
+            typeBox.setSelectedItem(detectedType != null ? detectedType : typeFromSpec);
             typeSelectors.put(key, typeBox);
 
             gbc.gridx = 0;
