@@ -245,24 +245,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     private Component initBookmarkDrawer(Component content) {
-        leftDrawer = new LeftDrawer(path -> {
-            final FtpManager ftpManager = new FtpManager();
-            if (ConnectDialog.show(this, ftpManager)) {
-                try {
-                    FtpFileBuffer buffer = ftpManager.open(unquote(path));
-                    if (buffer != null) {
-                        tabManager.openFileTab(ftpManager, buffer);
-                    } else {
-                        ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
-                        tabManager.addTab(tab);
-                        tab.loadDirectory(ftpManager.getCurrentPath());
-                    }
-                } catch (IOException ex) {
-                    JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                            "Fehler", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        });
+        leftDrawer = new LeftDrawer(this::openFileTab);
 
         leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
@@ -311,6 +294,26 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public void openFileTab(String content, String sentenceType) {
         getTabManager().openFileTab(content, sentenceType);
+    }
+
+    @Override
+    public void openFileTab(String path) {
+        final FtpManager ftpManager = new FtpManager();
+        if (ConnectDialog.show(this, ftpManager)) {
+            try {
+                FtpFileBuffer buffer = ftpManager.open(unquote(path));
+                if (buffer != null) {
+                    tabManager.openFileTab(ftpManager, buffer);
+                } else {
+                    ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
+                    tabManager.addTab(tab);
+                    tab.loadDirectory(ftpManager.getCurrentPath());
+                }
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 
     @Override

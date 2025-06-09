@@ -18,6 +18,8 @@ public interface MainframeContext {
     Optional<TabAdapter> getSelectedTab();
     void openFileTab(String content, String sentenceType);
 
+    void openFileTab(String path);
+
     JFrame getMainFrame();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
