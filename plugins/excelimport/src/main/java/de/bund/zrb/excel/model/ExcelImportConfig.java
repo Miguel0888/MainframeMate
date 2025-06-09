@@ -8,11 +8,13 @@ import java.util.function.Function;
 
 public class ExcelImportConfig {
     private File file;
-    private String templateName;
-    private boolean hasHeader;
-    private int headerRowIndex;
-    private boolean append;
-    private String separator;
+    private String destination;
+    private String satzart;
+    private String templateName; // kann über Satzart gefunden werden, kann aber zu mehreren Ergebnissen führen
+    private boolean hasHeader = true;
+    private int headerRowIndex = 0;
+    private boolean append = false;
+    private String separator = "";
 
     public String getTemplateName() {
         return templateName;
@@ -62,55 +64,74 @@ public class ExcelImportConfig {
         this.file = file;
     }
 
-    // ggf. zusätzlich: Map<String, Object> rawInput für flexible Initialisierung
     public ExcelImportConfig(Map<String, Object> input,
                              ToolSpec.InputSchema schema,
                              Function<String, ExcelMapping> templateResolver) {
         try {
-            this.file = new File(requireString(input, "file"));
-            String sentenceType = requireString(input, "satzart");
+            this.file = new File(requireString("file", input, schema));
+            this.satzart = requireString("satzart", input, schema);
 
-            // Versuche das Template zu resolven, ansonsten nimm den Satzartnamen als Template-Name
-            ExcelMapping mapping = (templateResolver != null) ? templateResolver.apply(sentenceType) : null;
-            this.templateName = (mapping != null) ? mapping.getName() : sentenceType;
+            this.destination = optionalString("destination", input, schema, this.destination);
+            this.hasHeader = optionalBoolean("hasHeader", input, schema, this.hasHeader);
+            this.headerRowIndex = optionalInteger("headerRowIndex", input, schema, this.headerRowIndex);
+            this.append = optionalBoolean("append", input, schema, this.append);
+            this.separator = optionalString("trennzeile", input, schema, this.separator);
 
-            this.hasHeader = requireBoolean(input, "hasHeader");
-            this.headerRowIndex = requireInteger(input, "headerRowIndex");
-            this.append = requireBoolean(input, "append");
-            this.separator = String.valueOf(input.getOrDefault("trennzeile", ""));
+            String explicitTemplate = optionalString("template", input, schema, null);
+            if (!isEmpty(explicitTemplate)) {
+                this.templateName = explicitTemplate;
+            } else if (templateResolver != null) {
+                ExcelMapping mapping = templateResolver.apply(this.satzart);
+                this.templateName = (mapping != null) ? mapping.getName() : this.satzart;
+            } else {
+                this.templateName = this.satzart;
+            }
 
         } catch (ClassCastException | NullPointerException e) {
             throw new IllegalArgumentException("Ungültige Parameter für ExcelImportConfig", e);
         }
     }
 
-
-    private String requireString(Map<String, Object> input, String key) {
+    private String requireString(String key, Map<String, Object> input, ToolSpec.InputSchema schema) {
         Object value = input.get(key);
         if (value instanceof String) return (String) value;
-        throw new IllegalArgumentException("Feld '" + key + "' muss ein String sein.");
+        if (schema.getRequired().contains(key)) {
+            throw new IllegalArgumentException("Pflichtfeld '" + key + "' fehlt oder ist kein String.");
+        }
+        return null;
     }
 
-    private boolean requireBoolean(Map<String, Object> input, String key) {
+    private String optionalString(String key, Map<String, Object> input, ToolSpec.InputSchema schema, String defaultValue) {
+        Object value = input.get(key);
+        if (value instanceof String) return (String) value;
+        return defaultValue;
+    }
+
+    private boolean optionalBoolean(String key, Map<String, Object> input, ToolSpec.InputSchema schema, boolean defaultValue) {
         Object value = input.get(key);
         if (value instanceof Boolean) return (Boolean) value;
         if (value instanceof String) return Boolean.parseBoolean((String) value);
-        throw new IllegalArgumentException("Feld '" + key + "' muss ein Boolean sein.");
+        return defaultValue;
     }
 
-    private int requireInteger(Map<String, Object> input, String key) {
+    private int optionalInteger(String key, Map<String, Object> input, ToolSpec.InputSchema schema, int defaultValue) {
         Object value = input.get(key);
-        if (value instanceof Number) return ((Number) value).intValue(); // schneidet Nachkommastellen ab
+        if (value instanceof Number) return ((Number) value).intValue();
         if (value instanceof String) {
             try {
                 return Integer.parseInt((String) value);
             } catch (NumberFormatException e) {
-                Double doubleVal = tryParseDouble((String) value);
-                if (doubleVal != null) return doubleVal.intValue(); // optional: kaufmännisch runden: Math.round(doubleVal)
+                Double d = tryParseDouble((String) value);
+                if (d != null) return d.intValue();
             }
         }
-        throw new IllegalArgumentException("Feld '" + key + "' muss eine Ganzzahl sein.");
+        return defaultValue;
     }
+
+    private boolean isEmpty(String str) {
+        return str == null || str.trim().isEmpty();
+    }
+
 
     private Double tryParseDouble(String str) {
         try {

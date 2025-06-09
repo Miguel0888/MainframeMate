@@ -25,13 +25,14 @@ public class ImportExcelTool implements McpTool {
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("file", new ToolSpec.Property("string", "Pfad zur Excel-Datei"));
+        properties.put("destination", new ToolSpec.Property("string", "Ausgaberecord auf dem Großrechner in einer Form wie H.X.YY")); // empty tab if absent / null
         properties.put("satzart", new ToolSpec.Property("string", "Satzartenschlüssel (z. B. \"100\")"));
         properties.put("hasHeader", new ToolSpec.Property("boolean", "Ob Spaltennamen in einer Kopfzeile vorhanden sind"));
         properties.put("headerRowIndex", new ToolSpec.Property("integer", "Index der Kopfzeile (beginnend bei 0)"));
         properties.put("append", new ToolSpec.Property("boolean", "Ob an eine bestehende Datei angehängt wird"));
         properties.put("trennzeile", new ToolSpec.Property("string", "Text der Trennzeile (optional)"));
 
-        List<String> required = Arrays.asList("file", "satzart", "hasHeader", "headerRowIndex", "append");
+        List<String> required = Arrays.asList("file", "satzart");  // defaults: "hasHeader" = true, "headerRowIndex" = 0, "append" = false
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, required);
 
@@ -52,7 +53,10 @@ public class ImportExcelTool implements McpTool {
         try {
             ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), (s) ->  plugin.getTemplateRepository().getTemplateFor(s));
 
-            ExcelImportController.importFromConfig(plugin, config, true, false);
+            boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
+            boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
+
+            ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
 
             result.addProperty("status", "success");
             result.addProperty("content", ""); // ToDo: May be implemted, but nor required
