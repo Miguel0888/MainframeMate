@@ -1,6 +1,5 @@
 package de.bund.zrb.ui.components;
 
-import com.google.gson.Gson;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
@@ -26,6 +25,7 @@ public class ParameterEditorDialog {
 
         Map<String, JTextField> textFields = new HashMap<>();
         Map<String, JCheckBox> checkboxes = new HashMap<>();
+        Map<String, JComboBox<String>> typeSelectors = new HashMap<>();
 
         int row = 0;
         for (Map.Entry<String, ToolSpec.Property> entry : schema.getProperties().entrySet()) {
@@ -33,9 +33,6 @@ public class ParameterEditorDialog {
             ToolSpec.Property prop = entry.getValue();
 
             JLabel label = new JLabel(key + (schema.getRequired().contains(key) ? " *" : ""));
-            gbc.gridx = 0;
-            gbc.gridy = row;
-            formPanel.add(label, gbc);
 
             JTextField textField = new JTextField(20);
             JCheckBox variableCheckBox = new JCheckBox("Variable");
@@ -49,18 +46,31 @@ public class ParameterEditorDialog {
                 } else {
                     textField.setText(valueStr);
                 }
+            } else if (existingValue != null) {
+                textField.setText(existingValue.toString());
             }
 
             JPanel fieldPanel = new JPanel(new BorderLayout());
             fieldPanel.add(textField, BorderLayout.CENTER);
             fieldPanel.add(variableCheckBox, BorderLayout.EAST);
 
+            JComboBox<String> typeBox = new JComboBox<>(new String[]{"string", "integer", "number", "boolean"});
+            String type = prop.getType() != null ? prop.getType() : "string";
+            typeBox.setSelectedItem(type);
+            typeSelectors.put(key, typeBox);
+
+            gbc.gridx = 0;
+            gbc.gridy = row;
+            formPanel.add(label, gbc);
+
             gbc.gridx = 1;
+            formPanel.add(typeBox, gbc);
+
+            gbc.gridx = 2;
             formPanel.add(fieldPanel, gbc);
 
             textFields.put(key, textField);
             checkboxes.put(key, variableCheckBox);
-
             row++;
         }
 
@@ -71,17 +81,37 @@ public class ParameterEditorDialog {
             for (String key : textFields.keySet()) {
                 String value = textFields.get(key).getText().trim();
                 boolean isVariable = checkboxes.get(key).isSelected();
+                String selectedType = (String) typeSelectors.get(key).getSelectedItem();
+
                 if (!value.isEmpty()) {
                     if (isVariable && !value.matches("\\{\\{[^{}]+}}")) {
-                        value = "{{" + value + "}}";
+                        resultMap.put(key, "{{" + value + "}}");
+                        continue;
                     }
-                    resultMap.put(key, value);
+
+                    try {
+                        switch (selectedType) {
+                            case "integer":
+                                resultMap.put(key, Integer.parseInt(value));
+                                break;
+                            case "number":
+                                resultMap.put(key, Double.parseDouble(value));
+                                break;
+                            case "boolean":
+                                resultMap.put(key, Boolean.parseBoolean(value));
+                                break;
+                            default:
+                                resultMap.put(key, value);
+                        }
+                    } catch (Exception ex) {
+                        // Fallback to string if conversion fails
+                        resultMap.put(key, value);
+                    }
                 }
             }
             return resultMap;
         }
 
-        return null; // Cancelled
+        return null; // cancelled
     }
-
 }
