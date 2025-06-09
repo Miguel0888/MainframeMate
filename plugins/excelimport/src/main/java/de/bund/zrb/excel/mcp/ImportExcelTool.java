@@ -1,6 +1,9 @@
 package de.bund.zrb.excel.mcp;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import de.bund.zrb.excel.controller.ExcelImportController;
+import de.bund.zrb.excel.model.ExcelImportConfig;
 import de.bund.zrb.excel.plugin.ExcelImport;
 import de.bund.zrb.excel.service.ExcelParser;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -46,48 +49,13 @@ public class ImportExcelTool implements McpTool {
     public JsonObject execute(JsonObject input) {
         JsonObject result = new JsonObject();
         try {
-            // Parameter lesen
-            String path = input.get("file").getAsString();
-            String satzart = input.get("satzart").getAsString();
-            boolean hasHeader = input.get("hasHeader").getAsBoolean();
-            int headerRowIndex = input.get("headerRowIndex").getAsInt();
-            boolean append = input.get("append").getAsBoolean();
-            String trennzeile = input.has("trennzeile") ? input.get("trennzeile").getAsString() : "";
+            ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema());
 
-            File excelFile = new File(path);
-            if (!excelFile.exists()) {
-                throw new IllegalArgumentException("Datei existiert nicht: " + path);
-            }
-
-            // Excel-Daten laden
-            Map<String, List<String>> table = ExcelParser.readExcelAsTable(
-                    excelFile,
-                    true,              // Formeln evaluieren
-                    hasHeader ? headerRowIndex : -1,
-                    false,             // nicht bei leerer Zelle abbrechen
-                    false              // nicht bei leerer Zeile abbrechen
-            );
-
-            // In Satz-Daten umwandeln
-            List<Map<String, String>> datensaetze = new ArrayList<>();
-            int rowCount = table.values().stream().mapToInt(List::size).max().orElse(0);
-            List<String> columns = new ArrayList<>(table.keySet());
-
-            for (int i = 0; i < rowCount; i++) {
-                Map<String, String> row = new LinkedHashMap<>();
-                for (String col : columns) {
-                    List<String> colData = table.get(col);
-                    String value = i < colData.size() ? colData.get(i) : "";
-                    row.put(col, value);
-                }
-                datensaetze.add(row);
-            }
-
-            // Optional: Hier z. B. speichern in DataStore, je nach Systemstruktur
-            // Beispiel: DataStore.save(satzart, datensaetze, append, trennzeile);
+            String output = ExcelImportController.importFromConfig(plugin, config);
 
             result.addProperty("status", "success");
-            result.addProperty("importedRows", datensaetze.size());
+            result.addProperty("content", output);
+            result.addProperty("importedLines", output.split("\n").length);
         } catch (Exception e) {
             result.addProperty("status", "error");
             result.addProperty("message", e.getMessage());
