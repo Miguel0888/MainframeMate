@@ -1,9 +1,9 @@
 package de.zrb.bund.api;
 
-import com.sun.istack.internal.Nullable;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
+import javax.annotation.Nullable;
 import javax.swing.*;
 import java.io.File;
 import java.util.List;

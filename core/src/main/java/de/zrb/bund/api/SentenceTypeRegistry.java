@@ -1,6 +1,6 @@
 package de.zrb.bund.api;
 
-import com.sun.istack.internal.Nullable;
+import javax.annotation.Nullable;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
 
