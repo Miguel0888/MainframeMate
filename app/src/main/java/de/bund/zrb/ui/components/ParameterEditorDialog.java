@@ -54,8 +54,11 @@ public class ParameterEditorDialog {
             fieldPanel.add(textField, BorderLayout.CENTER);
             fieldPanel.add(variableCheckBox, BorderLayout.EAST);
 
-            JComboBox<String> typeBox = new JComboBox<>(new String[]{"string", "integer", "number", "boolean"});
+            JComboBox<String> typeBox = new JComboBox<>(new String[]{"string", "number", "boolean"});
             String type = prop.getType() != null ? prop.getType() : "string";
+            if (!type.equals("string") && !type.equals("number") && !type.equals("boolean")) {
+                type = "string"; // fallback für unbekannte Typen
+            }
             typeBox.setSelectedItem(type);
             typeSelectors.put(key, typeBox);
 
@@ -91,9 +94,6 @@ public class ParameterEditorDialog {
 
                     try {
                         switch (selectedType) {
-                            case "integer":
-                                resultMap.put(key, Integer.parseInt(value));
-                                break;
                             case "number":
                                 resultMap.put(key, Double.parseDouble(value));
                                 break;
@@ -104,8 +104,7 @@ public class ParameterEditorDialog {
                                 resultMap.put(key, value);
                         }
                     } catch (Exception ex) {
-                        // Fallback to string if conversion fails
-                        resultMap.put(key, value);
+                        resultMap.put(key, value); // fallback auf String
                     }
                 }
             }
