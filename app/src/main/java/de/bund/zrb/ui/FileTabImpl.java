@@ -7,9 +7,10 @@ import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.util.RegexFoldParser;
 import de.zrb.bund.api.SentenceTypeRegistry;
-import de.zrb.bund.api.TabAdapter;
-import de.zrb.bund.api.TabType;
+import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.sentence.*;
+import de.zrb.bund.newApi.ui.FileTab;
+import de.zrb.bund.newApi.ui.FtpTab;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -33,7 +34,7 @@ import javax.swing.text.Highlighter;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.CannotUndoException;
 
-public class FileTab implements FtpTab, TabAdapter {
+public class FileTabImpl implements FileTab {
 
     private final FtpManager ftpManager;
     private final FileContentService fileContentService;
@@ -56,7 +57,7 @@ public class FileTab implements FtpTab, TabAdapter {
     private int currentMaxRows = 1;
     private boolean soundEnabled = true;
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, @Nullable FtpManager ftpManager, String content, String sentenceType) {
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager, @Nullable FtpManager ftpManager, String content, String sentenceType) {
         this(tabbedPaneManager, ftpManager, (FtpFileBuffer) null, sentenceType);
         soundEnabled = SettingsHelper.load().soundEnabled;
         if(content != null) {
@@ -65,7 +66,7 @@ public class FileTab implements FtpTab, TabAdapter {
         highlight(sentenceType);
     }
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, @NotNull FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager, @NotNull FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.fileContentService = new FileContentService(ftpManager);
@@ -503,6 +504,7 @@ public class FileTab implements FtpTab, TabAdapter {
      *
      * @param newText
      */
+    @Override
     public void setContent(String newText) {
         textArea.selectAll();
         textArea.replaceSelection(""); // erlaubt Undo des Löschens
@@ -510,6 +512,7 @@ public class FileTab implements FtpTab, TabAdapter {
         updateUndoRedoState();
     }
 
+    @Override
     public void setContent(String text, String sentenceType) {
         sentenceComboBox.setSelectedItem(sentenceType);
         setContent(text); // Undo etc.
@@ -532,6 +535,7 @@ public class FileTab implements FtpTab, TabAdapter {
         updateUndoRedoState();
     }
 
+    @Override
     public void markAsChanged() {
         if(!this.changed) {
             this.changed = true;
@@ -562,14 +566,15 @@ public class FileTab implements FtpTab, TabAdapter {
     }
 
     @Override
-    public TabType getType() {
-        return TabType.FILE;
+    public Type getType() {
+        return Type.FILE;
     }
 
     private void updateTabTitle() {
         tabbedPaneManager.updateTitleFor(this);
     }
 
+    @Override
     public String getContent() {
         return textArea.getText();
     }

@@ -64,6 +64,29 @@ public class ExcelImportConfig {
         this.file = file;
     }
 
+    public String getDestination() {
+        return destination;
+    }
+
+    public void setDestination(String destination) {
+        this.destination = destination;
+    }
+
+    public String getSatzart() {
+        return satzart;
+    }
+
+    public void setSatzart(String satzart) {
+        this.satzart = satzart;
+    }
+
+    /**
+     * Konstruktor für die ExcelImportConfig.
+     *
+     * @param input           Eingabedaten als Map
+     * @param schema          Schema für die Validierung der Eingabedaten
+     * @param templateResolver Funktion, um eine ExcelMapping-Vorlage anhand der Satzart zu finden
+     */
     public ExcelImportConfig(Map<String, Object> input,
                              ToolSpec.InputSchema schema,
                              Function<String, ExcelMapping> templateResolver) {

@@ -1,6 +1,8 @@
 package de.zrb.bund.api;
 
 import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.ui.FileTab;
+import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import javax.annotation.Nullable;
@@ -16,12 +18,12 @@ public interface MainframeContext {
 
     void savePluginSettings(String pluginKey, Map<String, String> settings);
 
-    Optional<TabAdapter> getSelectedTab();
-    void createFile(String content, String sentenceType);
+    Optional<Bookmarkable> getSelectedTab();
+    FileTab createFile(String content, String sentenceType);
 
-    void openFile(String path);
+    FtpTab openFileOrDirectory(String path);
 
-    void openFile(String path, @Nullable String sentenceType);
+    FtpTab openFileOrDirectory(String path, @Nullable String sentenceType);
 
     JFrame getMainFrame();
 
@@ -30,8 +32,8 @@ public interface MainframeContext {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     BookmarkManager getBookmarkManager();
-    List<TabAdapter> getAllFileTabs();
-    void focusFileTab(TabAdapter tab);
+    List<Bookmarkable> getAllFileTabs();
+    void focusFileTab(Bookmarkable tab);
 
     void refresh();
 

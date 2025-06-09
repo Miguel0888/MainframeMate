@@ -3,7 +3,9 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.api.TabAdapter;
+import de.zrb.bund.api.Bookmarkable;
+import de.zrb.bund.newApi.ui.FileTab;
+import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
 import java.awt.*;
@@ -130,9 +132,10 @@ public class TabbedPaneManager {
     /**
      * Öffnet einen neuen FileTab, der eine neue Datei anlegt. Der Inhalt wird bis zum Speichern nur im Editor gehalten.
      */
-    public void openFileTab(FtpManager ftpManager, String content, String sentenceType) {
-        FileTab fileTab = new FileTab(this, ftpManager, content, sentenceType);
-        addTab(fileTab); // handled everything
+    public FileTab openFileTab(FtpManager ftpManager, String content, String sentenceType) {
+        FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, content, sentenceType);
+        addTab(fileTabImpl); // handled everything
+        return fileTabImpl;
     }
 
     /**
@@ -141,10 +144,11 @@ public class TabbedPaneManager {
      * @param ftpManager der FtpManager, der die Verbindung verwaltet
      * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
      */
-    public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
-        FileTab fileTab = new FileTab(this, ftpManager, buffer, sentenceType);
-        addTab(fileTab); // handled everything
-        updateTooltipFor(fileTab);
+    public FtpTab openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
+        FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType);
+        addTab(fileTabImpl); // handled everything
+        updateTooltipFor(fileTabImpl);
+        return fileTabImpl;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -156,27 +160,27 @@ public class TabbedPaneManager {
         return Optional.ofNullable(tabMap.get(selected));
     }
 
-    public Optional<TabAdapter> getSelectedFileTab() {
+    public Optional<Bookmarkable> getSelectedFileTab() {
         Component selected = tabbedPane.getSelectedComponent();
         FtpTab tab = tabMap.get(selected);
-        if (tab instanceof FileTab) {
-            return Optional.of((FileTab) tab);
+        if (tab instanceof FileTabImpl) {
+            return Optional.of((FileTabImpl) tab);
         }
         return Optional.empty();
     }
 
 
-    public java.util.List<TabAdapter> getAllTabs() {
-        java.util.List<TabAdapter> result = new java.util.ArrayList<>();
+    public java.util.List<Bookmarkable> getAllTabs() {
+        java.util.List<Bookmarkable> result = new java.util.ArrayList<>();
         for (FtpTab tab : tabMap.values()) {
-            if (tab instanceof TabAdapter) {
-                result.add((TabAdapter) tab);
+            if (tab instanceof Bookmarkable) {
+                result.add((Bookmarkable) tab);
             }
         }
         return result;
     }
 
-    public void focusTabByAdapter(TabAdapter tab) {
+    public void focusTabByAdapter(Bookmarkable tab) {
         if (!(tab instanceof FtpTab)) return;
 
         Component comp = ((FtpTab) tab).getComponent();

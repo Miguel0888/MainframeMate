@@ -2,7 +2,7 @@ package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ui.ConnectDialog;
-import de.bund.zrb.ui.ConnectionTab;
+import de.bund.zrb.ui.ConnectionTabImpl;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.MenuCommand;
 
@@ -32,7 +32,7 @@ public class ConnectMenuCommand implements MenuCommand {
     public void perform() {
         FtpManager ftpManager = new FtpManager();
         if (ConnectDialog.show(parent, ftpManager)) {
-            tabManager.addTab(new ConnectionTab(ftpManager, tabManager));
+            tabManager.addTab(new ConnectionTabImpl(ftpManager, tabManager));
         }
     }
 }

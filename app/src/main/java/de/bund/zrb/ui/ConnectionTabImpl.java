@@ -3,8 +3,9 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ftp.FtpObserver;
-import de.zrb.bund.api.TabAdapter;
-import de.zrb.bund.api.TabType;
+import de.zrb.bund.api.Bookmarkable;
+import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -16,7 +17,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
+public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
 
     private final FtpManager ftpManager;
     private final JPanel mainPanel;
@@ -28,7 +29,7 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
     private final JTextField searchField = new JTextField();
     private List<String> currentDirectoryFiles = new ArrayList<>();
 
-    public ConnectionTab(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager) {
+    public ConnectionTabImpl(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.mainPanel = new JPanel(new BorderLayout());
@@ -250,8 +251,8 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
     }
 
     @Override
-    public TabType getType() {
-        return TabType.CONNECTION;
+    public Type getType() {
+        return Type.CONNECTION;
     }
 
     // Suchfeld ins UI einbauen

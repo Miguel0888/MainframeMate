@@ -23,6 +23,8 @@ import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.api.*;
 import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.ui.FileTab;
+import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import javax.annotation.Nullable;
@@ -105,7 +107,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         final FtpManager ftpManager = new FtpManager();
         if (ConnectDialog.connectIfNeeded(this, ftpManager)) {
-            tabManager.addTab(new ConnectionTab(ftpManager, tabManager));
+            tabManager.addTab(new ConnectionTabImpl(ftpManager, tabManager));
         }
     }
 
@@ -246,7 +248,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     private Component initBookmarkDrawer(Component content) {
-        leftDrawer = new LeftDrawer(this::openFile);
+        leftDrawer = new LeftDrawer(this::openFileOrDirectory);
 
         leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
@@ -285,42 +287,44 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
-    public Optional<TabAdapter> getSelectedTab() {
+    public Optional<Bookmarkable> getSelectedTab() {
         return tabManager.getSelectedTab()
-                .filter(tab -> tab instanceof TabAdapter)
-                .map(tab -> (TabAdapter) tab);
+                .filter(tab -> tab instanceof Bookmarkable)
+                .map(tab -> (Bookmarkable) tab);
     }
 
 
     @Override
-    public void createFile(String content, String sentenceType) {
+    public FileTab createFile(String content, String sentenceType) {
         final FtpManager ftpManager = new FtpManager(); // ToDo: Use login manager here
-        getTabManager().openFileTab(ftpManager, content, sentenceType);
+        return getTabManager().openFileTab(ftpManager, content, sentenceType);
     }
 
     @Override
-    public void openFile(String path) {
-        openFile(path, null);
+    public FtpTab openFileOrDirectory(String path) {
+        return openFileOrDirectory(path, null);
     }
 
     @Override
-    public void openFile(String path, @Nullable String sentenceType) {
+    public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType) {
         final FtpManager ftpManager = new FtpManager(); // ToDo: Use login manager here
         if (ConnectDialog.show(this, ftpManager)) {
             try {
                 FtpFileBuffer buffer = ftpManager.open(unquote(path));
                 if (buffer != null) {
-                    tabManager.openFileTab(ftpManager, buffer, sentenceType);
+                    return tabManager.openFileTab(ftpManager, buffer, sentenceType);
                 } else {
-                    ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
+                    ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager);
                     tabManager.addTab(tab);
                     tab.loadDirectory(ftpManager.getCurrentPath());
+                    return tab;
                 }
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
                         "Fehler", JOptionPane.ERROR_MESSAGE);
             }
         }
+        return null; // Kein Tab geöffnet
     }
 
     @Override
@@ -334,15 +338,15 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
-    public List<TabAdapter> getAllFileTabs() {
+    public List<Bookmarkable> getAllFileTabs() {
         return tabManager.getAllTabs().stream()
-                .filter(t -> t instanceof TabAdapter)
-                .map(t -> (TabAdapter) t)
+                .filter(t -> t instanceof Bookmarkable)
+                .map(t -> (Bookmarkable) t)
                 .collect(Collectors.toList());
     }
 
     @Override
-    public void focusFileTab(TabAdapter tab) {
+    public void focusFileTab(Bookmarkable tab) {
         tabManager.focusTabByAdapter(tab);
     }
 

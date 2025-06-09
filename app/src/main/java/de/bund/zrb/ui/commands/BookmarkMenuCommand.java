@@ -2,7 +2,7 @@ package de.bund.zrb.ui.commands;
 
 import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.api.TabAdapter;
+import de.zrb.bund.api.Bookmarkable;
 
 import javax.swing.*;
 
@@ -26,7 +26,7 @@ public class BookmarkMenuCommand implements MenuCommand {
 
     @Override
     public void perform() {
-        TabAdapter tab = context.getSelectedTab().orElse(null);
+        Bookmarkable tab = context.getSelectedTab().orElse(null);
         if (tab == null) {
             JOptionPane.showMessageDialog(context.getMainFrame(), "Kein aktiver Tab.");
             return;

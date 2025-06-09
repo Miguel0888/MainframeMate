@@ -9,9 +9,11 @@ import de.bund.zrb.excel.service.ExcelParser;
 import de.bund.zrb.excel.ui.ExcelImportUiDialog;
 import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.zrb.bund.api.ExpressionRegistry;
-import de.zrb.bund.api.TabAdapter;
+import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
+import de.zrb.bund.newApi.ui.FileTab;
+import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
 import java.awt.*;
@@ -133,13 +135,29 @@ public class ExcelImportController {
         }
 
         if (config.isAppend()) {
-            Optional<TabAdapter> tab = plugin.getContext().getSelectedTab();
-            String existing = tab.map(TabAdapter::getContent).orElse("");
+            Optional<Bookmarkable> tab = plugin.getContext().getSelectedTab();
+            String existing = tab.map(Bookmarkable::getContent).orElse("");
             String trenn = config.getSeparator();
             result = existing + (trenn == null ? "" : trenn + "\n") + result;
         }
 
-        plugin.getContext().createFile(result, satzartName); // ToDo: try to open path first
+        if(config.getDestination() != null && !config.getDestination().trim().isEmpty()) {
+            FtpTab ftpTab = plugin.getContext().openFileOrDirectory(config.getDestination(), satzartName);
+            if(ftpTab == null) {
+                showError(plugin.getMainFrame(), "Zielpfad konnte nicht geöffnet werden: " + config.getDestination());
+                return;
+            }
+            if(ftpTab instanceof FileTab) { // ToDo: Besser: Fähigkeit explizit machen, z. B. durch: interface ContentWritable
+                ((FileTab) ftpTab).setContent(result, satzartName);
+            } else {
+                showError(plugin.getMainFrame(), "Zielpfad ist kein gültiger Tab: " + config.getDestination());
+                return;
+            }
+        }
+        else
+        {
+            plugin.getContext().createFile(result, satzartName); // ToDo: try to open path first
+        }
 
         if (Boolean.parseBoolean(plugin.getSettings().getOrDefault("showConfirmation", "true"))) {
             JOptionPane.showMessageDialog(plugin.getMainFrame(),

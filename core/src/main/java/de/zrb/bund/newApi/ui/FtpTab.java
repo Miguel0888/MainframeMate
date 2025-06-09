@@ -1,8 +1,10 @@
-package de.bund.zrb.ui;
+package de.zrb.bund.newApi.ui;
+
+import de.zrb.bund.api.Bookmarkable;
 
 import javax.swing.*;
 
-public interface FtpTab {
+public interface FtpTab extends Bookmarkable {
     String getTitle();
     String getTooltip();
     JComponent getComponent();
