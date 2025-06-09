@@ -4,6 +4,7 @@ import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.io.File;
 import java.util.Map;
+import java.util.function.Function;
 
 public class ExcelImportConfig {
     private File file;
@@ -62,12 +63,61 @@ public class ExcelImportConfig {
     }
 
     // ggf. zusätzlich: Map<String, Object> rawInput für flexible Initialisierung
-    public ExcelImportConfig(Map<String, Object> input, ToolSpec.InputSchema schema) {
-        this.file = new File((String) input.get("file"));
-        this.templateName = (String) input.get("satzart"); // ToDo: rename to sentence type everywhere
-        this.hasHeader = Boolean.TRUE.equals(input.get("hasHeader"));
-        this.headerRowIndex = (Integer) input.get("headerRowIndex");
-        this.append = Boolean.TRUE.equals(input.get("append"));
-        this.separator = input.getOrDefault("trennzeile", "").toString(); // ToDo: rename to separator everywhere
+    public ExcelImportConfig(Map<String, Object> input,
+                             ToolSpec.InputSchema schema,
+                             Function<String, ExcelMapping> templateResolver) {
+        try {
+            this.file = new File(requireString(input, "file"));
+            String sentenceType = requireString(input, "satzart");
+
+            // Versuche das Template zu resolven, ansonsten nimm den Satzartnamen als Template-Name
+            ExcelMapping mapping = (templateResolver != null) ? templateResolver.apply(sentenceType) : null;
+            this.templateName = (mapping != null) ? mapping.getName() : sentenceType;
+
+            this.hasHeader = requireBoolean(input, "hasHeader");
+            this.headerRowIndex = requireInteger(input, "headerRowIndex");
+            this.append = requireBoolean(input, "append");
+            this.separator = String.valueOf(input.getOrDefault("trennzeile", ""));
+
+        } catch (ClassCastException | NullPointerException e) {
+            throw new IllegalArgumentException("Ungültige Parameter für ExcelImportConfig", e);
+        }
     }
+
+
+    private String requireString(Map<String, Object> input, String key) {
+        Object value = input.get(key);
+        if (value instanceof String) return (String) value;
+        throw new IllegalArgumentException("Feld '" + key + "' muss ein String sein.");
+    }
+
+    private boolean requireBoolean(Map<String, Object> input, String key) {
+        Object value = input.get(key);
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof String) return Boolean.parseBoolean((String) value);
+        throw new IllegalArgumentException("Feld '" + key + "' muss ein Boolean sein.");
+    }
+
+    private int requireInteger(Map<String, Object> input, String key) {
+        Object value = input.get(key);
+        if (value instanceof Number) return ((Number) value).intValue(); // schneidet Nachkommastellen ab
+        if (value instanceof String) {
+            try {
+                return Integer.parseInt((String) value);
+            } catch (NumberFormatException e) {
+                Double doubleVal = tryParseDouble((String) value);
+                if (doubleVal != null) return doubleVal.intValue(); // optional: kaufmännisch runden: Math.round(doubleVal)
+            }
+        }
+        throw new IllegalArgumentException("Feld '" + key + "' muss eine Ganzzahl sein.");
+    }
+
+    private Double tryParseDouble(String str) {
+        try {
+            return Double.parseDouble(str);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
 }

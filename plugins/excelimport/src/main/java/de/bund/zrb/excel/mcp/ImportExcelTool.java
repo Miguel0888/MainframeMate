@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import de.bund.zrb.excel.controller.ExcelImportController;
 import de.bund.zrb.excel.model.ExcelImportConfig;
 import de.bund.zrb.excel.plugin.ExcelImport;
+import de.bund.zrb.excel.repo.TemplateRepository;
 import de.bund.zrb.excel.service.ExcelParser;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -49,7 +50,7 @@ public class ImportExcelTool implements McpTool {
     public JsonObject execute(JsonObject input) {
         JsonObject result = new JsonObject();
         try {
-            ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema());
+            ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), (s) ->  plugin.getTemplateRepository().getTemplateFor(s));
 
             String output = ExcelImportController.importFromConfig(plugin, config);
 

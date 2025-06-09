@@ -177,7 +177,7 @@ public class ExcelImportController {
         TemplateRepository repo = plugin.getTemplateRepository();
         ExcelMapping mapping = repo.getTemplate(config.getTemplateName());
         if (mapping == null) {
-            throw new IllegalArgumentException("Mapping nicht gefunden: " + config.getTemplateName());
+            throw new IllegalArgumentException("Satzarten-Mapping nicht gefunden: " + config.getTemplateName());
         }
 
         SentenceDefinition satzart = plugin.getContext().getSentenceTypeRegistry()

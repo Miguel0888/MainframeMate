@@ -34,6 +34,15 @@ public class TemplateRepository {
         return mappings.get(name);
     }
 
+    public ExcelMapping getTemplateFor(String sentenceType) {
+        for (ExcelMapping mapping : mappings.values()) {
+            if (sentenceType.equals(mapping.getSentenceType())) {
+                return mapping;
+            }
+        }
+        return null;
+    }
+
     public void saveTemplate(String name, ExcelMapping mapping) {
         mappings.put(name, mapping);
         save();
