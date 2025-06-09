@@ -5,6 +5,7 @@ import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
 
+import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.Optional;
 
@@ -41,7 +42,7 @@ public class SentenceTypeRegistryImpl implements SentenceTypeRegistry {
     }
 
     @Override
-    public Optional<SentenceDefinition> findDefinition(String sentenceType) {
+    public Optional<SentenceDefinition> findDefinition(@Nullable String sentenceType) {
         if (sentenceType == null || sentenceType.trim().isEmpty()) {
             return Optional.empty();
         }

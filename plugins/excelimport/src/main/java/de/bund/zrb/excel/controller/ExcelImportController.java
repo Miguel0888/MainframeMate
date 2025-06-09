@@ -12,13 +12,11 @@ import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.TabAdapter;
 import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
-import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.util.*;
 import java.util.List;
 import java.util.function.Function;
@@ -141,7 +139,7 @@ public class ExcelImportController {
             result = existing + (trenn == null ? "" : trenn + "\n") + result;
         }
 
-        plugin.getContext().openFileTab(result, satzartName);
+        plugin.getContext().createFile(result, satzartName); // ToDo: try to open path first
 
         if (Boolean.parseBoolean(plugin.getSettings().getOrDefault("showConfirmation", "true"))) {
             JOptionPane.showMessageDialog(plugin.getMainFrame(),

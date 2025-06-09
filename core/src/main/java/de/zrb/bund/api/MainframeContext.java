@@ -1,5 +1,6 @@
 package de.zrb.bund.api;
 
+import com.sun.istack.internal.Nullable;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
@@ -16,9 +17,11 @@ public interface MainframeContext {
     void savePluginSettings(String pluginKey, Map<String, String> settings);
 
     Optional<TabAdapter> getSelectedTab();
-    void openFileTab(String content, String sentenceType);
+    void createFile(String content, String sentenceType);
 
-    void openFileTab(String path);
+    void openFile(String path);
+
+    void openFile(String path, @Nullable String sentenceType);
 
     JFrame getMainFrame();
 

@@ -25,6 +25,7 @@ import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
+import javax.annotation.Nullable;
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
 import java.awt.*;
@@ -245,7 +246,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     private Component initBookmarkDrawer(Component content) {
-        leftDrawer = new LeftDrawer(this::openFileTab);
+        leftDrawer = new LeftDrawer(this::openFile);
 
         leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
@@ -292,18 +293,24 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     @Override
-    public void openFileTab(String content, String sentenceType) {
-        getTabManager().openFileTab(content, sentenceType);
+    public void createFile(String content, String sentenceType) {
+        final FtpManager ftpManager = new FtpManager(); // ToDo: Use login manager here
+        getTabManager().openFileTab(ftpManager, content, sentenceType);
     }
 
     @Override
-    public void openFileTab(String path) {
-        final FtpManager ftpManager = new FtpManager();
+    public void openFile(String path) {
+        openFile(path, null);
+    }
+
+    @Override
+    public void openFile(String path, @Nullable String sentenceType) {
+        final FtpManager ftpManager = new FtpManager(); // ToDo: Use login manager here
         if (ConnectDialog.show(this, ftpManager)) {
             try {
                 FtpFileBuffer buffer = ftpManager.open(unquote(path));
                 if (buffer != null) {
-                    tabManager.openFileTab(ftpManager, buffer);
+                    tabManager.openFileTab(ftpManager, buffer, sentenceType);
                 } else {
                     ConnectionTab tab = new ConnectionTab(ftpManager, tabManager);
                     tabManager.addTab(tab);

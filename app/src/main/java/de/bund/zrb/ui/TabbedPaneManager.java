@@ -130,8 +130,8 @@ public class TabbedPaneManager {
     /**
      * Öffnet einen neuen FileTab, der eine neue Datei anlegt. Der Inhalt wird bis zum Speichern nur im Editor gehalten.
      */
-    public void openFileTab(String content, String sentenceType) {
-        FileTab fileTab = new FileTab(this, content, sentenceType);
+    public void openFileTab(FtpManager ftpManager, String content, String sentenceType) {
+        FileTab fileTab = new FileTab(this, ftpManager, content, sentenceType);
         addTab(fileTab); // handled everything
     }
 
@@ -141,8 +141,8 @@ public class TabbedPaneManager {
      * @param ftpManager der FtpManager, der die Verbindung verwaltet
      * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
      */
-    public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer) {
-        FileTab fileTab = new FileTab(this, ftpManager, buffer);
+    public void openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
+        FileTab fileTab = new FileTab(this, ftpManager, buffer, sentenceType);
         addTab(fileTab); // handled everything
         updateTooltipFor(fileTab);
     }

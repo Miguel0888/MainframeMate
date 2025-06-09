@@ -15,7 +15,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
 
@@ -55,7 +54,7 @@ public class ConnectionTab implements FtpTab, FtpObserver, TabAdapter {
                         FtpFileBuffer buffer = ftpManager.open(selected);
                         if( buffer != null) // no DIR
                         {
-                            tabbedPaneManager.openFileTab(ftpManager, buffer);
+                            tabbedPaneManager.openFileTab(ftpManager, buffer, null);
                         }
                         else
                         {

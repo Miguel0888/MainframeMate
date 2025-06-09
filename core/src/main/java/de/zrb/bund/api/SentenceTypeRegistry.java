@@ -1,5 +1,6 @@
 package de.zrb.bund.api;
 
+import com.sun.istack.internal.Nullable;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
 
@@ -12,5 +13,5 @@ public interface SentenceTypeRegistry {
 
     void save();
 
-    Optional<SentenceDefinition> findDefinition(String sentenceType);
+    Optional<SentenceDefinition> findDefinition(@Nullable String sentenceType);
 }

@@ -12,10 +12,10 @@ import de.zrb.bund.api.TabType;
 import de.zrb.bund.newApi.sentence.*;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.fife.ui.rsyntaxtextarea.folding.Fold;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.NotNull;
 
+import javax.annotation.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
@@ -24,8 +24,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -58,8 +56,8 @@ public class FileTab implements FtpTab, TabAdapter {
     private int currentMaxRows = 1;
     private boolean soundEnabled = true;
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, String content, String sentenceType) {
-        this(tabbedPaneManager, (FtpManager) null, (FtpFileBuffer) null);
+    public FileTab(TabbedPaneManager tabbedPaneManager, @Nullable FtpManager ftpManager, String content, String sentenceType) {
+        this(tabbedPaneManager, ftpManager, (FtpFileBuffer) null, sentenceType);
         soundEnabled = SettingsHelper.load().soundEnabled;
         if(content != null) {
             textArea.setText(content);
@@ -67,7 +65,7 @@ public class FileTab implements FtpTab, TabAdapter {
         highlight(sentenceType);
     }
 
-    public FileTab(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer) {
+    public FileTab(TabbedPaneManager tabbedPaneManager, @NotNull FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.fileContentService = new FileContentService(ftpManager);
@@ -106,7 +104,7 @@ public class FileTab implements FtpTab, TabAdapter {
 
         textArea.addCaretListener(e -> updateLegendByCaret()); // set the corresponding legend automatically
         textArea.setCodeFoldingEnabled(true);
-
+        highlight(sentenceType);
     }
 
     @Override
@@ -518,7 +516,7 @@ public class FileTab implements FtpTab, TabAdapter {
         highlight(sentenceType);
     }
 
-    public void highlight(String sentenceType) {
+    public void highlight(@Nullable String sentenceType) {
         tabbedPaneManager.getMainframeContext()
                 .getSentenceTypeRegistry()
                 .findDefinition(sentenceType)
