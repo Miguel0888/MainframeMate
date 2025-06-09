@@ -52,11 +52,10 @@ public class ImportExcelTool implements McpTool {
         try {
             ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), (s) ->  plugin.getTemplateRepository().getTemplateFor(s));
 
-            String output = ExcelImportController.importFromConfig(plugin, config);
+            ExcelImportController.importFromConfig(plugin, config, true, false);
 
             result.addProperty("status", "success");
-            result.addProperty("content", output);
-            result.addProperty("importedLines", output.split("\n").length);
+            result.addProperty("content", ""); // ToDo: May be implemted, but nor required
         } catch (Exception e) {
             result.addProperty("status", "error");
             result.addProperty("message", e.getMessage());

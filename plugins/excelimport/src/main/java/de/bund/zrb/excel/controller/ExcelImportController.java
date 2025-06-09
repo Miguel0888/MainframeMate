@@ -1,19 +1,17 @@
 package de.bund.zrb.excel.controller;
 
 import de.bund.zrb.excel.model.ExcelImportConfig;
+import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.plugin.ExcelImport;
+import de.bund.zrb.excel.repo.TemplateRepository;
 import de.bund.zrb.excel.service.Converter;
 import de.bund.zrb.excel.service.ExcelParser;
 import de.bund.zrb.excel.ui.ExcelImportUiDialog;
 import de.bund.zrb.excel.ui.ExcelImportUiPanel;
-import de.bund.zrb.excel.model.ExcelMapping;
-import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.TabAdapter;
-import de.zrb.bund.newApi.sentence.FieldCoordinate;
 import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
-import de.zrb.bund.newApi.sentence.SentenceField;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 
 import javax.swing.*;
@@ -44,17 +42,49 @@ public class ExcelImportController {
             return;
         }
 
+        Map<String, Object> importParameters = new HashMap<>();
+        importParameters.put("file", excelFile.getAbsolutePath());
+        importParameters.put("satzart", templateName);
+        importParameters.put("hasHeader", ui.isHeaderEnabled());
+        importParameters.put("headerRowIndex", ui.getHeaderRowIndex());
+        importParameters.put("append", ui.shouldAppend());
+        importParameters.put("trennzeile", ui.getTrennzeile());
+
+        ExcelImportConfig config = new ExcelImportConfig(
+                importParameters,
+                null,
+                s -> plugin.getTemplateRepository().getTemplateFor(s)
+        );
+
+        boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
+        boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
+
+        try {
+            importFromConfig(plugin, config, stopOnEmptyRequiredCheck, requireAllFieldsEmptyCheck);
+        } catch (Exception e) {
+            e.printStackTrace();
+            showError(plugin.getMainFrame(), "Fehler beim Import:\n" + e.getMessage());
+        }
+    }
+
+    public static void importFromConfig(ExcelImport plugin,
+                                        ExcelImportConfig config,
+                                        boolean stopOnEmptyRequired,
+                                        boolean requireAllFieldsEmpty) throws Exception {
+
+        if (!config.getFile().exists()) {
+            throw new FileNotFoundException("Datei nicht gefunden: " + config.getFile());
+        }
+
         TemplateRepository repo = plugin.getTemplateRepository();
-        ExcelMapping mapping = repo.getTemplate(templateName);
+        ExcelMapping mapping = repo.getTemplate(config.getTemplateName());
         if (mapping == null) {
-            showError(plugin.getMainFrame(), "Mapping-Vorlage nicht gefunden: " + templateName);
-            return;
+            throw new IllegalArgumentException("Mapping-Vorlage nicht gefunden: " + config.getTemplateName());
         }
 
         String satzartName = mapping.getSentenceType();
         if (satzartName == null || satzartName.trim().isEmpty()) {
-            showError(plugin.getMainFrame(), "Keine Satzart im Mapping definiert.");
-            return;
+            throw new IllegalArgumentException("Keine Satzart im Mapping definiert.");
         }
 
         SentenceDefinition satzart = plugin.getContext().getSentenceTypeRegistry()
@@ -63,78 +93,60 @@ public class ExcelImportController {
                 .get(satzartName);
 
         if (satzart == null || satzart.getFields() == null || satzart.getFields().isEmpty()) {
-            showError(plugin.getMainFrame(), "Satzart oder Felder nicht gefunden: " + satzartName);
-            return;
+            throw new IllegalArgumentException("Satzart oder Felder nicht gefunden: " + satzartName);
         }
+
+        Map<String, List<String>> excelData = ExcelParser.readExcelAsTable(
+                config.getFile(),
+                config.isHasHeader(),
+                config.isHasHeader() ? config.getHeaderRowIndex() : -1,
+                stopOnEmptyRequired,
+                requireAllFieldsEmpty
+        );
 
         FieldMap felder = satzart.getFields();
         int schemaLines = satzart.getRowCount() != null ? satzart.getRowCount() : 1;
 
-        boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
-        boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
+        StringBuilder builder = new StringBuilder();
+        Converter converter = Converter.getInstance();
+        ExpressionRegistry registry = plugin.getContext().getExpressionRegistry();
 
-        try {
-            Map<String, List<String>> excelData = ExcelParser.readExcelAsTable(
-                    excelFile,
-                    ui.isHeaderEnabled(),
-                    ui.getHeaderRowIndex(),
-                    stopOnEmptyRequiredCheck,
-                    requireAllFieldsEmptyCheck
+        int rowCount = excelData.values().stream()
+                .findFirst()
+                .map(List::size)
+                .orElse(0);
+
+        for (int i = 0; i < rowCount; i++) {
+            Function<String, String> valueProvider = createValueResolver(registry, excelData, mapping, i);
+
+            String record = converter.generateRecordLines(
+                    felder,
+                    schemaLines,
+                    mapping,
+                    valueProvider
             );
 
-            int rowCount = excelData.values().stream()
-                    .findFirst()
-                    .map(List::size)
-                    .orElse(0);
+            builder.append(record).append("\n");
+        }
 
-            StringBuilder builder = new StringBuilder();
-            Converter converter = Converter.getInstance();
+        String result = builder.toString().trim();
+        if (result.isEmpty()) {
+            throw new IllegalStateException("Kein Inhalt erzeugt – bitte Mapping und Datei prüfen.");
+        }
 
-            ExpressionRegistry registry = plugin.getContext().getExpressionRegistry();
-            for (int i = 0; i < rowCount; i++) {
-                Function<String, String> valueProvider = createValueResolver(
-                        registry, excelData, mapping, i
-                );
+        if (config.isAppend()) {
+            Optional<TabAdapter> tab = plugin.getContext().getSelectedTab();
+            String existing = tab.map(TabAdapter::getContent).orElse("");
+            String trenn = config.getSeparator();
+            result = existing + (trenn == null ? "" : trenn + "\n") + result;
+        }
 
-                String record = converter.generateRecordLines(
-                        felder,
-                        schemaLines,
-                        mapping,
-                        valueProvider
-                );
+        plugin.getContext().openFileTab(result, satzartName);
 
-                builder.append(record).append("\n");
-            }
-
-            String result = builder.toString();
-            if (result.trim().isEmpty()) {
-                showError(plugin.getMainFrame(), "Kein Inhalt erzeugt – bitte Mapping und Datei prüfen.");
-                return;
-            }
-
-            if (ui.shouldAppend()) {
-                Optional<TabAdapter> tab = plugin.getContext().getSelectedTab();
-                String existing = tab.map(TabAdapter::getContent).orElse("");
-                String trenn = ui.getTrennzeile();
-                result = existing + (trenn == null ? "" : trenn + "\n") + result;
-            }
-
-            plugin.getContext().openFileTab(result, satzartName);
-
-            Map<String, String> settings = plugin.getSettings();
-            if (Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true"))) {
-                JOptionPane.showMessageDialog(plugin.getMainFrame(),
-                        "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
-                        "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
-            }
-
-        } catch (InvalidFormatException e) {
-            showError(plugin.getMainFrame(), "Ungültiges Excel-Format.");
-        } catch (IOException e) {
-            showError(plugin.getMainFrame(), "Fehler beim Lesen:\n" + e.getMessage());
-        } catch (Exception e) {
-            e.printStackTrace();
-            showError(plugin.getMainFrame(), "Unerwarteter Fehler:\n" + e.getMessage());
+        if (Boolean.parseBoolean(plugin.getSettings().getOrDefault("showConfirmation", "true"))) {
+            JOptionPane.showMessageDialog(plugin.getMainFrame(),
+                    "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
+                    "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
         }
     }
 
@@ -168,48 +180,4 @@ public class ExcelImportController {
                 })
                 .orElse("");
     }
-
-    public static String importFromConfig(ExcelImport plugin, ExcelImportConfig config) throws Exception {
-        if (!config.getFile().exists()) {
-            throw new FileNotFoundException("Datei nicht gefunden: " + config.getFile());
-        }
-
-        TemplateRepository repo = plugin.getTemplateRepository();
-        ExcelMapping mapping = repo.getTemplate(config.getTemplateName());
-        if (mapping == null) {
-            throw new IllegalArgumentException("Satzarten-Mapping nicht gefunden: " + config.getTemplateName());
-        }
-
-        SentenceDefinition satzart = plugin.getContext().getSentenceTypeRegistry()
-                .getSentenceTypeSpec()
-                .getDefinitions()
-                .get(mapping.getSentenceType());
-
-        if (satzart == null) {
-            throw new IllegalArgumentException("Satzart nicht bekannt: " + mapping.getSentenceType());
-        }
-
-        Map<String, List<String>> excelData = ExcelParser.readExcelAsTable(
-                config.getFile(),
-                true,
-                config.isHasHeader() ? config.getHeaderRowIndex() : -1,
-                true,   // stopOnEmpty
-                false   // requireAllEmpty
-        );
-
-        FieldMap felder = satzart.getFields();
-        int schemaLines = satzart.getRowCount() != null ? satzart.getRowCount() : 1;
-
-        Converter converter = Converter.getInstance();
-        ExpressionRegistry registry = plugin.getContext().getExpressionRegistry();
-        StringBuilder result = new StringBuilder();
-
-        for (int i = 0; i < excelData.values().stream().mapToInt(List::size).max().orElse(0); i++) {
-            Function<String, String> resolver = createValueResolver(registry, excelData, mapping, i);
-            result.append(converter.generateRecordLines(felder, schemaLines, mapping, resolver)).append("\n");
-        }
-
-        return result.toString().trim();
-    }
-
 }
