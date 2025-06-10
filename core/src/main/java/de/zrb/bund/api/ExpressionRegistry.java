@@ -1,5 +1,6 @@
 package de.zrb.bund.api;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface ExpressionRegistry {
@@ -9,7 +10,7 @@ public interface ExpressionRegistry {
 
     String getSource(String key);
 
-    String evaluate(String key) throws Exception;
+    String evaluate(String key, List<String> args) throws Exception;
 
     void remove(String key);
 

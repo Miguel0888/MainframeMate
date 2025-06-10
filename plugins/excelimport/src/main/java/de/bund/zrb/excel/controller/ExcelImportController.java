@@ -14,6 +14,7 @@ import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.api.ExpressionCallParser;
 
 import javax.swing.*;
 import java.awt.*;
@@ -184,7 +185,21 @@ public class ExcelImportController {
                         return e.getFixedValue();
                     } else if (e.isDynamic()) {
                         try {
-                            return registry.evaluate(e.getExpression());
+                            ExpressionCallParser.ExpressionCall call = ExpressionCallParser.parse(e.getExpression());
+
+                            List<String> resolvedArgs = new ArrayList<>();
+                            for (String arg : call.getRawArgs()) {
+                                if (call.isLiteral(arg)) {
+                                    resolvedArgs.add(call.stripQuotes(arg));
+                                } else {
+                                    // Excel-Spaltenbezug
+                                    List<String> column = excelData.get(arg);
+                                    String value = (column != null && rowIndex < column.size()) ? column.get(rowIndex) : "";
+                                    resolvedArgs.add(value);
+                                }
+                            }
+
+                            return registry.evaluate(call.getFunctionName(), resolvedArgs);
                         } catch (Exception ex) {
                             throw new RuntimeException(ex);
                         }

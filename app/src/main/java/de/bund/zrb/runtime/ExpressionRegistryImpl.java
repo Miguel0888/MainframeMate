@@ -13,7 +13,7 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.*;
-import java.util.concurrent.Callable;
+import java.util.function.Function;
 
 /**
  * Gson-basierte Implementierung der ExpressionRegistry, speichert Ausdrucksdefinitionen als komplette Callable-Klassen.
@@ -58,17 +58,19 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
     }
 
     @Override
-    public String evaluate(String key) throws Exception {
+    public String evaluate(String key, List<String> args) throws Exception {
         String source = expressions.get(key);
         if (source == null || source.trim().isEmpty()) {
-            throw new IllegalArgumentException("Kein Quelltext für Ausdrucks-Schlüssel: '" + key + "'.\nBitte im Ausdruckseditor hinterlegen und speichern.");
+            throw new IllegalArgumentException("Kein Quelltext für Schlüssel '" + key + "'");
         }
 
         String className = extractClassName(source, key);
-        Object callable = compiler.compile(className, source, Callable.class);
-        Method call = callable.getClass().getMethod("call");
-        return String.valueOf(call.invoke(callable));
+        Object instance = compiler.compile(className, source, Function.class);
+        Method apply = instance.getClass().getMethod("apply", Object.class);
+        Object result = apply.invoke(instance, args);
+        return String.valueOf(result);
     }
+
 
     @Override
     public void remove(String key) {

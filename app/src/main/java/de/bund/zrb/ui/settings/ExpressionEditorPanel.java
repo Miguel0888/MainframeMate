@@ -2,6 +2,8 @@ package de.bund.zrb.ui.settings;
 
 import com.google.googlejavaformat.java.Formatter;
 import com.google.googlejavaformat.java.FormatterException;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import de.bund.zrb.runtime.ExpressionRegistryImpl;
 import de.zrb.bund.api.ExpressionRegistry;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -10,16 +12,17 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.concurrent.Callable;
+import java.lang.reflect.Type;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
-/**
- * Panel zur Verwaltung von dynamischen Java-Ausdrücken mit Syntax-Highlighting.
- */
 public class ExpressionEditorPanel extends JPanel {
 
     private final RSyntaxTextArea codeArea = new RSyntaxTextArea(20, 60);
     private final JTextArea resultArea = new JTextArea(5, 40);
     private final JComboBox<String> keyDropdown = new JComboBox<>();
+    private final JTextField paramInput = new JTextField(); // Neues Eingabefeld
     private final ExpressionRegistry registry = ExpressionRegistryImpl.getInstance();
 
     public ExpressionEditorPanel() {
@@ -27,9 +30,7 @@ public class ExpressionEditorPanel extends JPanel {
 
         keyDropdown.addItem(""); // leerer Eintrag
 
-        // Beispiele initial registrieren
         ExpressionExamples.getExamples().forEach(registry::register);
-
         for (String key : registry.getKeys()) {
             keyDropdown.addItem(key);
         }
@@ -42,17 +43,20 @@ public class ExpressionEditorPanel extends JPanel {
 
         keyDropdown.addActionListener(e -> {
             String key = (String) keyDropdown.getSelectedItem();
-            if (key != null && !key.trim().isEmpty()) {
-                codeArea.setText(formatForEditor(key));
-            } else {
-                codeArea.setText("");
-            }
+            codeArea.setText((key != null && !key.trim().isEmpty()) ? formatForEditor(key) : "");
         });
 
+        // Editor oben
         JPanel top = new JPanel(new BorderLayout());
         top.add(keyDropdown, BorderLayout.NORTH);
         top.add(new RTextScrollPane(codeArea), BorderLayout.CENTER);
 
+        // Parameterfeld
+        JPanel paramPanel = new JPanel(new BorderLayout(5, 5));
+        paramPanel.add(new JLabel("Parameter (z.B. [\"2024-01-01\"] oder CSV):"), BorderLayout.NORTH);
+        paramPanel.add(paramInput, BorderLayout.CENTER);
+
+        // Buttons
         JButton evalButton = new JButton("▶ Ausführen");
         JButton saveButton = new JButton("💾 Speichern unter...");
         JButton removeButton = new JButton("❌ Entfernen");
@@ -77,14 +81,17 @@ public class ExpressionEditorPanel extends JPanel {
             }
         });
 
+        // Ergebnisanzeige
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.add(buttons, BorderLayout.NORTH);
         bottom.add(new JScrollPane(resultArea), BorderLayout.CENTER);
 
-        add(top, BorderLayout.CENTER);
+        // Hauptlayout
+        add(top, BorderLayout.NORTH);
+        add(paramPanel, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
 
-        // initial
+        // Initialzustand
         keyDropdown.setSelectedItem("");
         codeArea.setText("");
     }
@@ -96,14 +103,29 @@ public class ExpressionEditorPanel extends JPanel {
     private void evaluate() {
         try {
             String key = (String) keyDropdown.getSelectedItem();
-            if (key != null && !key.trim().isEmpty()) {
-                String result = registry.evaluate(key);
-                resultArea.setText(result);
-            } else {
+            if (key == null || key.trim().isEmpty()) {
                 resultArea.setText("Kein Ausdruck ausgewählt.");
+                return;
             }
+
+            List<String> params = parseParameters(paramInput.getText());
+            String result = registry.evaluate(key, params);
+            resultArea.setText(result);
         } catch (Exception ex) {
             resultArea.setText("Fehler: " + ex.getMessage());
+        }
+    }
+
+    private List<String> parseParameters(String input) {
+        if (input == null || input.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        try {
+            Type listType = new TypeToken<List<String>>() {}.getType();
+            return new Gson().fromJson(input, listType);
+        } catch (Exception e) {
+            return Arrays.asList(input.split("\\s*,\\s*"));
         }
     }
 
@@ -111,7 +133,6 @@ public class ExpressionEditorPanel extends JPanel {
         String newKey = JOptionPane.showInputDialog(this, "Name für neuen Ausdruck:");
         if (newKey != null && !newKey.trim().isEmpty()) {
             registry.register(newKey, codeArea.getText());
-
             ExpressionRegistryImpl.getInstance().save();
 
             keyDropdown.addItem(newKey);
@@ -123,7 +144,6 @@ public class ExpressionEditorPanel extends JPanel {
         String key = (String) keyDropdown.getSelectedItem();
         if (key != null && !key.trim().isEmpty()) {
             registry.remove(key);
-
             ExpressionRegistryImpl.getInstance().save();
 
             keyDropdown.removeItem(key);
@@ -132,7 +152,6 @@ public class ExpressionEditorPanel extends JPanel {
             resultArea.setText("");
         }
     }
-
 
     public void saveChanges() {
         ExpressionRegistryImpl.getInstance().save();
