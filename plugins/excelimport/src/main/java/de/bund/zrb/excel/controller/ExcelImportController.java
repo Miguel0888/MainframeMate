@@ -29,6 +29,9 @@ public class ExcelImportController {
     public static void handleImport(ExcelImport plugin) {
         ExcelImportUiDialog dialog = new ExcelImportUiDialog(plugin.getContext());
         dialog.setVisible(true);
+        if( !dialog.isConfirmed()) {
+            return;
+        }
         ExcelImportUiPanel ui = dialog.getUiPanel();
 
         File excelFile = ui.getExcelFile();

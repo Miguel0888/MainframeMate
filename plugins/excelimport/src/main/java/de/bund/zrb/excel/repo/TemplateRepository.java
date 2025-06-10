@@ -27,14 +27,17 @@ public class TemplateRepository {
     }
 
     public Set<String> getTemplateNames() {
+        load(); // Stelle sicher, dass die Datei aktuell ist
         return mappings.keySet();
     }
 
     public ExcelMapping getTemplate(String name) {
+        load(); // Stelle sicher, dass die Datei aktuell ist
         return mappings.get(name);
     }
 
     public ExcelMapping getTemplateFor(String sentenceType) {
+        load(); // Stelle sicher, dass die Datei aktuell ist
         for (ExcelMapping mapping : mappings.values()) {
             if (sentenceType.equals(mapping.getSentenceType())) {
                 return mapping;

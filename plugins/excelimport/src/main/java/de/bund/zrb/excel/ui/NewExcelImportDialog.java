@@ -41,7 +41,13 @@ public class NewExcelImportDialog extends JDialog {
 
     private final List<String> availableExcelColumns;
 
-    public NewExcelImportDialog(MainframeContext context, List<String> availableExcelColumns) {
+    private boolean confirmed = false;
+
+    public boolean isConfirmed() {
+        return confirmed;
+    }
+
+    public NewExcelImportDialog(MainframeContext context, List<String> availableExcelColumns, String selectedTemplate) {
         super(context.getMainFrame(), "Neue Excel-Mapping-Vorlage", true);
         this.context = context;
         this.availableExcelColumns = availableExcelColumns != null ? availableExcelColumns : Collections.emptyList();
@@ -160,6 +166,7 @@ public class NewExcelImportDialog extends JDialog {
             if (selected != null && !selected.isEmpty()) {
                 lastSavedTemplateName = selected;
             }
+            confirmed = true;
             dispose();
         });
         persistBtn.addActionListener(e -> { // ToDo: improve dirty fix
@@ -196,6 +203,12 @@ public class NewExcelImportDialog extends JDialog {
 
         loadMappingsFromDisk();
         updateTemplateBox();
+        if (selectedTemplate != null) {
+            templateBox.setSelectedItem(selectedTemplate);
+            if (mappings.containsKey(selectedTemplate)) {
+                loadMappingToTable(mappings.get(selectedTemplate));
+            }
+        }
     }
 
     private void suppressEventAndSave() {

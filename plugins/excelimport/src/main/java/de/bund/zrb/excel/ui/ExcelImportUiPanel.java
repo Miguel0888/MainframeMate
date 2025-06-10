@@ -1,5 +1,6 @@
 package de.bund.zrb.excel.ui;
 
+import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.service.ExcelParser;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.zrb.bund.api.MainframeContext;
@@ -11,11 +12,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Map;
-
-import java.util.List;
+import java.util.*;
 
 public class ExcelImportUiPanel extends JPanel {
 
@@ -130,27 +127,36 @@ public class ExcelImportUiPanel extends JPanel {
 
         templateEditButton.addActionListener(e -> {
             List<String> headers = readColumnHeaders();
-            NewExcelImportDialog dialog = new NewExcelImportDialog(context, headers);
+            String selectedTemplateName = getSelectedTemplateName();
+            NewExcelImportDialog dialog = new NewExcelImportDialog(context, headers, selectedTemplateName);
 
             dialog.setModal(true);
             dialog.setVisible(true);
 
-            updateTemplateDropdown();
-
-            lastSaved = dialog.getLastSavedTemplateName();
-            if (lastSaved != null && !lastSaved.trim().isEmpty()) {
-                templateDropdown.setSelectedItem(lastSaved);
+            if (dialog.isConfirmed()) {
+                updateTemplateDropdown(selectedTemplateName);
+                String lastSaved = dialog.getLastSavedTemplateName();
+                if (lastSaved != null && !lastSaved.trim().isEmpty()) {
+                    updateTemplateDropdown(lastSaved);
+                }
+            } else {
+                updateTemplateDropdown(selectedTemplateName);
             }
         });
 
-        updateTemplateDropdown();
         loadSettingsFromContext(context);
+        updateTemplateDropdown(null);
     }
 
-    private void updateTemplateDropdown() {
+    private void updateTemplateDropdown(String selectedTemplateName) {
+        Set<String> templateNames = templateRepo.getTemplateNames();
+
         templateDropdown.removeAllItems();
-        for (String name : templateRepo.getTemplateNames()) {
+        for (String name : templateNames) {
             templateDropdown.addItem(name);
+        }
+        if( selectedTemplateName != null && templateNames.contains(selectedTemplateName)) {
+            templateDropdown.setSelectedItem(selectedTemplateName); // select previous if still existent
         }
     }
 
