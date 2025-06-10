@@ -52,36 +52,28 @@ public class NewExcelImportDialog extends JDialog {
         setLayout(new BorderLayout());
 
         // Table
-        String[] columns = {"Herkunft", "Wert", "Feldname"};
+        String[] columns = {"Wert", "Feldname"};
         tableModel = new DefaultTableModel(columns, 0);
         mappingTable = new JTable(tableModel);
-        mappingTable.getModel().addTableModelListener(e -> {
-            int row = e.getFirstRow();
-            int col = e.getColumn();
+//        mappingTable.getModel().addTableModelListener(e -> {
+//            int row = e.getFirstRow();
+//            int col = e.getColumn();
+//
+//            if (row < 0 || col != 0) return;
+//
+//            Object value = tableModel.getValueAt(row, col);
+//            if (!(value instanceof String)) return;
+//
+//            List<String> suggestions = new ArrayList<>();
+//            suggestions.addAll(availableExcelColumns);
+//            suggestions.addAll(Arrays.asList(context.getExpressionRegistry().getKeys()));
+//            JComboBox<String> valueBox = new JComboBox<>(suggestions.toArray(new String[0]));
+//            valueBox.setEditable(true);
+//            mappingTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(valueBox));
+//        });
 
-            if (row < 0 || col != 0) return;
-
-            Object value = tableModel.getValueAt(row, col);
-            if (!(value instanceof String)) return;
-
-            String source = ((String) value).trim().toLowerCase();
-            if ("ausdruck".equals(source)) {
-                JComboBox<String> expressionBox = new JComboBox<>(context.getExpressionRegistry().getKeys());
-                expressionBox.setEditable(true);
-                mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(expressionBox));
-            } else if ("excel".equals(source)) {
-                JComboBox<String> excelBox = new JComboBox<>(availableExcelColumns.toArray(new String[0]));
-                excelBox.setEditable(true);
-                mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(excelBox));
-            } else {
-                mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(new JTextField()));
-            }
-        });
-
-
-        // Editor für Herkunft
-        JComboBox<String> sourceBox = new JComboBox<>(new String[]{"Excel", "Fixwert", "Ausdruck"});
-        mappingTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(sourceBox));
+        // Vorschlagsliste setzen
+        mappingTable.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(createExpressionComboBox()));
 
         // Editor für Wert (Excel-Spalten)
         JComboBox<String> excelColumnBox = new JComboBox<>(availableExcelColumns.toArray(new String[0]));
@@ -252,28 +244,48 @@ public class NewExcelImportDialog extends JDialog {
         }
     }
 
-
     private void loadMappingToTable(ExcelMapping mapping) {
         sentenceTypeBox.setSelectedItem(mapping.getSentenceType());
         tableModel.setRowCount(0);
+
         for (ExcelMappingEntry entry : mapping.getEntries()) {
-            String source, value;
-
-            if (entry.getExcelColumn() != null) {
-                source = "Excel";
-                value = entry.getExcelColumn();
-            } else if (entry.getFixedValue() != null) {
-                source = "Fixwert";
-                value = entry.getFixedValue();
-            } else {
-                source = "Ausdruck";
-                value = entry.getExpression();
-            }
-
-            tableModel.addRow(new Object[]{source, value, entry.getFieldName()});
+            tableModel.addRow(new Object[]{entry.getExpression(), entry.getFieldName()});
         }
     }
 
+    private void saveMappingToDisk() {
+        if (mappingTable.isEditing()) {
+            mappingTable.getCellEditor().stopCellEditing();
+        }
+
+        String name = ((String) templateBox.getEditor().getItem()).trim();
+        lastSavedTemplateName = name;
+        String sentenceType = (String) sentenceTypeBox.getSelectedItem();
+
+        if (name.isEmpty() || sentenceType == null) {
+            JOptionPane.showMessageDialog(this, "Name und Satzart angeben.", "Fehler", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        ExcelMapping mapping = new ExcelMapping();
+        mapping.setName(name);
+        mapping.setSentenceType(sentenceType);
+
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            String expr = getString(i, 0);
+            String targetField = getString(i, 1);
+
+            if (targetField != null && !targetField.isEmpty()) {
+                ExcelMappingEntry entry = new ExcelMappingEntry();
+                entry.setExpression(expr);
+                entry.setFieldName(targetField);
+                mapping.addEntry(entry);
+            }
+        }
+
+        templateRepo.saveTemplate(name, mapping);
+        updateTemplateBox();
+    }
 
     private void loadSentenceTypes() {
         SentenceTypeRegistry registry = context.getSentenceTypeRegistry();
@@ -297,12 +309,12 @@ public class NewExcelImportDialog extends JDialog {
         for (int row = 0; row < tableModel.getRowCount(); row++) {
             JComboBox<String> fieldCombo = new JComboBox<>(fields.toArray(new String[0]));
             fieldCombo.setEditable(true);
-            mappingTable.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(fieldCombo));
+            mappingTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(fieldCombo));
         }
     }
 
     private void addRow() {
-        tableModel.addRow(new Object[]{"Excel", "", ""});
+        tableModel.addRow(new Object[]{"", ""});
     }
 
     private void saveMapping() {
@@ -320,23 +332,11 @@ public class NewExcelImportDialog extends JDialog {
 
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             ExcelMappingEntry entry = new ExcelMappingEntry();
-            String source = getString(i, 0);
-            String value = getString(i, 1);
-            String targetField = getString(i, 2);
+            String value = getString(i, 0);
+            String targetField = getString(i, 1);
 
-            switch (source.toLowerCase()) {
-                case "excel":
-                    entry.setExcelColumn(value);
-                    break;
-                case "fixwert":
-                    entry.setFixedValue(value);
-                    break;
-                case "ausdruck":
-                    ExpressionRegistry registry = context.getExpressionRegistry();
-                    registry.getCode(value).ifPresent(entry::setExpression);
-                    break;
-
-            }
+            ExpressionRegistry registry = context.getExpressionRegistry();
+            registry.getCode(value).ifPresent(entry::setExpression);
 
             if (targetField != null && !targetField.isEmpty()) {
                 entry.setFieldName(targetField);
@@ -361,44 +361,6 @@ public class NewExcelImportDialog extends JDialog {
         }
     }
 
-    public void saveMappingToDisk() {
-        // Übernehme ggf. Editierungen
-        if (mappingTable.isEditing()) {
-            mappingTable.getCellEditor().stopCellEditing();
-        }
-        String name = ((String) templateBox.getEditor().getItem()).trim();
-        lastSavedTemplateName = name;
-        String sentenceType = (String) sentenceTypeBox.getSelectedItem();
-
-        if (name.isEmpty() || sentenceType == null) {
-            JOptionPane.showMessageDialog(this, "Name und Satzart angeben.", "Fehler", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        ExcelMapping mapping = new ExcelMapping();
-        mapping.setName(name);
-        mapping.setSentenceType(sentenceType);
-
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            ExcelMappingEntry entry = new ExcelMappingEntry();
-            String source = getString(i, 0);
-            String value = getString(i, 1);
-            String targetField = getString(i, 2);
-
-            switch (source.toLowerCase()) {
-                case "excel": entry.setExcelColumn(value); break;
-                case "fixwert": entry.setFixedValue(value); break;
-                case "ausdruck": entry.setExpression(value); break;
-            }
-
-            entry.setFieldName(targetField);
-            mapping.addEntry(entry);
-        }
-
-        templateRepo.saveTemplate(name, mapping);
-        updateTemplateBox();
-    }
-
     private String getString(int row, int col) {
         Object val = tableModel.getValueAt(row, col);
         return val != null ? val.toString().trim() : "";
@@ -408,5 +370,13 @@ public class NewExcelImportDialog extends JDialog {
         return lastSavedTemplateName;
     }
 
+    private JComboBox<String> createExpressionComboBox() {
+        List<String> suggestions = new ArrayList<>();
+        suggestions.addAll(availableExcelColumns);
+        suggestions.addAll(Arrays.asList(context.getExpressionRegistry().getKeys()));
+        JComboBox<String> box = new JComboBox<>(suggestions.toArray(new String[0]));
+        box.setEditable(true);
+        return box;
+    }
 
 }

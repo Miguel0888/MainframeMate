@@ -14,7 +14,7 @@ import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
-import de.zrb.bund.api.ExpressionCallParser;
+import de.zrb.bund.api.ExpressionParser;
 
 import javax.swing.*;
 import java.awt.*;
@@ -181,33 +181,27 @@ public class ExcelImportController {
                 .filter(e -> fieldName.equals(e.getFieldName()))
                 .findFirst()
                 .map(e -> {
-                    if (e.isFixed()) {
-                        return e.getFixedValue();
-                    } else if (e.isDynamic()) {
-                        try {
-                            ExpressionCallParser.ExpressionCall call = ExpressionCallParser.parse(e.getExpression());
+                    try {
+                        ExpressionParser.Expression expr = ExpressionParser.parse(e.getExpression());
 
-                            List<String> resolvedArgs = new ArrayList<>();
-                            for (String arg : call.getRawArgs()) {
-                                if (call.isLiteral(arg)) {
-                                    resolvedArgs.add(call.stripQuotes(arg));
-                                } else {
-                                    // Excel-Spaltenbezug
-                                    List<String> column = excelData.get(arg);
-                                    String value = (column != null && rowIndex < column.size()) ? column.get(rowIndex) : "";
-                                    resolvedArgs.add(value);
-                                }
-                            }
+                        switch (expr.getKind()) {
+                            case LITERAL:
+                                return expr.getLiteralOrColumn();
 
-                            return registry.evaluate(call.getFunctionName(), resolvedArgs);
-                        } catch (Exception ex) {
-                            throw new RuntimeException(ex);
+                            case COLUMN:
+                                List<String> column = excelData.get(expr.getLiteralOrColumn());
+                                return (column != null && rowIndex < column.size()) ? column.get(rowIndex) : "";
+
+                            case FUNCTION:
+                                return registry.evaluate(expr.getFunctionName(), expr.getArguments());
+
+                            default:
+                                return "";
                         }
-                    } else if (e.isFromColumn()) {
-                        List<String> column = excelData.get(e.getExcelColumn());
-                        return (column != null && rowIndex < column.size()) ? column.get(rowIndex) : "";
+
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Fehler beim Verarbeiten des Ausdrucks: " + e.getExpression(), ex);
                     }
-                    return "";
                 })
                 .orElse("");
     }
