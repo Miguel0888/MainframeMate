@@ -271,6 +271,23 @@ public class NewExcelImportDialog extends JDialog {
             mappingTable.getCellEditor().stopCellEditing();
         }
 
+        Set<String> fieldNames = new HashSet<>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            String targetField = getString(i, 1);
+            if (targetField != null && !targetField.isEmpty()) {
+                if (!fieldNames.add(targetField)) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Das Feld „" + targetField + "“ wurde mehrfach im Mapping verwendet.\n" +
+                                    "Bitte jeden Feldnamen nur einmal zuordnen.",
+                            "Doppelter Feldname",
+                            JOptionPane.ERROR_MESSAGE
+                    );
+                    return; // ⛔️ Dialog bleibt offen
+                }
+            }
+        }
+
         String name = ((String) templateBox.getEditor().getItem()).trim();
         lastSavedTemplateName = name;
         String sentenceType = (String) sentenceTypeBox.getSelectedItem();

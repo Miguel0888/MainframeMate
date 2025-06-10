@@ -149,7 +149,7 @@ public class WorkflowPanel extends JPanel {
         }
     }
 
-    private void onRun() {
+    private UUID onRun() {
         updateCurrentTemplateFromUI(); // sicherstellen, dass UI-Daten im Template sind
 
         Map<String, String> overrides = new LinkedHashMap<>();
@@ -163,10 +163,12 @@ public class WorkflowPanel extends JPanel {
 
         UUID runId = runner.execute(currentTemplate, overrides);
 
-        JOptionPane.showMessageDialog(this,
-                "Workflow gestartet mit ID:\n" + runId,
-                "Ausführung gestartet",
-                JOptionPane.INFORMATION_MESSAGE);
+        // Degugging:
+//        JOptionPane.showMessageDialog(this,
+//                "Workflow gestartet mit ID:\n" + runId,
+//                "Ausführung gestartet",
+//                JOptionPane.INFORMATION_MESSAGE);
+        return runId;
     }
 
     private void onSelectWorkflow() {
