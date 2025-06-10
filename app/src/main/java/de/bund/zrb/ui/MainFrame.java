@@ -82,7 +82,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);
-        this.workflowRunner = new WorkflowRunnerImpl(toolRegistry, mcpService);
+        this.workflowRunner = new WorkflowRunnerImpl(toolRegistry, mcpService, getExpressionRegistry());
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override

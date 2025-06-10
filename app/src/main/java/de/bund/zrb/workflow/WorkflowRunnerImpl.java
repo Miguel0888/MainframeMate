@@ -3,6 +3,7 @@ package de.bund.zrb.workflow;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import de.bund.zrb.util.PlaceholderResolver;
+import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.*;
 import de.zrb.bund.newApi.McpService;
@@ -14,11 +15,13 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
 
     private final ToolRegistry registry;
     private final McpService mcpService;
+    private final ExpressionRegistry expressionRegistry;
     private final Gson gson = new Gson();
 
-    public WorkflowRunnerImpl(ToolRegistry registry, McpService mcpService) {
+    public WorkflowRunnerImpl(ToolRegistry registry, McpService mcpService, ExpressionRegistry expressionRegistry) {
         this.registry = registry;
         this.mcpService = mcpService;
+        this.expressionRegistry = expressionRegistry;
     }
 
     @Override
@@ -32,6 +35,13 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         }
         if (overrides != null) {
             vars.putAll(overrides);
+        }
+
+        // 1b. Expressions innerhalb der Werte auswerten
+        for (Map.Entry<String, String> entry : new LinkedHashMap<>(vars).entrySet()) {
+            String value = entry.getValue();
+            String resolved = evaluateExpressions(value);
+            vars.put(entry.getKey(), resolved);
         }
 
         // 2. Schritte durchlaufen und vorbereiten
@@ -70,4 +80,30 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         }
         return runId;
     }
+
+    private String evaluateExpressions(String input) {
+        if (input == null) return null;
+
+        StringBuffer result = new StringBuffer();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\((.*?)\\)}}").matcher(input);
+
+        while (matcher.find()) {
+            String functionName = matcher.group(1);
+            String rawArgs = matcher.group(2);
+            List<String> args = rawArgs.isEmpty() ? Collections.emptyList() : Arrays.asList(rawArgs.split("\\s*,\\s*"));
+            String replacement;
+            try {
+                replacement = expressionRegistry.evaluate(functionName, args);
+            } catch (Exception e) {
+                replacement = "!!FEHLER!!";
+                System.err.println("Fehler bei Auswertung von Expression: " + matcher.group(0));
+                e.printStackTrace();
+            }
+            matcher.appendReplacement(result, java.util.regex.Matcher.quoteReplacement(replacement));
+        }
+
+        matcher.appendTail(result);
+        return result.toString();
+    }
+
 }
