@@ -1,5 +1,7 @@
 package de.bund.zrb.ui.settings;
 
+import de.zrb.bund.api.ExpressionRegistry;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -10,6 +12,19 @@ public final class ExpressionExamples {
 
     private ExpressionExamples() {
         // Verhindere Instanziierung
+    }
+
+    /**
+     * Loads the examples if they are not persisted to file
+     *
+     * @param registry
+     */
+    public static void ensureExamplesRegistered(ExpressionRegistry registry) {
+        ExpressionExamples.getExamples().forEach((key, code) -> {
+            if (!registry.getCode(key).isPresent()) {
+                registry.register(key, code);
+            }
+        });
     }
 
     public static Map<String, String> getExamples() {

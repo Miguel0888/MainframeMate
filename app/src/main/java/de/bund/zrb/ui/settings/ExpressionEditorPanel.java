@@ -30,11 +30,7 @@ public class ExpressionEditorPanel extends JPanel {
 
         keyDropdown.addItem(""); // leerer Eintrag
 
-        ExpressionExamples.getExamples().forEach((key, code) -> {
-            if (!registry.getCode(key).isPresent()) {
-                registry.register(key, code);
-            }
-        });
+        ExpressionExamples.ensureExamplesRegistered(registry);
         for (String key : registry.getKeys()) {
             keyDropdown.addItem(key);
         }

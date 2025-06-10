@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import de.bund.zrb.InMemoryJavaCompiler;
+import de.bund.zrb.ui.settings.ExpressionExamples;
 import de.zrb.bund.api.ExpressionRegistry;
 
 import java.io.File;
@@ -59,9 +60,18 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
 
     @Override
     public String evaluate(String key, List<String> args) throws Exception {
+        // Lazy-Fallback aus Examples
+        if (!expressions.containsKey(key)) {
+            String example = ExpressionExamples.getExamples().get(key);
+            if (example != null) {
+                register(key, example);
+                save(); // optional
+            }
+        }
+
         String source = expressions.get(key);
         if (source == null || source.trim().isEmpty()) {
-            throw new IllegalArgumentException("Kein Quelltext für Schlüssel '" + key + "'");
+            throw new IllegalArgumentException("Kein Quelltext für Ausdruck: '" + key + "'");
         }
 
         String className = extractClassName(source, key);
