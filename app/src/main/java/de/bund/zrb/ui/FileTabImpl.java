@@ -635,7 +635,7 @@ public class FileTabImpl implements FileTab {
                             lineOffset + start,
                             lineOffset + end,
                             new DefaultHighlighter.DefaultHighlightPainter(
-                                    getColorFor(field.getName(), field.getColor()))
+                                    getColorFor(field))
                     );
                 } catch (BadLocationException e) {
                     e.printStackTrace();
@@ -657,36 +657,40 @@ public class FileTabImpl implements FileTab {
         return (obj instanceof Number) ? ((Number) obj).intValue() : Integer.parseInt(obj.toString());
     }
 
-
-    private Color getColorFor(String fieldName, String overrideColor) {
+    private Color getColorFor(SentenceField field) {
+        String fieldName = field.getName();
+        String fieldColor = field.getColor();
         Settings settings = SettingsHelper.load();
-
-        if (fieldName == null && overrideColor != null) {
-            // Konstante ohne Namen, Farbe aus Settings versuchen (z. B. CONST_<VALUE>)
-            String valueKey = "CONST_" + overrideColor.toUpperCase();
-            String hex = settings.fieldColorOverrides.get(valueKey);
-            return hex != null ? Color.decode(hex) : Color.GRAY;
-        }
 
         if (fieldName == null) {
             return Color.GRAY;
         }
 
-        // Settings-Override prüfen
+        // 1. Settings-Override prüfen (hat Vorrang)
         String hex = settings.fieldColorOverrides.get(fieldName.toUpperCase());
         if (hex != null) {
             try {
                 return Color.decode(hex);
             } catch (NumberFormatException e) {
-                System.err.println("⚠️ Ungültige Farbdefinition für " + fieldName + ": " + hex);
+                System.err.println("⚠️ Ungültige Farbdefinition im Override für " + fieldName + ": " + hex);
             }
         }
 
-        // Dynamisch berechnete Farbe
+        // 2. Farbe aus Felddefinition verwenden (wenn gültig)
+        if (fieldColor != null && !fieldColor.trim().isEmpty()) {
+            try {
+                return Color.decode(fieldColor.trim());
+            } catch (NumberFormatException e) {
+                System.err.println("⚠️ Ungültige Farbe in Satzart für " + fieldName + ": " + fieldColor);
+            }
+        }
+
+        // 3. Fallback: Hash-basiert generierte Farbe
         int hash = Math.abs(fieldName.hashCode());
         float hue = (hash % 360) / 360f;
         return Color.getHSBColor(hue, 0.5f, 0.85f);
     }
+
 
     public FtpFileBuffer getBuffer() {
         return buffer;
@@ -708,7 +712,7 @@ public class FileTabImpl implements FileTab {
             String name = field.getName();
             if (name == null || name.trim().isEmpty()) continue;
 
-            Color color = getColorFor(name, field.getColor());
+            Color color = getColorFor(field);
             JLabel label = new JLabel(name);
             label.setOpaque(true);
             label.setBackground(color);
