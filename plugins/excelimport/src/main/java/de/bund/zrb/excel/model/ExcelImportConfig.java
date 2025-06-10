@@ -92,27 +92,39 @@ public class ExcelImportConfig {
                              Function<String, ExcelMapping> templateResolver) {
         try {
             this.file = new File(requireString("file", input, schema));
-            this.satzart = requireString("satzart", input, schema);
-
             this.destination = optionalString("destination", input, schema, this.destination);
             this.hasHeader = optionalBoolean("hasHeader", input, schema, this.hasHeader);
             this.headerRowIndex = optionalInteger("headerRowIndex", input, schema, this.headerRowIndex);
             this.append = optionalBoolean("append", input, schema, this.append);
             this.separator = optionalString("trennzeile", input, schema, this.separator);
 
-            String explicitTemplate = optionalString("template", input, schema, null);
-            if (!isEmpty(explicitTemplate)) {
-                this.templateName = explicitTemplate;
-            } else if (templateResolver != null) {
-                ExcelMapping mapping = templateResolver.apply(this.satzart);
-                this.templateName = (mapping != null) ? mapping.getName() : this.satzart;
-            } else {
-                this.templateName = this.satzart;
-            }
+            resolveTemplate(input, schema, templateResolver);
 
         } catch (ClassCastException | NullPointerException e) {
             throw new IllegalArgumentException("Ungültige Parameter für ExcelImportConfig", e);
         }
+    }
+
+    // Determine and set the template name using explicit value or resolver
+    private void resolveTemplate(Map<String, Object> input,
+                                 ToolSpec.InputSchema schema,
+                                 Function<String, ExcelMapping> templateResolver) {
+        String explicitTemplate = optionalString("template", input, schema, null);
+
+        if (!isEmpty(explicitTemplate)) {
+            this.templateName = explicitTemplate;
+            return;
+        }
+
+        String satzart = optionalString("satzart", input, schema, null);
+
+        if (!isEmpty(satzart) && templateResolver != null) {
+            ExcelMapping mapping = templateResolver.apply(satzart);
+            this.templateName = (mapping != null) ? mapping.getName() : satzart;
+            return;
+        }
+
+        throw new IllegalArgumentException("Template ist erforderlich, konnte aber nicht bestimmt werden.");
     }
 
     private String requireString(String key, Map<String, Object> input, ToolSpec.InputSchema schema) {

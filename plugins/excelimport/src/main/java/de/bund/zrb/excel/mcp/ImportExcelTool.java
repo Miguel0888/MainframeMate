@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import de.bund.zrb.excel.controller.ExcelImportController;
 import de.bund.zrb.excel.model.ExcelImportConfig;
+import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.plugin.ExcelImport;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.bund.zrb.excel.service.ExcelParser;
@@ -12,6 +13,7 @@ import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.io.File;
 import java.util.*;
+import java.util.function.Function;
 
 public class ImportExcelTool implements McpTool {
 
@@ -51,7 +53,7 @@ public class ImportExcelTool implements McpTool {
     public JsonObject execute(JsonObject input) {
         JsonObject result = new JsonObject();
         try {
-            ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), (s) ->  plugin.getTemplateRepository().getTemplateFor(s));
+            ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), getStringExcelMappingFunction());
 
             boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
             boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
@@ -65,6 +67,10 @@ public class ImportExcelTool implements McpTool {
             result.addProperty("message", e.getMessage());
         }
         return result;
+    }
+
+    private Function<String, ExcelMapping> getStringExcelMappingFunction() {
+        return (s) -> plugin.getTemplateRepository().getTemplateFor(s);
     }
 
 }

@@ -46,11 +46,13 @@ public class TemplateRepository {
     public void saveTemplate(String name, ExcelMapping mapping) {
         mappings.put(name, mapping);
         save();
+        reload();
     }
 
     public void deleteTemplate(String name) {
         mappings.remove(name);
         save();
+        reload();
     }
 
     private void load() {
@@ -62,6 +64,11 @@ public class TemplateRepository {
         } catch (IOException e) {
             e.printStackTrace(); // besser: Logging
         }
+    }
+
+    private void reload() {
+        mappings.clear();  // Bestehende Mappings verwerfen
+        load();            // Neu aus import.json lesen
     }
 
     private void save() {

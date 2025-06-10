@@ -3,6 +3,7 @@ package de.zrb.bund.api;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Parser für Eingaben in Mapping-Zellen: Literale, Excel-Spaltennamen oder Funktionsaufrufe.
@@ -13,7 +14,7 @@ public final class ExpressionParser {
         // Hilfsklasse – keine Instanziierung erlaubt
     }
 
-    public static Expression parse(String input) {
+    public static Expression parse(String input, Set<String> knownFunctions) {
         String trimmed = input.trim();
 
         if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
@@ -23,16 +24,20 @@ public final class ExpressionParser {
         int open = trimmed.indexOf('(');
         int close = trimmed.lastIndexOf(')');
 
+        // Prüfen, ob es wie eine Funktion aussieht UND bekannt ist
         if (open > 0 && close > open) {
             String functionName = trimmed.substring(0, open).trim();
-            String argString = trimmed.substring(open + 1, close).trim();
-            List<String> args = argString.isEmpty() ? Collections.emptyList() : parseArgs(argString);
-            return new Expression(ExpressionKind.FUNCTION, null, functionName, args);
+            if (knownFunctions.contains(functionName)) {
+                String argString = trimmed.substring(open + 1, close).trim();
+                List<String> args = argString.isEmpty() ? Collections.emptyList() : parseArgs(argString);
+                return new Expression(ExpressionKind.FUNCTION, null, functionName, args);
+            }
         }
 
-        // Fallback: Excel-Spaltenbezug
+        // Ansonsten: Ist einfach ein Spaltenname
         return new Expression(ExpressionKind.COLUMN, trimmed, null, null);
     }
+
 
     private static List<String> parseArgs(String input) {
         List<String> args = new ArrayList<>();

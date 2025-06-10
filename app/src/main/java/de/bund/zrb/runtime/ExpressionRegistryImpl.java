@@ -88,8 +88,8 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
     }
 
     @Override
-    public String[] getKeys() {
-        return expressions.keySet().toArray(new String[0]);
+    public Set<String> getKeys() {
+        return expressions.keySet();
     }
 
     @Override
@@ -105,6 +105,7 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
                 System.err.println("⚠ Fehler beim Laden der Expressions: " + e.getMessage());
             }
         }
+        ExpressionExamples.ensureExamplesRegistered(this);
     }
 
     @Override

@@ -373,7 +373,9 @@ public class NewExcelImportDialog extends JDialog {
     private JComboBox<String> createExpressionComboBox() {
         List<String> suggestions = new ArrayList<>();
         suggestions.addAll(availableExcelColumns);
-        suggestions.addAll(Arrays.asList(context.getExpressionRegistry().getKeys()));
+        for (String key : context.getExpressionRegistry().getKeys()) {
+            suggestions.add(key + "()");
+        }
         JComboBox<String> box = new JComboBox<>(suggestions.toArray(new String[0]));
         box.setEditable(true);
         return box;

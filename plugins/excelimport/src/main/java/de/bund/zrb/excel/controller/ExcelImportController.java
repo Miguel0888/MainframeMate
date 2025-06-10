@@ -45,7 +45,7 @@ public class ExcelImportController {
 
         Map<String, Object> importParameters = new HashMap<>();
         importParameters.put("file", excelFile.getAbsolutePath());
-        importParameters.put("satzart", templateName);
+        importParameters.put("template", templateName);
         importParameters.put("hasHeader", ui.isHeaderEnabled());
         importParameters.put("headerRowIndex", ui.getHeaderRowIndex());
         importParameters.put("append", ui.shouldAppend());
@@ -182,7 +182,7 @@ public class ExcelImportController {
                 .findFirst()
                 .map(e -> {
                     try {
-                        ExpressionParser.Expression expr = ExpressionParser.parse(e.getExpression());
+                        ExpressionParser.Expression expr = ExpressionParser.parse(e.getExpression(), registry.getKeys());
 
                         switch (expr.getKind()) {
                             case LITERAL:
