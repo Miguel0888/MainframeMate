@@ -193,7 +193,17 @@ public class ExcelImportController {
                                 return (column != null && rowIndex < column.size()) ? column.get(rowIndex) : "";
 
                             case FUNCTION:
-                                return registry.evaluate(expr.getFunctionName(), expr.getArguments());
+                                List<String> resolvedArgs = new ArrayList<>();
+                                for (String arg : expr.getArguments()) {
+                                    if (arg.startsWith("\"") && arg.endsWith("\"")) {
+                                        resolvedArgs.add(arg.substring(1, arg.length() - 1)); // Literal
+                                    } else {
+                                        List<String> col = excelData.get(arg);
+                                        String val = (col != null && rowIndex < col.size()) ? col.get(rowIndex) : "";
+                                        resolvedArgs.add(val);
+                                    }
+                                }
+                                return registry.evaluate(expr.getFunctionName(), resolvedArgs);
 
                             default:
                                 return "";
