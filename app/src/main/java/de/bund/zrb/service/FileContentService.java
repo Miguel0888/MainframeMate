@@ -112,4 +112,8 @@ public class FileContentService {
 
         return new String(transformed, charset);
     }
+
+    public FtpManager getFtpManager() {
+        return ftpManager;
+    }
 }
