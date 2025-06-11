@@ -44,11 +44,18 @@ public class FilterCoordinator {
         try {
             RegexFoldParser parser = new RegexFoldParser(regex, null);
             area.getFoldManager().setFolds(parser.getFolds(area));
-            area.repaint();
+            updateArea(area);
             return true;
         } catch (Exception e) {
             // Invalid regex or folding error
             return false;
         }
+    }
+
+    private void updateArea( RSyntaxTextArea area) {
+        area.revalidate();
+        area.repaint();
+        area.getParent().revalidate(); // Wichtig: das ist der Viewport!
+        area.getParent().repaint();
     }
 }

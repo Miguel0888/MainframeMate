@@ -1,5 +1,7 @@
 package de.bund.zrb.ui.filetab;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.filetab.event.AppendChangedEvent;
 import de.bund.zrb.ui.filetab.event.CloseComparePanelEvent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -16,15 +18,8 @@ public class ComparePanel extends JPanel {
     public ComparePanel(String originalPath, String originalContent) {
         super(new BorderLayout());
 
-        // Konfiguration
+        initTextArea();
         originalArea.setText(originalContent);
-        originalArea.setEditable(false);
-        originalArea.setSyntaxEditingStyle("text/plain");
-        originalArea.setCodeFoldingEnabled(true);
-        originalArea.setLineWrap(false);
-        originalArea.setAntiAliasingEnabled(true);
-        originalArea.setHighlightCurrentLine(true);
-        originalArea.setPaintTabLines(true);
 
         barPanel.setPathText(originalPath);
 
@@ -34,6 +29,23 @@ public class ComparePanel extends JPanel {
 
         add(barPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
+    }
+
+    private void initTextArea() {
+        Settings settings = SettingsHelper.load();
+        Font font = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
+        originalArea.setFont(font);
+        originalArea.setSyntaxEditingStyle("text/plain");
+        originalArea.setAntiAliasingEnabled(true);
+        originalArea.setCodeFoldingEnabled(true);
+        originalArea.setHighlightCurrentLine(true);
+        originalArea.setTabSize(4);
+        originalArea.setLineWrap(false);
+        originalArea.setPaintTabLines(true);
+        if (settings.marginColumn > 0) {
+            originalArea.setMarginLineEnabled(true);
+            originalArea.setMarginLinePosition(settings.marginColumn);
+        }
     }
 
     public void setContent(String originalPath, String originalContent) {

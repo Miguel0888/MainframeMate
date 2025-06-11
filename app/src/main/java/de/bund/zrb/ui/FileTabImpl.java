@@ -7,7 +7,6 @@ import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.SentenceTypeRegistry;
-import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.ui.FileTab;
 
 import javax.swing.*;
@@ -18,20 +17,21 @@ import java.util.Optional;
 public class FileTabImpl implements FileTab {
 
     private final JPanel mainPanel = new JPanel(new BorderLayout());
-    private final FileTabModel model = new FileTabModel();
-    private final FileTabEventDispatcher dispatcher = new FileTabEventDispatcher();
+    final FileTabModel model = new FileTabModel();
+    final FileTabEventDispatcher dispatcher = new FileTabEventDispatcher();
 
-    private final EditorPanel editorPanel = new EditorPanel();
-    private final ComparePanel comparePanel;
-    private final StatusBarPanel statusBarPanel = new StatusBarPanel();
+    final EditorPanel editorPanel = new EditorPanel();
+    final ComparePanel comparePanel;
+    final StatusBarPanel statusBarPanel = new StatusBarPanel();
 
-    private final SentenceHighlighter highlighter = new SentenceHighlighter();
-    private final LegendController legendController;
-    private final FilterCoordinator filterCoordinator;
+    final SentenceHighlighter highlighter = new SentenceHighlighter();
+    final LegendController legendController;
+    final FilterCoordinator filterCoordinator;
 
     private final JSplitPane splitPane;
-    private final TabbedPaneManager tabbedPaneManager;
+    final TabbedPaneManager tabbedPaneManager;
     private final FileContentService contentService;
+    private final FileTabEventManager eventManager;
 
     public FileTabImpl(TabbedPaneManager tabbedPaneManager,
                        FtpManager ftpManager,
@@ -79,24 +79,17 @@ public class FileTabImpl implements FileTab {
         editorPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
 
-        FileTabEventManager eventManager = new FileTabEventManager(
-                model,
-                dispatcher,
-                highlighter,
-                legendController,
-                filterCoordinator,
-                comparePanel,
-                statusBarPanel,
-                editorPanel,
-                tabbedPaneManager,
-                () -> tabbedPaneManager.updateTitleFor(this)
-        );
+        this.eventManager = new FileTabEventManager(this);
         eventManager.bindAll();
 
         dispatcher.publish(new SentenceTypeChangedEvent(initialType));
     }
 
-    private void showComparePanel() {
+    public void updateTitle() {
+        tabbedPaneManager.updateTitleFor(this);
+    }
+
+    public void showComparePanel() {
         comparePanel.setVisible(true);
         splitPane.setDividerLocation(0.7);
         statusBarPanel.getCompareButton().setVisible(false);
