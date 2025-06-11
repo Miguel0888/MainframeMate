@@ -111,9 +111,35 @@ public class ComparableFileTabImpl extends FileTabImpl {
 
     @Override
     void onFilterApply(String input) {
+        // 1. Folding wie gehabt
         RegexFoldParser parser = new RegexFoldParser(input, null);
         originalArea.getFoldManager().setFolds(parser.getFolds(originalArea));
         originalArea.repaint();
+
+        // 2. Optional: Suchmarkierungen setzen
+        originalArea.getHighlighter().removeAllHighlights();
+
+        if (input == null || input.trim().isEmpty()) {
+            highlight(originalArea, getCurrentSentenceType());
+            return;
+        }
+
+        try {
+            String text = originalArea.getText().toLowerCase();
+            String pattern = input.toLowerCase();
+            int pos = 0;
+            while ((pos = text.indexOf(pattern, pos)) >= 0) {
+                int end = pos + pattern.length();
+                originalArea.getHighlighter().addHighlight(
+                        pos,
+                        end,
+                        new javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW)
+                );
+                pos = end;
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Fehler beim Hervorheben im Vergleichsbereich: " + e.getMessage());
+        }
     }
 
     public boolean isAppendEnabled() {
