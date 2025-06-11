@@ -37,25 +37,26 @@ import javax.swing.undo.CannotUndoException;
 public class FileTabImpl implements FileTab {
 
     final FtpManager ftpManager;
-    private final FileContentService fileContentService;
-    private FtpFileBuffer buffer;
-    private final JPanel mainPanel = new JPanel(new BorderLayout());
-    private final RSyntaxTextArea textArea = new RSyntaxTextArea();
-    private final TabbedPaneManager tabbedPaneManager;
+    protected final FileContentService fileContentService;
+    protected FtpFileBuffer buffer;
+    protected final JPanel mainPanel = new JPanel(new BorderLayout());
+    protected final RSyntaxTextArea textArea = new RSyntaxTextArea();
+    protected final TabbedPaneManager tabbedPaneManager;
 
-    private final UndoManager undoManager = new UndoManager();
-    private final JButton undoButton = new JButton("↶");
-    private final JButton redoButton = new JButton("↷");
+    protected final UndoManager undoManager = new UndoManager();
+    protected final JButton undoButton = new JButton("↶");
+    protected final JButton redoButton = new JButton("↷");
 
     //ToDo: Mit Hashing kombinieren
-    private boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
+    protected boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
     // Aktuelle Satzart, falls bekannt
-    private JComboBox<String> sentenceComboBox;
-    private JPanel legendWrapper;
+    protected JComboBox<String> sentenceComboBox;
+    protected JPanel legendWrapper;
 
-    private int currentLegendRowIndex = 0;
-    private int currentMaxRows = 1;
-    private boolean soundEnabled = true;
+    protected int currentLegendRowIndex = 0;
+    protected int currentMaxRows = 1;
+    protected boolean soundEnabled = true;
+    protected JPanel statusBar;
 
     public FileTabImpl(TabbedPaneManager tabbedPaneManager, @Nullable FtpManager ftpManager, String content, String sentenceType) {
         this(tabbedPaneManager, ftpManager, (FtpFileBuffer) null, sentenceType);
@@ -81,7 +82,7 @@ public class FileTabImpl implements FileTab {
         textArea.getDocument().addUndoableEditListener(undoManager);
         RTextScrollPane scroll = new RTextScrollPane(textArea);
 
-        JPanel statusBar = createStatusBar();
+        statusBar = createStatusBar();
 
         mainPanel.add(scroll, BorderLayout.CENTER);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
@@ -174,7 +175,7 @@ public class FileTabImpl implements FileTab {
      * Diese Methode wird bei Save-Versuchen aufgerufen, wenn kein Buffer existiert.
      * In einer späteren Version könnte hier ein neuer Buffer erstellt werden.
      */
-    private void createNewBuffer() {
+    protected void createNewBuffer() {
         // throw new UnsupportedOperationException("Speichern ist für diesen Tab nicht möglich (kein FTP-Buffer vorhanden).");
         JOptionPane.showMessageDialog(mainPanel,
                 "Speichern neuer Dateien ist hier aktuell nicht möglich. Bitte zunächst eine leere Datei im Verbindungs-Tab anlegen.",
