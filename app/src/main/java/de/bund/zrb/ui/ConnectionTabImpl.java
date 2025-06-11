@@ -55,7 +55,7 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
                         FtpFileBuffer buffer = ftpManager.open(selected);
                         if( buffer != null) // no DIR
                         {
-                            tabbedPaneManager.openFileTab(ftpManager, buffer, null);
+                            tabbedPaneManager.openFileTab(ftpManager, buffer, null, false);
                         }
                         else
                         {

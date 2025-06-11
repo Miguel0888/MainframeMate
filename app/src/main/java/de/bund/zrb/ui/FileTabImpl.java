@@ -36,7 +36,7 @@ import javax.swing.undo.CannotUndoException;
 
 public class FileTabImpl implements FileTab {
 
-    private final FtpManager ftpManager;
+    final FtpManager ftpManager;
     private final FileContentService fileContentService;
     private FtpFileBuffer buffer;
     private final JPanel mainPanel = new JPanel(new BorderLayout());

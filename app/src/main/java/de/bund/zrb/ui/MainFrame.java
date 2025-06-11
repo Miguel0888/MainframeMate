@@ -312,7 +312,7 @@ public class MainFrame extends JFrame implements MainframeContext {
             try {
                 FtpFileBuffer buffer = ftpManager.open(unquote(path));
                 if (buffer != null) {
-                    return tabManager.openFileTab(ftpManager, buffer, sentenceType);
+                    return tabManager.openFileTab(ftpManager, buffer, sentenceType, true);
                 } else {
                     ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager);
                     tabManager.addTab(tab);

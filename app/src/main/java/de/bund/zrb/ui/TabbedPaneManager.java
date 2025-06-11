@@ -144,11 +144,19 @@ public class TabbedPaneManager {
      * @param ftpManager der FtpManager, der die Verbindung verwaltet
      * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
      */
-    public FtpTab openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
-        FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType);
-        addTab(fileTabImpl); // handled everything
-        updateTooltipFor(fileTabImpl);
-        return fileTabImpl;
+    public FtpTab openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType, boolean toCompare) {
+        if( !toCompare) {
+            FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType);
+            addTab(fileTabImpl); // handled everything
+            updateTooltipFor(fileTabImpl);
+            return fileTabImpl;
+        } else {
+            ComparableFileTabImpl fileTabImpl = new ComparableFileTabImpl(this, ftpManager, buffer, sentenceType);
+            addTab(fileTabImpl); // handled everything
+            updateTooltipFor(fileTabImpl);
+            return fileTabImpl;
+        }
+
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

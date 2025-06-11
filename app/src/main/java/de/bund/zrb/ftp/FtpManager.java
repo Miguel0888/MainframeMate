@@ -17,6 +17,8 @@ public class FtpManager {
     // Fields und Konstruktor
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    private static boolean wrongCredentials = false; // Flag to avoid multiple retry with wrong password
+
     private final FTPClient ftpClient = new FTPClient();
     private final Integer ftpFileType;
     private final Byte padding; // null if not present or not compatible with ftpFileType
@@ -36,11 +38,17 @@ public class FtpManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public boolean connect(String host, String user, String password) throws IOException {
+        if(wrongCredentials) {
+            throw new IOException("Login ist vorübergehend deaktiviert, damit die Kennung nicht gesperrt wird. Bitte die Zugangsdaten prüfen und die Anwendung anschließend neu starten!"); // don't try again, until restart to avoid user is getting blocked
+        }
         Settings settings = SettingsHelper.load();
         ftpClient.setControlEncoding(settings.encoding);
         ftpClient.connect(host);
 
         if (!ftpClient.login(user, password)) {
+            wrongCredentials = true;
+            settings.savePassword = false;
+            SettingsHelper.save(settings);
             throw new IOException("Login fehlgeschlagen");
         }
 
