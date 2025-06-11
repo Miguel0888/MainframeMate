@@ -55,6 +55,7 @@ public class FileTabImpl implements FileTab {
     protected int currentMaxRows = 1;
     protected boolean soundEnabled = true;
     protected JPanel statusBar;
+    protected boolean append = false;
 
     public FileTabImpl(TabbedPaneManager tabbedPaneManager, @Nullable FtpManager ftpManager, String content, String sentenceType) {
         this(tabbedPaneManager, ftpManager, (FtpFileBuffer) null, sentenceType);
@@ -140,13 +141,24 @@ public class FileTabImpl implements FileTab {
         }
 
         try {
-            // Aktuellen Inhalt aus dem Editor holen
-            InputStream newContent = fileContentService.createCommitStream(textArea.getText(), buffer.hasRecordStructure());
+            String newText = textArea.getText();
 
-            // Neuen Buffer aus aktuellem Inhalt erzeugen
+            if (append) {
+                // Lade alten Inhalt vom Server
+                String oldText = fileContentService.decodeWith(buffer);
+
+                // Optional: Trennzeile oder Zeilenumbruch dazwischen
+                if (!oldText.endsWith("\n") && !newText.startsWith("\n")) {
+                    oldText += "\n";
+                }
+
+                newText = oldText + newText; // Anhängen
+            }
+
+            InputStream newContent = fileContentService.createCommitStream(newText, buffer.hasRecordStructure());
+
             FtpFileBuffer altered = buffer.withContent(newContent);
 
-            // Versuche, die Änderungen zu speichern (Commit prüft auf Konflikte)
             Optional<FtpFileBuffer> conflict = ftpManager.commit(buffer, altered);
 
             if (conflict.isPresent()) {
@@ -154,13 +166,10 @@ public class FileTabImpl implements FileTab {
                         "⚠️ Die Datei wurde auf dem Server geändert!\nSpeichern wurde abgebrochen.",
                         "Speicherkonflikt", JOptionPane.WARNING_MESSAGE);
             } else {
-                // Reload implicit server changes, otherwise next save operation will fail, since hash has changed implicitly
-//                buffer = ftpManager.open(buffer.getRemotePath());
-//                textArea.setText(fileContentService.decodeWith(buffer));
                 buffer = altered;
-                resetUndoHistory(); // Optional: Undo-Historie nach erfolgreichem Speichern leeren
-                changed = false;    // Optional: internen "dirty"-Status zurücksetzen
-                updateTabTitle();   // Optional: Stern entfernen
+                resetUndoHistory();
+                changed = false;
+                updateTabTitle();
             }
 
         } catch (IOException e) {
@@ -508,6 +517,16 @@ public class FileTabImpl implements FileTab {
     }
 
     @Override
+    public void setAppend(boolean append) {
+        this.append = append;
+    }
+
+    @Override
+    public boolean isAppendEnabled() {
+        return append;
+    }
+
+    @Override
     public void setContent(String text, String sentenceType) {
         sentenceComboBox.setSelectedItem(sentenceType);
         setContent(text); // Undo etc.
@@ -738,5 +757,6 @@ public class FileTabImpl implements FileTab {
     public String getCurrentSentenceType() {
         return Objects.requireNonNull(sentenceComboBox.getSelectedItem()).toString();
     }
+
 
 }

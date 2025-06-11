@@ -139,10 +139,12 @@ public class ExcelImportController {
         }
 
         if (config.isAppend()) {
-            Optional<Bookmarkable> tab = plugin.getContext().getSelectedTab();
-            String existing = tab.map(Bookmarkable::getContent).orElse("");
             String trenn = config.getSeparator();
-            result = existing + (trenn == null ? "" : trenn + "\n") + result;
+            // Optional: Trennzeile oder Zeilenumbruch dazwischen
+            if (!trenn.endsWith("\n") && !result.startsWith("\n")) {
+                trenn += "\n";
+            }
+            result =  trenn + result;
         }
 
         if(config.getDestination() != null && !config.getDestination().trim().isEmpty()) {
@@ -152,6 +154,7 @@ public class ExcelImportController {
                 return;
             }
             if(ftpTab instanceof FileTab) { // ToDo: Besser: Fähigkeit explizit machen, z. B. durch: interface ContentWritable
+                ((FileTab) ftpTab).setAppend(config.isAppend());
                 ((FileTab) ftpTab).setContent(result, satzartName);
             } else {
                 showError(plugin.getMainFrame(), "Zielpfad ist kein gültiger Tab: " + config.getDestination());

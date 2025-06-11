@@ -9,6 +9,8 @@ public interface FileTab extends FtpTab, Bookmarkable {
 
     void saveIfApplicable();
 
+    boolean isAppendEnabled();
+
     void setContent(String text, String sentenceType);
 
     void markAsChanged();
@@ -18,4 +20,6 @@ public interface FileTab extends FtpTab, Bookmarkable {
     String getContent();
 
     void setContent(String content);
+
+    void setAppend(boolean append);
 }

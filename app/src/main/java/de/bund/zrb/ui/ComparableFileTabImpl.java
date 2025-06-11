@@ -20,7 +20,7 @@ public class ComparableFileTabImpl extends FileTabImpl {
     private final JPanel toggleButtonWrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
 
     private boolean compareVisible = false;
-    private boolean append = false;
+    private JCheckBox appendCheckBox;
 
     public ComparableFileTabImpl(TabbedPaneManager manager, FtpManager ftp, FtpFileBuffer buffer, String sentenceType) {
         super(manager, ftp, buffer, sentenceType);
@@ -73,7 +73,7 @@ public class ComparableFileTabImpl extends FileTabImpl {
 
         JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
 
-        JCheckBox appendCheckBox = new JCheckBox("Anhängen");
+        appendCheckBox = new JCheckBox("Anhängen");
         appendCheckBox.setSelected(append);
         appendCheckBox.setToolTipText("Wenn aktiv, wird neuer Inhalt an den Vergleich angehängt.");
         appendCheckBox.addItemListener(e -> append = appendCheckBox.isSelected());
@@ -147,7 +147,9 @@ public class ComparableFileTabImpl extends FileTabImpl {
         }
     }
 
-    public boolean isAppendEnabled() {
-        return append;
+    @Override
+    public void setAppend (boolean append) {
+        super.setAppend(append);
+        SwingUtilities.invokeLater(() -> appendCheckBox.setSelected(append));
     }
 }
