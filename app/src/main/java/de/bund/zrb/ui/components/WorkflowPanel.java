@@ -150,25 +150,34 @@ public class WorkflowPanel extends JPanel {
     }
 
     private UUID onRun() {
-        updateCurrentTemplateFromUI(); // sicherstellen, dass UI-Daten im Template sind
+        try {
+            updateCurrentTemplateFromUI(); // sicherstellen, dass UI-Daten im Template sind
 
-        Map<String, String> overrides = new LinkedHashMap<>();
-        for (int i = 0; i < variableModel.getRowCount(); i++) {
-            String key = variableModel.getValueAt(i, 0).toString().trim();
-            String value = variableModel.getValueAt(i, 1).toString().trim();
-            if (!key.isEmpty()) {
-                overrides.put(key, value);
+            Map<String, String> overrides = new LinkedHashMap<>();
+            for (int i = 0; i < variableModel.getRowCount(); i++) {
+                String key = variableModel.getValueAt(i, 0).toString().trim();
+                String value = variableModel.getValueAt(i, 1).toString().trim();
+                if (!key.isEmpty()) {
+                    overrides.put(key, value);
+                }
             }
-        }
 
-        UUID runId = runner.execute(currentTemplate, overrides);
+            UUID runId = runner.execute(currentTemplate, overrides);
 
-        // Degugging:
+            // Degugging:
 //        JOptionPane.showMessageDialog(this,
 //                "Workflow gestartet mit ID:\n" + runId,
 //                "Ausführung gestartet",
 //                JOptionPane.INFORMATION_MESSAGE);
-        return runId;
+            return runId;
+        } catch (IllegalArgumentException e) {
+            showError(this.getParent(), "Fehler beim Import:\n" + e.getMessage());
+        }
+        return null;
+    }
+
+    private static void showError(Component parent, String msg) {
+        JOptionPane.showMessageDialog(parent, msg, "Fehler", JOptionPane.ERROR_MESSAGE);
     }
 
     private void onSelectWorkflow() {

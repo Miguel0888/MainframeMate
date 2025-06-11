@@ -159,17 +159,16 @@ public class TabbedPaneManager {
      * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
      */
     public FtpTab openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType, boolean toCompare) {
+        FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType);
+        addTab(fileTabImpl); // handled everything
+        updateTooltipFor(fileTabImpl);
         if( !toCompare) {
-            FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType);
-            addTab(fileTabImpl); // handled everything
-            updateTooltipFor(fileTabImpl);
-            return fileTabImpl;
+            // ToDO
+
         } else {
-            ComparableFileTabImpl fileTabImpl = new ComparableFileTabImpl(this, ftpManager, buffer, sentenceType);
-            addTab(fileTabImpl); // handled everything
-            updateTooltipFor(fileTabImpl);
-            return fileTabImpl;
+            // TODO
         }
+        return fileTabImpl;
 
     }
 

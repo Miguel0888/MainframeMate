@@ -10,124 +10,297 @@ import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.*;
 import de.zrb.bund.newApi.ui.FileTab;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.NotNull;
 
 import javax.annotation.Nullable;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
+import javax.swing.undo.CannotUndoException;
 import java.awt.*;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DefaultHighlighter;
-import javax.swing.text.Highlighter;
-import javax.swing.undo.UndoManager;
-import javax.swing.undo.CannotUndoException;
-
 public class FileTabImpl implements FileTab {
 
-    final FtpManager ftpManager;
-    protected final FileContentService fileContentService;
-    protected FtpFileBuffer buffer;
-    protected final JPanel mainPanel = new JPanel(new BorderLayout());
-    protected final RSyntaxTextArea textArea = new RSyntaxTextArea();
-    protected final TabbedPaneManager tabbedPaneManager;
+    private final JPanel mainPanel = new JPanel(new BorderLayout());
+    private final EditorAreaPanel editorPanel = new EditorAreaPanel();
+    private final CompareAddonPanel comparePanel;
+    private final JSplitPane splitPane;
+    private final JPanel statusBar;
 
-    protected final UndoManager undoManager = new UndoManager();
-    protected final JButton undoButton = new JButton("↶");
-    protected final JButton redoButton = new JButton("↷");
+    private final JButton undoButton;
+    private final JButton redoButton;
+    private final JTextField grepField = new JTextField();
+    private final JComboBox<String> sentenceComboBox = new JComboBox<>();
+    private final JPanel legendWrapper = new JPanel(new BorderLayout());
+    private final JButton toggleCompare = new JButton("\u21BB");
 
-    //ToDo: Mit Hashing kombinieren
-    protected boolean changed = false; // wird aber sowieso beim speichern geprüft mittels hashWert
-    // Aktuelle Satzart, falls bekannt
-    protected JComboBox<String> sentenceComboBox;
-    protected JPanel legendWrapper;
+    private final TabbedPaneManager tabbedPaneManager;
+    private final FtpManager ftpManager;
+    private final FileContentService fileContentService;
 
-    protected int currentLegendRowIndex = 0;
-    protected int currentMaxRows = 1;
-    protected boolean soundEnabled = true;
-    protected JPanel statusBar;
-    protected boolean append = false;
+    private FtpFileBuffer buffer;
+    private boolean compareVisible = false;
+    private boolean changed = false;
+    private boolean append = false;
+    private int currentLegendRowIndex = 0;
+    private int currentMaxRows = 1;
 
-    public FileTabImpl(TabbedPaneManager tabbedPaneManager, @Nullable FtpManager ftpManager, String content, String sentenceType) {
-        this(tabbedPaneManager, ftpManager, (FtpFileBuffer) null, sentenceType);
-        soundEnabled = SettingsHelper.load().soundEnabled;
-        if(content != null) {
-            textArea.setText(content);
-        }
-        highlight(sentenceType);
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager,
+                       @NotNull FtpManager ftpManager,
+                       @NotNull String content,
+                       @NotNull String sentenceType) {
+
+        this.tabbedPaneManager = tabbedPaneManager;
+        this.ftpManager = ftpManager;
+        this.fileContentService = new FileContentService(ftpManager);
+        this.buffer = null; // kein Buffer bei manuellem Content
+
+        // Inhalt setzen
+        editorPanel.getTextArea().setText(content);
+        String path = "[Lokaler Inhalt]";
+
+        comparePanel = new CompareAddonPanel(path, content);
+        comparePanel.setVisible(false);
+        comparePanel.setCloseAction(this::hideComparePanel);
+
+        undoButton = editorPanel.getUndoButton();
+        redoButton = editorPanel.getRedoButton();
+
+        initUndoRedoActions();
+        initSentenceComboBox(sentenceType);
+        initGrepFilter();
+
+        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        splitPane.setTopComponent(editorPanel);
+        splitPane.setBottomComponent(comparePanel);
+        splitPane.setResizeWeight(1.0);
+        splitPane.setDividerSize(6);
+
+        statusBar = createStatusBar();
+
+        toggleCompare.setToolTipText("Vergleich anzeigen");
+        toggleCompare.addActionListener(e -> showComparePanel());
+        statusBar.add(toggleCompare, BorderLayout.WEST);
+
+        mainPanel.add(splitPane, BorderLayout.CENTER);
+        mainPanel.add(statusBar, BorderLayout.SOUTH);
     }
 
-    public FileTabImpl(TabbedPaneManager tabbedPaneManager, @NotNull FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
+
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager, @NotNull FtpManager ftpManager, @Nullable FtpFileBuffer buffer, String sentenceType) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.fileContentService = new FileContentService(ftpManager);
         this.buffer = buffer;
 
-        initEditorSettings(textArea, SettingsHelper.load());
+        String content = buffer != null ? fileContentService.decodeWith(buffer) : "";
+        String path = buffer != null ? buffer.getLink() : "[Unbekannter Pfad]";
 
-        if(buffer != null)
-        {
-            textArea.setText(fileContentService.decodeWith(buffer));
-        }
-        textArea.getDocument().addUndoableEditListener(undoManager);
-        RTextScrollPane scroll = new RTextScrollPane(textArea);
-        scroll.setFoldIndicatorEnabled(true);
-        scroll.setLineNumbersEnabled(true);
+        editorPanel.getTextArea().setText(content);
+        comparePanel = new CompareAddonPanel(path, content);
+        comparePanel.setVisible(false);
+        comparePanel.setCloseAction(this::hideComparePanel);
+
+        undoButton = editorPanel.getUndoButton();
+        redoButton = editorPanel.getRedoButton();
+
+        initUndoRedoActions();
+        initSentenceComboBox(sentenceType);
+        initGrepFilter();
+
+        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        splitPane.setTopComponent(editorPanel);
+        splitPane.setBottomComponent(comparePanel);
+        splitPane.setResizeWeight(1.0);
+        splitPane.setDividerSize(6);
 
         statusBar = createStatusBar();
 
-        mainPanel.add(scroll, BorderLayout.CENTER);
+        toggleCompare.setToolTipText("Vergleich anzeigen");
+        toggleCompare.addActionListener(e -> showComparePanel());
+        statusBar.add(toggleCompare, BorderLayout.WEST);
+
+        mainPanel.add(splitPane, BorderLayout.CENTER);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
+    }
 
-        textArea.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                markAsChanged();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                markAsChanged();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                markAsChanged();
-            }
+    private void initUndoRedoActions() {
+        undoButton.setToolTipText("Rückgängig");
+        redoButton.setToolTipText("Wiederholen");
+        undoButton.addActionListener(e -> {
+            editorPanel.undo();
+            updateUndoRedoState();
         });
+        redoButton.addActionListener(e -> {
+            editorPanel.redo();
+            updateUndoRedoState();
+        });
+        editorPanel.getTextArea().getDocument().addUndoableEditListener(e -> updateUndoRedoState());
+    }
 
-        textArea.addCaretListener(e -> updateLegendByCaret()); // set the corresponding legend automatically
-        highlight(sentenceType);
+    private void updateUndoRedoState() {
+        undoButton.setEnabled(editorPanel.getUndoManager().canUndo());
+        redoButton.setEnabled(editorPanel.getUndoManager().canRedo());
+        markAsChanged();
+    }
+
+    private void initSentenceComboBox(String selectedType) {
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        registry.getSentenceTypeSpec().getDefinitions().keySet().stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .forEach(sentenceComboBox::addItem);
+
+        sentenceComboBox.setSelectedItem(selectedType);
+        sentenceComboBox.addActionListener(e -> {
+            String selected = (String) sentenceComboBox.getSelectedItem();
+            highlight(selected);
+        });
+        highlight(selectedType);
+    }
+
+    private void initGrepFilter() {
+        grepField.setToolTipText("Regulärer Ausdruck zur Filterung der Anzeige");
+        grepField.getDocument().addDocumentListener(new DocumentListener() {
+            private void applyFilter() {
+                String input = grepField.getText();
+                editorPanel.applyRegexFilter(input);
+                onFilterApply(input);
+            }
+            public void insertUpdate(DocumentEvent e) { applyFilter(); }
+            public void removeUpdate(DocumentEvent e) { applyFilter(); }
+            public void changedUpdate(DocumentEvent e) { applyFilter(); }
+        });
+    }
+
+    private JPanel createStatusBar() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        left.add(undoButton);
+        left.add(redoButton);
+
+        JPanel center = new JPanel(new BorderLayout());
+        center.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
+        center.add(grepField, BorderLayout.CENTER);
+
+        JPanel right = new JPanel();
+        right.setLayout(new BoxLayout(right, BoxLayout.X_AXIS));
+        right.add(legendWrapper);
+        right.add(Box.createHorizontalStrut(10));
+        right.add(sentenceComboBox);
+
+        panel.add(left, BorderLayout.WEST);
+        panel.add(center, BorderLayout.CENTER);
+        panel.add(right, BorderLayout.EAST);
+        return panel;
+    }
+
+    private void highlight(String sentenceType) {
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        registry.findDefinition(sentenceType).ifPresent(def -> {
+            int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
+            currentMaxRows = schemaLines;
+            highlightFields(editorPanel.getTextArea(), def.getFields(), schemaLines);
+            updateLegendPanel(def, sentenceType);
+        });
+    }
+
+    private void updateLegendPanel(SentenceDefinition def, String sentenceType) {
+        legendWrapper.removeAll();
+        JPanel legendPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        for (Map.Entry<FieldCoordinate, SentenceField> entry : def.getFields().entrySet()) {
+            FieldCoordinate coord = entry.getKey();
+            SentenceField field = entry.getValue();
+            if (coord.getRow() - 1 != currentLegendRowIndex) continue;
+            JLabel label = new JLabel(field.getName());
+            label.setOpaque(true);
+            label.setBackground(getColorFor(field));
+            label.setForeground(Color.BLACK);
+            label.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Color.DARK_GRAY),
+                    BorderFactory.createEmptyBorder(2, 4, 2, 4)
+            ));
+            legendPanel.add(label);
+        }
+        legendWrapper.add(legendPanel, BorderLayout.CENTER);
+        legendWrapper.revalidate();
+        legendWrapper.repaint();
+    }
+
+    private Color getColorFor(SentenceField field) {
+        String override = SettingsHelper.load().fieldColorOverrides.get(field.getName().toUpperCase());
+        try {
+            if (override != null) return Color.decode(override);
+            if (field.getColor() != null && !field.getColor().isEmpty()) return Color.decode(field.getColor());
+        } catch (NumberFormatException ignored) {}
+        int hash = Math.abs(field.getName().hashCode());
+        float hue = (hash % 360) / 360f;
+        return Color.getHSBColor(hue, 0.5f, 0.85f);
+    }
+
+    private void highlightFields(RSyntaxTextArea area, FieldMap fields, int schemaLines) {
+        Highlighter highlighter = area.getHighlighter();
+        highlighter.removeAllHighlights();
+
+        String[] lines = area.getText().split("\n");
+        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            int schemaRow = lineIndex % schemaLines;
+            int lineOffset = getLineStartOffset(lines, lineIndex);
+            String line = lines[lineIndex];
+            for (Map.Entry<FieldCoordinate, SentenceField> entry : fields.entrySet()) {
+                FieldCoordinate coord = entry.getKey();
+                SentenceField field = entry.getValue();
+                if (coord.getRow() - 1 != schemaRow) continue;
+                int start = coord.getPosition() - 1;
+                int len = field.getLength() != null ? field.getLength() : 0;
+                int end = Math.min(line.length(), start + len);
+                try {
+                    highlighter.addHighlight(lineOffset + start, lineOffset + end,
+                            new DefaultHighlighter.DefaultHighlightPainter(getColorFor(field)));
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private int getLineStartOffset(String[] lines, int index) {
+        int offset = 0;
+        for (int i = 0; i < index; i++) {
+            offset += lines[i].length() + 1;
+        }
+        return offset;
+    }
+
+    private void showComparePanel() {
+        compareVisible = true;
+        comparePanel.setVisible(true);
+        comparePanel.setAppendSelected(append);
+        splitPane.setDividerLocation(0.7);
+        toggleCompare.setVisible(false);
+    }
+
+    private void hideComparePanel() {
+        compareVisible = false;
+        comparePanel.setVisible(false);
+        toggleCompare.setVisible(true);
+        append = comparePanel.isAppendSelected();
     }
 
     @Override
     public String getTitle() {
-        String title = "[Neu]";
-        if (buffer != null) {
-            title = "📄 " + buffer.getMeta().getName();
-        }
-
-        if (changed && !title.endsWith(" *")) {
-            title += " *";
-        }
-
-        return title;
+        if (buffer == null) return "[Neu]";
+        String name = buffer.getMeta().getName();
+        return changed ? name + " *" : name;
     }
 
     @Override
     public String getTooltip() {
         return buffer != null ? buffer.getLink() : "Wird nicht gespeichert";
     }
-
 
     @Override
     public JComponent getComponent() {
@@ -137,388 +310,28 @@ public class FileTabImpl implements FileTab {
     @Override
     public void saveIfApplicable() {
         if (buffer == null) {
-            createNewBuffer();
+            JOptionPane.showMessageDialog(mainPanel, "Kein FTP-Buffer vorhanden.", "Speichern nicht möglich", JOptionPane.WARNING_MESSAGE);
+            return;
         }
-
         try {
-            String newText = textArea.getText();
-
+            String newText = editorPanel.getTextArea().getText();
             if (append) {
-                // Lade alten Inhalt vom Server
-                String oldText = fileContentService.decodeWith(buffer);
-
-                // Optional: Trennzeile oder Zeilenumbruch dazwischen
-                if (!oldText.endsWith("\n") && !newText.startsWith("\n")) {
-                    oldText += "\n";
-                }
-
-                newText = oldText + newText; // Anhängen
+                String old = fileContentService.decodeWith(buffer);
+                if (!old.endsWith("\n") && !newText.startsWith("\n")) old += "\n";
+                newText = old + newText;
             }
-
-            InputStream newContent = fileContentService.createCommitStream(newText, buffer.hasRecordStructure());
-
-            FtpFileBuffer altered = buffer.withContent(newContent);
-
+            FtpFileBuffer altered = buffer.withContent(fileContentService.createCommitStream(newText, buffer.hasRecordStructure()));
             Optional<FtpFileBuffer> conflict = ftpManager.commit(buffer, altered);
-
-            if (conflict.isPresent()) {
-                JOptionPane.showMessageDialog(mainPanel,
-                        "⚠️ Die Datei wurde auf dem Server geändert!\nSpeichern wurde abgebrochen.",
-                        "Speicherkonflikt", JOptionPane.WARNING_MESSAGE);
-            } else {
+            if (!conflict.isPresent()) {
                 buffer = altered;
-                resetUndoHistory();
                 changed = false;
-                updateTabTitle();
-            }
-
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(mainPanel,
-                    "Fehler beim Speichern:\n" + e.getMessage(),
-                    "Speicherfehler", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    /**
-     * Diese Methode wird bei Save-Versuchen aufgerufen, wenn kein Buffer existiert.
-     * In einer späteren Version könnte hier ein neuer Buffer erstellt werden.
-     */
-    protected void createNewBuffer() {
-        // throw new UnsupportedOperationException("Speichern ist für diesen Tab nicht möglich (kein FTP-Buffer vorhanden).");
-        JOptionPane.showMessageDialog(mainPanel,
-                "Speichern neuer Dateien ist hier aktuell nicht möglich. Bitte zunächst eine leere Datei im Verbindungs-Tab anlegen.",
-                "Nicht unterstützte Operation", JOptionPane.WARNING_MESSAGE);
-    }
-
-    @Override
-    public void onClose() {
-        // evtl. Änderungen prüfen, Ressourcen freigeben
-    }
-
-    @Override
-    public JPopupMenu createContextMenu(Runnable onCloseCallback) {
-        JPopupMenu menu = new JPopupMenu();
-
-        JMenuItem bookmarkItem = new JMenuItem("🕮 Bookmark setzen");
-        bookmarkItem.addActionListener(e -> {
-            if (buffer != null) {
-                MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
-                main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), buffer.getLink());
+                editorPanel.resetUndoHistory();
             } else {
-                JOptionPane.showMessageDialog(mainPanel, "Kein FTP-Pfad verfügbar für Bookmark.");
+                JOptionPane.showMessageDialog(mainPanel, "Dateikonflikt: Datei wurde auf dem Server verändert.", "Konflikt", JOptionPane.WARNING_MESSAGE);
             }
-        });
-
-        JMenuItem saveItem = new JMenuItem("💾 Speichern");
-        saveItem.addActionListener(e -> saveIfApplicable());
-
-        JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
-        closeItem.addActionListener(e -> onCloseCallback.run());
-
-        menu.add(bookmarkItem);
-        menu.add(saveItem);
-        menu.add(closeItem);
-        return menu;
-    }
-
-    private JPanel createStatusBar() {
-        JPanel statusBar = new JPanel(new BorderLayout());
-
-        // Undo-Panel links
-        JPanel leftPanel = createUndoPanel();
-
-        // Satzart-Panel rechts (Legende & ComboBox)
-        JPanel rightPanel = createSentencePanel();
-
-        // RegGrep-Suchleiste in der Mitte
-        JPanel centerPanel = new JPanel(new BorderLayout());
-        JTextField grepField = new JTextField();
-        grepField.setToolTipText("Regulärer Ausdruck für Zeilenfilterung");
-        grepField.setToolTipText(
-                "<html>" +
-                        "Regulärer Ausdruck für die Zeilenfilterung<br>" +
-                        "<br>" +
-                        "<b>Beispiele:</b><br>" +
-                        "&bull; <code>abc</code> – enthält 'abc'<br>" +
-                        "&bull; <code>^abc</code> – beginnt mit 'abc'<br>" +
-                        "&bull; <code>abc$</code> – endet mit 'abc'<br>" +
-                        "&bull; <code>.*test.*</code> – enthält 'test' (beliebiger Kontext)<br>" +
-                        "&bull; <code>\\d+</code> – enthält eine oder mehrere Ziffern<br>" +
-                        "&bull; <code>[A-Z]{3}</code> – genau drei Großbuchstaben<br>" +
-                        "<br>" +
-                        "Hinweis: Die Suche ist <b>nicht</b> groß-/kleinschreibungssensitiv.<br>" +
-                        "Alle Zeilen, die nicht passen, werden gefaltet." +
-                        "</html>"
-        );
-        centerPanel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        centerPanel.add(grepField, BorderLayout.CENTER);
-
-        grepField.getDocument().addDocumentListener(new DocumentListener() {
-            private void applyFilter() {
-                String input = grepField.getText();
-
-                RegexFoldParser parser = new RegexFoldParser(input, hasMatch -> {
-                    if (!hasMatch && !input.trim().isEmpty()) {
-                        grepField.setBackground(new Color(255, 200, 200));
-                        if (soundEnabled) {
-                            Toolkit.getDefaultToolkit().beep();
-                        }
-                    } else {
-                        grepField.setBackground(UIManager.getColor("TextField.background"));
-                    }
-                });
-
-                textArea.getFoldManager().setFolds(parser.getFolds(textArea));
-                textArea.repaint();
-                onFilterApply(input);
-            }
-
-            @Override public void insertUpdate(DocumentEvent e) { applyFilter(); }
-            @Override public void removeUpdate(DocumentEvent e) { applyFilter(); }
-            @Override public void changedUpdate(DocumentEvent e) { applyFilter(); }
-        });
-
-
-        textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
-
-        statusBar.add(leftPanel, BorderLayout.WEST);
-        statusBar.add(centerPanel, BorderLayout.CENTER);
-        statusBar.add(rightPanel, BorderLayout.EAST);
-
-        return statusBar;
-    }
-
-    void onFilterApply(String input) {
-        // For Extensions
-    }
-
-    @NotNull
-    private JPanel createUndoPanel() {
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        undoButton.setToolTipText("Änderung rückgängig machen");
-        undoButton.setEnabled(false);
-        undoButton.addActionListener(e -> {
-            try {
-                if (undoManager.canUndo()) {
-                    undoManager.undo();
-                }
-            } catch (CannotUndoException ex) {
-                // ignorieren
-            }
-            updateUndoRedoState();
-        });
-
-        redoButton.setToolTipText("Wiederherstellen");
-        redoButton.setEnabled(false);
-        redoButton.addActionListener(e -> {
-            try {
-                if (undoManager.canRedo()) {
-                    undoManager.redo();
-                }
-            } catch (CannotUndoException ex) {
-                // ignorieren
-            }
-            updateUndoRedoState();
-        });
-
-        leftPanel.add(undoButton);
-        leftPanel.add(redoButton);
-        return leftPanel;
-    }
-
-    @NotNull
-    private JPanel createSentencePanel() {
-        JPanel rightPanel = new JPanel();
-        rightPanel.setLayout(new BoxLayout(rightPanel, BoxLayout.X_AXIS));
-
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-
-        // Initialsatzart bestimmen
-        String initialType = getCurrentSentenceTypeGuess(textArea.getText());
-        SentenceDefinition initialDef = registry.findDefinition(initialType).orElse(null);
-        currentMaxRows = initialDef != null && initialDef.getRowCount() != null ? initialDef.getRowCount() : 1;
-        currentLegendRowIndex = 0;
-
-        legendWrapper = new JPanel(new BorderLayout());
-        legendWrapper.add(createLegendPanelForRow(initialType, currentLegendRowIndex), BorderLayout.CENTER);
-
-        sentenceComboBox = new JComboBox<>();
-        sentenceComboBox.addItem("");
-        registry.getSentenceTypeSpec().getDefinitions().keySet().stream()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .forEach(sentenceComboBox::addItem);
-        sentenceComboBox.setSelectedItem(initialType);
-
-        sentenceComboBox.addActionListener(e -> {
-            String selected = (String) sentenceComboBox.getSelectedItem();
-            if (selected != null && !selected.trim().isEmpty()) {
-                highlight(selected);
-                Optional<SentenceDefinition> defOpt = registry.findDefinition(selected);
-                if (defOpt.isPresent()) {
-                    SentenceDefinition def = defOpt.get();
-                    currentMaxRows = def.getRowCount() != null ? def.getRowCount() : 1;
-                    currentLegendRowIndex = 0;
-                    updateLegend(legendWrapper);
-                }
-            } else {
-                currentMaxRows = 1;
-                currentLegendRowIndex = 0;
-                legendWrapper.removeAll();
-                legendWrapper.revalidate();
-                legendWrapper.repaint();
-            }
-        });
-
-        rightPanel.add(legendWrapper);
-        rightPanel.add(Box.createHorizontalStrut(10));
-//        rightPanel.add(new JLabel("Satzart:"));
-        rightPanel.add(sentenceComboBox);
-
-        return rightPanel;
-    }
-
-    private void styleAsClickable(JLabel label) {
-        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        label.setForeground(Color.BLUE);
-        label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
-        label.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
-                label.setForeground(Color.RED);
-            }
-
-            @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
-                label.setForeground(Color.BLUE);
-            }
-        });
-    }
-
-    private void updateLegend(JPanel legendWrapper) {
-        String selectedType = (String) sentenceComboBox.getSelectedItem();
-        if (selectedType == null || selectedType.trim().isEmpty()) return;
-
-        legendWrapper.removeAll();
-        legendWrapper.add(createLegendPanelForRow(selectedType, currentLegendRowIndex), BorderLayout.CENTER);
-        legendWrapper.revalidate();
-        legendWrapper.repaint();
-    }
-
-    private void updateLegendByCaret() {
-        String sentenceType = (String) sentenceComboBox.getSelectedItem();
-        if (sentenceType == null || sentenceType.trim().isEmpty()) return;
-
-        Optional<SentenceDefinition> defOpt = tabbedPaneManager
-                .getMainframeContext()
-                .getSentenceTypeRegistry()
-                .findDefinition(sentenceType);
-
-        if (!defOpt.isPresent()) return;
-
-        int rowCount = defOpt.get().getRowCount() != null ? defOpt.get().getRowCount() : 1;
-
-        try {
-            int caretPos = textArea.getCaretPosition();
-            int line = textArea.getLineOfOffset(caretPos);
-            int effectiveRow = line % rowCount;
-
-            if (effectiveRow != currentLegendRowIndex) {
-                currentLegendRowIndex = effectiveRow;
-                updateLegend(legendWrapper);
-            }
-        } catch (BadLocationException ex) {
-            ex.printStackTrace();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Speichern: " + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-    /**
-     * Versucht, die aktuelle Satzart anhand des Remote-Pfads (falls vorhanden) zu erraten.
-     * Zuerst wird gegen die bekannten Pfade (`paths`) geprüft, dann gegen das Pfad-Pattern (`pathPattern`).
-     * Erst wenn nichts passt, wird der Inhalt als Fallback herangezogen.
-     *
-     * @param content Der aktuelle Dateiinhalt (nur sekundär genutzt).
-     * @return Der Name der vermuteten Satzart oder null, wenn keine passende gefunden wurde.
-     */
-    private String getCurrentSentenceTypeGuess(String content) {
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-
-        String filePath = getPath();     // z. B. /zrb/data/abc/SA300.DAT
-        String fullPath = getFullPath(); // z. B. ftp://server/zrb/data/abc/SA300.DAT
-
-        if (filePath == null && (fullPath == null || fullPath.isEmpty())) {
-            return null; // Kein Pfad vorhanden, keine sinnvolle Prüfung möglich
-        }
-
-        for (Map.Entry<String, SentenceDefinition> entry : registry.getSentenceTypeSpec().getDefinitions().entrySet()) {
-            String name = entry.getKey();
-            SentenceDefinition def = entry.getValue();
-            SentenceMeta meta = def.getMeta();
-            if (meta == null) continue;
-
-            List<String> paths = meta.getPaths();
-            String pattern = meta.getPathPattern();
-
-            // 1. Prüfe feste Pfade (case-insensitive enthält)
-            if (paths != null && !paths.isEmpty()) {
-                for (String path : paths) {
-                    if (path != null && !path.trim().isEmpty()) {
-                        String normalized = path.trim().toLowerCase();
-                        if ((filePath != null && filePath.toLowerCase().contains(normalized)) ||
-                                (fullPath != null && fullPath.toLowerCase().contains(normalized))) {
-                            return name;
-                        }
-                    }
-                }
-            }
-
-            // 2. Prüfe Regex-Pattern
-            if (pattern != null && !pattern.trim().isEmpty()) {
-                try {
-                    if ((filePath != null && filePath.matches(pattern)) ||
-                            (fullPath != null && fullPath.matches(pattern))) {
-                        return name;
-                    }
-                } catch (Exception e) {
-                    // Logge fehlerhafte Patterns (nicht abbrechen)
-                    System.err.println("⚠️ Ungültiges Pfad-Pattern bei Satzart '" + name + "': " + pattern);
-                }
-            }
-        }
-
-        // 3. Fallback: kein Match anhand des Pfads – evtl. später: heuristische Content-Prüfung
-        return null;
-    }
-
-    private void updateUndoRedoState() {
-        undoButton.setEnabled(undoManager.canUndo());
-        redoButton.setEnabled(undoManager.canRedo());
-
-        // ToDo: May compare hash too
-        if(!undoManager.canUndo() && undoManager.canRedo()) { // Hack to avoid reset after first alteration
-            changed = false;
-            updateTabTitle();
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Plugin-Management
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    /** Adds Content with Undo support
-     *
-     * @param newText
-     */
-    @Override
-    public void setContent(String newText) {
-        textArea.selectAll();
-        textArea.replaceSelection(""); // erlaubt Undo des Löschens
-        textArea.append(newText);      // erlaubt Undo des Einfügens
-        updateUndoRedoState();
-    }
-
-    @Override
-    public void setAppend(boolean append) {
-        this.append = append;
     }
 
     @Override
@@ -527,67 +340,22 @@ public class FileTabImpl implements FileTab {
     }
 
     @Override
-    public void setContent(String text, String sentenceType) {
-        sentenceComboBox.setSelectedItem(sentenceType);
-        setContent(text); // Undo etc.
+    public void setContent(String content, String sentenceType) {
+        editorPanel.getTextArea().setText(content);
         highlight(sentenceType);
-    }
-
-    public void highlight(@Nullable String sentenceType) {
-        tabbedPaneManager.getMainframeContext()
-                .getSentenceTypeRegistry()
-                .findDefinition(sentenceType)
-                .ifPresent(def -> {
-                    int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
-                    highlightFields(textArea, def.getFields(), schemaLines);
-                    sentenceComboBox.setSelectedItem(sentenceType);
-                });
-    }
-
-    void highlight(RSyntaxTextArea textArea, @Nullable String sentenceType) {
-        tabbedPaneManager.getMainframeContext()
-                .getSentenceTypeRegistry()
-                .findDefinition(sentenceType)
-                .ifPresent(def -> {
-                    int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
-                    highlightFields(textArea, def.getFields(), schemaLines);
-                    sentenceComboBox.setSelectedItem(sentenceType);
-                });
-    }
-
-    public void resetUndoHistory() {
-        undoManager.discardAllEdits();
-        updateUndoRedoState();
     }
 
     @Override
     public void markAsChanged() {
-        if(!this.changed) {
-            this.changed = true;
-            // Optional: Tab-Titel mit Stern markieren
-            updateTabTitle();
+        if (!changed) {
+            changed = true;
+            tabbedPaneManager.updateTitleFor(this);
         }
     }
 
-    /**
-     * Liefert den Pfad des Remote-Objekts, falls vorhanden.
-     * Andernfalls wird null zurückgegeben.
-     *
-     * @return Der Pfad des Remote-Objekts oder null.
-     */
     @Override
     public String getPath() {
-        return (buffer != null) ? buffer.getRemotePath() : null;
-    }
-
-    /**
-     * Liefert den vollständigen Pfad des Remote-Objekts inclusive Dateinamen.
-     * Andernfalls wird ein leerer String zurückgegeben.
-     *
-     * @return Der vollständige Pfad oder ein leerer String.
-     */
-    public String getFullPath() {
-        return buffer != null ? buffer.getLink() : "";
+        return buffer != null ? buffer.getRemotePath() : null;
     }
 
     @Override
@@ -595,168 +363,28 @@ public class FileTabImpl implements FileTab {
         return Type.FILE;
     }
 
-    private void updateTabTitle() {
-        tabbedPaneManager.updateTitleFor(this);
+    @Override
+    public String getContent() {
+        return editorPanel.getTextArea().getText();
     }
 
     @Override
-    public String getContent() {
-        return textArea.getText();
+    public void setContent(String content) {
+        editorPanel.getTextArea().setText(content);
     }
 
-    void initEditorSettings(RSyntaxTextArea editor, Settings settings) {
-        // Font aus Settings setzen
-        Font editorFont = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
-        editor.setFont(editorFont);
-
-        // Syntax und Verhalten
-        editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-        editor.setCodeFoldingEnabled(true);
-        editor.setAntiAliasingEnabled(true);
-        editor.setTabSize(4);
-        editor.setHighlightCurrentLine(true);
-        editor.setMarkOccurrences(false);
-
-        // Vertikale Begrenzung bei 80 Zeichen
-        editor.setMarginLineEnabled(true);
-        if (settings.marginColumn > 0) {
-            editor.setMarginLineEnabled(true);
-            editor.setMarginLinePosition(settings.marginColumn);
-        } else {
-            editor.setMarginLineEnabled(false);
-        }
-        editor.setMarginLineColor(Color.RED);
-
-        editor.setLineWrap(false);
-
-        // Optional: Tabs sichtbar machen
-        editor.setPaintTabLines(true);
+    @Override
+    public void setAppend(boolean append) {
+        this.append = append;
+        comparePanel.setAppendSelected(append);
     }
 
-    private void highlightFields(RSyntaxTextArea textArea, FieldMap fields, int schemaLines) {
-        Highlighter highlighter = textArea.getHighlighter();
-        highlighter.removeAllHighlights();
-
-        String[] lines = textArea.getText().split("\n");
-
-        for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-            int schemaRow = lineIndex % schemaLines;
-            int lineOffset = getLineStartOffset(lines, lineIndex);
-            String line = lines[lineIndex];
-
-            for (Map.Entry<FieldCoordinate, SentenceField> entry : fields.entrySet()) {
-                FieldCoordinate coord = entry.getKey();
-                SentenceField field = entry.getValue();
-
-                int fieldRow = coord.getRow() - 1;
-                if (fieldRow != schemaRow) continue;
-
-                int start = coord.getPosition() - 1;
-                int len = field.getLength() != null ? field.getLength() : 0;
-                if (start >= line.length()) continue;
-
-                int end = Math.min(line.length(), start + len);
-
-                try {
-                    highlighter.addHighlight(
-                            lineOffset + start,
-                            lineOffset + end,
-                            new DefaultHighlighter.DefaultHighlightPainter(
-                                    getColorFor(field))
-                    );
-                } catch (BadLocationException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
+    protected void onFilterApply(String input) {
+        // optional override hook
     }
 
-
-    private int getLineStartOffset(String[] lines, int lineIndex) {
-        int offset = 0;
-        for (int i = 0; i < lineIndex; i++) {
-            offset += lines[i].length() + 1; // \n
-        }
-        return offset;
+    @Override
+    public void onClose() {
+        // optional clean-up
     }
-
-    private int getIntValue(Object obj) {
-        return (obj instanceof Number) ? ((Number) obj).intValue() : Integer.parseInt(obj.toString());
-    }
-
-    private Color getColorFor(SentenceField field) {
-        String fieldName = field.getName();
-        String fieldColor = field.getColor();
-        Settings settings = SettingsHelper.load();
-
-        if (fieldName == null) {
-            return Color.GRAY;
-        }
-
-        // 1. Settings-Override prüfen (hat Vorrang)
-        String hex = settings.fieldColorOverrides.get(fieldName.toUpperCase());
-        if (hex != null) {
-            try {
-                return Color.decode(hex);
-            } catch (NumberFormatException e) {
-                System.err.println("⚠️ Ungültige Farbdefinition im Override für " + fieldName + ": " + hex);
-            }
-        }
-
-        // 2. Farbe aus Felddefinition verwenden (wenn gültig)
-        if (fieldColor != null && !fieldColor.trim().isEmpty()) {
-            try {
-                return Color.decode(fieldColor.trim());
-            } catch (NumberFormatException e) {
-                System.err.println("⚠️ Ungültige Farbe in Satzart für " + fieldName + ": " + fieldColor);
-            }
-        }
-
-        // 3. Fallback: Hash-basiert generierte Farbe
-        int hash = Math.abs(fieldName.hashCode());
-        float hue = (hash % 360) / 360f;
-        return Color.getHSBColor(hue, 0.5f, 0.85f);
-    }
-
-
-    public FtpFileBuffer getBuffer() {
-        return buffer;
-    }
-
-    private JPanel createLegendPanelForRow(String sentenceType, int rowIndex) {
-        JPanel legendPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-        Optional<SentenceDefinition> defOpt = registry.findDefinition(sentenceType);
-        if (!defOpt.isPresent()) return legendPanel;
-
-        for (Map.Entry<FieldCoordinate, SentenceField> entry : defOpt.get().getFields().entrySet()) {
-            FieldCoordinate coord = entry.getKey();
-            SentenceField field = entry.getValue();
-
-            if (coord.getRow() - 1 != rowIndex) continue;
-
-            String name = field.getName();
-            if (name == null || name.trim().isEmpty()) continue;
-
-            Color color = getColorFor(field);
-            JLabel label = new JLabel(name);
-            label.setOpaque(true);
-            label.setBackground(color);
-            label.setForeground(Color.BLACK);
-            label.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(Color.DARK_GRAY),
-                    BorderFactory.createEmptyBorder(2, 4, 2, 4)
-            ));
-            legendPanel.add(label);
-        }
-
-        return legendPanel;
-    }
-
-    public String getCurrentSentenceType() {
-        return Objects.requireNonNull(sentenceComboBox.getSelectedItem()).toString();
-    }
-
-
 }

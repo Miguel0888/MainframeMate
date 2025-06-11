@@ -52,9 +52,8 @@ public class EditorAreaPanel extends JPanel {
         };
     }
 
-    // Placeholder for tab controller logic
     private void markAsChanged() {
-        // Can be connected to FileTabImpl via callback or observer
+        // Optional: per Callback an FileTabImpl
     }
 
     public RSyntaxTextArea getTextArea() {
