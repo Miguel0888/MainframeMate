@@ -7,10 +7,8 @@ import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.util.RegexFoldParser;
 import de.zrb.bund.api.SentenceTypeRegistry;
-import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.sentence.*;
 import de.zrb.bund.newApi.ui.FileTab;
-import de.zrb.bund.newApi.ui.FtpTab;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -81,6 +79,8 @@ public class FileTabImpl implements FileTab {
         }
         textArea.getDocument().addUndoableEditListener(undoManager);
         RTextScrollPane scroll = new RTextScrollPane(textArea);
+        scroll.setFoldIndicatorEnabled(true);
+        scroll.setLineNumbersEnabled(true);
 
         statusBar = createStatusBar();
 
@@ -105,7 +105,6 @@ public class FileTabImpl implements FileTab {
         });
 
         textArea.addCaretListener(e -> updateLegendByCaret()); // set the corresponding legend automatically
-        textArea.setCodeFoldingEnabled(true);
         highlight(sentenceType);
     }
 
@@ -276,6 +275,7 @@ public class FileTabImpl implements FileTab {
 
                 textArea.getFoldManager().setFolds(parser.getFolds(textArea));
                 textArea.repaint();
+                onFilterApply(input);
             }
         });
 
@@ -288,6 +288,9 @@ public class FileTabImpl implements FileTab {
         return statusBar;
     }
 
+    void onFilterApply(String input) {
+        // For Extensions
+    }
 
     @NotNull
     private JPanel createUndoPanel() {
@@ -526,7 +529,18 @@ public class FileTabImpl implements FileTab {
                 .findDefinition(sentenceType)
                 .ifPresent(def -> {
                     int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
-                    highlightFields(def.getFields(), schemaLines);
+                    highlightFields(textArea, def.getFields(), schemaLines);
+                    sentenceComboBox.setSelectedItem(sentenceType);
+                });
+    }
+
+    void highlight(RSyntaxTextArea textArea, @Nullable String sentenceType) {
+        tabbedPaneManager.getMainframeContext()
+                .getSentenceTypeRegistry()
+                .findDefinition(sentenceType)
+                .ifPresent(def -> {
+                    int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
+                    highlightFields(textArea, def.getFields(), schemaLines);
                     sentenceComboBox.setSelectedItem(sentenceType);
                 });
     }
@@ -580,14 +594,14 @@ public class FileTabImpl implements FileTab {
         return textArea.getText();
     }
 
-    private void initEditorSettings(RSyntaxTextArea editor, Settings settings) {
+    void initEditorSettings(RSyntaxTextArea editor, Settings settings) {
         // Font aus Settings setzen
         Font editorFont = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
         editor.setFont(editorFont);
 
         // Syntax und Verhalten
         editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-        editor.setCodeFoldingEnabled(false);
+        editor.setCodeFoldingEnabled(true);
         editor.setAntiAliasingEnabled(true);
         editor.setTabSize(4);
         editor.setHighlightCurrentLine(true);
@@ -603,11 +617,13 @@ public class FileTabImpl implements FileTab {
         }
         editor.setMarginLineColor(Color.RED);
 
+        editor.setLineWrap(false);
+
         // Optional: Tabs sichtbar machen
         editor.setPaintTabLines(true);
     }
 
-    private void highlightFields(FieldMap fields, int schemaLines) {
+    private void highlightFields(RSyntaxTextArea textArea, FieldMap fields, int schemaLines) {
         Highlighter highlighter = textArea.getHighlighter();
         highlighter.removeAllHighlights();
 

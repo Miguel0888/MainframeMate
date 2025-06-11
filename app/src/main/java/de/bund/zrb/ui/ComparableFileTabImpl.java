@@ -4,6 +4,7 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.service.FileContentService;
+import de.bund.zrb.ui.util.RegexFoldParser;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
@@ -32,6 +33,7 @@ public class ComparableFileTabImpl extends FileTabImpl {
         }
 
         initCompareUI(buffer);
+        highlight(originalArea, sentenceType);
         if(SettingsHelper.load().compareByDefault)
         {
             showComparePanel(); // Beim Öffnen den Vergleich anzeigen
@@ -43,13 +45,14 @@ public class ComparableFileTabImpl extends FileTabImpl {
         FileContentService service = new FileContentService(ftpManager);
         String originalText = service.decodeWith(buffer);
 
+        initEditorSettings(originalArea, SettingsHelper.load()); // Anzeigeverhalten vom Hauptfenster übernehmen
         originalArea.setText(originalText);
+
         originalArea.setEditable(false);
-        originalArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         originalArea.setLineWrap(false);
 
         RTextScrollPane scrollPane = new RTextScrollPane(originalArea);
-        scrollPane.setFoldIndicatorEnabled(false);
+        scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
 
         comparePanel.add(scrollPane, BorderLayout.CENTER);
@@ -78,5 +81,24 @@ public class ComparableFileTabImpl extends FileTabImpl {
             onToggle();
         }
     }
+
+    @Override
+    void onFilterApply(String input) {
+        RegexFoldParser parser = new RegexFoldParser(input, null);
+        originalArea.getFoldManager().setFolds(parser.getFolds(originalArea));
+        originalArea.repaint();
+    }
+
+
+//    @Override
+//    void onFilterApply(String input) {
+//        // Regex-Folding anwenden, um FoldIndicator-Spacing identisch zu halten
+////        RegexFoldParser parser = new RegexFoldParser(input, hasMatch -> {
+////            // Kein UI-Feedback für originalArea nötig
+////        });
+//        RegexFoldParser parser = new RegexFoldParser(".*", null); // Alle Zeilen sichtbar
+//        originalArea.getFoldManager().setFolds(parser.getFolds(originalArea));
+//        originalArea.repaint();
+//    }
 
 }
