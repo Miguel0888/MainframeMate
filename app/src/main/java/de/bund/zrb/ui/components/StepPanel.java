@@ -117,7 +117,10 @@ public class StepPanel extends JPanel {
     }
 
     private String prettyJson(Map<String, Object> map) {
-        return new GsonBuilder().setPrettyPrinting().create().toJson(map);
+        return new GsonBuilder()
+                .setPrettyPrinting()
+                .disableHtmlEscaping()    // avoid ' masking (this security feature is not necessary, here)
+                .create().toJson(map);
     }
 
     public WorkflowMcpData toWorkflowStep() {

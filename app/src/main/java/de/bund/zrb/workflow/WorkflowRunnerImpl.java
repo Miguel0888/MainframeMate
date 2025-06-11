@@ -10,6 +10,7 @@ import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.mcp.McpTool;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class WorkflowRunnerImpl implements WorkflowRunner {
 
@@ -37,12 +38,8 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
             vars.putAll(overrides);
         }
 
-        // 1b. Expressions innerhalb der Werte auswerten
-        for (Map.Entry<String, String> entry : new LinkedHashMap<>(vars).entrySet()) {
-            String value = entry.getValue();
-            String resolved = evaluateExpressions(value);
-            vars.put(entry.getKey(), resolved);
-        }
+        // 1b. Expressions aus Parametern extrahieren und auswerten
+        extractAndEvaluateExpressions(template.getData(), vars);
 
         // 2. Schritte durchlaufen und vorbereiten
         PlaceholderResolver resolver = new PlaceholderResolver(vars);
@@ -105,5 +102,49 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         matcher.appendTail(result);
         return result.toString();
     }
+
+    private void extractAndEvaluateExpressions(List<WorkflowStepContainer> steps, Map<String, String> vars) {
+        Set<String> foundExpressions = new HashSet<>();
+
+        for (WorkflowStepContainer container : steps) {
+            WorkflowMcpData step = container.getMcp();
+            if (step == null) continue;
+
+            for (Object val : step.getParameters().values()) {
+                if (val instanceof String) {
+                    String str = (String) val;
+                    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(str);
+                    while (matcher.find()) {
+                        foundExpressions.add(matcher.group(1));
+                    }
+                }
+            }
+        }
+
+        for (String expr : foundExpressions) {
+            // Ignoriere, falls manuell in vars gesetzt
+            if (vars.containsKey(expr)) continue;
+
+            // Versuche Expression zu parsen und auszuwerten
+            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("^(\\w+)\\((.*)\\)$").matcher(expr);
+            if (matcher.matches()) {
+                String functionName = matcher.group(1);
+                String argsString = matcher.group(2);
+                List<String> args = argsString.isEmpty() ? Collections.emptyList()
+                        : Arrays.stream(argsString.split("\\s*,\\s*"))
+                        .map(s -> s.replaceAll("^['\"]|['\"]$", "")) // entferne " oder '
+                        .collect(Collectors.toList());
+
+                try {
+                    String result = expressionRegistry.evaluate(functionName, args);
+                    vars.put(expr, result);
+                } catch (Exception e) {
+                    System.err.println("Fehler bei Auswertung von Expression „" + expr + "“:");
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
 
 }
