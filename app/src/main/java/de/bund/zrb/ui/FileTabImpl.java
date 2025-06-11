@@ -79,50 +79,21 @@ public class FileTabImpl implements FileTab {
         editorPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
 
-        bindDispatcherEvents();
+        FileTabEventManager eventManager = new FileTabEventManager(
+                model,
+                dispatcher,
+                highlighter,
+                legendController,
+                filterCoordinator,
+                comparePanel,
+                statusBarPanel,
+                editorPanel,
+                tabbedPaneManager,
+                () -> tabbedPaneManager.updateTitleFor(this)
+        );
+        eventManager.bindAll();
+
         dispatcher.publish(new SentenceTypeChangedEvent(initialType));
-    }
-
-    private void bindDispatcherEvents() {
-        dispatcher.subscribe(SentenceTypeChangedEvent.class, event -> {
-            model.setSentenceType(event.newType);
-            Optional<SentenceDefinition> defOpt = getRegistry().findDefinition(event.newType);
-            if (!defOpt.isPresent()) return;
-
-            SentenceDefinition def = defOpt.get();
-            int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
-
-            highlighter.highlightFields(editorPanel.getTextArea(), def.getFields(), schemaLines);
-            legendController.setDefinition(def);
-        });
-
-        dispatcher.subscribe(CaretMovedEvent.class, event -> {
-            legendController.updateLegendForCaret(event.editorLine);
-        });
-
-        dispatcher.subscribe(RegexFilterChangedEvent.class, event -> {
-            filterCoordinator.applyFilter();
-        });
-
-        dispatcher.subscribe(EditorContentChangedEvent.class, event -> {
-            if (!model.isChanged()) {
-                model.markChanged();
-                tabbedPaneManager.updateTitleFor(this);
-            }
-        });
-
-        dispatcher.subscribe(AppendChangedEvent.class, event -> {
-            model.setAppend(event.append);
-        });
-
-        dispatcher.subscribe(CloseComparePanelEvent.class, event -> {
-            comparePanel.setVisible(false);
-            statusBarPanel.getCompareButton().setVisible(true);
-        });
-
-        dispatcher.subscribe(ShowComparePanelEvent.class, event -> {
-            showComparePanel();
-        });
     }
 
     private void showComparePanel() {
