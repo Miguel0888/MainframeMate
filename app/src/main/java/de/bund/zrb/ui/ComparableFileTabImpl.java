@@ -9,36 +9,46 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
+import javax.swing.text.DefaultHighlighter;
 import java.awt.*;
 
 public class ComparableFileTabImpl extends FileTabImpl {
 
     private final RSyntaxTextArea originalArea = new RSyntaxTextArea();
     private final JPanel comparePanel = new JPanel(new BorderLayout());
-    private final JButton toggleCompare = new JButton("\uD83D\uDD00 Original");
+    private final JButton toggleCompare = new JButton("\uD83D\uDD00");
+    private final JPanel toggleButtonWrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
 
     private boolean compareVisible = false;
-
     private boolean append = false;
 
     public ComparableFileTabImpl(TabbedPaneManager manager, FtpManager ftp, FtpFileBuffer buffer, String sentenceType) {
         super(manager, ftp, buffer, sentenceType);
-        toggleCompare.setToolTipText(compareVisible ? "Vergleich mit dem Original beenden" : "Mit Serverinhalt vergleichen");
 
-        Component left = statusBar.getComponent(0); // BorderLayout.WEST
+        // Button initialisieren
+        toggleCompare.setToolTipText("Mit Serverinhalt vergleichen");
+        toggleCompare.setFont(toggleCompare.getFont().deriveFont(18f));
+        toggleCompare.setMargin(new Insets(0, 0, 0, 0));
+        toggleCompare.setFocusable(false);
+
+        toggleCompare.addActionListener(e -> showComparePanel());
+
+        // Nur wenn Vergleich noch nicht sichtbar ist
+        toggleButtonWrapper.setOpaque(false);
+        toggleButtonWrapper.add(Box.createHorizontalStrut(10));
+        toggleButtonWrapper.add(toggleCompare);
+
+        Component left = statusBar.getComponent(0);
         if (left instanceof JPanel) {
             JPanel leftPanel = (JPanel) left;
-
-            // Optionaler Abstand zwischen Undo und "Original"
-            leftPanel.add(Box.createHorizontalStrut(10)); // 10px Abstand
-            leftPanel.add(toggleCompare); // jetzt kommt er *nach* Undo
+            leftPanel.add(toggleButtonWrapper);
         }
 
         initCompareUI(buffer);
         highlight(originalArea, sentenceType);
-        if(SettingsHelper.load().compareByDefault)
-        {
-            showComparePanel(); // Beim Öffnen den Vergleich anzeigen
+
+        if (SettingsHelper.load().compareByDefault) {
+            showComparePanel();
         }
     }
 
@@ -52,71 +62,66 @@ public class ComparableFileTabImpl extends FileTabImpl {
         originalArea.setEditable(false);
         originalArea.setLineWrap(false);
 
-        // Scrollbereich
         RTextScrollPane scrollPane = new RTextScrollPane(originalArea);
         scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
 
-        // Statusleiste oben
+        // Vergleichs-Statusleiste oben
         JPanel statusBarTop = new JPanel(new BorderLayout());
         JLabel infoLabel = new JLabel("Vergleich mit: " + originalPath);
         infoLabel.setFont(infoLabel.getFont().deriveFont(Font.PLAIN, 12f));
 
-        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        JButton appendButton = new JButton("⬇ Übernehmen");
-        appendButton.setToolTipText("Änderungen an Original anhängen");
-        appendButton.addActionListener(e -> {
-            this.append = true;
-            onToggle(); // schließt den Vergleich
-        });
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
 
-        JButton overwriteButton = new JButton("⬆ Überschreiben");
-        overwriteButton.setToolTipText("Original-Inhalt verwerfen (Standardverhalten)");
-        overwriteButton.addActionListener(e -> {
-            this.append = false;
-            onToggle(); // schließt den Vergleich
-        });
+        JCheckBox appendCheckBox = new JCheckBox("Anhängen");
+        appendCheckBox.setSelected(append);
+        appendCheckBox.setToolTipText("Wenn aktiv, wird neuer Inhalt an den Vergleich angehängt.");
+        appendCheckBox.addItemListener(e -> append = appendCheckBox.isSelected());
 
-        rightButtons.add(appendButton);
-        rightButtons.add(overwriteButton);
+        JButton closeButton = new JButton("X");
+        closeButton.setToolTipText("Vergleich schließen");
+        closeButton.setForeground(Color.WHITE);
+        closeButton.setBackground(Color.RED);
+        closeButton.setFont(closeButton.getFont().deriveFont(Font.BOLD, 16f));
+        closeButton.setPreferredSize(new Dimension(28, 28));
+        closeButton.setMargin(new Insets(0, 0, 0, 0));
+        closeButton.setFocusable(false);
+        closeButton.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
+        closeButton.addActionListener(e -> hideComparePanel());
+
+        rightButtons.add(appendCheckBox);
+        rightButtons.add(closeButton);
 
         statusBarTop.add(infoLabel, BorderLayout.WEST);
         statusBarTop.add(rightButtons, BorderLayout.EAST);
 
-        // Panel zusammensetzen
         comparePanel.add(statusBarTop, BorderLayout.NORTH);
         comparePanel.add(scrollPane, BorderLayout.CENTER);
         comparePanel.setVisible(false);
 
-        toggleCompare.addActionListener(e -> onToggle());
         mainPanel.add(comparePanel, BorderLayout.NORTH);
     }
 
-    private void onToggle() {
-        compareVisible = !compareVisible;
-        comparePanel.setVisible(compareVisible);
-        toggleCompare.setText(compareVisible ? "📂 Schließen" : "\uD83D\uDD00 Original");
-        toggleCompare.setToolTipText(compareVisible ? "Vergleich mit dem Original beenden" : "Mit Serverinhalt vergleichen");
+    private void showComparePanel() {
+        compareVisible = true;
+        comparePanel.setVisible(true);
+        toggleButtonWrapper.setVisible(false); // Nur sichtbar wenn Panel zu
         getComponent().revalidate();
     }
 
-    /**
-     * Show the compare panel if it's currently hidden.
-     */
-    public void showComparePanel() {
-        if (!compareVisible) {
-            onToggle();
-        }
+    private void hideComparePanel() {
+        compareVisible = false;
+        comparePanel.setVisible(false);
+        toggleButtonWrapper.setVisible(true); // Jetzt wieder anzeigen
+        getComponent().revalidate();
     }
 
     @Override
     void onFilterApply(String input) {
-        // 1. Folding wie gehabt
         RegexFoldParser parser = new RegexFoldParser(input, null);
         originalArea.getFoldManager().setFolds(parser.getFolds(originalArea));
         originalArea.repaint();
 
-        // 2. Optional: Suchmarkierungen setzen
         originalArea.getHighlighter().removeAllHighlights();
 
         if (input == null || input.trim().isEmpty()) {
@@ -133,7 +138,7 @@ public class ComparableFileTabImpl extends FileTabImpl {
                 originalArea.getHighlighter().addHighlight(
                         pos,
                         end,
-                        new javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW)
+                        new DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW)
                 );
                 pos = end;
             }
@@ -145,5 +150,4 @@ public class ComparableFileTabImpl extends FileTabImpl {
     public boolean isAppendEnabled() {
         return append;
     }
-
 }

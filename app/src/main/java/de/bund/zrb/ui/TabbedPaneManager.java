@@ -121,6 +121,20 @@ public class TabbedPaneManager {
         if (tab != null) tab.saveIfApplicable();
     }
 
+    public void saveAndCloseSelectedComponent() {
+        Component comp = tabbedPane.getSelectedComponent();
+        if (comp == null) return;
+
+        FtpTab tab = tabMap.get(comp);
+        if (tab != null) {
+            tab.saveIfApplicable(); // erst speichern
+            int index = tabbedPane.indexOfComponent(comp);
+            if (index >= 0) {
+                closeTab(index); // dann schließen
+            }
+        }
+    }
+
     public JComponent getComponent() {
         return tabbedPane;
     }
