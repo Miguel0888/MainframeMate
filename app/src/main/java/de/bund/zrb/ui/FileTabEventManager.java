@@ -52,6 +52,9 @@ public class FileTabEventManager {
         fileTab.dispatcher.subscribe(ShowComparePanelEvent.class, event -> {
             fileTab.showComparePanel(); // 👈 zentrales Verhalten
         });
+
+        fileTab.dispatcher.subscribe(UndoRequestedEvent.class, e -> fileTab.editorPanel.undo());
+        fileTab.dispatcher.subscribe(RedoRequestedEvent.class, e -> fileTab.editorPanel.redo());
     }
 
     private SentenceTypeRegistry getRegistry() {

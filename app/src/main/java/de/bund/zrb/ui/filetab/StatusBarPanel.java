@@ -1,8 +1,6 @@
 package de.bund.zrb.ui.filetab;
 
-import de.bund.zrb.ui.filetab.event.RegexFilterChangedEvent;
-import de.bund.zrb.ui.filetab.event.SentenceTypeChangedEvent;
-import de.bund.zrb.ui.filetab.event.ShowComparePanelEvent;
+import de.bund.zrb.ui.filetab.event.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -117,5 +115,8 @@ public class StatusBarPanel extends JPanel {
         onRegexChanged(() -> dispatcher.publish(new RegexFilterChangedEvent(getGrepField().getText())));
 
         compareButton.addActionListener(e -> dispatcher.publish(new ShowComparePanelEvent()));
+
+        undoButton.addActionListener(e -> dispatcher.publish(new UndoRequestedEvent()));
+        redoButton.addActionListener(e -> dispatcher.publish(new RedoRequestedEvent()));
     }
 }
