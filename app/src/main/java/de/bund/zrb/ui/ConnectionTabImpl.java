@@ -35,11 +35,48 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         this.mainPanel = new JPanel(new BorderLayout());
 
         JPanel pathPanel = new JPanel(new BorderLayout());
+
+        // 🔄 Refresh-Button links
+        JButton refreshButton = new JButton("🔄");
+        refreshButton.setToolTipText("Aktuellen Pfad neu laden");
+        refreshButton.setMargin(new Insets(0, 0, 0, 0));
+        refreshButton.setFont(refreshButton.getFont().deriveFont(Font.PLAIN, 18f));
+        refreshButton.addActionListener(e -> loadDirectory(pathField.getText()));
+
+        // ⏴ Zurück-Button rechts
+        JButton backButton = new JButton("⏴");
+        backButton.setToolTipText("Zurück zum übergeordneten Verzeichnis");
+        backButton.setMargin(new Insets(0, 0, 0, 0));
+        backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
+        backButton.addActionListener(e -> {
+            try {
+                if (ftpManager.changeToParentDirectory()) {
+                    pathField.setText(ftpManager.getCurrentPath());
+                    updateFileList();
+                } else {
+                    JOptionPane.showMessageDialog(mainPanel, "Kein übergeordnetes Verzeichnis vorhanden.",
+                            "Hinweis", JOptionPane.INFORMATION_MESSAGE);
+                }
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Zurückwechseln:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        // Öffnen-Button rechts
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
+
+        // Rechte Buttongruppe (⏴ Öffnen)
+        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
+        rightButtons.add(backButton);
+        rightButtons.add(goButton);
+
+        // Panelaufbau
+        pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
-        pathPanel.add(goButton, BorderLayout.EAST);
+        pathPanel.add(rightButtons, BorderLayout.EAST);
 
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);

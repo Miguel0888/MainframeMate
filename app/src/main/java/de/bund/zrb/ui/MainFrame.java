@@ -321,8 +321,16 @@ public class MainFrame extends JFrame implements MainframeContext {
                     return tab;
                 }
             } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
+                if (ex.getMessage().contains("not found")) {
+                    // Datei existiert (noch) nicht → Polling-Tab öffnen
+                    tabManager.addTab(new JobPollingTab(ftpManager, tabManager, unquote(path), sentenceType));
+                    return null;
+                } else {
+                    // echter Fehler → anzeigen
+                    JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                    return null;
+                }
             }
         }
         return null; // Kein Tab geöffnet

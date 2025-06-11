@@ -162,11 +162,8 @@ public class TabbedPaneManager {
         FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType);
         addTab(fileTabImpl); // handled everything
         updateTooltipFor(fileTabImpl);
-        if( !toCompare) {
-            // ToDO
-
-        } else {
-            // TODO
+        if(toCompare) {
+            fileTabImpl.showComparePanel();
         }
         return fileTabImpl;
 
@@ -213,5 +210,17 @@ public class TabbedPaneManager {
 
     public MainframeContext getMainframeContext() {
         return mainframeContext;
+    }
+
+    public void replaceTab(FtpTab oldTab, FtpTab newTab) {
+        Component oldComponent = oldTab.getComponent();
+        int index = tabbedPane.indexOfComponent(oldComponent);
+        if (index >= 0) {
+            tabbedPane.setComponentAt(index, newTab.getComponent());
+            tabMap.remove(oldComponent);
+            tabMap.put(newTab.getComponent(), newTab);
+            updateTitleFor(newTab);
+            updateTooltipFor(newTab);
+        }
     }
 }

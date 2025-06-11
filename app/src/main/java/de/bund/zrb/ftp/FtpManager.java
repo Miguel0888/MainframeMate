@@ -195,6 +195,44 @@ public class FtpManager {
         }
     }
 
+    /**
+     * Öffnet eine Datei über ihren absoluten (vollqualifizierten) Namen – unabhängig vom aktuellen Verzeichnis.
+     * Beispiel: 'ABC88.J25'
+     *
+     * HINWEIS: Die Methode funktioniert wegen des Arbeitsverzeichnisses möglicherweise nicht wie erwartet!
+     */
+    public FtpFileBuffer openAbsolute(String quotedName) throws IOException {
+        if (!quotedName.startsWith("'")) {
+            throw new IllegalArgumentException("Quoted MVS-Dataset name erwartet, z. B. 'KKR097.J25'");
+        }
+
+        InputStream in = ftpClient.retrieveFileStream(quotedName);
+        if (in == null) {
+            throw new IOException("Konnte Datei nicht laden: " + quotedName + "\nAntwort: " + ftpClient.getReplyString());
+        }
+
+        FTPFile fileMeta = new FTPFile();
+        fileMeta.setName(quotedName);
+
+        FtpFileBuffer buffer = new FtpFileBuffer(
+                in,
+                padding,
+                getCharset(),
+                quotedName,
+                fileMeta,
+                true,
+                null,
+                mvsMode
+        );
+
+        in.close();
+        if (!ftpClient.completePendingCommand()) {
+            throw new IOException("FTP-Übertragung unvollständig: " + quotedName);
+        }
+
+        return buffer;
+    }
+
     public FtpFileBuffer open(String filename) throws IOException {
         if (isMvsMode()) {
             if(filename.contains(".")) {
@@ -374,4 +412,11 @@ public class FtpManager {
         }
     }
 
+    public boolean changeToParentDirectory() throws IOException {
+        return ftpClient.changeToParentDirectory();
+    }
+
+    public boolean changeWorkingDirectory(String currentPath) throws IOException {
+        return ftpClient.changeWorkingDirectory(currentPath);
+    }
 }
