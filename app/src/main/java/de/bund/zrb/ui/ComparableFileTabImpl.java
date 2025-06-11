@@ -78,15 +78,15 @@ public class ComparableFileTabImpl extends FileTabImpl {
         appendCheckBox.setToolTipText("Wenn aktiv, wird neuer Inhalt an den Vergleich angehängt.");
         appendCheckBox.addItemListener(e -> append = appendCheckBox.isSelected());
 
-        JButton closeButton = new JButton("X");
+        JButton closeButton = new JButton("\u274C"); // ❌
         closeButton.setToolTipText("Vergleich schließen");
-        closeButton.setForeground(Color.WHITE);
-        closeButton.setBackground(Color.RED);
-        closeButton.setFont(closeButton.getFont().deriveFont(Font.BOLD, 16f));
+        closeButton.setForeground(Color.RED); // rote Schrift
+        closeButton.setFont(closeButton.getFont().deriveFont(Font.BOLD, 18f));
         closeButton.setPreferredSize(new Dimension(28, 28));
         closeButton.setMargin(new Insets(0, 0, 0, 0));
-        closeButton.setFocusable(false);
-        closeButton.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
+        closeButton.setFocusPainted(true);
+        closeButton.setBorderPainted(true);
+        closeButton.setContentAreaFilled(true);
         closeButton.addActionListener(e -> hideComparePanel());
 
         rightButtons.add(appendCheckBox);

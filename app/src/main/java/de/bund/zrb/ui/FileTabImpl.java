@@ -222,8 +222,8 @@ public class FileTabImpl implements FileTab {
         JPanel rightPanel = createSentencePanel();
 
         // RegGrep-Suchleiste in der Mitte
-        JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 2));
-        JTextField grepField = new JTextField(30);
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        JTextField grepField = new JTextField();
         grepField.setToolTipText("Regulärer Ausdruck für Zeilenfilterung");
         grepField.setToolTipText(
                 "<html>" +
@@ -241,32 +241,18 @@ public class FileTabImpl implements FileTab {
                         "Alle Zeilen, die nicht passen, werden gefaltet." +
                         "</html>"
         );
-//        centerPanel.add(new JLabel("🔍 Grep:"));
-        centerPanel.add(grepField);
+        centerPanel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
+        centerPanel.add(grepField, BorderLayout.CENTER);
 
         grepField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                applyGrepFilter(grepField.getText());
-            }
+            private void applyFilter() {
+                String input = grepField.getText();
 
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                applyGrepFilter(grepField.getText());
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                applyGrepFilter(grepField.getText());
-            }
-
-            private void applyGrepFilter(String input) {
                 RegexFoldParser parser = new RegexFoldParser(input, hasMatch -> {
                     if (!hasMatch && !input.trim().isEmpty()) {
                         grepField.setBackground(new Color(255, 200, 200));
-                        if(soundEnabled)
-                        {
-                            Toolkit.getDefaultToolkit().beep(); // einfacher Standardsound
+                        if (soundEnabled) {
+                            Toolkit.getDefaultToolkit().beep();
                         }
                     } else {
                         grepField.setBackground(UIManager.getColor("TextField.background"));
@@ -277,7 +263,12 @@ public class FileTabImpl implements FileTab {
                 textArea.repaint();
                 onFilterApply(input);
             }
+
+            @Override public void insertUpdate(DocumentEvent e) { applyFilter(); }
+            @Override public void removeUpdate(DocumentEvent e) { applyFilter(); }
+            @Override public void changedUpdate(DocumentEvent e) { applyFilter(); }
         });
+
 
         textArea.getDocument().addUndoableEditListener(e -> updateUndoRedoState());
 
