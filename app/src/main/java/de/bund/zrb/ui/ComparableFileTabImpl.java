@@ -19,6 +19,8 @@ public class ComparableFileTabImpl extends FileTabImpl {
 
     private boolean compareVisible = false;
 
+    private boolean append = false;
+
     public ComparableFileTabImpl(TabbedPaneManager manager, FtpManager ftp, FtpFileBuffer buffer, String sentenceType) {
         super(manager, ftp, buffer, sentenceType);
         toggleCompare.setToolTipText(compareVisible ? "Vergleich mit dem Original beenden" : "Mit Serverinhalt vergleichen");
@@ -41,27 +43,52 @@ public class ComparableFileTabImpl extends FileTabImpl {
     }
 
     private void initCompareUI(FtpFileBuffer buffer) {
-        // Original laden (nur lesend)
         FileContentService service = new FileContentService(ftpManager);
         String originalText = service.decodeWith(buffer);
+        String originalPath = buffer != null ? buffer.getLink() : "[Unbekannter Pfad]";
 
-        initEditorSettings(originalArea, SettingsHelper.load()); // Anzeigeverhalten vom Hauptfenster übernehmen
+        initEditorSettings(originalArea, SettingsHelper.load());
         originalArea.setText(originalText);
-
         originalArea.setEditable(false);
         originalArea.setLineWrap(false);
 
+        // Scrollbereich
         RTextScrollPane scrollPane = new RTextScrollPane(originalArea);
         scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
 
-        comparePanel.add(scrollPane, BorderLayout.CENTER);
-        comparePanel.setVisible(false); // Anfangs ausgeblendet
+        // Statusleiste oben
+        JPanel statusBarTop = new JPanel(new BorderLayout());
+        JLabel infoLabel = new JLabel("Vergleich mit: " + originalPath);
+        infoLabel.setFont(infoLabel.getFont().deriveFont(Font.PLAIN, 12f));
 
-        toggleCompare.addActionListener(e -> {
-            onToggle();
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        JButton appendButton = new JButton("⬇ Übernehmen");
+        appendButton.setToolTipText("Änderungen an Original anhängen");
+        appendButton.addActionListener(e -> {
+            this.append = true;
+            onToggle(); // schließt den Vergleich
         });
 
+        JButton overwriteButton = new JButton("⬆ Überschreiben");
+        overwriteButton.setToolTipText("Original-Inhalt verwerfen (Standardverhalten)");
+        overwriteButton.addActionListener(e -> {
+            this.append = false;
+            onToggle(); // schließt den Vergleich
+        });
+
+        rightButtons.add(appendButton);
+        rightButtons.add(overwriteButton);
+
+        statusBarTop.add(infoLabel, BorderLayout.WEST);
+        statusBarTop.add(rightButtons, BorderLayout.EAST);
+
+        // Panel zusammensetzen
+        comparePanel.add(statusBarTop, BorderLayout.NORTH);
+        comparePanel.add(scrollPane, BorderLayout.CENTER);
+        comparePanel.setVisible(false);
+
+        toggleCompare.addActionListener(e -> onToggle());
         mainPanel.add(comparePanel, BorderLayout.NORTH);
     }
 
@@ -89,16 +116,8 @@ public class ComparableFileTabImpl extends FileTabImpl {
         originalArea.repaint();
     }
 
-
-//    @Override
-//    void onFilterApply(String input) {
-//        // Regex-Folding anwenden, um FoldIndicator-Spacing identisch zu halten
-////        RegexFoldParser parser = new RegexFoldParser(input, hasMatch -> {
-////            // Kein UI-Feedback für originalArea nötig
-////        });
-//        RegexFoldParser parser = new RegexFoldParser(".*", null); // Alle Zeilen sichtbar
-//        originalArea.getFoldManager().setFolds(parser.getFolds(originalArea));
-//        originalArea.repaint();
-//    }
+    public boolean isAppendEnabled() {
+        return append;
+    }
 
 }
