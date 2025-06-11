@@ -7,20 +7,29 @@ import java.util.function.Consumer;
 public class OriginalBarPanel extends JPanel {
 
     private final JLabel pathLabel = new JLabel();
-    private final JCheckBox appendCheckbox = new JCheckBox("An Datei anhängen");
-    private final JButton closeButton = new JButton("✖");
+    private final JCheckBox appendCheckbox = new JCheckBox("Anhängen");
+    private final JButton closeButton = new JButton("\u274C"); // ❌
 
     public OriginalBarPanel() {
         super(new BorderLayout(6, 2));
         setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
 
+        // Style Close-Button
+        closeButton.setToolTipText("Vergleich schließen");
+        closeButton.setForeground(Color.RED);
+        closeButton.setFont(closeButton.getFont().deriveFont(Font.BOLD, 18f));
+        closeButton.setPreferredSize(new Dimension(28, 28));
+        closeButton.setMargin(new Insets(0, 0, 0, 0));
+        closeButton.setFocusPainted(true);
+        closeButton.setBorderPainted(true);
+        closeButton.setContentAreaFilled(true);
+
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         leftPanel.add(new JLabel("Pfad: "));
         leftPanel.add(pathLabel);
 
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         rightPanel.add(appendCheckbox);
-        rightPanel.add(Box.createHorizontalStrut(10));
         rightPanel.add(closeButton);
 
         add(leftPanel, BorderLayout.WEST);

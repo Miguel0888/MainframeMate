@@ -118,7 +118,23 @@ public class FileTabImpl implements FileTab {
         dispatcher.subscribe(CloseComparePanelEvent.class, event -> {
             comparePanel.setVisible(false);
         });
+
+        dispatcher.subscribe(ShowComparePanelEvent.class, event -> {
+            showComparePanel();
+        });
+
+        dispatcher.subscribe(CloseComparePanelEvent.class, event -> {
+            comparePanel.setVisible(false);
+            statusBarPanel.getCompareButton().setVisible(true);
+        });
     }
+
+    private void showComparePanel() {
+        comparePanel.setVisible(true);
+        splitPane.setDividerLocation(0.7); // z. B. 70% oben, 30% unten
+        statusBarPanel.getCompareButton().setVisible(false);
+    }
+
 
     private SentenceTypeRegistry getRegistry() {
         return tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
