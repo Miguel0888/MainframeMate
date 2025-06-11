@@ -10,13 +10,14 @@ import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
+import java.awt.dnd.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.util.List;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -38,21 +39,17 @@ public class ActionToolbar extends JToolBar {
     private void rebuildButtons() {
         removeAll();
 
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        JPanel leftPanel = new ReorderablePanel(config);
         for (ToolbarButtonConfig btnCfg : config.buttons) {
             CommandRegistry.getById(btnCfg.id).ifPresent(cmd -> {
                 JButton btn = new JButton(btnCfg.icon);
-                btn.setMargin(new Insets(0, 0, 0, 0)); // optional
-//                btn.setBorder(BorderFactory.createEmptyBorder());
+                btn.setMargin(new Insets(0, 0, 0, 0));
                 btn.setToolTipText(cmd.getLabel());
                 btn.setPreferredSize(new Dimension(config.buttonSizePx, config.buttonSizePx));
 
                 int fontSize = (int) (config.buttonSizePx * config.fontSizeRatio);
                 btn.setFont(btn.getFont().deriveFont((float) fontSize));
-
-//                btn.setContentAreaFilled(false);
                 btn.setFocusPainted(false);
-//                btn.setBorder(BorderFactory.createLineBorder(Color.BLACK));
 
                 btn.addActionListener(e -> cmd.perform());
                 leftPanel.add(btn);
@@ -62,16 +59,13 @@ public class ActionToolbar extends JToolBar {
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
         JButton configBtn = new JButton("⚙");
         configBtn.setMargin(new Insets(0, 0, 0, 0));
-//        configBtn.setBorder(BorderFactory.createEmptyBorder());
         configBtn.setToolTipText("Toolbar anpassen");
         configBtn.setPreferredSize(new Dimension(config.buttonSizePx, config.buttonSizePx));
         configBtn.addActionListener(e -> openConfigDialog());
 
         int fontSize = (int) (config.buttonSizePx * config.fontSizeRatio);
         configBtn.setFont(configBtn.getFont().deriveFont((float) fontSize));
-//        configBtn.setContentAreaFilled(false);
         configBtn.setFocusPainted(false);
-//        configBtn.setBorder(BorderFactory.createLineBorder(Color.BLACK));
 
         rightPanel.add(configBtn);
 
@@ -179,50 +173,134 @@ public class ActionToolbar extends JToolBar {
     }
 
     private String[] getSimpleIconSuggestions() {
-        return new String[] {
-                // System & Dateien
-                "💾", "📁", "📂", "📄", "📃", "📜", "🗃", "🗄", "📇", "📑", "📋", "🗂", "📦", "📬", "📮", "📬", "📪", "📭",
+            return new String[] {
+                    // System & Dateien
+                    "💾", "📁", "📂", "📄", "📃", "📜", "🗃", "🗄", "📇", "📑", "📋", "🗂", "📦", "📬", "📮", "📬", "📪", "📭",
 
-                // Aktionen
-                "✔", "❌", "✖", "✅", "✳", "✴", "➕", "➖", "➗", "✂", "🔀", "🔁", "🔂", "🔄", "🔃", "🔽", "🔼", "⬅", "➡", "⬆", "⬇",
+                    // Aktionen
+                    "✔", "❌", "✖", "✅", "✳", "✴", "➕", "➖", "➗", "✂", "🔀", "🔁", "🔂", "🔄", "🔃", "🔽", "🔼", "⬅", "➡", "⬆", "⬇",
 
-                // Navigation
-                "🔙", "🔚", "🔛", "🔜", "🔝", "⬅", "➡", "⏮", "⏭", "⏫", "⏬", "⏪", "⏩",
+                    // Navigation
+                    "🔙", "🔚", "🔛", "🔜", "🔝", "⬅", "➡", "⏮", "⏭", "⏫", "⏬", "⏪", "⏩",
 
-                // Status / Anzeigen
-                "🆗", "🆕", "🆙", "🆒", "🆓", "🆖", "🈚", "🈶", "🈸", "🈺", "🈹", "🈯",
+                    // Status / Anzeigen
+                    "🆗", "🆕", "🆙", "🆒", "🆓", "🆖", "🈚", "🈶", "🈸", "🈺", "🈹", "🈯",
 
-                // Zeit
-                "⏰", "⏱", "⏲", "🕛", "🕧", "🕐", "🕜", "🕑", "🕝", "🕒", "🕞", "🕓", "🕟", "🕔", "🕠", "🕕", "🕡", "🕖", "🕢", "🕗", "🕣", "🕘", "🕤", "🕙", "🕥", "🕚", "🕦", "🕮",
+                    // Zeit
+                    "⏰", "⏱", "⏲", "🕛", "🕧", "🕐", "🕜", "🕑", "🕝", "🕒", "🕞", "🕓", "🕟", "🕔", "🕠", "🕕", "🕡", "🕖", "🕢", "🕗", "🕣", "🕘", "🕤", "🕙", "🕥", "🕚", "🕦", "🕮",
 
-                // Kommunikation
-                "📩", "📨", "📧", "📫", "📪", "📬", "📭", "📮", "✉", "🔔", "🔕", "📢", "📣", "📡",
+                    // Kommunikation
+                    "📩", "📨", "📧", "📫", "📪", "📬", "📭", "📮", "✉", "🔔", "🔕", "📢", "📣", "📡",
 
-                // Werkzeuge
-                "🔧", "🔨", "🪛", "🪚", "🛠", "🧰", "🔩", "⚙", "🧲", "🔗", "📎", "🖇",
+                    // Werkzeuge
+                    "🔧", "🔨", "🪛", "🪚", "🛠", "🧰", "🔩", "⚙", "🧲", "🔗", "📎", "🖇",
 
-                // Texteingabe / Bearbeitung
-                "📝", "✏", "✒", "🖊", "🖋", "🖌", "🔤", "🔡", "🔠", "🔣", "🔠",
+                    // Texteingabe / Bearbeitung
+                    "📝", "✏", "✒", "🖊", "🖋", "🖌", "🔤", "🔡", "🔠", "🔣", "🔠",
 
-                // Sonstiges Nützliches
-                "🔍", "🔎", "🔒", "🔓", "🔑", "🗝", "📌", "📍", "📏", "📐", "📊", "📈", "📉", "📅", "📆", "🗓", "📇", "🧾", "📖", "📚",
+                    // Sonstiges Nützliches
+                    "🔍", "🔎", "🔒", "🔓", "🔑", "🗝", "📌", "📍", "📏", "📐", "📊", "📈", "📉", "📅", "📆", "🗓", "📇", "🧾", "📖", "📚",
 
-                // Personen-/Datenkontext
-                "🧑", "👤", "👥", "🧠", "🦷", "🫀", "🫁",
+                    // Personen-/Datenkontext
+                    "🧑", "👤", "👥", "🧠", "🦷", "🫀", "🫁",
 
-                // Code / IT
-                "💻", "🖥", "🖨", "⌨", "🖱", "🖲", "💽", "💾", "💿", "📀", "🧮", "📡",
+                    // Code / IT
+                    "💻", "🖥", "🖨", "⌨", "🖱", "🖲", "💽", "💾", "💿", "📀", "🧮", "📡",
 
-                // Hilfe / Info / System
-                "ℹ", "❓", "❗", "‼", "⚠", "🚫", "🔞", "♻", "⚡", "🔥", "💡", "🔋", "🔌", "🧯",
+                    // Hilfe / Info / System
+                    "ℹ", "❓", "❗", "‼", "⚠", "🚫", "🔞", "♻", "⚡", "🔥", "💡", "🔋", "🔌", "🧯",
 
-                // Symbole / Stil
-                "🔘", "🔴", "🟢", "🟡", "🟠", "🔵", "🟣", "⚫", "⚪", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬛", "⬜",
+                    // Symbole / Stil
+                    "🔘", "🔴", "🟢", "🟡", "🟠", "🔵", "🟣", "⚫", "⚪", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "⬛", "⬜",
 
-                // Buchstaben-/Zahlenrahmen
-                "🅰", "🅱", "🆎", "🅾", "🔠", "🔢", "🔣", "🔤"
-        };
+                    // Buchstaben-/Zahlenrahmen
+                    "🅰", "🅱", "🆎", "🅾", "🔠", "🔢", "🔣", "🔤"
+            };
     }
 
+    /**
+     * Panel, das die Buttons enthält und Drag-and-Drop-Reihenfolgeänderung erlaubt.
+     */
+    private class ReorderablePanel extends JPanel {
+        public ReorderablePanel(ToolbarConfig config) {
+            super(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            setTransferHandler(new ButtonReorderHandler(config));
+            addMouseListener(new MouseAdapter() {
+                public void mousePressed(MouseEvent e) {
+                    Component c = getComponentAt(e.getPoint());
+                    if (c instanceof JButton) {
+                        getTransferHandler().exportAsDrag(ReorderablePanel.this, e, TransferHandler.MOVE);
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Handler zur Umsetzung von Drag & Drop für Buttons in der Toolbar
+     */
+    private class ButtonReorderHandler extends TransferHandler {
+        private final ToolbarConfig config;
+
+        public ButtonReorderHandler(ToolbarConfig config) {
+            this.config = config;
+        }
+
+        public int getSourceActions(JComponent c) {
+            return MOVE;
+        }
+
+        protected Transferable createTransferable(JComponent c) {
+            return new StringSelection(""); // Dummy für Swing DnD
+        }
+
+        public boolean canImport(TransferSupport support) {
+            return support.getComponent() instanceof JPanel;
+        }
+
+        public boolean importData(TransferSupport support) {
+            if (!canImport(support)) return false;
+
+            Point dropPoint = support.getDropLocation().getDropPoint();
+            JPanel panel = (JPanel) support.getComponent();
+            Component dragged = null;
+            for (Component c : panel.getComponents()) {
+                if (c.getBounds().contains(dropPoint)) {
+                    dragged = c;
+                    break;
+                }
+            }
+
+            if (dragged == null) return false;
+
+            int index = panel.getComponentZOrder(dragged);
+            if (index < 0) return false;
+
+            JButton dummy = new JButton();
+            dummy.setVisible(false);
+            panel.add(dummy, index);
+            panel.remove(dragged);
+            panel.add(dragged, index);
+
+            // Reihenfolge in config.buttons aktualisieren
+            List<ToolbarButtonConfig> reordered = new ArrayList<>();
+            for (Component comp : panel.getComponents()) {
+                if (comp instanceof JButton) {
+                    JButton btn = (JButton) comp;
+                    String icon = btn.getText();
+                    for (ToolbarButtonConfig b : config.buttons) {
+                        if (b.icon.equals(icon)) {
+                            reordered.add(b);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            config.buttons = reordered;
+            saveToolbarSettings();
+            return true;
+        }
+    }
 
 }
