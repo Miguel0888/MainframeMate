@@ -26,7 +26,7 @@ public class FileTabImpl implements FileTab {
     private final StatusBarPanel statusBarPanel = new StatusBarPanel();
 
     private final SentenceHighlighter highlighter = new SentenceHighlighter();
-    private final LegendRenderer legendRenderer = new LegendRenderer();
+    private final LegendController legendController;
     private final FilterCoordinator filterCoordinator;
 
     private final JSplitPane splitPane;
@@ -62,7 +62,8 @@ public class FileTabImpl implements FileTab {
         mainPanel.add(splitPane, BorderLayout.CENTER);
         mainPanel.add(statusBarPanel, BorderLayout.SOUTH);
 
-        // Filter Setup
+        legendController = new LegendController(statusBarPanel.getLegendWrapper());
+
         filterCoordinator = new FilterCoordinator(
                 editorPanel.getTextArea(),
                 comparePanel.getOriginalTextArea(),
@@ -70,18 +71,16 @@ public class FileTabImpl implements FileTab {
                 SettingsHelper.load().soundEnabled
         );
 
-        // Init Satztypen
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
         statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
         statusBarPanel.setSelectedSentenceType(initialType);
 
-        // Bind Events
         statusBarPanel.bindEvents(dispatcher);
         editorPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
 
         bindDispatcherEvents();
-        dispatcher.publish(new SentenceTypeChangedEvent(initialType)); // initial auslösen
+        dispatcher.publish(new SentenceTypeChangedEvent(initialType));
     }
 
     private void bindDispatcherEvents() {
@@ -94,10 +93,11 @@ public class FileTabImpl implements FileTab {
             int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
 
             highlighter.highlightFields(editorPanel.getTextArea(), def.getFields(), schemaLines);
-            statusBarPanel.getLegendWrapper().removeAll();
-            statusBarPanel.getLegendWrapper().add(legendRenderer.renderLegend(def, 0), BorderLayout.CENTER);
-            statusBarPanel.getLegendWrapper().revalidate();
-            statusBarPanel.getLegendWrapper().repaint();
+            legendController.setDefinition(def);
+        });
+
+        dispatcher.subscribe(CaretMovedEvent.class, event -> {
+            legendController.updateLegendForCaret(event.editorLine);
         });
 
         dispatcher.subscribe(RegexFilterChangedEvent.class, event -> {
@@ -117,24 +117,19 @@ public class FileTabImpl implements FileTab {
 
         dispatcher.subscribe(CloseComparePanelEvent.class, event -> {
             comparePanel.setVisible(false);
+            statusBarPanel.getCompareButton().setVisible(true);
         });
 
         dispatcher.subscribe(ShowComparePanelEvent.class, event -> {
             showComparePanel();
         });
-
-        dispatcher.subscribe(CloseComparePanelEvent.class, event -> {
-            comparePanel.setVisible(false);
-            statusBarPanel.getCompareButton().setVisible(true);
-        });
     }
 
     private void showComparePanel() {
         comparePanel.setVisible(true);
-        splitPane.setDividerLocation(0.7); // z. B. 70% oben, 30% unten
+        splitPane.setDividerLocation(0.7);
         statusBarPanel.getCompareButton().setVisible(false);
     }
-
 
     private SentenceTypeRegistry getRegistry() {
         return tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();

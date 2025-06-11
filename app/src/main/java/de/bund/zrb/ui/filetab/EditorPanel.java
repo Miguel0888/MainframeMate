@@ -2,6 +2,7 @@ package de.bund.zrb.ui.filetab;
 
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.filetab.event.CaretMovedEvent;
 import de.bund.zrb.ui.filetab.event.EditorContentChangedEvent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -30,6 +31,15 @@ public class EditorPanel extends JPanel {
         scrollPane.setFoldIndicatorEnabled(true);
 
         add(scrollPane, BorderLayout.CENTER);
+    }
+
+    private int getCaretLine() {
+        try {
+            int pos = textArea.getCaretPosition();
+            return textArea.getLineOfOffset(pos);
+        } catch (Exception ex) {
+            return 0;
+        }
     }
 
     private void initTextArea() {
@@ -81,6 +91,12 @@ public class EditorPanel extends JPanel {
         getTextArea().getDocument().addUndoableEditListener(e ->
                 dispatcher.publish(new EditorContentChangedEvent(true))
         );
+
+        getTextArea().addCaretListener(e -> {
+            int caretLine = getCaretLine();
+            dispatcher.publish(new CaretMovedEvent(caretLine));
+        });
+
     }
 
 }
