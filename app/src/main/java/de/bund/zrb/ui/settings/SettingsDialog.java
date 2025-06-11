@@ -69,6 +69,7 @@ public class SettingsDialog {
     private static JSpinner lockPre;
     private static JCheckBox enableLock;
     private static JCheckBox enableLockRetroStyle;
+    private static JCheckBox compareByDefaultBox;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -126,6 +127,12 @@ public class SettingsDialog {
         fontSizeCombo.setEditable(true);
         fontSizeCombo.setSelectedItem(settings.editorFontSize);
         generalContent.add(fontSizeCombo, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // JSON-Formatierungsoptionen
+        compareByDefaultBox = new JCheckBox("Vergleich automatisch einblenden");
+        compareByDefaultBox.setSelected(settings.compareByDefault);
+        generalContent.add(compareByDefaultBox, gbcGeneral);
         gbcGeneral.gridy++;
 
         // Marker-Linie (z. B. bei Spalte 80)
@@ -667,6 +674,7 @@ public class SettingsDialog {
                         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return null; }
                     })
                     .orElse(12);
+            settings.compareByDefault = compareByDefaultBox.isSelected();
             settings.lineEnding = LineEndingOption.normalizeInput(lineEndingBox.getSelectedItem());
             settings.removeFinalNewline = stripFinalNewlineBox.isSelected();
             settings.fileEndMarker = FileEndingOption.normalizeInput(endMarkerBox.getSelectedItem());

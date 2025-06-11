@@ -51,4 +51,5 @@ public class Settings {
 
     public HashMap<String, String> aiConfig = new HashMap<>();
     public String defaultWorkflow = "";
+    public boolean compareByDefault = false;
 }
