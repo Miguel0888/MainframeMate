@@ -118,6 +118,16 @@ public class FileTabImpl implements FileTab {
         statusBarPanel.getCompareButton().setVisible(false);
     }
 
+    public void toggleComparePanel() {
+        boolean show = !comparePanel.isVisible();
+        comparePanel.setVisible(show);
+
+        if (show) {
+            splitPane.setDividerLocation(0.7);
+            statusBarPanel.getCompareButton().setVisible(false);
+        }
+    }
+
     private SentenceTypeRegistry getRegistry() {
         return tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
     }
@@ -222,5 +232,11 @@ public class FileTabImpl implements FileTab {
     @Override
     public String getContent() {
         return editorPanel.getTextArea().getText();
+    }
+
+    @Override
+    public void focusSearchField() {
+        statusBarPanel.getGrepField().requestFocusInWindow();
+        statusBarPanel.getGrepField().selectAll();
     }
 }

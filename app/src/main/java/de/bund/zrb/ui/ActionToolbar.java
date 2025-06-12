@@ -2,7 +2,7 @@ package de.bund.zrb.ui;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import de.bund.zrb.ui.commands.CommandRegistryImpl;
+import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
 import de.bund.zrb.ui.dto.ToolbarButtonConfig;
 import de.bund.zrb.ui.dto.ToolbarConfig;
 import de.zrb.bund.api.MenuCommand;

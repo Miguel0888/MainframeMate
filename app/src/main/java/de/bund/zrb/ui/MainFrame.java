@@ -14,6 +14,11 @@ import de.bund.zrb.service.*;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.helper.BookmarkHelper;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
+import de.bund.zrb.ui.commands.config.MenuTreeBuilder;
+import de.bund.zrb.ui.commands.config.ShowShortcutConfigMenuCommand;
+import de.bund.zrb.ui.commands.sub.FocusSearchFieldCommand;
+import de.bund.zrb.ui.commands.sub.ShowComparePanelCommand;
 import de.bund.zrb.ui.lock.ApplicationLocker;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
@@ -73,6 +78,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         // Advanced
         CommandRegistryImpl.register(new BookmarkMenuCommand(this));
 
+        // Sub Commands
+        CommandRegistryImpl.register(new ShowComparePanelCommand(this));
+        CommandRegistryImpl.register(new FocusSearchFieldCommand(this));
     }
 
     @Override

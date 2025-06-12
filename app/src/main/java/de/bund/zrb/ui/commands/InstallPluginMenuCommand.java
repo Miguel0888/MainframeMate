@@ -1,7 +1,6 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.MenuCommand;
-import de.zrb.bund.api.SimpleMenuCommand;
+import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
 import java.io.File;
@@ -11,7 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 
-public class InstallPluginMenuCommand extends SimpleMenuCommand {
+public class InstallPluginMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {

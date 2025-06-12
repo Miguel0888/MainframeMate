@@ -1,9 +1,8 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.MenuCommand;
-import de.zrb.bund.api.SimpleMenuCommand;
+import de.zrb.bund.api.ShortcutMenuCommand;
 
-public class ExitMenuCommand extends SimpleMenuCommand {
+public class ExitMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {

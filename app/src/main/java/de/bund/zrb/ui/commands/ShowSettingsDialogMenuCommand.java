@@ -2,12 +2,11 @@ package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ui.settings.SettingsDialog;
-import de.zrb.bund.api.MenuCommand;
-import de.zrb.bund.api.SimpleMenuCommand;
+import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
 
-public class ShowSettingsDialogMenuCommand extends SimpleMenuCommand {
+public class ShowSettingsDialogMenuCommand extends ShortcutMenuCommand {
 
     private final JFrame parent;
 

@@ -1,4 +1,4 @@
-package de.bund.zrb.ui.commands;
+package de.bund.zrb.ui.commands.config;
 
 import javax.swing.*;
 import java.awt.event.KeyAdapter;
@@ -34,4 +34,10 @@ public class KeyStrokeField extends JTextField {
         if (ks == null) return "";
         return ks.toString().replace("pressed ", "");
     }
+
+    public void clear() {
+        setText("");
+        keyStroke = null;
+    }
+
 }

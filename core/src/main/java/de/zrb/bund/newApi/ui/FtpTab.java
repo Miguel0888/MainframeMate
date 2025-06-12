@@ -22,5 +22,7 @@ public interface FtpTab extends Bookmarkable {
         menu.add(closeItem);
         return menu;
     }
+
+    void focusSearchField();
 }
 

@@ -3,7 +3,7 @@ package de.zrb.bund.api;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class SimpleMenuCommand implements MenuCommand {
+public abstract class ShortcutMenuCommand implements MenuCommand {
 
     private final List<String> shortcut = new ArrayList<>();
 

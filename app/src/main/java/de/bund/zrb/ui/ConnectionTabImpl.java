@@ -16,6 +16,7 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
 
@@ -295,29 +296,40 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
     // Suchfeld ins UI einbauen
     private JPanel createFilterPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        searchField.setToolTipText("Zeilenfilter: Teilstring oder Regex, groß/klein ignoriert");
+        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
         panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
         panel.add(searchField, BorderLayout.CENTER);
 
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             private void filter() {
-                String query = searchField.getText().trim().toUpperCase();
+                String regex = searchField.getText().trim();
+
                 listModel.clear();
+
                 boolean hasMatch = false;
                 for (String file : currentDirectoryFiles) {
-                    if (file.toUpperCase().contains(query)) {
-                        listModel.addElement(file);
-                        hasMatch = true;
+                    try {
+                        if (Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(file).find()) {
+                            listModel.addElement(file);
+                            hasMatch = true;
+                        }
+                    } catch (Exception e) {
+                        // ungültiger Regex, keine Matches
+                        hasMatch = false;
+                        break;
                     }
                 }
-                searchField.setBackground(hasMatch || query.isEmpty()
+
+                searchField.setBackground(hasMatch || regex.isEmpty()
                         ? UIManager.getColor("TextField.background")
                         : new Color(255, 200, 200));
             }
+
             public void insertUpdate(DocumentEvent e) { filter(); }
             public void removeUpdate(DocumentEvent e) { filter(); }
             public void changedUpdate(DocumentEvent e) { filter(); }
         });
+        ;
         return panel;
     }
 
@@ -339,4 +351,9 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         });
     }
 
+    @Override
+    public void focusSearchField() {
+        searchField.requestFocusInWindow();
+        searchField.selectAll();
+    }
 }

@@ -150,6 +150,11 @@ public class JobPollingTab implements FtpTab {
     @Override
     public void saveIfApplicable() {}
 
+    @Override
+    public void focusSearchField() {
+        // dummy
+    }
+
     // Komponente mit animiertem rotierendem Pfeilkreis
     private static class AnimatedTimerCircle extends JComponent {
         private final JLabel centerLabel;

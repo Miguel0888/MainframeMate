@@ -1,4 +1,4 @@
-package de.bund.zrb.ui.commands;
+package de.bund.zrb.ui.commands.config;
 
 import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.newApi.CommandRegistry;

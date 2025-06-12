@@ -1,11 +1,10 @@
 package de.bund.zrb.excel.commands;
 
 import de.bund.zrb.excel.plugin.ExcelImport;
-import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.api.SimpleMenuCommand;
+import de.zrb.bund.api.ShortcutMenuCommand;
 
-public class ExcelImportMenuCommand extends SimpleMenuCommand {
+public class ExcelImportMenuCommand extends ShortcutMenuCommand {
 
     private final ExcelImport plugin;
     private final MainframeContext mainFrame;

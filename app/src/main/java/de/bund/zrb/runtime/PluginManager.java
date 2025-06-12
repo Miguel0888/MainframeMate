@@ -3,7 +3,7 @@ package de.bund.zrb.runtime;
 import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.commands.InstallPluginMenuCommand;
 import de.zrb.bund.api.MenuCommand;
-import de.bund.zrb.ui.commands.CommandRegistryImpl;
+import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;

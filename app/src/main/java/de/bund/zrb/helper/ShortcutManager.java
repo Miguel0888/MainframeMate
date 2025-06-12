@@ -2,7 +2,7 @@ package de.bund.zrb.helper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import de.bund.zrb.ui.commands.CommandRegistryImpl;
+import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
 import de.zrb.bund.api.MenuCommand;
 
 import javax.swing.*;
@@ -77,17 +77,14 @@ public class ShortcutManager {
     }
 
     public static void assignShortcut(String id, KeyStroke ks) {
-        if (ks == null) return;
-
-        String text = ks.toString().replace("pressed ", "").trim();
-        List<String> list = new ArrayList<>();
-        list.add(text);
-
-        shortcutMap.put(id, list);
-
-        // Setze Shortcut auch auf dem Command selbst
-        CommandRegistryImpl.getById(id).ifPresent(cmd -> cmd.setShortcut(list));
+        if (ks == null) {
+            shortcutMap.remove(id);
+            CommandRegistryImpl.getById(id).ifPresent(cmd -> cmd.setShortcut(Collections.emptyList()));
+        } else {
+            List<String> shortcut = Collections.singletonList(ks.toString());
+            shortcutMap.put(id, shortcut);
+            CommandRegistryImpl.getById(id).ifPresent(cmd -> cmd.setShortcut(shortcut));
+        }
     }
-
 
 }

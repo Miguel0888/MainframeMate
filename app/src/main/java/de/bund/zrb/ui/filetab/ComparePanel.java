@@ -77,5 +77,4 @@ public class ComparePanel extends JPanel {
         barPanel.setCloseAction(() -> dispatcher.publish(new CloseComparePanelEvent()));
         barPanel.onAppendChanged(append -> dispatcher.publish(new AppendChangedEvent(append)));
     }
-
 }

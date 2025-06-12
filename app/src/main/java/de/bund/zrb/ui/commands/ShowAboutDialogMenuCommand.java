@@ -1,11 +1,10 @@
 package de.bund.zrb.ui.commands;
 
-import de.zrb.bund.api.MenuCommand;
-import de.zrb.bund.api.SimpleMenuCommand;
+import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
 
-public class ShowAboutDialogMenuCommand extends SimpleMenuCommand {
+public class ShowAboutDialogMenuCommand extends ShortcutMenuCommand {
 
     private final JFrame parent;
 

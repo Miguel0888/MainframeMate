@@ -1,11 +1,10 @@
 package de.bund.zrb.excel.commands;
 
 import de.bund.zrb.excel.ui.ExcelImportSettingsDialog;
-import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.api.SimpleMenuCommand;
+import de.zrb.bund.api.ShortcutMenuCommand;
 
-public class ExcelSettingsMenuCommand extends SimpleMenuCommand {
+public class ExcelSettingsMenuCommand extends ShortcutMenuCommand {
 
     private final MainframeContext mainFrame;
 
