@@ -2,7 +2,7 @@ package de.bund.zrb.ui;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import de.bund.zrb.ui.commands.CommandRegistry;
+import de.bund.zrb.ui.commands.CommandRegistryImpl;
 import de.bund.zrb.ui.dto.ToolbarButtonConfig;
 import de.bund.zrb.ui.dto.ToolbarConfig;
 import de.zrb.bund.api.MenuCommand;
@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class ActionToolbar extends JToolBar {
 
@@ -40,7 +39,7 @@ public class ActionToolbar extends JToolBar {
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         for (ToolbarButtonConfig btnCfg : config.buttons) {
-            CommandRegistry.getById(btnCfg.id).ifPresent(cmd -> {
+            CommandRegistryImpl.getById(btnCfg.id).ifPresent(cmd -> {
                 JButton btn = new JButton(btnCfg.icon);
                 btn.setMargin(new Insets(0, 0, 0, 0)); // optional
 //                btn.setBorder(BorderFactory.createEmptyBorder());
@@ -84,7 +83,7 @@ public class ActionToolbar extends JToolBar {
     }
 
     private void openConfigDialog() {
-        List<MenuCommand> all = new ArrayList<>(CommandRegistry.getAll());
+        List<MenuCommand> all = new ArrayList<>(CommandRegistryImpl.getAll());
         Map<MenuCommand, JCheckBox> checkboxes = new LinkedHashMap<>();
         Map<MenuCommand, JComboBox<String>> iconSelectors = new LinkedHashMap<>();
 

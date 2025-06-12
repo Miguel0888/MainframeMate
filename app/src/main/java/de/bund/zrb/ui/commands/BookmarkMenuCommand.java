@@ -3,10 +3,11 @@ package de.bund.zrb.ui.commands;
 import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
+import de.zrb.bund.api.SimpleMenuCommand;
 
 import javax.swing.*;
 
-public class BookmarkMenuCommand implements MenuCommand {
+public class BookmarkMenuCommand extends SimpleMenuCommand {
 
     private final MainframeContext context;
 

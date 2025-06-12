@@ -15,7 +15,7 @@ public class MenuTreeBuilder {
         Node root = new Node();
 
         // Schritt 1: Baumstruktur aus Command-IDs aufbauen
-        for (MenuCommand menuCommand : CommandRegistry.getAll()) {
+        for (MenuCommand menuCommand : CommandRegistryImpl.getAll()) {
             insert(root, menuCommand.getId().split("\\."), menuCommand);
         }
 

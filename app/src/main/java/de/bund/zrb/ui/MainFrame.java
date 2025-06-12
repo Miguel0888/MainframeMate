@@ -2,6 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
+import de.bund.zrb.helper.ShortcutManager;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
@@ -9,10 +10,7 @@ import de.bund.zrb.runtime.ExpressionRegistryImpl;
 import de.bund.zrb.runtime.PluginManager;
 import de.bund.zrb.runtime.SentenceTypeRegistryImpl;
 import de.bund.zrb.runtime.ToolRegistryImpl;
-import de.bund.zrb.service.LlamaCppChatManager;
-import de.bund.zrb.service.LocalAiChatManager;
-import de.bund.zrb.service.McpServiceImpl;
-import de.bund.zrb.service.OllamaChatManager;
+import de.bund.zrb.service.*;
 import de.bund.zrb.ui.commands.*;
 import de.bund.zrb.helper.BookmarkHelper;
 import de.bund.zrb.helper.SettingsHelper;
@@ -56,11 +54,26 @@ public class MainFrame extends JFrame implements MainframeContext {
     private final ToolRegistry toolRegistry;
     private final McpService mcpService;
     private final WorkflowRunner workflowRunner;
-
-    public LeftDrawer getBookmarkDrawer() {
-        return leftDrawer;
-    }
     private DragAndDropImportHandler importHandler;
+
+    // Builds the menu
+    private void registerCoreCommands() {
+        CommandRegistryImpl.register(new SaveMenuCommand(tabManager));
+        CommandRegistryImpl.register(new SaveAndCloseMenuCommand(tabManager));
+        CommandRegistryImpl.register(new ConnectMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new ExitMenuCommand());
+        CommandRegistryImpl.register(new ShowSettingsDialogMenuCommand(this));
+        CommandRegistryImpl.register(new ShowSentenceDialogMenuCommand(this));
+        CommandRegistryImpl.register(new ShowExpressionEditorMenuCommand(this));
+        CommandRegistryImpl.register(new ShowToolDialogMenuCommand(this));
+        CommandRegistryImpl.register(new ShowFeatureDialogMenuCommand(this));
+        CommandRegistryImpl.register(new ShowAboutDialogMenuCommand(this));
+        CommandRegistryImpl.register(new ShowShortcutConfigMenuCommand(this));
+
+        // Advanced
+        CommandRegistryImpl.register(new BookmarkMenuCommand(this));
+
+    }
 
     @Override
     public Map<String, String> loadPluginSettings(String pluginKey) {
@@ -129,25 +142,6 @@ public class MainFrame extends JFrame implements MainframeContext {
                 return null; // DISABLED oder unbekannt
         }
     }
-
-
-    private void registerCoreCommands() {
-        CommandRegistry.register(new SaveMenuCommand(tabManager));
-        CommandRegistry.register(new SaveAndCloseMenuCommand(tabManager));
-        CommandRegistry.register(new ConnectMenuCommand(this, tabManager));
-        CommandRegistry.register(new ExitMenuCommand());
-        CommandRegistry.register(new ShowSettingsDialogMenuCommand(this));
-        CommandRegistry.register(new ShowSentenceDialogMenuCommand(this));
-        CommandRegistry.register(new ShowExpressionEditorMenuCommand(this));
-        CommandRegistry.register(new ShowToolDialogMenuCommand(this));
-        CommandRegistry.register(new ShowFeatureDialogMenuCommand(this));
-        CommandRegistry.register(new ShowAboutDialogMenuCommand(this));
-
-        // Advanced
-        CommandRegistry.register(new BookmarkMenuCommand(this));
-
-    }
-
 
     /**
      * Setze den Font auf "Segoe UI", wenn verfügbar.
@@ -221,6 +215,13 @@ public class MainFrame extends JFrame implements MainframeContext {
         add(withBookmarks, BorderLayout.CENTER);
 
         initDragAndDropImport();
+        intiShortcuts();
+
+    }
+
+    private void intiShortcuts() {
+        ShortcutManager.loadShortcuts();
+        ShortcutManager.registerGlobalShortcuts(getRootPane());
     }
 
     private Component initChatDrawer(Component content) {
@@ -401,6 +402,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         saveDrawerState(state);
 
         SettingsHelper.save(settings);
+        ShortcutManager.saveShortcuts();
     }
 
     private void saveWindowState(Map<String, String> state) {
@@ -462,5 +464,9 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public WorkflowRunner getWorkflowRunner() {
         return workflowRunner;
+    }
+
+    public LeftDrawer getBookmarkDrawer() {
+        return leftDrawer;
     }
 }

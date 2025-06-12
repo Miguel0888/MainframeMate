@@ -3,8 +3,9 @@ package de.bund.zrb.excel.commands;
 import de.bund.zrb.excel.ui.ExcelImportSettingsDialog;
 import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.api.MainframeContext;
+import de.zrb.bund.api.SimpleMenuCommand;
 
-public class ExcelSettingsMenuCommand implements MenuCommand {
+public class ExcelSettingsMenuCommand extends SimpleMenuCommand {
 
     private final MainframeContext mainFrame;
 

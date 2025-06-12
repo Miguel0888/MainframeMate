@@ -2,8 +2,9 @@ package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.MenuCommand;
+import de.zrb.bund.api.SimpleMenuCommand;
 
-public class SaveAndCloseMenuCommand implements MenuCommand {
+public class SaveAndCloseMenuCommand extends SimpleMenuCommand {
 
     private final TabbedPaneManager tabManager;
 

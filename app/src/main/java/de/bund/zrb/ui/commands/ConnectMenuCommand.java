@@ -6,11 +6,12 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.ConnectionTabImpl;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.MenuCommand;
+import de.zrb.bund.api.SimpleMenuCommand;
 
 import javax.swing.*;
 import java.io.IOException;
 
-public class ConnectMenuCommand implements MenuCommand {
+public class ConnectMenuCommand extends SimpleMenuCommand {
 
     private final JFrame parent;
     private final TabbedPaneManager tabManager;

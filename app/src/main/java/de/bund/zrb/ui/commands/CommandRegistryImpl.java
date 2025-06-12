@@ -1,10 +1,12 @@
 package de.bund.zrb.ui.commands;
 
 import de.zrb.bund.api.MenuCommand;
+import de.zrb.bund.newApi.CommandRegistry;
 
 import java.util.*;
 
-public class CommandRegistry {
+//ToDo: Change to singleton an pull members up into the interface
+public class CommandRegistryImpl implements CommandRegistry {
 
     private static final Map<String, MenuCommand> registry = new LinkedHashMap<>();
 
