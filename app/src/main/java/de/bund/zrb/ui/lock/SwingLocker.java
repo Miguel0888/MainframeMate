@@ -79,34 +79,41 @@ public class SwingLocker implements LockerUi {
 
     @Override
     public void lock(Predicate<char[]> passwordValidator) {
-        JPasswordField passField = new JPasswordField(20);
+        final JDialog lockDialog = new JDialog(parentFrame, "Sperre", true);
+        lockDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        lockDialog.setUndecorated(true);
 
-        JPanel panel = new JPanel(new GridLayout(0, 1));
-        panel.add(new JLabel("🔒 Zugriff gesperrt – Passwort eingeben:"));
-        panel.add(passField);
+        JLabel label = new JLabel("🔒 Zugriff gesperrt – Passwort eingeben:");
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
 
-        while (true) {
-            int result = JOptionPane.showConfirmDialog(
-                    parentFrame,
-                    panel,
-                    "Sperre",
-                    JOptionPane.OK_CANCEL_OPTION,
-                    JOptionPane.PLAIN_MESSAGE
-            );
+        final JPasswordField passField = new JPasswordField(20);
 
-            if (result != JOptionPane.OK_OPTION) {
-                break;
-            }
-
+        JButton unlock = new JButton("Entsperren");
+        unlock.setFont(new Font("Dialog", Font.PLAIN, 12));
+        unlock.addActionListener(e -> {
             char[] input = passField.getPassword();
-            boolean valid = passwordValidator.test(input);
-            Arrays.fill(input, '\0');
-
-            if (valid) {
-                break;
+            if (passwordValidator.test(input)) {
+                Arrays.fill(input, '\0');
+                lockDialog.dispose();
             } else {
+                Arrays.fill(input, '\0');
                 passField.setText("");
             }
-        }
+        });
+
+        // Enter auf Unlock mappen
+        lockDialog.getRootPane().setDefaultButton(unlock);
+
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(passField, BorderLayout.CENTER);
+        panel.add(unlock, BorderLayout.SOUTH);
+
+        lockDialog.setContentPane(panel);
+        lockDialog.pack();
+        lockDialog.setLocationRelativeTo(parentFrame);
+        lockDialog.setVisible(true);
     }
+
 }
