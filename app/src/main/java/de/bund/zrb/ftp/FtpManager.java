@@ -1,5 +1,6 @@
 package de.bund.zrb.ftp;
 
+import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.StringUtil;
 import org.apache.commons.net.ftp.*;
@@ -16,7 +17,7 @@ public class FtpManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Fields und Konstruktor
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
+    private final LoginManager loginManager;
     private static boolean wrongCredentials = false; // Flag to avoid multiple retry with wrong password
 
     private final FTPClient ftpClient = new FTPClient();
@@ -27,17 +28,26 @@ public class FtpManager {
     private boolean mvsMode = false;
 
     public FtpManager() {
+        this.loginManager = LoginManager.getInstance();
         Settings settings = SettingsHelper.load();
         this.ftpFileType = settings.ftpFileType == null ? null : SettingsHelper.load().ftpFileType.getCode();
         this.padding = this.ftpFileType == null || this.ftpFileType == FTP.ASCII_FILE_TYPE ? parseHexByte(settings.padding) : null;
     }
 
-
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Connect und Disconnect
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    public boolean connect(String host, String user, String password) throws IOException {
+    public boolean connect(String host, String user) throws IOException {
+        String password = loginManager.getPassword(host, user);
+        // ToDo: get host and user, too?
+        if (password == null) {
+            throw new IOException("Kein Passwort verfügbar");
+        }
+        return connectInternal(host, user, password);
+    }
+
+    private boolean connectInternal(String host, String user, String password) throws IOException {
         if(wrongCredentials) {
             throw new IOException("Login ist vorübergehend deaktiviert, damit die Kennung nicht gesperrt wird. Bitte die Zugangsdaten prüfen und die Anwendung anschließend neu starten!"); // don't try again, until restart to avoid user is getting blocked
         }

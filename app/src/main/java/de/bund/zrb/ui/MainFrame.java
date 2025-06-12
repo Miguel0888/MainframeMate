@@ -2,6 +2,8 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
+import de.bund.zrb.login.ConnectDialog;
+import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ExpressionRegistryImpl;
@@ -75,10 +77,9 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
     
     public MainFrame() {
+        LoginManager.getInstance().setCredentialsProvider(new ConnectDialog(this));
         locker = new ApplicationLocker(
-                this,                 // parent frame
-                "psw"     // ToDo: Set from LoginManager
-        );
+                this, LoginManager.getInstance());
         locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);
@@ -106,9 +107,6 @@ public class MainFrame extends JFrame implements MainframeContext {
         initUI();
 
         final FtpManager ftpManager = new FtpManager();
-        if (ConnectDialog.connectIfNeeded(this, ftpManager)) {
-            tabManager.addTab(new ConnectionTabImpl(ftpManager, tabManager));
-        }
     }
 
     private ChatManager getAiService() {
@@ -308,32 +306,41 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType) {
-        final FtpManager ftpManager = new FtpManager(); // ToDo: Use login manager here
-        if (ConnectDialog.show(this, ftpManager)) {
-            try {
-                FtpFileBuffer buffer = ftpManager.open(unquote(path));
-                if (buffer != null) {
-                    return tabManager.openFileTab(ftpManager, buffer, sentenceType, true);
-                } else {
-                    ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager);
-                    tabManager.addTab(tab);
-                    tab.loadDirectory(ftpManager.getCurrentPath());
-                    return tab;
-                }
-            } catch (IOException ex) {
-                if (ex.getMessage().contains("not found")) {
-                    // Datei existiert (noch) nicht → Polling-Tab öffnen
-                    tabManager.addTab(new JobPollingTab(ftpManager, tabManager, unquote(path), sentenceType));
-                    return null;
-                } else {
-                    // echter Fehler → anzeigen
-                    JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                            "Fehler", JOptionPane.ERROR_MESSAGE);
-                    return null;
-                }
+        final FtpManager ftpManager = new FtpManager();
+        Settings settings = SettingsHelper.load();
+
+        try {
+            ftpManager.connect(settings.host, settings.user);
+
+            FtpFileBuffer buffer = ftpManager.open(unquote(path));
+            if (buffer != null) {
+                return tabManager.openFileTab(ftpManager, buffer, sentenceType, true);
+            } else {
+                ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager);
+                tabManager.addTab(tab);
+                tab.loadDirectory(ftpManager.getCurrentPath());
+                return tab;
             }
+
+        } catch (IOException ex) {
+            String msg = ex.getMessage();
+
+            if ("Kein Passwort verfügbar".equals(msg)) {
+                // Benutzer hat abgebrochen → stillschweigend beenden
+                return null;
+            }
+
+            if (msg != null && msg.contains("not found")) {
+                // Datei existiert (noch) nicht → Polling-Tab öffnen
+                tabManager.addTab(new JobPollingTab(ftpManager, tabManager, unquote(path), sentenceType));
+                return null;
+            }
+
+            // echter Fehler
+            JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + msg,
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+            return null;
         }
-        return null; // Kein Tab geöffnet
     }
 
     @Override

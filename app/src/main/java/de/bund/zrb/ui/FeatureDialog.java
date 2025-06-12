@@ -10,7 +10,6 @@ public class FeatureDialog {
 
     public static void show(Component parent) {
         final FtpManager tempManager = new FtpManager();
-        if (!ConnectDialog.show(parent, tempManager)) return;
 
         String text = loadFeatures(tempManager);
         JTextArea area = new JTextArea(text);

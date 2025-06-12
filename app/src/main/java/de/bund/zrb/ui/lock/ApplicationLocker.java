@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.lock;
 
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 
 import javax.swing.*;
@@ -13,6 +14,9 @@ import java.util.Arrays;
 
 public class ApplicationLocker {
 
+    private final LoginManager loginManager;
+    private byte[] passwordHash = null;
+
     private volatile boolean locked = false;
     private volatile boolean warningActive = false;
 
@@ -20,19 +24,20 @@ public class ApplicationLocker {
     private final int timeoutMillis;
     private final int warningPhaseMillis;
     private boolean retroDesign;
-    private final byte[] passwordHash;
 
     private Timer inactivityTimer;
     private Timer countdownTimer;
     private JWindow countdownWindow;
 
-    public ApplicationLocker(JFrame parentFrame, String plainPassword) {
+
+    public ApplicationLocker(JFrame parentFrame, LoginManager loginManager) {
         this.parentFrame = parentFrame;
+        this.loginManager = loginManager;
+
         Settings settings = SettingsHelper.load();
         this.timeoutMillis = settings.lockDelay;
         this.warningPhaseMillis = settings.lockPrenotification;
         this.retroDesign = settings.lockRetro;
-        this.passwordHash = hashPassword(plainPassword);
     }
 
     public void start() {
@@ -48,6 +53,27 @@ public class ApplicationLocker {
         }, AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
     }
 
+    private boolean userNotLoggedIn() {
+        Settings settings = SettingsHelper.load();
+        String host = settings.host;
+        String user = settings.user;
+        return !loginManager.isLoggedIn(host, user);
+    }
+
+
+    private byte[] getPasswordHash() {
+        if (passwordHash == null) {
+            Settings settings = SettingsHelper.load();
+            String host = settings.host;
+            String user = settings.user;
+            String password = loginManager.getPassword(host, user);
+            if (password != null) {
+                passwordHash = hashPassword(password);
+            }
+        }
+        return passwordHash;
+    }
+
     private void resetAllTimers(boolean mayCancelCountdown) {
         if (inactivityTimer != null) {
             inactivityTimer.restart();
@@ -59,6 +85,7 @@ public class ApplicationLocker {
 
     private void startWarningCountdown() {
         if (locked || warningActive) return; // ← doppelte Vorwarnung verhindern
+        if(userNotLoggedIn()) return;
         warningActive = true;
         final int totalSeconds = warningPhaseMillis / 1000;
         final JLabel timerLabel = new JLabel(String.valueOf(totalSeconds), SwingConstants.CENTER);
@@ -108,6 +135,7 @@ public class ApplicationLocker {
 
     public void lock() {
         if (locked) return;
+        if(userNotLoggedIn()) return;
         locked = true;
         warningActive = false;
         final JDialog lockDialog = new JDialog(parentFrame, "Sperre", true);
@@ -270,7 +298,7 @@ public class ApplicationLocker {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] inputHash = digest.digest(new String(input).getBytes("UTF-8"));
-            return Arrays.equals(inputHash, passwordHash);
+        return Arrays.equals(inputHash, getPasswordHash());
         } catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
             return false;
         }
