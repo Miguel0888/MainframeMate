@@ -1,34 +1,33 @@
 package de.bund.zrb.ui.lock;
 
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.login.LoginCredentials;
+import de.bund.zrb.login.LoginCredentialsProvider;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.io.UnsupportedEncodingException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.util.function.Predicate;
 
-public class ApplicationLocker {
+public class ApplicationLocker implements LoginCredentialsProvider {
 
+    private final LockerUi lockerUi;
     private final LoginManager loginManager;
-    private byte[] passwordHash = null;
-
-    private volatile boolean locked = false;
-    private volatile boolean warningActive = false;
 
     private final JFrame parentFrame;
     private final int timeoutMillis;
     private final int warningPhaseMillis;
-    private boolean retroDesign;
 
     private Timer inactivityTimer;
     private Timer countdownTimer;
     private JWindow countdownWindow;
 
+    private LoginCredentials loginCredentials;
+
+    private volatile boolean locked = false;
+    private volatile boolean warningActive = false;
 
     public ApplicationLocker(JFrame parentFrame, LoginManager loginManager) {
         this.parentFrame = parentFrame;
@@ -37,56 +36,77 @@ public class ApplicationLocker {
         Settings settings = SettingsHelper.load();
         this.timeoutMillis = settings.lockDelay;
         this.warningPhaseMillis = settings.lockPrenotification;
-        this.retroDesign = settings.lockRetro;
+
+        this.lockerUi = settings.lockRetro
+                ? new RetroLocker(parentFrame, loginManager)
+                : new DefaultLocker(parentFrame, loginManager);
+    }
+
+    @Override
+    public LoginCredentials requestCredentials(String host, String user) {
+
+        if (isBlank(host) || isBlank(user)) {
+            loginCredentials = lockerUi.init();
+        } else {
+            loginCredentials = lockerUi.logOn(new LoginCredentials(host, user));
+        }
+
+        return loginCredentials;
     }
 
     public void start() {
-        if(!SettingsHelper.load().lockEnabled) return;
+        if (!SettingsHelper.load().lockEnabled) return;
+
         inactivityTimer = new Timer(timeoutMillis, e -> startWarningCountdown());
         inactivityTimer.setRepeats(false);
         inactivityTimer.start();
 
         Toolkit.getDefaultToolkit().addAWTEventListener(event -> {
             if (event instanceof InputEvent || event instanceof KeyEvent) {
-                resetAllTimers(true); // true = evtl. Countdown abbrechen
+                resetAllTimers(true);
             }
         }, AWTEvent.KEY_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
     }
 
-    private boolean userNotLoggedIn() {
-        Settings settings = SettingsHelper.load();
-        String host = settings.host;
-        String user = settings.user;
-        return !loginManager.isLoggedIn(host, user);
+    public void lock() {
+        if (locked || userNotLoggedIn()) return;
+
+        locked = true;
+        warningActive = false;
+        inactivityTimer.stop();
+
+        Predicate<char[]> validator = input -> loginManager.verifyPassword(
+                loginCredentials.getHost(),
+                loginCredentials.getUsername(),
+                new String(input)
+        );
+
+        lockerUi.lock(validator);
+        locked = false;
+        resetAllTimers(false);
     }
 
-
-    private byte[] getPasswordHash() {
-        if (passwordHash == null) {
-            Settings settings = SettingsHelper.load();
-            String host = settings.host;
-            String user = settings.user;
-            String password = loginManager.getPassword(host, user);
-            if (password != null) {
-                passwordHash = hashPassword(password);
-            }
-        }
-        return passwordHash;
+    private boolean userNotLoggedIn() {
+        Settings settings = SettingsHelper.load();
+        return !loginManager.isLoggedIn(settings.host, settings.user);
     }
 
     private void resetAllTimers(boolean mayCancelCountdown) {
-        if (inactivityTimer != null) {
-            inactivityTimer.restart();
-        }
-        if (mayCancelCountdown && countdownTimer != null) {
-            cancelCountdown("Sperre abgebrochen durch Benutzeraktion.");
-        }
+        if (inactivityTimer != null) inactivityTimer.restart();
+        if (mayCancelCountdown && countdownTimer != null) cancelCountdown();
+    }
+
+    private void cancelCountdown() {
+        if (countdownTimer != null) countdownTimer.stop();
+        if (countdownWindow != null) countdownWindow.dispose();
+        warningActive = false;
     }
 
     private void startWarningCountdown() {
-        if (locked || warningActive) return; // ← doppelte Vorwarnung verhindern
-        if(userNotLoggedIn()) return;
+        if (locked || warningActive || userNotLoggedIn()) return;
+
         warningActive = true;
+
         final int totalSeconds = warningPhaseMillis / 1000;
         final JLabel timerLabel = new JLabel(String.valueOf(totalSeconds), SwingConstants.CENTER);
         timerLabel.setFont(new Font("Arial", Font.BOLD, 48));
@@ -97,7 +117,7 @@ public class ApplicationLocker {
         circle.setPreferredSize(new Dimension(diameter + 40, diameter + 40));
 
         countdownWindow = new JWindow(parentFrame);
-        countdownWindow.setBackground(new Color(0, 0, 0, 0)); // transparenter Hintergrund
+        countdownWindow.setBackground(new Color(0, 0, 0, 0));
         countdownWindow.getContentPane().add(circle);
         countdownWindow.pack();
         countdownWindow.setLocationRelativeTo(parentFrame);
@@ -120,187 +140,11 @@ public class ApplicationLocker {
                 }
             }
         });
+
         countdownTimer.start();
     }
 
-    private void cancelCountdown(String message) {
-        if (countdownTimer != null) {
-            countdownTimer.stop();
-        }
-        if (countdownWindow != null) {
-            countdownWindow.dispose();
-        }
-        warningActive = false; // ← zurücksetzen
-    }
-
-    public void lock() {
-        if (locked) return;
-        if(userNotLoggedIn()) return;
-        locked = true;
-        warningActive = false;
-        final JDialog lockDialog = new JDialog(parentFrame, "Sperre", true);
-        lockDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-        lockDialog.setUndecorated(true);
-
-        if (retroDesign) {
-            retroLocker(lockDialog);
-        } else {
-            modernLocker(lockDialog);
-        }
-        inactivityTimer.stop();
-    }
-
-    private void modernLocker(JDialog lockDialog) {
-        // Modernes Design (wie gehabt)
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        panel.setBackground(Color.BLACK);
-
-        JLabel label = new JLabel("🔒 Zugriff gesperrt – Passwort eingeben:");
-        label.setForeground(Color.WHITE);
-        label.setHorizontalAlignment(SwingConstants.CENTER);
-        label.setFont(label.getFont().deriveFont(Font.BOLD, 14f));
-
-        final JPasswordField passField = new JPasswordField(20);
-        passField.setPreferredSize(new Dimension(200, 24));
-        passField.setFont(passField.getFont().deriveFont(Font.PLAIN, 16f));
-        passField.setForeground(Color.WHITE);
-        passField.setBackground(Color.DARK_GRAY);
-        passField.setCaretColor(Color.WHITE);
-        passField.setBorder(BorderFactory.createLineBorder(Color.ORANGE, 2, true));
-
-        JButton unlock = new JButton("Entsperren");
-        unlock.setFocusPainted(false);
-
-        unlock.addActionListener(e -> {
-            char[] input = passField.getPassword();
-            if (verifyPassword(input)) {
-                Arrays.fill(input, '\0');
-                lockDialog.dispose();
-                locked = false;
-                inactivityTimer.start();
-                resetAllTimers(false);
-            } else {
-                passField.setText("");
-            }
-        });
-
-        lockDialog.getRootPane().setDefaultButton(unlock);
-
-        JPanel centerPanel = new JPanel(new BorderLayout(10, 10));
-        centerPanel.setBackground(Color.BLACK);
-        centerPanel.add(label, BorderLayout.NORTH);
-        centerPanel.add(passField, BorderLayout.CENTER);
-        centerPanel.add(unlock, BorderLayout.SOUTH);
-
-        panel.add(centerPanel, BorderLayout.CENTER);
-        lockDialog.setContentPane(panel);
-        lockDialog.setSize(360, 160);
-        lockDialog.setLocationRelativeTo(parentFrame);
-        lockDialog.setVisible(true);
-    }
-
-    private void retroLocker(JDialog lockDialog) {
-        // Container mit OverlayLayout
-        JPanel overlayPanel = new JPanel();
-        overlayPanel.setLayout(new OverlayLayout(overlayPanel));
-        overlayPanel.setBackground(Color.BLACK);
-
-        // ASCII-Art-Hintergrund
-        JTextArea asciiBackground = new JTextArea();
-        asciiBackground.setEditable(false);
-        asciiBackground.setFocusable(false);
-        asciiBackground.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        asciiBackground.setForeground(Color.GREEN);
-        asciiBackground.setBackground(Color.BLACK);
-        asciiBackground.setText(
-                        "╔═══════════════════════╗\n" +
-                        "║   Zugang gesperrt!                     ║\n" +
-                        "║   Passwort eingeben:                   ║\n" +
-                        "║                                        ║\n" +
-                        "║                                        ║\n" +
-                        "║                                        ║\n" +
-                        "║                                        ║\n" +
-                        "╚═══════════════════════╝"
-        );
-        asciiBackground.setAlignmentX(0.5f);
-        asciiBackground.setAlignmentY(0.5f);
-
-        // Zentrum mit Passwort und Button
-        JPanel inputPanel = new JPanel();
-        inputPanel.setOpaque(false);
-        inputPanel.setLayout(new BoxLayout(inputPanel, BoxLayout.Y_AXIS));
-        inputPanel.setAlignmentX(0.5f);
-        inputPanel.setAlignmentY(0.5f);
-
-        final JPasswordField passField = new JPasswordField(20);
-        passField.setMaximumSize(new Dimension(200, 24));
-        passField.setFont(new Font("Monospaced", Font.BOLD, 14));
-        passField.setForeground(Color.GREEN);
-        passField.setBackground(Color.BLACK);
-        passField.setCaretColor(Color.GREEN);
-        passField.setBorder(BorderFactory.createLineBorder(Color.GREEN));
-
-        JButton unlock = new JButton("ENTSPERR");
-        unlock.setBackground(Color.BLACK);
-        unlock.setForeground(Color.GREEN);
-        unlock.setFocusPainted(false);
-        unlock.setFont(new Font("Monospaced", Font.BOLD, 12));
-        unlock.setAlignmentX(Component.CENTER_ALIGNMENT);
-
-        unlock.addActionListener(e -> {
-            char[] input = passField.getPassword();
-            if (verifyPassword(input)) {
-                Arrays.fill(input, '\0');
-                lockDialog.dispose();
-                locked = false;
-                inactivityTimer.start();
-                resetAllTimers(false);
-            } else {
-                passField.setText("");
-            }
-        });
-
-        lockDialog.getRootPane().setDefaultButton(unlock);
-
-        inputPanel.add(Box.createVerticalStrut(20));
-        inputPanel.add(passField);
-        inputPanel.add(Box.createVerticalStrut(10));
-        inputPanel.add(unlock);
-
-        // Baue die Schichten im Overlay
-        overlayPanel.add(inputPanel);
-        overlayPanel.add(asciiBackground);
-
-        // Rahmen um alles
-        JPanel wrapper = new JPanel(new BorderLayout());
-        wrapper.setBackground(Color.BLACK);
-        wrapper.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        wrapper.add(overlayPanel, BorderLayout.CENTER);
-
-        lockDialog.setContentPane(wrapper);
-        lockDialog.setSize(370, 185);
-        lockDialog.setLocationRelativeTo(parentFrame);
-        lockDialog.setVisible(true);
-    }
-
-
-    private byte[] hashPassword(String password) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return digest.digest(password.getBytes("UTF-8"));
-        } catch (Exception e) {
-            throw new RuntimeException("Fehler beim Hashen des Passworts", e);
-        }
-    }
-
-    private boolean verifyPassword(char[] input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] inputHash = digest.digest(new String(input).getBytes("UTF-8"));
-        return Arrays.equals(inputHash, getPasswordHash());
-        } catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
-            return false;
-        }
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }

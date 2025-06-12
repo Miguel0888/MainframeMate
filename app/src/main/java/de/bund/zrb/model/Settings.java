@@ -11,8 +11,8 @@ public class Settings {
     public String host;
     public String user;
     public String encryptedPassword;
+    public boolean autoConnect = true;
     public boolean savePassword = false;
-    public boolean autoConnect = false;
 
     @Deprecated // können entfernt, werden da sie in eine seperate JSON ausgelagert wurden
     public Map<String, String> bookmarks = new HashMap<>(); // Pfad → Name

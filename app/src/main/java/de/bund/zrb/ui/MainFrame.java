@@ -2,7 +2,6 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
-import de.bund.zrb.login.ConnectDialog;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
@@ -77,9 +76,8 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
     
     public MainFrame() {
-        LoginManager.getInstance().setCredentialsProvider(new ConnectDialog(this));
-        locker = new ApplicationLocker(
-                this, LoginManager.getInstance());
+        locker = new ApplicationLocker(this, LoginManager.getInstance());
+        LoginManager.getInstance().setCredentialsProvider(locker); // ← locker übernimmt Login
         locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);
