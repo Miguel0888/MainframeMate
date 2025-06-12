@@ -70,6 +70,14 @@ public class LoginManager {
                 String newKey = credentials.getHost() + "|" + credentials.getUsername();
                 encryptedPasswordCache.put(newKey, encrypted);
             }
+            if (settings.savePassword) {
+                settings.encryptedPassword = WindowsCryptoUtil.encrypt(credentials.getPassword());
+            } else {
+                settings.encryptedPassword = null; // overwrites existing, if function was disabled
+            }
+            settings.host = credentials.getHost();
+            settings.user = credentials.getUsername();
+            SettingsHelper.save(settings);
             return credentials.getPassword();
         }
 

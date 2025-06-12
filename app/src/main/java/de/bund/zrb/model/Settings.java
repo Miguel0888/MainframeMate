@@ -19,7 +19,6 @@ public class Settings {
     public Map<String, String> applicationState = new HashMap<>(); // Zustände wie Seitenleiste ein oder aus
 
     public String encoding = "ISO-8859-1"; // Standardwert
-    public boolean hideLoginDialog = false;
     public boolean soundEnabled = true;
     public int importDelay = 3;
     public List<String> supportedFiles = Arrays.asList( ".xls", ".xlsx", ".xlsm");

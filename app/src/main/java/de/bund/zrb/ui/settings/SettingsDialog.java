@@ -30,7 +30,7 @@ public class SettingsDialog {
     private static JComboBox<FtpFileType> typeBox;
     private static JButton openFolderButton;
     private static JCheckBox autoConnectBox;
-    private static JCheckBox hideLoginBox;
+    private static JCheckBox savePasswordBox;
     private static JCheckBox enableSound;
     private static JSpinner marginSpinner;
     private static JComboBox<String> paddingBox;
@@ -147,16 +147,16 @@ public class SettingsDialog {
         gbcGeneral.gridy++;
         gbcGeneral.gridwidth = 1;
 
-        // Login-Dialog unterdrücken
-        hideLoginBox = new JCheckBox("Login-Fenster verbergen (wenn Passwort gespeichert)");
-        hideLoginBox.setSelected(settings.hideLoginDialog);
-        generalContent.add(hideLoginBox, gbcGeneral);
-        gbcGeneral.gridy++;
-
         // Login beim Start (new Session), falls Bookmarks nicht verwendet werden
-        autoConnectBox = new JCheckBox("Automatisch verbinden (beim Start)");
+        autoConnectBox = new JCheckBox("Passwort nur einmal eingeben");
         autoConnectBox.setSelected(settings.autoConnect);
         generalContent.add(autoConnectBox, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Login-Dialog unterdrücken
+        savePasswordBox = new JCheckBox("Passwort verschlüsselt speichern");
+        savePasswordBox.setSelected(settings.savePassword);
+        generalContent.add(savePasswordBox, gbcGeneral);
         gbcGeneral.gridy++;
 
         // Sounds abspielen
@@ -680,8 +680,8 @@ public class SettingsDialog {
             settings.fileEndMarker = FileEndingOption.normalizeInput(endMarkerBox.getSelectedItem());
             settings.padding = PaddingOption.normalizeInput(paddingBox.getSelectedItem());
             settings.marginColumn = (Integer) marginSpinner.getValue();
-            settings.hideLoginDialog = hideLoginBox.isSelected();
             settings.soundEnabled = enableSound.isSelected();
+            settings.savePassword = savePasswordBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
             settings.ftpFileType = ComboBoxHelper.getSelectedEnumValue(typeBox, FtpFileType.class);
             settings.ftpTextFormat = ComboBoxHelper.getSelectedEnumValue(formatBox, FtpTextFormat.class);
