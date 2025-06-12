@@ -263,6 +263,27 @@ public class BookmarkHelper implements BookmarkManager {
         return null;
     }
 
+    public static void changeBookmarkPath(String oldPath, String newPath) {
+        List<BookmarkEntry> bookmarks = loadBookmarks();
+        if (changePathRecursively(bookmarks, oldPath, newPath)) {
+            saveBookmarks(bookmarks);
+        }
+    }
+
+    private static boolean changePathRecursively(List<BookmarkEntry> entries, String oldPath, String newPath) {
+        for (BookmarkEntry entry : entries) {
+            if (!entry.folder && oldPath.equals(entry.path)) {
+                entry.path = newPath;
+                return true;
+            } else if (entry.folder && entry.children != null) {
+                if (changePathRecursively(entry.children, oldPath, newPath)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @Override
     public void addBookmark(String label, String path) {
         BookmarkEntry entry = new BookmarkEntry();

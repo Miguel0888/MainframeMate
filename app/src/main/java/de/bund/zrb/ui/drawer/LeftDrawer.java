@@ -145,6 +145,18 @@ public class LeftDrawer extends JPanel {
             menu.add(deleteItem);
         }
 
+        if (!entry.folder) {
+            JMenuItem changePathItem = new JMenuItem("🛤 Pfad ändern");
+            changePathItem.addActionListener(ev -> {
+                String newPath = JOptionPane.showInputDialog(invoker, "Neuer Pfad:", entry.path);
+                if (newPath != null && !newPath.trim().isEmpty()) {
+                    BookmarkHelper.changeBookmarkPath(entry.path, newPath.trim());
+                    refreshBookmarks();
+                }
+            });
+            menu.add(changePathItem);
+        }
+
         menu.show(invoker, x, y);
     }
 
