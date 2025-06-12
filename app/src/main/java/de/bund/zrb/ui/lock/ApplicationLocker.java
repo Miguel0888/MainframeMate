@@ -76,11 +76,21 @@ public class ApplicationLocker implements LoginCredentialsProvider {
         warningActive = false;
         inactivityTimer.stop();
 
-        Predicate<char[]> validator = input -> loginManager.verifyPassword(
-                loginCredentials.getHost(),
-                loginCredentials.getUsername(),
-                new String(input)
-        );
+        Predicate<char[]> validator = input -> {
+            if (loginCredentials == null) {
+                loginCredentials = new LoginCredentials(
+                        SettingsHelper.load().host,
+                        SettingsHelper.load().user,
+                        loginManager.getPassword(SettingsHelper.load().host, SettingsHelper.load().user)
+                );
+            }
+
+            return loginManager.verifyPassword(
+                    loginCredentials.getHost(),
+                    loginCredentials.getUsername(),
+                    new String(input)
+            );
+        };
 
         lockerUi.lock(validator);
         locked = false;

@@ -32,8 +32,19 @@ public class LoginManager {
         if (!SettingsHelper.load().autoConnect) {
             return false;
         }
+
         String key = host + "|" + username;
-        return encryptedPasswordCache.containsKey(key);
+
+        if (encryptedPasswordCache.containsKey(key)) {
+            return true;
+        }
+
+        Settings settings = SettingsHelper.load();
+
+        return settings.savePassword
+                && host != null && host.equals(settings.host)
+                && username != null && username.equals(settings.user)
+                && settings.encryptedPassword != null;
     }
 
     public String getPassword(String host, String username) {
