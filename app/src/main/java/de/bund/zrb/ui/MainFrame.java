@@ -4,6 +4,7 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.helper.ShortcutManager;
 import de.bund.zrb.login.LoginManager;
+import de.bund.zrb.mcp.OpenFileTool;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ExpressionRegistryImpl;
@@ -83,6 +84,11 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistryImpl.register(new FocusSearchFieldCommand(this));
     }
 
+    // MCP Tools
+    private void registerTools() {
+        toolRegistry.registerTool(new OpenFileTool(this));
+    }
+
     @Override
     public Map<String, String> loadPluginSettings(String pluginKey) {
         Settings settings = SettingsHelper.load();
@@ -124,8 +130,6 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         restoreWindowState();
         initUI();
-
-        final FtpManager ftpManager = new FtpManager();
     }
 
     private ChatManager getAiService() {
@@ -224,6 +228,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         initDragAndDropImport();
         intiShortcuts();
+        registerTools();
 
     }
 
