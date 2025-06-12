@@ -6,7 +6,7 @@ import java.awt.*;
 
 public enum LockerStyle {
 
-    CLASSIC("🧳 Klassisch – dezentes Swing-Design") {
+    CLASSIC("- Klassisch – dezentes Swing-Design") {
         @Override
         public LockerUi createUi(Frame parent, LoginManager manager) {
             return new SwingLocker(parent, manager);

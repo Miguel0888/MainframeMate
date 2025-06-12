@@ -4,12 +4,16 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.WindowsCryptoUtil;
 
+import javax.swing.*;
+import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
 
 public class LoginManager {
 
     private static final LoginManager INSTANCE = new LoginManager();
+
+    private boolean loginTemporarilyBlocked = false;
 
     private final Map<String, String> encryptedPasswordCache = new HashMap<String, String>();
     private LoginCredentialsProvider credentialsProvider;
@@ -98,5 +102,50 @@ public class LoginManager {
         return expected.equals(plainPassword);
     }
 
+    public boolean isLoginBlocked() {
+        return loginTemporarilyBlocked;
+    }
+
+    public void blockLoginTemporarily() {
+        this.loginTemporarilyBlocked = true;
+    }
+
+    public boolean showBlockedLoginDialog() {
+        JCheckBox confirmBox = new JCheckBox("Ich habe verstanden, dass eine Kontosperrung möglich ist.");
+        confirmBox.setBackground(Color.WHITE);
+
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        panel.add(new JLabel("<html><b>⚠ Achtung:</b><br>Mehrere fehlerhafte Logins können zur Sperrung Ihrer Kennung führen.<br><br>Wollen Sie es trotzdem noch einmal versuchen?</html>"), BorderLayout.NORTH);
+        panel.add(confirmBox, BorderLayout.CENTER);
+
+        JButton okButton = new JButton("OK");
+        JButton cancelButton = new JButton("Abbrechen");
+
+        final JOptionPane optionPane = new JOptionPane(panel, JOptionPane.WARNING_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new Object[]{cancelButton, okButton}, cancelButton);
+        JDialog dialog = optionPane.createDialog(null, "Login blockiert");
+
+        okButton.addActionListener(e -> {
+            if (confirmBox.isSelected()) {
+                optionPane.setValue(okButton);
+                dialog.dispose();
+            } else {
+                JOptionPane.showMessageDialog(dialog, "Bitte bestätigen Sie den Hinweis durch Setzen des Hakens.", "Hinweis fehlt", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+
+        cancelButton.addActionListener(e -> {
+            optionPane.setValue(cancelButton);
+            dialog.dispose();
+        });
+
+        dialog.setVisible(true);
+        return optionPane.getValue() == okButton;
+    }
+
+    public void resetLoginBlock() {
+        this.loginTemporarilyBlocked = false;
+    }
 }
 

@@ -20,13 +20,154 @@ public class RetroLocker implements LockerUi {
 
     @Override
     public LoginCredentials init() {
-        // Asks for HOST & USER
-        return new LoginCredentials(null, null, null); // TODO
+        final JDialog dialog = new JDialog(parentFrame, "Anmeldung erforderlich", true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setUndecorated(true);
+
+        JTextField hostField = new JTextField(20);
+        JTextField userField = new JTextField(20);
+        JPasswordField passField = new JPasswordField(20);
+
+        Font mono = new Font("Monospaced", Font.PLAIN, 14);
+        hostField.setFont(mono);
+        userField.setFont(mono);
+        passField.setFont(mono);
+
+        hostField.setBackground(Color.BLACK);
+        userField.setBackground(Color.BLACK);
+        passField.setBackground(Color.BLACK);
+
+        hostField.setForeground(Color.GREEN);
+        userField.setForeground(Color.GREEN);
+        passField.setForeground(Color.GREEN);
+
+        hostField.setCaretColor(Color.GREEN);
+        userField.setCaretColor(Color.GREEN);
+        passField.setCaretColor(Color.GREEN);
+
+        JPanel inputPanel = new JPanel();
+        inputPanel.setOpaque(false);
+        inputPanel.setLayout(new BoxLayout(inputPanel, BoxLayout.Y_AXIS));
+        inputPanel.add(Box.createVerticalStrut(10));
+        inputPanel.add(new JLabel("HOST:")).setForeground(Color.GREEN);
+        inputPanel.add(hostField);
+        inputPanel.add(Box.createVerticalStrut(5));
+        inputPanel.add(new JLabel("BENUTZER:")).setForeground(Color.GREEN);
+        inputPanel.add(userField);
+        inputPanel.add(Box.createVerticalStrut(5));
+        inputPanel.add(new JLabel("PASSWORT:")).setForeground(Color.GREEN);
+        inputPanel.add(passField);
+
+        JButton ok = new JButton("OK");
+        JButton cancel = new JButton("ABBRUCH");
+
+        ok.setFont(mono);
+        cancel.setFont(mono);
+        ok.setBackground(Color.BLACK);
+        cancel.setBackground(Color.BLACK);
+        ok.setForeground(Color.GREEN);
+        cancel.setForeground(Color.GREEN);
+        ok.setFocusPainted(false);
+        cancel.setFocusPainted(false);
+
+        final boolean[] confirmed = {false};
+
+        ok.addActionListener(e -> {
+            confirmed[0] = true;
+            dialog.dispose();
+        });
+        cancel.addActionListener(e -> dialog.dispose());
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setOpaque(false);
+        buttonPanel.add(cancel);
+        buttonPanel.add(ok);
+
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setBackground(Color.BLACK);
+        wrapper.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        wrapper.add(inputPanel, BorderLayout.CENTER);
+        wrapper.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.setContentPane(wrapper);
+        dialog.pack();
+        dialog.setLocationRelativeTo(parentFrame);
+        dialog.getRootPane().setDefaultButton(ok);
+        dialog.setVisible(true);
+
+        if (!confirmed[0]) return null;
+
+        return new LoginCredentials(
+                hostField.getText().trim(),
+                userField.getText().trim(),
+                new String(passField.getPassword())
+        );
     }
 
     @Override
     public LoginCredentials logOn(LoginCredentials loginCredentials) {
-        return new LoginCredentials(null, null, null); // TODO
+        final JDialog dialog = new JDialog(parentFrame, "Passwort erforderlich", true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setUndecorated(true);
+
+        JPasswordField passField = new JPasswordField(20);
+        passField.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        passField.setForeground(Color.GREEN);
+        passField.setBackground(Color.BLACK);
+        passField.setCaretColor(Color.GREEN);
+
+        JLabel label = new JLabel("🔐 Passwort für " + loginCredentials.getUsername() + "@" + loginCredentials.getHost());
+        label.setForeground(Color.GREEN);
+        label.setFont(new Font("Monospaced", Font.BOLD, 14));
+
+        JPanel inputPanel = new JPanel();
+        inputPanel.setLayout(new BoxLayout(inputPanel, BoxLayout.Y_AXIS));
+        inputPanel.setOpaque(false);
+        inputPanel.add(label);
+        inputPanel.add(Box.createVerticalStrut(10));
+        inputPanel.add(passField);
+
+        JButton ok = new JButton("OK");
+        JButton cancel = new JButton("ABBRUCH");
+        ok.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        cancel.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        ok.setForeground(Color.GREEN);
+        cancel.setForeground(Color.GREEN);
+        ok.setBackground(Color.BLACK);
+        cancel.setBackground(Color.BLACK);
+
+        final boolean[] confirmed = {false};
+
+        ok.addActionListener(e -> {
+            confirmed[0] = true;
+            dialog.dispose();
+        });
+        cancel.addActionListener(e -> dialog.dispose());
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setOpaque(false);
+        buttonPanel.add(cancel);
+        buttonPanel.add(ok);
+
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setBackground(Color.BLACK);
+        wrapper.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        wrapper.add(inputPanel, BorderLayout.CENTER);
+        wrapper.add(buttonPanel, BorderLayout.SOUTH);
+
+        dialog.setContentPane(wrapper);
+        dialog.pack();
+        dialog.setLocationRelativeTo(parentFrame);
+        dialog.getRootPane().setDefaultButton(ok);
+        dialog.setVisible(true);
+
+        if (!confirmed[0]) return null;
+
+        return new LoginCredentials(
+                loginCredentials.getHost(),
+                loginCredentials.getUsername(),
+                new String(passField.getPassword())
+        );
     }
 
     @Override
@@ -34,7 +175,7 @@ public class RetroLocker implements LockerUi {
         final JDialog lockDialog = new JDialog(parentFrame, "Sperre", true);
         lockDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         lockDialog.setUndecorated(true);
-        
+
         // Container mit OverlayLayout
         JPanel overlayPanel = new JPanel();
         overlayPanel.setLayout(new OverlayLayout(overlayPanel));
