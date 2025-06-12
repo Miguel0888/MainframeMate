@@ -4,6 +4,7 @@ import de.bund.zrb.ftp.*;
 import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ComboBoxHelper;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.util.ExecutableLauncher;
 
 import javax.swing.*;
@@ -70,6 +71,7 @@ public class SettingsDialog {
     private static JCheckBox enableLock;
     private static JCheckBox enableLockRetroStyle;
     private static JCheckBox compareByDefaultBox;
+    private static JComboBox<LockerStyle> lockStyleBox;
 
     public static void show(Component parent, FtpManager ftpManager) {
         JTabbedPane tabs = new JTabbedPane();
@@ -241,9 +243,12 @@ public class SettingsDialog {
         gbcGeneral.gridy++;
 
         // Lock Style
-        enableLockRetroStyle = new JCheckBox("Retro-Sperrdesign");
-        enableLockRetroStyle.setSelected(settings.lockRetro);
-        generalContent.add(enableLockRetroStyle, gbcGeneral);
+        generalContent.add(new JLabel("Design der Bildschirmsperre:"), gbcGeneral);
+        gbcGeneral.gridy++;
+
+        lockStyleBox = new JComboBox<>(LockerStyle.values());
+        lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
+        generalContent.add(lockStyleBox, gbcGeneral);
         gbcGeneral.gridy++;
 
         // User Profile Folder
@@ -699,7 +704,7 @@ public class SettingsDialog {
             settings.lockDelay = (Integer) lockDelay.getValue();
             settings.lockPrenotification = (Integer) lockPre.getValue();
             settings.lockEnabled = enableLock.isSelected();
-            settings.lockRetro = enableLockRetroStyle.isSelected();
+            settings.lockStyle = lockStyleBox.getSelectedIndex();
 
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());

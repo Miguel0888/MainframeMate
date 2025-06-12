@@ -27,4 +27,6 @@ public interface LockerUi {
      * @param passwordValidator, determines whether login is a success
      */
     void lock(Predicate<char[]> passwordValidator);
+
+
 }

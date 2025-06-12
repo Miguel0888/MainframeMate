@@ -37,9 +37,10 @@ public class ApplicationLocker implements LoginCredentialsProvider {
         this.timeoutMillis = settings.lockDelay;
         this.warningPhaseMillis = settings.lockPrenotification;
 
-        this.lockerUi = settings.lockRetro
-                ? new RetroLocker(parentFrame, loginManager)
-                : new DefaultLocker(parentFrame, loginManager);
+        // Enum nutzt Settings-Index (z. B. aus int settings.lockStyle)
+        int styleIndex = Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle));
+        LockerStyle style = LockerStyle.values()[styleIndex];
+        this.lockerUi = style.createUi(parentFrame, loginManager);
     }
 
     @Override
