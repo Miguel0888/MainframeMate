@@ -11,7 +11,6 @@ import de.zrb.bund.newApi.mcp.ToolSpec;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.function.ToDoubleBiFunction;
 
 public class OpenFileTool implements McpTool {
 
