@@ -119,4 +119,5 @@ public class StatusBarPanel extends JPanel {
         undoButton.addActionListener(e -> dispatcher.publish(new UndoRequestedEvent()));
         redoButton.addActionListener(e -> dispatcher.publish(new RedoRequestedEvent()));
     }
+
 }
