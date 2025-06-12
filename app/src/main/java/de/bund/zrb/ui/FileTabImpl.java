@@ -32,6 +32,27 @@ public class FileTabImpl implements FileTab {
     final TabbedPaneManager tabbedPaneManager;
     private final FileContentService contentService;
     private final FileTabEventManager eventManager;
+    private FtpFileBuffer buffer;
+
+    @Override
+    public JPopupMenu createContextMenu(Runnable onClose) {
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem bookmarkItem = new JMenuItem("📌 Als Lesezeichen merken");
+        bookmarkItem.addActionListener(e -> {
+            MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
+            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), (buffer != null ? buffer.getLink() : null));
+        });
+
+        JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
+        closeItem.addActionListener(e -> onClose.run());
+
+        menu.add(bookmarkItem);
+        menu.addSeparator();
+        menu.add(closeItem);
+
+        return menu;
+    }
 
     public FileTabImpl(TabbedPaneManager tabbedPaneManager,
                        FtpManager ftpManager,
@@ -45,11 +66,13 @@ public class FileTabImpl implements FileTab {
         this.tabbedPaneManager = tabbedPaneManager;
         this.contentService = new FileContentService(ftpManager);
 
+        this.buffer = buffer;
         String content = buffer != null ? contentService.decodeWith(buffer) : "";
         model.setBuffer(buffer);
         model.setSentenceType(initialType);
 
         editorPanel.getTextArea().setText(content);
+
         comparePanel = new ComparePanel(model.getFullPath(), content);
         comparePanel.setVisible(false);
 

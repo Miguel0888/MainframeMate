@@ -106,7 +106,7 @@ public class LeftDrawer extends JPanel {
             });
             menu.add(newFolder);
         } else {
-            JMenuItem renameItem = new JMenuItem("✏️ Umbenennen");
+            JMenuItem renameItem = new JMenuItem("✏ Umbenennen");
             renameItem.addActionListener(e -> {
                 String newLabel = JOptionPane.showInputDialog(invoker, "Neuer Name:", entry.label);
                 if (newLabel != null && !newLabel.trim().isEmpty()) {
