@@ -1,6 +1,5 @@
 package de.bund.zrb.util;
 
-import de.bund.zrb.workflow.VariableRegistryImpl;
 import de.zrb.bund.newApi.VariableRegistry;
 
 import java.util.concurrent.TimeoutException;

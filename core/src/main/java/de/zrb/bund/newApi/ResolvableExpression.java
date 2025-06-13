@@ -1,9 +1,8 @@
-package de.bund.zrb.workflow.engine;
+package de.zrb.bund.newApi;
 
 import de.zrb.bund.api.ExpressionRegistry;
-import de.zrb.bund.newApi.VariableRegistry;
 
-interface ResolvableExpression {
+public interface ResolvableExpression {
     String resolve(VariableRegistry registry, ExpressionRegistry exprRegistry, long timeoutMillis) throws Exception;
     boolean isResolved(VariableRegistry registry);
 }

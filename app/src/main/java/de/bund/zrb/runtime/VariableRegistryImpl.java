@@ -1,8 +1,7 @@
-package de.bund.zrb.workflow;
+package de.bund.zrb.runtime;
 
 import de.zrb.bund.newApi.VariableRegistry;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -64,5 +63,10 @@ public class VariableRegistryImpl implements VariableRegistry {
             }
         }
         return resolved;
+    }
+
+    @Override
+    public boolean has(String name) {
+        return false; // ToDO
     }
 }

@@ -53,10 +53,6 @@ tasks.named('build') {
     dependsOn ':plugins:excelimport:copyToAppPlugins'
 }
 
-test {
-    useJUnitPlatform()
-}
-
 //// Includes the AI driver and license files into the JAR
 //sourceSets {
 //    main {

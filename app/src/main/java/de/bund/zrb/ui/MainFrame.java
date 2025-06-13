@@ -26,7 +26,7 @@ import de.bund.zrb.ui.lock.ApplicationLocker;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.file.DragAndDropImportHandler;
-import de.bund.zrb.workflow.VariableRegistryImpl;
+import de.bund.zrb.runtime.VariableRegistryImpl;
 import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.api.*;
 import de.zrb.bund.newApi.McpService;

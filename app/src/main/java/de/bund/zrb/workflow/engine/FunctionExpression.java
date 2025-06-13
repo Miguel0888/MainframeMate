@@ -1,6 +1,7 @@
 package de.bund.zrb.workflow.engine;
 
 import de.zrb.bund.api.ExpressionRegistry;
+import de.zrb.bund.newApi.ResolvableExpression;
 import de.zrb.bund.newApi.VariableRegistry;
 
 import java.util.ArrayList;
@@ -25,6 +26,14 @@ public class FunctionExpression implements ResolvableExpression {
 
     public boolean isResolved(VariableRegistry registry) {
         return args.stream().allMatch(a -> a.isResolved(registry));
+    }
+
+    public String getFunctionName() {
+        return functionName;
+    }
+
+    public List<ResolvableExpression>  getArguments() {
+        return args;
     }
 }
 
