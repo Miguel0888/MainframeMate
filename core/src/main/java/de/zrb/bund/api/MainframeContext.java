@@ -1,6 +1,7 @@
 package de.zrb.bund.api;
 
 import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.VariableRegistry;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
@@ -42,6 +43,8 @@ public interface MainframeContext {
     void refresh();
 
     ToolRegistry getToolRegistry();
+
+    VariableRegistry getVariableRegistry();
 
     SentenceTypeRegistry getSentenceTypeRegistry();
     ExpressionRegistry getExpressionRegistry();

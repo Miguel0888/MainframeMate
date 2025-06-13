@@ -5,6 +5,7 @@ import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.helper.ShortcutManager;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.mcp.OpenFileTool;
+import de.bund.zrb.mcp.SetVariableTool;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ExpressionRegistryImpl;
@@ -24,6 +25,7 @@ import de.bund.zrb.ui.lock.ApplicationLocker;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.file.DragAndDropImportHandler;
+import de.bund.zrb.workflow.VariableRegistryImpl;
 import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.api.*;
 import de.zrb.bund.newApi.McpService;
@@ -58,6 +60,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     private JSplitPane rightSplitPane;
     private JSplitPane leftSplitPane;
     private final ToolRegistry toolRegistry;
+    private final VariableRegistryImpl variableRegistryImpl;
     private final McpService mcpService;
     private final WorkflowRunner workflowRunner;
     private DragAndDropImportHandler importHandler;
@@ -87,6 +90,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     // MCP Tools
     private void registerTools() {
         toolRegistry.registerTool(new OpenFileTool(this));
+        toolRegistry.registerTool(new SetVariableTool(this));
     }
 
     @Override
@@ -107,8 +111,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         LoginManager.getInstance().setCredentialsProvider(locker); // ← locker übernimmt Login
         locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
+        this.variableRegistryImpl = VariableRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);
-        this.workflowRunner = new WorkflowRunnerImpl(toolRegistry, mcpService, getExpressionRegistry());
+        this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -467,6 +472,11 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public ToolRegistry getToolRegistry() {
         return toolRegistry;
+    }
+
+    @Override
+    public VariableRegistryImpl getVariableRegistry() {
+        return variableRegistryImpl;
     }
 
     @Override
