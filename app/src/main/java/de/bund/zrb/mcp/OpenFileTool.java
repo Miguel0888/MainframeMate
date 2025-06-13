@@ -1,9 +1,6 @@
 package de.bund.zrb.mcp;
 
 import com.google.gson.JsonObject;
-import de.bund.zrb.ftp.FtpFileBuffer;
-import de.bund.zrb.ftp.FtpManager;
-import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -46,7 +43,7 @@ public class OpenFileTool implements McpTool {
 
 
     @Override
-    public JsonObject execute(JsonObject input) {
+    public JsonObject execute(JsonObject input, String resultVar) {
         JsonObject result = new JsonObject();
 
         try {

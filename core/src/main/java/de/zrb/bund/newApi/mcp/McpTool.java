@@ -20,5 +20,5 @@ public interface McpTool {
      * HINWEIS:
      * Hauptsächlich dafür zuständig, den JSON-Input auf die toolspezifischen POJOs zur Konfiguration (UI- Eingabemasken) zu mappen
      */
-    JsonObject execute(JsonObject input);
+    JsonObject execute(JsonObject input, String resultVar);
 }

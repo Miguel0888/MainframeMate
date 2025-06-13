@@ -1,5 +1,6 @@
 package de.bund.zrb.runtime;
 
+import com.google.gson.JsonObject;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -44,8 +45,8 @@ public class ToolRegistryImpl implements ToolRegistry {
             }
 
             @Override
-            public com.google.gson.JsonObject execute(com.google.gson.JsonObject input) {
-                return original.execute(input);
+            public com.google.gson.JsonObject execute(JsonObject input, String resultVar) {
+                return original.execute(input, resultVar);
             }
         };
     }

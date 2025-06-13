@@ -67,7 +67,7 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
             jsonCall.add("tool_input", gson.toJsonTree(resolvedParams));
 
             // 4. Fire-and-Forget an MCP-Service
-            mcpService.accept(jsonCall, runId);
+            mcpService.accept(jsonCall, runId, step.getResultVar());
         }
         return runId;
     }

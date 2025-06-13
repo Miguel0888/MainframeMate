@@ -6,12 +6,9 @@ import de.bund.zrb.excel.controller.ExcelImportController;
 import de.bund.zrb.excel.model.ExcelImportConfig;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.plugin.ExcelImport;
-import de.bund.zrb.excel.repo.TemplateRepository;
-import de.bund.zrb.excel.service.ExcelParser;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
-import java.io.File;
 import java.util.*;
 import java.util.function.Function;
 
@@ -50,7 +47,7 @@ public class ImportExcelTool implements McpTool {
     }
 
     @Override
-    public JsonObject execute(JsonObject input) {
+    public JsonObject execute(JsonObject input, String resultVar) {
         JsonObject response = new JsonObject();
         try {
             ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), getStringExcelMappingFunction());
@@ -60,6 +57,10 @@ public class ImportExcelTool implements McpTool {
 
             String result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
             // ToDo: Set env from result
+
+            if (resultVar != null && !resultVar.trim().isEmpty()) {
+                plugin.getContext().getVariableRegistry().set(resultVar, result); // 🔧 setze Variable
+            }
 
             response.addProperty("status", "success");
             response.addProperty("content", ""); // ToDo: May be implemted, but nor required

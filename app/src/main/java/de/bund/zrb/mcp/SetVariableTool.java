@@ -37,7 +37,7 @@ public class SetVariableTool implements McpTool {
     }
 
     @Override
-    public JsonObject execute(JsonObject input) {
+    public JsonObject execute(JsonObject input, String resultVar) {
         String key = input.get("key").getAsString();
         String value = input.get("value").getAsString();
         context.getVariableRegistry().set(key, value);

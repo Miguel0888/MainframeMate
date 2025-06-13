@@ -18,7 +18,7 @@ public class McpServiceImpl implements McpService {
     }
 
     @Override
-    public void accept(JsonElement toolCall, UUID sessionId) {
+    public void accept(JsonElement toolCall, UUID sessionId, String resultVar) {
         JsonObject obj = toolCall.getAsJsonObject();
 
         // Toolnamen ermitteln
@@ -35,7 +35,7 @@ public class McpServiceImpl implements McpService {
         JsonObject input = extractToolArguments(obj);
 
         // Tool ausführen
-        JsonObject result = tool.execute(input);
+        JsonObject result = tool.execute(input, resultVar);
 
         // Ergebnis verarbeiten (z. B. an Modell zurücksenden)
         ChatMessage toolResultMessage = new ChatMessage();
