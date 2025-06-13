@@ -4,7 +4,6 @@ import com.google.gson.JsonObject;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
-import de.zrb.bund.newApi.ui.FtpTab;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -45,7 +44,7 @@ public class OpenFileTool implements McpTool {
 
     @Override
     public JsonObject execute(JsonObject input, String resultVar) {
-        JsonObject response = new JsonObject();
+        JsonObject result = new JsonObject();
 
         try {
             String file = input.get("file").getAsString();
@@ -61,21 +60,16 @@ public class OpenFileTool implements McpTool {
                     ? input.get("toCompare").getAsBoolean()
                     : null;
 
-            FtpTab ftpTab = context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
-            String result = ftpTab.getContent();
+            context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
 
-            if (resultVar != null && !resultVar.trim().isEmpty()) {
-                context.getVariableRegistry().set(resultVar, result); // 🔧 setze Variable
-            }
-
-            response.addProperty("status", "success");
-            response.addProperty("openedFile", file);
+            result.addProperty("status", "success");
+            result.addProperty("openedFile", file);
         } catch (Exception e) {
-            response.addProperty("status", "error");
-            response.addProperty("message", "Fehler beim Öffnen der Datei: " + e.getMessage());
+            result.addProperty("status", "error");
+            result.addProperty("message", "Fehler beim Öffnen der Datei: " + e.getMessage());
         }
 
-        return response;
+        return result;
     }
 
 }

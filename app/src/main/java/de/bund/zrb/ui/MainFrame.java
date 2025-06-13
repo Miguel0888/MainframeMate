@@ -4,7 +4,6 @@ import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.helper.ShortcutManager;
 import de.bund.zrb.login.LoginManager;
-import de.bund.zrb.mcp.FilterColumnTool;
 import de.bund.zrb.mcp.OpenFileTool;
 import de.bund.zrb.mcp.SetVariableTool;
 import de.bund.zrb.model.AiProvider;
@@ -91,7 +90,6 @@ public class MainFrame extends JFrame implements MainframeContext {
     // MCP Tools
     private void registerTools() {
         toolRegistry.registerTool(new OpenFileTool(this));
-        toolRegistry.registerTool(new FilterColumnTool(this));
         toolRegistry.registerTool(new SetVariableTool(this));
     }
 

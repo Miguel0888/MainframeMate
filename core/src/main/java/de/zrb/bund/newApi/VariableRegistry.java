@@ -13,6 +13,4 @@ public interface VariableRegistry {
     void clear();
 
     Map<String, String> getAllVariables();
-
-    boolean has(String name);
 }

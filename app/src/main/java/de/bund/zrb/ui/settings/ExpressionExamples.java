@@ -63,16 +63,6 @@ public final class ExpressionExamples {
                         "    }\n" +
                         "}");
 
-        examples.put("CsvToRegex",
-                "import java.util.List;\n" +
-                        "import java.util.function.Function;\n" +
-                        "public class Expr_CsvToRegex implements Function<List<String>, String> {\n" +
-                        "    public String apply(List<String> args) {\n" +
-                        "        if (args.isEmpty()) return \"\";\n" +
-                        "        return args.get(0).replace(\";\", \"|\");\n" +
-                        "    }\n" +
-                        "}");
-
 //        examples.put("DDMMJJ",
 //                "import java.time.LocalDate;\n" +
 //                        "import java.time.format.DateTimeFormatter;\n" +
