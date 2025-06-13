@@ -3,9 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ftp.FtpObserver;
-import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
-import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -30,7 +28,7 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
     private final JTextField searchField = new JTextField();
     private List<String> currentDirectoryFiles = new ArrayList<>();
 
-    public ConnectionTabImpl(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager) {
+    public ConnectionTabImpl(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager, String searchPattern) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.mainPanel = new JPanel(new BorderLayout());
@@ -93,7 +91,7 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
                         FtpFileBuffer buffer = ftpManager.open(selected);
                         if( buffer != null) // no DIR
                         {
-                            tabbedPaneManager.openFileTab(ftpManager, buffer, null, false);
+                            tabbedPaneManager.openFileTab(ftpManager, buffer, null,null, false);
                         }
                         else
                         {
@@ -301,36 +299,36 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         panel.add(searchField, BorderLayout.CENTER);
 
         searchField.getDocument().addDocumentListener(new DocumentListener() {
-            private void filter() {
-                String regex = searchField.getText().trim();
-
-                listModel.clear();
-
-                boolean hasMatch = false;
-                for (String file : currentDirectoryFiles) {
-                    try {
-                        if (Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(file).find()) {
-                            listModel.addElement(file);
-                            hasMatch = true;
-                        }
-                    } catch (Exception e) {
-                        // ungültiger Regex, keine Matches
-                        hasMatch = false;
-                        break;
-                    }
-                }
-
-                searchField.setBackground(hasMatch || regex.isEmpty()
-                        ? UIManager.getColor("TextField.background")
-                        : new Color(255, 200, 200));
-            }
-
-            public void insertUpdate(DocumentEvent e) { filter(); }
-            public void removeUpdate(DocumentEvent e) { filter(); }
-            public void changedUpdate(DocumentEvent e) { filter(); }
+            public void insertUpdate(DocumentEvent e) { applySearchFilter(); }
+            public void removeUpdate(DocumentEvent e) { applySearchFilter(); }
+            public void changedUpdate(DocumentEvent e) { applySearchFilter(); }
         });
         ;
         return panel;
+    }
+
+    private void applySearchFilter() {
+        String regex = searchField.getText().trim();
+
+        listModel.clear();
+
+        boolean hasMatch = false;
+        for (String file : currentDirectoryFiles) {
+            try {
+                if (Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(file).find()) {
+                    listModel.addElement(file);
+                    hasMatch = true;
+                }
+            } catch (Exception e) {
+                // ungültiger Regex, keine Matches
+                hasMatch = false;
+                break;
+            }
+        }
+
+        searchField.setBackground(hasMatch || regex.isEmpty()
+                ? UIManager.getColor("TextField.background")
+                : new Color(255, 200, 200));
     }
 
     // updateFileList anpassen:
@@ -355,5 +353,11 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
     public void focusSearchField() {
         searchField.requestFocusInWindow();
         searchField.selectAll();
+    }
+
+    public void searchFor(String searchPattern) {
+        if (searchPattern == null) return;
+        searchField.setText(searchPattern.trim());
+        applySearchFilter(); // sofort manuell filtern
     }
 }

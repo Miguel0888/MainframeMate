@@ -34,6 +34,7 @@ public class FileTabImpl implements FileTab {
     private final FileTabEventManager eventManager;
     private FtpFileBuffer buffer;
 
+
     @Override
     public JPopupMenu createContextMenu(Runnable onClose) {
         JPopupMenu menu = new JPopupMenu();
@@ -62,14 +63,18 @@ public class FileTabImpl implements FileTab {
         setContent(content, sentenceType);
     }
 
-    public FileTabImpl(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer, String initialType) {
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
+        this(tabbedPaneManager, ftpManager, buffer, sentenceType, null, null);
+    }
+
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType, String searchPattern, Boolean toCompare) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.contentService = new FileContentService(ftpManager);
 
         this.buffer = buffer;
         String content = buffer != null ? contentService.decodeWith(buffer) : "";
         model.setBuffer(buffer);
-        model.setSentenceType(initialType);
+        model.setSentenceType(sentenceType);
 
         editorPanel.getTextArea().setText(content);
 
@@ -96,7 +101,7 @@ public class FileTabImpl implements FileTab {
 
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
         statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
-        statusBarPanel.setSelectedSentenceType(initialType);
+        statusBarPanel.setSelectedSentenceType(sentenceType);
 
         statusBarPanel.bindEvents(dispatcher);
         editorPanel.bindEvents(dispatcher);
@@ -105,7 +110,22 @@ public class FileTabImpl implements FileTab {
         this.eventManager = new FileTabEventManager(this);
         eventManager.bindAll();
 
-        dispatcher.publish(new SentenceTypeChangedEvent(initialType));
+        dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
+
+        if(toCompare != null && toCompare) {
+            this.toggleComparePanel();
+        }
+        if(searchPattern != null && !searchPattern.isEmpty())
+        {
+            this.searchFor(searchPattern);
+        }
+    }
+
+    @Override
+    public void searchFor(String searchPattern) {
+        if (searchPattern == null) return;
+        statusBarPanel.getGrepField().setText(searchPattern.trim());
+        filterCoordinator.applyFilter(); // direkt ausführen
     }
 
     public void updateTitle() {

@@ -24,11 +24,17 @@ public class OpenFileTool implements McpTool {
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("file", new ToolSpec.Property("string", "Pfad zur Datei auf dem Host"));
+        properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschlüssel"));
+        properties.put("suchmuster", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
+        properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus geöffnet werden soll"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("file"));
 
         Map<String, Object> example = new LinkedHashMap<>();
         example.put("file", "MY.USER.FILE.JCL");
+        example.put("satzart", "100");
+        example.put("suchmuster", "BEGIN");
+        example.put("toCompare", true);
 
         return new ToolSpec(
                 "open_file",
@@ -38,15 +44,26 @@ public class OpenFileTool implements McpTool {
         );
     }
 
+
     @Override
     public JsonObject execute(JsonObject input) {
         JsonObject result = new JsonObject();
 
         try {
             String file = input.get("file").getAsString();
+            String sentenceType = input.has("satzart") && !input.get("satzart").isJsonNull()
+                    ? input.get("satzart").getAsString()
+                    : null;
 
-            String sentenceTyoe = "";
-            context.openFileOrDirectory(file);
+            String searchPattern = input.has("suchmuster") && !input.get("suchmuster").isJsonNull()
+                    ? input.get("suchmuster").getAsString()
+                    : null;
+
+            Boolean toCompare = input.has("toCompare") && !input.get("toCompare").isJsonNull()
+                    ? input.get("toCompare").getAsBoolean()
+                    : null;
+
+            context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
 
             result.addProperty("status", "success");
             result.addProperty("openedFile", file);
@@ -57,4 +74,5 @@ public class OpenFileTool implements McpTool {
 
         return result;
     }
+
 }

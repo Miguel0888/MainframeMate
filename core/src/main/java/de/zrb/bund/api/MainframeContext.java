@@ -25,6 +25,10 @@ public interface MainframeContext {
 
     FtpTab openFileOrDirectory(String path, @Nullable String sentenceType);
 
+    FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern);
+
+    FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare);
+
     JFrame getMainFrame();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

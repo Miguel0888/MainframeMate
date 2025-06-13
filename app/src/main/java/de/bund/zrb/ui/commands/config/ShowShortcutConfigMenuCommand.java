@@ -58,6 +58,7 @@ public class ShowShortcutConfigMenuCommand extends ShortcutMenuCommand {
 
             // Löschen-Button ❌
             JButton clearButton = new JButton("❌");
+//            clearButton.setForeground(Color.RED);
             clearButton.setMargin(new Insets(0, 4, 0, 4));
             clearButton.setPreferredSize(new Dimension(28, 24));
             clearButton.setFocusable(false);

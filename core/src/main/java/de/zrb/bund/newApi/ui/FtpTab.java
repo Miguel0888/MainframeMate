@@ -24,5 +24,7 @@ public interface FtpTab extends Bookmarkable {
     }
 
     void focusSearchField();
+
+    void searchFor(String searchPattern);
 }
 

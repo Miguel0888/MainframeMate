@@ -37,7 +37,7 @@ public class ConnectMenuCommand extends ShortcutMenuCommand {
 
         try {
             ftpManager.connect(settings.host, settings.user);
-            tabManager.addTab(new ConnectionTabImpl(ftpManager, tabManager));
+            tabManager.addTab(new ConnectionTabImpl(ftpManager, tabManager, null));
         } catch (IOException ex) {
             String msg = ex.getMessage();
             if ("Kein Passwort verfügbar".equals(msg)) {

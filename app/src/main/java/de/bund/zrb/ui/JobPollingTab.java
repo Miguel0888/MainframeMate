@@ -23,14 +23,23 @@ public class JobPollingTab implements FtpTab {
     private final String sentenceType;
     private final TabbedPaneManager tabManager;
 
+    private final String searchPattern;
+    private final Boolean toCompare;
+
     private final Timer retryTimer;
     private int retryCountdown = 3;
 
     public JobPollingTab(FtpManager ftpManager, TabbedPaneManager tabManager, String path, String sentenceType) {
+        this(ftpManager, tabManager, path, sentenceType, null, null);
+    }
+
+    public JobPollingTab(FtpManager ftpManager, TabbedPaneManager tabManager, String path, String sentenceType, String searchPattern, Boolean toCompare) {
         this.ftpManager = ftpManager;
         this.path = path;
         this.sentenceType = sentenceType;
         this.tabManager = tabManager;
+        this.searchPattern = searchPattern;
+        this.toCompare = toCompare;
 
         retryTimer = new Timer(1000, e -> {
             retryCountdown--;
@@ -92,7 +101,7 @@ public class JobPollingTab implements FtpTab {
             if (buffer != null) {
                 retryTimer.stop();
                 animatedCircle.stop();
-                FileTabImpl realTab = new FileTabImpl(tabManager, ftpManager, buffer, sentenceType);
+                FileTabImpl realTab = new FileTabImpl(tabManager, ftpManager, buffer, sentenceType, searchPattern, toCompare);
                 tabManager.replaceTab(this, realTab);
             } else {
                 statusLabel.setText("❌ Datei noch nicht vorhanden");
@@ -152,6 +161,11 @@ public class JobPollingTab implements FtpTab {
 
     @Override
     public void focusSearchField() {
+        // dummy
+    }
+
+    @Override
+    public void searchFor(String searchPattern) {
         // dummy
     }
 

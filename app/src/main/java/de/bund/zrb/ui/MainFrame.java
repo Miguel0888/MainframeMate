@@ -318,6 +318,16 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType) {
+        return openFileOrDirectory(path, null, null);
+    }
+
+    @Override
+    public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern) {
+        return openFileOrDirectory(path, null, null, null);
+    }
+
+    @Override
+    public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
         final FtpManager ftpManager = new FtpManager();
         Settings settings = SettingsHelper.load();
 
@@ -326,9 +336,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
             FtpFileBuffer buffer = ftpManager.open(unquote(path));
             if (buffer != null) {
-                return tabManager.openFileTab(ftpManager, buffer, sentenceType, true);
+                return tabManager.openFileTab(ftpManager, buffer, sentenceType, searchPattern, toCompare);
             } else {
-                ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager);
+                ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager, searchPattern);
                 tabManager.addTab(tab);
                 tab.loadDirectory(ftpManager.getCurrentPath());
                 return tab;
@@ -344,7 +354,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
             if (msg != null && msg.contains("not found")) {
                 // Datei existiert (noch) nicht → Polling-Tab öffnen
-                tabManager.addTab(new JobPollingTab(ftpManager, tabManager, unquote(path), sentenceType));
+                tabManager.addTab(new JobPollingTab(ftpManager, tabManager, unquote(path), sentenceType, searchPattern, toCompare));
                 return null;
             }
 
