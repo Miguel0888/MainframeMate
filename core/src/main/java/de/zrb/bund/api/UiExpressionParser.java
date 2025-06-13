@@ -8,9 +8,9 @@ import java.util.Set;
 /**
  * Parser für Eingaben in Mapping-Zellen: Literale, Excel-Spaltennamen oder Funktionsaufrufe.
  */
-public final class ExpressionParser {
+public final class UiExpressionParser {
 
-    private ExpressionParser() {
+    private UiExpressionParser() {
         // Hilfsklasse – keine Instanziierung erlaubt
     }
 

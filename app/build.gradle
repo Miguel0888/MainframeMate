@@ -34,6 +34,9 @@ dependencies {
     // REST (AI)
     implementation 'com.squareup.okhttp3:okhttp:4.9.3'
 
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
 }
@@ -48,6 +51,10 @@ test {
 
 tasks.named('build') {
     dependsOn ':plugins:excelimport:copyToAppPlugins'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 //// Includes the AI driver and license files into the JAR

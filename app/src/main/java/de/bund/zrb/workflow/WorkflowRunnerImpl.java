@@ -93,31 +93,6 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         }
     }
 
-    private String evaluateExpressions(String input) {
-        if (input == null) return null;
-
-        StringBuffer result = new StringBuffer();
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\((.*?)\\)}}").matcher(input);
-
-        while (matcher.find()) {
-            String functionName = matcher.group(1);
-            String rawArgs = matcher.group(2);
-            List<String> args = rawArgs.isEmpty() ? Collections.emptyList() : Arrays.asList(rawArgs.split("\\s*,\\s*"));
-            String replacement;
-            try {
-                replacement = expressionRegistry.evaluate(functionName, args);
-            } catch (Exception e) {
-                replacement = "!!FEHLER!!";
-                System.err.println("Fehler bei Auswertung von Expression: " + matcher.group(0));
-                e.printStackTrace();
-            }
-            matcher.appendReplacement(result, java.util.regex.Matcher.quoteReplacement(replacement));
-        }
-
-        matcher.appendTail(result);
-        return result.toString();
-    }
-
     private void extractAndEvaluateExpressions(List<WorkflowStepContainer> steps, Map<String, String> vars) {
         Set<String> foundExpressions = new HashSet<>();
 
