@@ -25,6 +25,7 @@ public class FtpManager {
     private String currentPath = "/";
     private final List<FtpObserver> observers = new ArrayList<>();
     private boolean mvsMode = false;
+    private String systemType;
 
     public FtpManager() {
         this.loginManager = LoginManager.getInstance();
@@ -66,9 +67,9 @@ public class FtpManager {
 
         ftpClient.enterLocalPassiveMode();
 
-        String systemType = ftpClient.getSystemType();
+        systemType = ftpClient.getSystemType();
         mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
-        System.out.println("Systemtyp laut FTP-Server: " + systemType);
+//        System.out.println("Systemtyp laut FTP-Server: " + systemType);
 
         // Anwenden der konfigurierten FTP-Transferoptionen
         applyTransferSettings(settings);
