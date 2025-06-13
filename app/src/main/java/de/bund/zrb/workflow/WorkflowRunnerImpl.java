@@ -2,6 +2,7 @@ package de.bund.zrb.workflow;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.util.AsyncPlaceholderResolver;
 import de.bund.zrb.util.PlaceholderResolver;
 import de.zrb.bund.api.ExpressionRegistry;
@@ -35,7 +36,7 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         processVariables(template, overrides);
 
         // 2. Schritte durchlaufen und vorbereiten
-        AsyncPlaceholderResolver resolver = new AsyncPlaceholderResolver(context.getVariableRegistry(), 10_000); // 10 Sekunden Timeout
+        AsyncPlaceholderResolver resolver = new AsyncPlaceholderResolver(context.getVariableRegistry(), SettingsHelper.load().workflowTimeout);
         UUID runId = UUID.randomUUID(); // create workflow id
         for (WorkflowStepContainer container : template.getData()) {
             WorkflowMcpData step = container.getMcp();

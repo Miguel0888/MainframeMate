@@ -44,7 +44,7 @@ public class RightDrawer extends JPanel {
 
     private void addWorkflowTab() {
         WorkflowRunner runner = mainframeContext.getWorkflowRunner();
-        WorkflowPanel workflowPanel = new WorkflowPanel(runner, toolRegistry);
+        WorkflowPanel workflowPanel = new WorkflowPanel(runner, mainframeContext);
         tabbedPane.addTab("📋 Workflow", workflowPanel);
     }
 

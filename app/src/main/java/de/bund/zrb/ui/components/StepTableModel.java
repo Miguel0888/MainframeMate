@@ -43,12 +43,13 @@ public class StepTableModel extends AbstractTableModel {
     @Override
     public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
         WorkflowMcpData old = steps.get(rowIndex);
+        String resultVar = old.getResultVar(); // behalten
         if (columnIndex == 0) {
-            steps.set(rowIndex, new WorkflowMcpData(aValue.toString(), old.getParameters()));
+            steps.set(rowIndex, new WorkflowMcpData(aValue.toString(), old.getParameters(), resultVar));
         } else {
             try {
                 Map<String, Object> params = new Gson().fromJson(aValue.toString(), Map.class);
-                steps.set(rowIndex, new WorkflowMcpData(old.getToolName(), params));
+                steps.set(rowIndex, new WorkflowMcpData(old.getToolName(), params, resultVar));
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(null, "Ungültiges JSON: " + ex.getMessage());
             }

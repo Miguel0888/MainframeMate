@@ -2,6 +2,7 @@ package de.bund.zrb.workflow;
 
 import de.zrb.bund.newApi.VariableRegistry;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -48,5 +49,20 @@ public class VariableRegistryImpl implements VariableRegistry {
     @Override
     public void clear() {
         variables.clear();
+    }
+
+    @Override
+    public Map<String, String> getAllVariables() {
+        Map<String, String> resolved = new ConcurrentHashMap<>();
+        for (Map.Entry<String, CompletableFuture<String>> entry : variables.entrySet()) {
+            if (entry.getValue().isDone()) {
+                try {
+                    resolved.put(entry.getKey(), entry.getValue().getNow(null));
+                } catch (Exception ignored) {
+                    // Falls future fehlschlägt, ignoriere diesen Eintrag
+                }
+            }
+        }
+        return resolved;
     }
 }

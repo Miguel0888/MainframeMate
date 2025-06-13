@@ -49,6 +49,7 @@ public class SettingsDialog {
     private static JCheckBox wrapJsonBox;
     private static JCheckBox prettyJsonBox;
     private static JTextField defaultWorkflow;
+    private static JSpinner workflowTimeoutSpinner;
 
     private static JComboBox<String> aiEditorFontCombo;
     private static JComboBox<String> aiEditorFontSizeCombo;
@@ -174,6 +175,14 @@ public class SettingsDialog {
         defaultWorkflow = new JTextField("Standard Workflow:");
         defaultWorkflow.setText(settings.defaultWorkflow);
         generalContent.add(defaultWorkflow, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Workflow-Timeout
+        gbcGeneral.gridwidth = 2;
+        generalContent.add(new JLabel("Workflow Timeout (in ms):"), gbcGeneral);
+        gbcGeneral.gridy++;
+        workflowTimeoutSpinner = new JSpinner(new SpinnerNumberModel(settings.workflowTimeout, 100, 300_000, 500));
+        generalContent.add(workflowTimeoutSpinner, gbcGeneral);
         gbcGeneral.gridy++;
 
         // Import-Verzögerung
@@ -694,6 +703,7 @@ public class SettingsDialog {
             settings.ftpTransferMode = ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
             settings.defaultWorkflow = defaultWorkflow.getText();
+            settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();
             settings.importDelay = (Integer) importDelaySpinner.getValue();
             DefaultListModel<String> model = (DefaultListModel<String>) supportedFileList.getModel();
             List<String> extensions = new ArrayList<>();

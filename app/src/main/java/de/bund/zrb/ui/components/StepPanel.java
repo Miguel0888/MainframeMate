@@ -25,6 +25,8 @@ public class StepPanel extends JPanel {
 
     private ActionListener deleteListener;
 
+    private final JTextField resultVarField;
+
     public StepPanel(ToolRegistry registry, WorkflowMcpData initialStep) {
         this.registry = registry;
         setLayout(new BorderLayout(4, 4));
@@ -82,6 +84,14 @@ public class StepPanel extends JPanel {
         jsonEditor.setAntiAliasingEnabled(true);
         jsonEditor.setText(prettyJson(initialStep.getParameters()));
 
+        // Editor-Panel mit zusätzlichem Feld für resultVar
+        resultVarField = new JTextField(initialStep.getResultVar() != null ? initialStep.getResultVar() : "");
+        resultVarField.setToolTipText("Name der Variablen zur Speicherung des Ergebnisses");
+        JPanel resultVarPanel = new JPanel(new BorderLayout());
+        resultVarPanel.add(new JLabel("↳ "), BorderLayout.WEST);
+        resultVarPanel.add(resultVarField, BorderLayout.CENTER);
+        add(resultVarPanel, BorderLayout.SOUTH);
+
         add(new RTextScrollPane(jsonEditor), BorderLayout.CENTER);
     }
 
@@ -125,13 +135,15 @@ public class StepPanel extends JPanel {
 
     public WorkflowMcpData toWorkflowStep() {
         String toolName = (String) toolSelector.getSelectedItem();
+        String resultVar = resultVarField.getText().trim();
         try {
             Map<String, Object> params = new Gson().fromJson(jsonEditor.getText(), Map.class);
-            return new WorkflowMcpData(toolName, params);
+            return new WorkflowMcpData(toolName, params, resultVar.isEmpty() ? null : resultVar);
         } catch (Exception ex) {
-            return new WorkflowMcpData(toolName, new LinkedHashMap<>());
+            return new WorkflowMcpData(toolName, new LinkedHashMap<>(), resultVar.isEmpty() ? null : resultVar);
         }
     }
+
 
     public void setDeleteListener(ActionListener listener) {
         this.deleteListener = listener;

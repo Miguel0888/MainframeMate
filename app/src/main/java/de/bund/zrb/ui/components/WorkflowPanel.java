@@ -1,18 +1,21 @@
 package de.bund.zrb.ui.components;
 
 import de.bund.zrb.helper.WorkflowStorage;
-import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 import de.zrb.bund.newApi.workflow.WorkflowMcpData;
 import de.zrb.bund.newApi.workflow.WorkflowStepContainer;
 import de.zrb.bund.newApi.workflow.WorkflowTemplate;
 
 import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellEditor;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
 
@@ -23,13 +26,13 @@ public class WorkflowPanel extends JPanel {
     private final JComboBox<String> workflowSelector;
     private final JPanel stepListPanel;
     private final WorkflowRunner runner;
-    private final ToolRegistry registry;
+    private final MainframeContext context;
 
     private final DefaultTableModel variableModel;
 
-    public WorkflowPanel(WorkflowRunner runner, ToolRegistry registry) {
+    public WorkflowPanel(WorkflowRunner runner, MainframeContext context) {
         this.runner = runner;
-        this.registry = registry;
+        this.context = context;
 
         setLayout(new BorderLayout(8, 8));
 
@@ -50,8 +53,11 @@ public class WorkflowPanel extends JPanel {
 
         JPanel headerButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         JButton renameWorkflow = new JButton("✏");
+        renameWorkflow.setToolTipText("Workflow umbenennen");
         JButton saveWorkflow = new JButton("💾");
+        saveWorkflow.setToolTipText("Workflow unter einem Namen speichern");
         JButton deleteWorkflow = new JButton("🗑");
+        deleteWorkflow.setToolTipText("Workflow löschen");
 
         headerButtons.add(renameWorkflow);
         headerButtons.add(saveWorkflow);
@@ -70,18 +76,38 @@ public class WorkflowPanel extends JPanel {
         JPanel buttonPanel = new JPanel(new BorderLayout());
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         JButton addStep = new JButton("📦");
+        addStep.setToolTipText("Neuen Tooleinsatz einplanen");
         buttonPanel.add(addStep, BorderLayout.WEST);
+
+        JPanel rightPanel = new JPanel(new BorderLayout());
+
         JButton envVarsButton = new JButton("📝 Variablen");
-        buttonPanel.add(envVarsButton, BorderLayout.EAST);
+        envVarsButton.setToolTipText("Workflow Variablen setzen");
+        rightPanel.add(envVarsButton, BorderLayout.CENTER);
+        buttonPanel.add(rightPanel, BorderLayout.EAST);
         add(buttonPanel, BorderLayout.SOUTH);
+
+        JButton envViewerButton = new JButton("✨");
+        envViewerButton.setToolTipText("Variablen des letzten Laufs ansehen");
+        envViewerButton.setMargin(new Insets(2, 4, 2, 4));
+        rightPanel.add(envViewerButton, BorderLayout.EAST);
 
         variableModel = new DefaultTableModel(new String[]{"Name", "Wert"}, 0);
 
+        String defaultWorkflow = de.bund.zrb.helper.SettingsHelper.load().defaultWorkflow;
+        if (defaultWorkflow != null && !defaultWorkflow.trim().isEmpty()) {
+            for (int i = 0; i < workflowSelector.getItemCount(); i++) {
+                if (defaultWorkflow.equals(workflowSelector.getItemAt(i))) {
+                    workflowSelector.setSelectedItem(defaultWorkflow);
+                    break;
+                }
+            }
+        }
         workflowSelector.addActionListener(e -> {
             onSelectWorkflow();
         });
 
-        addStep.addActionListener(e -> addStepPanel(new WorkflowMcpData("", new LinkedHashMap<>())));
+        addStep.addActionListener(e -> addStepPanel(new WorkflowMcpData("", new LinkedHashMap<>(), null)));
 
         runWorkflow.addActionListener(e -> {
             onRun();
@@ -99,9 +125,89 @@ public class WorkflowPanel extends JPanel {
             onDelete();
         });
 
+        envViewerButton.addActionListener(e -> showEnvironmentViewer());
         envVarsButton.addActionListener(e -> showVariableDialog());
         onSelectWorkflow(); //refresh stepPanel
     }
+
+    private void showEnvironmentViewer() {
+        Map<String, String> vars = context.getVariableRegistry().getAllVariables();
+
+        List<Map.Entry<String, String>> entries = new ArrayList<>(vars.entrySet());
+
+        JTable table = new JTable(new AbstractTableModel() {
+            @Override
+            public int getRowCount() {
+                return entries.size();
+            }
+
+            @Override
+            public int getColumnCount() {
+                return 2;
+            }
+
+            @Override
+            public Object getValueAt(int rowIndex, int columnIndex) {
+                return columnIndex == 0 ? entries.get(rowIndex).getKey() : entries.get(rowIndex).getValue();
+            }
+
+            @Override
+            public String getColumnName(int column) {
+                return column == 0 ? "Name" : "Wert";
+            }
+        });
+
+        // Custom renderer mit "..." Button (optisch)
+        table.getColumnModel().getColumn(1).setCellRenderer((tbl, value, isSelected, hasFocus, row, col) -> {
+            JPanel panel = new JPanel(new BorderLayout());
+            JLabel label = new JLabel(value != null ? value.toString() : "");
+            label.setToolTipText(label.getText());
+
+            JButton button = new JButton("...");
+            button.setMargin(new Insets(0, 4, 0, 4));
+            button.setFocusable(false); // nur zur Darstellung
+
+            panel.add(label, BorderLayout.CENTER);
+            panel.add(button, BorderLayout.EAST);
+
+            if (isSelected) {
+                panel.setBackground(tbl.getSelectionBackground());
+            } else {
+                panel.setBackground(tbl.getBackground());
+            }
+
+            return panel;
+        });
+
+        // Klick-Logik für den Button in Spalte 1
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = table.rowAtPoint(e.getPoint());
+                int col = table.columnAtPoint(e.getPoint());
+
+                if (col == 1 && row >= 0 && row < entries.size()) {
+                    String value = entries.get(row).getValue();
+                    JTextArea area = new JTextArea(value != null ? value : "");
+                    area.setLineWrap(true);
+                    area.setWrapStyleWord(true);
+                    area.setEditable(false);
+
+                    JScrollPane scroll = new JScrollPane(area);
+                    scroll.setPreferredSize(new Dimension(500, 300));
+
+                    JOptionPane.showMessageDialog(table, scroll, "Wert anzeigen", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+        });
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setPreferredSize(new Dimension(500, 300));
+
+        JOptionPane.showMessageDialog(this, scrollPane, "Umgebungsvariablen des letzten Laufs..", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+
 
     private void onDelete() {
         String current = (String) workflowSelector.getSelectedItem();
@@ -201,7 +307,7 @@ public class WorkflowPanel extends JPanel {
     }
 
     private void addStepPanel(WorkflowMcpData step) {
-        StepPanel panel = new StepPanel(registry, step);
+        StepPanel panel = new StepPanel(context.getToolRegistry(), step);
         panel.setDeleteListener(e -> {
             stepListPanel.remove(panel);
             stepListPanel.revalidate();
@@ -335,8 +441,6 @@ public class WorkflowPanel extends JPanel {
         currentTemplate.getMeta().setVariables(newVars);
         dialog.dispose();
     }
-
-
 
     private List<String> getUsedVariablePlaceholders() {
         Set<String> vars = new TreeSet<>();

@@ -1,5 +1,6 @@
 package de.zrb.bund.newApi;
 
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 public interface VariableRegistry {
@@ -10,4 +11,6 @@ public interface VariableRegistry {
     boolean contains(String key);
 
     void clear();
+
+    Map<String, String> getAllVariables();
 }
