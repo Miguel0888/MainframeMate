@@ -51,22 +51,23 @@ public class ImportExcelTool implements McpTool {
 
     @Override
     public JsonObject execute(JsonObject input) {
-        JsonObject result = new JsonObject();
+        JsonObject response = new JsonObject();
         try {
             ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), getStringExcelMappingFunction());
 
             boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
             boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
 
-            ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
+            String result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
+            // ToDo: Set env from result
 
-            result.addProperty("status", "success");
-            result.addProperty("content", ""); // ToDo: May be implemted, but nor required
+            response.addProperty("status", "success");
+            response.addProperty("content", ""); // ToDo: May be implemted, but nor required
         } catch (Exception e) {
-            result.addProperty("status", "error");
-            result.addProperty("message", e.getMessage());
+            response.addProperty("status", "error");
+            response.addProperty("message", e.getMessage());
         }
-        return result;
+        return response;
     }
 
     private Function<String, ExcelMapping> getStringExcelMappingFunction() {

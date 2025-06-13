@@ -16,6 +16,7 @@ import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.api.ExpressionParser;
 
+import javax.annotation.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
@@ -71,10 +72,10 @@ public class ExcelImportController {
         }
     }
 
-    public static void importFromConfig(ExcelImport plugin,
-                                        ExcelImportConfig config,
-                                        boolean stopOnEmptyRequired,
-                                        boolean requireAllFieldsEmpty) throws Exception {
+    public static @Nullable String importFromConfig(ExcelImport plugin,
+                                                    ExcelImportConfig config,
+                                                    boolean stopOnEmptyRequired,
+                                                    boolean requireAllFieldsEmpty) throws Exception {
 
         if (!config.getFile().exists()) {
             throw new FileNotFoundException("Datei nicht gefunden: " + config.getFile());
@@ -151,14 +152,14 @@ public class ExcelImportController {
             FtpTab ftpTab = plugin.getContext().openFileOrDirectory(config.getDestination(), satzartName);
             if(ftpTab == null) {
                 showError(plugin.getMainFrame(), "Zielpfad konnte nicht geöffnet werden: " + config.getDestination());
-                return;
+                return null;
             }
             if(ftpTab instanceof FileTab) { // ToDo: Besser: Fähigkeit explizit machen, z. B. durch: interface ContentWritable
                 ((FileTab) ftpTab).setAppend(config.isAppend());
                 ((FileTab) ftpTab).setContent(result, satzartName);
             } else {
                 showError(plugin.getMainFrame(), "Zielpfad ist kein gültiger Tab: " + config.getDestination());
-                return;
+                return null;
             }
         }
         else
@@ -171,6 +172,7 @@ public class ExcelImportController {
                     "Die Datei wurde mit dem importierten Excel-Inhalt aktualisiert.",
                     "Import abgeschlossen", JOptionPane.INFORMATION_MESSAGE);
         }
+        return result;
     }
 
     private static void showError(Component parent, String msg) {
