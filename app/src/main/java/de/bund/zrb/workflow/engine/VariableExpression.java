@@ -18,4 +18,8 @@ public class VariableExpression implements ResolvableExpression {
     public boolean isResolved(VariableRegistry registry) {
         return registry.has(name);
     }
+
+    public String getName() {
+        return name;
+    }
 }

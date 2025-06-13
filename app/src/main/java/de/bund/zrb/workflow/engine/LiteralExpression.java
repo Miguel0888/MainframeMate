@@ -18,4 +18,8 @@ public class LiteralExpression implements ResolvableExpression {
     public boolean isResolved(VariableRegistry registry) {
         return true;
     }
+
+    public String getValue() {
+        return value;
+    }
 }

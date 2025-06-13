@@ -20,4 +20,6 @@ public interface ExpressionRegistry {
     void reload();
 
     void save();
+
+    Set<String> getFunctionNames();
 }

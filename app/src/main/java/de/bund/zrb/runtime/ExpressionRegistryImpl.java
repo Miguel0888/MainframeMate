@@ -15,6 +15,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Gson-basierte Implementierung der ExpressionRegistry, speichert Ausdrucksdefinitionen als komplette Callable-Klassen.
@@ -115,6 +116,11 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
         } catch (IOException e) {
             System.err.println("⚠ Fehler beim Speichern der Expressions: " + e.getMessage());
         }
+    }
+
+    @Override
+    public Set<String> getFunctionNames() {
+        return new HashSet<>(expressions.keySet());
     }
 
     private File getSettingsFolder() {
