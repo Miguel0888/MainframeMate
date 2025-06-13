@@ -8,9 +8,10 @@ import java.util.Set;
 /**
  * Parser für Eingaben in Mapping-Zellen: Literale, Excel-Spaltennamen oder Funktionsaufrufe.
  */
-public final class ExpressionParser {
+// ToDo: Move to package de.bund.zrb.workflow.engine;
+public final class UiExpressionParser {
 
-    private ExpressionParser() {
+    private UiExpressionParser() {
         // Hilfsklasse – keine Instanziierung erlaubt
     }
 

@@ -56,7 +56,6 @@ public class ImportExcelTool implements McpTool {
             boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
 
             String result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
-            // ToDo: Set env from result
 
             if (resultVar != null && !resultVar.trim().isEmpty()) {
                 plugin.getContext().getVariableRegistry().set(resultVar, result); // 🔧 setze Variable

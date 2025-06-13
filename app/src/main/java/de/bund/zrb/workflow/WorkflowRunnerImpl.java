@@ -93,73 +93,60 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         }
     }
 
-    private String evaluateExpressions(String input) {
-        if (input == null) return null;
-
-        StringBuffer result = new StringBuffer();
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\((.*?)\\)}}").matcher(input);
-
-        while (matcher.find()) {
-            String functionName = matcher.group(1);
-            String rawArgs = matcher.group(2);
-            List<String> args = rawArgs.isEmpty() ? Collections.emptyList() : Arrays.asList(rawArgs.split("\\s*,\\s*"));
-            String replacement;
-            try {
-                replacement = expressionRegistry.evaluate(functionName, args);
-            } catch (Exception e) {
-                replacement = "!!FEHLER!!";
-                System.err.println("Fehler bei Auswertung von Expression: " + matcher.group(0));
-                e.printStackTrace();
-            }
-            matcher.appendReplacement(result, java.util.regex.Matcher.quoteReplacement(replacement));
-        }
-
-        matcher.appendTail(result);
-        return result.toString();
-    }
-
     private void extractAndEvaluateExpressions(List<WorkflowStepContainer> steps, Map<String, String> vars) {
-        Set<String> foundExpressions = new HashSet<>();
+        boolean changed;
 
-        for (WorkflowStepContainer container : steps) {
-            WorkflowMcpData step = container.getMcp();
-            if (step == null) continue;
+        do {
+            changed = false;
 
-            for (Object val : step.getParameters().values()) {
-                if (val instanceof String) {
-                    String str = (String) val;
-                    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(str);
+            for (WorkflowStepContainer container : steps) {
+                WorkflowMcpData step = container.getMcp();
+                if (step == null) continue;
+
+                for (Map.Entry<String, Object> param : step.getParameters().entrySet()) {
+                    if (!(param.getValue() instanceof String)) continue;
+
+                    String str = (String) param.getValue();
+                    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([^{}]+)}}").matcher(str);
                     while (matcher.find()) {
-                        foundExpressions.add(matcher.group(1));
+                        String expr = matcher.group(1);
+                        if (vars.containsKey(expr)) continue;
+
+                        // Versuche Expression zu parsen
+                        java.util.regex.Matcher inner = java.util.regex.Pattern.compile("^(\\w+)\\((.*)\\)$").matcher(expr);
+                        if (inner.matches()) {
+                            String functionName = inner.group(1);
+                            String argsString = inner.group(2);
+                            List<String> args = parseArgs(argsString, vars);
+                            try {
+                                String result = expressionRegistry.evaluate(functionName, args);
+                                vars.put(expr, result);
+                                changed = true;
+                            } catch (Exception e) {
+                                System.err.println("Fehler bei Auswertung: " + expr);
+                                e.printStackTrace();
+                            }
+                        }
                     }
                 }
             }
-        }
-
-        for (String expr : foundExpressions) {
-            // Ignoriere, falls manuell in vars gesetzt
-            if (vars.containsKey(expr)) continue;
-
-            // Versuche Expression zu parsen und auszuwerten
-            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("^(\\w+)\\((.*)\\)$").matcher(expr);
-            if (matcher.matches()) {
-                String functionName = matcher.group(1);
-                String argsString = matcher.group(2);
-                List<String> args = argsString.isEmpty() ? Collections.emptyList()
-                        : Arrays.stream(argsString.split("\\s*,\\s*"))
-                        .map(s -> s.replaceAll("^['\"]|['\"]$", "")) // entferne " oder '
-                        .collect(Collectors.toList());
-
-                try {
-                    String result = expressionRegistry.evaluate(functionName, args);
-                    vars.put(expr, result);
-                } catch (Exception e) {
-                    System.err.println("Fehler bei Auswertung von Expression „" + expr + "“:");
-                    e.printStackTrace();
-                }
-            }
-        }
+        } while (changed);
     }
 
+    private List<String> parseArgs(String raw, Map<String, String> vars) {
+        if (raw == null || raw.trim().isEmpty()) return Collections.emptyList();
 
+        return Arrays.stream(raw.split("\\s*,\\s*"))
+                .map(s -> {
+                    // Verschachtelte {{...}}-Platzhalter erkennen
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(s);
+                    if (m.matches()) {
+                        String key = m.group(1);
+                        return vars.getOrDefault(key, "");
+                    } else {
+                        return s.replaceAll("^['\"]|['\"]$", "");
+                    }
+                })
+                .collect(Collectors.toList());
+    }
 }

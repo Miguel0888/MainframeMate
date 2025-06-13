@@ -25,6 +25,10 @@ allprojects {
 subprojects {
     plugins.withId('java') {
         dependencies {
+            // Testing
+            testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+
+            // Null Annotations
             compileOnly 'com.google.code.findbugs:jsr305:3.0.2'
         }
     }

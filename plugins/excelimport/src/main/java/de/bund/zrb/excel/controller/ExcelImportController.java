@@ -9,12 +9,11 @@ import de.bund.zrb.excel.service.ExcelParser;
 import de.bund.zrb.excel.ui.ExcelImportUiDialog;
 import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.zrb.bund.api.ExpressionRegistry;
-import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
-import de.zrb.bund.api.ExpressionParser;
+import de.zrb.bund.api.UiExpressionParser;
 
 import javax.annotation.Nullable;
 import javax.swing.*;
@@ -190,7 +189,7 @@ public class ExcelImportController {
                 .findFirst()
                 .map(e -> {
                     try {
-                        ExpressionParser.Expression expr = ExpressionParser.parse(e.getExpression(), registry.getKeys());
+                        UiExpressionParser.Expression expr = UiExpressionParser.parse(e.getExpression(), registry.getKeys());
 
                         switch (expr.getKind()) {
                             case LITERAL:
