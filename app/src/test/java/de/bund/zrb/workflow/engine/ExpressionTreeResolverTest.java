@@ -176,10 +176,12 @@ public class ExpressionTreeResolverTest {
 
     @Test
     public void testUnknownFunctionFails() {
-        ResolvableExpression expr = parser.parse("{{doesNotExist('x')}}");
-        Exception ex = assertThrows(IllegalStateException.class, () -> resolver.resolve(expr));
+        Exception ex = assertThrows(IllegalStateException.class, () ->
+                parser.parse("{{doesNotExist('x')}}")
+        );
         assertTrue(ex.getMessage().contains("Unknown function"));
     }
+
 
     @Test
     public void testMissingVariableFails() {

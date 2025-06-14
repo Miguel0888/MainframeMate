@@ -4,27 +4,27 @@ import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.newApi.ResolvableExpression;
 import de.zrb.bund.newApi.VariableRegistry;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- *  CompositeExpression, die mehrere ResolvableExpression-Elemente sequentiell zusammenfügt – typisch für
- *  Misch-Ausdrücke wie "Benutzer {{user}} hat {{count}} Nachrichten":
+ * Resolves a list of subexpressions and concatenates their results.
  */
 public class CompositeExpression implements ResolvableExpression {
 
     private final List<ResolvableExpression> parts;
 
     public CompositeExpression(List<ResolvableExpression> parts) {
-        this.parts = parts;
+        this.parts = new ArrayList<>(parts);
     }
 
     @Override
     public String resolve(VariableRegistry registry, ExpressionRegistry exprRegistry, long timeoutMillis) throws Exception {
-        StringBuilder sb = new StringBuilder();
+        StringBuilder result = new StringBuilder();
         for (ResolvableExpression part : parts) {
-            sb.append(part.resolve(registry, exprRegistry, timeoutMillis));
+            result.append(part.resolve(registry, exprRegistry, timeoutMillis));
         }
-        return sb.toString();
+        return result.toString();
     }
 
     @Override
@@ -38,6 +38,6 @@ public class CompositeExpression implements ResolvableExpression {
     }
 
     public List<ResolvableExpression> getParts() {
-        return parts;
+        return new ArrayList<>(parts);
     }
 }
