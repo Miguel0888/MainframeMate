@@ -3,6 +3,7 @@ package de.bund.zrb.mcp;
 import com.google.gson.JsonObject;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.Arrays;
@@ -37,13 +38,14 @@ public class SetVariableTool implements McpTool {
     }
 
     @Override
-    public JsonObject execute(JsonObject input, String resultVar) {
+    public McpToolResponse execute(JsonObject input, String resultVar) {
         String key = input.get("key").getAsString();
         String value = input.get("value").getAsString();
         context.getVariableRegistry().set(key, value);
 
-        JsonObject result = new JsonObject();
-        result.addProperty("status", "ok");
-        return result;
-    }
+        JsonObject response = new JsonObject();
+        response.addProperty("status", "ok");
+
+        String result = "";
+        return new McpToolResponse(response, resultVar, result);    }
 }

@@ -35,7 +35,7 @@ public class McpServiceImpl implements McpService {
         JsonObject input = extractToolArguments(obj);
 
         // Tool ausführen
-        JsonObject result = tool.execute(input, resultVar);
+        JsonObject result = tool.execute(input, resultVar).asJson();
 
         // Ergebnis verarbeiten (z. B. an Modell zurücksenden)
         ChatMessage toolResultMessage = new ChatMessage();

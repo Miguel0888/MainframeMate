@@ -3,6 +3,7 @@ package de.bund.zrb.mcp;
 import com.google.gson.JsonObject;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 import de.zrb.bund.newApi.ui.FtpTab;
 
@@ -44,7 +45,8 @@ public class OpenFileTool implements McpTool {
 
 
     @Override
-    public JsonObject execute(JsonObject input, String resultVar) {
+    public McpToolResponse execute(JsonObject input, String resultVar) {
+        String result = null;
         JsonObject response = new JsonObject();
 
         try {
@@ -62,11 +64,7 @@ public class OpenFileTool implements McpTool {
                     : null;
 
             FtpTab ftpTab = context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
-            String result = ftpTab.getContent();
-
-            if (resultVar != null && !resultVar.trim().isEmpty()) {
-                context.getVariableRegistry().set(resultVar, result); // 🔧 setze Variable
-            }
+            result = ftpTab.getContent();
 
             response.addProperty("status", "success");
             response.addProperty("openedFile", file);
@@ -75,7 +73,7 @@ public class OpenFileTool implements McpTool {
             response.addProperty("message", "Fehler beim Öffnen der Datei: " + e.getMessage());
         }
 
-        return response;
+        return new McpToolResponse(response, resultVar, result);
     }
 
 }

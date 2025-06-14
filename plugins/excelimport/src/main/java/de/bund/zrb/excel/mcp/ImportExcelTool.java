@@ -7,6 +7,7 @@ import de.bund.zrb.excel.model.ExcelImportConfig;
 import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.plugin.ExcelImport;
 import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.*;
@@ -47,19 +48,16 @@ public class ImportExcelTool implements McpTool {
     }
 
     @Override
-    public JsonObject execute(JsonObject input, String resultVar) {
+    public McpToolResponse execute(JsonObject input, String resultVar) {
         JsonObject response = new JsonObject();
+        String result = null;
         try {
             ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), getStringExcelMappingFunction());
 
             boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
             boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
 
-            String result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
-
-            if (resultVar != null && !resultVar.trim().isEmpty()) {
-                plugin.getContext().getVariableRegistry().set(resultVar, result); // 🔧 setze Variable
-            }
+            result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
 
             response.addProperty("status", "success");
             response.addProperty("content", ""); // ToDo: May be implemted, but nor required
@@ -67,7 +65,8 @@ public class ImportExcelTool implements McpTool {
             response.addProperty("status", "error");
             response.addProperty("message", e.getMessage());
         }
-        return response;
+
+        return new McpToolResponse(response, resultVar, result);
     }
 
     private Function<String, ExcelMapping> getStringExcelMappingFunction() {
