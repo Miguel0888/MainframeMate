@@ -29,7 +29,7 @@ public class ExpressionTreeParser {
         while (index < input.length()) {
             int start = input.indexOf("{{", index);
             if (start < 0) {
-                parts.add(parseSingle(input.substring(index).trim()));
+                parts.add(new LiteralExpression(input.substring(index)));
                 break;
             }
 
@@ -57,6 +57,11 @@ public class ExpressionTreeParser {
 
 
     private ResolvableExpression parseSingle(String expr) {
+        if (expr.isEmpty()) {
+            return new LiteralExpression("");
+        }
+
+        // Entferne Quotes – wichtig für Argumente wie 'a;b'
         String unquoted = StringUtil.unquote(expr);
         if (!unquoted.equals(expr)) {
             return new LiteralExpression(unquoted);
@@ -65,6 +70,7 @@ public class ExpressionTreeParser {
         int open = expr.indexOf('(');
         int close = expr.lastIndexOf(')');
 
+        // Falls Funktion: foo(...) → FunctionExpression
         if (open > 0 && close > open && close == expr.length() - 1) {
             String funcName = expr.substring(0, open).trim();
             if (!knownFunctions.contains(funcName)) {
@@ -76,8 +82,14 @@ public class ExpressionTreeParser {
             return new FunctionExpression(funcName, args);
         }
 
+        // Falls komplett in {{...}} → parseSingle wird nie mit {{…}} aufgerufen!
+        // Sonderfall: Wird rekursiv aufgerufen aus parse() mit cleanem Inhalt
+
+        // Default: einfache Variable
         return new VariableExpression(expr);
     }
+
+
 
     private int findMatchingEnd(String input, int start) {
         int depth = 0;
