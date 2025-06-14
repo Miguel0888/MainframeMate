@@ -9,31 +9,20 @@ import java.util.List;
 
 public class FunctionExpression implements ResolvableExpression {
     private final String functionName;
-    private final List<ResolvableExpression> args;
+    private final List<ResolvableExpression> arguments;
 
-    public FunctionExpression(String functionName, List<ResolvableExpression> args) {
+    public FunctionExpression(String functionName, List<ResolvableExpression> arguments) {
         this.functionName = functionName;
-        this.args = args;
-    }
-
-    public String resolve(VariableRegistry registry, ExpressionRegistry exprRegistry, long timeoutMillis) throws Exception {
-        List<String> resolvedArgs = new ArrayList<>();
-        for (ResolvableExpression arg : args) {
-            resolvedArgs.add(arg.resolve(registry, exprRegistry, timeoutMillis));
-        }
-        return exprRegistry.evaluate(functionName, resolvedArgs);
-    }
-
-    public boolean isResolved(VariableRegistry registry) {
-        return args.stream().allMatch(a -> a.isResolved(registry));
+        this.arguments = arguments;
     }
 
     public String getFunctionName() {
         return functionName;
     }
 
-    public List<ResolvableExpression>  getArguments() {
-        return args;
+    public List<ResolvableExpression> getArguments() {
+        return arguments;
     }
 }
+
 

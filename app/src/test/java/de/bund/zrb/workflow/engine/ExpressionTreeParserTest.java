@@ -34,7 +34,7 @@ public class ExpressionTreeParserTest {
     @Test
     public void parsesQuotedLiteral() {
         ResolvableExpression expr = parser.parse("{{'abc'}}");
-        assertTrue(expr instanceof LiteralExpression);
+        assertTrue(expr instanceof VariableExpression); // Cannot be a Literal because of the surrounding curly brackets
         assertEquals("abc", ((LiteralExpression) expr).getValue());
     }
 

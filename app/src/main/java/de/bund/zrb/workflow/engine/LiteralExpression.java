@@ -11,14 +11,6 @@ public class LiteralExpression implements ResolvableExpression {
         this.value = value;
     }
 
-    public String resolve(VariableRegistry registry, ExpressionRegistry exprRegistry, long timeoutMillis) {
-        return value;
-    }
-
-    public boolean isResolved(VariableRegistry registry) {
-        return true;
-    }
-
     public String getValue() {
         return value;
     }

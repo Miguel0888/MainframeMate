@@ -11,14 +11,6 @@ public class VariableExpression implements ResolvableExpression {
         this.name = name;
     }
 
-    public String resolve(VariableRegistry registry, ExpressionRegistry exprRegistry, long timeoutMillis) throws Exception {
-        return registry.get(name, timeoutMillis);
-    }
-
-    public boolean isResolved(VariableRegistry registry) {
-        return registry.has(name);
-    }
-
     public String getName() {
         return name;
     }
