@@ -1,8 +1,7 @@
 package de.bund.zrb.workflow.engine;
 
-import de.zrb.bund.api.ExpressionRegistry;
-import de.zrb.bund.newApi.ResolvableExpression;
-import de.zrb.bund.newApi.VariableRegistry;
+import de.zrb.bund.newApi.workflow.ResolutionContext;
+import de.zrb.bund.newApi.workflow.ResolvableExpression;
 
 public class LiteralExpression implements ResolvableExpression {
     private final String value;
@@ -11,7 +10,17 @@ public class LiteralExpression implements ResolvableExpression {
         this.value = value;
     }
 
-    public String getValue() {
+    public Object resolve() {
+        return resolve(null);
+    }
+
+    @Override
+    public Object resolve(ResolutionContext context) {
         return value;
+    }
+
+    @Override
+    public boolean isResolved(ResolutionContext context) {
+        return true;
     }
 }

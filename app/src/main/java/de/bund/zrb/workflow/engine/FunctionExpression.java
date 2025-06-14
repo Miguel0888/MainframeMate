@@ -1,8 +1,8 @@
 package de.bund.zrb.workflow.engine;
 
-import de.zrb.bund.api.ExpressionRegistry;
-import de.zrb.bund.newApi.ResolvableExpression;
-import de.zrb.bund.newApi.VariableRegistry;
+import de.zrb.bund.newApi.workflow.ResolutionContext;
+import de.zrb.bund.newApi.workflow.ResolvableExpression;
+import de.zrb.bund.newApi.workflow.UnresolvedSymbolException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,12 +16,30 @@ public class FunctionExpression implements ResolvableExpression {
         this.arguments = arguments;
     }
 
-    public String getFunctionName() {
-        return functionName;
+    @Override
+    public Object resolve(ResolutionContext context) throws UnresolvedSymbolException {
+        if (!context.isAvailable(functionName)) {
+            throw new UnresolvedSymbolException(functionName);
+        }
+
+        List<Object> resolvedArgs = new ArrayList<>();
+        for (ResolvableExpression arg : arguments) {
+            if (!arg.isResolved(context)) {
+                throw new UnresolvedSymbolException("Argument unresolved for function: " + functionName);
+            }
+            resolvedArgs.add(arg.resolve(context));
+        }
+
+        return context.invoke(functionName, resolvedArgs);
     }
 
-    public List<ResolvableExpression> getArguments() {
-        return arguments;
+    @Override
+    public boolean isResolved(ResolutionContext context) {
+        if (!context.isAvailable(functionName)) return false;
+        for (ResolvableExpression arg : arguments) {
+            if (!arg.isResolved(context)) return false;
+        }
+        return true;
     }
 }
 

@@ -1,10 +1,9 @@
 package de.bund.zrb.workflow.engine;
 
-import de.zrb.bund.api.ExpressionRegistry;
-import de.zrb.bund.newApi.ResolvableExpression;
-import de.zrb.bund.newApi.VariableRegistry;
+import de.zrb.bund.newApi.workflow.ResolutionContext;
+import de.zrb.bund.newApi.workflow.ResolvableExpression;
+import de.zrb.bund.newApi.workflow.UnresolvedSymbolException;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -19,5 +18,25 @@ public class CompositeExpression implements ResolvableExpression {
 
     public List<ResolvableExpression> getParts() {
         return parts;
+    }
+
+    @Override
+    public Object resolve(ResolutionContext context) throws UnresolvedSymbolException {
+        StringBuilder sb = new StringBuilder();
+        for (ResolvableExpression part : parts) {
+            if (!part.isResolved(context)) {
+                throw new UnresolvedSymbolException("Composite contains unresolved part");
+            }
+            sb.append(part.resolve(context));
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public boolean isResolved(ResolutionContext context) {
+        for (ResolvableExpression part : parts) {
+            if (!part.isResolved(context)) return false;
+        }
+        return true;
     }
 }

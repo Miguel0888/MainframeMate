@@ -1,6 +1,6 @@
 package de.bund.zrb.workflow.engine;
 
-import de.zrb.bund.newApi.ResolvableExpression;
+import de.zrb.bund.newApi.workflow.ResolvableExpression;
 
 import java.util.ArrayList;
 import java.util.List;
