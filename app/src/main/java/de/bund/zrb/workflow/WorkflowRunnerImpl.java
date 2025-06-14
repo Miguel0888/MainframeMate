@@ -4,11 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import de.bund.zrb.workflow.engine.BlockingResolutionContext;
 import de.bund.zrb.workflow.engine.ExpressionTreeParser;
-import de.bund.zrb.workflow.engine.FixedValueExpression;
+import de.bund.zrb.workflow.engine.LiteralExpression;
 import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.McpService;
-import de.zrb.bund.newApi.VariableRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.workflow.*;
@@ -38,7 +37,7 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         if (template == null || template.getData() == null) return null;
 
         UUID runId = UUID.randomUUID();
-        BlockingResolutionContext resolutionContext = new BlockingResolutionContext();
+        BlockingResolutionContext resolutionContext = new BlockingResolutionContext(); // sorgt für das Warten, wenn Variable noch nicht existiert
 
         // 1. Starte mit initialen Variablen
         Map<String, String> initialVars = getWorkflowVars(template, overrides);
@@ -63,10 +62,9 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
             for (Map.Entry<String, Object> entry : rawParams.entrySet()) {
                 Object val = entry.getValue();
                 if (val instanceof String) {
-                    parsedParams.put(entry.getKey(), parser.parse((String) val));
+                    parsedParams.put(entry.getKey(), parser.parse((String) val)); // val ist immer ein String
                 } else {
-                    // Feste Werte direkt übernehmen (als Literal-Expression)
-                    parsedParams.put(entry.getKey(), new FixedValueExpression(val));
+                    parsedParams.put(entry.getKey(), new LiteralExpression(val)); // übernimmt den Typ aus val
                 }
             }
 
@@ -81,7 +79,8 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
 
                     JsonObject jsonCall = new JsonObject();
                     for (Map.Entry<String, Object> resolved : resolvedParams.entrySet()) {
-                        jsonCall.addProperty(resolved.getKey(), resolved.getValue().toString());
+                        Object value = resolved.getValue();
+                        jsonCall.add(resolved.getKey(), gson.toJsonTree(value)); // korrekt getypt und gequoted
                     }
 
                     McpToolResponse response = tool.execute(jsonCall, step.getResultVar());

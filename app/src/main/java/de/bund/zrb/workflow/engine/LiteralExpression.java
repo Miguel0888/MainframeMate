@@ -4,14 +4,11 @@ import de.zrb.bund.newApi.workflow.ResolutionContext;
 import de.zrb.bund.newApi.workflow.ResolvableExpression;
 
 public class LiteralExpression implements ResolvableExpression {
-    private final String value;
 
-    public LiteralExpression(String value) {
+    private final Object value;
+
+    public LiteralExpression(Object value) {
         this.value = value;
-    }
-
-    public Object resolve() {
-        return resolve(null);
     }
 
     @Override
