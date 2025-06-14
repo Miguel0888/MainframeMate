@@ -2,9 +2,9 @@ package de.bund.zrb.workflow;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.workflow.engine.BlockingResolutionContext;
 import de.bund.zrb.workflow.engine.ExpressionTreeParser;
+import de.bund.zrb.workflow.engine.FixedValueExpression;
 import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.McpService;
@@ -40,13 +40,13 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         UUID runId = UUID.randomUUID();
         BlockingResolutionContext resolutionContext = new BlockingResolutionContext();
 
-        // 1. Vars bereitstellen
+        // 1. Starte mit initialen Variablen
         Map<String, String> initialVars = getWorkflowVars(template, overrides);
         for (Map.Entry<String, String> entry : initialVars.entrySet()) {
             resolutionContext.provide(entry.getKey(), entry.getValue());
         }
 
-        // 2. Schritte verarbeiten
+        // 2. Schritte parallel vorbereiten
         for (WorkflowStepContainer container : template.getData()) {
             WorkflowMcpData step = container.getMcp();
             if (step == null || step.getToolName() == null) continue;
@@ -64,33 +64,37 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
                 Object val = entry.getValue();
                 if (val instanceof String) {
                     parsedParams.put(entry.getKey(), parser.parse((String) val));
+                } else {
+                    // Feste Werte direkt übernehmen (als Literal-Expression)
+                    parsedParams.put(entry.getKey(), new FixedValueExpression(val));
                 }
             }
 
+            // Schritt ausführen, sobald alle Parameter auflösbar sind
             executor.submit(() -> {
-                Map<String, Object> resolvedParams = new LinkedHashMap<>();
-                for (Map.Entry<String, ResolvableExpression> e : parsedParams.entrySet()) {
-                    Object resolved = null;
-                    try {
-                        resolved = e.getValue().resolve(resolutionContext);
-                    } catch (UnresolvedSymbolException ex) {
-                        throw new RuntimeException(ex);
+                try {
+                    Map<String, Object> resolvedParams = new LinkedHashMap<>();
+                    for (Map.Entry<String, ResolvableExpression> e : parsedParams.entrySet()) {
+                            Object resolved = e.getValue().resolve(resolutionContext); // blockiert, falls nötig
+                        resolvedParams.put(e.getKey(), resolved);
                     }
-                    resolvedParams.put(e.getKey(), resolved);
+
+                    JsonObject jsonCall = new JsonObject();
+                    for (Map.Entry<String, Object> resolved : resolvedParams.entrySet()) {
+                        jsonCall.addProperty(resolved.getKey(), resolved.getValue().toString());
+                    }
+
+                    McpToolResponse response = tool.execute(jsonCall, step.getResultVar());
+
+                    if (response.hasVariable()) {
+                        resolutionContext.provide(response.asVariableName(), response.asVariableValue());
+                    }
+
+                    mcpService.accept(response.asJson(), runId, step.getResultVar());
+                } catch (UnresolvedSymbolException ex) {
+                    System.err.println("Fehler beim Ausführen des Tools \"" + step.getToolName() + "\": " + ex.getMessage());
+                    ex.printStackTrace();
                 }
-
-                JsonObject jsonCall = new JsonObject();
-                for (Map.Entry<String, Object> resolved : resolvedParams.entrySet()) {
-                    jsonCall.addProperty(resolved.getKey(), resolved.getValue().toString());
-                }
-
-                McpToolResponse response = tool.execute(jsonCall, step.getResultVar());
-
-                if (response.hasVariable()) {
-                    resolutionContext.provide(response.asVariableName(), response.asVariableValue());
-                }
-
-                mcpService.accept(response.asJson(), runId, step.getResultVar());
             });
         }
 
