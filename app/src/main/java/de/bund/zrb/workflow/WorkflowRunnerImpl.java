@@ -4,14 +4,13 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.util.AsyncPlaceholderResolver;
-import de.bund.zrb.util.PlaceholderResolver;
 import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.VariableRegistry;
 import de.zrb.bund.newApi.workflow.*;
 import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.mcp.McpTool;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -33,10 +32,11 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
     public UUID execute(WorkflowTemplate template, Map<String, String> overrides) {
         if (template == null || template.getData() == null) return null;
 
-        processVariables(template, overrides);
+        // 0.) Prepare the Variable Registry
+        Map<String, String> currentlySetVars = getWorkflowVars(template, overrides);
+        registerVars(currentlySetVars, true);
 
-        // 2. Schritte durchlaufen und vorbereiten
-        AsyncPlaceholderResolver resolver = new AsyncPlaceholderResolver(context.getVariableRegistry(), SettingsHelper.load().workflowTimeout);
+        // 1.) ToDo: Now parse each parameter for each templates on its own
         UUID runId = UUID.randomUUID(); // create workflow id
         for (WorkflowStepContainer container : template.getData()) {
             WorkflowMcpData step = container.getMcp();
@@ -49,30 +49,51 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
             }
 
             Map<String, Object> rawParams = step.getParameters();
-            Map<String, Object> resolvedParams = new LinkedHashMap<>();
 
+            // 2.) ToDo: Then try to resolve the Value for each Expression in each step concurrently (!), wait until timeout if not resolvable
+            Map<String, ResolvableExpression> resolvedParams = new LinkedHashMap<>(); // the key is the param name form JSON
+            // ToDo:
+
+            Map<String, Object> resolvedParamsAsString = new LinkedHashMap<>(); // the key is the param name from JSON
             for (Map.Entry<String, Object> entry : rawParams.entrySet()) {
                 Object val = entry.getValue();
                 if (val instanceof String) {
                     String str = (String) val;
-                    resolvedParams.put(entry.getKey(), resolver.resolve(str));
+                    // ToDo: convert resolvedParams to resolvedParamsAsString somehow?
+                    // ToDo: Simply register the outmost {{}} block as new Variable in the Registry and store the resolved value (thus Expressions are "flattend" to one level)
+                    String resolvedParamValue = ""; // ToDo. Caution can be something line TEXT1 {{VAR1}} TEX2 {{VAR2}} etc.. (we have multiple vars on level one, each variable on level 1 is in the VarRegistry registerd on in its own)
+                    resolvedParamsAsString.put(entry.getKey(), resolvedParamValue); // ToDo: Strings are quoted in JSON!
                 } else {
-                    resolvedParams.put(entry.getKey(), val); // andere Typen direkt übernehmen
+                    resolvedParamsAsString.put(entry.getKey(), val); // Not quoted value / andere Typen direkt übernehmen
                 }
             }
 
             // 3. JSON-Call vorbereiten
             JsonObject jsonCall = new JsonObject();
             jsonCall.addProperty("name", step.getToolName());
-            jsonCall.add("tool_input", gson.toJsonTree(resolvedParams));
+            jsonCall.add("tool_input", gson.toJsonTree(resolvedParamsAsString));
 
             // 4. Fire-and-Forget an MCP-Service
             mcpService.accept(jsonCall, runId, step.getResultVar());
+
         }
+
         return runId;
     }
 
-    private void processVariables(WorkflowTemplate template, Map<String, String> overrides) {
+    private void registerVars(Map<String, String> vars, boolean startsNewWorkflow) {
+        VariableRegistry registry = context.getVariableRegistry();
+        if(startsNewWorkflow)
+        {
+            registry.clear(); // Daten vom letzten Lauf löschen, ToDo: Eine eigene Registry pro Template verwenden..
+        }
+        for (Map.Entry<String, String> entry : vars.entrySet()) {
+            registry.set(entry.getKey(), entry.getValue());
+        }
+    }
+
+    @NotNull
+    private static Map<String, String> getWorkflowVars(WorkflowTemplate template, Map<String, String> overrides) {
         // 1. Alle Variablen aus dem Template + Overrides mergen
         Map<String, String> vars = new LinkedHashMap<>();
         if (template.getMeta() != null && template.getMeta().getVariables() != null) {
@@ -81,60 +102,6 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         if (overrides != null) {
             vars.putAll(overrides);
         }
-
-        // 2. Expressions aus Parametern extrahieren und auswerten
-        extractAndEvaluateExpressions(template.getData(), vars);
-
-        // 3. Alle Vars in registry eintragen
-        VariableRegistry registry = context.getVariableRegistry();
-        registry.clear(); // Daten vom letzten Lauf löschen, ToDo: Eine eigene Registry pro Template verwenden..
-        for (Map.Entry<String, String> entry : vars.entrySet()) {
-            registry.set(entry.getKey(), entry.getValue());
-        }
+        return vars;
     }
-
-    private void extractAndEvaluateExpressions(List<WorkflowStepContainer> steps, Map<String, String> vars) {
-        Set<String> foundExpressions = new HashSet<>();
-
-        for (WorkflowStepContainer container : steps) {
-            WorkflowMcpData step = container.getMcp();
-            if (step == null) continue;
-
-            for (Object val : step.getParameters().values()) {
-                if (val instanceof String) {
-                    String str = (String) val;
-                    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(str);
-                    while (matcher.find()) {
-                        foundExpressions.add(matcher.group(1));
-                    }
-                }
-            }
-        }
-
-        for (String expr : foundExpressions) {
-            // Ignoriere, falls manuell in vars gesetzt
-            if (vars.containsKey(expr)) continue;
-
-            // Versuche Expression zu parsen und auszuwerten
-            java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("^(\\w+)\\((.*)\\)$").matcher(expr);
-            if (matcher.matches()) {
-                String functionName = matcher.group(1);
-                String argsString = matcher.group(2);
-                List<String> args = argsString.isEmpty() ? Collections.emptyList()
-                        : Arrays.stream(argsString.split("\\s*,\\s*"))
-                        .map(s -> s.replaceAll("^['\"]|['\"]$", "")) // entferne " oder '
-                        .collect(Collectors.toList());
-
-                try {
-                    String result = expressionRegistry.evaluate(functionName, args);
-                    vars.put(expr, result);
-                } catch (Exception e) {
-                    System.err.println("Fehler bei Auswertung von Expression „" + expr + "“:");
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-
 }
