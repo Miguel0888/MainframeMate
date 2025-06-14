@@ -11,6 +11,10 @@ public class LiteralExpression implements ResolvableExpression {
         this.value = value;
     }
 
+    public Object resolve() {
+        return value;
+    }
+
     @Override
     public Object resolve(ResolutionContext context) {
         return value;

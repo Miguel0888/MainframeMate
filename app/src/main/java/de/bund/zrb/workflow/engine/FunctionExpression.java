@@ -41,6 +41,16 @@ public class FunctionExpression implements ResolvableExpression {
         }
         return true;
     }
+
+    // For Testing
+    public String getFunctionName() {
+        return functionName;
+    }
+
+    // For Testing
+    public List<ResolvableExpression> getArguments() {
+        return arguments;
+    }
 }
 
 

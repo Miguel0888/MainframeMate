@@ -1,5 +1,6 @@
 package de.bund.zrb.workflow.engine;
 
+import de.zrb.bund.newApi.workflow.ResolutionContext;
 import de.zrb.bund.newApi.workflow.ResolvableExpression;
 import de.zrb.bund.newApi.workflow.UnresolvedSymbolException;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,10 +34,12 @@ public class ExpressionTreeParserTest {
     }
 
     @Test
-    public void parsesQuotedLiteral() {
+    public void parsesQuotedLiteral_resolvesFromRegistry() throws UnresolvedSymbolException {
         ResolvableExpression expr = parser.parse("{{'abc'}}");
-        assertTrue(expr instanceof VariableExpression); // Cannot be a Literal because of the surrounding curly brackets
-        assertEquals("abc", ((LiteralExpression) expr).resolve());
+        assertTrue(expr instanceof VariableExpression);
+
+        ResolutionContext ctx = new DummyRegistryContext("abc", "foo");
+        assertEquals("foo", expr.resolve(ctx));
     }
 
     @Test
@@ -113,4 +116,29 @@ public class ExpressionTreeParserTest {
     public void failsOnUnmatchedBraces() {
         assertThrows(IllegalArgumentException.class, () -> parser.parse("Hello {{unterminated"));
     }
+
+    private static class DummyRegistryContext implements ResolutionContext {
+        private final Map<String, Object> vars = new HashMap<>();
+
+        public DummyRegistryContext(String name, Object value) {
+            vars.put("'" + name + "'", value); // Achtung: Mit Quotes!
+        }
+
+        @Override
+        public boolean isAvailable(String name) {
+            return vars.containsKey(name);
+        }
+
+        @Override
+        public Object resolve(String name)  {
+            return vars.get(name);
+        }
+
+        @Override
+        public Object invoke(String functionName, List<Object> args) {
+            return null;
+        }
+    }
+
+
 }
