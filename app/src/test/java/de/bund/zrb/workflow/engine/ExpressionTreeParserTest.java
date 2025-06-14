@@ -30,7 +30,9 @@ public class ExpressionTreeParserTest {
     public void parsesSingleVariable() throws UnresolvedSymbolException {
         ResolvableExpression expr = parser.parse("{{user}}");
         assertTrue(expr instanceof VariableExpression);
-        assertEquals("user", ((VariableExpression) expr).resolve(null));
+
+        ResolutionContext ctx = createContextWith("user", "Alice");
+        assertEquals("Alice", expr.resolve(ctx));
     }
 
     @Test
@@ -38,7 +40,7 @@ public class ExpressionTreeParserTest {
         ResolvableExpression expr = parser.parse("{{'abc'}}");
         assertTrue(expr instanceof VariableExpression);
 
-        ResolutionContext ctx = new DummyRegistryContext("abc", "foo");
+        ResolutionContext ctx = createContextWith("'abc'", "foo");
         assertEquals("foo", expr.resolve(ctx));
     }
 
@@ -63,7 +65,9 @@ public class ExpressionTreeParserTest {
         assertEquals("wrap", f.getFunctionName());
         assertEquals(1, f.getArguments().size());
         assertTrue(f.getArguments().get(0) instanceof VariableExpression);
-        assertEquals("v", ((VariableExpression) f.getArguments().get(0)).resolve(null));
+
+        ResolutionContext ctx = createContextWith("v", "bar");
+        assertEquals("bar", f.getArguments().get(0).resolve(ctx));
     }
 
     @Test
@@ -96,8 +100,10 @@ public class ExpressionTreeParserTest {
         CompositeExpression composite = (CompositeExpression) expr;
 
         assertEquals(3, composite.getParts().size());
+
+        ResolutionContext ctx = createContextWith("name", "Bob");
         assertEquals("hello ", ((LiteralExpression) composite.getParts().get(0)).resolve());
-        assertEquals("name", ((VariableExpression) composite.getParts().get(1)).resolve(null));
+        assertEquals("Bob", composite.getParts().get(1).resolve(ctx));
         assertEquals("!", ((LiteralExpression) composite.getParts().get(2)).resolve());
     }
 
@@ -117,28 +123,10 @@ public class ExpressionTreeParserTest {
         assertThrows(IllegalArgumentException.class, () -> parser.parse("Hello {{unterminated"));
     }
 
-    private static class DummyRegistryContext implements ResolutionContext {
-        private final Map<String, Object> vars = new HashMap<>();
-
-        public DummyRegistryContext(String name, Object value) {
-            vars.put("'" + name + "'", value); // Achtung: Mit Quotes!
-        }
-
-        @Override
-        public boolean isAvailable(String name) {
-            return vars.containsKey(name);
-        }
-
-        @Override
-        public Object resolve(String name)  {
-            return vars.get(name);
-        }
-
-        @Override
-        public Object invoke(String functionName, List<Object> args) {
-            return null;
-        }
+    // Utility für einfache Tests mit BlockingResolutionContext
+    private ResolutionContext createContextWith(String name, Object value) {
+        BlockingResolutionContext ctx = new BlockingResolutionContext();
+        ctx.provide(name, value);
+        return ctx;
     }
-
-
 }
