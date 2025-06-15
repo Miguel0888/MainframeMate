@@ -107,14 +107,7 @@ public class FileTabImpl implements FileTab {
         this.eventManager = new FileTabEventManager(this);
         eventManager.bindAll();
 
-        setContent(content);
-
-        if( sentenceType != null) {
-            SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-            statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
-            statusBarPanel.setSelectedSentenceType(sentenceType);
-            dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
-        }
+        setContent(content, sentenceType);
 
         if(toCompare != null && toCompare) {
             this.toggleComparePanel();
@@ -218,17 +211,18 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public void setContent(String content) {
-        String detectedType = null;
-        try {
-            detectedType = detectSentenceTypeByPath(model.getFullPath());
-        } catch (Exception e) { /* just to make sure that any NPE cannot stop the process */ }
-        setContent(content, detectedType);
+        editorPanel.getTextArea().setText(content);
     }
 
 
     @Override
     public void setContent(String content, String sentenceType) {
-        editorPanel.getTextArea().setText(content);
+        setContent(content);
+        if(sentenceType == null) {
+            try {
+                sentenceType = detectSentenceTypeByPath(model.getFullPath());
+            } catch (Exception e) { /* just to make sure that any NPE cannot stop the process */ }
+        }
         if( sentenceType != null) {
             dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
         }
