@@ -7,11 +7,14 @@ import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.SentenceTypeRegistry;
+import de.zrb.bund.newApi.sentence.SentenceDefinition;
+import de.zrb.bund.newApi.sentence.SentenceMeta;
 import de.zrb.bund.newApi.ui.FileTab;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.InputStream;
+import java.util.Map;
 import java.util.Optional;
 
 public class FileTabImpl implements FileTab {
@@ -76,8 +79,6 @@ public class FileTabImpl implements FileTab {
         model.setBuffer(buffer);
         model.setSentenceType(sentenceType);
 
-        setContent(content);
-
         comparePanel = new ComparePanel(model.getFullPath(), content);
         comparePanel.setVisible(false);
 
@@ -99,10 +100,6 @@ public class FileTabImpl implements FileTab {
                 SettingsHelper.load().soundEnabled
         );
 
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-        statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
-        statusBarPanel.setSelectedSentenceType(sentenceType);
-
         statusBarPanel.bindEvents(dispatcher);
         editorPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
@@ -110,7 +107,14 @@ public class FileTabImpl implements FileTab {
         this.eventManager = new FileTabEventManager(this);
         eventManager.bindAll();
 
-        dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
+        setContent(content);
+
+        if( sentenceType != null) {
+            SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+            statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
+            statusBarPanel.setSelectedSentenceType(sentenceType);
+            dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
+        }
 
         if(toCompare != null && toCompare) {
             this.toggleComparePanel();
@@ -214,13 +218,20 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public void setContent(String content) {
-        editorPanel.getTextArea().setText(content);
+        String detectedType = null;
+        try {
+            detectedType = detectSentenceTypeByPath(model.getFullPath());
+        } catch (Exception e) { /* just to make sure that any NPE cannot stop the process */ }
+        setContent(content, detectedType);
     }
+
 
     @Override
     public void setContent(String content, String sentenceType) {
-        setContent(content);
-        dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
+        editorPanel.getTextArea().setText(content);
+        if( sentenceType != null) {
+            dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
+        }
     }
 
     @Override
@@ -259,4 +270,43 @@ public class FileTabImpl implements FileTab {
         statusBarPanel.getGrepField().requestFocusInWindow();
         statusBarPanel.getGrepField().selectAll();
     }
+
+    private String detectSentenceTypeByPath(String filePath) {
+        if (filePath == null) return null;
+
+        SentenceTypeRegistry registry = getRegistry();
+        Map<String, SentenceDefinition> definitions = registry.getSentenceTypeSpec().getDefinitions();
+
+        // 1. Erst Pfad-Vergleich (startsWith)
+        for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
+            SentenceMeta meta = entry.getValue().getMeta();
+            if (meta != null && meta.getPaths() != null) {
+                for (String path : meta.getPaths()) {
+                    if (filePath.contains(path)) {
+                        return entry.getKey();
+                    }
+                }
+            }
+        }
+
+        // 2. Danach Pattern (Regex)
+        for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
+            SentenceMeta meta = entry.getValue().getMeta();
+            if (meta != null) {
+                String pattern = meta.getPathPattern();
+                if (pattern != null && !pattern.trim().isEmpty()) {
+                    try {
+                        if (filePath.matches(pattern)) {
+                            return entry.getKey();
+                        }
+                    } catch (Exception e) {
+                        System.err.println("⚠ Ungültiges Satzart-Pfadmuster für '" + entry.getKey() + "': " + pattern);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
 }
