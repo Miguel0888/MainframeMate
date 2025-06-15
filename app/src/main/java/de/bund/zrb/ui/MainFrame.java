@@ -116,6 +116,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         this.variableRegistryImpl = VariableRegistryImpl.getInstance();
         this.mcpService = new McpServiceImpl(toolRegistry);
         this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
+        registerTools();
+
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -235,8 +237,6 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         initDragAndDropImport();
         intiShortcuts();
-        registerTools();
-
     }
 
     private void intiShortcuts() {
