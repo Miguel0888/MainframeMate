@@ -64,7 +64,9 @@ public class OpenFileTool implements McpTool {
                     : null;
 
             FtpTab ftpTab = context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
-            result = ftpTab.getContent();
+            if( ftpTab != null) {
+                result = ftpTab.getContent();
+            }
 
             response.addProperty("status", "success");
             response.addProperty("openedFile", file);

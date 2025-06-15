@@ -46,6 +46,8 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
         List<WorkflowStepContainer> remainingSteps = new ArrayList<>(template.getData());
 
         boolean progressMade;
+        long timeout = SettingsHelper.load().workflowTimeout; // z. B. 10_000 ms
+        long start = System.currentTimeMillis();
 
         do {
             progressMade = false;
@@ -109,10 +111,10 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
                 }
             }
 
-        } while (!remainingSteps.isEmpty() && progressMade);
+    } while (!remainingSteps.isEmpty() && progressMade && (System.currentTimeMillis() - start) < timeout);
 
         if (!remainingSteps.isEmpty()) {
-            System.err.println("⚠ Einige Schritte konnten nicht ausgeführt werden, da benötigte Variablen fehlen:");
+        System.err.println("⚠ Einige Schritte konnten nicht ausgeführt werden (Timeout oder fehlende Variablen):");
             for (WorkflowStepContainer s : remainingSteps) {
                 System.err.println(" - " + s.getMcp().getToolName());
             }
