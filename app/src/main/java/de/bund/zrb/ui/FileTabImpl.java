@@ -2,6 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ftp.FtpFileBuffer;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
@@ -13,12 +14,17 @@ import de.zrb.bund.newApi.ui.FileTab;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
 
 public class FileTabImpl implements FileTab {
 
+    public static final double DEFAULT_DIVIDER_LOCATION = 0.7;
+    private double currentDividerLocation = DEFAULT_DIVIDER_LOCATION;
+    private static final String DIVIDER_LOCATION_KEY = "comparePanel.dividerLocation";
     private final JPanel mainPanel = new JPanel(new BorderLayout());
     final FileTabModel model = new FileTabModel();
     final FileTabEventDispatcher dispatcher = new FileTabEventDispatcher();
@@ -112,12 +118,34 @@ public class FileTabImpl implements FileTab {
 
         setContent(content, sentenceType);
 
-        if(toCompare != null && toCompare) {
-            this.toggleComparePanel();
-        }
+//        String divLocation = SettingsHelper.load().applicationState.get("comparePanel.dividerLocation");
+//        if(divLocation != null && !divLocation.isEmpty()) {
+//            currentDividerLocation = Double.parseDouble(divLocation);
+//        }
+//
+//        splitPane.addPropertyChangeListener("dividerLocation", evt -> {
+//            currentDividerLocation = splitPane.getDividerLocation();
+//        });
+
+        showComparePanelWithDividerOnReady(toCompare);
+
         if(searchPattern != null && !searchPattern.isEmpty())
         {
             this.searchFor(searchPattern);
+        }
+    }
+
+    private void showComparePanelWithDividerOnReady(Boolean toCompare) {
+        if (Boolean.TRUE.equals(toCompare)) {
+            splitPane.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    if (splitPane.getHeight() > 0) {
+                        splitPane.removeComponentListener(this); // nur einmal ausführen
+                        showComparePanel();
+                    }
+                }
+            });
         }
     }
 
@@ -134,7 +162,7 @@ public class FileTabImpl implements FileTab {
 
     public void showComparePanel() {
         comparePanel.setVisible(true);
-        splitPane.setDividerLocation(0.7);
+        splitPane.setDividerLocation(currentDividerLocation);
         statusBarPanel.getCompareButton().setVisible(false);
     }
 
@@ -143,7 +171,7 @@ public class FileTabImpl implements FileTab {
         comparePanel.setVisible(show);
 
         if (show) {
-            splitPane.setDividerLocation(0.7);
+            splitPane.setDividerLocation(currentDividerLocation);
             statusBarPanel.getCompareButton().setVisible(false);
         }
     }
@@ -172,6 +200,13 @@ public class FileTabImpl implements FileTab {
     @Override
     public void onClose() {
         // Ressourcenfreigabe falls nötig
+        saveDividerLocation();
+    }
+
+    private void saveDividerLocation() {
+        Settings settings = SettingsHelper.load();
+        settings.applicationState.put(DIVIDER_LOCATION_KEY, String.valueOf(splitPane.getDividerLocation()));
+        SettingsHelper.save(settings);
     }
 
     @Override
@@ -305,5 +340,4 @@ public class FileTabImpl implements FileTab {
 
         return null;
     }
-
 }
