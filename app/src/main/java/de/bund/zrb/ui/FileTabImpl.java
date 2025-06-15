@@ -107,6 +107,9 @@ public class FileTabImpl implements FileTab {
         this.eventManager = new FileTabEventManager(this);
         eventManager.bindAll();
 
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
+
         setContent(content, sentenceType);
 
         if(toCompare != null && toCompare) {

@@ -21,7 +21,7 @@ public class ExcelImportUiPanel extends JPanel {
     private static final String KEY_HEADER_ENABLED = "headerEnabled";
     private static final String KEY_HEADER_ROW = "headerRow";
     private static final String KEY_APPEND = "append";
-    private static final String KEY_TRENNZEILE = "trennzeile";
+    private static final String KEY_TRENNZEILE = "separator";
     private String lastSaved;
 
     private File selectedExcelFile;

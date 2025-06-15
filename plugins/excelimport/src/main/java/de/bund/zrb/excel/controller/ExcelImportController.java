@@ -148,7 +148,7 @@ public class ExcelImportController {
         }
 
         if(config.getDestination() != null && !config.getDestination().trim().isEmpty()) {
-            FtpTab ftpTab = plugin.getContext().openFileOrDirectory(config.getDestination(), satzartName);
+            FtpTab ftpTab = plugin.getContext().openFileOrDirectory(config.getDestination(), satzartName, config.getSearchPattern(), config.getToCompare());
             if(ftpTab == null) {
                 showError(plugin.getMainFrame(), "Zielpfad konnte nicht geöffnet werden: " + config.getDestination());
                 return null;

@@ -30,7 +30,7 @@ public class ExcelImportSettingsDialog extends JDialog {
 
         jsonPathField.setText(pluginSettings.getOrDefault("lastJsonPath", ""));
         excelPathField.setText(pluginSettings.getOrDefault("lastExcelPath", ""));
-        trennzeileField.setText(pluginSettings.getOrDefault("trennzeile", ""));
+        trennzeileField.setText(pluginSettings.getOrDefault("separator", ""));
         showConfirmationCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("showConfirmation", "true")));
         autoOpenCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("autoOpen", "true")));
         stopOnEmptyRequiredCheck.setSelected(Boolean.parseBoolean(pluginSettings.getOrDefault("stopOnEmptyRequired", "true")));
@@ -86,7 +86,7 @@ public class ExcelImportSettingsDialog extends JDialog {
             Map<String, String> updated = new LinkedHashMap<>();
             updated.put("lastJsonPath", jsonPathField.getText().trim());
             updated.put("lastExcelPath", excelPathField.getText().trim());
-            updated.put("trennzeile", trennzeileField.getText().trim());
+            updated.put("separator", trennzeileField.getText().trim());
             updated.put("showConfirmation", String.valueOf(showConfirmationCheck.isSelected()));
             updated.put("autoOpen", String.valueOf(autoOpenCheck.isSelected()));
             updated.put("stopOnEmptyRequired", String.valueOf(stopOnEmptyRequiredCheck.isSelected()));

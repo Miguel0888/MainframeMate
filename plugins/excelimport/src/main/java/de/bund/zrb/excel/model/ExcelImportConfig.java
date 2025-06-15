@@ -16,6 +16,25 @@ public class ExcelImportConfig {
     private boolean append = false;
     private String separator = "";
 
+    public String getSearchPattern() {
+        return searchPattern;
+    }
+
+    public void setSearchPattern(String searchPattern) {
+        this.searchPattern = searchPattern;
+    }
+
+    public Boolean getToCompare() {
+        return toCompare;
+    }
+
+    public void setToCompare(Boolean toCompare) {
+        this.toCompare = toCompare;
+    }
+
+    private String searchPattern = null;
+    private Boolean toCompare = null;
+
     public String getTemplateName() {
         return templateName;
     }
@@ -96,7 +115,9 @@ public class ExcelImportConfig {
             this.hasHeader = optionalBoolean("hasHeader", input, schema, this.hasHeader);
             this.headerRowIndex = optionalInteger("headerRowIndex", input, schema, this.headerRowIndex);
             this.append = optionalBoolean("append", input, schema, this.append);
-            this.separator = optionalString("trennzeile", input, schema, this.separator);
+            this.separator = optionalString("separator", input, schema, this.separator);
+            this.searchPattern = optionalString("search", input, schema, this.searchPattern);
+            this.toCompare = optionalBoolean("toCompare", input, schema, this.toCompare);
 
             resolveTemplate(input, schema, templateResolver);
 
@@ -142,7 +163,7 @@ public class ExcelImportConfig {
         return defaultValue;
     }
 
-    private boolean optionalBoolean(String key, Map<String, Object> input, ToolSpec.InputSchema schema, boolean defaultValue) {
+    private Boolean optionalBoolean(String key, Map<String, Object> input, ToolSpec.InputSchema schema, Boolean defaultValue) {
         Object value = input.get(key);
         if (value instanceof Boolean) return (Boolean) value;
         if (value instanceof String) return Boolean.parseBoolean((String) value);

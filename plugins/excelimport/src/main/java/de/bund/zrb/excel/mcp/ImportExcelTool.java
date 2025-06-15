@@ -30,7 +30,9 @@ public class ImportExcelTool implements McpTool {
         properties.put("hasHeader", new ToolSpec.Property("boolean", "Ob Spaltennamen in einer Kopfzeile vorhanden sind"));
         properties.put("headerRowIndex", new ToolSpec.Property("integer", "Index der Kopfzeile (beginnend bei 0)"));
         properties.put("append", new ToolSpec.Property("boolean", "Ob an eine bestehende Datei angehängt wird"));
-        properties.put("trennzeile", new ToolSpec.Property("string", "Text der Trennzeile (optional)"));
+        properties.put("separator", new ToolSpec.Property("string", "Text der Trennzeile (optional)"));
+        properties.put("search", new ToolSpec.Property("string", "Suchausdruck innerhalb des Ziels hervorheben"));
+        properties.put("toCompare", new ToolSpec.Property("boolean", "Vergleich mit dem alten Inhalt öffnen"));
 
         List<String> required = Arrays.asList("file", "satzart");  // defaults: "hasHeader" = true, "headerRowIndex" = 0, "append" = false
 
@@ -42,7 +44,9 @@ public class ImportExcelTool implements McpTool {
         example.put("hasHeader", true);
         example.put("headerRowIndex", 0);
         example.put("append", false);
-        example.put("trennzeile", "");
+        example.put("separator", "");
+        example.put("search", ".*ABC.*");
+        example.put("toCompare", true);
 
         return new ToolSpec("import_excel", "Importiert eine Excel-Datei als Satzart in das System.", inputSchema, example);
     }
@@ -60,7 +64,7 @@ public class ImportExcelTool implements McpTool {
             result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
 
             response.addProperty("status", "success");
-            response.addProperty("content", ""); // ToDo: May be implemted, but nor required
+            response.addProperty("content", ""); // ToDo: May be implemented, but not required
         } catch (Exception e) {
             response.addProperty("status", "error");
             response.addProperty("message", e.getMessage());

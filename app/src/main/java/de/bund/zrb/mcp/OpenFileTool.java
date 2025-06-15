@@ -24,7 +24,7 @@ public class OpenFileTool implements McpTool {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("file", new ToolSpec.Property("string", "Pfad zur Datei auf dem Host"));
         properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschlüssel"));
-        properties.put("suchmuster", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
+        properties.put("search", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
         properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus geöffnet werden soll"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("file"));
@@ -32,7 +32,7 @@ public class OpenFileTool implements McpTool {
         Map<String, Object> example = new LinkedHashMap<>();
         example.put("file", "MY.USER.FILE.JCL");
         example.put("satzart", "100");
-        example.put("suchmuster", "BEGIN");
+        example.put("search", "BEGIN");
         example.put("toCompare", true);
 
         return new ToolSpec(
@@ -55,8 +55,8 @@ public class OpenFileTool implements McpTool {
                     ? input.get("satzart").getAsString()
                     : null;
 
-            String searchPattern = input.has("suchmuster") && !input.get("suchmuster").isJsonNull()
-                    ? input.get("suchmuster").getAsString()
+            String searchPattern = input.has("search") && !input.get("search").isJsonNull()
+                    ? input.get("search").getAsString()
                     : null;
 
             Boolean toCompare = input.has("toCompare") && !input.get("toCompare").isJsonNull()
