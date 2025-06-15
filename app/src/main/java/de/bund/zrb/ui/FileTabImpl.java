@@ -76,7 +76,7 @@ public class FileTabImpl implements FileTab {
         model.setBuffer(buffer);
         model.setSentenceType(sentenceType);
 
-        editorPanel.getTextArea().setText(content);
+        setContent(content);
 
         comparePanel = new ComparePanel(model.getFullPath(), content);
         comparePanel.setVisible(false);
