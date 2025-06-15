@@ -2,6 +2,7 @@ package de.bund.zrb.workflow;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.workflow.engine.ExpressionTreeParser;
 import de.bund.zrb.workflow.engine.LiteralExpression;
 import de.bund.zrb.workflow.engine.PollingResolutionContext;
@@ -114,10 +115,11 @@ public class WorkflowRunnerImpl implements WorkflowRunner {
     } while (!remainingSteps.isEmpty() && progressMade && (System.currentTimeMillis() - start) < timeout);
 
         if (!remainingSteps.isEmpty()) {
-        System.err.println("⚠ Einige Schritte konnten nicht ausgeführt werden (Timeout oder fehlende Variablen):");
+            StringBuilder msg = new StringBuilder("Einige Schritte konnten nicht ausgeführt werden:\n");
             for (WorkflowStepContainer s : remainingSteps) {
-                System.err.println(" - " + s.getMcp().getToolName());
+                msg.append(" - ").append(s.getMcp().getToolName()).append("\n");
             }
+            throw new IllegalArgumentException(msg.toString());
         }
 
         return runId;
