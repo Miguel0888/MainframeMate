@@ -50,6 +50,7 @@ public class Settings {
 
     public HashMap<String, String> aiConfig = new HashMap<>();
     public String defaultWorkflow = "";
+    public HashMap<String, List<String>> fileImportVariables = new HashMap<>();
     public long workflowTimeout = 10_000; // 10 Sekunden default
     public boolean compareByDefault = false;
 

@@ -4,26 +4,13 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.helper.WorkflowStorage;
 import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
-import de.zrb.bund.newApi.workflow.WorkflowMcpData;
-import de.zrb.bund.newApi.workflow.WorkflowStepContainer;
 import de.zrb.bund.newApi.workflow.WorkflowTemplate;
 
 import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
-import java.awt.BasicStroke;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.Frame;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
-import java.awt.RenderingHints;
+import javax.swing.plaf.basic.ComboPopup;
+import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
 import java.util.List;
@@ -32,6 +19,7 @@ import java.util.Map;
 public class FileImportDialog extends JDialog {
 
     private final WorkflowRunner workflowRunner;
+    private final JComboBox<String> variableBox = new JComboBox<>();;
 
     private Timer countdownTimer;
     private int timeLeft = Integer.MAX_VALUE;
@@ -74,15 +62,34 @@ public class FileImportDialog extends JDialog {
         JPanel rememberPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         rememberPanel.add(rememberBox);
 
+        updateVariableBoxEntries((String) templateBox.getSelectedItem(), variableBox);
+        templateBox.addActionListener(e -> {
+            String selectedWorkflow = (String) templateBox.getSelectedItem();
+            updateVariableBoxEntries(selectedWorkflow, variableBox);
+        });
+
         JPanel templatePanel = new JPanel();
         templatePanel.setLayout(new BoxLayout(templatePanel, BoxLayout.Y_AXIS));
         templatePanel.setMaximumSize(new Dimension(200, 100));
         templatePanel.add(templateBox);
-        JLabel notice = new JLabel("{{file}} muss deklariert sein!");
-        notice.setFont(notice.getFont().deriveFont(10f));
-        templatePanel.add(notice);
-        templatePanel.add(Box.createVerticalStrut(10));
-        notice.setBorder(BorderFactory.createEmptyBorder(4, 2, 0, 2));
+        variableBox.setEditable(true);
+        Component editorComponent = variableBox.getEditor().getEditorComponent();
+        editorComponent.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                cancelTimer();
+            }
+        });
+
+        editorComponent.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                cancelTimer();
+            }
+        });
+        addDeleteOptionForVariables();
+        templatePanel.add(variableBox);
+
         templatePanel.add(rememberPanel);
 
         JPanel centerPanel = new JPanel(new GridBagLayout());
@@ -146,6 +153,65 @@ public class FileImportDialog extends JDialog {
         setLocationRelativeTo(owner);
     }
 
+    private void addDeleteOptionForVariables() {
+        variableBox.setRenderer(new VariableEntryRenderer());
+
+        variableBox.addPopupMenuListener(new PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                cancelTimer();
+                JList<?> list = getComboBoxList(variableBox);
+                if (list != null && list.getClientProperty("listener-added") == null) {
+                    list.putClientProperty("listener-added", Boolean.TRUE); // verhindern von Doppelt-Registrierung
+                    list.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mousePressed(MouseEvent e) {
+                            int index = list.locationToIndex(e.getPoint());
+                            if (index >= 0) {
+                                Rectangle bounds = list.getCellBounds(index, index);
+                                int x = e.getX();
+                                // Abschätzung: Rechts neben dem Text (Symbolbreite)
+                                if (x > bounds.x + bounds.width - 30) {
+                                    String selectedWorkflow = (String) templateBox.getSelectedItem();
+                                    String selectedVar = (String) list.getModel().getElementAt(index);
+
+                                    SwingUtilities.invokeLater(() -> {
+                                        Settings settings = SettingsHelper.load();
+                                        List<String> listVars = settings.fileImportVariables.get(selectedWorkflow);
+                                        if (listVars != null && listVars.removeIf(v -> v.equalsIgnoreCase(selectedVar))) {
+                                            SettingsHelper.save(settings);
+                                            updateVariableBoxEntries(selectedWorkflow, variableBox);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    });
+                    ;
+                }
+            }
+
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                cancelTimer();
+            }
+            public void popupMenuCanceled(PopupMenuEvent e) {
+                cancelTimer();
+            }
+        });;
+
+    }
+
+    @SuppressWarnings("rawtypes")
+    private JList getComboBoxList(JComboBox box) {
+        for (int i = 0; i < box.getUI().getAccessibleChildrenCount(box); i++) {
+            Object child = box.getUI().getAccessibleChild(box, i);
+            if (child instanceof ComboPopup) {
+                return ((ComboPopup) child).getList();
+            }
+        }
+        return null;
+    }
+
+
     private void cancelTimer() {
         if (!userInteracted) {
             countdownTimer.stop();
@@ -182,7 +248,25 @@ public class FileImportDialog extends JDialog {
 
         // Variable "file" aus dem Dateipfad erzeugen
         Map<String, String> overrides = new java.util.LinkedHashMap<>();
-        overrides.put("file", file.getAbsolutePath());
+        String selectedVar = ((String) variableBox.getEditor().getItem()).trim();
+        if (!selectedVar.isEmpty()) {
+            overrides.put(selectedVar, file.getAbsolutePath());
+
+            // Merken für spätere Aufrufe
+            Settings settings = SettingsHelper.load();
+            List<String> list = settings.fileImportVariables
+                    .computeIfAbsent(selected, k -> new java.util.ArrayList<>());
+
+            list.removeIf(v -> v.equalsIgnoreCase(selectedVar)); // Duplikat entfernen
+
+            if (rememberBox.isSelected()) {
+                list.add(selectedVar); // am Ende einfügen = wird Standard
+            } else {
+                list.add(0, selectedVar); // oben einfügen = temporäre Nutzung
+            }
+
+            SettingsHelper.save(settings);
+        }
 
         // Neuen Runner aufrufen (inkl. overrides für {{file}})
         try {
@@ -254,4 +338,47 @@ public class FileImportDialog extends JDialog {
         cancelTimer();   // ← Wichtig: Timer & Animation stoppen
         super.dispose();
     }
+
+    private void updateVariableBoxEntries(String workflowName, JComboBox<String> box) {
+        box.removeAllItems();
+        Settings settings = SettingsHelper.load();
+        List<String> candidates = settings.fileImportVariables.get(workflowName);
+
+        if (candidates != null && !candidates.isEmpty()) {
+            for (String var : candidates) {
+                box.addItem(var);
+            }
+            box.setSelectedItem(candidates.get(0));
+        } else {
+            box.addItem("file");
+            box.setSelectedItem("file");
+        }
+    }
+
+    private class VariableEntryRenderer extends JPanel implements ListCellRenderer<String> {
+        private final JLabel label = new JLabel();
+        private final JLabel deleteIcon = new JLabel(" ❌");
+
+        public VariableEntryRenderer() {
+            setLayout(new BorderLayout());
+            label.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+            add(label, BorderLayout.CENTER);
+            add(deleteIcon, BorderLayout.EAST);
+            setOpaque(true);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList<? extends String> list,
+                                                      String value,
+                                                      int index,
+                                                      boolean isSelected,
+                                                      boolean cellHasFocus) {
+            label.setText(value);
+            deleteIcon.setVisible(index >= 0); // nicht bei Editor oben
+            setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+            setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+            return this;
+        }
+    }
+
 }
