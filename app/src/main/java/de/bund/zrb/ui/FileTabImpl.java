@@ -118,21 +118,32 @@ public class FileTabImpl implements FileTab {
 
         setContent(content, sentenceType);
 
-//        String divLocation = SettingsHelper.load().applicationState.get("comparePanel.dividerLocation");
-//        if(divLocation != null && !divLocation.isEmpty()) {
-//            currentDividerLocation = Double.parseDouble(divLocation);
-//        }
-//
-//        splitPane.addPropertyChangeListener("dividerLocation", evt -> {
-//            currentDividerLocation = splitPane.getDividerLocation();
-//        });
+        restoreDividerLocation();
 
+        initDividerStateListener();
         showComparePanelWithDividerOnReady(toCompare);
 
         if(searchPattern != null && !searchPattern.isEmpty())
         {
             this.searchFor(searchPattern);
         }
+    }
+
+    private void initDividerStateListener() {
+        splitPane.addPropertyChangeListener("dividerLocation", evt -> {
+            int height = splitPane.getHeight();
+            if (height > 0) {
+                int rawDivider = splitPane.getDividerLocation();
+                double relative = rawDivider / (double) height;
+
+                if (relative >= 0.05 && relative <= 0.95) {
+                    currentDividerLocation = relative;
+                } else {
+                    // optional: Debug-Ausgabe
+                    System.err.println("⚠ Ignored out-of-range divider value: " + relative);
+                }
+            }
+        });
     }
 
     private void showComparePanelWithDividerOnReady(Boolean toCompare) {
@@ -203,10 +214,41 @@ public class FileTabImpl implements FileTab {
         saveDividerLocation();
     }
 
+    private double calculateDividerLocation() {
+        double relativeLocation = DEFAULT_DIVIDER_LOCATION;
+        int height = splitPane.getHeight();
+        if (height > 0) {
+            relativeLocation = splitPane.getDividerLocation() / (double) height;
+        }
+        return relativeLocation;
+    }
+
     private void saveDividerLocation() {
         Settings settings = SettingsHelper.load();
-        settings.applicationState.put(DIVIDER_LOCATION_KEY, String.valueOf(splitPane.getDividerLocation()));
-        SettingsHelper.save(settings);
+        int height = splitPane.getHeight();
+        if (height > 0) {
+            double relativeLocation = splitPane.getDividerLocation() / (double) height;
+            if(relativeLocation > 0) {
+                settings.applicationState.put(DIVIDER_LOCATION_KEY, String.valueOf(relativeLocation));
+                SettingsHelper.save(settings);
+            }
+        }
+    }
+
+    private void restoreDividerLocation() {
+        String divLocation = SettingsHelper.load().applicationState.get(DIVIDER_LOCATION_KEY);
+        if (divLocation != null && !divLocation.isEmpty()) {
+            try {
+                double storedLocation = Double.parseDouble(divLocation);
+                if (storedLocation >= 0.0 && storedLocation <= 1.0) {
+                    currentDividerLocation = storedLocation;
+                } else {
+                    System.err.println("⚠ Could not restore divider location due to an invalid value: " + storedLocation);
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("⚠ Invalid format for divider location: " + divLocation);
+            }
+        }
     }
 
     @Override
@@ -249,7 +291,8 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public void setContent(String content) {
-        editorPanel.getTextArea().setText(content);
+        editorPanel.setTextSilently(content);
+        model.resetChanged(); // Wichtig: Änderungszustand zurücksetzen
     }
 
 

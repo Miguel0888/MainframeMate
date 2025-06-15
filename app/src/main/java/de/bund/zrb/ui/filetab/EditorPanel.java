@@ -14,6 +14,9 @@ import java.awt.*;
 
 public class EditorPanel extends JPanel {
 
+    private boolean suppressChangeEvents = false;
+    private int originalContentHash;
+
     private final RSyntaxTextArea textArea = new RSyntaxTextArea();
     private final UndoManager undoManager = new UndoManager();
 
@@ -88,9 +91,30 @@ public class EditorPanel extends JPanel {
     }
 
     public void bindEvents(FileTabEventDispatcher dispatcher) {
-        getTextArea().getDocument().addUndoableEditListener(e ->
-                dispatcher.publish(new EditorContentChangedEvent(true))
-        );
+        // Ergänzter DocumentListener für direkte Textänderungserkennung (inkl. Undo)
+        textArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                handleChange();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                handleChange();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                // Ignorieren, da nicht relevant für plain text
+            }
+
+            private void handleChange() {
+                if (!suppressChangeEvents) {
+                    boolean changed = textArea.getText().hashCode() != originalContentHash;
+                    dispatcher.publish(new EditorContentChangedEvent(changed));
+                }
+            }
+        });
 
         getTextArea().addCaretListener(e -> {
             int caretLine = getCaretLine();
@@ -98,5 +122,17 @@ public class EditorPanel extends JPanel {
         });
 
     }
+
+    public void setTextSilently(String content) {
+        suppressChangeEvents = true;
+        try {
+            textArea.setText(content);
+            resetUndoHistory(); // damit "Neu" auch wirklich "unverändert" ist
+            originalContentHash = content != null ? content.hashCode() : 0;
+        } finally {
+            suppressChangeEvents = false;
+        }
+    }
+
 
 }

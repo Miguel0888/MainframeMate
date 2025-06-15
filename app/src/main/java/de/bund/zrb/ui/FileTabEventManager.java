@@ -55,6 +55,22 @@ public class FileTabEventManager {
 
         fileTab.dispatcher.subscribe(UndoRequestedEvent.class, e -> fileTab.editorPanel.undo());
         fileTab.dispatcher.subscribe(RedoRequestedEvent.class, e -> fileTab.editorPanel.redo());
+
+        fileTab.dispatcher.subscribe(EditorContentChangedEvent.class, event -> {
+            if(event.changed)
+            {
+                if (!fileTab.model.isChanged()) {
+                    fileTab.model.markChanged();
+                }
+            } else {
+                if (fileTab.model.isChanged()) {
+                    fileTab.model.resetChanged();
+                }
+            }
+
+            fileTab.updateTitle(); // 👈 Immer aufrufen
+        });
+
     }
 
     private SentenceTypeRegistry getRegistry() {
