@@ -8,6 +8,8 @@ repositories {
     mavenCentral()
 }
 
+def javaToolsJar = file("${System.getenv('JAVA_HOME')}/lib/tools.jar")
+
 dependencies {
     implementation project(':core')
 
@@ -34,6 +36,9 @@ dependencies {
     // REST (AI)
     implementation 'com.squareup.okhttp3:okhttp:4.9.3'
 
+    // tools.jar für JavaCompiler (nur Java 8, ab Java 9 JShell verwenden!)
+    implementation files(javaToolsJar)
+
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 
@@ -51,6 +56,15 @@ test {
 
 tasks.named('build') {
     dependsOn ':plugins:excelimport:copyToAppPlugins'
+
+    if (!javaToolsJar.exists()) {
+        throw new GradleException("tools.jar nicht gefunden! Stelle sicher, dass JAVA_HOME auf ein Java 8 JDK zeigt.")
+    }
+}
+
+shadowJar {
+    // Enthält auch manuell eingebundene JARs wie tools.jar
+    mergeServiceFiles() // optional, falls Services betroffen sind
 }
 
 //// Includes the AI driver and license files into the JAR
