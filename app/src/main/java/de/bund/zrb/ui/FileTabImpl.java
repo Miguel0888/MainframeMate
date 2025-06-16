@@ -138,7 +138,7 @@ public class FileTabImpl implements FileTab {
                 int rawDivider = splitPane.getDividerLocation();
                 double relative = rawDivider / (double) height;
 
-                if (relative >= 0.05 && relative <= 0.95) {
+                if (relative >= 0.10 && relative <= 1) {
                     currentDividerLocation = relative;
                 } else {
                     // optional: Debug-Ausgabe
@@ -301,7 +301,6 @@ public class FileTabImpl implements FileTab {
     @Override
     public void setContent(String content, String sentenceType) {
         setContent(content);
-        statusBarPanel.setSelectedSentenceType(sentenceType);
         if(sentenceType == null) {
             try {
                 sentenceType = detectSentenceTypeByPath(model.getFullPath());
@@ -310,6 +309,7 @@ public class FileTabImpl implements FileTab {
         if( sentenceType != null) {
             dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
         }
+        statusBarPanel.setSelectedSentenceType(sentenceType);
     }
 
     @Override
