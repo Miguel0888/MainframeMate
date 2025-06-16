@@ -1,5 +1,7 @@
 package de.bund.zrb;
 
+import com.sun.tools.javac.api.JavacTool;
+
 import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
 import javax.tools.ToolProvider;
@@ -8,7 +10,8 @@ import java.util.Collections;
 public class InMemoryJavaCompiler {
 
     public <T> T compile(String className, String sourceCode, Class<T> expectedType) throws Exception {
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+//        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        JavaCompiler compiler = JavacTool.create(); // Fix for pure JREs
         if (compiler == null) {
             throw new IllegalStateException(
                     "Kein JavaCompiler verfügbar. Stelle sicher, dass ein JDK verwendet wird (nicht nur ein JRE)."

@@ -9,6 +9,9 @@ repositories {
 }
 
 def javaToolsJar = file("${System.getenv('JAVA_HOME')}/lib/tools.jar")
+if (!javaToolsJar.exists()) {
+    throw new GradleException("tools.jar nicht gefunden! Stelle sicher, dass JAVA_HOME auf ein Java 8 JDK zeigt.")
+}
 
 dependencies {
     implementation project(':core')
@@ -56,15 +59,6 @@ test {
 
 tasks.named('build') {
     dependsOn ':plugins:excelimport:copyToAppPlugins'
-
-    if (!javaToolsJar.exists()) {
-        throw new GradleException("tools.jar nicht gefunden! Stelle sicher, dass JAVA_HOME auf ein Java 8 JDK zeigt.")
-    }
-}
-
-shadowJar {
-    // Enthält auch manuell eingebundene JARs wie tools.jar
-    mergeServiceFiles() // optional, falls Services betroffen sind
 }
 
 //// Includes the AI driver and license files into the JAR
