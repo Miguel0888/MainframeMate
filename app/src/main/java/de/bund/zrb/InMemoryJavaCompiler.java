@@ -9,19 +9,26 @@ import java.util.Collections;
 
 public class InMemoryJavaCompiler {
 
-    public <T> T compile(String className, String sourceCode, Class<T> expectedType) throws Exception {
-//        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        JavaCompiler compiler = JavacTool.create(); // Fix for pure JREs
+    private static JavaCompiler compiler;
+
+    // Synchronized to ensure thread-safe lazy initialization
+    private static synchronized JavaCompiler getCompiler() {
         if (compiler == null) {
-            throw new IllegalStateException(
-                    "Kein JavaCompiler verfügbar. Stelle sicher, dass ein JDK verwendet wird (nicht nur ein JRE)."
-            );
+            compiler = JavacTool.create(); // fallback attempt
+            if (compiler == null) {
+                throw new IllegalStateException("JavaCompiler konnte nicht geladen werden. Stelle sicher, dass tools.jar im Classpath ist.");
+            }
         }
+        return compiler;
+    }
+    public <T> T compile(String className, String sourceCode, Class<T> expectedType) throws Exception {
+        JavaCompiler javaCompiler = getCompiler();
+
         MemoryJavaFileManager fileManager = new MemoryJavaFileManager(
-                compiler.getStandardFileManager(null, null, null));
+                javaCompiler.getStandardFileManager(null, null, null));
 
         JavaFileObject sourceFile = new JavaSourceFromString(className, sourceCode);
-        boolean success = compiler.getTask(null, fileManager, null, null, null, Collections.singletonList(sourceFile)).call();
+        boolean success = javaCompiler.getTask(null, fileManager, null, null, null, Collections.singletonList(sourceFile)).call();
 
         if (!success) {
             throw new IllegalStateException("Compilation failed");

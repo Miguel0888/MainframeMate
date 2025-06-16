@@ -8,7 +8,9 @@ repositories {
     mavenCentral()
 }
 
-def javaToolsJar = file("${System.getenv('JAVA_HOME')}/lib/tools.jar")
+//def javaToolsJar = file("${System.getenv('JAVA_HOME')}/lib/tools.jar")
+def javaHome = System.properties['java.home']
+def javaToolsJar = file("$javaHome/../lib/tools.jar").canonicalFile
 if (!javaToolsJar.exists()) {
     throw new GradleException("tools.jar nicht gefunden! Stelle sicher, dass JAVA_HOME auf ein Java 8 JDK zeigt.")
 }
@@ -47,6 +49,10 @@ dependencies {
 
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
+}
+
+shadowJar {
+    mergeServiceFiles()
 }
 
 application {
