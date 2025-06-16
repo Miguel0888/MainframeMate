@@ -36,4 +36,15 @@ public class LegendController {
         wrapper.revalidate();
         wrapper.repaint();
     }
+
+    public void clearLegend() {
+        this.definition = null;
+        this.currentRow = 0;
+        this.schemaLines = 1;
+
+        wrapper.removeAll();
+        wrapper.revalidate();
+        wrapper.repaint();
+    }
+
 }

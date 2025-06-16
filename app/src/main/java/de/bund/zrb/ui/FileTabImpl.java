@@ -115,6 +115,8 @@ public class FileTabImpl implements FileTab {
 
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
         statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
+        statusBarPanel.setSelectedSentenceType(sentenceType);
+
 
         setContent(content, sentenceType);
 
@@ -299,6 +301,7 @@ public class FileTabImpl implements FileTab {
     @Override
     public void setContent(String content, String sentenceType) {
         setContent(content);
+        statusBarPanel.setSelectedSentenceType(sentenceType);
         if(sentenceType == null) {
             try {
                 sentenceType = detectSentenceTypeByPath(model.getFullPath());

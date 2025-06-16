@@ -63,4 +63,12 @@ public class SentenceHighlighter {
         float hue = (hash % 360) / 360f;
         return Color.getHSBColor(hue, 0.5f, 0.85f);
     }
+
+    public void clearHighlights(RSyntaxTextArea textArea) {
+        Highlighter highlighter = textArea.getHighlighter();
+        if (highlighter != null) {
+            highlighter.removeAllHighlights();
+        }
+    }
+
 }

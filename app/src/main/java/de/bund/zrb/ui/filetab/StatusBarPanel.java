@@ -84,13 +84,19 @@ public class StatusBarPanel extends JPanel {
 
     public void setSentenceTypes(List<String> types) {
         sentenceComboBox.removeAllItems();
+        sentenceComboBox.addItem(""); // Leerer Eintrag für "keine Satzart"
         for (String t : types) {
             sentenceComboBox.addItem(t);
         }
     }
 
+
     public void setSelectedSentenceType(String sentenceType) {
-        sentenceComboBox.setSelectedItem(sentenceType);
+        if (sentenceType == null || sentenceType.trim().isEmpty()) {
+            sentenceComboBox.setSelectedIndex(0); // Leerer Eintrag
+        } else {
+            sentenceComboBox.setSelectedItem(sentenceType);
+        }
     }
 
     public void onSentenceTypeChanged(Consumer<String> callback) {
