@@ -45,23 +45,15 @@ public class ApplicationLocker implements LoginCredentialsProvider {
 
     @Override
     public LoginCredentials requestCredentials(String host, String user) {
+
         if (isBlank(host) || isBlank(user)) {
             loginCredentials = lockerUi.init();
         } else {
             loginCredentials = lockerUi.logOn(new LoginCredentials(host, user));
         }
 
-        // 🚨 Stelle sicher, dass das Passwort gespeichert wird
-        if (loginCredentials != null && loginCredentials.getPassword() != null) {
-            loginManager.getPassword(
-                    loginCredentials.getHost(),
-                    loginCredentials.getUsername()
-            );
-        }
-
         return loginCredentials;
     }
-
 
     public void start() {
         if (!SettingsHelper.load().lockEnabled) return;
