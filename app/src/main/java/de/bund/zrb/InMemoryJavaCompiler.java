@@ -9,6 +9,11 @@ public class InMemoryJavaCompiler {
 
     public <T> T compile(String className, String sourceCode, Class<T> expectedType) throws Exception {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            throw new IllegalStateException(
+                    "Kein JavaCompiler verfügbar. Stelle sicher, dass ein JDK verwendet wird (nicht nur ein JRE)."
+            );
+        }
         MemoryJavaFileManager fileManager = new MemoryJavaFileManager(
                 compiler.getStandardFileManager(null, null, null));
 
