@@ -1,10 +1,10 @@
 package de.bund.zrb.ftp;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.StringUtil;
 import org.apache.commons.net.ftp.*;
-import de.bund.zrb.helper.SettingsHelper;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -30,7 +30,7 @@ public class FtpManager {
     public FtpManager() {
         this.loginManager = LoginManager.getInstance();
         Settings settings = SettingsHelper.load();
-        this.ftpFileType = settings.ftpFileType == null ? null : SettingsHelper.load().ftpFileType.getCode();
+        this.ftpFileType = settings.ftpFileType == null ? null : settings.ftpFileType.getCode();
         this.padding = this.ftpFileType == null || this.ftpFileType == FTP.ASCII_FILE_TYPE ? parseHexByte(settings.padding) : null;
     }
 
@@ -39,29 +39,40 @@ public class FtpManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public boolean connect(String host, String user) throws IOException {
-        String password = loginManager.getPassword(host, user);
-        // ToDo: get host and user, too?
+        LoginManager.BlockedLoginDecision decision = LoginManager.BlockedLoginDecision.RETRY;
+
+        if (loginManager.isLoginBlocked()) {
+            decision = loginManager.showBlockedLoginDialog();
+            if (decision == LoginManager.BlockedLoginDecision.CANCEL) {
+                throw new IOException("Login abgebrochen durch Benutzer.");
+            }
+            // Allow another try after explicit user decision
+            loginManager.resetLoginBlock();
+        }
+
+        String password = resolvePasswordForDecision(host, user, decision);
         if (password == null) {
             throw new IOException("Kein Passwort verfügbar");
         }
+
         return connectInternal(host, user, password);
     }
 
-    private boolean connectInternal(String host, String user, String password) throws IOException {
-        if (loginManager.isLoginBlocked()) {
-            if (!loginManager.showBlockedLoginDialog()) {
-                throw new IOException("Login abgebrochen durch Benutzer.");
-            }
-            loginManager.resetLoginBlock(); // optional – nur wenn du wirklich eine Rücknahme zulässt
+    private String resolvePasswordForDecision(String host, String user, LoginManager.BlockedLoginDecision decision) {
+        if (decision == LoginManager.BlockedLoginDecision.RETRY_WITH_NEW_PASSWORD) {
+            return loginManager.requestFreshPassword(host, user);
         }
+        return loginManager.getPassword(host, user);
+    }
+
+    private boolean connectInternal(String host, String user, String password) throws IOException {
         Settings settings = SettingsHelper.load();
+
         ftpClient.setControlEncoding(settings.encoding);
         ftpClient.connect(host);
 
         if (!ftpClient.login(user, password)) {
-            loginManager.blockLoginTemporarily(); // blockiere weitere Versuche
-            settings.savePassword = false;        // Sicherheit: nicht erneut verwenden
-            SettingsHelper.save(settings);
+            handleFailedLogin(host, user);
             throw new IOException("Login fehlgeschlagen");
         }
 
@@ -69,9 +80,8 @@ public class FtpManager {
 
         systemType = ftpClient.getSystemType();
         mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
-//        System.out.println("Systemtyp laut FTP-Server: " + systemType);
 
-        // Anwenden der konfigurierten FTP-Transferoptionen
+        // Apply configured FTP transfer options
         applyTransferSettings(settings);
 
         if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
@@ -81,6 +91,36 @@ public class FtpManager {
         ftpClient.changeWorkingDirectory("''"); // root instead of user home dir
 
         return true;
+    }
+
+    private void handleFailedLogin(String host, String user) {
+        // Prevent further attempts without explicit user decision
+        loginManager.blockLoginTemporarily();
+
+        // Prevent reusing wrong passwords from cache/settings
+        loginManager.invalidatePassword(host, user);
+
+        // Disable saving password as a safety measure
+        Settings settings = SettingsHelper.load();
+        settings.savePassword = false;
+        SettingsHelper.save(settings);
+
+        disconnectQuietly();
+    }
+
+    private void disconnectQuietly() {
+        try {
+            if (ftpClient.isConnected()) {
+                try {
+                    ftpClient.logout();
+                } catch (IOException ignore) {
+                    // Intentionally ignore logout errors
+                }
+                ftpClient.disconnect();
+            }
+        } catch (IOException ignore) {
+            // Intentionally ignore disconnect errors
+        }
     }
 
     public boolean isConnected() {
@@ -105,20 +145,16 @@ public class FtpManager {
     private void applyTransferSettings(Settings settings) throws IOException {
         // TYPE
         if (ftpFileType != null) {
-            // FORMAT – Apache Commons Net setzt das Format beim TYPE-Aufruf, wenn überladen (nicht separat)
-            // FORMAT
+            // FORMAT – Apache Commons Net sets format inside TYPE if overloaded
             if (settings.ftpTextFormat != null) {
                 ftpClient.setFileType(ftpFileType, settings.ftpTextFormat.getCode());
-            }
-            else {
+            } else {
                 ftpClient.setFileType(ftpFileType);
             }
         } else {
-            // FORMAT
             if (settings.ftpTextFormat != null) {
                 ftpClient.setFileType(FTP.ASCII_FILE_TYPE, settings.ftpTextFormat.getCode());
-            }
-            else {
+            } else {
                 ftpClient.setFileType(FTP.ASCII_FILE_TYPE);
             }
         }
@@ -132,8 +168,8 @@ public class FtpManager {
         } else {
             ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
         }
-// ToDo: Check this
-//        // MODE
+
+        // MODE
         if (settings.ftpTransferMode != null) {
             ftpClient.setFileTransferMode(settings.ftpTransferMode.getCode());
         } else {
@@ -199,7 +235,6 @@ public class FtpManager {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Dateiverwaltung
 
-
     public List<String> listDirectory() {
         try {
             return Arrays.asList(ftpClient.listNames());
@@ -216,7 +251,7 @@ public class FtpManager {
      */
     public FtpFileBuffer openAbsolute(String quotedName) throws IOException {
         if (!quotedName.startsWith("'")) {
-            throw new IllegalArgumentException("Quoted MVS-Dataset name erwartet, z. B. 'KKR097.J25'");
+            throw new IllegalArgumentException("Quoted MVS-Dataset name erwartet, z. B. 'KKR097.J25'");
         }
 
         InputStream in = ftpClient.retrieveFileStream(quotedName);
@@ -248,14 +283,14 @@ public class FtpManager {
 
     public FtpFileBuffer open(String filename) throws IOException {
         if (isMvsMode()) {
-            if(filename.contains(".")) {
+            if (filename.contains(".")) {
                 String[] parts = filename.split("\\.");
                 for (int i = 0; i < parts.length - 1; i++) {
                     openDirectory(parts[i]);
                 }
                 filename = parts[parts.length - 1];
             } else {
-                if(StringUtil.unquote(ftpClient.printWorkingDirectory()).isEmpty()) {
+                if (StringUtil.unquote(ftpClient.printWorkingDirectory()).isEmpty()) {
                     ftpClient.changeWorkingDirectory(filename);
                     return null; // must be the high level qualifier, cannot be a dataset
                 }
@@ -264,12 +299,12 @@ public class FtpManager {
 
         String remotePath = getCurrentPath();
         String finalName = filename;
-        // fileMeta will be null for FBA (but FB is working)
+
         FTPFile fileMeta = Arrays.stream(ftpClient.listFiles())
                 .filter(f -> f.getName().equalsIgnoreCase(finalName))
                 .findFirst().orElse(null);
 
-        // Caution: Will be NULL for FBA Record Format !!!
+        // Caution: Will be NULL for FBA Record Format
         if (fileMeta == null) {
             fileMeta = new FTPFile();
             fileMeta.setName(finalName);
@@ -291,8 +326,8 @@ public class FtpManager {
                 getCharset(),
                 remotePath,
                 fileMeta,
-                true, // recordStructure
-                null,  // kein ProgressListener
+                true,
+                null,
                 mvsMode
         );
 
@@ -312,7 +347,7 @@ public class FtpManager {
     /**
      * Versucht, die Datei zu speichern. Liefert bei Konflikt den aktuellen Stand vom Server zurück.
      * @param original Originaler Buffer (mit gemerktem Hash)
-     * @param altered Neuer Inhalt (z. B. über withContent erzeugt)
+     * @param altered Neuer Inhalt (z. B. über withContent erzeugt)
      * @return Optional.empty() bei Erfolg, andernfalls aktueller Remote-Buffer
      */
     public Optional<FtpFileBuffer> commit(FtpFileBuffer original, FtpFileBuffer altered) throws IOException {
@@ -343,11 +378,6 @@ public class FtpManager {
         if (!success) {
             throw new IOException("Speichern fehlgeschlagen: " + ftpClient.getReplyString());
         }
-
-        // Optional: Zustand nach Speichern validieren
-//        InputStream check = ftpClient.retrieveFileStream(buffer.getRemotePath());
-//        if (check != null) check.close();
-//        ftpClient.completePendingCommand();
     }
 
     private boolean hasRemoteChanged(FtpFileBuffer original) throws IOException {
@@ -367,7 +397,6 @@ public class FtpManager {
         ftpClient.completePendingCommand();
         return buffer;
     }
-
 
     public boolean hasFeature(FTPCmd cmd) {
         try {

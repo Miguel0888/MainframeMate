@@ -11,6 +11,12 @@ import java.util.Map;
 
 public class LoginManager {
 
+    public enum BlockedLoginDecision {
+        CANCEL,
+        RETRY,
+        RETRY_WITH_NEW_PASSWORD
+    }
+
     private static final LoginManager INSTANCE = new LoginManager();
 
     private boolean loginTemporarilyBlocked = false;
@@ -29,17 +35,16 @@ public class LoginManager {
     }
 
     public boolean isLoggedIn(String host, String username) {
-        if (!SettingsHelper.load().autoConnect) {
+        Settings settings = SettingsHelper.load();
+        if (!settings.autoConnect) {
             return false;
         }
 
-        String key = host + "|" + username;
+        String key = toCacheKey(host, username);
 
         if (encryptedPasswordCache.containsKey(key)) {
             return true;
         }
-
-        Settings settings = SettingsHelper.load();
 
         return settings.savePassword
                 && host != null && host.equals(settings.host)
@@ -48,64 +53,60 @@ public class LoginManager {
     }
 
     public String getPassword(String host, String username) {
-        String key = host + "|" + username;
-
+        String key = toCacheKey(host, username);
         Settings settings = SettingsHelper.load();
 
-        // 1. Prüfe RAM-Cache (nur wenn erlaubt)
+        // 1) Use RAM cache only if allowed
         if (settings.autoConnect && encryptedPasswordCache.containsKey(key)) {
             return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
         }
 
-        // 2. Prüfe gespeichertes Passwort in Settings
-        if (settings.savePassword &&
-                host != null && host.equals(settings.host) &&
-                username != null && username.equals(settings.user) &&
-                settings.encryptedPassword != null) {
+        // 2) Use stored password only if allowed and matching host/user
+        if (settings.savePassword
+                && host != null && host.equals(settings.host)
+                && username != null && username.equals(settings.user)
+                && settings.encryptedPassword != null) {
             try {
                 String decrypted = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
                 if (settings.autoConnect) {
-                    encryptedPasswordCache.put(key, settings.encryptedPassword); // Cache nur, wenn erlaubt
+                    encryptedPasswordCache.put(key, settings.encryptedPassword);
                 }
                 return decrypted;
             } catch (Exception e) {
-                // Ignorieren → Passwort wird ggf. erneut abgefragt
+                // Ignore error and fall back to interactive prompt
             }
         }
 
-        // 3. Frage interaktiv beim Benutzer nach
-        if (credentialsProvider == null) {
-            throw new IllegalStateException("No LoginCredentialsProvider set");
-        }
-
-        LoginCredentials credentials = credentialsProvider.requestCredentials(host, username);
-        if (credentials != null && credentials.getPassword() != null) {
-            if (settings.autoConnect) {
-                String encrypted = WindowsCryptoUtil.encrypt(credentials.getPassword());
-                String newKey = credentials.getHost() + "|" + credentials.getUsername();
-                encryptedPasswordCache.put(newKey, encrypted);
-            }
-            if (settings.savePassword) {
-                settings.encryptedPassword = WindowsCryptoUtil.encrypt(credentials.getPassword());
-            } else {
-                settings.encryptedPassword = null; // overwrites existing, if function was disabled
-            }
-            settings.host = credentials.getHost();
-            settings.user = credentials.getUsername();
-            SettingsHelper.save(settings);
-            return credentials.getPassword();
-        }
-
-        return null; // Benutzer hat abgebrochen
+        // 3) Ask user interactively
+        return requestCredentialsAndPersist(host, username, settings);
     }
 
+    public String requestFreshPassword(String host, String username) {
+        Settings settings = SettingsHelper.load();
+
+        // Ensure cached/stored password is not reused for this host/user
+        invalidatePassword(host, username);
+
+        return requestCredentialsAndPersist(host, username, settings);
+    }
+
+    public void invalidatePassword(String host, String username) {
+        String key = toCacheKey(host, username);
+        encryptedPasswordCache.remove(key);
+
+        Settings settings = SettingsHelper.load();
+        if (host != null && host.equals(settings.host) && username != null && username.equals(settings.user)) {
+            settings.encryptedPassword = null;
+            SettingsHelper.save(settings);
+        }
+    }
 
     public void clearCache() {
         encryptedPasswordCache.clear();
     }
 
     public boolean verifyPassword(String host, String username, String plainPassword) {
-        String key = host + "|" + username;
+        String key = toCacheKey(host, username);
         if (!encryptedPasswordCache.containsKey(key)) {
             return false;
         }
@@ -121,29 +122,56 @@ public class LoginManager {
         this.loginTemporarilyBlocked = true;
     }
 
-    public boolean showBlockedLoginDialog() {
+    public BlockedLoginDecision showBlockedLoginDialog() {
         JCheckBox confirmBox = new JCheckBox("Ich habe verstanden, dass eine Kontosperrung möglich ist.");
         confirmBox.setBackground(Color.WHITE);
 
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBackground(Color.WHITE);
         panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-        panel.add(new JLabel("<html><b>⚠ Achtung:</b><br>Mehrere fehlerhafte Logins können zur Sperrung Ihrer Kennung führen.<br><br>Wollen Sie es trotzdem noch einmal versuchen?</html>"), BorderLayout.NORTH);
+        panel.add(new JLabel("<html><b>⚠ Achtung:</b><br>Mehrere fehlerhafte Logins können zur Sperrung Ihrer Kennung führen.<br><br>Wollen Sie es trotzdem noch einmal versuchen?</html>"),
+                BorderLayout.NORTH);
         panel.add(confirmBox, BorderLayout.CENTER);
 
-        JButton okButton = new JButton("OK");
+        JButton retryButton = new JButton("OK");
+        JButton retryWithNewPasswordButton = new JButton("Neues Passwort…");
         JButton cancelButton = new JButton("Abbrechen");
 
-        final JOptionPane optionPane = new JOptionPane(panel, JOptionPane.WARNING_MESSAGE, JOptionPane.OK_CANCEL_OPTION, null, new Object[]{cancelButton, okButton}, cancelButton);
+        final JOptionPane optionPane = new JOptionPane(
+                panel,
+                JOptionPane.WARNING_MESSAGE,
+                JOptionPane.DEFAULT_OPTION,
+                null,
+                new Object[]{cancelButton, retryButton, retryWithNewPasswordButton},
+                cancelButton
+        );
+
         JDialog dialog = optionPane.createDialog(null, "Login blockiert");
 
-        okButton.addActionListener(e -> {
+        retryButton.addActionListener(e -> {
+            // Require confirmation before continuing
             if (confirmBox.isSelected()) {
-                optionPane.setValue(okButton);
+                optionPane.setValue(retryButton);
                 dialog.dispose();
-            } else {
-                JOptionPane.showMessageDialog(dialog, "Bitte bestätigen Sie den Hinweis durch Setzen des Hakens.", "Hinweis fehlt", JOptionPane.INFORMATION_MESSAGE);
+                return;
             }
+            JOptionPane.showMessageDialog(dialog,
+                    "Bitte bestätige den Hinweis durch Setzen des Hakens.",
+                    "Hinweis fehlt",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
+
+        retryWithNewPasswordButton.addActionListener(e -> {
+            // Require confirmation before continuing
+            if (confirmBox.isSelected()) {
+                optionPane.setValue(retryWithNewPasswordButton);
+                dialog.dispose();
+                return;
+            }
+            JOptionPane.showMessageDialog(dialog,
+                    "Bitte bestätige den Hinweis durch Setzen des Hakens.",
+                    "Hinweis fehlt",
+                    JOptionPane.INFORMATION_MESSAGE);
         });
 
         cancelButton.addActionListener(e -> {
@@ -152,11 +180,59 @@ public class LoginManager {
         });
 
         dialog.setVisible(true);
-        return optionPane.getValue() == okButton;
+
+        Object value = optionPane.getValue();
+        if (value == retryButton) {
+            return BlockedLoginDecision.RETRY;
+        }
+        if (value == retryWithNewPasswordButton) {
+            return BlockedLoginDecision.RETRY_WITH_NEW_PASSWORD;
+        }
+        return BlockedLoginDecision.CANCEL;
     }
 
     public void resetLoginBlock() {
         this.loginTemporarilyBlocked = false;
     }
-}
 
+    private String requestCredentialsAndPersist(String host, String username, Settings settings) {
+        if (credentialsProvider == null) {
+            throw new IllegalStateException("No LoginCredentialsProvider set");
+        }
+
+        LoginCredentials credentials = credentialsProvider.requestCredentials(host, username);
+        if (credentials == null || credentials.getPassword() == null) {
+            return null;
+        }
+
+        persistCredentials(credentials, settings);
+        return credentials.getPassword();
+    }
+
+    private void persistCredentials(LoginCredentials credentials, Settings settings) {
+        String password = credentials.getPassword();
+        String encrypted = WindowsCryptoUtil.encrypt(password);
+
+        // Cache password only if allowed
+        if (settings.autoConnect) {
+            String key = toCacheKey(credentials.getHost(), credentials.getUsername());
+            encryptedPasswordCache.put(key, encrypted);
+        }
+
+        // Store password only if allowed
+        if (settings.savePassword) {
+            settings.encryptedPassword = encrypted;
+        } else {
+            settings.encryptedPassword = null;
+        }
+
+        settings.host = credentials.getHost();
+        settings.user = credentials.getUsername();
+
+        SettingsHelper.save(settings);
+    }
+
+    private String toCacheKey(String host, String username) {
+        return String.valueOf(host) + "|" + String.valueOf(username);
+    }
+}
