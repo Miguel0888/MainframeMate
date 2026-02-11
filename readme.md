@@ -176,36 +176,80 @@ $env:JAVA_HOME = "C:\Oracle\JDK\8u321"
 Hinweis: Ab Java 9 muss der Code auf die JShell umgestellt werden. Das wurde bereits getestet und funktioniert problemlos!
 
 ### Proxy-Konfiguration
-#### Automatische Proxy-Konfiguration per WPAD/PAC-Datei
 
-Wenn unter Windows ein Setupskript mit URL für das Netzwerk hinterlegt ist, muss das Projekt wie folgt über die PowerShell gebaut werden:
+#### Hintergrund: warum es eigene Skripte gibt
+
+Unter Windows ist häufig **„Proxy automatisch erkennen / Setupskript (WPAD/PAC) verwenden“** konfiguriert. Browser können das problemlos auswerten (PAC ist JavaScript und entscheidet je nach Ziel-URL, oft inkl. Fallback-Proxy-Ketten).
+
+**Gradle (Java 8) und Git übernehmen diese PAC-Logik aber nicht automatisch**. Ohne explizite Proxy-Angaben sieht Java oft nur `DIRECT` – oder man landet (bei naivem PAC-Parsing) beim falschen Proxy/Port.
+
+Die aktuelle Lösung ist deshalb bewusst so gebaut:
+
+- **Kein PAC-Parsing** (kein Regex/JavaScript-Parser).
+- Stattdessen wird der **effektive Proxy für eine konkrete URL** über die Windows-Proxy-Auflösung ermittelt.
+- Ergebnis: **robuster bei dynamischen PACs**, bei Fallback-Listen und bei Änderungen im Netzwerk – und keine „zufällig erste PROXY-Zeile“ mehr.
+
+---
+
+#### Automatische Proxy-Konfiguration für Gradle (WPAD/PAC)
+
+Projekt bauen (lädt Abhängigkeiten in den Gradle-Cache):
 
 ```
+./gradlew --stop
 ./gradlew assemble --init-script proxy-init.gradle
 ```
 
-Dadurch werden die nötigen Dependencies in den Gradle-Cache geladen. Anschließen kann das Projekt auch einfach wie gewohnt in IntelliJ gestartet und dedebugged werden. Dazu einfach die Play-Taste neben der main anklicken. Bei Änderungen der Dependencies muss der o.g. Befehl im Terminal allerdings immer wieder erneut ausgeführt werden.
+Was passiert dabei?
 
-**Tipp:** Wer sich das wiederholte Ausführen im Terminal sparen möchte, kann die Datei `proxy-init.gradle` auch global unter `%USERPROFILE%\.gradle\init.gradle` ablegen. Damit wird die automatische Proxy-Konfiguration dauerhaft für alle Gradle-Projekte übernommen – unabhängig davon, wie sie gestartet werden. (Die Datei muss zwingend in init.gradle umbenannt werden, ansonsten funktioniert es nicht.)
+- `proxy-init.gradle` ruft `get-proxy-from-pac.ps1` mit einer Test-URL (Gradle Plugin Portal) auf
+- und setzt daraus **`http(s).proxyHost` / `http(s).proxyPort`** für die JVM.
+- Danach kannst du das Projekt wie gewohnt in IntelliJ starten/debuggen.
+
+**Tipp:** Wer sich das wiederholte Ausführen sparen möchte, kann `proxy-init.gradle` global unter  
+`%USERPROFILE%\.gradle\init.gradle` ablegen (Datei muss `init.gradle` heißen).
 
 #### Proxy-Konfiguration für GIT-Versionsverwaltung
 
 Da GIT analog zu Gradle die Proxy Konfiguration aus Windows nicht automatisch übernimmt, muss einmalig für dem ersten Push folgendes Script ausgeführt werden:
 
+Einmalig (oder nach Proxy-/Netzwerkwechsel) ausführen:
 ```
 .\configure-git-proxy.ps1
 ```
 
-Hierbei wird ein minimalistischer JavaScript Parser verwendet, um an die notwendigen Informationen aus der PAC-Datei zu gelangen.
+Das Skript
 
-#### Proxy-Konfiguration für IDEA (funktioniert aber nicht für Gradle und GIT)
+- ermittelt den effektiven Proxy passend zur **Remote-URL** (Standard: `origin`)
+- und setzt in der globalen Git-Konfiguration `http.proxy` und `https.proxy`.
 
-Im obigen Fall muss auch IDEA angepasst werden, damit die GIT-Versionsverwaltung wie gewohnt funktioniert. Das geht am einfachsten wie folgt:
-Settings → Appearance & Behavior → System Settings → HTTP Proxy:
+Proxy wieder entfernen (DIRECT):
 
-* steht auf Auto-detect proxy settings
-* oder manuell mit den richtigen Daten (falls "auto" nicht ausreicht die Box für den Link anhaken)
-  Die URL für die halbautomatische Einstellung bekommt man über ein Klick auf den blauen Link zu den Systemeinstellugen, die URL dort einfach kopieren.
+```
+.\configure-git-proxy.ps1 -Unset
+```
+
+Warum ist das besser als die alte Lösung?
+
+- **PAC-Dateien sind dynamisch** (JavaScript-Logik pro URL, oft mit Fallbacks).  
+  Ein Parser/Regex, der „die erste PROXY-Zeile“ nimmt, kann auf einen **nicht erreichbaren** Proxy/Port zeigen.
+- Die neue Lösung nutzt **Windows’ Proxy-Entscheidung** für die konkrete Ziel-URL und ist damit stabiler.
+- Außerdem ist sie **PowerShell 5.1 kompatibel** (keine PS7-Operatoren wie `??`).
+
+---
+
+#### Proxy-Konfiguration für IntelliJ IDEA (optional)
+
+IDEA kann den Proxy für eigene HTTP-Aufrufe meist selbst erkennen:
+
+Settings → Appearance & Behavior → System Settings → HTTP Proxy
+
+- **Auto-detect proxy settings** (empfohlen)  
+  oder
+- manuell, falls Auto-Detect im Netz nicht ausreicht.
+
+Hinweis: Diese IDE-Einstellung ersetzt nicht die CLI-Konfiguration für Gradle/Git – sie betrifft primär IDEA selbst.
+
 
 ### KI-Unterstützung
 Der gebündelte KI-Treiber kann mittels CMAKE und gcc / g++ oder ggf. mittels des MSVC-Plugins von Clang / LLVM in VS Code kompiliert werden.
