@@ -162,6 +162,19 @@ Das JAR wird dann automatisch in das richtige Verzeichnis kopiert. Für andere P
 
 ## Für Entwickler
 
+### Tools.jar
+Da unter Java 8 noch keine JShell zur Verfügung steht, muss zur Compilierung von Scripten zur Laufzeit der der Java-Compiler eingebunden werden.
+Damit das klappt, braucht Gradle den Pfad zur Tools.jar. Es findet die über die Umgebungsvariable JAVA_HOME. Falls die falsch gesetzt ist, kann sie auch temporär während einer PowerShell Session wie folgt gesetzt werden:
+```
+$env:JAVA_HOME = "C:\Program Files\Java\latest\jre-1.8"
+```
+oder falls das nicht klappt direkt zur aktuellen JRE z.B.:
+```
+$env:JAVA_HOME = "C:\Oracle\JDK\8u321"
+```
+
+Hinweis: Ab Java 9 muss der Code auf die JShell umgestellt werden. Das wurde bereits getestet und funktioniert problemlos!
+
 ### Proxy-Konfiguration
 #### Automatische Proxy-Konfiguration per WPAD/PAC-Datei
 

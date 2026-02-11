@@ -1,26 +1,29 @@
-# PowerShell Script: get-proxy-from-pac.ps1
+param(
+    [string]$TestUrl = "https://plugins.gradle.org/m2/",
+    [switch]$DebugEnabled
+)
 
-$pacUrl = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings').AutoConfigURL
-if (-not $pacUrl) {
-    Write-Error "No PAC URL found"
-    exit 1
+function Write-DebugLine([string]$msg) {
+    if ($DebugEnabled) { Write-Host $msg }
 }
 
-try {
-    # Verwende WebClient, damit der Windows-Proxy verwendet wird
-    $wc = New-Object System.Net.WebClient
-    $pac = $wc.DownloadString($pacUrl)
+$uri = [Uri]$TestUrl
 
-    # Finde erste PROXY-Zeile (nur bei statischen PACs!)
-    if ($pac -match 'PROXY\s+([^\s;]+)') {
-        Write-Output $Matches[1]  # z. B. proxy.firma.local:8080
-        exit 0
-    } else {
-        Write-Error "No PROXY entry found"
-        exit 2
-    }
+$proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+$proxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials
+
+if ($proxy.IsBypassed($uri)) {
+    Write-DebugLine ("[DEBUG] DIRECT for {0}" -f $TestUrl)
+    exit 0
 }
-catch {
-    Write-Error "PAC download failed: $_"
-    exit 3
+
+$proxyUri = $proxy.GetProxy($uri)
+
+if (-not $proxyUri -or $proxyUri.AbsoluteUri -eq $uri.AbsoluteUri) {
+    Write-DebugLine ("[DEBUG] DIRECT for {0}" -f $TestUrl)
+    exit 0
 }
+
+Write-DebugLine ("[DEBUG] Proxy for {0} -> {1}" -f $TestUrl, $proxyUri.AbsoluteUri)
+Write-Output ("{0}:{1}" -f $proxyUri.Host, $proxyUri.Port)
+exit 0

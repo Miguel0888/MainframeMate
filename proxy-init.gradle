@@ -1,28 +1,58 @@
-gradle.beforeProject { project ->
+def projectDir = gradle.startParameter.currentDir
+def psScript = new File(projectDir, 'get-proxy-from-pac.ps1')
 
-    def psScript = new File(project.rootProject.projectDir, 'get-proxy-from-pac.ps1')
-    if (!psScript.exists()) {
-        println "Proxy script not found at: ${psScript}"
-        return
-    }
+def applyProxy = { String host, String port ->
+    System.setProperty("http.proxyHost", host)
+    System.setProperty("http.proxyPort", port)
+    System.setProperty("https.proxyHost", host)
+    System.setProperty("https.proxyPort", port)
 
-    def proc = ['powershell', '-ExecutionPolicy', 'Bypass', '-File', psScript.absolutePath].execute()
+    // Use OS proxy selector as well (may help with JVM internals).
+    System.setProperty("java.net.useSystemProxies", "true")
+}
+
+def clearProxy = {
+    System.clearProperty("http.proxyHost")
+    System.clearProperty("http.proxyPort")
+    System.clearProperty("https.proxyHost")
+    System.clearProperty("https.proxyPort")
+}
+
+if (!psScript.exists()) {
+    println "Proxy script not found at: ${psScript}"
+    clearProxy()
+} else {
+    def testUrl = "https://plugins.gradle.org/m2/"
+    def proc = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", psScript.absolutePath,
+            "-TestUrl", testUrl
+    ].execute()
+
     def stdout = new StringBuilder()
     def stderr = new StringBuilder()
     proc.consumeProcessOutput(stdout, stderr)
     proc.waitFor()
 
-    if (proc.exitValue() == 0) {
-        def proxyHostPort = stdout.toString().trim()
-        def (host, portRaw) = proxyHostPort.split(":")
-        def port = portRaw.replaceAll("[^\\d]", "") // nur Zahlen erlauben
-
-        println "Using proxy from PowerShell: ${host}:${port}"
-        System.setProperty("http.proxyHost", host)
-        System.setProperty("http.proxyPort", port)
-        System.setProperty("https.proxyHost", host)
-        System.setProperty("https.proxyPort", port)
-    } else {
+    if (proc.exitValue() != 0) {
         println "PowerShell proxy script failed (${proc.exitValue()}): ${stderr.toString().trim()}"
+        clearProxy()
+    } else {
+        def proxyHostPort = stdout.toString().trim()
+
+        if (!proxyHostPort) {
+            println "Using proxy from PowerShell: DIRECT"
+            clearProxy()
+        } else {
+            def parts = proxyHostPort.split(":")
+            def host = parts[0].trim()
+            def port = parts.length > 1 ? parts[1].replaceAll("[^\\d]", "") : ""
+
+            println "Using proxy from PowerShell: ${host}:${port}"
+            applyProxy(host, port)
+        }
     }
 }
