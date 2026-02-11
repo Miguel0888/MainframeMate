@@ -43,9 +43,13 @@ public class FtpManager {
 
         if (loginManager.isLoginBlocked()) {
             decision = loginManager.showBlockedLoginDialog();
+
             if (decision == LoginManager.BlockedLoginDecision.CANCEL) {
+                // Ensure a wrong password is not reused by automated retries/workflows
+                loginManager.invalidatePassword(host, user);
                 throw new IOException("Login abgebrochen durch Benutzer.");
             }
+
             // Allow another try after explicit user decision
             loginManager.resetLoginBlock();
         }
@@ -64,6 +68,7 @@ public class FtpManager {
         }
         return loginManager.getPassword(host, user);
     }
+
 
     private boolean connectInternal(String host, String user, String password) throws IOException {
         Settings settings = SettingsHelper.load();
