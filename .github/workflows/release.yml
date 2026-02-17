@@ -59,6 +59,24 @@ jobs:
           git tag "v$new_version" || echo "Tag already exists"
           git push origin "v$new_version" || echo "Tag push skipped"
 
+      - name: Find JAR file
+        id: find_jar
+        run: |
+          JAR_FILE=$(ls app/build/libs/*-all.jar | grep -v 'sources' | head -n 1)
+          echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
+
+      - name: Find Plugin JAR
+        id: find_plugin
+        run: |
+          PLUGIN_JAR=$(ls plugins/excelimport/build/libs/*.jar | grep -v sources | head -n 1)
+          echo "plugin_jar=$PLUGIN_JAR" >> $GITHUB_ENV
+
+      - name: Find Core JAR
+        id: find_core
+        run: |
+          CORE_JAR=$(ls core/build/libs/*.jar | grep -v sources | head -n 1)
+          echo "core_jar=$CORE_JAR" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -73,51 +91,3 @@ jobs:
             ${{ env.core_jar }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Find JAR file
-        id: find_jar
-        run: |
-          JAR_FILE=$(ls app/build/libs/*-all.jar | grep -v 'sources' | head -n 1)
-          echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.jar_file }}
-          asset_name: MainframeMate-${{ env.new_version }}.jar
-          asset_content_type: application/java-archive
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
-
-      - name: Find Plugin JAR
-        id: find_plugin
-        run: |
-          PLUGIN_JAR=$(ls plugins/excelimport/build/libs/*.jar | grep -v sources | head -n 1)
-          echo "plugin_jar=$PLUGIN_JAR" >> $GITHUB_ENV
-
-      - name: Find Core JAR
-        id: find_core
-        run: |
-          CORE_JAR=$(ls core/build/libs/*.jar | grep -v sources | head -n 1)
-          echo "core_jar=$CORE_JAR" >> $GITHUB_ENV
-
-      - name: Upload Plugin JAR
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.plugin_jar }}
-          asset_name: plugin-excelimport-${{ env.new_version }}.jar
-          asset_content_type: application/java-archive
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
-
-      - name: Upload Core SDK
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.core_jar }}
-          asset_name: mainframemate-core-${{ env.new_version }}.jar
-          asset_content_type: application/java-archive
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
