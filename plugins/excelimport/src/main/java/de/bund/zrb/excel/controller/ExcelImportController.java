@@ -52,6 +52,7 @@ public class ExcelImportController {
         importParameters.put("hasHeader", ui.isHeaderEnabled());
         importParameters.put("headerRowIndex", ui.getHeaderRowIndex());
         importParameters.put("append", ui.shouldAppend());
+        importParameters.put("noDuplicates", ui.shouldSkipDuplicates());
         importParameters.put("trennzeile", ui.getTrennzeile());
 
         ExcelImportConfig config = new ExcelImportConfig(
@@ -120,6 +121,7 @@ public class ExcelImportController {
                 .map(List::size)
                 .orElse(0);
 
+        String previousRecord = null;
         for (int i = 0; i < rowCount; i++) {
             Function<String, String> valueProvider = createValueResolver(registry, excelData, mapping, i);
 
@@ -130,7 +132,12 @@ public class ExcelImportController {
                     valueProvider
             );
 
+            if (config.isNoDuplicates() && Objects.equals(previousRecord, record)) {
+                continue;
+            }
+
             builder.append(record).append("\n");
+            previousRecord = record;
         }
 
         String result = builder.toString().trim();

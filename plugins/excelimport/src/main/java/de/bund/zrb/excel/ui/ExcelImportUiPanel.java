@@ -21,6 +21,7 @@ public class ExcelImportUiPanel extends JPanel {
     private static final String KEY_HEADER_ENABLED = "headerEnabled";
     private static final String KEY_HEADER_ROW = "headerRow";
     private static final String KEY_APPEND = "append";
+    private static final String KEY_NO_DUPLICATES = "noDuplicates";
     private static final String KEY_TRENNZEILE = "separator";
     private String lastSaved;
 
@@ -36,6 +37,7 @@ public class ExcelImportUiPanel extends JPanel {
     private final JButton templateEditButton = new JButton("...");
 
     private final JCheckBox appendCheckbox = new JCheckBox("An bestehende Datei anhängen");
+    private final JCheckBox noDuplicatesCheckbox = new JCheckBox("Aufeinanderfolgende Duplikate überspringen");
     private final JTextField trennzeileField = new JTextField();
     private final TemplateRepository templateRepo;
 
@@ -102,7 +104,13 @@ public class ExcelImportUiPanel extends JPanel {
         gbc.gridwidth = 3;
         formPanel.add(appendCheckbox, gbc);
 
-        // Zeile 5: Trennzeile
+        // Zeile 5: Duplikate
+        gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.gridwidth = 3;
+        formPanel.add(noDuplicatesCheckbox, gbc);
+
+        // Zeile 6: Trennzeile
         gbc.gridx = 0;
         gbc.gridy++;
         gbc.gridwidth = 1;
@@ -222,6 +230,9 @@ public class ExcelImportUiPanel extends JPanel {
         appendCheckbox.setSelected(Boolean.parseBoolean(settings.getOrDefault(KEY_APPEND, "false")));
         trennzeileField.setEnabled(appendCheckbox.isSelected());
 
+        // Duplikate
+        noDuplicatesCheckbox.setSelected(Boolean.parseBoolean(settings.getOrDefault(KEY_NO_DUPLICATES, "false")));
+
         // Trennzeile
         String trennzeile = settings.get(KEY_TRENNZEILE);
         if (trennzeile != null) {
@@ -239,6 +250,7 @@ public class ExcelImportUiPanel extends JPanel {
         settings.put(KEY_HEADER_ENABLED, Boolean.toString(headerCheckbox.isSelected()));
         settings.put(KEY_HEADER_ROW, String.valueOf(headerRowSpinner.getValue()));
         settings.put(KEY_APPEND, Boolean.toString(appendCheckbox.isSelected()));
+        settings.put(KEY_NO_DUPLICATES, Boolean.toString(noDuplicatesCheckbox.isSelected()));
         settings.put(KEY_TRENNZEILE, trennzeileField.getText());
 
         context.savePluginSettings(PLUGIN_KEY, settings);
@@ -283,6 +295,10 @@ public class ExcelImportUiPanel extends JPanel {
 
     public boolean shouldAppend() {
         return appendCheckbox.isSelected();
+    }
+
+    public boolean shouldSkipDuplicates() {
+        return noDuplicatesCheckbox.isSelected();
     }
 
     public String getTrennzeile() {
