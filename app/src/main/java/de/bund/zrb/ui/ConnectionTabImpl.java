@@ -1,6 +1,5 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
@@ -17,7 +16,6 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
@@ -135,13 +133,13 @@ public class ConnectionTabImpl implements ConnectionTab {
                     // not a directory
                 }
 
-                // Fallback: open via legacy ftpManager (Issue 2 scope is primarily navigation/list)
+                // VirtualResource-based file open
                 try {
-                    FtpFileBuffer buffer = ftpManager.open(selected);
-                    if (buffer != null) {
-                        tabbedPaneManager.openFileTab(ftpManager, buffer, null, null, false);
-                    }
-                } catch (IOException ex) {
+                    FilePayload payload = fileService.readFile(nextPath);
+                    String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
+                    VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
+                    tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
+                } catch (Exception ex) {
                     JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
                             "Fehler", JOptionPane.ERROR_MESSAGE);
                 }
@@ -250,18 +248,6 @@ public class ConnectionTabImpl implements ConnectionTab {
                     // not a directory
                 }
 
-                if (ftpManager != null) {
-                    try {
-                        FtpFileBuffer buffer = ftpManager.open(selected);
-                        if (buffer != null) {
-                            tabbedPaneManager.openFileTab(ftpManager, buffer, null, null, false);
-                        }
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                                "Fehler", JOptionPane.ERROR_MESSAGE);
-                    }
-                    return;
-                }
 
                 // VirtualResource-based file open
                 try {
