@@ -429,26 +429,24 @@ public class ChatSession extends JPanel {
     }
 
     /**
-     * Baut den finalen Prompt fuer das Modell aus Systemprompt, optionaler History und aktuellem Usertext.
+     * Build the final prompt for the model.
+     * If context is enabled, send only the current user text and rely on ChatManager history handling.
+     * If context is disabled, inline the system prompt manually.
      */
     private String buildPromptWithMode(String systemPrompt, String userText, boolean useContext) {
-        StringBuilder sb = new StringBuilder();
         if (useContext) {
-            // System-Prompt steckt bereits in ChatHistory.toPrompt() (via setSystemPrompt)
-            sb.append(chatManager.getHistory(sessionId).toPrompt(userText));
-        } else {
-            // Kein Context: System-Prompt manuell voranstellen
-            if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-                sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
-            }
-            if (userText != null && !userText.trim().isEmpty()) {
-                sb.append("Du: ").append(userText.trim());
-            }
+            return userText == null ? "" : userText.trim();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+            sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
+        }
+        if (userText != null && !userText.trim().isEmpty()) {
+            sb.append("Du: ").append(userText.trim());
         }
         return sb.toString();
     }
-
-
     private JsonObject extractToolCall(String text) {
         if (text == null) {
             return null;
@@ -785,8 +783,11 @@ public class ChatSession extends JPanel {
             return result;
         }
 
+        // Make target effectively final for use in lambda (Java 8 requires captured locals to be final/effectively final)
+        final String targetName = target;
+
         de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
-                .filter(t -> target.equalsIgnoreCase(t.getSpec().getName()))
+                .filter(t -> targetName.equalsIgnoreCase(t.getSpec().getName()))
                 .findFirst()
                 .orElse(null);
         if (tool == null) {
