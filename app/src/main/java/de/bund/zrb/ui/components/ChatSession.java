@@ -321,6 +321,39 @@ public class ChatSession extends JPanel {
                 error.addProperty("errorType", e.getClass().getName());
                 error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
                 error.add("toolCall", call);
+
+                // Include expected fields (types + descriptions) so the model can repair the tool call.
+                try {
+                    de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getToolByName(toolName);
+                    if (tool != null && tool.getSpec() != null && tool.getSpec().getInputSchema() != null
+                            && tool.getSpec().getInputSchema().getProperties() != null) {
+                        com.google.gson.JsonObject expected = new com.google.gson.JsonObject();
+                        for (java.util.Map.Entry<String, de.zrb.bund.newApi.mcp.ToolSpec.Property> en : tool.getSpec().getInputSchema().getProperties().entrySet()) {
+                            if (en.getKey() == null || en.getValue() == null) {
+                                continue;
+                            }
+                            com.google.gson.JsonObject p = new com.google.gson.JsonObject();
+                            p.addProperty("type", en.getValue().getType());
+                            p.addProperty("description", en.getValue().getDescription());
+                            expected.add(en.getKey(), p);
+                        }
+                        error.add("expectedProperties", expected);
+                        if (tool.getSpec().getInputSchema().getRequired() != null) {
+                            com.google.gson.JsonArray req = new com.google.gson.JsonArray();
+                            for (String r : tool.getSpec().getInputSchema().getRequired()) {
+                                req.add(r);
+                            }
+                            error.add("required", req);
+                        }
+                        if (tool.getSpec().getExampleInput() != null) {
+                            com.google.gson.JsonElement ex = new com.google.gson.Gson().toJsonTree(tool.getSpec().getExampleInput());
+                            error.add("exampleInput", ex);
+                        }
+                    }
+                } catch (Exception ignore) {
+                    // don't let introspection break the error reporting
+                }
+
                 error.addProperty("hint",
                         "Prüfe das Tool-Call JSON. Erwartet wird z.B. {\"name\":\"open_file\",\"input\":{...}} oder tool_input/arguments. " +
                                 "Stelle sicher, dass alle Pflichtfelder laut ToolSpec vorhanden sind.");
@@ -331,7 +364,7 @@ public class ChatSession extends JPanel {
                     String msg = "TOOL_RESULT " + toolName + "\n```json\n" + error + "\n```";
                     chatManager.getHistory(sessionId).addToolMessage(msg);
                     // Danach direkt Follow-up anstoßen: KI soll den Call korrigieren/erneut versuchen.
-                    streamAssistantFollowUp("Das Tool ist fehlgeschlagen. Analysiere TOOL_RESULT (Fehler + ToolCall) und sende einen korrigierten Tool-Call JSON.");
+                    streamAssistantFollowUp("Das Tool ist fehlgeschlagen. Analysiere TOOL_RESULT (Fehler + ToolCall + Required/ExpectedProperties) und sende einen korrigierten Tool-Call JSON.");
                 }
             });
         }
