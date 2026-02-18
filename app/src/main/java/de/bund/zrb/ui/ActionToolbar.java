@@ -2,6 +2,7 @@ package de.bund.zrb.ui;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
 import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
 import de.bund.zrb.ui.dto.ToolbarButtonConfig;
 import de.bund.zrb.ui.dto.ToolbarConfig;
@@ -151,18 +152,35 @@ public class ActionToolbar extends JToolBar {
     private void loadToolbarSettings() {
         Path file = Paths.get(System.getProperty("user.home"), ".mainframemate", "toolbar.json");
         if (!Files.exists(file)) {
-            config = new ToolbarConfig();
-            config.buttonSizePx = 48;
-            config.fontSizeRatio = 0.75f;
-            config.buttons = new ArrayList<>();
+            config = defaultConfig();
             return;
         }
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             config = gson.fromJson(reader, ToolbarConfig.class);
-        } catch (IOException e) {
+        } catch (IOException | JsonSyntaxException e) {
             System.err.println("⚠️ Fehler beim Laden der Toolbar-Konfiguration: " + e.getMessage());
-            config = new ToolbarConfig();
+            try {
+                Path backup = file.resolveSibling("toolbar.json.bak");
+                Files.deleteIfExists(backup);
+                Files.move(file, backup);
+            } catch (IOException ignore) {
+                // ignore backup failures
+            }
+            config = defaultConfig();
+            return;
         }
+
+        if (config == null || config.buttons == null) {
+            config = defaultConfig();
+        }
+    }
+
+    private ToolbarConfig defaultConfig() {
+        ToolbarConfig cfg = new ToolbarConfig();
+        cfg.buttonSizePx = 48;
+        cfg.fontSizeRatio = 0.75f;
+        cfg.buttons = new ArrayList<>();
+        return cfg;
     }
 
     private void saveToolbarSettings() {
