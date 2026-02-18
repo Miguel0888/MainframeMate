@@ -342,12 +342,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         // Decide stateless-by-path: local absolute OS path vs. remote (FTP/MVS)
         de.bund.zrb.files.path.VirtualResourceRef ref = de.bund.zrb.files.path.VirtualResourceRef.of(path);
         if (ref.isFileUri() || ref.isLocalAbsolutePath()) {
-            // LOCAL: open a local browser tab and (if it is a file) open it in the editor
             String localPath = ref.isFileUri() ? path : ref.normalizeLocalAbsolutePath();
 
             try {
-                // If a file is passed in directly, open it right away.
-                // For file:-URIs we can still treat it as a path for VFS, but the editor expects content.
                 java.io.File f;
                 if (ref.isFileUri()) {
                     try {
@@ -364,18 +361,41 @@ public class MainFrame extends JFrame implements MainframeContext {
                     de.bund.zrb.files.api.FileService fs = new de.bund.zrb.files.impl.local.VfsLocalFileService();
                     de.bund.zrb.files.model.FilePayload payload = fs.readFile(f.getAbsolutePath());
                     String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : java.nio.charset.Charset.defaultCharset());
+
+                    // Publish a tool UX event if a bridge is available (used by chat)
+                    if (chatEventBridge != null) {
+                        com.google.gson.JsonObject ok = new com.google.gson.JsonObject();
+                        ok.addProperty("status", "success");
+                        ok.addProperty("scheme", "local");
+                        ok.addProperty("openedFile", f.getAbsolutePath());
+                        ok.addProperty("bytes", payload.getBytes() == null ? 0 : payload.getBytes().length);
+                        ok.addProperty("charset", payload.getCharset() == null ? null : payload.getCharset().name());
+                        chatEventBridge.publish(null, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", ok));
+                    }
+
                     return tabManager.openFileTab(new FtpManager(), content, sentenceType);
                 }
+
+                // Directory fallback
+                LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
+                tabManager.addTab(tab);
+                String start = f.isDirectory() ? f.getAbsolutePath() : (f.getParent() == null ? f.getAbsolutePath() : f.getParent());
+                tab.loadDirectory(start);
+                return tab;
+
             } catch (Exception ex) {
-                JOptionPane.showMessageDialog(this, "Fehler beim Öffnen (lokal):\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
+                // Report error into chat if available; avoid blocking UI with modal dialogs.
+                if (chatEventBridge != null) {
+                    com.google.gson.JsonObject err = new com.google.gson.JsonObject();
+                    err.addProperty("status", "error");
+                    err.addProperty("scheme", "local");
+                    err.addProperty("path", localPath);
+                    err.addProperty("errorType", ex.getClass().getName());
+                    err.addProperty("message", ex.getMessage());
+                    chatEventBridge.publish(null, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", err));
+                }
                 return null;
             }
-
-            LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
-            tabManager.addTab(tab);
-            tab.loadDirectory(ref.isFileUri() ? new java.io.File(java.net.URI.create(localPath.trim())).getParent() : localPath);
-            return tab;
         }
 
         final FtpManager ftpManager = new FtpManager();

@@ -16,7 +16,8 @@ public class ChatFormatter {
     public enum Role {
         USER("👤 Du:", "#e6f0ff"),
         BOT("🤖 Bot:", "#f0ffe6"),
-        TOOL("🔧 Tool:", "#fff8e6");
+        TOOL("🔧 Tool:", "#fff8e6"),
+        ERROR("⚠ Fehler:", "#ffe6e6");
 
         public final String label;
         public final String bgColor;
@@ -96,14 +97,18 @@ public class ChatFormatter {
     }
 
     public void appendToolEvent(String headerText, String jsonBody) {
-        JPanel wrapper = createMessagePanelWrapper(Role.TOOL);
+        appendToolEvent(headerText, jsonBody, false);
+    }
+
+    public void appendToolEvent(String headerText, String jsonBody, boolean isError) {
+        JPanel wrapper = createMessagePanelWrapper(isError ? Role.ERROR : Role.TOOL);
 
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
         header.setOpaque(false);
 
-        JLabel titleLabel = new JLabel(headerText == null ? Role.TOOL.label : headerText);
+        JLabel titleLabel = new JLabel(headerText == null ? (isError ? Role.ERROR.label : Role.TOOL.label) : headerText);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
         header.add(titleLabel);
         header.add(Box.createHorizontalGlue());

@@ -69,8 +69,8 @@ public class McpServiceImpl implements McpService {
      * Extrahiert das JSON-Objekt mit den Tool-Argumenten aus einem Tool-Call.
      * Unterstützt:
      * - 'tool_input' (JSON-Objekt)
-     * - 'input' (JSON-Objekt)  <-- häufiges, einfaches Format aus der UI/LLM
-     * - 'arguments' (als JSON-String ODER JSON-Objekt)
+     * - 'input' (JSON-Objekt)
+     * - 'arguments' (JSON-String ODER JSON-Objekt)
      */
     private JsonObject extractToolArguments(JsonObject call) {
         if (call == null) {
@@ -81,19 +81,19 @@ public class McpServiceImpl implements McpService {
             return call.getAsJsonObject("tool_input");
         }
 
-        // Support for {"name":"open_file","input":{...}}
         if (call.has("input") && call.get("input").isJsonObject()) {
             return call.getAsJsonObject("input");
         }
 
         if (call.has("arguments")) {
+            // Some models emit arguments as an object (not as string)
             if (call.get("arguments").isJsonObject()) {
                 return call.getAsJsonObject("arguments");
             }
             if (call.get("arguments").isJsonPrimitive()) {
                 String jsonString = call.get("arguments").getAsString();
                 try {
-                    JsonElement parsed = new com.google.gson.JsonParser().parse(jsonString);
+                    JsonElement parsed = com.google.gson.JsonParser.parseString(jsonString);
                     if (!parsed.isJsonObject()) {
                         throw new IllegalArgumentException("'arguments' ist kein JSON-Objekt.");
                     }

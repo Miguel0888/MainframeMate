@@ -358,7 +358,7 @@ public class ChatSession extends JPanel {
                         "Prüfe das Tool-Call JSON. Erwartet wird z.B. {\"name\":\"open_file\",\"input\":{...}} oder tool_input/arguments. " +
                                 "Stelle sicher, dass alle Pflichtfelder laut ToolSpec vorhanden sind.");
 
-                formatter.appendToolEvent("\u26a0 Tool-Fehler: " + toolName, error.toString());
+                formatter.appendToolEvent("\u26a0 Tool-Fehler: " + toolName, error.toString(), true);
 
                 if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
                     String msg = "TOOL_RESULT " + toolName + "\n```json\n" + error + "\n```";
