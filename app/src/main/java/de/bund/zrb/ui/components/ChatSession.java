@@ -12,7 +12,6 @@ import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.bund.zrb.service.McpServiceImpl;
-import de.bund.zrb.service.McpChatEventBridge;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -51,6 +50,7 @@ public class ChatSession extends JPanel {
     private final MainframeContext maeinframeContext;
     private boolean awaitingBotResponse = false;
 
+    private final JComboBox<ChatMode> modeComboBox;
     private final JCheckBox keepAliveCheckbox;
     private final JCheckBox contextMemoryCheckbox;
 
@@ -132,10 +132,24 @@ public class ChatSession extends JPanel {
         toolComboBox.setPreferredSize(new Dimension(150, 24));
         toolComboBox.setFocusable(false);
 
+        // Chat-Mode Dropdown (Ask/Edit/Plan/Agent)
+        modeComboBox = new JComboBox<>(ChatMode.values());
+        modeComboBox.setSelectedItem(ChatMode.AGENT);
+        modeComboBox.setToolTipText(((ChatMode) modeComboBox.getSelectedItem()).getTooltip());
+        modeComboBox.addActionListener(e -> {
+            ChatMode m = (ChatMode) modeComboBox.getSelectedItem();
+            if (m != null) {
+                modeComboBox.setToolTipText(m.getTooltip());
+            }
+        });
+        modeComboBox.setPreferredSize(new Dimension(120, 24));
+        modeComboBox.setFocusable(false);
+
         JPanel buttonPanel = new JPanel(new BorderLayout(4, 0));
         JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         leftButtons.add(attachButton);
         leftButtons.add(toolComboBox);
+        leftButtons.add(modeComboBox);
 
         buttonPanel.add(leftButtons, BorderLayout.WEST);
         buttonPanel.add(sendButton, BorderLayout.EAST);
@@ -193,14 +207,8 @@ public class ChatSession extends JPanel {
 
                 formatter.appendToolEvent(header, body, isError);
 
-                // If context memory is enabled, feed tool result back into the session history
-                // so the next LLM call can take it into account.
-                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()
-                        && event.getType() == de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT) {
-                    String msg = "TOOL_RESULT " + (event.getToolName() == null ? "" : event.getToolName())
-                            + "\n```json\n" + body + "\n```";
-                    chatManager.getHistory(sessionId).addToolMessage(msg);
-                }
+                // Wichtig: Tool-Results werden in ChatSession aggregiert und als EIN Tool-Message in die History geschrieben.
+                // Hier deshalb NICHT nochmal in die History spiegeln (verhindert Duplikate).
             });
         };
         chatEventBridge.addListener(chatEventListener);
@@ -237,10 +245,18 @@ public class ChatSession extends JPanel {
         String message = inputArea.getText().trim();
         if (message.isEmpty()) return;
 
+        // Apply selected tool wrapper
         message = applyTool(message);
+
+        // Prefix with system prompt based on selected mode
+        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        String systemPrompt = mode != null ? mode.getSystemPrompt() : ChatMode.ASK.getSystemPrompt();
+        String finalPrompt = buildPromptWithMode(systemPrompt, message, contextMemoryCheckbox.isSelected());
+
         awaitingBotResponse = true;
 
-        String finalMessage = message;
+        final String userMessageForHistory = message;
+        final String finalMessage = finalPrompt;
         new Thread(() -> {
             try {
                 final StringBuilder currentBotResponse = new StringBuilder();
@@ -248,10 +264,8 @@ public class ChatSession extends JPanel {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
-                            Timestamp usrId = chatManager.getHistory(sessionId).addUserMessage(finalMessage);
-                            formatter.appendUserMessage(finalMessage, () -> {
-                                chatManager.getHistory(sessionId).remove(usrId);
-                            });
+                            Timestamp usrId = chatManager.getHistory(sessionId).addUserMessage(userMessageForHistory);
+                            formatter.appendUserMessage(userMessageForHistory, () -> chatManager.getHistory(sessionId).remove(usrId));
                             inputArea.setText("");
                             formatter.startBotMessage();
                             setStatus("🤖 Bot schreibt...");
@@ -318,81 +332,24 @@ public class ChatSession extends JPanel {
         }).start();
     }
 
-    private void maybeExecuteToolCall(String botText) {
-        JsonObject call = extractToolCall(botText);
-        if (call == null) {
-            return;
+    /**
+     * Baut den finalen Prompt fuer das Modell aus Systemprompt, optionaler History und aktuellem Usertext.
+     */
+    private String buildPromptWithMode(String systemPrompt, String userText, boolean useContext) {
+        StringBuilder sb = new StringBuilder();
+        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+            sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
         }
-
-        try {
-            // 1) Execute tool-call (this will publish TOOL_USE/TOOL_RESULT events)
-            mcpService.accept(call, sessionId, null);
-
-            // 2) Trigger an automatic assistant follow-up so the model can respond using the tool result
-            //    (tool result was added to history as role=tool in subscribeToToolEvents when context memory is on)
-            if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-                streamAssistantFollowUp("Nutze das TOOL_RESULT oben und antworte dem Nutzer.");
+        if (useContext) {
+            sb.append(chatManager.getHistory(sessionId).toPrompt(userText));
+        } else {
+            if (userText != null && !userText.trim().isEmpty()) {
+                sb.append("Du: ").append(userText.trim());
             }
-        } catch (Exception e) {
-            // Tool konnte nicht ausgeführt werden (Parsing/Validierung/Tool-Handler Fehler)
-            SwingUtilities.invokeLater(() -> {
-                String toolName = (call != null && call.has("name") && !call.get("name").isJsonNull())
-                        ? call.get("name").getAsString()
-                        : "(unbekannt)";
-
-                JsonObject error = new JsonObject();
-                error.addProperty("status", "error");
-                error.addProperty("errorType", e.getClass().getName());
-                error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
-                error.add("toolCall", call);
-
-                // Include expected fields (types + descriptions) so the model can repair the tool call.
-                try {
-                    de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getToolByName(toolName);
-                    if (tool != null && tool.getSpec() != null && tool.getSpec().getInputSchema() != null
-                            && tool.getSpec().getInputSchema().getProperties() != null) {
-                        com.google.gson.JsonObject expected = new com.google.gson.JsonObject();
-                        for (java.util.Map.Entry<String, de.zrb.bund.newApi.mcp.ToolSpec.Property> en : tool.getSpec().getInputSchema().getProperties().entrySet()) {
-                            if (en.getKey() == null || en.getValue() == null) {
-                                continue;
-                            }
-                            com.google.gson.JsonObject p = new com.google.gson.JsonObject();
-                            p.addProperty("type", en.getValue().getType());
-                            p.addProperty("description", en.getValue().getDescription());
-                            expected.add(en.getKey(), p);
-                        }
-                        error.add("expectedProperties", expected);
-                        if (tool.getSpec().getInputSchema().getRequired() != null) {
-                            com.google.gson.JsonArray req = new com.google.gson.JsonArray();
-                            for (String r : tool.getSpec().getInputSchema().getRequired()) {
-                                req.add(r);
-                            }
-                            error.add("required", req);
-                        }
-                        if (tool.getSpec().getExampleInput() != null) {
-                            com.google.gson.JsonElement ex = new com.google.gson.Gson().toJsonTree(tool.getSpec().getExampleInput());
-                            error.add("exampleInput", ex);
-                        }
-                    }
-                } catch (Exception ignore) {
-                    // don't let introspection break the error reporting
-                }
-
-                error.addProperty("hint",
-                        "Prüfe das Tool-Call JSON. Erwartet wird z.B. {\"name\":\"open_file\",\"input\":{...}} oder tool_input/arguments. " +
-                                "Stelle sicher, dass alle Pflichtfelder laut ToolSpec vorhanden sind.");
-
-                formatter.appendToolEvent("\u26a0 Tool-Fehler: " + toolName, error.toString(), true);
-
-                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-                    String msg = "TOOL_RESULT " + toolName + "\n```json\n" + error + "\n```";
-                    chatManager.getHistory(sessionId).addToolMessage(msg);
-                    // Danach direkt Follow-up anstoßen: KI soll den Call korrigieren/erneut versuchen.
-                    streamAssistantFollowUp("Das Tool ist fehlgeschlagen. Analysiere TOOL_RESULT (Fehler + ToolCall + Required/ExpectedProperties) und sende einen korrigierten Tool-Call JSON.");
-                }
-            });
         }
+        return sb.toString();
     }
+
 
     private JsonObject extractToolCall(String text) {
         if (text == null) {
@@ -469,15 +426,16 @@ public class ChatSession extends JPanel {
     }
 
     private void streamAssistantFollowUp(String followUpUserText) {
-        // We intentionally re-use the same UI streaming UX ('Bot schreibt...')
-        // but we do NOT add a new user message to history (this is an internal follow-up).
-        String prompt = (followUpUserText == null || followUpUserText.trim().isEmpty())
+        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        String systemPrompt = mode != null ? mode.getSystemPrompt() : ChatMode.ASK.getSystemPrompt();
+        String userText = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
+        String finalPrompt = buildPromptWithMode(systemPrompt, userText, true);
 
         new Thread(() -> {
             try {
                 final StringBuilder followUpResponse = new StringBuilder();
-                chatManager.streamAnswer(sessionId, true, prompt, new ChatStreamListener() {
+                chatManager.streamAnswer(sessionId, true, finalPrompt, new ChatStreamListener() {
                     @Override
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
@@ -496,8 +454,20 @@ public class ChatSession extends JPanel {
                     @Override
                     public void onStreamEnd() {
                         SwingUtilities.invokeLater(() -> {
-                            Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(followUpResponse.toString());
-                            formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
+                            String botText = followUpResponse.toString();
+                            java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
+                            if (!toolCalls.isEmpty()) {
+                                formatter.removeCurrentBotMessage();
+                                for (JsonObject call : toolCalls) {
+                                    String toolName = call.has("name") && !call.get("name").isJsonNull()
+                                            ? call.get("name").getAsString() : "unbekannt";
+                                    formatter.appendBotToolCall("Tool-Call: " + toolName, call.toString());
+                                }
+                                executeToolCallsSequentially(toolCalls);
+                            } else {
+                                Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
+                                formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
+                            }
                             cancelButton.setVisible(false);
                             setStatus(" ");
                         });
@@ -609,6 +579,7 @@ public class ChatSession extends JPanel {
 
         new Thread(() -> {
             java.util.List<JsonObject> results = new java.util.ArrayList<>();
+
             for (JsonObject call : calls) {
                 JsonObject result = executeSingleToolCall(call);
                 results.add(result);
@@ -622,18 +593,32 @@ public class ChatSession extends JPanel {
                         : (call.has("name") ? call.get("name").getAsString() : "unbekannt");
 
                 JsonObject finalResult = result == null ? new JsonObject() : result;
-                SwingUtilities.invokeLater(() -> formatter.appendToolEvent("Tool: " + toolName, finalResult.toString(), isError));
-
-                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-                    String msg = "TOOL_RESULT " + toolName + "\n```json\n" + finalResult + "\n```";
-                    chatManager.getHistory(sessionId).addToolMessage(msg);
-                }
+                SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                        "Tool: " + toolName,
+                        finalResult.toString(),
+                        isError
+                ));
             }
 
-            // Single follow-up with all results collected
             if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-                streamAssistantFollowUp("Nutze die TOOL_RESULTs oben und antworte dem Nutzer in EINER Nachricht. " +
-                        "Wenn Fehler enthalten sind, weise darauf hin und schlage einen korrigierten Tool-Call vor.");
+                JsonObject aggregated = new JsonObject();
+                aggregated.addProperty("type", "tool_results");
+                aggregated.addProperty("count", results.size());
+
+                com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
+                for (JsonObject r : results) {
+                    arr.add(r == null ? new JsonObject() : r);
+                }
+                aggregated.add("results", arr);
+
+                chatManager.getHistory(sessionId).addToolMessage(
+                        "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
+                );
+
+                streamAssistantFollowUp(
+                        "Nutze die TOOL_RESULTS (JSON) oben und antworte dem Nutzer in EINER Nachricht. " +
+                                "Fehler stoppen die Queue nicht; wenn Fehler enthalten sind, weise darauf hin und schlage ggf. korrigierte Tool-Calls vor."
+                );
             }
         }).start();
     }
@@ -642,7 +627,7 @@ public class ChatSession extends JPanel {
         try {
             JsonObject result = mcpService.executeToolCall(call, null);
             if (result != null && !result.has("toolName")) {
-                String toolName = call.has("name") ? call.get("name").getAsString() : "unbekannt";
+                String toolName = call != null && call.has("name") ? call.get("name").getAsString() : "unbekannt";
                 result.addProperty("toolName", toolName);
             }
             return result;
@@ -652,8 +637,10 @@ public class ChatSession extends JPanel {
             error.addProperty("errorType", e.getClass().getName());
             error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
             error.add("toolCall", call);
-            error.addProperty("toolName", call.has("name") ? call.get("name").getAsString() : "unbekannt");
-            error.addProperty("hint", "Tool-Call pruefen und erneut senden.");
+            error.addProperty("toolName", call != null && call.has("name") ? call.get("name").getAsString() : "unbekannt");
+            error.addProperty("hint",
+                    "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\\\TEST\"}} oder arguments/tool_input."
+            );
             return error;
         }
     }
