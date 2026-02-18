@@ -5,6 +5,7 @@ import de.bund.zrb.files.ftpconfig.FtpFileType;
 import de.bund.zrb.files.ftpconfig.FtpTextFormat;
 import de.bund.zrb.files.ftpconfig.FtpTransferMode;
 import de.bund.zrb.model.*;
+import de.bund.zrb.ui.components.ChatMode;
 import de.bund.zrb.ui.components.ComboBoxHelper;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.lock.LockerStyle;
@@ -73,6 +74,8 @@ public class SettingsDialog {
     private static JSpinner aiEditorHeightSpinner;
     private static JTextArea aiToolPrefix;
     private static JTextArea aiToolPostfix;
+    private static JComboBox<ChatMode> aiModeCombo;
+    private static JButton aiResetToolContractButton;
     private static JComboBox<AiProvider> providerCombo;
     private static JCheckBox llamaEnabledBox;
     private static JTextField llamaBinaryField;
@@ -495,25 +498,45 @@ public class SettingsDialog {
     private static void createAiContent(JPanel aiContent) {
         GridBagConstraints gbc = createDefaultGbc();
 
-        // Tool-Prefix
-        aiContent.add(new JLabel("KI-Anweisung vor dem JSON-Format (Prefix):"), gbc);
+        aiContent.add(new JLabel("Mode für Tool-Contract:"), gbc);
+        gbc.gridy++;
+        aiModeCombo = new JComboBox<>(ChatMode.values());
+        aiModeCombo.setSelectedItem(ChatMode.AGENT);
+        aiContent.add(aiModeCombo, gbc);
+        gbc.gridy++;
+
+        aiResetToolContractButton = new JButton("Tool-Contract auf Mode-Default zurücksetzen");
+        aiResetToolContractButton.addActionListener(e -> resetModeToolContractToDefault((ChatMode) aiModeCombo.getSelectedItem()));
+        aiContent.add(aiResetToolContractButton, gbc);
+        gbc.gridy++;
+
+        aiContent.add(new JLabel("KI-Anweisung vor Tool-Calls (Prefix):"), gbc);
         gbc.gridy++;
         aiToolPrefix = new JTextArea(3, 30);
         aiToolPrefix.setLineWrap(true);
         aiToolPrefix.setWrapStyleWord(true);
-        aiToolPrefix.setText(settings.aiConfig.getOrDefault("toolPrefix", "Gib den JSON-Aufruf (nur den Tool Call) aus – ohne zusätzliche Beschreibung oder Wiederholung der Tool-Spezifikation.\n"));
         aiContent.add(new JScrollPane(aiToolPrefix), gbc);
         gbc.gridy++;
 
-        // Tool-Postfix
-        aiContent.add(new JLabel("KI-Anweisung nach dem JSON-Format (Postfix):"), gbc);
+        aiContent.add(new JLabel("KI-Anweisung nach Tool-Calls (Postfix):"), gbc);
         gbc.gridy++;
         aiToolPostfix = new JTextArea(2, 30);
         aiToolPostfix.setLineWrap(true);
         aiToolPostfix.setWrapStyleWord(true);
-        aiToolPostfix.setText(settings.aiConfig.getOrDefault("toolPostfix", ""));
         aiContent.add(new JScrollPane(aiToolPostfix), gbc);
         gbc.gridy++;
+
+        final ChatMode[] previousMode = new ChatMode[] {(ChatMode) aiModeCombo.getSelectedItem()};
+        loadModeToolContract(previousMode[0]);
+        aiModeCombo.addActionListener(e -> {
+            ChatMode newMode = (ChatMode) aiModeCombo.getSelectedItem();
+            if (previousMode[0] != null) {
+                settings.aiConfig.put("toolPrefix." + previousMode[0].name(), aiToolPrefix.getText().trim());
+                settings.aiConfig.put("toolPostfix." + previousMode[0].name(), aiToolPostfix.getText().trim());
+            }
+            loadModeToolContract(newMode);
+            previousMode[0] = newMode;
+        });
 
         // Editor-Schriftart
         aiContent.add(new JLabel("KI-Editor Schriftart:"), gbc);
@@ -1036,8 +1059,13 @@ public class SettingsDialog {
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.lines", aiEditorHeightSpinner.getValue().toString());
-            settings.aiConfig.put("toolPrefix", aiToolPrefix.getText().trim()); // default: "Gib den Aufruf als JSON im folgenden Format aus:\n"
-            settings.aiConfig.put("toolPostfix", aiToolPostfix.getText().trim()); // default empty
+            ChatMode selectedMode = aiModeCombo != null && aiModeCombo.getSelectedItem() != null
+                    ? (ChatMode) aiModeCombo.getSelectedItem()
+                    : ChatMode.AGENT;
+            settings.aiConfig.put("toolPrefix." + selectedMode.name(), aiToolPrefix.getText().trim());
+            settings.aiConfig.put("toolPostfix." + selectedMode.name(), aiToolPostfix.getText().trim());
+            settings.aiConfig.remove("toolPrefix");
+            settings.aiConfig.remove("toolPostfix");
             settings.aiConfig.put("provider", providerCombo.getSelectedItem().toString());
             settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
             settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
@@ -1077,6 +1105,24 @@ public class SettingsDialog {
 //                    "Einstellungen wurden gespeichert.",
 //                    "Info", JOptionPane.INFORMATION_MESSAGE);
         }
+    }
+
+    private static void resetModeToolContractToDefault(ChatMode mode) {
+        ChatMode resolved = mode != null ? mode : ChatMode.AGENT;
+        aiToolPrefix.setText(resolved.getDefaultToolPrefix());
+        aiToolPostfix.setText(resolved.getDefaultToolPostfix());
+    }
+
+    private static void loadModeToolContract(ChatMode mode) {
+        ChatMode resolved = mode != null ? mode : ChatMode.AGENT;
+        String modePrefixKey = "toolPrefix." + resolved.name();
+        String modePostfixKey = "toolPostfix." + resolved.name();
+
+        String prefix = settings.aiConfig.getOrDefault(modePrefixKey, resolved.getDefaultToolPrefix());
+        String postfix = settings.aiConfig.getOrDefault(modePostfixKey, resolved.getDefaultToolPostfix());
+
+        aiToolPrefix.setText(prefix);
+        aiToolPostfix.setText(postfix);
     }
 
     private static GridBagConstraints createDefaultGbc() {
