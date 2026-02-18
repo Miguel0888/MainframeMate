@@ -83,151 +83,63 @@ Verwendung: Die readFile-Methode des FileService liefert ein FilePayload. Intern
 
 Zusammengefasst besteht die Zielstruktur aus einer zentralen FileService-Abstraktion, konkreten Implementierungen (hauptsächlich auf VFS basierend) und einfachen Datenklassen für Dateien und Inhalte. Diese Struktur ist modular und robust gegenüber Erweiterungen. Neue Dateisysteme oder Protokolle können durch zusätzliche Implementierungen oder Adapter ergänzt werden, ohne die Kernlogik oder UI ändern zu müssen. Bestehende UI-Elemente werden so angepasst, dass sie die neuen Schnittstellen nutzen, was ihre Abhängigkeit von technischen Details wie FTP-Sitzungen eliminiert.
 
-## Beispielcode für VFS-Einbindung
+## Verbindliche Festlegungen fuer die Migration
 
-Um die Verwendung von Apache Commons VFS in der neuen FileService-Architektur zu verdeutlichen, folgen einige Codebeispiele. Diese demonstrieren sowohl den Zugriff auf einen FTP-Server als auch auf das lokale Dateisystem über das einheitliche API. Alle Beispiele sind Java-8-kompatibel und verwenden keine neueren Sprachfeatures. Kommentare im Code erläutern die Schritte (auf Englisch, Imperativstil).
+Diese Punkte sind nicht optional und muessen waehrend der Umsetzung eingehalten werden:
 
-Beispiel 1: Auflisten eines FTP-Verzeichnisses via VFS
+- Stateless by Path: Alle Service-Methoden nehmen absolute Pfade entgegen. Kein CWD-Status im Infrastrukturcode.
+- MVS-Pfad-Dialekt: MVS-Datasets und PDS-Mitglieder werden durch einen MvsPathDialect in absolute, quoted Pfade uebersetzt.
+- Record-Struktur erhalten: transformToLocal/transformToRemote bleiben als separater Strategy-Service bestehen.
+- Payload-Metadaten: FilePayload enthaelt Hash/Charset/Record-Flags (oder eine erweiterbare Metadaten-Map).
+- Conflict-Write: Schreibeoperationen benoetigen eine writeIfUnchanged-Variante (hash-basierte Konflikterkennung).
+- Login-Policy: LoginManager wird zu CredentialsRepository; UI-Blocking findet ausschliesslich in der UI-Schicht statt.
+- FTP-Fallback: Wenn VFS Luecken fuer FTP/MVS zeigt, bleibt FTP vorerst Commons-Net-basiert; VFS wird dann nur lokal genutzt.
 
-```java
-FileSystemManager fsManager = VFS.getManager();  
-// Configure FTP options with credentials (avoid putting password in the URI)
-StaticUserAuthenticator auth = new StaticUserAuthenticator(null, "ftpuser", "ftpPass123");
-FileSystemOptions opts = new FileSystemOptions();
-DefaultFileSystemConfigBuilder.getInstance().setUserAuthenticator(opts, auth);
-// Optionally, set userDirIsRoot to false if we want absolute root access instead of user home
-FtpFileSystemConfigBuilder.getInstance().setUserDirIsRoot(opts, false);
+## Fallback-Strategie fuer FTP
 
-// Resolve the root directory on the FTP server (connects using provided credentials)
-FileObject remoteRoot = fsManager.resolveFile("ftp://ftp.example.com/", opts);
+Die FTP-Implementierung wird zuerst als FileService-Fassade ueber Commons Net umgesetzt (zustandslos per Pfad). VFS wird parallel evaluiert. Nur wenn MVS-Record/Path-Handling und Fehlermeldungen gleichwertig abbildbar sind, erfolgt der Wechsel auf VFS-FTP.
 
-// List the children of the root directory
-FileObject[] children = remoteRoot.getChildren();
-System.out.println("Inhalt von " + remoteRoot.getName().getURI() + ":");
-for (FileObject child : children) {
-    // Print name and indicate if it's a directory
-    String childName = child.getName().getBaseName();
-    if (child.isFolder()) {
-        System.out.println("[DIR] " + childName + "/");
-    } else {
-        System.out.println("[FILE] " + childName + " (" + child.getContent().getSize() + " bytes)");
-    }
-}
+## Konkrete Umbau-Tasks (Schritt-fuer-Schritt)
 
-// Clean up the FileObject (releases resources, connection stays open in fsManager cache)
-remoteRoot.close();
-```
+Abschliessend werden die Refactoring-Schritte aufgefuehrt, die notwendig sind, um von der bestehenden Implementierung zur beschriebenen Zielarchitektur zu gelangen. Diese Aufgaben koennen von einem Entwickler oder einem Coding-Agenten nacheinander umgesetzt werden:
 
-In diesem Code wird ein FTP-Verzeichnis mit Hilfe des VFS-API aufgelistet. Zunächst wird ein FileSystemManager beschafft und mit StaticUserAuthenticator die Anmeldung konfiguriert[5]resolveFile das Wurzelverzeichnis des FTP-Servers als FileObject geöffnet. Über getChildren() erhalten wir die Liste der Einträge, die wir als Verzeichnisse oder Dateien ausgeben. Nach der Nutzung wird remoteRoot.close() aufgerufen, um das FileObject zu schließen – die Verbindung selbst bleibt aufgrund des Connection-Pools von VFS im Hintergrund erhalten.
-
-Beispiel 2: Zugriff auf lokale Dateien via VFS
-
-```java
-FileSystemManager fsManager = VFS.getManager();
-// Resolve a local directory (file:// scheme can be omitted for local files on default file system)
-FileObject localDir = fsManager.resolveFile("file:///C:/Daten/Projekte");
-// List files and directories in the local directory
-for (FileObject entry : localDir.getChildren()) {
-    String name = entry.getName().getBaseName();
-    // Determine entry type and output basic info
-    if (entry.isFolder()) {
-        System.out.println("[DIR]  " + name);
-    } else {
-        // Fetch size and last modified timestamp
-        long size = entry.getContent().getSize();
-        long lastMod = entry.getContent().getLastModifiedTime();
-        System.out.println("[FILE] " + name + " - " + size + " bytes, lastMod=" + lastMod);
-    }
-}
-// Close the FileObject for the directory
-localDir.close();
-```
-
-Hier wird ein lokales Verzeichnis über VFS ausgelesen. Durch das Schema file:// (bzw. automatische Standardbehandlung) greift VFS auf das normale Dateisystem zu. Die Ausgabe zeigt, dass dieselben Methoden (getChildren(), isFolder(), getContent().getSize(), etc.) verwendet werden können, wie beim FTP-Zugriff – die Logik im Code bleibt identisch, nur der Pfad und das Schema unterscheiden sich. Dies unterstreicht den Vorteil der vereinheitlichten FileService-Architektur: die UI oder aufrufende Logik muss nicht mehr wissen, ob es sich um FTP oder eine lokale Datei handelt. VFS präsentiert eine einheitliche Sicht auf verschiedene Dateiquellen[1]
-
-Beispiel 3: Verwendung der FileService-API (Konzeptuell)
-
-Zum Abschluss ein fiktives Beispiel, wie der Aufruf aus Sicht der UI mit der neuen FileService aussehen könnte. Angenommen, wir haben eine FileService-Instanz (z. B. via Factory erzeugt), die mit einem bestimmten Ziel (lokal oder FTP) konfiguriert ist:
-
-```java
-// Example: The service is already configured for a certain connection (local or FTP)
-FileService fileService = FileServiceFactory.createForFtp("ftp.example.com", "ftpuser", "ftpPass123");
-// List root directory
-List<FileNode> items = fileService.list("/");  
-for (FileNode item : items) {
-    if (item.isDirectory()) {
-        System.out.println("[DIR] " + item.getName());
-    } else {
-        System.out.println("[FILE] " + item.getName() + " (" + item.getSize() + " bytes)");
-    }
-}
-
-// Read a file's content from FTP and save it locally
-FilePayload payload = fileService.readFile("/documents/report.pdf");
-try (InputStream in = payload.getInputStream();
-     OutputStream out = new FileOutputStream("C:/Temp/report.pdf")) {
-    byte[] buffer = new byte[4096];
-    int read;
-    // Copy data from the payload stream to local file
-    while ((read = in.read(buffer)) != -1) {
-        out.write(buffer, 0, read);
-    }
-}
-// ... similarly, we could write a local file back to FTP using fileService.writeFile(...)
-```
-
-In diesem fiktiven Snippet nutzt die UI die FileService, ohne sich um Details zu kümmern. Die FileService-Implementierung bestimmt anhand ihrer Konfiguration (hier via Factory als FTP-Service erzeugt) automatisch, dass die Pfade auf einem FTP-Server zu interpretieren sind. Die Methode list("/") liefert FileNode-Objekte des Stammverzeichnisses. Anschließend wird readFile benutzt, um eine Datei herunterzuladen – das zurückgegebene FilePayload wird hier verwendet, um die Datei auf die lokale Platte zu speichern. Beachte: Die UI muss sich weder um FTPClient-Befehle noch um Streams von Commons Net kümmern; all das erledigt die interne VFS-Nutzung in fileService. Würde fileService stattdessen auf eine lokale Basis konfiguriert, würde derselbe Code mit Pfaden des lokalen Dateisystems funktionieren. Diese Einheitlichkeit reduziert die Komplexität in der UI deutlich und behebt die ursprünglichen Probleme mit zustandsbehafteten Pfaden (CWD) vollständig.
-
-## Konkrete Umbau-Tasks (Schritt-für-Schritt)
-
-Abschließend werden die Refactoring-Schritte aufgeführt, die notwendig sind, um von der bestehenden Implementierung zur beschriebenen Zielarchitektur zu gelangen. Diese Aufgaben können von einem Entwickler oder einem Coding-Agenten nacheinander umgesetzt werden:
-
-1. Apache Commons VFS integrieren: Die Maven-Dependency für Apache Commons VFS2 (aktuelle Version, z. B. 2.10) ins Projekt aufnehmen. Sicherstellen, dass auch Apache Commons Net als transitive Abhängigkeit verfügbar ist (für FTP/FTPS). Das Projekt bauen und überprüfen, dass die Bibliothek geladen wird.
-2. FileService-Interface definieren: Ein neues Interface FileService erstellen (in einem geeigneten Package, z. B. com.example.fileservice). Darin die methodischen Platzhalter für benötigte Operationen deklarieren: z. B. list(String path), readFile(String path), writeFile(String path, FilePayload data), delete(String path), createDirectory(String path) etc., jeweils mit geeigneten Exceptions. Dieses Interface bildet die zentrale Abstraktion für Dateioperationen.
+1. Apache Commons VFS integrieren: Die Maven-Dependency fuer Apache Commons VFS2 (aktuelle Version, z. B. 2.10) ins Projekt aufnehmen. Sicherstellen, dass auch Apache Commons Net als transitive Abhaengigkeit verfuegbar ist (fuer FTP/FTPS). Das Projekt bauen und ueberpruefen, dass die Bibliothek geladen wird.
+2. FileService-Interface definieren: Ein neues Interface FileService erstellen (in einem geeigneten Package, z. B. com.example.fileservice). Darin die methodischen Platzhalter fuer benoetigte Operationen deklarieren: z. B. list(String path), readFile(String path), writeFile(String path, FilePayload data), delete(String path), createDirectory(String path) etc., jeweils mit geeigneten Exceptions. Dieses Interface bildet die zentrale Abstraktion fuer Dateioperationen.
 3. Datenklassen erstellen: Die Klassen FileNode und FilePayload implementieren (ebenfalls in passendem Package, ggf. com.example.fileservice.model):
-4. FileNode: Felder für Name, Pfad, Typ (Datei/Ordner), Größe, Datum etc. + Getter/Setter. Überschreibe toString() für Debug-Zwecke (z. B. Pfad oder Name zurückgeben). Evtl. Konstruktoren für bequemes Befüllen (z. B. FileNode(name, path, isDirectory)).
-5. FilePayload: Felder je nach Design (z. B. InputStream oder byte[] + ggf. Länge). Methoden anbieten, um an die enthaltenen Daten zu kommen (getInputStream(), evtl. getBytes() wenn umgesetzt). Achte auf Java 8 Kompatibilität (keine Records verwenden). Füge notwendig erscheinende Hilfsmethoden hinzu, z. B. statische Fabrikmethoden wie fromBytes(byte[]) oder fromFile(File) je nach Use-Case.
-6. Dokumentiere mittels Kommentaren (auf Englisch) kurz die Zweck der Klassen. Kompiliere und prüfe, dass die Klassen fehlerfrei sind.
-7. VfsFileService implementieren: Erstelle die Klasse VfsFileService im Service-Package, die FileService implementiert.
-8. Füge als Member einen FileSystemManager hinzu (initialisiert via VFS.getManager() entweder statisch oder im Konstruktor).
-9. Falls FTP/FTPS unterstützt werden soll: Plane, wie Credentials verwaltet werden. Z.B. als Member FileSystemOptions ftpOptions mit vordefinierten Authenticator. Diese können im Konstruktor gesetzt werden, wenn entsprechende Parameter übergeben werden. Biete mehrere Konstruktoren an, z. B. einen für lokale Nutzung (kein Parameter, nur FileSystemManager setzen) und einen für FTP (Parameter host, user, pass -> erstellt authenticator).
-10. Implementiere list(String path): wie oben beschrieben, auflösen des Pfades via resolveFile, Kinder sammeln, in FileNode umwandeln. Achte auf Exception Handling: VFS-Exceptions in FileServiceException umwandeln.
-11. Implementiere readFile(String path): Öffne FileObject file = fsManager.resolveFile(path, opts), hole InputStream, verpacke ihn in FilePayload. (Je nach Entscheidung: InputStream direkt in FilePayload belassen und dem Aufrufer überlassen zu schließen, oder Daten sofort lesen – bei großen Dateien lieber Stream geben).
-12. Implementiere writeFile(String path, FilePayload payload): Ähnlich, aber OutputStream öffnen. Unterstütze sowohl Byte-Daten als auch Streams aus dem Payload. Schließe OutputStream nach Schreibende.
-13. Implementiere delete(String path) und createDirectory(String path): Hier können VFS-Methoden fileObject.delete() bzw. fileObject.createFolder() genutzt werden.
-14. Teste die VfsFileService-Methoden zunächst isoliert (z. B. in einem kleinen Main oder JUnit, falls möglich) mit einem bekannten lokalen Pfad und – falls ein Test-FTP-Server verfügbar – mit einem FTP-Pfad. Prüfe, ob die erwarteten Ergebnisse (korrekte Listings, Datei lesen/schreiben) erzielt werden.
-15. Vorbereitung der UI-Umstellung: Identifiziere alle Stellen im UI und in Commands, wo bisher direkt FTP-spezifische Klassen verwendet werden:
-16. Bspw. Aufrufe von FtpManager.connect(), FtpManager.changeDirectory(), FtpManager.getCurrentDir() oder FileContentService.loadFile() etc.
-17. Ermittle, welche Funktionen die UI von diesen Klassen benötigt (z. B. Verzeichnisinhalt holen, Datei anzeigen, hoch-/runterladen, etc.). Diese Funktionen sollen durch FileService-Methoden ersetzt werden. Notiere diese Stellen für die Umbau-Schritte.
-18. Integration der FileService in UI/Commands: Ersetze in den UI-Klassen die Verwendung der alten Klassen durch die neue FileService-Schnittstelle:
-19. Instanziiere ggf. zu Programmstart oder beim Connect-Dialog eine passende FileService-Implementierung. Z.B.: Wenn der Benutzer eine FTP-Verbindung herstellt, erstelle fileService = FileServiceFactory.createForFtp(host, user, pass) und bewahre diese Instanz an zentraler Stelle auf (im MainFrame oder einem Session-Objekt). Für lokalen Modus analog (ggf. eine lokale FileService-Instanz vorrätig halten).
-20. Passe Methoden an: Wo früher ftpManager.changeDirectory(path) genutzt wurde, wird jetzt fileService.list(path) aufgerufen, und das Ergebnis (List<FileNode>) verwendet, um die UI (Dateibaum, Tabellen etc.) zu füllen. Wo fileContentService.loadFile(path) war, wird fileService.readFile(path) genutzt, um einen FilePayload zu erhalten, aus dem dann der Inhalt gelesen und z. B. in einem Textfeld angezeigt wird.
-21. Entferne oder kommentiere alte Aufrufe, die nicht mehr benötigt werden (z. B. kein separates ftpManager.cwd mehr nötig, da jeder List-Aufruf den vollständigen Pfad erhält).
-22. Achte darauf, dass Lesezeichen/Bookmarks jetzt einfach als Pfad-Strings gehandhabt werden können – da kein interner Zustand mehr vorgehalten wird, kann ein Bookmark einfach den absoluten Pfad speichern. Beim Aufrufen eines Bookmarks ruft die UI fileService.list(bookmarkPath) auf der aktiven Service-Instanz auf. Falls Bookmarks auch zwischen unterschiedlichen Verbindungen genutzt werden, muss die Applikation sicherstellen, dass die richtige FileService (mit der passenden Connection) verwendet wird.
-23. Refactoring der alten Klassen: Sobald die UI umgestellt ist, können die alten Klassen wie FtpManager und FileContentService entweder entfernt oder umgebaut werden:
-24. Option A (empfohlen): Klassen entfernen und auf neue Architektur umstellen. Wenn möglich, alle Verwendungen ersetzen und die Klassen komplett löschen, um Verwirrung zu vermeiden. Sollten bestimmte Hilfsfunktionen darin enthalten sein (z. B. Parsing von Pfaden oder Konvertierung von Line Endings), überführe diese Utilities in neue geeignete Orte (z. B. als statische Helfer in einer FileUtils-Klasse, falls nötig).
-25. Option B: Klassen beibehalten, aber intern auf FileService umleiten. Falls aus Gründen der Rückwärtskompatibilität einige Teile der App weiterhin die alten Klassen aufrufen (z. B. Plugins oder schwieriger zu ändernde Stellen), kann man die alten Klassen so umbauen, dass sie intern die neue FileService benutzen. Z.B. FtpManager.listDir(path) könnte einfach return fileService.list(path) aufrufen. Diese Deprecated-Klassen könnte man mittelfristig entfernen. Diese Strategie stellt sicher, dass kein alter FTPClient-Code mehr aktiv ist.
-26. Unabhängig von A oder B: entferne sämtliche direkten Abhängigkeiten auf org.apache.commons.net.ftp.FTPClient aus dem Code. Die einzige verbleibende Nutzung sollte indirekt über VFS erfolgen. Dadurch sind Probleme mit Sitzungszuständen eliminiert.
-27. Modultests und Verifikation: Führe umfassende Tests der neuen Implementierung durch:
-28. Teste Listing, Datei-Öffnen, -Speichern auf lokalen Verzeichnissen (inkl. Edge-Cases wie Root-Verzeichnis, sehr viele Dateien, fehlende Berechtigungen).
-29. Teste dasselbe auf einem FTP-Server (sofern möglich ein Test-FTP einrichten): Verbinde, liste Verzeichnisse, navigiere tiefere Pfade, lade Dateien herunter, hoch, lösche, etc. Verifiziere, dass Bookmarks funktionieren (z. B. Pfad /dir/subdir kann jederzeit direkt gelistet werden, unabhängig von vorherigem cwd).
-30. Falls verfügbar, teste gegen ein z/OS-FTP-Server: Liste ein Dataset und ein PDS, schaue wie die Ausgabe der FileNodes aussieht (evtl. sind PDS-Mitglieder als Dateien mit bestimmten Namensschemata sichtbar). Überprüfe, ob die Architektur damit umgehen kann oder ob weitere Anpassungen (über Adapter) nötig sind.
-31. Achte besonders auf Thread-Safety, falls parallele Operationen nun möglich sein sollen: Starte z. B. zwei Threads, die gleichzeitig verschiedene Verzeichnisse über denselben FileService listen – dies sollte funktionieren, da VFS intern synchronisiert (FileSystemManager ist threadsafe laut Doku, sofern default cache genutzt wird).
-32. MVS-Spezialfälle umsetzen (bei Bedarf): Wenn die Anforderungen es vorsehen, implementiere nun die speziellen Adapter/Provider für MVS:
-33. Erstelle ggf. eine Klasse MvsFtpFileProvider (implementiert evtl. VFS FileProvider-Interface) oder eine höhere Abstraktion, welche erkennt, ob der aktuelle FileObject ein Hauptframe-Dataset repräsentiert. Diese Klasse könnte im Verbund mit Commons VFS registriert werden, um z. B. ein eigenes Schema (mvs://) zu unterstützen, das intern auf ftp übersetzt, aber Listings anders verarbeitet.
-34. Alternativ, falls kein eigenes Schema gewünscht: Implementiere in VfsFileService oder als separater Decorator eine Logik, die beim Auflisten (list()) prüft, ob das Ergebnis von einem MVS-Server kommt (vielleicht via FileObject.getName().getScheme() = "ftp" und Server-OS = MVS, was man indirekt an Dateinamenskonvention erkennen kann). In diesem Fall parse die FileNode-Namen: MVS-Listings enthalten z. B. <MEMBER> Einträge für PDS. Man könnte z. B. einen FileNode mit Name "LIBRARY(MEMBER)" aufsplitten in einen virtuellen Unterordner "LIBRARY" mit Kind "MEMBER". Implementiere diese Logik und teste sie gegen realistische Listing-Beispiele. Dokumentiere diese Anpassungen klar im Code (z. B. Kommentar: "// Handle z/OS PDS member listing").
-35. Dieser Schritt ist optional und soll nur umgesetzt werden, wenn die Anwendung tatsächlich MVS-spezifische Navigation unterstützen muss. Ansonsten kann das Grundsystem auch so bleiben, da VFS zumindest die Einträge als Strings liefert[6]
-36. Code-Dokumentation und Beispiele aktualisieren: Zum Abschluss alle neuen Klassen und öffentlichen Methoden mit Javadoc-Kommentaren versehen (auf Englisch, gemäß Coding-Standards). Dabei insbesondere erklären, wie die FileService zu benutzen ist, und welche Unterschiede zur alten Implementierung bestehen (für zukünftige Entwickler nachvollziehbar machen). Aktualisiere ggf. die README/Dokumentation der Anwendung, um die neue Verbindungs- und Dateihandhabung zu erläutern. Füge Codebeispiele (ähnlich der oben gezeigten) hinzu, wie man mit FileService Dateien listet oder transferiert.
+4. FileNode: Felder fuer Name, Pfad, Typ (Datei/Ordner), Groesse, Datum etc. + Getter/Setter. Ueberschreibe toString() fuer Debug-Zwecke (z. B. Pfad oder Name zurueckgeben). Evtl. Konstruktoren fuer bequemes Befuellen (z. B. FileNode(name, path, isDirectory)).
+5. FilePayload: Felder je nach Design (z. B. InputStream oder byte[] + ggf. Laenge). Methoden anbieten, um an die enthaltenen Daten zu kommen (getInputStream(), evtl. getBytes() wenn umgesetzt). Achte auf Java 8 Kompatibilitaet (keine Records verwenden). Füge notwendige Hilfsmethoden hinzu, z. B. statische Fabrikmethoden wie fromBytes(byte[]) oder fromFile(File) je nach Use-Case.
+6. Dokumentiere mittels Kommentaren (auf Englisch) kurz die Zweck der Klassen. Kompiliere und pruefe, dass die Klassen fehlerfrei sind.
+7. FtpFileService (Commons Net) implementieren: Erstelle zuerst eine stateless-by-path FileService-Implementierung ueber Commons Net. Diese muss MvsPathDialect, Record-Strategy und writeIfUnchanged unterstuetzen.
+8. MvsPathDialect erstellen: Uebersetzt Dataset/Member-Notation in quoted absolute Pfade (ohne CWD). Alle FTP-Zugriffe laufen nur ueber diese absolute Pfadform.
+9. Record-Strategy verdrahten: transformToLocal/transformToRemote bleibt separater Service und wird im FileService genutzt.
+10. Login/Settings aufteilen: CredentialsRepository in Infrastruktur; UI-Dialoge in UI-Schicht ausloesen, nicht im Service.
+11. Optional: VfsFileService implementieren: Fuehre VFS zunaechst fuer lokale Pfade ein und pruefe FTP/MVS-Verhalten separat.
+12. Implementiere list(String path): wie oben beschrieben, aufloesen des Pfades via resolveFile, Kinder sammeln, in FileNode umwandeln. Achte auf Exception Handling: VFS-Exceptions in FileServiceException umwandeln.
+13. Implementiere readFile(String path): Oeffne FileObject file = fsManager.resolveFile(path, opts), hole InputStream, verpacke ihn in FilePayload. (Je nach Entscheidung: InputStream direkt in FilePayload belassen und dem Aufrufer ueberlassen zu schliessen, oder Daten sofort lesen – bei grossen Dateien lieber Stream geben).
+14. Implementiere writeFile(String path, FilePayload payload): Aehnlich, aber OutputStream oeffnen. Unterstuetze sowohl Byte-Daten als auch Streams aus dem Payload. Schliesse OutputStream nach Schreibende.
+15. Implementiere delete(String path) und createDirectory(String path): Hier koennen VFS-Methoden fileObject.delete() bzw. fileObject.createFolder() genutzt werden.
+16. Teste die VfsFileService-Methoden zunaechst isoliert (z. B. in einem kleinen Main oder JUnit, falls moeglich) mit einem bekannten lokalen Pfad und – falls ein Test-FTP-Server verfuegbar – mit einem FTP-Pfad. Pruefe, ob die erwarteten Ergebnisse (korrekte Listings, Datei lesen/schreiben) erzielt werden.
+17. Vorbereitung der UI-Umstellung: Identifiziere alle Stellen im UI und in Commands, wo bisher direkt FTP-spezifische Klassen verwendet werden:
+18. Bspw. Aufrufe von FtpManager.connect(), FtpManager.changeDirectory(), FtpManager.getCurrentDir() oder FileContentService.loadFile() etc.
+19. Ermittle, welche Funktionen die UI von diesen Klassen benoetigt (z. B. Verzeichnisinhalt holen, Datei anzeigen, hoch-/runterladen, etc.). Diese Funktionen sollen durch FileService-Methoden ersetzt werden. Notiere diese Stellen fuer die Umbau-Schritte.
+20. Integration der FileService in UI/Commands: Ersetze in den UI-Klassen die Verwendung der alten Klassen durch die neue FileService-Schnittstelle:
+21. Instanziiere ggf. zu Programmstart oder beim Connect-Dialog eine passende FileService-Implementierung. Z.B.: Wenn der Benutzer eine FTP-Verbindung herstellt, erstelle fileService = FileServiceFactory.createForFtp(host, user, pass) und bewahre diese Instanz an zentraler Stelle auf (im MainFrame oder einem Session-Objekt). Fuer lokalen Modus analog (ggf. eine lokale FileService-Instanz vorraetig halten).
+22. Passe Methoden an: Wo frueher ftpManager.changeDirectory(path) genutzt wurde, wird jetzt fileService.list(path) aufgerufen, und das Ergebnis (List<FileNode>) verwendet, um die UI (Dateibaum, Tabellen etc.) zu fuellen. Wo fileContentService.loadFile(path) war, wird fileService.readFile(path) genutzt, um einen FilePayload zu erhalten, aus dem dann der Inhalt gelesen und z. B. in einem Textfeld angezeigt wird.
+23. Entferne oder kommentiere alte Aufrufe, die nicht mehr benoetigt werden (z. B. kein separates ftpManager.cwd mehr noetig, da jeder List-Aufruf den vollstaendigen Pfad erhaelt).
+24. Achte darauf, dass Lesezeichen/Bookmarks jetzt einfach als Pfad-Strings gehandhabt werden koennen – da kein interner Zustand mehr vorgehalten wird, kann ein Bookmark einfach den absoluten Pfad speichern. Beim Aufrufen eines Bookmarks ruft die UI fileService.list(bookmarkPath) auf der aktiven Service-Instanz auf. Falls Bookmarks auch zwischen unterschiedlichen Verbindungen genutzt werden, muss die Applikation sicherstellen, dass die richtige FileService (mit der passenden Connection) verwendet wird.
+25. Refactoring der alten Klassen: Sobald die UI umgestellt ist, koennen die alten Klassen wie FtpManager und FileContentService entweder entfernt oder umgebaut werden:
+26. Option A (empfohlen): Klassen entfernen und auf neue Architektur umstellen. Wenn moeglich, alle Verwendungen ersetzen und die Klassen komplett loeschen, um Verwirrung zu vermeiden. Sollten bestimmte Hilfsfunktionen darin enthalten sein (z. B. Parsing von Pfaden oder Konvertierung von Line Endings), ueberfuehre diese Utilities in neue geeignete Orte (z. B. als statische Helfer in einer FileUtils-Klasse, falls noetig).
+27. Option B: Klassen beibehalten, aber intern auf FileService umleiten. Falls aus Gruenden der Rueckwaertskompatibilitaet einige Teile der App weiterhin die alten Klassen aufrufen (z. B. Plugins oder schwieriger zu aendernde Stellen), kann man die alten Klassen so umbauen, dass sie intern die neue FileService benutzen. Z.B. FtpManager.listDir(path) koennte einfach return fileService.list(path) aufrufen. Diese Deprecated-Klassen koennte man mittelfristig entfernen. Diese Strategie stellt sicher, dass kein alter FTPClient-Code mehr aktiv ist.
+28. Hinweis zu Commons Net: Direkte Abhaengigkeiten zu Commons Net bleiben fuer FTP vorerst erhalten, solange der FTP-Fallback aktiv ist. Die Entfernung erfolgt erst nach erfolgreicher VFS-Evaluierung.
+29. Modultests und Verifikation: Fuehre umfassende Tests der neuen Implementierung durch:
+30. Teste Listing, Datei-Oeffnen, -Speichern auf lokalen Verzeichnissen (inkl. Edge-Cases wie Root-Verzeichnis, sehr viele Dateien, fehlende Berechtigungen).
+31. Teste dasselbe auf einem FTP-Server (sofern moeglich ein Test-FTP einrichten): Verbinde, liste Verzeichnisse, navigiere tiefere Pfade, lade Dateien herunter, hoch, loesche, etc. Verifiziere, dass Bookmarks funktionieren (z. B. Pfad /dir/subdir kann jederzeit direkt gelistet werden, unabhaengig von vorherigem cwd).
+32. Falls verfuegbar, teste gegen ein z/OS-FTP-Server: Liste ein Dataset und ein PDS, schaue wie die Ausgabe der FileNodes aussieht (evtl. sind PDS-Mitglieder als Dateien mit bestimmten Namensschemata sichtbar). Ueberpruefe, ob die Architektur damit umgehen kann oder ob weitere Anpassungen (ueber Adapter) noetig sind.
+33. Achte besonders auf Thread-Safety, falls parallele Operationen nun moeglich sein sollen: Starte z. B. zwei Threads, die gleichzeitig verschiedene Verzeichnisse ueber denselben FileService listen – dies sollte funktionieren, da VFS intern synchronisiert (FileSystemManager ist threadsafe laut Doku, sofern default cache genutzt wird).
+34. MVS-Spezialfaelle umsetzen (bei Bedarf): Wenn die Anforderungen es vorsehen, implementiere nun die speziellen Adapter/Provider fuer MVS:
+35. Erstelle ggf. eine Klasse MvsFtpFileProvider (implementiert evtl. VFS FileProvider-Interface) oder eine hoehere Abstraktion, welche erkennt, ob der aktuelle FileObject ein Hauptframe-Dataset repraesentiert. Diese Klasse koennte im Verbund mit Commons VFS registriert werden, um z. B. ein eigenes Schema (mvs://) zu unterstuetzen, das intern auf ftp uebersetzt, aber Listings anders verarbeitet.
+36. Alternativ, falls kein eigenes Schema gewuenscht: Implementiere in VfsFileService oder als separater Decorator eine Logik, die beim Auflisten (list()) prueft, ob das Ergebnis von einem MVS-Server kommt (vielleicht via FileObject.getName().getScheme() = "ftp" und Server-OS = MVS, was man indirekt an Dateinamenskonvention erkennen kann). In diesem Fall parse die FileNode-Namen: MVS-Listings enthalten z. B. <MEMBER> Eintraege fuer PDS. Man koennte z. B. einen FileNode mit Name "LIBRARY(MEMBER)" aufsplitten in einen virtuellen Unterordner "LIBRARY" mit Kind "MEMBER". Implementiere diese Logik und teste sie gegen realistische Listing-Beispiele. Dokumentiere diese Anpassungen klar im Code (z. B. Kommentar: "// Handle z/OS PDS member listing").
+37. Dieser Schritt ist optional und soll nur umgesetzt werden, wenn die Anwendung tatsaechlich MVS-spezifische Navigation unterstuetzen muss. Ansonsten kann das Grundsystem auch so bleiben, da VFS zumindest die Eintraege als Strings liefert.
+38. Code-Dokumentation und Beispiele aktualisieren: Zum Abschluss alle neuen Klassen und oeffentlichen Methoden mit Javadoc-Kommentaren versehen (auf Englisch, gemaess Coding-Standards). Dabei insbesondere erklaeren, wie die FileService zu benutzen ist, und welche Unterschiede zur alten Implementierung bestehen (fuer zukuenftige Entwickler nachvollziehbar machen). Aktualisiere ggf. die README/Dokumentation der Anwendung, um die neue Verbindungs- und Dateihandhabung zu erlaeutern. Fuege Codebeispiele (aehnlich der oben gezeigten) hinzu, wie man mit FileService Dateien listet oder transferiert.
 
-Nach Durchführung dieser Schritte sollte die Anwendung eine klare, erweiterbare Architektur besitzen. Sie ermöglicht den Zugriff auf verschiedene Dateisysteme über eine einheitliche Schnittstelle, hält FTP-Verbindungen im Hintergrund offen (für bessere Performance) und vermeidet die bisherigen Probleme mit zustandsbehafteten Navigation. Die Codebasis ist modularer, testbarer und auf künftige Anforderungen (wie weitere Protokolle oder besondere Systemplattformen) vorbereitet. Wichtigste Änderungen – wie die neue FileService-Schnittstelle und die Nutzung von Apache Commons VFS – wurden durch Beispielcode und Kommentare verdeutlicht, sodass ein Entwickler die Intention und Funktionsweise leicht nachvollziehen kann. [1][2]
-
-[1]
-https://blog.csanchez.org/2005/09/13/writing-file-system-independent-ap/
-[2]
-https://commons.apache.org/proper/commons-vfs/filesystems.html
-[3]
-https://stackoverflow.com/questions/53180385/too-many-connections-with-apache-commons-vfs2
-[4][6]
-https://commons.apache.org/proper/commons-net/apidocs/org/apache/commons/net/ftp/parser/MVSFTPEntryParser.html
-[5]
-https://commons.apache.org/proper/commons-vfs/api.html
+```
