@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import de.bund.zrb.files.auth.CredentialsProvider;
+import de.bund.zrb.files.path.VirtualResourceRef;
 
 public class FileTabImpl implements FileTab {
 
@@ -66,14 +67,80 @@ public class FileTabImpl implements FileTab {
             main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), link);
         });
 
+        JMenuItem saveAsItem = new JMenuItem("💾 Speichern unter...");
+        saveAsItem.addActionListener(e -> saveAs());
+
         JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
         closeItem.addActionListener(e -> onClose.run());
 
         menu.add(bookmarkItem);
+        menu.add(saveAsItem);
         menu.addSeparator();
         menu.add(closeItem);
 
         return menu;
+    }
+
+    private void saveAs() {
+        // Legacy-FTPBuffer: Save-As ist hier noch nicht migriert.
+        if (model.getBuffer() != null) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Speichern unter... ist für Legacy-FTP-Tabs noch nicht migriert.",
+                    "Nicht verfügbar", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (resource == null) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Speichern unter... ist nicht möglich (keine Resource).",
+                    "Nicht möglich", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        if (resource.getBackendType() == VirtualBackendType.LOCAL) {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Speichern unter...");
+            try {
+                String current = resource.getResolvedPath();
+                if (current != null && !current.trim().isEmpty()) {
+                    chooser.setSelectedFile(new java.io.File(current));
+                }
+            } catch (Exception ignore) {
+                // ignore - chooser will use default
+            }
+
+            if (chooser.showSaveDialog(mainPanel) == JFileChooser.APPROVE_OPTION) {
+                java.io.File selected = chooser.getSelectedFile();
+                if (selected == null) {
+                    return;
+                }
+                String target = selected.getAbsolutePath();
+                this.resource = new VirtualResource(VirtualResourceRef.of(target), VirtualResourceKind.FILE, target,
+                        VirtualBackendType.LOCAL, null);
+                tabbedPaneManager.updateTitleFor(this);
+                tabbedPaneManager.updateTooltipFor(this);
+                saveViaFileService();
+            }
+            return;
+        }
+
+        // FTP: hier nehmen wir erstmal einen absoluten Pfad per Dialog.
+        String suggested = resource.getResolvedPath() == null ? "" : resource.getResolvedPath();
+        String target = JOptionPane.showInputDialog(mainPanel, "Zielpfad (FTP, absolut):", suggested);
+        if (target == null) {
+            return;
+        }
+        target = target.trim();
+        if (target.isEmpty()) {
+            return;
+        }
+
+        // Backend bleibt FTP; ftpState wird übernommen.
+        this.resource = new VirtualResource(VirtualResourceRef.of(target), VirtualResourceKind.FILE, target,
+                VirtualBackendType.FTP, resource.getFtpState());
+        tabbedPaneManager.updateTitleFor(this);
+        tabbedPaneManager.updateTooltipFor(this);
+        saveViaFileService();
     }
 
     public FileTabImpl(TabbedPaneManager tabbedPaneManager,
