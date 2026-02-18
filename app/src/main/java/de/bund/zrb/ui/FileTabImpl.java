@@ -49,7 +49,7 @@ public class FileTabImpl implements FileTab {
 
     private final JSplitPane splitPane;
     final TabbedPaneManager tabbedPaneManager;
-    private final FileContentService contentService;
+    private FileContentService contentService;
     private final FileTabEventManager eventManager;
     private FtpFileBuffer buffer;
 
@@ -216,7 +216,7 @@ public class FileTabImpl implements FileTab {
     public FileTabImpl(TabbedPaneManager tabbedPaneManager, VirtualResource resource, String content,
                        String sentenceType, String searchPattern, Boolean toCompare) {
         this.tabbedPaneManager = tabbedPaneManager;
-        this.contentService = null; // no legacy content service needed
+        this.contentService = null; // legacy only
         this.resource = resource;
         this.buffer = null;
 
@@ -395,6 +395,12 @@ public class FileTabImpl implements FileTab {
     public void saveIfApplicable() {
         // New stateless path: VirtualResource + FileService
         if (model.getBuffer() == null && resource != null) {
+            String resolvedPath = resource.getResolvedPath();
+            if (resolvedPath == null || resolvedPath.trim().isEmpty()) {
+                // Neue Datei ohne Zielpfad -> Save As
+                saveAs();
+                return;
+            }
             saveViaFileService();
             return;
         }
