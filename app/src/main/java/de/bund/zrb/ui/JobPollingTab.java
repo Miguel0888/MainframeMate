@@ -1,12 +1,17 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpFileBuffer;
-import de.bund.zrb.ftp.FtpManager;
+import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.auth.CredentialsProvider;
+import de.bund.zrb.files.impl.auth.LoginManagerCredentialsProvider;
+import de.bund.zrb.files.impl.factory.FileServiceFactory;
+import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.login.LoginManager;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
+import java.nio.charset.Charset;
 
 public class JobPollingTab implements FtpTab {
 
@@ -18,7 +23,6 @@ public class JobPollingTab implements FtpTab {
 
     private final AnimatedTimerCircle animatedCircle = new AnimatedTimerCircle(countdownLabel);
 
-    private final FtpManager ftpManager;
     private final String path;
     private final String sentenceType;
     private final TabbedPaneManager tabManager;
@@ -29,12 +33,13 @@ public class JobPollingTab implements FtpTab {
     private final Timer retryTimer;
     private int retryCountdown = 3;
 
-    public JobPollingTab(FtpManager ftpManager, TabbedPaneManager tabManager, String path, String sentenceType) {
-        this(ftpManager, tabManager, path, sentenceType, null, null);
+    private final VirtualResourceResolver resolver = new VirtualResourceResolver();
+
+    public JobPollingTab(TabbedPaneManager tabManager, String path, String sentenceType) {
+        this(tabManager, path, sentenceType, null, null);
     }
 
-    public JobPollingTab(FtpManager ftpManager, TabbedPaneManager tabManager, String path, String sentenceType, String searchPattern, Boolean toCompare) {
-        this.ftpManager = ftpManager;
+    public JobPollingTab(TabbedPaneManager tabManager, String path, String sentenceType, String searchPattern, Boolean toCompare) {
         this.path = path;
         this.sentenceType = sentenceType;
         this.tabManager = tabManager;
@@ -96,25 +101,31 @@ public class JobPollingTab implements FtpTab {
 
     private void attemptLoad() {
         try {
-            FtpFileBuffer buffer = ftpManager.openAbsolute(quoteMvsDataset(path));
+            VirtualResource resource = resolver.resolve(path);
 
-            if (buffer != null) {
+            CredentialsProvider credentialsProvider = new LoginManagerCredentialsProvider(
+                    (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
+            );
+
+            try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
+                FilePayload payload = fs.readFile(resource.getResolvedPath());
+
                 retryTimer.stop();
                 animatedCircle.stop();
-                FileTabImpl realTab = new FileTabImpl(tabManager, ftpManager, buffer, sentenceType, searchPattern, toCompare);
+
+                Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
+                String content = new String(payload.getBytes(), charset);
+
+                // Open file tab with VirtualResource (no Legacy manager)
+                FtpTab realTab = tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);
                 tabManager.replaceTab(this, realTab);
-            } else {
-                statusLabel.setText("❌ Datei noch nicht vorhanden");
             }
-        } catch (IOException ex) {
+        } catch (FileServiceException ex) {
+            // Typically NOT_FOUND while still waiting. Keep retry unless disabled.
+            statusLabel.setText("❌ Datei noch nicht vorhanden");
+        } catch (Exception ex) {
             statusLabel.setText("Fehler beim Laden: " + ex.getMessage());
         }
-    }
-
-    private String quoteMvsDataset(String dsname) {
-        if (!dsname.startsWith("'")) dsname = "'" + dsname;
-        if (!dsname.endsWith("'")) dsname = dsname + "'";
-        return dsname;
     }
 
     @Override

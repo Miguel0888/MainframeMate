@@ -10,9 +10,22 @@ public class ChatHistory {
 
     private final UUID sessionId;
     private final List<Message> messages = new ArrayList<>();
+    private String systemPrompt;
 
     public ChatHistory(UUID sessionId) {
         this.sessionId = sessionId;
+    }
+
+    /**
+     * Setzt den System-Prompt, der bei jedem toPrompt()-Aufruf vorangestellt wird.
+     * So bleibt der Mode (Agent/Ask/Edit/Plan) über die gesamte Session persistent.
+     */
+    public void setSystemPrompt(String systemPrompt) {
+        this.systemPrompt = systemPrompt;
+    }
+
+    public String getSystemPrompt() {
+        return systemPrompt;
     }
 
     public Timestamp addUserMessage(String content) {
@@ -59,6 +72,12 @@ public class ChatHistory {
      */
     public String toPrompt(String userInput) {
         StringBuilder prompt = new StringBuilder();
+
+        // System-Prompt immer voranstellen, damit der Mode persistent ist
+        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+            prompt.append("SYSTEM: ").append(systemPrompt.trim()).append("\n\n");
+        }
+
         for (Message msg : messages) {
             if ("user".equals(msg.role)) {
                 prompt.append("Du: ");

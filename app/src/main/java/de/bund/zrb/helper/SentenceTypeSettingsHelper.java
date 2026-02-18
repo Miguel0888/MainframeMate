@@ -17,8 +17,17 @@ public class SentenceTypeSettingsHelper {
     public static SentenceTypeSpec loadSentenceTypes() {
         if (!SENTENCE_FILE.exists()) return new SentenceTypeSpec();
         try (Reader reader = new InputStreamReader(new FileInputStream(SENTENCE_FILE), StandardCharsets.UTF_8)) {
-            return GSON.fromJson(reader, SENTENCE_TYPE);
+            SentenceTypeSpec result = GSON.fromJson(reader, SENTENCE_TYPE);
+            return result != null ? result : new SentenceTypeSpec();
         } catch (IOException e) {
+            e.printStackTrace();
+            return new SentenceTypeSpec();
+        } catch (JsonSyntaxException e) {
+            System.err.println("⚠ Fehler beim Parsen von sentence_types.json: " + e.getMessage());
+            e.printStackTrace();
+            return new SentenceTypeSpec();
+        } catch (Exception e) {
+            System.err.println("⚠ Unerwarteter Fehler beim Laden von sentence_types.json: " + e.getMessage());
             e.printStackTrace();
             return new SentenceTypeSpec();
         }

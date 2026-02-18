@@ -6,6 +6,9 @@ import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService;
 import de.bund.zrb.files.impl.local.VfsLocalFileService;
+import de.bund.zrb.ui.FtpResourceState;
+import de.bund.zrb.ui.VirtualBackendType;
+import de.bund.zrb.ui.VirtualResource;
 
 import java.nio.file.Path;
 
@@ -30,5 +33,28 @@ public class FileServiceFactory {
         }
 
         return new CommonsNetFtpFileService(credentialsProvider, connectionId);
+    }
+
+    /**
+     * Creates a FileService based on the VirtualResource backend type.
+     * For FTP, uses connectionId from FtpResourceState; credentials come from provider.
+     */
+    public FileService create(VirtualResource resource, CredentialsProvider credentialsProvider) throws FileServiceException {
+        if (resource == null) {
+            throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR, "VirtualResource is null");
+        }
+
+        if (resource.getBackendType() == VirtualBackendType.LOCAL) {
+            return createLocal();
+        }
+
+        // FTP
+        FtpResourceState ftpState = resource.getFtpState();
+        ConnectionId connectionId = ftpState != null ? ftpState.getConnectionId() : null;
+        if (connectionId == null) {
+            throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.AUTH_FAILED, "Missing ConnectionId in VirtualResource");
+        }
+
+        return createFtp(connectionId, credentialsProvider);
     }
 }

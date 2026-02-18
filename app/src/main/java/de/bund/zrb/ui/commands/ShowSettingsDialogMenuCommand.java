@@ -1,6 +1,5 @@
 package de.bund.zrb.ui.commands;
 
-import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.ui.settings.SettingsDialog;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
@@ -26,7 +25,6 @@ public class ShowSettingsDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        FtpManager dummy = new FtpManager();
-        SettingsDialog.show(parent, dummy);
+        SettingsDialog.show(parent);
     }
 }

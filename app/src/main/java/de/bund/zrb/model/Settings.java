@@ -1,9 +1,9 @@
 package de.bund.zrb.model;
 
-import de.bund.zrb.ftp.FtpFileStructure;
-import de.bund.zrb.ftp.FtpFileType;
-import de.bund.zrb.ftp.FtpTextFormat;
-import de.bund.zrb.ftp.FtpTransferMode;
+import de.bund.zrb.files.ftpconfig.FtpFileStructure;
+import de.bund.zrb.files.ftpconfig.FtpFileType;
+import de.bund.zrb.files.ftpconfig.FtpTextFormat;
+import de.bund.zrb.files.ftpconfig.FtpTransferMode;
 
 import java.util.*;
 

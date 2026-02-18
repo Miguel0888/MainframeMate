@@ -1,4 +1,4 @@
-package de.bund.zrb.ftp;
+package de.bund.zrb.files.ftpconfig;
 
 import org.apache.commons.net.ftp.FTP;
 

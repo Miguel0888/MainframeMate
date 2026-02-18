@@ -323,22 +323,7 @@ public class CommonsNetFtpFileService implements FileService {
         }
 
         byte[] bytes = out.toByteArray();
-        if (padding == null) {
-            return bytes;
-        }
-
-        int end = bytes.length;
-        byte pad = padding;
-        while (end > 0 && bytes[end - 1] == pad) {
-            end--;
-        }
-
-        if (end == bytes.length) {
-            return bytes;
-        }
-        byte[] trimmed = new byte[end];
-        System.arraycopy(bytes, 0, trimmed, 0, end);
-        return trimmed;
+        return TrailingPaddingTrimmer.trim(bytes, padding);
     }
 
     private String resolvePath(String path) {
@@ -406,5 +391,16 @@ public class CommonsNetFtpFileService implements FileService {
         }
         return trimmed;
     }
-}
 
+    public boolean isMvsMode() {
+        return mvsMode;
+    }
+
+    public String getSystemType() {
+        try {
+            return ftpClient.getSystemType();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}

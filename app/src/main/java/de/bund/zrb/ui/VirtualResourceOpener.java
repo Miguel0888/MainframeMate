@@ -1,13 +1,12 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.auth.CredentialsProvider;
+import de.bund.zrb.files.impl.auth.LoginManagerCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
-import de.bund.zrb.files.path.VirtualResourceRef;
-import de.bund.zrb.ftp.FtpFileBuffer;
-import de.bund.zrb.ftp.FtpManager;
-import de.bund.zrb.helper.SettingsHelper;
-import de.bund.zrb.model.Settings;
+import de.bund.zrb.login.LoginManager;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.annotation.Nullable;
@@ -19,11 +18,11 @@ import java.nio.charset.Charset;
  *
  * Contract:
  * - Returns the opened tab (ConnectionTab or FileTab), or null on error.
+ * - No Legacy manager usage; uses VirtualResource + FileService.
  */
 public final class VirtualResourceOpener {
 
     private final TabbedPaneManager tabManager;
-
     private final VirtualResourceResolver resolver = new VirtualResourceResolver();
 
     public VirtualResourceOpener(TabbedPaneManager tabManager) {
@@ -38,55 +37,51 @@ public final class VirtualResourceOpener {
         VirtualResource resource;
         try {
             resource = resolver.resolve(rawPath);
-        } catch (de.bund.zrb.files.api.FileServiceException e) {
+        } catch (FileServiceException e) {
+            System.err.println("[VirtualResourceOpener] resolve failed: " + e.getMessage());
             return null;
         }
 
-        if (resource.isLocal()) {
+        CredentialsProvider credentialsProvider = new LoginManagerCredentialsProvider(
+                (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
+        );
+
+        try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
             if (resource.getKind() == VirtualResourceKind.DIRECTORY) {
-                LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
-                tabManager.addTab(tab);
-                tab.loadDirectory(resource.getResolvedPath());
-                return tab;
+                return openDirectory(resource, fs, searchPattern);
+            } else {
+                return openFile(resource, fs, sentenceType, searchPattern, toCompare);
             }
+        } catch (Exception e) {
+            System.err.println("[VirtualResourceOpener] open failed: " + e.getMessage());
+            return null;
+        }
+    }
 
-            // Local file -> open editor
-            try (FileService fs = new FileServiceFactory().createLocal()) {
-                FilePayload payload = fs.readFile(resource.getResolvedPath());
-                String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
-                return tabManager.openFileTab(new FtpManager(), content, sentenceType);
-            } catch (Exception e) {
-                return null;
-            }
+    private FtpTab openDirectory(VirtualResource resource, FileService fs, String searchPattern) {
+        if (resource.isLocal()) {
+            LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
+            tabManager.addTab(tab);
+            tab.loadDirectory(resource.getResolvedPath());
+            return tab;
         }
 
-        // FTP
-        if (resource.getKind() == VirtualResourceKind.DIRECTORY) {
-            Settings settings = SettingsHelper.load();
-            FtpManager ftpManager = new FtpManager();
-            try {
-                ftpManager.connect(settings.host, settings.user);
-                ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager, searchPattern);
-                tabManager.addTab(tab);
-                tab.loadDirectory(resource.getResolvedPath());
-                return tab;
-            } catch (Exception e) {
-                return null;
-            }
+        ConnectionTabImpl tab = new ConnectionTabImpl(resource, fs, tabManager, searchPattern);
+        tabManager.addTab(tab);
+        tab.loadDirectory(resource.getResolvedPath());
+        if (searchPattern != null && !searchPattern.trim().isEmpty()) {
+            tab.searchFor(searchPattern);
         }
+        return tab;
+    }
 
-        // FTP file
-        Settings settings = SettingsHelper.load();
-        FtpManager ftpManager = new FtpManager();
-        try {
-            ftpManager.connect(settings.host, settings.user);
-            FtpFileBuffer buffer = ftpManager.open(resource.getResolvedPath());
-            if (buffer != null) {
-                return tabManager.openFileTab(ftpManager, buffer, sentenceType, searchPattern, toCompare);
-            }
-        } catch (Exception ignore) {
-            // ignore
-        }
-        return null;
+    private FtpTab openFile(VirtualResource resource, FileService fs,
+                            String sentenceType, String searchPattern, Boolean toCompare) throws FileServiceException {
+        FilePayload payload = fs.readFile(resource.getResolvedPath());
+        Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
+        String content = new String(payload.getBytes(), charset);
+
+        // Open file tab with VirtualResource (no Legacy manager)
+        return tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);
     }
 }

@@ -4,7 +4,6 @@ import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
-import de.bund.zrb.ftp.FtpManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -297,7 +296,8 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         try {
             FilePayload payload = fileService.readFile(path);
             String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
-            tabbedPaneManager.openFileTab(new FtpManager(), content, null);
+            VirtualResource resource = new VirtualResource(de.bund.zrb.files.path.VirtualResourceRef.of(path), VirtualResourceKind.FILE, path, true);
+            tabbedPaneManager.openFileTab(resource, content, null, null, false);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);

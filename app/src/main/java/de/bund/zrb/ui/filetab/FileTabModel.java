@@ -1,20 +1,29 @@
 package de.bund.zrb.ui.filetab;
 
-import de.bund.zrb.ftp.FtpFileBuffer;
+import de.bund.zrb.ui.VirtualResource;
 
 public class FileTabModel {
 
-    private FtpFileBuffer buffer;
+    private VirtualResource resource;
+    private String expectedHash = "";
     private boolean changed = false;
     private boolean append = false;
     private String sentenceType = "";
 
-    public FtpFileBuffer getBuffer() {
-        return buffer;
+    public VirtualResource getResource() {
+        return resource;
     }
 
-    public void setBuffer(FtpFileBuffer buffer) {
-        this.buffer = buffer;
+    public void setResource(VirtualResource resource) {
+        this.resource = resource;
+    }
+
+    public String getExpectedHash() {
+        return expectedHash;
+    }
+
+    public void setExpectedHash(String expectedHash) {
+        this.expectedHash = expectedHash == null ? "" : expectedHash;
     }
 
     public boolean isChanged() {
@@ -46,10 +55,10 @@ public class FileTabModel {
     }
 
     public String getPath() {
-        return buffer != null ? buffer.getRemotePath() : null;
+        return resource != null ? resource.getResolvedPath() : null;
     }
 
     public String getFullPath() {
-        return buffer != null ? buffer.getLink() : "";
+        return resource != null && resource.getResolvedPath() != null ? resource.getResolvedPath() : "";
     }
 }

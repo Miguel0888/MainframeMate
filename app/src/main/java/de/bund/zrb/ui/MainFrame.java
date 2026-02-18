@@ -1,7 +1,5 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpFileBuffer;
-import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.helper.ShortcutManager;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.mcp.FilterColumnTool;
@@ -42,14 +40,12 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
-import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import static de.bund.zrb.util.StringUtil.tryParseInt;
-import static de.bund.zrb.util.StringUtil.unquote;
 
 public class MainFrame extends JFrame implements MainframeContext {
     private final ApplicationLocker locker;
@@ -94,6 +90,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     // MCP Tools
     private void registerTools() {
         toolRegistry.registerTool(new OpenFileTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.ReadFileTool(this));
         toolRegistry.registerTool(new FilterColumnTool(this));
         toolRegistry.registerTool(new SetVariableTool(this));
     }
@@ -320,8 +317,11 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FileTab createFile(String content, String sentenceType) {
-        final FtpManager ftpManager = new FtpManager(); // ToDo: Use login manager here
-        return getTabManager().openFileTab(ftpManager, content, sentenceType);
+        VirtualResource res = new VirtualResource(de.bund.zrb.files.path.VirtualResourceRef.of(""),
+                VirtualResourceKind.FILE,
+                null,
+                true);
+        return getTabManager().openFileTab(res, content, sentenceType, null, false);
     }
 
     @Override
@@ -521,6 +521,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
     }
 }
+
+
 
 
 
