@@ -7,10 +7,13 @@ import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
+import de.zrb.bund.newApi.ui.FtpTab;
 
+import javax.swing.*;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class OpenFileTool implements McpTool {
 
@@ -23,7 +26,7 @@ public class OpenFileTool implements McpTool {
     @Override
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
-        properties.put("file", new ToolSpec.Property("string", "Pfad zur Datei auf dem Host"));
+        properties.put("file", new ToolSpec.Property("string", "Pfad zur Datei oder Verzeichnis (lokal oder FTP)"));
         properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschlüssel"));
         properties.put("search", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
         properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus geöffnet werden soll"));
@@ -31,14 +34,16 @@ public class OpenFileTool implements McpTool {
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("file"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("file", "MY.USER.FILE.JCL");
+        example.put("file", "C:\\TEST\\datei.txt");
         example.put("satzart", "100");
         example.put("search", "BEGIN");
         example.put("toCompare", true);
 
         return new ToolSpec(
                 "open_file",
-                "Öffnet eine Datei als neuen Tab im Editor.",
+                "Öffnet eine Datei oder ein Verzeichnis als neuen Tab im Editor. " +
+                "Lokale Pfade (z.B. C:\\TEST) und FTP-Pfade werden automatisch erkannt. " +
+                "Für FTP-Dateien muss vorher eine Verbindung bestehen.",
                 inputSchema,
                 example
         );
@@ -57,18 +62,63 @@ public class OpenFileTool implements McpTool {
             }
 
             String file = input.get("file").getAsString();
+            String satzart = input.has("satzart") && !input.get("satzart").isJsonNull()
+                    ? input.get("satzart").getAsString() : null;
+            String search = input.has("search") && !input.get("search").isJsonNull()
+                    ? input.get("search").getAsString() : null;
+            Boolean toCompare = input.has("toCompare") && !input.get("toCompare").isJsonNull()
+                    ? input.get("toCompare").getAsBoolean() : null;
 
-            // Pipeline endet aktuell am Resolver (kein Tab wird geoeffnet)
+            // First resolve to check what kind of resource this is (for response metadata)
             VirtualResourceResolver resolver = new VirtualResourceResolver();
             VirtualResource resource = resolver.resolve(file);
 
             System.out.println("[TOOL open_file] resolved: " + resource.getResolvedPath() + " kind=" + resource.getKind());
+
+            // Open the tab via MainframeContext (handles EDT internally or delegates correctly)
+            AtomicReference<FtpTab> openedTab = new AtomicReference<>();
+            AtomicReference<Exception> error = new AtomicReference<>();
+
+            Runnable openAction = () -> {
+                try {
+                    FtpTab tab = context.openFileOrDirectory(file, satzart, search, toCompare);
+                    openedTab.set(tab);
+                } catch (Exception e) {
+                    error.set(e);
+                }
+            };
+
+            if (SwingUtilities.isEventDispatchThread()) {
+                openAction.run();
+            } else {
+                try {
+                    SwingUtilities.invokeAndWait(openAction);
+                } catch (Exception e) {
+                    error.set(e);
+                }
+            }
+
+            if (error.get() != null) {
+                Exception e = error.get();
+                response.addProperty("status", "error");
+                response.addProperty("message", e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+                return new McpToolResponse(response, resultVar, null);
+            }
+
+            if (openedTab.get() == null) {
+                response.addProperty("status", "error");
+                response.addProperty("message", "Tab konnte nicht geöffnet werden. " +
+                        (resource.isLocal() ? "Prüfe, ob der Pfad existiert." :
+                         "Für FTP-Dateien muss eine aktive Verbindung bestehen und Credentials verfügbar sein."));
+                return new McpToolResponse(response, resultVar, null);
+            }
 
             response.addProperty("status", "success");
             response.addProperty("openedFile", file);
             response.addProperty("resolvedPath", resource.getResolvedPath());
             response.addProperty("kind", resource.getKind().name());
             response.addProperty("local", resource.isLocal());
+            response.addProperty("tabTitle", openedTab.get().getTitle());
 
             return new McpToolResponse(response, resultVar, null);
         } catch (Exception e) {
