@@ -300,13 +300,40 @@ public class ChatSession extends JPanel {
             return;
         }
 
-        // 1) Execute tool-call (this will publish TOOL_USE/TOOL_RESULT events)
-        mcpService.accept(call, sessionId, null);
+        try {
+            // 1) Execute tool-call (this will publish TOOL_USE/TOOL_RESULT events)
+            mcpService.accept(call, sessionId, null);
 
-        // 2) Trigger an automatic assistant follow-up so the model can respond using the tool result
-        //    (tool result was added to history as role=tool in subscribeToToolEvents when context memory is on)
-        if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-            streamAssistantFollowUp("Nutze das TOOL_RESULT oben und antworte dem Nutzer.");
+            // 2) Trigger an automatic assistant follow-up so the model can respond using the tool result
+            //    (tool result was added to history as role=tool in subscribeToToolEvents when context memory is on)
+            if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
+                streamAssistantFollowUp("Nutze das TOOL_RESULT oben und antworte dem Nutzer.");
+            }
+        } catch (Exception e) {
+            // Tool konnte nicht ausgeführt werden (Parsing/Validierung/Tool-Handler Fehler)
+            SwingUtilities.invokeLater(() -> {
+                String toolName = (call != null && call.has("name") && !call.get("name").isJsonNull())
+                        ? call.get("name").getAsString()
+                        : "(unbekannt)";
+
+                JsonObject error = new JsonObject();
+                error.addProperty("status", "error");
+                error.addProperty("errorType", e.getClass().getName());
+                error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
+                error.add("toolCall", call);
+                error.addProperty("hint",
+                        "Prüfe das Tool-Call JSON. Erwartet wird z.B. {\"name\":\"open_file\",\"input\":{...}} oder tool_input/arguments. " +
+                                "Stelle sicher, dass alle Pflichtfelder laut ToolSpec vorhanden sind.");
+
+                formatter.appendToolEvent("\u26a0 Tool-Fehler: " + toolName, error.toString());
+
+                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
+                    String msg = "TOOL_RESULT " + toolName + "\n```json\n" + error + "\n```";
+                    chatManager.getHistory(sessionId).addToolMessage(msg);
+                    // Danach direkt Follow-up anstoßen: KI soll den Call korrigieren/erneut versuchen.
+                    streamAssistantFollowUp("Das Tool ist fehlgeschlagen. Analysiere TOOL_RESULT (Fehler + ToolCall) und sende einen korrigierten Tool-Call JSON.");
+                }
+            });
         }
     }
 
