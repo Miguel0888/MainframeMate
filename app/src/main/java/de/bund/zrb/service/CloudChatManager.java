@@ -31,9 +31,68 @@ public class CloudChatManager implements ChatManager {
 
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
+    private final Map<UUID, ToolCallAccumulator> toolCallAccumulators = new ConcurrentHashMap<>();
 
     private final OkHttpClient baseClient;
     private final Gson gson;
+
+    /** Accumulate streamed tool call fragments until complete. */
+    private static final class ToolCallAccumulator {
+
+        private static final class Part {
+            String name;
+            final StringBuilder arguments = new StringBuilder();
+        }
+
+        private final Map<Integer, Part> partsByIndex = new java.util.HashMap<>();
+
+        void add(int index, String namePart, String argumentsPart) {
+            Part part = partsByIndex.get(index);
+            if (part == null) {
+                part = new Part();
+                partsByIndex.put(index, part);
+            }
+            if (namePart != null && !namePart.trim().isEmpty() && (part.name == null || part.name.trim().isEmpty())) {
+                part.name = namePart;
+            }
+            if (argumentsPart != null && !argumentsPart.isEmpty()) {
+                part.arguments.append(argumentsPart);
+            }
+        }
+
+        boolean isEmpty() {
+            return partsByIndex.isEmpty();
+        }
+
+        String flushAsJsonLines() {
+            if (partsByIndex.isEmpty()) {
+                return null;
+            }
+
+            java.util.List<Integer> indices = new java.util.ArrayList<>(partsByIndex.keySet());
+            java.util.Collections.sort(indices);
+
+            StringBuilder out = new StringBuilder();
+            for (Integer index : indices) {
+                Part part = partsByIndex.get(index);
+                if (part == null || part.name == null || part.name.trim().isEmpty()) {
+                    continue;
+                }
+
+                JsonObject call = new JsonObject();
+                call.addProperty("name", part.name);
+                call.addProperty("arguments", part.arguments.toString());
+
+                if (out.length() > 0) {
+                    out.append("\n");
+                }
+                out.append(call.toString());
+            }
+
+            partsByIndex.clear();
+            return out.length() == 0 ? null : out.toString();
+        }
+    }
 
     public CloudChatManager() {
         this.baseClient = new OkHttpClient.Builder()
@@ -109,6 +168,7 @@ public class CloudChatManager implements ChatManager {
             @Override
             public void onFailure(Call call, IOException e) {
                 activeCalls.remove(sessionId);
+                toolCallAccumulators.remove(sessionId);
                 listener.onError(e);
             }
 
@@ -125,7 +185,7 @@ public class CloudChatManager implements ChatManager {
                     while ((line = reader.readLine()) != null) {
                         String chunk = VENDOR_CLAUDE.equals(vendor)
                                 ? extractClaudeChunk(line)
-                                : extractOpenAiCompatibleChunk(line);
+                                : extractOpenAiCompatibleChunk(sessionId, line);
                         if (chunk != null && !chunk.isEmpty()) {
                             listener.onStreamChunk(chunk);
                         }
@@ -136,6 +196,7 @@ public class CloudChatManager implements ChatManager {
                     listener.onError(e);
                 } finally {
                     activeCalls.remove(sessionId);
+                    toolCallAccumulators.remove(sessionId);
                 }
             }
         });
@@ -235,9 +296,13 @@ public class CloudChatManager implements ChatManager {
         return messages;
     }
 
-    private String extractOpenAiCompatibleChunk(String line) {
+    private String extractOpenAiCompatibleChunk(UUID sessionId, String line) {
         String trimmed = normalizeSseLine(line);
         if (trimmed == null || "[DONE]".equals(trimmed)) {
+            ToolCallAccumulator acc = toolCallAccumulators.remove(sessionId);
+            if (acc != null && !acc.isEmpty()) {
+                return acc.flushAsJsonLines();
+            }
             return null;
         }
 
@@ -254,8 +319,35 @@ public class CloudChatManager implements ChatManager {
 
             if (first.has("delta") && first.get("delta").isJsonObject()) {
                 JsonObject delta = first.getAsJsonObject("delta");
+
                 if (delta.has("content") && !delta.get("content").isJsonNull()) {
                     return delta.get("content").getAsString();
+                }
+
+                if (delta.has("tool_calls") && delta.get("tool_calls").isJsonArray()) {
+                    JsonArray toolCalls = delta.getAsJsonArray("tool_calls");
+                    ToolCallAccumulator acc = toolCallAccumulators.computeIfAbsent(sessionId, id -> new ToolCallAccumulator());
+
+                    for (int i = 0; i < toolCalls.size(); i++) {
+                        JsonObject tc = toolCalls.get(i).getAsJsonObject();
+                        int index = tc.has("index") && !tc.get("index").isJsonNull() ? tc.get("index").getAsInt() : 0;
+
+                        String namePart = null;
+                        String argsPart = null;
+
+                        if (tc.has("function") && tc.get("function").isJsonObject()) {
+                            JsonObject fn = tc.getAsJsonObject("function");
+                            if (fn.has("name") && !fn.get("name").isJsonNull()) {
+                                namePart = fn.get("name").getAsString();
+                            }
+                            if (fn.has("arguments") && !fn.get("arguments").isJsonNull()) {
+                                argsPart = fn.get("arguments").getAsString();
+                            }
+                        }
+
+                        acc.add(index, namePart, argsPart);
+                    }
+                    return null;
                 }
             }
 
@@ -265,6 +357,43 @@ public class CloudChatManager implements ChatManager {
                     JsonElement content = message.get("content");
                     if (content.isJsonPrimitive()) {
                         return content.getAsString();
+                    }
+                }
+
+                if (message.has("tool_calls") && message.get("tool_calls").isJsonArray()) {
+                    JsonArray toolCalls = message.getAsJsonArray("tool_calls");
+                    ToolCallAccumulator acc = toolCallAccumulators.computeIfAbsent(sessionId, id -> new ToolCallAccumulator());
+
+                    for (int i = 0; i < toolCalls.size(); i++) {
+                        JsonObject tc = toolCalls.get(i).getAsJsonObject();
+
+                        String name = null;
+                        String args = "";
+                        if (tc.has("function") && tc.get("function").isJsonObject()) {
+                            JsonObject fn = tc.getAsJsonObject("function");
+                            if (fn.has("name") && !fn.get("name").isJsonNull()) {
+                                name = fn.get("name").getAsString();
+                            }
+                            if (fn.has("arguments") && !fn.get("arguments").isJsonNull()) {
+                                args = fn.get("arguments").getAsString();
+                            }
+                        }
+
+                        acc.add(i, name, args);
+                    }
+
+                    String flush = acc.flushAsJsonLines();
+                    toolCallAccumulators.remove(sessionId);
+                    return flush;
+                }
+            }
+
+            if (first.has("finish_reason") && !first.get("finish_reason").isJsonNull()) {
+                String finishReason = first.get("finish_reason").getAsString();
+                if ("tool_calls".equalsIgnoreCase(finishReason)) {
+                    ToolCallAccumulator acc = toolCallAccumulators.remove(sessionId);
+                    if (acc != null && !acc.isEmpty()) {
+                        return acc.flushAsJsonLines();
                     }
                 }
             }
