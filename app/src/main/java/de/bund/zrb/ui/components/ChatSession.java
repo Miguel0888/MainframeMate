@@ -504,13 +504,6 @@ public class ChatSession extends JPanel {
     }
 
     private String applyTool(String userInput) {
-        // Im AGENT-Modus: Tools nie in den Prompt einbauen.
-        // Der Agent kennt die Tools über seinen System-Prompt und entscheidet selbst.
-        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
-        if (mode == ChatMode.AGENT) {
-            return userInput;
-        }
-
         String selectedToolName = (String) toolComboBox.getSelectedItem();
         if (selectedToolName == null || selectedToolName.trim().isEmpty()) {
             return userInput;
