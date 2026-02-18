@@ -51,6 +51,15 @@ public class SettingsDialog {
     private static JTextField ollamaUrlField;
     private static JTextField ollamaModelField;
     private static JTextField ollamaKeepAliveField;
+    private static JComboBox<String> cloudProviderField;
+    private static JTextField cloudApiKeyField;
+    private static JTextField cloudApiUrlField;
+    private static JTextField cloudModelField;
+    private static JTextField cloudAuthHeaderField;
+    private static JTextField cloudAuthPrefixField;
+    private static JTextField cloudApiVersionField;
+    private static JTextField cloudOrgField;
+    private static JTextField cloudProjectField;
     private static JCheckBox wrapJsonBox;
     private static JCheckBox prettyJsonBox;
     private static JTextField defaultWorkflow;
@@ -541,7 +550,12 @@ public class SettingsDialog {
         aiContent.add(prettyJsonBox, gbc);
         gbc.gridy++;
 
-        providerCombo = new JComboBox<>(AiProvider.values());
+        providerCombo = new JComboBox<>();
+        providerCombo.addItem(AiProvider.DISABLED);
+        providerCombo.addItem(AiProvider.OLLAMA);
+        providerCombo.addItem(AiProvider.CLOUD);
+        providerCombo.addItem(AiProvider.LOCAL_AI);
+        providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER);
         aiContent.add(new JLabel("KI-Provider:"), gbc);
         gbc.gridy++;
         aiContent.add(providerCombo, gbc);
@@ -554,10 +568,12 @@ public class SettingsDialog {
         // Panels für Provider
         JPanel disabledPanel = new JPanel();
         JPanel ollamaPanel = new JPanel(new GridBagLayout());
+        JPanel cloudPanel = new JPanel(new GridBagLayout());
         JPanel localAiPanel = new JPanel(new GridBagLayout());
 
         providerOptionsPanel.add(disabledPanel, AiProvider.DISABLED.name());
         providerOptionsPanel.add(ollamaPanel, AiProvider.OLLAMA.name());
+        providerOptionsPanel.add(cloudPanel, AiProvider.CLOUD.name());
         providerOptionsPanel.add(localAiPanel, AiProvider.LOCAL_AI.name());
 
         // OLLAMA-Felder
@@ -577,6 +593,66 @@ public class SettingsDialog {
         ollamaKeepAliveField = new JTextField(20);
         ollamaPanel.add(ollamaKeepAliveField, gbcOllama);
         gbcOllama.gridy++;
+
+        // CLOUD-Felder
+        GridBagConstraints gbcCloud = createDefaultGbc();
+        cloudPanel.add(new JLabel("Cloud-Anbieter:"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudProviderField = new JComboBox<>(new String[]{"OPENAI", "CLAUDE", "PERPLEXITY", "GROK", "GEMINI"});
+        cloudPanel.add(cloudProviderField, gbcCloud);
+        gbcCloud.gridy++;
+
+        cloudPanel.add(new JLabel("API Key:"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudApiKeyField = new JTextField(30);
+        cloudPanel.add(cloudApiKeyField, gbcCloud);
+        gbcCloud.gridy++;
+
+        cloudPanel.add(new JLabel("API URL:"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudApiUrlField = new JTextField(30);
+        cloudPanel.add(cloudApiUrlField, gbcCloud);
+        gbcCloud.gridy++;
+
+        cloudPanel.add(new JLabel("Modell:"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudModelField = new JTextField(30);
+        cloudPanel.add(cloudModelField, gbcCloud);
+        gbcCloud.gridy++;
+
+        cloudPanel.add(new JLabel("Auth Header:"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudAuthHeaderField = new JTextField(30);
+        cloudPanel.add(cloudAuthHeaderField, gbcCloud);
+        gbcCloud.gridy++;
+
+        cloudPanel.add(new JLabel("Auth Prefix (z. B. Bearer):"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudAuthPrefixField = new JTextField(30);
+        cloudPanel.add(cloudAuthPrefixField, gbcCloud);
+        gbcCloud.gridy++;
+        cloudPanel.add(new JLabel("Anthropic-Version (nur Claude):"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudApiVersionField = new JTextField(30);
+        cloudPanel.add(cloudApiVersionField, gbcCloud);
+        gbcCloud.gridy++;
+
+
+        cloudPanel.add(new JLabel("OpenAI Organisation (optional):"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudOrgField = new JTextField(30);
+        cloudPanel.add(cloudOrgField, gbcCloud);
+        gbcCloud.gridy++;
+
+        cloudPanel.add(new JLabel("OpenAI Projekt (optional):"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudProjectField = new JTextField(30);
+        cloudPanel.add(cloudProjectField, gbcCloud);
+        gbcCloud.gridy++;
+
+        JButton cloudResetButton = new JButton("Defaults zurücksetzen");
+        cloudPanel.add(cloudResetButton, gbcCloud);
+        gbcCloud.gridy++;
 
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -705,12 +781,43 @@ public class SettingsDialog {
 
         // Initiale Werte aus Settings
         String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
-        AiProvider selectedProvider = AiProvider.valueOf(providerName);
+        AiProvider selectedProvider;
+        try {
+            selectedProvider = AiProvider.valueOf(providerName);
+        } catch (IllegalArgumentException ex) {
+            selectedProvider = AiProvider.DISABLED;
+        }
         providerCombo.setSelectedItem(selectedProvider);
 
         ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/generate"));
         ollamaModelField.setText(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
         ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
+
+        String initialCloudVendor = settings.aiConfig.getOrDefault("cloud.vendor", "OPENAI");
+        if ("CLOUD".equalsIgnoreCase(initialCloudVendor)) {
+            initialCloudVendor = "CLAUDE";
+        }
+        cloudProviderField.setSelectedItem(initialCloudVendor);
+        applyCloudVendorDefaults(false);
+        cloudApiKeyField.setText(settings.aiConfig.getOrDefault("cloud.apikey", ""));
+        cloudApiUrlField.setText(settings.aiConfig.getOrDefault("cloud.url", cloudDefaultForVendor(initialCloudVendor, "url")));
+        cloudModelField.setText(settings.aiConfig.getOrDefault("cloud.model", cloudDefaultForVendor(initialCloudVendor, "model")));
+        cloudAuthHeaderField.setText(settings.aiConfig.getOrDefault("cloud.authHeader", cloudDefaultForVendor(initialCloudVendor, "authHeader")));
+        cloudAuthPrefixField.setText(settings.aiConfig.getOrDefault("cloud.authPrefix", cloudDefaultForVendor(initialCloudVendor, "authPrefix")));
+        cloudOrgField.setText(settings.aiConfig.getOrDefault("cloud.organization", ""));
+        cloudProjectField.setText(settings.aiConfig.getOrDefault("cloud.project", ""));
+        cloudApiVersionField.setText(settings.aiConfig.getOrDefault("cloud.anthropicVersion", "2023-06-01"));
+
+        cloudProviderField.addActionListener(e -> applyCloudVendorDefaults(true));
+        cloudResetButton.addActionListener(e -> {
+            String selectedVendor = (String) cloudProviderField.getSelectedItem();
+            applyCloudVendorDefaults(true);
+            cloudApiKeyField.setText("");
+            if (!"OPENAI".equals(selectedVendor)) {
+                cloudOrgField.setText("");
+                cloudProjectField.setText("");
+            }
+        });
 
         // Umschalten je nach Provider
         providerCombo.addActionListener(e -> {
@@ -720,6 +827,59 @@ public class SettingsDialog {
         });
 
         ((CardLayout) providerOptionsPanel.getLayout()).show(providerOptionsPanel, selectedProvider.name());
+    }
+
+    private static void applyCloudVendorDefaults(boolean clearOptionalFields) {
+        String vendor = Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI");
+        cloudApiUrlField.setText(cloudDefaultForVendor(vendor, "url"));
+        cloudModelField.setText(cloudDefaultForVendor(vendor, "model"));
+        cloudAuthHeaderField.setText(cloudDefaultForVendor(vendor, "authHeader"));
+        cloudAuthPrefixField.setText(cloudDefaultForVendor(vendor, "authPrefix"));
+        cloudApiVersionField.setText(cloudDefaultForVendor(vendor, "anthropicVersion"));
+
+        boolean isOpenAi = "OPENAI".equals(vendor);
+        boolean isClaude = "CLAUDE".equals(vendor);
+        cloudOrgField.setEnabled(isOpenAi);
+        cloudProjectField.setEnabled(isOpenAi);
+        cloudApiVersionField.setEnabled(isClaude);
+        if (clearOptionalFields && !isOpenAi) {
+            cloudOrgField.setText("");
+            cloudProjectField.setText("");
+        }
+    }
+
+    private static String cloudDefaultForVendor(String vendor, String key) {
+        switch (vendor) {
+            case "PERPLEXITY":
+                if ("url".equals(key)) return "https://api.perplexity.ai/chat/completions";
+                if ("model".equals(key)) return "sonar";
+                break;
+            case "GROK":
+                if ("url".equals(key)) return "https://api.x.ai/v1/chat/completions";
+                if ("model".equals(key)) return "grok-2-latest";
+                break;
+            case "GEMINI":
+                if ("url".equals(key)) return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+                if ("model".equals(key)) return "gemini-2.0-flash";
+                break;
+            case "CLAUDE":
+                if ("url".equals(key)) return "https://api.anthropic.com/v1/messages";
+                if ("model".equals(key)) return "claude-3-5-sonnet-latest";
+                if ("authHeader".equals(key)) return "x-api-key";
+                if ("authPrefix".equals(key)) return "";
+                if ("anthropicVersion".equals(key)) return "2023-06-01";
+                break;
+            case "OPENAI":
+            default:
+                if ("url".equals(key)) return "https://api.openai.com/v1/chat/completions";
+                if ("model".equals(key)) return "gpt-4o-mini";
+                break;
+        }
+
+        if ("authHeader".equals(key)) return "Authorization";
+        if ("authPrefix".equals(key)) return "Bearer";
+        if ("anthropicVersion".equals(key)) return "2023-06-01";
+        return "";
     }
 
     private static void createProxyContent(JPanel proxyContent, Component parent) {
@@ -876,6 +1036,15 @@ public class SettingsDialog {
             settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
             settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
             settings.aiConfig.put("ollama.keepalive", ollamaKeepAliveField.getText().trim());
+            settings.aiConfig.put("cloud.vendor", Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI"));
+            settings.aiConfig.put("cloud.apikey", cloudApiKeyField.getText().trim());
+            settings.aiConfig.put("cloud.url", cloudApiUrlField.getText().trim());
+            settings.aiConfig.put("cloud.model", cloudModelField.getText().trim());
+            settings.aiConfig.put("cloud.authHeader", cloudAuthHeaderField.getText().trim());
+            settings.aiConfig.put("cloud.authPrefix", cloudAuthPrefixField.getText().trim());
+            settings.aiConfig.put("cloud.anthropicVersion", cloudApiVersionField.getText().trim());
+            settings.aiConfig.put("cloud.organization", cloudOrgField.getText().trim());
+            settings.aiConfig.put("cloud.project", cloudProjectField.getText().trim());
             settings.aiConfig.put("llama.enabled", String.valueOf(llamaEnabledBox.isSelected()));
             settings.aiConfig.put("llama.binary", llamaBinaryField.getText().trim());
             settings.aiConfig.put("llama.model", llamaModelField.getText().trim());
