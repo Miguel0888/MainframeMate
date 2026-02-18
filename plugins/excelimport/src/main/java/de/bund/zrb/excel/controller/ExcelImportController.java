@@ -6,6 +6,7 @@ import de.bund.zrb.excel.plugin.ExcelImport;
 import de.bund.zrb.excel.repo.TemplateRepository;
 import de.bund.zrb.excel.service.Converter;
 import de.bund.zrb.excel.service.ExcelParser;
+import de.bund.zrb.excel.service.cache.ExcelReadMode;
 import de.bund.zrb.excel.ui.ExcelImportUiDialog;
 import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.zrb.bund.api.ExpressionRegistry;
@@ -105,7 +106,8 @@ public class ExcelImportController {
                 config.isHasHeader(),
                 config.isHasHeader() ? config.getHeaderRowIndex() : -1,
                 stopOnEmptyRequired,
-                requireAllFieldsEmpty
+                requireAllFieldsEmpty,
+                config.isForceReload() ? ExcelReadMode.FORCE_RELOAD : ExcelReadMode.USE_CACHE
         );
 
         FieldMap felder = satzart.getFields();

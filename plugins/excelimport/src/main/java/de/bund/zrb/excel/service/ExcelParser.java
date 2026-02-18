@@ -1,5 +1,14 @@
 package de.bund.zrb.excel.service;
 
+import de.bund.zrb.excel.service.cache.ExcelReadMode;
+import de.bund.zrb.excel.service.cache.ExcelRowSnapshot;
+import de.bund.zrb.excel.service.cache.ExcelSheetKey;
+import de.bund.zrb.excel.service.cache.ExcelSheetSnapshot;
+import de.bund.zrb.excel.service.cache.ExcelSheetSnapshotCache;
+import de.bund.zrb.excel.service.cache.ExcelTableCache;
+import de.bund.zrb.excel.service.cache.ExcelTableKey;
+import de.bund.zrb.excel.service.cache.LruExcelSheetSnapshotCache;
+import de.bund.zrb.excel.service.cache.LruExcelTableCache;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -10,66 +19,164 @@ import java.util.*;
 
 public class ExcelParser {
 
+    private static final ExcelTableCache CACHE = new LruExcelTableCache(5);
+    private static final ExcelSheetSnapshotCache SHEET_CACHE = new LruExcelSheetSnapshotCache(2);
+
     public static Map<String, List<String>> readExcelAsTable(File excelFile, boolean evaluateFormulas, int headerRowIndex, boolean stopOnEmptyCell, boolean stopOnEmptyLine)
             throws IOException, InvalidFormatException {
+        return readExcelAsTable(excelFile, evaluateFormulas, headerRowIndex, stopOnEmptyCell, stopOnEmptyLine, ExcelReadMode.USE_CACHE);
+    }
+
+    public static Map<String, List<String>> readExcelAsTable(File excelFile,
+                                                            boolean evaluateFormulas,
+                                                            int headerRowIndex,
+                                                            boolean stopOnEmptyCell,
+                                                            boolean stopOnEmptyLine,
+                                                            ExcelReadMode readMode)
+            throws IOException, InvalidFormatException {
+
+        ExcelTableKey cacheKey = ExcelTableKey.from(excelFile, evaluateFormulas, headerRowIndex, stopOnEmptyCell, stopOnEmptyLine);
+
+        if (readMode == ExcelReadMode.USE_CACHE) {
+            Optional<Map<String, List<String>>> cached = CACHE.get(cacheKey);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        } else {
+            clearCache();
+        }
+
+        ExcelSheetSnapshot snapshot = readSheetSnapshot(excelFile, evaluateFormulas, readMode);
+        Map<String, List<String>> table = buildTable(snapshot, headerRowIndex, stopOnEmptyCell, stopOnEmptyLine);
+
+        Map<String, List<String>> result = toUnmodifiableSnapshot(table);
+        CACHE.put(cacheKey, result);
+        return result;
+    }
+
+    public static void clearCache() {
+        CACHE.clear();
+        SHEET_CACHE.clear();
+    }
+
+    private static ExcelSheetSnapshot readSheetSnapshot(File excelFile,
+                                                        boolean evaluateFormulas,
+                                                        ExcelReadMode readMode)
+            throws IOException, InvalidFormatException {
+
+        ExcelSheetKey sheetKey = ExcelSheetKey.from(excelFile, evaluateFormulas);
+
+        if (readMode == ExcelReadMode.USE_CACHE) {
+            Optional<ExcelSheetSnapshot> cached = SHEET_CACHE.get(sheetKey);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        } else {
+            SHEET_CACHE.invalidate(sheetKey);
+        }
+
         Workbook workbook = new XSSFWorkbook(excelFile);
         Sheet sheet = workbook.getSheetAt(0);
         FormulaEvaluator evaluator = evaluateFormulas ? workbook.getCreationHelper().createFormulaEvaluator() : null;
 
-        Map<String, List<String>> table = new LinkedHashMap<>();
-
-        if (headerRowIndex < 0) {
-            // No header: Generate generic column names
-            for (Row row : sheet) {
-                if (shouldStop(row, evaluator, stopOnEmptyCell, stopOnEmptyLine)) break;
-                for (Cell cell : row) {
-                    int col = cell.getColumnIndex();
-                    String key = "Spalte " + (col + 1);
-                    table.computeIfAbsent(key, k -> new ArrayList<>())
-                            .add(getCellValue(cell, evaluator));
-                }
-            }
-        } else {
-            Map<Integer, String> columnKeys = new LinkedHashMap<>();
-            for (Row row : sheet) {
-                int rowIndex = row.getRowNum();
-                if (rowIndex < headerRowIndex) continue;
-
-                if (rowIndex == headerRowIndex) {
-                    for (Cell cell : row) {
-                        String header = getCellValue(cell, evaluator);
-                        columnKeys.put(cell.getColumnIndex(), header);
-                        table.put(header, new ArrayList<>());
-                    }
-                    continue;
-                }
-
-                if (shouldStop(row, evaluator, stopOnEmptyCell, stopOnEmptyLine)) break;
-
-                for (Map.Entry<Integer, String> entry : columnKeys.entrySet()) {
-                    int col = entry.getKey();
-                    String key = entry.getValue();
-                    Cell cell = row.getCell(col);
-                    String value = getCellValue(cell, evaluator);
-                    table.get(key).add(value);
-                }
-            }
+        List<ExcelRowSnapshot> rows = new ArrayList<>();
+        for (Row row : sheet) {
+            rows.add(snapshotOf(row, evaluator));
         }
 
         workbook.close();
+
+        ExcelSheetSnapshot snapshot = new ExcelSheetSnapshot(rows);
+        SHEET_CACHE.put(sheetKey, snapshot);
+        return snapshot;
+    }
+
+    private static ExcelRowSnapshot snapshotOf(Row row, FormulaEvaluator evaluator) {
+        Map<Integer, String> cellsByColumn = new LinkedHashMap<>();
+        for (Cell cell : row) {
+            cellsByColumn.put(cell.getColumnIndex(), getCellValue(cell, evaluator));
+        }
+        return new ExcelRowSnapshot(row.getRowNum(), cellsByColumn);
+    }
+
+    private static Map<String, List<String>> buildTable(ExcelSheetSnapshot snapshot,
+                                                        int headerRowIndex,
+                                                        boolean stopOnEmptyCell,
+                                                        boolean stopOnEmptyLine) {
+
+        Map<String, List<String>> table = new LinkedHashMap<>();
+
+        if (headerRowIndex < 0) {
+            buildTableWithoutHeader(snapshot, stopOnEmptyCell, stopOnEmptyLine, table);
+            return table;
+        }
+
+        buildTableWithHeader(snapshot, headerRowIndex, stopOnEmptyCell, stopOnEmptyLine, table);
         return table;
     }
 
-    private static boolean shouldStop(Row row, FormulaEvaluator evaluator, boolean stopOnEmptyCell, boolean stopOnEmptyLine) {
+    private static void buildTableWithoutHeader(ExcelSheetSnapshot snapshot,
+                                                boolean stopOnEmptyCell,
+                                                boolean stopOnEmptyLine,
+                                                Map<String, List<String>> table) {
+        for (ExcelRowSnapshot row : snapshot.getRows()) {
+            if (shouldStop(row, stopOnEmptyCell, stopOnEmptyLine)) {
+                break;
+            }
+            for (Map.Entry<Integer, String> cell : row.getCellsByColumn().entrySet()) {
+                int col = cell.getKey();
+                String key = "Spalte " + (col + 1);
+                table.computeIfAbsent(key, k -> new ArrayList<>()).add(cell.getValue());
+            }
+        }
+    }
+
+    private static void buildTableWithHeader(ExcelSheetSnapshot snapshot,
+                                             int headerRowIndex,
+                                             boolean stopOnEmptyCell,
+                                             boolean stopOnEmptyLine,
+                                             Map<String, List<String>> table) {
+
+        Map<Integer, String> columnKeys = new LinkedHashMap<>();
+
+        for (ExcelRowSnapshot row : snapshot.getRows()) {
+            int rowIndex = row.getRowIndex();
+            if (rowIndex < headerRowIndex) {
+                continue;
+            }
+
+            if (rowIndex == headerRowIndex) {
+                for (Map.Entry<Integer, String> cell : row.getCellsByColumn().entrySet()) {
+                    String header = cell.getValue();
+                    columnKeys.put(cell.getKey(), header);
+                    table.put(header, new ArrayList<>());
+                }
+                continue;
+            }
+
+            if (shouldStop(row, stopOnEmptyCell, stopOnEmptyLine)) {
+                break;
+            }
+
+            for (Map.Entry<Integer, String> entry : columnKeys.entrySet()) {
+                int col = entry.getKey();
+                String key = entry.getValue();
+                table.get(key).add(row.getCellValueOrEmpty(col));
+            }
+        }
+    }
+
+    private static boolean shouldStop(ExcelRowSnapshot row, boolean stopOnEmptyCell, boolean stopOnEmptyLine) {
         boolean allEmpty = true;
 
-        for (Cell cell : row) {
-            String value = getCellValue(cell, evaluator);
+        for (String value : row.getCellsByColumn().values()) {
             if (!value.trim().isEmpty()) {
                 allEmpty = false;
-                if (stopOnEmptyCell) return false; // at least one non-empty → continue
+                if (stopOnEmptyCell) {
+                    return false;
+                }
             } else if (stopOnEmptyCell) {
-                return true; // first empty cell triggers stop
+                return true;
             }
         }
 
@@ -77,6 +184,10 @@ public class ExcelParser {
     }
 
     private static String getCellValue(Cell cell, FormulaEvaluator evaluator) {
+        if (cell == null) {
+            return "";
+        }
+
         CellType type = cell.getCellType();
 
         if (type == CellType.FORMULA && evaluator != null) {
@@ -99,5 +210,13 @@ public class ExcelParser {
             default:
                 return "";
         }
+    }
+
+    private static Map<String, List<String>> toUnmodifiableSnapshot(Map<String, List<String>> table) {
+        Map<String, List<String>> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : table.entrySet()) {
+            copy.put(entry.getKey(), Collections.unmodifiableList(new ArrayList<>(entry.getValue())));
+        }
+        return Collections.unmodifiableMap(copy);
     }
 }

@@ -31,6 +31,7 @@ public class ImportExcelTool implements McpTool {
         properties.put("headerRowIndex", new ToolSpec.Property("integer", "Index der Kopfzeile (beginnend bei 0)"));
         properties.put("append", new ToolSpec.Property("boolean", "Ob an eine bestehende Datei angehängt wird"));
         properties.put("separator", new ToolSpec.Property("string", "Text der Trennzeile (optional)"));
+        properties.put("forceReload", new ToolSpec.Property("boolean", "Excel-Datei neu einlesen, auch wenn sie im Cache ist"));
         properties.put("search", new ToolSpec.Property("string", "Suchausdruck innerhalb des Ziels hervorheben"));
         properties.put("toCompare", new ToolSpec.Property("boolean", "Vergleich mit dem alten Inhalt öffnen"));
 
@@ -45,6 +46,7 @@ public class ImportExcelTool implements McpTool {
         example.put("headerRowIndex", 0);
         example.put("append", false);
         example.put("separator", "");
+        example.put("forceReload", false);
         example.put("search", ".*ABC.*");
         example.put("toCompare", true);
 
@@ -61,7 +63,7 @@ public class ImportExcelTool implements McpTool {
             boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
             boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
 
-            result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
+            result = ExcelImportController.importFromConfig(plugin, config, stopOnEmptyRequiredCheck, requireAllFieldsEmptyCheck);
 
             response.addProperty("status", "success");
             response.addProperty("content", ""); // ToDo: May be implemented, but not required

@@ -16,6 +16,8 @@ public class ExcelImportConfig {
     private boolean append = false;
     private String separator = "";
 
+    private boolean forceReload = false;
+
     public String getSearchPattern() {
         return searchPattern;
     }
@@ -75,6 +77,14 @@ public class ExcelImportConfig {
         this.separator = separator;
     }
 
+    public boolean isForceReload() {
+        return forceReload;
+    }
+
+    public void setForceReload(boolean forceReload) {
+        this.forceReload = forceReload;
+    }
+
     public File getFile() {
         return file;
     }
@@ -116,6 +126,7 @@ public class ExcelImportConfig {
             this.headerRowIndex = optionalInteger("headerRowIndex", input, schema, this.headerRowIndex);
             this.append = optionalBoolean("append", input, schema, this.append);
             this.separator = optionalString("separator", input, schema, this.separator);
+            this.forceReload = optionalBoolean("forceReload", input, schema, this.forceReload);
             this.searchPattern = optionalString("search", input, schema, this.searchPattern);
             this.toCompare = optionalBoolean("toCompare", input, schema, this.toCompare);
 
