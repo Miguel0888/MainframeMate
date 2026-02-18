@@ -3,22 +3,24 @@ package de.bund.zrb.files.impl.auth;
 import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.Credentials;
 import de.bund.zrb.files.auth.CredentialsProvider;
-import de.bund.zrb.login.LoginManager;
 
 import java.util.Optional;
 
 /**
- * Adapter that resolves credentials via the existing LoginManager.
+ * Adapter that resolves credentials via a non-interactive PasswordLookup function.
  *
- * NOTE: It may still prompt the user depending on LoginManager configuration.
- * The important part for fileservice-003 is: infrastructure code only talks to this provider.
+ * This provider is strictly non-interactive: it only reads cached/stored credentials.
  */
 public class LoginManagerCredentialsProvider implements CredentialsProvider {
 
-    private final LoginManager loginManager;
+    public interface PasswordLookup {
+        String getCachedPassword(String host, String username);
+    }
 
-    public LoginManagerCredentialsProvider(LoginManager loginManager) {
-        this.loginManager = loginManager == null ? LoginManager.getInstance() : loginManager;
+    private final PasswordLookup passwordLookup;
+
+    public LoginManagerCredentialsProvider(PasswordLookup passwordLookup) {
+        this.passwordLookup = passwordLookup == null ? (host, user) -> null : passwordLookup;
     }
 
     @Override
@@ -33,7 +35,7 @@ public class LoginManagerCredentialsProvider implements CredentialsProvider {
             return Optional.empty();
         }
 
-        String password = loginManager.getPassword(host, user);
+        String password = passwordLookup.getCachedPassword(host, user);
         if (password == null) {
             return Optional.empty();
         }
@@ -41,4 +43,3 @@ public class LoginManagerCredentialsProvider implements CredentialsProvider {
         return Optional.of(new Credentials(host, user, password));
     }
 }
-
