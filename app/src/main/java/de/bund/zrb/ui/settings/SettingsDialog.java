@@ -549,7 +549,12 @@ public class SettingsDialog {
         aiContent.add(prettyJsonBox, gbc);
         gbc.gridy++;
 
-        providerCombo = new JComboBox<>(AiProvider.values());
+        providerCombo = new JComboBox<>();
+        providerCombo.addItem(AiProvider.DISABLED);
+        providerCombo.addItem(AiProvider.OLLAMA);
+        providerCombo.addItem(AiProvider.CLOUD);
+        providerCombo.addItem(AiProvider.LOCAL_AI);
+        providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER);
         aiContent.add(new JLabel("KI-Provider:"), gbc);
         gbc.gridy++;
         aiContent.add(providerCombo, gbc);
@@ -769,7 +774,12 @@ public class SettingsDialog {
 
         // Initiale Werte aus Settings
         String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
-        AiProvider selectedProvider = AiProvider.valueOf(providerName);
+        AiProvider selectedProvider;
+        try {
+            selectedProvider = AiProvider.valueOf(providerName);
+        } catch (IllegalArgumentException ex) {
+            selectedProvider = AiProvider.DISABLED;
+        }
         providerCombo.setSelectedItem(selectedProvider);
 
         ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/generate"));
