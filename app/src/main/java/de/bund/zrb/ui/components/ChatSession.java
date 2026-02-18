@@ -785,8 +785,11 @@ public class ChatSession extends JPanel {
             return result;
         }
 
+        // Make target effectively final for use in lambda (Java 8 requires captured locals to be final/effectively final)
+        final String targetName = target;
+
         de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
-                .filter(t -> target.equalsIgnoreCase(t.getSpec().getName()))
+                .filter(t -> targetName.equalsIgnoreCase(t.getSpec().getName()))
                 .findFirst()
                 .orElse(null);
         if (tool == null) {
