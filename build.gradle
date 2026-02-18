@@ -1,7 +1,7 @@
 // Root-Buildscript
 allprojects {
     group = 'de.bund.zrb'
-    version = '1.5.2'
+    version = '1.5.3'
 
     repositories {
         mavenCentral()
