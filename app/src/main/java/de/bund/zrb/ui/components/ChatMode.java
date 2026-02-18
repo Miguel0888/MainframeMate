@@ -49,17 +49,21 @@ public enum ChatMode {
     AGENT(
             "Agent",
             "Handelt wie ein Agent: nutzt Tools iterativ, bis die Aufgabe erledigt ist.",
-            "Du bist ein autonomer Agent in einer Editor-Anwendung. Du kannst Tools wie 'open_file' " +
-                    "und 'read_file' beliebig oft nutzen, um Dateien/Verzeichnisse zu inspizieren. " +
-                    "Dein Ziel ist es, die Nutzeraufgabe vollständig zu erledigen, nicht nur einen " +
-                    "ersten Versuch zu liefern.\n\n" +
-                    "Richtlinien:\n" +
-                    "- Wenn der Nutzer nach Inhalten in Dateien/Verzeichnissen fragt, nutze systematisch 'read_file'.\n" +
-                    "- Du darfst mehrere Tool-Aufrufe hintereinander erzeugen.\n" +
-                    "- Formatiere Tool-Aufrufe immer als gültiges JSON-Objekt: { \"name\": \"TOOLNAME\", \"input\": { ... } }.\n" +
-                    "- Wenn ein Tool einen Fehler liefert, analysiere die Fehlermeldung und versuche einen korrigierten Aufruf.\n" +
-                    "- Antworte dem Nutzer erst dann final, wenn du genug Informationen aus den Tools gesammelt hast, " +
-                    "um seine Frage belastbar zu beantworten."
+            "Du bist ein autonomer Agent in einer Editor-Anwendung. Du hast Zugriff auf Tools wie " +
+                    "'open_file' (öffnet Tab) und 'read_file' (liest Inhalt/listet Verzeichnis, ohne Tab).\n\n" +
+                    "WICHTIGSTE REGEL: Arbeite iterativ, bis die Aufgabe VOLLSTÄNDIG erledigt ist.\n\n" +
+                    "Konkretes Vorgehen:\n" +
+                    "1. Wenn der Nutzer nach Inhalten in einem Verzeichnis fragt, liste erst das Verzeichnis " +
+                    "(read_file mit dem Verzeichnispfad).\n" +
+                    "2. Lies dann JEDE relevante Datei einzeln mit 'read_file' und durchsuche ihren Inhalt.\n" +
+                    "3. Erzeuge pro Schritt EINEN Tool-Call als JSON: {\"name\":\"read_file\",\"input\":{\"path\":\"...\"}}\n" +
+                    "4. Antworte dem Nutzer ERST mit einer finalen Antwort, wenn du ALLE relevanten Dateien " +
+                    "geprüft hast oder die gesuchte Information gefunden wurde.\n" +
+                    "5. Gib NIEMALS nach einem einzigen Tool-Call auf. Wenn du ein Directory-Listing bekommst " +
+                    "und der Nutzer nach Inhalten sucht, MUSST du die Dateien öffnen.\n" +
+                    "6. Wenn ein Tool einen Fehler liefert, analysiere ihn und versuche einen korrigierten Aufruf.\n" +
+                    "7. Überspringe Unterverzeichnisse und Binärdateien, es sei denn der Nutzer fragt explizit danach.\n\n" +
+                    "Formatiere Tool-Aufrufe immer als valides JSON-Objekt."
     );
 
     private final String label;

@@ -251,6 +251,12 @@ public class ChatSession extends JPanel {
         // Prefix with system prompt based on selected mode
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
         String systemPrompt = mode != null ? mode.getSystemPrompt() : ChatMode.ASK.getSystemPrompt();
+
+        // Persist system prompt in history so it's included in every API call (incl. tool follow-ups)
+        if (contextMemoryCheckbox.isSelected()) {
+            chatManager.getHistory(sessionId).setSystemPrompt(systemPrompt);
+        }
+
         String finalPrompt = buildPromptWithMode(systemPrompt, message, contextMemoryCheckbox.isSelected());
 
         awaitingBotResponse = true;
@@ -337,12 +343,14 @@ public class ChatSession extends JPanel {
      */
     private String buildPromptWithMode(String systemPrompt, String userText, boolean useContext) {
         StringBuilder sb = new StringBuilder();
-        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-            sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
-        }
         if (useContext) {
+            // System-Prompt steckt bereits in ChatHistory.toPrompt() (via setSystemPrompt)
             sb.append(chatManager.getHistory(sessionId).toPrompt(userText));
         } else {
+            // Kein Context: System-Prompt manuell voranstellen
+            if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+                sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
+            }
             if (userText != null && !userText.trim().isEmpty()) {
                 sb.append("Du: ").append(userText.trim());
             }
@@ -615,10 +623,21 @@ public class ChatSession extends JPanel {
                         "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
                 );
 
-                streamAssistantFollowUp(
-                        "Nutze die TOOL_RESULTS (JSON) oben und antworte dem Nutzer in EINER Nachricht. " +
-                                "Fehler stoppen die Queue nicht; wenn Fehler enthalten sind, weise darauf hin und schlage ggf. korrigierte Tool-Calls vor."
-                );
+                // Build follow-up depending on mode
+                ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
+                String followUp;
+                if (currentMode == ChatMode.AGENT) {
+                    followUp = "Du hast Tool-Ergebnisse erhalten. " +
+                            "Prüfe, ob du die Aufgabe des Nutzers damit bereits vollständig beantworten kannst. " +
+                            "Falls NICHT, erzeuge sofort den nächsten Tool-Call als JSON (z.B. read_file für weitere Dateien). " +
+                            "Antworte dem Nutzer erst mit einer finalen Antwort, wenn du genug Informationen gesammelt hast. " +
+                            "Fehler in den Ergebnissen stoppen dich nicht – weise auf sie hin und mache weiter.";
+                } else {
+                    followUp = "Nutze die TOOL_RESULTS (JSON) oben und antworte dem Nutzer in EINER Nachricht. " +
+                            "Fehler stoppen die Queue nicht; wenn Fehler enthalten sind, weise darauf hin und schlage ggf. korrigierte Tool-Calls vor.";
+                }
+
+                streamAssistantFollowUp(followUp);
             }
         }).start();
     }
