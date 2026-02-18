@@ -30,6 +30,7 @@ public class ImportExcelTool implements McpTool {
         properties.put("hasHeader", new ToolSpec.Property("boolean", "Ob Spaltennamen in einer Kopfzeile vorhanden sind"));
         properties.put("headerRowIndex", new ToolSpec.Property("integer", "Index der Kopfzeile (beginnend bei 0)"));
         properties.put("append", new ToolSpec.Property("boolean", "Ob an eine bestehende Datei angehängt wird"));
+        properties.put("noDuplicates", new ToolSpec.Property("boolean", "Unterdrückt aufeinanderfolgende identische Datensätze"));
         properties.put("separator", new ToolSpec.Property("string", "Text der Trennzeile (optional)"));
         properties.put("search", new ToolSpec.Property("string", "Suchausdruck innerhalb des Ziels hervorheben"));
         properties.put("toCompare", new ToolSpec.Property("boolean", "Vergleich mit dem alten Inhalt öffnen"));
@@ -44,6 +45,7 @@ public class ImportExcelTool implements McpTool {
         example.put("hasHeader", true);
         example.put("headerRowIndex", 0);
         example.put("append", false);
+        example.put("noDuplicates", false);
         example.put("separator", "");
         example.put("search", ".*ABC.*");
         example.put("toCompare", true);

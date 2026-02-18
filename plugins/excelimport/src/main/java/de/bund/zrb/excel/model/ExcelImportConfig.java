@@ -14,6 +14,7 @@ public class ExcelImportConfig {
     private boolean hasHeader = true;
     private int headerRowIndex = 0;
     private boolean append = false;
+    private boolean noDuplicates = false;
     private String separator = "";
 
     public String getSearchPattern() {
@@ -75,6 +76,14 @@ public class ExcelImportConfig {
         this.separator = separator;
     }
 
+    public boolean isNoDuplicates() {
+        return noDuplicates;
+    }
+
+    public void setNoDuplicates(boolean noDuplicates) {
+        this.noDuplicates = noDuplicates;
+    }
+
     public File getFile() {
         return file;
     }
@@ -115,6 +124,7 @@ public class ExcelImportConfig {
             this.hasHeader = optionalBoolean("hasHeader", input, schema, this.hasHeader);
             this.headerRowIndex = optionalInteger("headerRowIndex", input, schema, this.headerRowIndex);
             this.append = optionalBoolean("append", input, schema, this.append);
+            this.noDuplicates = optionalBoolean("noDuplicates", input, schema, this.noDuplicates);
             this.separator = optionalString("separator", input, schema, this.separator);
             this.searchPattern = optionalString("search", input, schema, this.searchPattern);
             this.toCompare = optionalBoolean("toCompare", input, schema, this.toCompare);
