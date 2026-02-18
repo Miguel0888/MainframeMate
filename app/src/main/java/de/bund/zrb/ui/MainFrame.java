@@ -339,107 +339,8 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
-        // Decide stateless-by-path: local absolute OS path vs. remote (FTP/MVS)
-        de.bund.zrb.files.path.VirtualResourceRef ref = de.bund.zrb.files.path.VirtualResourceRef.of(path);
-        if (ref.isFileUri() || ref.isLocalAbsolutePath()) {
-            String localPath = ref.isFileUri() ? path : ref.normalizeLocalAbsolutePath();
-
-            try {
-                java.io.File f;
-                if (ref.isFileUri()) {
-                    try {
-                        java.net.URI uri = java.net.URI.create(localPath.trim());
-                        f = new java.io.File(uri);
-                    } catch (Exception ignore) {
-                        f = new java.io.File(localPath);
-                    }
-                } else {
-                    f = new java.io.File(localPath);
-                }
-
-                if (f.isFile()) {
-                    de.bund.zrb.files.api.FileService fs = new de.bund.zrb.files.impl.local.VfsLocalFileService();
-                    de.bund.zrb.files.model.FilePayload payload = fs.readFile(f.getAbsolutePath());
-                    String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : java.nio.charset.Charset.defaultCharset());
-
-                    if (chatEventBridge != null) {
-                        java.util.UUID sid = getActiveChatSessionIdOrNull();
-                        com.google.gson.JsonObject ok = new com.google.gson.JsonObject();
-                        ok.addProperty("status", "success");
-                        ok.addProperty("scheme", "local");
-                        ok.addProperty("openedFile", f.getAbsolutePath());
-                        ok.addProperty("bytes", payload.getBytes() == null ? 0 : payload.getBytes().length);
-                        ok.addProperty("charset", payload.getCharset() == null ? null : payload.getCharset().name());
-                        chatEventBridge.publish(sid, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", ok));
-                    }
-
-                    return tabManager.openFileTab(new FtpManager(), content, sentenceType);
-                }
-
-                // Directory fallback
-                LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
-                tabManager.addTab(tab);
-                String start = f.isDirectory() ? f.getAbsolutePath() : (f.getParent() == null ? f.getAbsolutePath() : f.getParent());
-                tab.loadDirectory(start);
-                return tab;
-
-            } catch (Exception ex) {
-                if (chatEventBridge != null) {
-                    java.util.UUID sid = getActiveChatSessionIdOrNull();
-                    com.google.gson.JsonObject err = new com.google.gson.JsonObject();
-                    err.addProperty("status", "error");
-                    err.addProperty("scheme", "local");
-                    err.addProperty("path", localPath);
-                    err.addProperty("errorType", ex.getClass().getName());
-                    err.addProperty("message", ex.getMessage());
-                    chatEventBridge.publish(sid, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", err));
-                }
-                return null;
-            }
-        }
-
-        final FtpManager ftpManager = new FtpManager();
-        Settings settings = SettingsHelper.load();
-
-        try {
-            ftpManager.connect(settings.host, settings.user);
-
-            String unquoted = unquote(path);
-
-            // 1) Try to open as file first (stateless-by-path intent)
-            try {
-                FtpFileBuffer buffer = ftpManager.open(unquoted);
-                if (buffer != null) {
-                    return tabManager.openFileTab(ftpManager, buffer, sentenceType, searchPattern, toCompare);
-                }
-            } catch (IOException ignore) {
-                // fall back to connection tab
-            }
-
-            // 2) Otherwise open connection tab and start browsing at the provided path
-            ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager, searchPattern);
-            tabManager.addTab(tab);
-            tab.loadDirectory(unquoted);
-            return tab;
-
-        } catch (IOException ex) {
-            String msg = ex.getMessage();
-
-            if ("Kein Passwort verfügbar".equals(msg)) {
-                // Benutzer hat abgebrochen → stillschweigend beenden
-                return null;
-            }
-
-            if (msg != null && msg.contains("not found")) {
-                // Datei existiert (noch) nicht → Polling-Tab öffnen
-                tabManager.addTab(new JobPollingTab(ftpManager, tabManager, unquote(path), sentenceType, searchPattern, toCompare));
-                return null;
-            }
-
-            JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + msg,
-                    "Fehler", JOptionPane.ERROR_MESSAGE);
-            return null;
-        }
+        return new VirtualResourceOpener(tabManager)
+                .open(path, sentenceType, searchPattern, toCompare);
     }
 
     @Override
@@ -618,4 +519,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
     }
 }
+
+
+
+
 
