@@ -64,27 +64,44 @@ public class McpServiceImpl implements McpService {
 
     /**
      * Extrahiert das JSON-Objekt mit den Tool-Argumenten aus einem Tool-Call.
-     * Unterstützt sowohl 'tool_input' als auch 'arguments' (als JSON-String).
+     * Unterstützt:
+     * - 'tool_input' (JSON-Objekt)
+     * - 'input' (JSON-Objekt)  <-- häufiges, einfaches Format aus der UI/LLM
+     * - 'arguments' (als JSON-String ODER JSON-Objekt)
      */
     private JsonObject extractToolArguments(JsonObject call) {
+        if (call == null) {
+            throw new IllegalArgumentException("Tool-Aufruf ist null");
+        }
+
         if (call.has("tool_input") && call.get("tool_input").isJsonObject()) {
             return call.getAsJsonObject("tool_input");
         }
 
-        if (call.has("arguments") && call.get("arguments").isJsonPrimitive()) {
-            String jsonString = call.get("arguments").getAsString();
-            try {
-                JsonElement parsed = new com.google.gson.JsonParser().parse(jsonString);
-                if (!parsed.isJsonObject()) {
-                    throw new IllegalArgumentException("'arguments' ist kein JSON-Objekt.");
+        // Support for {"name":"open_file","input":{...}}
+        if (call.has("input") && call.get("input").isJsonObject()) {
+            return call.getAsJsonObject("input");
+        }
+
+        if (call.has("arguments")) {
+            if (call.get("arguments").isJsonObject()) {
+                return call.getAsJsonObject("arguments");
+            }
+            if (call.get("arguments").isJsonPrimitive()) {
+                String jsonString = call.get("arguments").getAsString();
+                try {
+                    JsonElement parsed = new com.google.gson.JsonParser().parse(jsonString);
+                    if (!parsed.isJsonObject()) {
+                        throw new IllegalArgumentException("'arguments' ist kein JSON-Objekt.");
+                    }
+                    return parsed.getAsJsonObject();
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Fehler beim Parsen von 'arguments': " + e.getMessage(), e);
                 }
-                return parsed.getAsJsonObject();
-            } catch (Exception e) {
-                throw new IllegalArgumentException("Fehler beim Parsen von 'arguments': " + e.getMessage(), e);
             }
         }
 
-        throw new IllegalArgumentException("Tool-Aufruf enthält weder 'tool_input' noch 'arguments'.");
+        throw new IllegalArgumentException("Tool-Aufruf enthält weder 'input' noch 'tool_input' noch 'arguments'.");
     }
 
     private String getAsRequiredString(JsonObject obj, String key) {
@@ -97,4 +114,3 @@ public class McpServiceImpl implements McpService {
 
 
 }
-

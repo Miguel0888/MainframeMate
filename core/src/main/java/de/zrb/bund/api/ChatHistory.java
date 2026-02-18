@@ -27,6 +27,12 @@ public class ChatHistory {
         return msg.timestamp;
     }
 
+    public Timestamp addToolMessage(String content) {
+        Message msg = new Message(sessionId, "tool", content);
+        messages.add(msg);
+        return msg.timestamp;
+    }
+
     public List<Message> getMessages() {
         return Collections.unmodifiableList(messages);
     }
@@ -34,10 +40,41 @@ public class ChatHistory {
     public List<String> getFormattedHistory() {
         List<String> result = new ArrayList<>();
         for (Message msg : messages) {
-            String rolePrefix = msg.role.equals("user") ? "Du: " : "Bot: ";
+            String rolePrefix;
+            if ("user".equals(msg.role)) {
+                rolePrefix = "Du: ";
+            } else if ("tool".equals(msg.role)) {
+                rolePrefix = "Tool: ";
+            } else {
+                rolePrefix = "Bot: ";
+            }
             result.add(rolePrefix + msg.content);
         }
         return result;
+    }
+
+    /**
+     * Prompt-Builder für LLMs: nutzt die Rollen explizit.
+     * Tool-Nachrichten werden als eigener Participant aufgenommen.
+     */
+    public String toPrompt(String userInput) {
+        StringBuilder prompt = new StringBuilder();
+        for (Message msg : messages) {
+            if ("user".equals(msg.role)) {
+                prompt.append("Du: ");
+            } else if ("assistant".equals(msg.role)) {
+                prompt.append("Bot: ");
+            } else if ("tool".equals(msg.role)) {
+                prompt.append("Tool: ");
+            } else {
+                prompt.append(msg.role).append(": ");
+            }
+            prompt.append(msg.content).append("\n");
+        }
+        if (userInput != null && !userInput.trim().isEmpty()) {
+            prompt.append("Du: ").append(userInput);
+        }
+        return prompt.toString();
     }
 
     public void clear() {

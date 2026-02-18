@@ -184,13 +184,7 @@ public class OllamaChatManager implements ChatManager {
     }
 
     private String buildPrompt(ChatHistory history, String userInput) {
-        StringBuilder prompt = new StringBuilder();
-        for (ChatHistory.Message msg : history.getMessages()) {
-            prompt.append(msg.role.equals("user") ? "Du: " : "Bot: ");
-            prompt.append(msg.content).append("\n");
-        }
-        prompt.append("Du: ").append(userInput);
-        return prompt.toString();
+        return history.toPrompt(userInput);
     }
 
     private String extractResponse(String jsonLine) {
