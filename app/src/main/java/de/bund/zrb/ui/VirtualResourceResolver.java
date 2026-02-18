@@ -15,9 +15,12 @@ public class VirtualResourceResolver {
 
     public VirtualResource resolve(String rawPath) throws FileServiceException {
         VirtualResourceRef ref = VirtualResourceRef.of(rawPath);
+        System.out.println("[VirtualResourceResolver] raw=" + rawPath + " isFileUri=" + ref.isFileUri() + " isLocalAbsolutePath=" + ref.isLocalAbsolutePath());
+
         if (ref.isFileUri() || ref.isLocalAbsolutePath()) {
             String localPath = toLocalPath(ref);
             VirtualResourceKind kind = resolveKindLocal(localPath);
+            System.out.println("[VirtualResourceResolver] LOCAL path=" + localPath + " kind=" + kind);
             return new VirtualResource(ref, kind, localPath, VirtualBackendType.LOCAL, null);
         }
 
@@ -25,6 +28,7 @@ public class VirtualResourceResolver {
         Settings settings = SettingsHelper.load();
         ConnectionId connectionId = new ConnectionId("ftp", settings.host, settings.user);
 
+        System.out.println("[VirtualResourceResolver] FTP path=" + ftpPath);
         VirtualResourceKind kind = resolveKindFtp(ftpPath, connectionId);
         FtpResourceState ftpState = new FtpResourceState(connectionId, lastMvsMode, lastSystemType, settings.encoding);
         return new VirtualResource(ref, kind, ftpPath, VirtualBackendType.FTP, ftpState);
@@ -37,14 +41,20 @@ public class VirtualResourceResolver {
     private VirtualResourceKind resolveKindLocal(String localPath) throws FileServiceException {
         try (FileService fs = new FileServiceFactory().createLocal()) {
             try {
+                System.out.println("[VirtualResourceResolver] trying list(" + localPath + ")");
                 fs.list(localPath);
+                System.out.println("[VirtualResourceResolver] list succeeded -> DIRECTORY");
                 return VirtualResourceKind.DIRECTORY;
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                System.out.println("[VirtualResourceResolver] list failed: " + e.getMessage());
                 // Not a directory -> fall through
             }
+            System.out.println("[VirtualResourceResolver] trying readFile(" + localPath + ")");
             fs.readFile(localPath);
+            System.out.println("[VirtualResourceResolver] readFile succeeded -> FILE");
             return VirtualResourceKind.FILE;
         } catch (Exception e) {
+            System.out.println("[VirtualResourceResolver] resolveKindLocal exception: " + e.getMessage());
             if (e instanceof FileServiceException) {
                 throw (FileServiceException) e;
             }

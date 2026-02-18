@@ -34,6 +34,8 @@ public final class VirtualResourceOpener {
                        @Nullable String searchPattern,
                        @Nullable Boolean toCompare) {
 
+        System.out.println("[VirtualResourceOpener] open called with rawPath=" + rawPath);
+
         VirtualResource resource;
         try {
             resource = resolver.resolve(rawPath);
@@ -42,30 +44,45 @@ public final class VirtualResourceOpener {
             return null;
         }
 
+        System.out.println("[VirtualResourceOpener] resolved: kind=" + resource.getKind() +
+                " backendType=" + resource.getBackendType() +
+                " isLocal=" + resource.isLocal() +
+                " resolvedPath=" + resource.getResolvedPath());
+
         CredentialsProvider credentialsProvider = new LoginManagerCredentialsProvider(
                 (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
         );
 
         try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
+            System.out.println("[VirtualResourceOpener] FileService created: " + fs.getClass().getSimpleName());
+
             if (resource.getKind() == VirtualResourceKind.DIRECTORY) {
+                System.out.println("[VirtualResourceOpener] opening as DIRECTORY");
                 return openDirectory(resource, fs, searchPattern);
             } else {
+                System.out.println("[VirtualResourceOpener] opening as FILE");
                 return openFile(resource, fs, sentenceType, searchPattern, toCompare);
             }
         } catch (Exception e) {
             System.err.println("[VirtualResourceOpener] open failed: " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
     }
 
     private FtpTab openDirectory(VirtualResource resource, FileService fs, String searchPattern) {
         if (resource.isLocal()) {
+            System.out.println("[VirtualResourceOpener] creating LocalConnectionTabImpl for " + resource.getResolvedPath());
             LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
+            System.out.println("[VirtualResourceOpener] adding tab to tabManager");
             tabManager.addTab(tab);
+            System.out.println("[VirtualResourceOpener] calling loadDirectory");
             tab.loadDirectory(resource.getResolvedPath());
+            System.out.println("[VirtualResourceOpener] LocalConnectionTabImpl ready, returning");
             return tab;
         }
 
+        System.out.println("[VirtualResourceOpener] creating ConnectionTabImpl (FTP) for " + resource.getResolvedPath());
         ConnectionTabImpl tab = new ConnectionTabImpl(resource, fs, tabManager, searchPattern);
         tabManager.addTab(tab);
         tab.loadDirectory(resource.getResolvedPath());
