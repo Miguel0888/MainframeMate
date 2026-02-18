@@ -274,17 +274,27 @@ public class CommonsNetFtpFileService implements FileService {
         byte[] buffer = new byte[8192];
         int read;
         while ((read = in.read(buffer)) != -1) {
-            if (padding == null) {
-                out.write(buffer, 0, read);
-            } else {
-                for (int i = 0; i < read; i++) {
-                    if (buffer[i] != padding) {
-                        out.write(buffer[i]);
-                    }
-                }
-            }
+            // Immer 1:1 übernehmen. Padding wird erst am Ende getrimmt.
+            out.write(buffer, 0, read);
         }
-        return out.toByteArray();
+
+        byte[] bytes = out.toByteArray();
+        if (padding == null) {
+            return bytes;
+        }
+
+        int end = bytes.length;
+        byte pad = padding;
+        while (end > 0 && bytes[end - 1] == pad) {
+            end--;
+        }
+
+        if (end == bytes.length) {
+            return bytes;
+        }
+        byte[] trimmed = new byte[end];
+        System.arraycopy(bytes, 0, trimmed, 0, end);
+        return trimmed;
     }
 
     private String resolvePath(String path) {
@@ -313,29 +323,19 @@ public class CommonsNetFtpFileService implements FileService {
     }
 
     private List<String> resolveMvsCandidates(String path) {
+        if (mvsDialect instanceof MvsPathDialect) {
+            return ((MvsPathDialect) mvsDialect).resolveCandidates(path);
+        }
         String trimmed = path == null ? "" : path.trim();
-        if (trimmed.startsWith("'")) {
-            return Collections.singletonList(mvsDialect.toAbsolutePath(trimmed));
-        }
-        if (trimmed.contains("(")) {
-            return Collections.singletonList(mvsDialect.toAbsolutePath(trimmed));
-        }
-        if (trimmed.contains(".")) {
-            int last = trimmed.lastIndexOf('.');
-            String dataset = trimmed.substring(0, last);
-            String member = trimmed.substring(last + 1);
-            String candidate1 = mvsDialect.toAbsolutePath(dataset + "(" + member + ")");
-            String candidate2 = mvsDialect.toAbsolutePath(trimmed);
-            List<String> candidates = new ArrayList<String>(2);
-            candidates.add(candidate1);
-            candidates.add(candidate2);
-            return candidates;
-        }
         return Collections.singletonList(mvsDialect.toAbsolutePath(trimmed));
     }
 
     private String joinPath(String parent, String name) {
         if (mvsMode) {
+            if (mvsDialect instanceof MvsPathDialect) {
+                return ((MvsPathDialect) mvsDialect).childOf(parent, name);
+            }
+
             String rawParent = unquote(parent);
             if (rawParent.isEmpty()) {
                 return mvsDialect.toAbsolutePath(name);
