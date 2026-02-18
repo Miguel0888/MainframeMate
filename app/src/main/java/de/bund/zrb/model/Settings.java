@@ -54,4 +54,13 @@ public class Settings {
     public long workflowTimeout = 10_000; // 10 Sekunden default
     public boolean compareByDefault = false;
 
+    // Proxy
+    public boolean proxyEnabled = false;
+    public String proxyMode = "WINDOWS_PAC";
+    public String proxyHost = "";
+    public int proxyPort = 0;
+    public boolean proxyNoProxyLocal = true;
+    public String proxyPacScript = de.bund.zrb.net.ProxyDefaults.DEFAULT_PAC_SCRIPT;
+    public String proxyTestUrl = de.bund.zrb.net.ProxyDefaults.DEFAULT_TEST_URL;
+
 }

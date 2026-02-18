@@ -7,6 +7,10 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.util.ExecutableLauncher;
 import de.bund.zrb.util.WindowsCryptoUtil;
+import de.bund.zrb.net.ProxyDefaults;
+import de.bund.zrb.net.ProxyResolver;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -81,6 +85,15 @@ public class SettingsDialog {
     private static JButton clearPasswordButton;
     private static boolean clearPasswordRequested;
 
+    private static JCheckBox proxyEnabledBox;
+    private static JComboBox<String> proxyModeBox;
+    private static JTextField proxyHostField;
+    private static JSpinner proxyPortSpinner;
+    private static JCheckBox proxyNoProxyLocalBox;
+    private static RSyntaxTextArea proxyPacScriptArea;
+    private static JTextField proxyTestUrlField;
+    private static JButton proxyTestButton;
+
     public static void show(Component parent, FtpManager ftpManager) {
         show(parent, ftpManager, 0);
     }
@@ -98,12 +111,15 @@ public class SettingsDialog {
         JScrollPane connectPanel = new JScrollPane(connectContent);
         JPanel aiContent = new JPanel(new GridBagLayout());
         JScrollPane aiPanel = new JScrollPane(aiContent);
+        JPanel proxyContent = new JPanel(new GridBagLayout());
+        JScrollPane proxyPanel = new JScrollPane(proxyContent);
 
         tabs.addTab("Allgemein", generalPanel);
         tabs.addTab("Farbzuordnung", colorPanel);
         tabs.addTab("Datenumwandlung", transformPanel);
         tabs.addTab("FTP-Verbindung", connectPanel);
         tabs.add("KI", aiPanel);
+        tabs.add("Proxy", proxyPanel);
 
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabCount()) {
             tabs.setSelectedIndex(initialTabIndex);
@@ -117,6 +133,7 @@ public class SettingsDialog {
         createConnectContent(connectContent);
         createColorContent(colorContent, parent);
         createAiContent(aiContent);
+        createProxyContent(proxyContent, parent);
 
         showAndApply(parent, ftpManager, tabs);
     }
@@ -705,6 +722,72 @@ public class SettingsDialog {
         ((CardLayout) providerOptionsPanel.getLayout()).show(providerOptionsPanel, selectedProvider.name());
     }
 
+    private static void createProxyContent(JPanel proxyContent, Component parent) {
+        GridBagConstraints gbc = createDefaultGbc();
+
+        proxyEnabledBox = new JCheckBox("Proxy aktivieren");
+        proxyEnabledBox.setSelected(settings.proxyEnabled);
+        proxyContent.add(proxyEnabledBox, gbc);
+        gbc.gridy++;
+
+        proxyContent.add(new JLabel("Proxy-Modus:"), gbc);
+        gbc.gridy++;
+        proxyModeBox = new JComboBox<>(new String[] { "WINDOWS_PAC", "MANUAL" });
+        proxyModeBox.setSelectedItem(settings.proxyMode == null ? "WINDOWS_PAC" : settings.proxyMode);
+        proxyContent.add(proxyModeBox, gbc);
+        gbc.gridy++;
+
+        proxyContent.add(new JLabel("Hinweis: PAC/WPAD wird nicht geparst. Der effektive Proxy wird per PowerShell ermittelt."), gbc);
+        gbc.gridy++;
+
+        proxyContent.add(new JLabel("Proxy Host (manuell):"), gbc);
+        gbc.gridy++;
+        proxyHostField = new JTextField(settings.proxyHost == null ? "" : settings.proxyHost, 24);
+        proxyContent.add(proxyHostField, gbc);
+        gbc.gridy++;
+
+        proxyContent.add(new JLabel("Proxy Port (manuell):"), gbc);
+        gbc.gridy++;
+        proxyPortSpinner = new JSpinner(new SpinnerNumberModel(settings.proxyPort, 0, 65535, 1));
+        proxyContent.add(proxyPortSpinner, gbc);
+        gbc.gridy++;
+
+        proxyNoProxyLocalBox = new JCheckBox("Lokale Ziele niemals über Proxy");
+        proxyNoProxyLocalBox.setSelected(settings.proxyNoProxyLocal);
+        proxyContent.add(proxyNoProxyLocalBox, gbc);
+        gbc.gridy++;
+
+        proxyContent.add(new JLabel("PAC/WPAD Script (PowerShell):"), gbc);
+        gbc.gridy++;
+        proxyPacScriptArea = new RSyntaxTextArea(12, 60);
+        proxyPacScriptArea.setSyntaxEditingStyle("text/powershell");
+        proxyPacScriptArea.setCodeFoldingEnabled(true);
+        proxyPacScriptArea.setText(settings.proxyPacScript == null ? ProxyDefaults.DEFAULT_PAC_SCRIPT : settings.proxyPacScript);
+        proxyContent.add(new RTextScrollPane(proxyPacScriptArea), gbc);
+        gbc.gridy++;
+
+        proxyContent.add(new JLabel("Test-URL:"), gbc);
+        gbc.gridy++;
+        proxyTestUrlField = new JTextField(settings.proxyTestUrl == null ? ProxyDefaults.DEFAULT_TEST_URL : settings.proxyTestUrl, 30);
+        proxyContent.add(proxyTestUrlField, gbc);
+        gbc.gridy++;
+
+        proxyTestButton = new JButton("Proxy testen");
+        proxyTestButton.addActionListener(e -> {
+            String testUrl = proxyTestUrlField.getText().trim();
+            if (testUrl.isEmpty()) {
+                JOptionPane.showMessageDialog(parent, "Bitte eine Test-URL eingeben.", "Proxy Test", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String script = proxyPacScriptArea.getText();
+            ProxyResolver.ProxyResolution result = ProxyResolver.testPacScript(testUrl, script);
+            String msg = result.isDirect()
+                    ? "DIRECT (" + result.getReason() + ")"
+                    : result.getProxy().address().toString() + " (" + result.getReason() + ")";
+            JOptionPane.showMessageDialog(parent, msg, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
+        });
+        proxyContent.add(proxyTestButton, gbc);
+    }
 
     private static void showAndApply(Component parent, FtpManager ftpManager, JTabbedPane tabs) {
         // Dialog formatieren
@@ -803,6 +886,14 @@ public class SettingsDialog {
             settings.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
             settings.aiConfig.put("wrapjson", String.valueOf(wrapJsonBox.isSelected()));
             settings.aiConfig.put("prettyjson", String.valueOf(prettyJsonBox.isSelected()));
+
+            settings.proxyEnabled = proxyEnabledBox.isSelected();
+            settings.proxyMode = Objects.toString(proxyModeBox.getSelectedItem(), "WINDOWS_PAC");
+            settings.proxyHost = proxyHostField.getText().trim();
+            settings.proxyPort = ((Number) proxyPortSpinner.getValue()).intValue();
+            settings.proxyNoProxyLocal = proxyNoProxyLocalBox.isSelected();
+            settings.proxyPacScript = proxyPacScriptArea.getText();
+            settings.proxyTestUrl = proxyTestUrlField.getText().trim();
 
             SettingsHelper.save(settings);
 

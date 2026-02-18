@@ -9,10 +9,12 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
+import de.bund.zrb.net.ProxyResolver;
 import okhttp3.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.net.Proxy;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -26,7 +28,7 @@ public class OllamaChatManager implements ChatManager {
 
     private final String apiUrlDefault;
     private final String modelDefault;
-    private final OkHttpClient client;
+    private final OkHttpClient baseClient;
     private final Gson gson;
 
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
@@ -38,7 +40,7 @@ public class OllamaChatManager implements ChatManager {
     public OllamaChatManager(String apiUrlDefault, String modelDefault) {
         this.apiUrlDefault = apiUrlDefault;
         this.modelDefault = modelDefault;
-        this.client = new OkHttpClient.Builder()
+        this.baseClient = new OkHttpClient.Builder()
                 .addInterceptor(new RetryInterceptor(7, 1000))
                 .connectTimeout(3, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS) // streamt unendlich
@@ -95,6 +97,8 @@ public class OllamaChatManager implements ChatManager {
         Settings settings = SettingsHelper.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
+
+        OkHttpClient client = buildClient(url, settings);
 
         ChatHistory history;
         if(useContext) {
@@ -197,6 +201,13 @@ public class OllamaChatManager implements ChatManager {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private OkHttpClient buildClient(String url, Settings settings) {
+        ProxyResolver.ProxyResolution resolution = ProxyResolver.resolveForUrl(url, settings);
+        return baseClient.newBuilder()
+                .proxy(resolution.isDirect() ? Proxy.NO_PROXY : resolution.getProxy())
+                .build();
     }
 
     private static class OllamaRequest {
