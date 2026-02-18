@@ -271,24 +271,44 @@ public class ChatSession extends JPanel {
                             // If the model responded with a tool-call JSON, execute it and show a TOOL participant.
                             JsonObject toolCall = extractToolCall(botText);
                             if (toolCall != null) {
+                                String toolName = toolCall.has("name") && !toolCall.get("name").isJsonNull()
+                                        ? toolCall.get("name").getAsString() : "unbekannt";
+
                                 // Replace the bot bubble content with a short note to avoid showing raw JSON.
-                                // The actual TOOL_USE/TOOL_RESULT will appear as collapsible Tool cards.
-                                String replacement = "(Tool-Aufruf erkannt: "
-                                        + (toolCall.has("name") ? toolCall.get("name").getAsString() : "unbekannt") + ")";
+                                String replacement = "(Tool-Aufruf erkannt: " + toolName + ")";
 
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(replacement);
                                 formatter.appendBotMessageChunk("\n");
                                 formatter.appendBotMessageChunk(replacement);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
 
-                                // Show TOOL_USE card immediately (collapsed) for transparency
-                                formatter.appendToolEvent("🔧 Tool-Call", toolCall.toString());
+                                // Execute tool-call using the already parsed JSON to avoid format mismatches.
+                                try {
+                                    mcpService.accept(toolCall, sessionId, null);
+                                } catch (Exception e) {
+                                    // Mirror the same error reporting as maybeExecuteToolCall
+                                    String name = toolName;
+                                    JsonObject error = new JsonObject();
+                                    error.addProperty("status", "error");
+                                    error.addProperty("errorType", e.getClass().getName());
+                                    error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
+                                    error.add("toolCall", toolCall);
+                                    formatter.appendToolEvent("⚠ Tool-Fehler: " + name, error.toString(), true);
+                                    if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
+                                        String msg = "TOOL_RESULT " + name + "\n```json\n" + error + "\n```";
+                                        chatManager.getHistory(sessionId).addToolMessage(msg);
+                                    }
+                                }
 
-                                maybeExecuteToolCall(botText);
-                            } else {
-                                Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
-                                formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
+                                // Automatic follow-up: use TOOL_RESULT
+                                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
+                                    streamAssistantFollowUp("Nutze das TOOL_RESULT oben und antworte dem Nutzer.");
+                                }
+                                return;
                             }
+
+                            Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
+                            formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
 
                             awaitingBotResponse = false;
                             cancelButton.setVisible(false);

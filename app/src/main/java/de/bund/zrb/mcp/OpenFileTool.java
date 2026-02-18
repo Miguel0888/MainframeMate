@@ -50,6 +50,12 @@ public class OpenFileTool implements McpTool {
         JsonObject response = new JsonObject();
 
         try {
+            if (input == null || !input.has("file") || input.get("file").isJsonNull()) {
+                response.addProperty("status", "error");
+                response.addProperty("message", "Pflichtfeld fehlt: file");
+                return new McpToolResponse(response, resultVar, null);
+            }
+
             String file = input.get("file").getAsString();
             String sentenceType = input.has("satzart") && !input.get("satzart").isJsonNull()
                     ? input.get("satzart").getAsString()
@@ -63,16 +69,20 @@ public class OpenFileTool implements McpTool {
                     ? input.get("toCompare").getAsBoolean()
                     : null;
 
-            FtpTab ftpTab = context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
-            if( ftpTab != null) {
-                result = ftpTab.getContent();
+            FtpTab tab = context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
+            if (tab == null) {
+                response.addProperty("status", "error");
+                response.addProperty("openedFile", file);
+                response.addProperty("message", "Konnte Datei/Verzeichnis nicht öffnen (kein Tab zurückgegeben). Details siehe Tool-Result im Chat.");
+                return new McpToolResponse(response, resultVar, null);
             }
 
+            result = tab.getContent();
             response.addProperty("status", "success");
             response.addProperty("openedFile", file);
         } catch (Exception e) {
             response.addProperty("status", "error");
-            response.addProperty("message", "Fehler beim Öffnen der Datei: " + e.getMessage());
+            response.addProperty("message", "Fehler beim Öffnen der Datei: " + (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
         }
 
         return new McpToolResponse(response, resultVar, result);
