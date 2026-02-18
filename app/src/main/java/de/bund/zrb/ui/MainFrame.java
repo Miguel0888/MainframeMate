@@ -362,15 +362,15 @@ public class MainFrame extends JFrame implements MainframeContext {
                     de.bund.zrb.files.model.FilePayload payload = fs.readFile(f.getAbsolutePath());
                     String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : java.nio.charset.Charset.defaultCharset());
 
-                    // Publish a tool UX event if a bridge is available (used by chat)
                     if (chatEventBridge != null) {
+                        java.util.UUID sid = getActiveChatSessionIdOrNull();
                         com.google.gson.JsonObject ok = new com.google.gson.JsonObject();
                         ok.addProperty("status", "success");
                         ok.addProperty("scheme", "local");
                         ok.addProperty("openedFile", f.getAbsolutePath());
                         ok.addProperty("bytes", payload.getBytes() == null ? 0 : payload.getBytes().length);
                         ok.addProperty("charset", payload.getCharset() == null ? null : payload.getCharset().name());
-                        chatEventBridge.publish(null, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", ok));
+                        chatEventBridge.publish(sid, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", ok));
                     }
 
                     return tabManager.openFileTab(new FtpManager(), content, sentenceType);
@@ -384,15 +384,15 @@ public class MainFrame extends JFrame implements MainframeContext {
                 return tab;
 
             } catch (Exception ex) {
-                // Report error into chat if available; avoid blocking UI with modal dialogs.
                 if (chatEventBridge != null) {
+                    java.util.UUID sid = getActiveChatSessionIdOrNull();
                     com.google.gson.JsonObject err = new com.google.gson.JsonObject();
                     err.addProperty("status", "error");
                     err.addProperty("scheme", "local");
                     err.addProperty("path", localPath);
                     err.addProperty("errorType", ex.getClass().getName());
                     err.addProperty("message", ex.getMessage());
-                    chatEventBridge.publish(null, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", err));
+                    chatEventBridge.publish(sid, new de.zrb.bund.newApi.ChatEvent(de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT, "open_file", err));
                 }
                 return null;
             }
@@ -578,4 +578,44 @@ public class MainFrame extends JFrame implements MainframeContext {
     public de.bund.zrb.service.McpChatEventBridge getChatEventBridge() {
         return chatEventBridge;
     }
+
+    private java.util.UUID getActiveChatSessionIdOrNull() {
+        try {
+            if (rightDrawer == null) {
+                return null;
+            }
+            // RightDrawer -> Chat -> selected tab may be a ChatSession
+            java.awt.Component drawerComponent = rightDrawer;
+            // Find any ChatSession within the right drawer hierarchy that is currently selected
+            java.util.List<de.bund.zrb.ui.components.ChatSession> sessions = new java.util.ArrayList<>();
+            findChatSessions(drawerComponent, sessions);
+            if (sessions.isEmpty()) {
+                return null;
+            }
+            // Prefer the one that is currently showing
+            for (de.bund.zrb.ui.components.ChatSession s : sessions) {
+                if (s != null && s.isShowing()) {
+                    return s.getSessionId();
+                }
+            }
+            return sessions.get(0).getSessionId();
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private void findChatSessions(java.awt.Component root, java.util.List<de.bund.zrb.ui.components.ChatSession> out) {
+        if (root == null || out == null) {
+            return;
+        }
+        if (root instanceof de.bund.zrb.ui.components.ChatSession) {
+            out.add((de.bund.zrb.ui.components.ChatSession) root);
+        }
+        if (root instanceof java.awt.Container) {
+            for (java.awt.Component c : ((java.awt.Container) root).getComponents()) {
+                findChatSessions(c, out);
+            }
+        }
+    }
 }
+

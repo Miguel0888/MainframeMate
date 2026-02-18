@@ -178,7 +178,18 @@ public class ChatSession extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 String header = "🔧 Tool: " + (event.getToolName() == null ? "" : event.getToolName());
                 String body = event.getPayload() != null ? event.getPayload().toString() : "";
-                formatter.appendToolEvent(header, body);
+
+                boolean isError = false;
+                if (event.getPayload() != null && event.getPayload().has("status")
+                        && !event.getPayload().get("status").isJsonNull()) {
+                    try {
+                        isError = "error".equalsIgnoreCase(event.getPayload().get("status").getAsString());
+                    } catch (Exception ignore) {
+                        // ignore
+                    }
+                }
+
+                formatter.appendToolEvent(header, body, isError);
 
                 // If context memory is enabled, feed tool result back into the session history
                 // so the next LLM call can take it into account.
@@ -257,11 +268,27 @@ public class ChatSession extends JPanel {
                         SwingUtilities.invokeLater(() -> {
                             String botText = currentBotResponse.toString();
 
-                            Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
-                            formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
-
                             // If the model responded with a tool-call JSON, execute it and show a TOOL participant.
-                            maybeExecuteToolCall(botText);
+                            JsonObject toolCall = extractToolCall(botText);
+                            if (toolCall != null) {
+                                // Replace the bot bubble content with a short note to avoid showing raw JSON.
+                                // The actual TOOL_USE/TOOL_RESULT will appear as collapsible Tool cards.
+                                String replacement = "(Tool-Aufruf erkannt: "
+                                        + (toolCall.has("name") ? toolCall.get("name").getAsString() : "unbekannt") + ")";
+
+                                Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(replacement);
+                                formatter.appendBotMessageChunk("\n");
+                                formatter.appendBotMessageChunk(replacement);
+                                formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
+
+                                // Show TOOL_USE card immediately (collapsed) for transparency
+                                formatter.appendToolEvent("🔧 Tool-Call", toolCall.toString());
+
+                                maybeExecuteToolCall(botText);
+                            } else {
+                                Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
+                                formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
+                            }
 
                             awaitingBotResponse = false;
                             cancelButton.setVisible(false);
