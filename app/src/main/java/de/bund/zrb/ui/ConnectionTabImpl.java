@@ -2,7 +2,12 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.ftp.FtpManager;
-import de.bund.zrb.ftp.FtpObserver;
+import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.impl.factory.FileServiceFactory;
+import de.bund.zrb.files.model.FileNode;
+import de.bund.zrb.ui.browser.BrowserSessionState;
+import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -16,9 +21,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
-public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
+public class ConnectionTabImpl implements ConnectionTab {
 
     private final FtpManager ftpManager;
+    private final FileService fileService;
+    private final BrowserSessionState browserState;
+    private final PathNavigator navigator;
+
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
     private final DefaultListModel<String> listModel = new DefaultListModel<>();
@@ -27,11 +36,27 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
 
     private final JTextField searchField = new JTextField();
     private List<String> currentDirectoryFiles = new ArrayList<>();
+    private List<FileNode> currentDirectoryNodes = new ArrayList<>();
 
     public ConnectionTabImpl(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager, String searchPattern) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.ftpManager = ftpManager;
         this.mainPanel = new JPanel(new BorderLayout());
+
+        // FileService facade (stateless-by-path)
+        de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+        String host = s.host;
+        String user = s.user;
+        String password = de.bund.zrb.login.LoginManager.getInstance().getPassword(host, user);
+
+        try {
+            this.fileService = new FileServiceFactory().createFtp(host, user, password);
+        } catch (FileServiceException e) {
+            throw new RuntimeException("Konnte FileService nicht initialisieren", e);
+        }
+
+        this.navigator = new PathNavigator(ftpManager.isMvsMode());
+        this.browserState = new BrowserSessionState(navigator.normalize("/"));
 
         JPanel pathPanel = new JPanel(new BorderLayout());
 
@@ -48,18 +73,10 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         backButton.setMargin(new Insets(0, 0, 0, 0));
         backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
         backButton.addActionListener(e -> {
-            try {
-                if (ftpManager.changeToParentDirectory()) {
-                    pathField.setText(ftpManager.getCurrentPath());
-                    updateFileList();
-                } else {
-                    JOptionPane.showMessageDialog(mainPanel, "Kein übergeordnetes Verzeichnis vorhanden.",
-                            "Hinweis", JOptionPane.INFORMATION_MESSAGE);
-                }
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Zurückwechseln:\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
+            String parent = navigator.parentOf(browserState.getCurrentPath());
+            browserState.goTo(parent);
+            pathField.setText(browserState.getCurrentPath());
+            updateFileList();
         });
 
         // Öffnen-Button rechts
@@ -79,36 +96,59 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
 
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
+        mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    String selected = fileList.getSelectedValue();
-                    if (selected == null) return;
-                    try {
-                        FtpFileBuffer buffer = ftpManager.open(selected);
-                        if( buffer != null) // no DIR
-                        {
-                            tabbedPaneManager.openFileTab(ftpManager, buffer, null,null, false);
-                        }
-                        else
-                        {
-                            pathField.setText(ftpManager.getCurrentPath());
-                            updateFileList();
-                        }
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                                "Fehler", JOptionPane.ERROR_MESSAGE);
+                if (e.getClickCount() != 2) return;
+
+                String selected = fileList.getSelectedValue();
+                if (selected == null) return;
+
+                FileNode node = findNodeByName(selected);
+                if (node != null && node.isDirectory()) {
+                    browserState.goTo(node.getPath());
+                    pathField.setText(browserState.getCurrentPath());
+                    updateFileList();
+                    return;
+                }
+
+                // Best effort: try to treat as directory first, without using CWD.
+                String nextPath = navigator.childOf(browserState.getCurrentPath(), selected);
+                try {
+                    List<FileNode> listed = fileService.list(nextPath);
+                    currentDirectoryNodes = listed == null ? new ArrayList<>() : listed;
+                    browserState.goTo(nextPath);
+                    pathField.setText(browserState.getCurrentPath());
+                    refreshListModelFromNodes();
+                    return;
+                } catch (Exception ignore) {
+                    // not a directory
+                }
+
+                // Fallback: open via legacy ftpManager (Issue 2 scope is primarily navigation/list)
+                try {
+                    FtpFileBuffer buffer = ftpManager.open(selected);
+                    if (buffer != null) {
+                        tabbedPaneManager.openFileTab(ftpManager, buffer, null, null, false);
                     }
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
 
-        mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
+        // Initial load
+        pathField.setText(browserState.getCurrentPath());
+        updateFileList();
 
-        ftpManager.addObserver(this);
+        if (searchPattern != null && !searchPattern.trim().isEmpty()) {
+            searchField.setText(searchPattern.trim());
+            applySearchFilter();
+        }
     }
 
     @Override
@@ -128,7 +168,11 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
 
     @Override
     public void onClose() {
-        ftpManager.removeObserver(this);
+        try {
+            fileService.close();
+        } catch (Exception ignore) {
+            // ignore
+        }
     }
 
     @Override
@@ -136,28 +180,46 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         // nichts zu speichern
     }
 
-    public String getCurrentPath() {
-        return pathField.getText();
+    @Override
+    public String getContent() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < listModel.size(); i++) {
+            sb.append(listModel.get(i)).append("\n");
+        }
+        return sb.toString();
     }
 
     @Override
-    public void onDirectoryChanged(String newPath) {
-        pathField.setText(newPath);
-        updateFileList();
+    public void markAsChanged() {
+        // Optional: Visual indication, if ever needed
+    }
+
+    @Override
+    public String getPath() {
+        return pathField.getText();
     }
 
     public void loadDirectory(String path) {
-        try {
-            if (ftpManager.changeDirectory(path)) {
-                updateFileList();
-            } else {
-                JOptionPane.showMessageDialog(mainPanel, "Verzeichnis nicht gefunden: " + path,
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Laden:\n" + e.getMessage(),
-                    "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
+        browserState.goTo(navigator.normalize(path));
+        pathField.setText(browserState.getCurrentPath());
+        updateFileList();
+    }
+
+    @Override
+    public Type getType() {
+        return Type.CONNECTION;
+    }
+
+    @Override
+    public void focusSearchField() {
+        searchField.requestFocusInWindow();
+        searchField.selectAll();
+    }
+
+    public void searchFor(String searchPattern) {
+        if (searchPattern == null) return;
+        searchField.setText(searchPattern.trim());
+        applySearchFilter();
     }
 
     @Override
@@ -167,7 +229,7 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         JMenuItem bookmarkItem = new JMenuItem("🕮 Bookmark setzen");
         bookmarkItem.addActionListener(e -> {
             MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
-            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), getCurrentPath());
+            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), getPath());
         });
 
         JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
@@ -178,36 +240,96 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         return menu;
     }
 
-    // Statusleiste mit Filterfeld in der Mitte
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        // Linker Bereich: Encoding, Neue Datei etc.
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton newFileButton = new JButton("📄");
         newFileButton.setToolTipText("Neue Datei anlegen");
         newFileButton.addActionListener(e -> createNewFile());
-
-        JButton newPdsButton = new JButton("📁");
-        newPdsButton.setToolTipText("Neues PDS anlegen");
-        newPdsButton.addActionListener(e -> createNewPds());
-
         leftPanel.add(newFileButton);
-        //leftPanel.add(newPdsButton); //ToDo: Fix, currently not working
 
-        // Rechter Bereich: Löschen
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton deleteButton = new JButton("🗑");
         deleteButton.setToolTipText("Ausgewählte Datei löschen");
         deleteButton.addActionListener(e -> deleteSelectedEntry());
         rightPanel.add(deleteButton);
 
-        // Einfügen
         statusBar.add(leftPanel, BorderLayout.WEST);
         statusBar.add(createFilterPanel(), BorderLayout.CENTER);
         statusBar.add(rightPanel, BorderLayout.EAST);
 
         return statusBar;
+    }
+
+    private JPanel createFilterPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
+        panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
+        panel.add(searchField, BorderLayout.CENTER);
+
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { applySearchFilter(); }
+            public void removeUpdate(DocumentEvent e) { applySearchFilter(); }
+            public void changedUpdate(DocumentEvent e) { applySearchFilter(); }
+        });
+
+        return panel;
+    }
+
+    private void applySearchFilter() {
+        String regex = searchField.getText().trim();
+
+        listModel.clear();
+
+        boolean hasMatch = false;
+        for (String file : currentDirectoryFiles) {
+            try {
+                if (Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(file).find()) {
+                    listModel.addElement(file);
+                    hasMatch = true;
+                }
+            } catch (Exception e) {
+                hasMatch = false;
+                break;
+            }
+        }
+
+        searchField.setBackground(hasMatch || regex.isEmpty()
+                ? UIManager.getColor("TextField.background")
+                : new Color(255, 200, 200));
+    }
+
+    private void updateFileList() {
+        SwingUtilities.invokeLater(() -> {
+            listModel.clear();
+            try {
+                List<FileNode> nodes = fileService.list(browserState.getCurrentPath());
+                currentDirectoryNodes = nodes == null ? new ArrayList<>() : nodes;
+                refreshListModelFromNodes();
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+    }
+
+    private void refreshListModelFromNodes() {
+        currentDirectoryFiles = new ArrayList<>();
+        for (FileNode n : currentDirectoryNodes) {
+            currentDirectoryFiles.add(n.getName());
+            listModel.addElement(n.getName());
+        }
+    }
+
+    private FileNode findNodeByName(String name) {
+        if (name == null) return null;
+        for (FileNode n : currentDirectoryNodes) {
+            if (name.equals(n.getName())) {
+                return n;
+            }
+        }
+        return null;
     }
 
     private void createNewFile() {
@@ -248,116 +370,5 @@ public class ConnectionTabImpl implements ConnectionTab, FtpObserver {
         } catch (IOException e) {
             JOptionPane.showMessageDialog(mainPanel, "Fehler beim Löschen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-    private void createNewPds() {
-        String dataset = JOptionPane.showInputDialog(mainPanel, "Name des neuen PDS (z. B. USER.TEST.PDS):", "Neues PDS", JOptionPane.PLAIN_MESSAGE);
-        if (dataset == null || dataset.trim().isEmpty()) return;
-
-        try {
-            if (ftpManager.createPds(dataset)) {
-                JOptionPane.showMessageDialog(mainPanel, "PDS erstellt: " + dataset);
-                updateFileList();
-            } else {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Erstellen des PDS.", "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (IOException | UnsupportedOperationException e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    @Override
-    public String getContent() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < listModel.size(); i++) {
-            sb.append(listModel.get(i)).append("\n");
-        }
-        return sb.toString();
-    }
-
-    @Override
-    public void markAsChanged() {
-        // Optional: Visual indication, if ever needed
-        // tabbedPaneManager.updateTitleFor(this);
-    }
-
-    @Override
-    public String getPath() {
-        return getCurrentPath(); // oder pathField.getText()
-    }
-
-    @Override
-    public Type getType() {
-        return Type.CONNECTION;
-    }
-
-    // Suchfeld ins UI einbauen
-    private JPanel createFilterPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
-        panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        panel.add(searchField, BorderLayout.CENTER);
-
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { applySearchFilter(); }
-            public void removeUpdate(DocumentEvent e) { applySearchFilter(); }
-            public void changedUpdate(DocumentEvent e) { applySearchFilter(); }
-        });
-        ;
-        return panel;
-    }
-
-    private void applySearchFilter() {
-        String regex = searchField.getText().trim();
-
-        listModel.clear();
-
-        boolean hasMatch = false;
-        for (String file : currentDirectoryFiles) {
-            try {
-                if (Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(file).find()) {
-                    listModel.addElement(file);
-                    hasMatch = true;
-                }
-            } catch (Exception e) {
-                // ungültiger Regex, keine Matches
-                hasMatch = false;
-                break;
-            }
-        }
-
-        searchField.setBackground(hasMatch || regex.isEmpty()
-                ? UIManager.getColor("TextField.background")
-                : new Color(255, 200, 200));
-    }
-
-    // updateFileList anpassen:
-    private void updateFileList() {
-        SwingUtilities.invokeLater(() -> {
-            listModel.clear();
-            try {
-                List<String> files = ftpManager.listDirectory();
-                currentDirectoryFiles = files;
-                for (String file : files) {
-                    listModel.addElement(file);
-                }
-                searchField.setText(""); // Filter zurücksetzen
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        });
-    }
-
-    @Override
-    public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
-    }
-
-    public void searchFor(String searchPattern) {
-        if (searchPattern == null) return;
-        searchField.setText(searchPattern.trim());
-        applySearchFilter(); // sofort manuell filtern
     }
 }
