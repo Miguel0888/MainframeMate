@@ -345,9 +345,36 @@ public class MainFrame extends JFrame implements MainframeContext {
             // LOCAL: open a local browser tab and (if it is a file) open it in the editor
             String localPath = ref.isFileUri() ? path : ref.normalizeLocalAbsolutePath();
 
+            try {
+                // If a file is passed in directly, open it right away.
+                // For file:-URIs we can still treat it as a path for VFS, but the editor expects content.
+                java.io.File f;
+                if (ref.isFileUri()) {
+                    try {
+                        java.net.URI uri = java.net.URI.create(localPath.trim());
+                        f = new java.io.File(uri);
+                    } catch (Exception ignore) {
+                        f = new java.io.File(localPath);
+                    }
+                } else {
+                    f = new java.io.File(localPath);
+                }
+
+                if (f.isFile()) {
+                    de.bund.zrb.files.api.FileService fs = new de.bund.zrb.files.impl.local.VfsLocalFileService();
+                    de.bund.zrb.files.model.FilePayload payload = fs.readFile(f.getAbsolutePath());
+                    String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : java.nio.charset.Charset.defaultCharset());
+                    return tabManager.openFileTab(new FtpManager(), content, sentenceType);
+                }
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Fehler beim Öffnen (lokal):\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+                return null;
+            }
+
             LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
             tabManager.addTab(tab);
-            tab.loadDirectory(localPath);
+            tab.loadDirectory(ref.isFileUri() ? new java.io.File(java.net.URI.create(localPath.trim())).getParent() : localPath);
             return tab;
         }
 
