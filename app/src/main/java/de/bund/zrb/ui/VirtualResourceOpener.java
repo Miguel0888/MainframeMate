@@ -66,10 +66,12 @@ public final class VirtualResourceOpener {
             return tab;
         }
 
-        // FTP directory - use unified ConnectionTabImpl with FileService
         ConnectionTabImpl tab = new ConnectionTabImpl(resource, fs, tabManager, searchPattern);
         tabManager.addTab(tab);
         tab.loadDirectory(resource.getResolvedPath());
+        if (searchPattern != null && !searchPattern.trim().isEmpty()) {
+            tab.searchFor(searchPattern);
+        }
         return tab;
     }
 

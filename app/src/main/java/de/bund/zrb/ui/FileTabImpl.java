@@ -53,7 +53,8 @@ public class FileTabImpl implements FileTab {
         JMenuItem bookmarkItem = new JMenuItem("📌 Als Lesezeichen merken");
         bookmarkItem.addActionListener(e -> {
             MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
-            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), (buffer != null ? buffer.getLink() : null));
+            String link = buffer != null ? buffer.getLink() : (resource != null ? resource.getResolvedPath() : null);
+            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), link);
         });
 
         JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
@@ -246,13 +247,28 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public String getTitle() {
-        if (model.getBuffer() == null) return "[Neu]";
+        if (model.getBuffer() == null) {
+            if (resource != null) {
+                String path = resource.getResolvedPath();
+                if (path != null && path.contains("/")) {
+                    return path.substring(path.lastIndexOf('/') + 1);
+                }
+                if (path != null && path.contains("\\")) {
+                    return path.substring(path.lastIndexOf('\\') + 1);
+                }
+                return path == null ? "[Neu]" : path;
+            }
+            return "[Neu]";
+        }
         String name = model.getBuffer().getMeta().getName();
         return model.isChanged() ? name + " *" : name;
     }
 
     @Override
     public String getTooltip() {
+        if (model.getBuffer() == null && resource != null) {
+            return resource.getResolvedPath();
+        }
         return model.getFullPath();
     }
 
@@ -304,7 +320,7 @@ public class FileTabImpl implements FileTab {
         FtpFileBuffer buffer = model.getBuffer();
         if (model.getBuffer() == null) {
             JOptionPane.showMessageDialog(mainPanel,
-                    "Diese Datei wurde noch nicht gespeichert.\nBitte 'Speichern unter' verwenden.",
+                    "Speichern über FileService ist noch nicht implementiert.",
                     "Speichern nicht möglich", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -376,6 +392,9 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public String getPath() {
+        if (model.getBuffer() == null && resource != null) {
+            return resource.getResolvedPath();
+        }
         return model.getPath();
     }
 
