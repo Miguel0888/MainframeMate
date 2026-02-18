@@ -2,6 +2,7 @@ package de.bund.zrb.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.bund.zrb.helper.SettingsHelper;
@@ -16,11 +17,17 @@ import okhttp3.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.net.Proxy;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public class CloudChatManager implements ChatManager {
+
+    private static final String VENDOR_OPENAI = "OPENAI";
+    private static final String VENDOR_CLAUDE = "CLAUDE";
 
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
@@ -81,11 +88,10 @@ public class CloudChatManager implements ChatManager {
         }
 
         Settings settings = SettingsHelper.load();
+        String vendor = settings.aiConfig.getOrDefault("cloud.vendor", VENDOR_OPENAI).toUpperCase();
         String url = settings.aiConfig.getOrDefault("cloud.url", "https://api.openai.com/v1/chat/completions");
         String model = settings.aiConfig.getOrDefault("cloud.model", "gpt-4o-mini");
         String apiKey = settings.aiConfig.getOrDefault("cloud.apikey", "").trim();
-        String authHeader = settings.aiConfig.getOrDefault("cloud.authHeader", "Authorization").trim();
-        String authPrefix = settings.aiConfig.getOrDefault("cloud.authPrefix", "Bearer").trim();
 
         if (apiKey.isEmpty()) {
             listener.onError(new IOException("Cloud API Key fehlt. Bitte in den Einstellungen hinterlegen."));
@@ -93,28 +99,9 @@ public class CloudChatManager implements ChatManager {
         }
 
         OkHttpClient client = buildClient(url, settings);
+        Request request = buildRequestForVendor(sessionId, useContext, userInput, settings, vendor, url, model, apiKey);
 
-        JsonObject payload = new JsonObject();
-        payload.addProperty("model", model);
-        payload.addProperty("stream", true);
-        payload.add("messages", buildMessages(sessionId, useContext, userInput));
-
-        RequestBody requestBody = RequestBody.create(gson.toJson(payload), MediaType.get("application/json"));
-        Request.Builder requestBuilder = new Request.Builder().url(url).post(requestBody);
-
-        String authValue = authPrefix.isEmpty() ? apiKey : authPrefix + " " + apiKey;
-        requestBuilder.header(authHeader.isEmpty() ? "Authorization" : authHeader, authValue.trim());
-
-        String organization = settings.aiConfig.getOrDefault("cloud.organization", "").trim();
-        if (!organization.isEmpty()) {
-            requestBuilder.header("OpenAI-Organization", organization);
-        }
-        String project = settings.aiConfig.getOrDefault("cloud.project", "").trim();
-        if (!project.isEmpty()) {
-            requestBuilder.header("OpenAI-Project", project);
-        }
-
-        Call call = client.newCall(requestBuilder.build());
+        Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
         listener.onStreamStart();
 
@@ -136,7 +123,9 @@ public class CloudChatManager implements ChatManager {
                     BufferedReader reader = new BufferedReader(body.charStream());
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        String chunk = extractChunk(line);
+                        String chunk = VENDOR_CLAUDE.equals(vendor)
+                                ? extractClaudeChunk(line)
+                                : extractOpenAiCompatibleChunk(line);
                         if (chunk != null && !chunk.isEmpty()) {
                             listener.onStreamChunk(chunk);
                         }
@@ -152,6 +141,57 @@ public class CloudChatManager implements ChatManager {
         });
 
         return true;
+    }
+
+    private Request buildRequestForVendor(UUID sessionId,
+                                          boolean useContext,
+                                          String userInput,
+                                          Settings settings,
+                                          String vendor,
+                                          String url,
+                                          String model,
+                                          String apiKey) {
+
+        Request.Builder builder = new Request.Builder().url(url);
+        JsonObject payload = new JsonObject();
+
+        if (VENDOR_CLAUDE.equals(vendor)) {
+            String anthropicVersion = settings.aiConfig.getOrDefault("cloud.anthropicVersion", "2023-06-01").trim();
+            if (anthropicVersion.isEmpty()) {
+                anthropicVersion = "2023-06-01";
+            }
+
+            payload.addProperty("model", model);
+            payload.addProperty("stream", true);
+            payload.addProperty("max_tokens", 1024);
+            payload.add("messages", buildMessages(sessionId, useContext, userInput));
+
+            builder.header("x-api-key", apiKey);
+            builder.header("anthropic-version", anthropicVersion);
+            builder.header("content-type", "application/json");
+        } else {
+            String authHeader = settings.aiConfig.getOrDefault("cloud.authHeader", "Authorization").trim();
+            String authPrefix = settings.aiConfig.getOrDefault("cloud.authPrefix", "Bearer").trim();
+            String authValue = authPrefix.isEmpty() ? apiKey : authPrefix + " " + apiKey;
+
+            payload.addProperty("model", model);
+            payload.addProperty("stream", true);
+            payload.add("messages", buildMessages(sessionId, useContext, userInput));
+
+            builder.header(authHeader.isEmpty() ? "Authorization" : authHeader, authValue.trim());
+
+            String organization = settings.aiConfig.getOrDefault("cloud.organization", "").trim();
+            if (!organization.isEmpty()) {
+                builder.header("OpenAI-Organization", organization);
+            }
+            String project = settings.aiConfig.getOrDefault("cloud.project", "").trim();
+            if (!project.isEmpty()) {
+                builder.header("OpenAI-Project", project);
+            }
+        }
+
+        RequestBody body = RequestBody.create(gson.toJson(payload), MediaType.get("application/json"));
+        return builder.post(body).build();
     }
 
     @Override
@@ -195,15 +235,9 @@ public class CloudChatManager implements ChatManager {
         return messages;
     }
 
-    private String extractChunk(String line) {
-        String trimmed = line == null ? "" : line.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        if (trimmed.startsWith("data:")) {
-            trimmed = trimmed.substring("data:".length()).trim();
-        }
-        if ("[DONE]".equals(trimmed)) {
+    private String extractOpenAiCompatibleChunk(String line) {
+        String trimmed = normalizeSseLine(line);
+        if (trimmed == null || "[DONE]".equals(trimmed)) {
             return null;
         }
 
@@ -228,7 +262,10 @@ public class CloudChatManager implements ChatManager {
             if (first.has("message") && first.get("message").isJsonObject()) {
                 JsonObject message = first.getAsJsonObject("message");
                 if (message.has("content") && !message.get("content").isJsonNull()) {
-                    return message.get("content").getAsString();
+                    JsonElement content = message.get("content");
+                    if (content.isJsonPrimitive()) {
+                        return content.getAsString();
+                    }
                 }
             }
         } catch (Exception ignored) {
@@ -236,6 +273,42 @@ public class CloudChatManager implements ChatManager {
         }
 
         return null;
+    }
+
+    private String extractClaudeChunk(String line) {
+        String trimmed = normalizeSseLine(line);
+        if (trimmed == null || "[DONE]".equals(trimmed)) {
+            return null;
+        }
+
+        try {
+            JsonObject root = JsonParser.parseString(trimmed).getAsJsonObject();
+            String type = root.has("type") ? root.get("type").getAsString() : "";
+            if ("content_block_delta".equals(type) && root.has("delta") && root.get("delta").isJsonObject()) {
+                JsonObject delta = root.getAsJsonObject("delta");
+                if (delta.has("text") && !delta.get("text").isJsonNull()) {
+                    return delta.get("text").getAsString();
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+
+        return null;
+    }
+
+    private String normalizeSseLine(String line) {
+        String trimmed = line == null ? "" : line.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.startsWith("event:")) {
+            return null;
+        }
+        if (trimmed.startsWith("data:")) {
+            trimmed = trimmed.substring("data:".length()).trim();
+        }
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private OkHttpClient buildClient(String url, Settings settings) {

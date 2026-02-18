@@ -57,6 +57,7 @@ public class SettingsDialog {
     private static JTextField cloudModelField;
     private static JTextField cloudAuthHeaderField;
     private static JTextField cloudAuthPrefixField;
+    private static JTextField cloudApiVersionField;
     private static JTextField cloudOrgField;
     private static JTextField cloudProjectField;
     private static JCheckBox wrapJsonBox;
@@ -597,7 +598,7 @@ public class SettingsDialog {
         GridBagConstraints gbcCloud = createDefaultGbc();
         cloudPanel.add(new JLabel("Cloud-Anbieter:"), gbcCloud);
         gbcCloud.gridy++;
-        cloudProviderField = new JComboBox<>(new String[]{"OPENAI", "CLOUD", "PERPLEXITY", "GROK", "GEMINI"});
+        cloudProviderField = new JComboBox<>(new String[]{"OPENAI", "CLAUDE", "PERPLEXITY", "GROK", "GEMINI"});
         cloudPanel.add(cloudProviderField, gbcCloud);
         gbcCloud.gridy++;
 
@@ -630,6 +631,12 @@ public class SettingsDialog {
         cloudAuthPrefixField = new JTextField(30);
         cloudPanel.add(cloudAuthPrefixField, gbcCloud);
         gbcCloud.gridy++;
+        cloudPanel.add(new JLabel("Anthropic-Version (nur Claude):"), gbcCloud);
+        gbcCloud.gridy++;
+        cloudApiVersionField = new JTextField(30);
+        cloudPanel.add(cloudApiVersionField, gbcCloud);
+        gbcCloud.gridy++;
+
 
         cloudPanel.add(new JLabel("OpenAI Organisation (optional):"), gbcCloud);
         gbcCloud.gridy++;
@@ -787,6 +794,9 @@ public class SettingsDialog {
         ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
 
         String initialCloudVendor = settings.aiConfig.getOrDefault("cloud.vendor", "OPENAI");
+        if ("CLOUD".equalsIgnoreCase(initialCloudVendor)) {
+            initialCloudVendor = "CLAUDE";
+        }
         cloudProviderField.setSelectedItem(initialCloudVendor);
         applyCloudVendorDefaults(false);
         cloudApiKeyField.setText(settings.aiConfig.getOrDefault("cloud.apikey", ""));
@@ -796,6 +806,7 @@ public class SettingsDialog {
         cloudAuthPrefixField.setText(settings.aiConfig.getOrDefault("cloud.authPrefix", cloudDefaultForVendor(initialCloudVendor, "authPrefix")));
         cloudOrgField.setText(settings.aiConfig.getOrDefault("cloud.organization", ""));
         cloudProjectField.setText(settings.aiConfig.getOrDefault("cloud.project", ""));
+        cloudApiVersionField.setText(settings.aiConfig.getOrDefault("cloud.anthropicVersion", "2023-06-01"));
 
         cloudProviderField.addActionListener(e -> applyCloudVendorDefaults(true));
         cloudResetButton.addActionListener(e -> {
@@ -824,10 +835,13 @@ public class SettingsDialog {
         cloudModelField.setText(cloudDefaultForVendor(vendor, "model"));
         cloudAuthHeaderField.setText(cloudDefaultForVendor(vendor, "authHeader"));
         cloudAuthPrefixField.setText(cloudDefaultForVendor(vendor, "authPrefix"));
+        cloudApiVersionField.setText(cloudDefaultForVendor(vendor, "anthropicVersion"));
 
         boolean isOpenAi = "OPENAI".equals(vendor);
+        boolean isClaude = "CLAUDE".equals(vendor);
         cloudOrgField.setEnabled(isOpenAi);
         cloudProjectField.setEnabled(isOpenAi);
+        cloudApiVersionField.setEnabled(isClaude);
         if (clearOptionalFields && !isOpenAi) {
             cloudOrgField.setText("");
             cloudProjectField.setText("");
@@ -848,9 +862,12 @@ public class SettingsDialog {
                 if ("url".equals(key)) return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
                 if ("model".equals(key)) return "gemini-2.0-flash";
                 break;
-            case "CLOUD":
-                if ("url".equals(key)) return "https://api.openai.com/v1/chat/completions";
-                if ("model".equals(key)) return "gpt-4o-mini";
+            case "CLAUDE":
+                if ("url".equals(key)) return "https://api.anthropic.com/v1/messages";
+                if ("model".equals(key)) return "claude-3-5-sonnet-latest";
+                if ("authHeader".equals(key)) return "x-api-key";
+                if ("authPrefix".equals(key)) return "";
+                if ("anthropicVersion".equals(key)) return "2023-06-01";
                 break;
             case "OPENAI":
             default:
@@ -861,6 +878,7 @@ public class SettingsDialog {
 
         if ("authHeader".equals(key)) return "Authorization";
         if ("authPrefix".equals(key)) return "Bearer";
+        if ("anthropicVersion".equals(key)) return "2023-06-01";
         return "";
     }
 
@@ -1024,6 +1042,7 @@ public class SettingsDialog {
             settings.aiConfig.put("cloud.model", cloudModelField.getText().trim());
             settings.aiConfig.put("cloud.authHeader", cloudAuthHeaderField.getText().trim());
             settings.aiConfig.put("cloud.authPrefix", cloudAuthPrefixField.getText().trim());
+            settings.aiConfig.put("cloud.anthropicVersion", cloudApiVersionField.getText().trim());
             settings.aiConfig.put("cloud.organization", cloudOrgField.getText().trim());
             settings.aiConfig.put("cloud.project", cloudProjectField.getText().trim());
             settings.aiConfig.put("llama.enabled", String.valueOf(llamaEnabledBox.isSelected()));
