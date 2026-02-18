@@ -83,10 +83,40 @@ public class FieldMap {
         @Override
         public FieldMap deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) {
             FieldMap map = new FieldMap();
+            if (json == null || !json.isJsonArray()) {
+                return map;
+            }
             for (JsonElement el : json.getAsJsonArray()) {
+                if (el == null || !el.isJsonObject()) continue;
                 JsonObject obj = el.getAsJsonObject();
-                FieldCoordinate coord = context.deserialize(obj.get("coordinate"), FieldCoordinate.class);
-                SentenceField field = context.deserialize(obj.get("field"), SentenceField.class);
+
+                FieldCoordinate coord;
+                SentenceField field;
+
+                // Check if this is the new format {coordinate, field} or old flat format
+                if (obj.has("coordinate") && obj.has("field")) {
+                    // New format: { "coordinate": {...}, "field": {...} }
+                    coord = context.deserialize(obj.get("coordinate"), FieldCoordinate.class);
+                    field = context.deserialize(obj.get("field"), SentenceField.class);
+                } else if (obj.has("position") && obj.has("row")) {
+                    // Old flat format: { "name": "x", "position": 1, "length": 2, "row": 1, "color": "..." }
+                    // Extract coordinate from position/row
+                    int position = obj.get("position").getAsInt();
+                    int row = obj.get("row").getAsInt();
+                    coord = new FieldCoordinate(row, position);
+                    // Deserialize the whole object as SentenceField
+                    field = context.deserialize(obj, SentenceField.class);
+                } else {
+                    // Unknown format - skip
+                    System.err.println("⚠ FieldMap: Skipping entry with unknown format: " + obj);
+                    continue;
+                }
+
+                // Skip entries with null coordinate to avoid NPE in TreeMap comparator
+                if (coord == null) {
+                    System.err.println("⚠ FieldMap: Skipping entry with null coordinate");
+                    continue;
+                }
                 map.put(coord, field);
             }
             return map;
@@ -96,6 +126,10 @@ public class FieldMap {
     private static class FieldCoordinateComparator implements Comparator<FieldCoordinate> {
         @Override
         public int compare(FieldCoordinate a, FieldCoordinate b) {
+            // Null-safe comparison: nulls sort to the end
+            if (a == null && b == null) return 0;
+            if (a == null) return 1;
+            if (b == null) return -1;
             int rowCompare = Integer.compare(a.getRow(), b.getRow());
             return (rowCompare != 0) ? rowCompare : Integer.compare(a.getPosition(), b.getPosition());
         }
