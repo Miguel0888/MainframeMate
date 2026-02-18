@@ -20,7 +20,7 @@ public class LoginManagerCredentialsProvider implements CredentialsProvider {
     private final PasswordLookup passwordLookup;
 
     public LoginManagerCredentialsProvider(PasswordLookup passwordLookup) {
-        this.passwordLookup = passwordLookup == null ? (host, user) -> null : passwordLookup;
+        this.passwordLookup = java.util.Objects.requireNonNull(passwordLookup, "passwordLookup");
     }
 
     @Override
