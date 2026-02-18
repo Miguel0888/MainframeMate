@@ -39,8 +39,11 @@ public class McpServiceImpl implements McpService {
         // Toolaufruf-ID (optional für Logging / Response Zuordnung)
         String callId = obj.has("tool_call_id") ? obj.get("tool_call_id").getAsString() : null;
 
-        // Eingabe-JSON extrahieren (tool_input oder arguments)
+        // Eingabe-JSON extrahieren (tool_input / input / arguments)
         JsonObject input = extractToolArguments(obj);
+
+        // Validate against ToolSpec.required before executing
+        validateRequired(tool.getSpec(), input);
 
         if (eventSink != null) {
             eventSink.publish(sessionId, new ChatEvent(ChatEvent.Type.TOOL_USE, toolName, input));
@@ -102,6 +105,33 @@ public class McpServiceImpl implements McpService {
         }
 
         throw new IllegalArgumentException("Tool-Aufruf enthält weder 'input' noch 'tool_input' noch 'arguments'.");
+    }
+
+    private void validateRequired(de.zrb.bund.newApi.mcp.ToolSpec spec, JsonObject input) {
+        if (spec == null || spec.getInputSchema() == null) {
+            return;
+        }
+        java.util.List<String> required = spec.getInputSchema().getRequired();
+        if (required == null || required.isEmpty()) {
+            return;
+        }
+
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        for (String key : required) {
+            if (key == null || key.trim().isEmpty()) {
+                continue;
+            }
+            if (input == null || !input.has(key) || input.get(key).isJsonNull()) {
+                missing.add(key);
+            }
+        }
+
+        if (!missing.isEmpty()) {
+            String example = spec.getExampleInput() == null ? null : new com.google.gson.Gson().toJson(spec.getExampleInput());
+            String msg = "Pflichtfelder fehlen: " + missing
+                    + (example == null ? "" : " | example_input=" + example);
+            throw new IllegalArgumentException(msg);
+        }
     }
 
     private String getAsRequiredString(JsonObject obj, String key) {
