@@ -1,6 +1,8 @@
 package de.bund.zrb.service;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
@@ -190,11 +192,100 @@ public class OllamaChatManager implements ChatManager {
     private String extractResponse(String jsonLine) {
         try {
             JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
+
+            // Ollama /api/generate streaming token
             if (obj.has("response") && !obj.get("response").isJsonNull()) {
-                return obj.get("response").getAsString();
+                String response = obj.get("response").getAsString();
+                if (!response.isEmpty()) {
+                    return response;
+                }
             }
-        } catch (Exception ignored) {}
+
+            // Ollama /api/chat style fallback
+            if (obj.has("message") && obj.get("message").isJsonObject()) {
+                JsonObject message = obj.getAsJsonObject("message");
+                if (message.has("content") && !message.get("content").isJsonNull()) {
+                    JsonElement content = message.get("content");
+                    if (content.isJsonPrimitive()) {
+                        String text = content.getAsString();
+                        if (!text.isEmpty()) {
+                            return text;
+                        }
+                    }
+                }
+
+                if (message.has("tool_calls") && message.get("tool_calls").isJsonArray()) {
+                    String toolCalls = formatToolCallsAsJsonLines(message.getAsJsonArray("tool_calls"));
+                    if (toolCalls != null && !toolCalls.isEmpty()) {
+                        return toolCalls;
+                    }
+                }
+            }
+
+            // Some providers may place tool_calls on root level
+            if (obj.has("tool_calls") && obj.get("tool_calls").isJsonArray()) {
+                String toolCalls = formatToolCallsAsJsonLines(obj.getAsJsonArray("tool_calls"));
+                if (toolCalls != null && !toolCalls.isEmpty()) {
+                    return toolCalls;
+                }
+            }
+
+            if (obj.has("error") && !obj.get("error").isJsonNull()) {
+                return "[OLLAMA ERROR] " + obj.get("error").getAsString();
+            }
+        } catch (Exception ignored) {
+            // ignore malformed chunks
+        }
         return null;
+    }
+
+    private String formatToolCallsAsJsonLines(JsonArray toolCalls) {
+        if (toolCalls == null || toolCalls.size() == 0) {
+            return null;
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < toolCalls.size(); i++) {
+            if (!toolCalls.get(i).isJsonObject()) {
+                continue;
+            }
+            JsonObject tc = toolCalls.get(i).getAsJsonObject();
+
+            JsonObject call = new JsonObject();
+            String name = null;
+            String args = null;
+
+            if (tc.has("function") && tc.get("function").isJsonObject()) {
+                JsonObject function = tc.getAsJsonObject("function");
+                if (function.has("name") && !function.get("name").isJsonNull()) {
+                    name = function.get("name").getAsString();
+                }
+                if (function.has("arguments") && !function.get("arguments").isJsonNull()) {
+                    args = function.get("arguments").getAsString();
+                }
+            }
+
+            if (name == null && tc.has("name") && !tc.get("name").isJsonNull()) {
+                name = tc.get("name").getAsString();
+            }
+            if (args == null && tc.has("arguments") && !tc.get("arguments").isJsonNull()) {
+                args = tc.get("arguments").getAsString();
+            }
+
+            if (name == null || name.trim().isEmpty()) {
+                continue;
+            }
+
+            call.addProperty("name", name);
+            call.addProperty("arguments", args == null ? "" : args);
+
+            if (out.length() > 0) {
+                out.append("\n");
+            }
+            out.append(call.toString());
+        }
+
+        return out.length() == 0 ? null : out.toString();
     }
 
     private OkHttpClient buildClient(String url, Settings settings) {

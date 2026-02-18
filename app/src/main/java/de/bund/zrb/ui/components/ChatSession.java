@@ -304,6 +304,13 @@ public class ChatSession extends JPanel {
                                 }
 
                                 executeToolCallsSequentially(toolCalls);
+                            } else if (botText == null || botText.trim().isEmpty()) {
+                                formatter.removeCurrentBotMessage();
+                                formatter.appendToolEvent(
+                                        "⚠️ Leere Modellantwort",
+                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
+                                        true
+                                );
                             } else {
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
@@ -561,6 +568,13 @@ public class ChatSession extends JPanel {
                                     formatter.appendBotToolCall("Tool-Call: " + toolName, call.toString());
                                 }
                                 executeToolCallsSequentially(toolCalls);
+                            } else if (botText == null || botText.trim().isEmpty()) {
+                                formatter.removeCurrentBotMessage();
+                                formatter.appendToolEvent(
+                                        "⚠️ Leere Modellantwort",
+                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
+                                        true
+                                );
                             } else {
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
