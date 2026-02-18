@@ -140,6 +140,46 @@ public class ChatFormatter {
         scrollToBottom();
     }
 
+    public void appendBotToolCall(String headerText, String jsonBody) {
+        JPanel wrapper = createMessagePanelWrapper(Role.BOT);
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setOpaque(false);
+
+        JLabel titleLabel = new JLabel(headerText == null ? Role.BOT.label : headerText);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        header.add(titleLabel);
+        header.add(Box.createHorizontalGlue());
+
+        JButton toggle = new JButton("Details");
+        toggle.setFocusable(false);
+        toggle.setMargin(new Insets(0, 4, 0, 4));
+        header.add(toggle);
+
+        JTextPane bodyPane = createConfiguredTextPane();
+        String html = ChatMarkdownFormatter.format("```json\n" + (jsonBody == null ? "" : jsonBody) + "\n```");
+        bodyPane.setText(formatHtml(html));
+        bodyPane.setVisible(false);
+
+        toggle.addActionListener(e -> {
+            bodyPane.setVisible(!bodyPane.isVisible());
+            applyDynamicSizing(bodyPane);
+            wrapper.revalidate();
+            wrapper.repaint();
+            scrollToBottom();
+        });
+
+        wrapper.add(header);
+        wrapper.add(Box.createVerticalStrut(4));
+        wrapper.add(bodyPane);
+
+        messageContainer.add(wrapper);
+        messageContainer.add(Box.createVerticalStrut(6));
+        scrollToBottom();
+    }
+
     private JTextPane createConfiguredTextPane() {
         JTextPane pane = new JTextPane();
         pane.setName("contentPane");
@@ -277,5 +317,16 @@ public class ChatFormatter {
                 vBar.setValue(vBar.getMaximum());
             }
         });
+    }
+
+    public void removeCurrentBotMessage() {
+        if (currentBotWrapper == null) {
+            return;
+        }
+        messageContainer.remove(currentBotWrapper);
+        messageContainer.revalidate();
+        messageContainer.repaint();
+        currentBotWrapper = null;
+        currentBotContent = null;
     }
 }

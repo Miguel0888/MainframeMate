@@ -58,6 +58,8 @@ public class ChatSession extends JPanel {
     private de.bund.zrb.service.McpChatEventBridge.Listener chatEventListener;
     private final McpServiceImpl mcpService;
 
+    private static final int MAX_TOOL_CALLS = 0; // 0 = unlimited
+
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
         this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
     }
@@ -268,38 +270,18 @@ public class ChatSession extends JPanel {
                         SwingUtilities.invokeLater(() -> {
                             String botText = currentBotResponse.toString();
 
-                            JsonObject toolCall = extractToolCall(botText);
-                            if (toolCall != null) {
-                                String toolName = toolCall.has("name") && !toolCall.get("name").isJsonNull()
-                                        ? toolCall.get("name").getAsString() : "unbekannt";
+                            java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
+                            if (!toolCalls.isEmpty()) {
+                                // Remove the raw bot message and replace with folded tool-call cards
+                                formatter.removeCurrentBotMessage();
 
-                                String replacement = "(Tool-Aufruf erkannt: " + toolName + ")";
-
-                                Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(replacement);
-                                formatter.appendBotMessageChunk("\n");
-                                formatter.appendBotMessageChunk(replacement);
-                                formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
-
-                                try {
-                                    // Execute tool-call using the already parsed JSON to avoid format mismatches.
-                                    mcpService.accept(toolCall, sessionId, null);
-                                } catch (Exception e) {
-                                    String name = toolName;
-                                    JsonObject error = new JsonObject();
-                                    error.addProperty("status", "error");
-                                    error.addProperty("errorType", e.getClass().getName());
-                                    error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
-                                    error.add("toolCall", toolCall);
-                                    formatter.appendToolEvent("⚠ Tool-Fehler: " + name, error.toString(), true);
-                                    if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-                                        String msg = "TOOL_RESULT " + name + "\n```json\n" + error + "\n```";
-                                        chatManager.getHistory(sessionId).addToolMessage(msg);
-                                    }
+                                for (JsonObject call : toolCalls) {
+                                    String toolName = call.has("name") && !call.get("name").isJsonNull()
+                                            ? call.get("name").getAsString() : "unbekannt";
+                                    formatter.appendBotToolCall("Tool-Call: " + toolName, call.toString());
                                 }
 
-                                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
-                                    streamAssistantFollowUp("Nutze das TOOL_RESULT oben und antworte dem Nutzer.");
-                                }
+                                executeToolCallsSequentially(toolCalls);
                             } else {
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
@@ -573,5 +555,106 @@ public class ChatSession extends JPanel {
 
     public UUID getSessionId() {
         return sessionId;
+    }
+
+    private java.util.List<JsonObject> extractToolCalls(String text) {
+        java.util.List<JsonObject> results = new java.util.ArrayList<>();
+        if (text == null) {
+            return results;
+        }
+
+        // 1) Try to parse full response
+        JsonObject single = extractToolCall(text);
+        if (single != null) {
+            results.add(single);
+            return results;
+        }
+
+        // 2) Parse multiple JSON objects by brace matching
+        String s = text;
+        int depth = 0;
+        int start = -1;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '{') {
+                if (depth == 0) {
+                    start = i;
+                }
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    String candidate = s.substring(start, i + 1).trim();
+                    JsonObject obj = tryParseToolCallJson(candidate);
+                    if (obj != null) {
+                        results.add(obj);
+                    }
+                    start = -1;
+                }
+            }
+        }
+
+        // Enforce limit if configured
+        if (MAX_TOOL_CALLS > 0 && results.size() > MAX_TOOL_CALLS) {
+            return results.subList(0, MAX_TOOL_CALLS);
+        }
+
+        return results;
+    }
+
+    private void executeToolCallsSequentially(java.util.List<JsonObject> calls) {
+        if (calls == null || calls.isEmpty()) {
+            return;
+        }
+
+        new Thread(() -> {
+            java.util.List<JsonObject> results = new java.util.ArrayList<>();
+            for (JsonObject call : calls) {
+                JsonObject result = executeSingleToolCall(call);
+                results.add(result);
+
+                boolean isError = result != null && result.has("status")
+                        && !result.get("status").isJsonNull()
+                        && "error".equalsIgnoreCase(result.get("status").getAsString());
+
+                String toolName = result != null && result.has("toolName") && !result.get("toolName").isJsonNull()
+                        ? result.get("toolName").getAsString()
+                        : (call.has("name") ? call.get("name").getAsString() : "unbekannt");
+
+                JsonObject finalResult = result == null ? new JsonObject() : result;
+                SwingUtilities.invokeLater(() -> formatter.appendToolEvent("Tool: " + toolName, finalResult.toString(), isError));
+
+                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
+                    String msg = "TOOL_RESULT " + toolName + "\n```json\n" + finalResult + "\n```";
+                    chatManager.getHistory(sessionId).addToolMessage(msg);
+                }
+            }
+
+            // Single follow-up with all results collected
+            if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
+                streamAssistantFollowUp("Nutze die TOOL_RESULTs oben und antworte dem Nutzer in EINER Nachricht. " +
+                        "Wenn Fehler enthalten sind, weise darauf hin und schlage einen korrigierten Tool-Call vor.");
+            }
+        }).start();
+    }
+
+    private JsonObject executeSingleToolCall(JsonObject call) {
+        try {
+            JsonObject result = mcpService.executeToolCall(call, null);
+            if (result != null && !result.has("toolName")) {
+                String toolName = call.has("name") ? call.get("name").getAsString() : "unbekannt";
+                result.addProperty("toolName", toolName);
+            }
+            return result;
+        } catch (Exception e) {
+            JsonObject error = new JsonObject();
+            error.addProperty("status", "error");
+            error.addProperty("errorType", e.getClass().getName());
+            error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
+            error.add("toolCall", call);
+            error.addProperty("toolName", call.has("name") ? call.get("name").getAsString() : "unbekannt");
+            error.addProperty("hint", "Tool-Call pruefen und erneut senden.");
+            return error;
+        }
     }
 }

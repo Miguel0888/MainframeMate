@@ -29,40 +29,28 @@ public class McpServiceImpl implements McpService {
     public void accept(JsonElement toolCall, UUID sessionId, String resultVar) {
         JsonObject obj = toolCall.getAsJsonObject();
 
-        // Toolnamen ermitteln
+        JsonObject result = executeToolCall(obj, resultVar);
+
+        if (eventSink != null && result != null) {
+            String toolName = obj.has("name") ? obj.get("name").getAsString() : null;
+            eventSink.publish(sessionId, new ChatEvent(ChatEvent.Type.TOOL_RESULT, toolName, result));
+        }
+    }
+
+    public JsonObject executeToolCall(JsonObject toolCall, String resultVar) {
+        JsonObject obj = toolCall.getAsJsonObject();
+
         String toolName = getAsRequiredString(obj, "name");
         McpTool tool = toolRegistry.getToolByName(toolName);
         if (tool == null) {
             throw new IllegalArgumentException("Tool nicht registriert: " + toolName);
         }
 
-        // Toolaufruf-ID (optional für Logging / Response Zuordnung)
-        String callId = obj.has("tool_call_id") ? obj.get("tool_call_id").getAsString() : null;
-
-        // Eingabe-JSON extrahieren (tool_input / input / arguments)
         JsonObject input = extractToolArguments(obj);
-
-        // Validate against ToolSpec.required before executing
         validateRequired(tool.getSpec(), input);
 
-        if (eventSink != null) {
-            eventSink.publish(sessionId, new ChatEvent(ChatEvent.Type.TOOL_USE, toolName, input));
-        }
-
-        // Tool ausführen
         de.zrb.bund.newApi.mcp.McpToolResponse response = tool.execute(input, resultVar);
-        JsonObject result = response.asJson();
-
-        if (eventSink != null) {
-            eventSink.publish(sessionId, new ChatEvent(ChatEvent.Type.TOOL_RESULT, toolName, result));
-        }
-
-        // Ergebnis verarbeiten (z. B. an Modell zurücksenden) - aktuell nur UI
-        ChatMessage toolResultMessage = new ChatMessage();
-        toolResultMessage.setRole(ChatMessage.Role.tool);
-        toolResultMessage.setToolResult(result);
-
-        // TODO: In einem nächsten Schritt: toolResultMessage als Kontext an die KI zurückführen
+        return response.asJson();
     }
 
     /**

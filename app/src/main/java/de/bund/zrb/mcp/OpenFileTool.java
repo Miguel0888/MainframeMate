@@ -1,11 +1,12 @@
 package de.bund.zrb.mcp;
 
 import com.google.gson.JsonObject;
+import de.bund.zrb.ui.VirtualResource;
+import de.bund.zrb.ui.VirtualResourceResolver;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
-import de.zrb.bund.newApi.ui.FtpTab;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -46,7 +47,6 @@ public class OpenFileTool implements McpTool {
 
     @Override
     public McpToolResponse execute(JsonObject input, String resultVar) {
-        String result = null;
         JsonObject response = new JsonObject();
 
         try {
@@ -57,35 +57,25 @@ public class OpenFileTool implements McpTool {
             }
 
             String file = input.get("file").getAsString();
-            String sentenceType = input.has("satzart") && !input.get("satzart").isJsonNull()
-                    ? input.get("satzart").getAsString()
-                    : null;
 
-            String searchPattern = input.has("search") && !input.get("search").isJsonNull()
-                    ? input.get("search").getAsString()
-                    : null;
+            // Pipeline endet aktuell am Resolver (kein Tab wird geoeffnet)
+            VirtualResourceResolver resolver = new VirtualResourceResolver();
+            VirtualResource resource = resolver.resolve(file);
 
-            Boolean toCompare = input.has("toCompare") && !input.get("toCompare").isJsonNull()
-                    ? input.get("toCompare").getAsBoolean()
-                    : null;
+            System.out.println("[TOOL open_file] resolved: " + resource.getResolvedPath() + " kind=" + resource.getKind());
 
-            FtpTab tab = context.openFileOrDirectory(file, sentenceType, searchPattern, toCompare);
-            if (tab == null) {
-                response.addProperty("status", "error");
-                response.addProperty("openedFile", file);
-                response.addProperty("message", "Konnte Datei/Verzeichnis nicht öffnen (kein Tab zurückgegeben). Details siehe Tool-Result im Chat.");
-                return new McpToolResponse(response, resultVar, null);
-            }
-
-            result = tab.getContent();
             response.addProperty("status", "success");
             response.addProperty("openedFile", file);
+            response.addProperty("resolvedPath", resource.getResolvedPath());
+            response.addProperty("kind", resource.getKind().name());
+            response.addProperty("local", resource.isLocal());
+
+            return new McpToolResponse(response, resultVar, null);
         } catch (Exception e) {
             response.addProperty("status", "error");
-            response.addProperty("message", "Fehler beim Öffnen der Datei: " + (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
+            response.addProperty("message", e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+            return new McpToolResponse(response, resultVar, null);
         }
-
-        return new McpToolResponse(response, resultVar, result);
     }
 
 }
