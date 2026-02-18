@@ -11,6 +11,13 @@ import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
 import de.zrb.bund.newApi.ui.FileTab;
+import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.api.FileWriteResult;
+import de.bund.zrb.files.impl.auth.LoginManagerCredentialsProvider;
+import de.bund.zrb.files.impl.factory.FileServiceFactory;
+import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.login.LoginManager;
 
 import javax.swing.*;
 import java.awt.*;
@@ -19,6 +26,8 @@ import java.awt.event.ComponentEvent;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
+
+import de.bund.zrb.files.auth.CredentialsProvider;
 
 public class FileTabImpl implements FileTab {
 
@@ -317,10 +326,17 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public void saveIfApplicable() {
+        // New stateless path: VirtualResource + FileService
+        if (model.getBuffer() == null && resource != null) {
+            saveViaFileService();
+            return;
+        }
+
+        // Legacy path (FTPManager/FtpFileBuffer) - keep until fully migrated
         FtpFileBuffer buffer = model.getBuffer();
-        if (model.getBuffer() == null) {
+        if (buffer == null) {
             JOptionPane.showMessageDialog(mainPanel,
-                    "Speichern über FileService ist noch nicht implementiert.",
+                    "Speichern ist nicht möglich (keine Resource).",
                     "Speichern nicht möglich", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -350,6 +366,72 @@ public class FileTabImpl implements FileTab {
             }
         } catch (Exception e) {
             JOptionPane.showMessageDialog(mainPanel, "Fehler beim Speichern:\n" + e.getMessage(), "Speicherfehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void saveViaFileService() {
+        try {
+            CredentialsProvider credentialsProvider = new LoginManagerCredentialsProvider(
+                    (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
+            );
+
+            String resolvedPath = resource.getResolvedPath();
+            if (resolvedPath == null || resolvedPath.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Speichern ist noch nicht möglich: Pfad fehlt (neue Datei ohne Zielpfad).",
+                        "Speichern nicht möglich", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            FilePayload current = null;
+            String expectedHash = "";
+
+            try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
+                try {
+                    current = fs.readFile(resolvedPath);
+                    expectedHash = current != null ? current.getHash() : "";
+                } catch (FileServiceException ignore) {
+                    // Not existing yet -> treat as new file
+                    expectedHash = "";
+                }
+
+                String newText = editorPanel.getTextArea().getText();
+                if (model.isAppend() && current != null) {
+                    java.nio.charset.Charset cs = current.getCharset() != null ? current.getCharset() : java.nio.charset.Charset.defaultCharset();
+                    String oldText = new String(current.getBytes(), cs);
+                    if (!oldText.endsWith("\n") && !newText.startsWith("\n")) {
+                        oldText += "\n";
+                    }
+                    newText = oldText + newText;
+                }
+
+                java.nio.charset.Charset targetCharset = java.nio.charset.Charset.defaultCharset();
+                if (current != null && current.getCharset() != null) {
+                    targetCharset = current.getCharset();
+                }
+
+                // Preserve record structure flag if we already know it (FTP/MVS)
+                boolean recordStructure = current != null && current.hasRecordStructure();
+
+                byte[] outBytes = newText.getBytes(targetCharset);
+                FilePayload payload = FilePayload.fromBytes(outBytes, targetCharset, recordStructure);
+
+                FileWriteResult result = fs.writeIfUnchanged(resolvedPath, payload, expectedHash);
+                if (result != null && result.getStatus() == FileWriteResult.Status.CONFLICT) {
+                    JOptionPane.showMessageDialog(mainPanel,
+                            "⚠️ Konflikt beim Speichern: Datei wurde zwischenzeitlich verändert.",
+                            "Konflikt", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
+                model.resetChanged();
+                editorPanel.resetUndoHistory();
+                tabbedPaneManager.updateTitleFor(this);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Fehler beim Speichern (FileService):\n" + e.getMessage(),
+                    "Speicherfehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 
