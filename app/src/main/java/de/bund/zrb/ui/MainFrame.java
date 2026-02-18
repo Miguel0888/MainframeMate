@@ -159,6 +159,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         switch (provider) {
             case OLLAMA:
                 return new OllamaChatManager(); // verwendet intern settings.aiConfig
+            case CLOUD:
+                return new CloudChatManager();
             case LOCAL_AI:
                 return new LocalAiChatManager(); // analog auf settings.aiConfig zugreifen
             case LLAMA_CPP_SERVER:
