@@ -49,6 +49,9 @@ dependencies {
 
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
+
+    // VFS (local)
+    implementation 'org.apache.commons:commons-vfs2:2.10.0'
 }
 
 shadowJar {
