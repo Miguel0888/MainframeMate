@@ -47,5 +47,22 @@ class VfsLocalFileServiceTest {
         assertTrue(service.createDirectory(dir.toString()));
         assertTrue(Files.isDirectory(dir));
     }
-}
 
+    @Test
+    void listReturnsPathsReadableByReadFile() throws Exception {
+        FileService service = new VfsLocalFileService(tempDir);
+
+        Path file = tempDir.resolve("roundtrip.txt");
+        FilePayload payload = FilePayload.fromBytes("data".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8, false);
+        service.writeFile(file.toString(), payload);
+
+        List<FileNode> nodes = service.list(tempDir.toString());
+        FileNode node = nodes.stream()
+                .filter(n -> "roundtrip.txt".equals(n.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("FileNode not found"));
+
+        FilePayload read = service.readFile(node.getPath());
+        assertEquals("data", new String(read.getBytes(), StandardCharsets.UTF_8));
+    }
+}

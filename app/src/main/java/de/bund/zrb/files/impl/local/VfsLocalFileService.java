@@ -63,13 +63,17 @@ public class VfsLocalFileService implements FileService {
             FileObject[] children = root.getChildren();
             List<FileNode> nodes = new ArrayList<FileNode>(children.length);
             for (FileObject child : children) {
-                FileType type = child.getType();
-                boolean isDir = type == FileType.FOLDER;
-                long size = isDir ? 0L : child.getContent().getSize();
-                long lastModified = child.getContent().getLastModifiedTime();
-                String name = child.getName().getBaseName();
-                String path = child.getName().getURI();
-                nodes.add(new FileNode(name, path, isDir, size, lastModified));
+                try {
+                    FileType type = child.getType();
+                    boolean isDir = type == FileType.FOLDER;
+                    long size = isDir ? 0L : child.getContent().getSize();
+                    long lastModified = child.getContent().getLastModifiedTime();
+                    String name = child.getName().getBaseName();
+                    String path = new File(child.getName().getPath()).getAbsolutePath();
+                    nodes.add(new FileNode(name, path, isDir, size, lastModified));
+                } finally {
+                    tryClose(child);
+                }
             }
             return nodes;
         } catch (FileSystemException e) {
@@ -167,6 +171,9 @@ public class VfsLocalFileService implements FileService {
             throw initError;
         }
         try {
+            if (path != null && path.trim().toLowerCase().startsWith("file:")) {
+                return manager.resolveFile(path.trim());
+            }
             File resolved = resolveLocalPath(path);
             return manager.resolveFile(resolved.toURI().toString());
         } catch (FileSystemException e) {
