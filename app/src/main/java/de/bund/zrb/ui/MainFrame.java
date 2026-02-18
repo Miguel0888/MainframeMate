@@ -339,6 +339,18 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
+        // Decide stateless-by-path: local absolute OS path vs. remote (FTP/MVS)
+        de.bund.zrb.files.path.VirtualResourceRef ref = de.bund.zrb.files.path.VirtualResourceRef.of(path);
+        if (ref.isFileUri() || ref.isLocalAbsolutePath()) {
+            // LOCAL: open a local browser tab and (if it is a file) open it in the editor
+            String localPath = ref.isFileUri() ? path : ref.normalizeLocalAbsolutePath();
+
+            LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
+            tabManager.addTab(tab);
+            tab.loadDirectory(localPath);
+            return tab;
+        }
+
         final FtpManager ftpManager = new FtpManager();
         Settings settings = SettingsHelper.load();
 
