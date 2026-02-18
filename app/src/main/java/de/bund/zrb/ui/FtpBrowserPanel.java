@@ -1,73 +1,128 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpFileBuffer;
-import de.bund.zrb.ftp.FtpObserver;
+import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.impl.factory.FileServiceFactory;
+import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.ftp.FtpManager;
+import de.bund.zrb.ui.browser.BrowserSessionState;
+import de.bund.zrb.ui.browser.PathNavigator;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
-public class FtpBrowserPanel extends JPanel implements FtpObserver {
+/**
+ * Legacy panel that was previously CWD/observer driven.
+ * Now migrated to stateless-by-path browsing.
+ */
+public class FtpBrowserPanel extends JPanel {
 
     private final FtpManager ftpManager;
+    private final FileService fileService;
+    private final BrowserSessionState browserState;
+    private final PathNavigator navigator;
+
     private final JTextField pathField;
+    private final DefaultListModel<String> listModel = new DefaultListModel<>();
+    private final JList<String> fileList = new JList<>(listModel);
+    private List<FileNode> currentNodes = new ArrayList<>();
 
     public FtpBrowserPanel(FtpManager ftpManager) {
         this.ftpManager = ftpManager;
         this.setLayout(new BorderLayout());
 
+        de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+        String host = s.host;
+        String user = s.user;
+        String password = de.bund.zrb.login.LoginManager.getInstance().getPassword(host, user);
+
+        try {
+            this.fileService = new FileServiceFactory().createFtp(host, user, password);
+        } catch (FileServiceException e) {
+            throw new RuntimeException("Konnte FileService nicht initialisieren", e);
+        }
+
+        this.navigator = new PathNavigator(ftpManager.isMvsMode());
+        this.browserState = new BrowserSessionState(navigator.normalize("/"));
+
         // Pfadfeld + Button
-        pathField = new JTextField("/");
+        pathField = new JTextField(browserState.getCurrentPath());
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
-
 
         JPanel pathPanel = new JPanel(new BorderLayout());
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(goButton, BorderLayout.EAST);
         this.add(pathPanel, BorderLayout.NORTH);
 
+        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        fileList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() != 2) return;
+                String selected = fileList.getSelectedValue();
+                if (selected == null) return;
+
+                FileNode node = findNodeByName(selected);
+                if (node != null && node.isDirectory()) {
+                    loadDirectory(node.getPath());
+                }
+            }
+        });
+
+        this.add(new JScrollPane(fileList), BorderLayout.CENTER);
+
+        // initial load
+        refresh();
     }
 
     void loadDirectory(String path) {
+        browserState.goTo(navigator.normalize(path));
+        pathField.setText(browserState.getCurrentPath());
+        refresh();
+    }
+
+    private void refresh() {
         try {
-            boolean success = ftpManager.changeDirectory(path);
-            if (!success) {
-                JOptionPane.showMessageDialog(this, "Verzeichnis nicht gefunden: " + path,
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            currentNodes = fileService.list(browserState.getCurrentPath());
+            listModel.clear();
+            if (currentNodes != null) {
+                for (FileNode n : currentNodes) {
+                    listModel.addElement(n.getName());
+                }
             }
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + e.getMessage(),
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Fehler beim Laden:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-
-    @Override
-    public void onDirectoryChanged(String newPath) {
-        if (!ftpManager.isConnected()) return;
-
-        pathField.setText(newPath);
-        List<String> files = null;
-        files = ftpManager.listDirectory();
+    public String getCurrentPath() {
+        return pathField.getText();
     }
 
-    private void openFileInNewTab(FtpFileBuffer buffer) {
-
+    private FileNode findNodeByName(String name) {
+        if (name == null) return null;
+        for (FileNode n : currentNodes) {
+            if (name.equals(n.getName())) {
+                return n;
+            }
+        }
+        return null;
     }
 
     public void init() {
-        ftpManager.addObserver(this);
+        // no observers anymore
     }
 
     public void dispose() {
-        ftpManager.removeObserver(this);
-    }
-
-    public String getCurrentPath() {
-        return pathField.getText();
+        try {
+            fileService.close();
+        } catch (Exception ignore) {
+            // ignore
+        }
     }
 }

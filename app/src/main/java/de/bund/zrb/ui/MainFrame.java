@@ -341,15 +341,23 @@ public class MainFrame extends JFrame implements MainframeContext {
         try {
             ftpManager.connect(settings.host, settings.user);
 
-            FtpFileBuffer buffer = ftpManager.open(unquote(path));
-            if (buffer != null) {
-                return tabManager.openFileTab(ftpManager, buffer, sentenceType, searchPattern, toCompare);
-            } else {
-                ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager, searchPattern);
-                tabManager.addTab(tab);
-                tab.loadDirectory(ftpManager.getCurrentPath());
-                return tab;
+            String unquoted = unquote(path);
+
+            // 1) Try to open as file first (stateless-by-path intent)
+            try {
+                FtpFileBuffer buffer = ftpManager.open(unquoted);
+                if (buffer != null) {
+                    return tabManager.openFileTab(ftpManager, buffer, sentenceType, searchPattern, toCompare);
+                }
+            } catch (IOException ignore) {
+                // fall back to connection tab
             }
+
+            // 2) Otherwise open connection tab and start browsing at the provided path
+            ConnectionTabImpl tab = new ConnectionTabImpl(ftpManager, tabManager, searchPattern);
+            tabManager.addTab(tab);
+            tab.loadDirectory(unquoted);
+            return tab;
 
         } catch (IOException ex) {
             String msg = ex.getMessage();
@@ -365,7 +373,6 @@ public class MainFrame extends JFrame implements MainframeContext {
                 return null;
             }
 
-            // echter Fehler
             JOptionPane.showMessageDialog(this, "Fehler beim Öffnen:\n" + msg,
                     "Fehler", JOptionPane.ERROR_MESSAGE);
             return null;
