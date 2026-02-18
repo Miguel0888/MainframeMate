@@ -92,10 +92,18 @@ public class StatusBarPanel extends JPanel {
 
 
     public void setSelectedSentenceType(String sentenceType) {
+        ensureEmptySentenceOption();
+
         if (sentenceType == null || sentenceType.trim().isEmpty()) {
             sentenceComboBox.setSelectedIndex(0); // Leerer Eintrag
         } else {
             sentenceComboBox.setSelectedItem(sentenceType);
+        }
+    }
+
+    private void ensureEmptySentenceOption() {
+        if (sentenceComboBox.getItemCount() == 0) {
+            sentenceComboBox.addItem("");
         }
     }
 
