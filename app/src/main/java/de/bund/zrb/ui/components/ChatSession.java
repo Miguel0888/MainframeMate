@@ -268,13 +268,11 @@ public class ChatSession extends JPanel {
                         SwingUtilities.invokeLater(() -> {
                             String botText = currentBotResponse.toString();
 
-                            // If the model responded with a tool-call JSON, execute it and show a TOOL participant.
                             JsonObject toolCall = extractToolCall(botText);
                             if (toolCall != null) {
                                 String toolName = toolCall.has("name") && !toolCall.get("name").isJsonNull()
                                         ? toolCall.get("name").getAsString() : "unbekannt";
 
-                                // Replace the bot bubble content with a short note to avoid showing raw JSON.
                                 String replacement = "(Tool-Aufruf erkannt: " + toolName + ")";
 
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(replacement);
@@ -282,11 +280,10 @@ public class ChatSession extends JPanel {
                                 formatter.appendBotMessageChunk(replacement);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
 
-                                // Execute tool-call using the already parsed JSON to avoid format mismatches.
                                 try {
+                                    // Execute tool-call using the already parsed JSON to avoid format mismatches.
                                     mcpService.accept(toolCall, sessionId, null);
                                 } catch (Exception e) {
-                                    // Mirror the same error reporting as maybeExecuteToolCall
                                     String name = toolName;
                                     JsonObject error = new JsonObject();
                                     error.addProperty("status", "error");
@@ -300,15 +297,13 @@ public class ChatSession extends JPanel {
                                     }
                                 }
 
-                                // Automatic follow-up: use TOOL_RESULT
                                 if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
                                     streamAssistantFollowUp("Nutze das TOOL_RESULT oben und antworte dem Nutzer.");
                                 }
-                                return;
+                            } else {
+                                Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
+                                formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
                             }
-
-                            Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
-                            formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
 
                             awaitingBotResponse = false;
                             cancelButton.setVisible(false);
@@ -442,6 +437,17 @@ public class ChatSession extends JPanel {
                         return obj;
                     }
                 }
+            }
+        }
+
+        // Case C: JSON is embedded within other text
+        int firstBrace = trimmed.indexOf('{');
+        int lastBrace = trimmed.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            String inside = trimmed.substring(firstBrace, lastBrace + 1).trim();
+            obj = tryParseToolCallJson(inside);
+            if (obj != null) {
+                return obj;
             }
         }
 
