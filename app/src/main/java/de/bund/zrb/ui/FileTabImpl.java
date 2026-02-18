@@ -1,9 +1,6 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpManager;
-import de.bund.zrb.ftp.FtpFileBuffer;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.service.FileContentService;
 import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
 import de.bund.zrb.helper.SettingsHelper;
@@ -23,9 +20,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.io.InputStream;
 import java.util.Map;
-import java.util.Optional;
 
 import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.path.VirtualResourceRef;
@@ -49,9 +44,7 @@ public class FileTabImpl implements FileTab {
 
     private final JSplitPane splitPane;
     final TabbedPaneManager tabbedPaneManager;
-    private FileContentService contentService;
     private final FileTabEventManager eventManager;
-    private FtpFileBuffer buffer;
 
     private VirtualResource resource;
 
@@ -63,7 +56,7 @@ public class FileTabImpl implements FileTab {
         JMenuItem bookmarkItem = new JMenuItem("📌 Als Lesezeichen merken");
         bookmarkItem.addActionListener(e -> {
             MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
-            String link = buffer != null ? buffer.getLink() : (resource != null ? resource.getResolvedPath() : null);
+            String link = resource != null ? resource.getResolvedPath() : null;
             main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), link);
         });
 
@@ -82,14 +75,6 @@ public class FileTabImpl implements FileTab {
     }
 
     private void saveAs() {
-        // Legacy-FTPBuffer: Save-As ist hier noch nicht migriert.
-        if (model.getBuffer() != null) {
-            JOptionPane.showMessageDialog(mainPanel,
-                    "Speichern unter... ist für Legacy-FTP-Tabs noch nicht migriert.",
-                    "Nicht verfügbar", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
         if (resource == null) {
             JOptionPane.showMessageDialog(mainPanel,
                     "Speichern unter... ist nicht möglich (keine Resource).",
@@ -117,6 +102,7 @@ public class FileTabImpl implements FileTab {
                 String target = selected.getAbsolutePath();
                 this.resource = new VirtualResource(VirtualResourceRef.of(target), VirtualResourceKind.FILE, target,
                         VirtualBackendType.LOCAL, null);
+                model.setResource(this.resource);
                 tabbedPaneManager.updateTitleFor(this);
                 tabbedPaneManager.updateTooltipFor(this);
                 saveViaFileService();
@@ -138,89 +124,20 @@ public class FileTabImpl implements FileTab {
         // Backend bleibt FTP; ftpState wird übernommen.
         this.resource = new VirtualResource(VirtualResourceRef.of(target), VirtualResourceKind.FILE, target,
                 VirtualBackendType.FTP, resource.getFtpState());
+        model.setResource(this.resource);
         tabbedPaneManager.updateTitleFor(this);
         tabbedPaneManager.updateTooltipFor(this);
         saveViaFileService();
     }
 
-    public FileTabImpl(TabbedPaneManager tabbedPaneManager,
-                       FtpManager ftpManager,
-                       String content,
-                       String sentenceType) {
-        this(tabbedPaneManager, ftpManager, (FtpFileBuffer) null, sentenceType);
-        setContent(content, sentenceType);
-    }
-
-    public FileTabImpl(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType) {
-        this(tabbedPaneManager, ftpManager, buffer, sentenceType, null, null);
-    }
-
-    public FileTabImpl(TabbedPaneManager tabbedPaneManager, FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType, String searchPattern, Boolean toCompare) {
-        this.tabbedPaneManager = tabbedPaneManager;
-        this.contentService = new FileContentService(ftpManager);
-
-        this.buffer = buffer;
-        String content = buffer != null ? contentService.decodeWith(buffer) : "";
-        model.setBuffer(buffer);
-        model.setSentenceType(sentenceType);
-
-        comparePanel = new ComparePanel(model.getFullPath(), content);
-        comparePanel.setVisible(false);
-
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setTopComponent(editorPanel);
-        splitPane.setBottomComponent(comparePanel);
-        splitPane.setResizeWeight(1.0);
-        splitPane.setDividerSize(6);
-
-        mainPanel.add(splitPane, BorderLayout.CENTER);
-        mainPanel.add(statusBarPanel, BorderLayout.SOUTH);
-
-        legendController = new LegendController(statusBarPanel.getLegendWrapper());
-
-        filterCoordinator = new FilterCoordinator(
-                editorPanel.getTextArea(),
-                comparePanel.getOriginalTextArea(),
-                statusBarPanel.getGrepField(),
-                SettingsHelper.load().soundEnabled
-        );
-
-        statusBarPanel.bindEvents(dispatcher);
-        editorPanel.bindEvents(dispatcher);
-        comparePanel.bindEvents(dispatcher);
-
-        this.eventManager = new FileTabEventManager(this);
-        eventManager.bindAll();
-
-        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-        statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
-        statusBarPanel.setSelectedSentenceType(sentenceType);
-
-
-        setContent(content, sentenceType);
-
-        restoreDividerLocation();
-
-        initDividerStateListener();
-        showComparePanelWithDividerOnReady(toCompare);
-
-        if(searchPattern != null && !searchPattern.isEmpty())
-        {
-            this.searchFor(searchPattern);
-        }
-    }
-
     /**
-     * New constructor using VirtualResource + content (no FtpManager/Buffer).
+     * Constructor using VirtualResource + content.
      */
     public FileTabImpl(TabbedPaneManager tabbedPaneManager, VirtualResource resource, String content,
                        String sentenceType, String searchPattern, Boolean toCompare) {
         this.tabbedPaneManager = tabbedPaneManager;
-        this.contentService = null; // legacy only
         this.resource = resource;
-        this.buffer = null;
-
-        model.setBuffer(null);
+        model.setResource(resource);
         model.setSentenceType(sentenceType);
 
         comparePanel = new ComparePanel(resource.getResolvedPath(), content);
@@ -244,13 +161,23 @@ public class FileTabImpl implements FileTab {
         );
         eventManager = new FileTabEventManager(this);
 
+        statusBarPanel.bindEvents(dispatcher);
+        editorPanel.bindEvents(dispatcher);
+        comparePanel.bindEvents(dispatcher);
+        eventManager.bindAll();
+
+        SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+        statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
+        statusBarPanel.setSelectedSentenceType(sentenceType);
+
+        restoreDividerLocation();
+        initDividerStateListener();
+        showComparePanelWithDividerOnReady(toCompare);
+
         setContent(content, sentenceType);
 
         if (searchPattern != null && !searchPattern.isEmpty()) {
             searchFor(searchPattern);
-        }
-        if (Boolean.TRUE.equals(toCompare)) {
-            toggleComparePanel();
         }
     }
 
@@ -323,29 +250,23 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public String getTitle() {
-        if (model.getBuffer() == null) {
-            if (resource != null) {
-                String path = resource.getResolvedPath();
-                if (path != null && path.contains("/")) {
-                    return path.substring(path.lastIndexOf('/') + 1);
-                }
-                if (path != null && path.contains("\\")) {
-                    return path.substring(path.lastIndexOf('\\') + 1);
-                }
-                return path == null ? "[Neu]" : path;
+        if (resource != null) {
+            String path = resource.getResolvedPath();
+            if (path != null && path.contains("/")) {
+                return model.isChanged() ? path.substring(path.lastIndexOf('/') + 1) + " *" : path.substring(path.lastIndexOf('/') + 1);
             }
-            return "[Neu]";
+            if (path != null && path.contains("\\")) {
+                return model.isChanged() ? path.substring(path.lastIndexOf('\\') + 1) + " *" : path.substring(path.lastIndexOf('\\') + 1);
+            }
+            String name = path == null ? "[Neu]" : path;
+            return model.isChanged() ? name + " *" : name;
         }
-        String name = model.getBuffer().getMeta().getName();
-        return model.isChanged() ? name + " *" : name;
+        return model.isChanged() ? "[Neu] *" : "[Neu]";
     }
 
     @Override
     public String getTooltip() {
-        if (model.getBuffer() == null && resource != null) {
-            return resource.getResolvedPath();
-        }
-        return model.getFullPath();
+        return resource != null ? resource.getResolvedPath() : model.getFullPath();
     }
 
     @Override
@@ -354,14 +275,6 @@ public class FileTabImpl implements FileTab {
         saveDividerLocation();
     }
 
-    private double calculateDividerLocation() {
-        double relativeLocation = DEFAULT_DIVIDER_LOCATION;
-        int height = splitPane.getHeight();
-        if (height > 0) {
-            relativeLocation = splitPane.getDividerLocation() / (double) height;
-        }
-        return relativeLocation;
-    }
 
     private void saveDividerLocation() {
         Settings settings = SettingsHelper.load();
@@ -393,53 +306,20 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public void saveIfApplicable() {
-        // New stateless path: VirtualResource + FileService
-        if (model.getBuffer() == null && resource != null) {
-            String resolvedPath = resource.getResolvedPath();
-            if (resolvedPath == null || resolvedPath.trim().isEmpty()) {
-                // Neue Datei ohne Zielpfad -> Save As
-                saveAs();
-                return;
-            }
-            saveViaFileService();
-            return;
-        }
-
-        // Legacy path (FTPManager/FtpFileBuffer) - keep until fully migrated
-        FtpFileBuffer buffer = model.getBuffer();
-        if (buffer == null) {
+        if (resource == null) {
             JOptionPane.showMessageDialog(mainPanel,
                     "Speichern ist nicht möglich (keine Resource).",
                     "Speichern nicht möglich", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        try {
-            String newText = editorPanel.getTextArea().getText();
-
-            if (model.isAppend()) {
-                String oldText = contentService.decodeWith(buffer);
-                if (!oldText.endsWith("\n") && !newText.startsWith("\n")) {
-                    oldText += "\n";
-                }
-                newText = oldText + newText;
-            }
-
-            InputStream stream = contentService.createCommitStream(newText, buffer.hasRecordStructure());
-            FtpFileBuffer altered = buffer.withContent(stream);
-            Optional<FtpFileBuffer> conflict = contentService.getFtpManager().commit(buffer, altered);
-
-            if (!conflict.isPresent()) {
-                model.setBuffer(altered);
-                model.resetChanged();
-                editorPanel.resetUndoHistory();
-                tabbedPaneManager.updateTitleFor(this);
-            } else {
-                JOptionPane.showMessageDialog(mainPanel, "⚠️ Konflikt beim Speichern: Datei wurde verändert.");
-            }
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Speichern:\n" + e.getMessage(), "Speicherfehler", JOptionPane.ERROR_MESSAGE);
+        String resolvedPath = resource.getResolvedPath();
+        if (resolvedPath == null || resolvedPath.trim().isEmpty()) {
+            saveAs();
+            return;
         }
+
+        saveViaFileService();
     }
 
     private void saveViaFileService() {
@@ -520,7 +400,7 @@ public class FileTabImpl implements FileTab {
         setContent(content);
         if(sentenceType == null) {
             try {
-                sentenceType = detectSentenceTypeByPath(model.getFullPath());
+                sentenceType = detectSentenceTypeByPath(resource != null ? resource.getResolvedPath() : model.getFullPath());
             } catch (Exception e) { /* just to make sure that any NPE cannot stop the process */ }
         }
         if( sentenceType != null) {
@@ -547,10 +427,7 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public String getPath() {
-        if (model.getBuffer() == null && resource != null) {
-            return resource.getResolvedPath();
-        }
-        return model.getPath();
+        return resource != null ? resource.getResolvedPath() : model.getPath();
     }
 
     @Override

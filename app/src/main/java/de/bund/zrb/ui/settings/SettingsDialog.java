@@ -1,6 +1,9 @@
 package de.bund.zrb.ui.settings;
 
-import de.bund.zrb.ftp.*;
+import de.bund.zrb.files.ftpconfig.FtpFileStructure;
+import de.bund.zrb.files.ftpconfig.FtpFileType;
+import de.bund.zrb.files.ftpconfig.FtpTextFormat;
+import de.bund.zrb.files.ftpconfig.FtpTransferMode;
 import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ComboBoxHelper;
 import de.bund.zrb.helper.SettingsHelper;
@@ -94,11 +97,11 @@ public class SettingsDialog {
     private static JTextField proxyTestUrlField;
     private static JButton proxyTestButton;
 
-    public static void show(Component parent, FtpManager ftpManager) {
-        show(parent, ftpManager, 0);
+    public static void show(Component parent) {
+        show(parent, 0);
     }
 
-    public static void show(Component parent, FtpManager ftpManager, int initialTabIndex) {
+    public static void show(Component parent, int initialTabIndex) {
         // Allow calling settings without an active FTP manager.
         // Any actions requiring a live connection must be disabled/guarded.
 
@@ -138,7 +141,7 @@ public class SettingsDialog {
         createAiContent(aiContent);
         createProxyContent(proxyContent, parent);
 
-        showAndApply(parent, ftpManager, tabs);
+        showAndApply(parent, tabs);
     }
 
     private static void createGeneralContent(JPanel generalContent, Component parent) {
@@ -792,7 +795,7 @@ public class SettingsDialog {
         proxyContent.add(proxyTestButton, gbc);
     }
 
-    private static void showAndApply(Component parent, FtpManager ftpManager, JTabbedPane tabs) {
+    private static void showAndApply(Component parent, JTabbedPane tabs) {
         // Dialog formatieren
         JPanel container = new JPanel(new BorderLayout());
         container.add(tabs, BorderLayout.CENTER);
@@ -900,9 +903,6 @@ public class SettingsDialog {
 
             SettingsHelper.save(settings);
 
-            if (ftpManager != null) {
-                ftpManager.getClient().setControlEncoding(settings.encoding);
-            }
 
 //            JOptionPane.showMessageDialog(parent,
 //                    "Einstellungen wurden gespeichert.",

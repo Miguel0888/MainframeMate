@@ -1,7 +1,5 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpFileBuffer;
-import de.bund.zrb.ftp.FtpManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.FileTab;
@@ -144,29 +142,7 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Öffnet einen neuen FileTab, der eine neue Datei anlegt. Der Inhalt wird bis zum Speichern nur im Editor gehalten.
-     */
-    public FileTab openFileTab(FtpManager ftpManager, String content, String sentenceType) {
-        FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, content, sentenceType);
-        addTab(fileTabImpl); // handled everything
-        return fileTabImpl;
-    }
-
-    /**
-     * Öffnet einen neuen FileTab, der eine bestehende Datei anzeigt.
-     *
-     * @param ftpManager der FtpManager, der die Verbindung verwaltet
-     * @param buffer     der FtpFileBuffer, der die Datei repräsentiert
-     */
-    public FtpTab openFileTab(FtpManager ftpManager, FtpFileBuffer buffer, String sentenceType, String searchPattern, Boolean toCompare) {
-        FileTabImpl fileTabImpl = new FileTabImpl(this, ftpManager, buffer, sentenceType, searchPattern, toCompare);
-        addTab(fileTabImpl); // handled everything
-        updateTooltipFor(fileTabImpl);
-        return fileTabImpl;
-    }
-
-    /**
-     * Öffnet einen neuen FileTab basierend auf VirtualResource (ohne FtpManager).
+     * Öffnet einen neuen FileTab basierend auf VirtualResource.
      */
     public FileTab openFileTab(VirtualResource resource, String content, String sentenceType, String searchPattern, Boolean toCompare) {
         de.bund.zrb.ui.FileTabImpl fileTabImpl = new de.bund.zrb.ui.FileTabImpl(this, resource, content, sentenceType, searchPattern, toCompare);

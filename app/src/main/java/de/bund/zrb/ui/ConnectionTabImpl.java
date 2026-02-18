@@ -1,6 +1,5 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ftp.FtpManager;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
@@ -23,7 +22,6 @@ import java.util.regex.Pattern;
 
 public class ConnectionTabImpl implements ConnectionTab {
 
-    private final FtpManager ftpManager;
     private VirtualResource resource;
     private final FileService fileService;
     private final BrowserSessionState browserState;
@@ -40,128 +38,10 @@ public class ConnectionTabImpl implements ConnectionTab {
     private List<FileNode> currentDirectoryNodes = new ArrayList<>();
 
     /**
-     * Legacy constructor (used by FtpManager-based flows).
-     */
-    public ConnectionTabImpl(FtpManager ftpManager, TabbedPaneManager tabbedPaneManager, String searchPattern) {
-        this.tabbedPaneManager = tabbedPaneManager;
-        this.ftpManager = ftpManager;
-        this.resource = null;
-        this.mainPanel = new JPanel(new BorderLayout());
-
-        // FileService facade (stateless-by-path)
-        de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
-        String host = s.host;
-        String user = s.user;
-        String password = de.bund.zrb.login.LoginManager.getInstance().getPassword(host, user);
-
-        try {
-            this.fileService = new FileServiceFactory().createFtp(host, user, password);
-        } catch (FileServiceException e) {
-            throw new RuntimeException("Konnte FileService nicht initialisieren", e);
-        }
-
-        this.navigator = new PathNavigator(ftpManager.isMvsMode());
-        this.browserState = new BrowserSessionState(navigator.normalize("/"));
-
-        JPanel pathPanel = new JPanel(new BorderLayout());
-
-        // 🔄 Refresh-Button links
-        JButton refreshButton = new JButton("🔄");
-        refreshButton.setToolTipText("Aktuellen Pfad neu laden");
-        refreshButton.setMargin(new Insets(0, 0, 0, 0));
-        refreshButton.setFont(refreshButton.getFont().deriveFont(Font.PLAIN, 18f));
-        refreshButton.addActionListener(e -> loadDirectory(pathField.getText()));
-
-        // ⏴ Zurück-Button rechts
-        JButton backButton = new JButton("⏴");
-        backButton.setToolTipText("Zurück zum übergeordneten Verzeichnis");
-        backButton.setMargin(new Insets(0, 0, 0, 0));
-        backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
-        backButton.addActionListener(e -> {
-            String parent = navigator.parentOf(browserState.getCurrentPath());
-            browserState.goTo(parent);
-            pathField.setText(browserState.getCurrentPath());
-            updateFileList();
-        });
-
-        // Öffnen-Button rechts
-        JButton goButton = new JButton("Öffnen");
-        goButton.addActionListener(e -> loadDirectory(pathField.getText()));
-        pathField.addActionListener(e -> loadDirectory(pathField.getText()));
-
-        // Rechte Buttongruppe (⏴ Öffnen)
-        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
-        rightButtons.add(backButton);
-        rightButtons.add(goButton);
-
-        // Panelaufbau
-        pathPanel.add(refreshButton, BorderLayout.WEST);
-        pathPanel.add(pathField, BorderLayout.CENTER);
-        pathPanel.add(rightButtons, BorderLayout.EAST);
-
-        mainPanel.add(pathPanel, BorderLayout.NORTH);
-        mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
-        mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
-
-        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        fileList.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() != 2) return;
-
-                String selected = fileList.getSelectedValue();
-                if (selected == null) return;
-
-                FileNode node = findNodeByName(selected);
-                if (node != null && node.isDirectory()) {
-                    browserState.goTo(node.getPath());
-                    pathField.setText(browserState.getCurrentPath());
-                    updateFileList();
-                    return;
-                }
-
-                // Best effort: try to treat as directory first, without using CWD.
-                String nextPath = navigator.childOf(browserState.getCurrentPath(), selected);
-                try {
-                    List<FileNode> listed = fileService.list(nextPath);
-                    currentDirectoryNodes = listed == null ? new ArrayList<>() : listed;
-                    browserState.goTo(nextPath);
-                    pathField.setText(browserState.getCurrentPath());
-                    refreshListModelFromNodes();
-                    return;
-                } catch (Exception ignore) {
-                    // not a directory
-                }
-
-                // VirtualResource-based file open
-                try {
-                    FilePayload payload = fileService.readFile(nextPath);
-                    String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
-                    VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
-                    tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                            "Fehler", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        });
-
-        // Initial load
-        pathField.setText(browserState.getCurrentPath());
-        updateFileList();
-
-        if (searchPattern != null && !searchPattern.trim().isEmpty()) {
-            searchField.setText(searchPattern.trim());
-            applySearchFilter();
-        }
-    }
-
-    /**
-     * New constructor using VirtualResource + FileService (no FtpManager).
+     * Constructor using VirtualResource + FileService.
      */
     public ConnectionTabImpl(VirtualResource resource, FileService fileService, TabbedPaneManager tabbedPaneManager, String searchPattern) {
         this.tabbedPaneManager = tabbedPaneManager;
-        this.ftpManager = null;
         this.resource = resource;
         this.fileService = fileService;
         this.mainPanel = new JPanel(new BorderLayout());

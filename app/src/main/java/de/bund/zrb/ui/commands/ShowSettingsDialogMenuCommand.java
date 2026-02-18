@@ -25,6 +25,6 @@ public class ShowSettingsDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        SettingsDialog.show(parent, null);
+        SettingsDialog.show(parent);
     }
 }

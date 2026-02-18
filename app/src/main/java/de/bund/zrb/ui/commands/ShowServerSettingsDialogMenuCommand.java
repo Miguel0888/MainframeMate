@@ -26,6 +26,6 @@ public class ShowServerSettingsDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        SettingsDialog.show(parent, null, FTP_TAB_INDEX);
+        SettingsDialog.show(parent, FTP_TAB_INDEX);
     }
 }

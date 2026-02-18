@@ -18,7 +18,7 @@ import java.nio.charset.Charset;
  *
  * Contract:
  * - Returns the opened tab (ConnectionTab or FileTab), or null on error.
- * - No FtpManager usage; uses VirtualResource + FileService.
+ * - No Legacy manager usage; uses VirtualResource + FileService.
  */
 public final class VirtualResourceOpener {
 
@@ -81,7 +81,7 @@ public final class VirtualResourceOpener {
         Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
         String content = new String(payload.getBytes(), charset);
 
-        // Open file tab with VirtualResource (no FtpManager)
+        // Open file tab with VirtualResource (no Legacy manager)
         return tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);
     }
 }

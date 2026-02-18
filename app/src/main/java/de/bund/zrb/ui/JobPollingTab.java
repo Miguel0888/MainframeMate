@@ -116,7 +116,7 @@ public class JobPollingTab implements FtpTab {
                 Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
                 String content = new String(payload.getBytes(), charset);
 
-                // Open file tab with VirtualResource (no FtpManager)
+                // Open file tab with VirtualResource (no Legacy manager)
                 FtpTab realTab = tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);
                 tabManager.replaceTab(this, realTab);
             }
