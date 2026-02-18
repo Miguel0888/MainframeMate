@@ -15,7 +15,8 @@ public class ChatFormatter {
 
     public enum Role {
         USER("👤 Du:", "#e6f0ff"),
-        BOT("🤖 Bot:", "#f0ffe6");
+        BOT("🤖 Bot:", "#f0ffe6"),
+        TOOL("🔧 Tool:", "#fff8e6");
 
         public final String label;
         public final String bgColor;
@@ -92,6 +93,46 @@ public class ChatFormatter {
             // Delete-Button hinzufügen
             addDeleteButton(currentBotWrapper, headerPanel, runnable);
         }
+    }
+
+    public void appendToolEvent(String headerText, String jsonBody) {
+        JPanel wrapper = createMessagePanelWrapper(Role.TOOL);
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setOpaque(false);
+
+        JLabel titleLabel = new JLabel(headerText == null ? Role.TOOL.label : headerText);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        header.add(titleLabel);
+        header.add(Box.createHorizontalGlue());
+
+        JButton toggle = new JButton("Details");
+        toggle.setFocusable(false);
+        toggle.setMargin(new Insets(0, 4, 0, 4));
+        header.add(toggle);
+
+        JTextPane bodyPane = createConfiguredTextPane();
+        String html = ChatMarkdownFormatter.format("```json\n" + (jsonBody == null ? "" : jsonBody) + "\n```");
+        bodyPane.setText(formatHtml(html));
+        bodyPane.setVisible(false);
+
+        toggle.addActionListener(e -> {
+            bodyPane.setVisible(!bodyPane.isVisible());
+            applyDynamicSizing(bodyPane);
+            wrapper.revalidate();
+            wrapper.repaint();
+            scrollToBottom();
+        });
+
+        wrapper.add(header);
+        wrapper.add(Box.createVerticalStrut(4));
+        wrapper.add(bodyPane);
+
+        messageContainer.add(wrapper);
+        messageContainer.add(Box.createVerticalStrut(6));
+        scrollToBottom();
     }
 
     private JTextPane createConfiguredTextPane() {

@@ -15,14 +15,20 @@ public class Chat extends JPanel {
 
     private final MainframeContext mainframeContext;
     private final ChatManager chatManager;
+    private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
     private final JTabbedPane chatTabs = new JTabbedPane();
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
 
     public Chat(MainframeContext mainframeContext, ChatManager chatManager) {
+        this(mainframeContext, chatManager, null);
+    }
+
+    public Chat(MainframeContext mainframeContext, ChatManager chatManager, de.bund.zrb.service.McpChatEventBridge chatEventBridge) {
         this.mainframeContext = mainframeContext;
         this.chatManager = chatManager;
+        this.chatEventBridge = chatEventBridge;
 
         setLayout(new BorderLayout(8, 8));
         add(createHeader(), BorderLayout.NORTH);
@@ -64,7 +70,7 @@ public class Chat extends JPanel {
     }
 
     private void addNewChatSession() {
-        ChatSession sessionPanel = new ChatSession(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox);
+        ChatSession sessionPanel = new ChatSession(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, chatEventBridge);
         String shortId = sessionPanel.getSessionId().toString().substring(0, 6);
 
         int insertIndex = Math.max(chatTabs.getTabCount() - 1, 0);

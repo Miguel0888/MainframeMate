@@ -49,11 +49,20 @@ public class ChatSession extends JPanel {
     private final JCheckBox keepAliveCheckbox;
     private final JCheckBox contextMemoryCheckbox;
 
+    private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
+    private de.bund.zrb.service.McpChatEventBridge.Listener chatEventListener;
+
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
+        this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
+    }
+
+    public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox,
+                       de.bund.zrb.service.McpChatEventBridge chatEventBridge) {
         this.maeinframeContext = mainframeContext;
         this.chatManager = chatManager;
         this.keepAliveCheckbox = keepAliveCheckbox;
         this.contextMemoryCheckbox = contextMemoryCheckbox;
+        this.chatEventBridge = chatEventBridge;
         this.sessionId = UUID.randomUUID();
 
         setLayout(new BorderLayout(4, 4));
@@ -147,6 +156,31 @@ public class ChatSession extends JPanel {
         inputPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(inputPanel, BorderLayout.SOUTH);
+
+        subscribeToToolEvents();
+    }
+
+    private void subscribeToToolEvents() {
+        if (chatEventBridge == null) {
+            return;
+        }
+        chatEventListener = (id, event) -> {
+            if (id == null || !id.equals(sessionId) || event == null) {
+                return;
+            }
+            SwingUtilities.invokeLater(() -> {
+                String header = "🔧 Tool: " + (event.getToolName() == null ? "" : event.getToolName());
+                String body = event.getPayload() != null ? event.getPayload().toString() : "";
+                formatter.appendToolEvent(header, body);
+            });
+        };
+        chatEventBridge.addListener(chatEventListener);
+
+        addHierarchyListener(e -> {
+            if (!isDisplayable() && chatEventListener != null) {
+                chatEventBridge.removeListener(chatEventListener);
+            }
+        });
     }
 
     private void onAttachContent() {

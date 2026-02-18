@@ -64,6 +64,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     private final VariableRegistryImpl variableRegistryImpl;
     private final McpService mcpService;
     private final WorkflowRunner workflowRunner;
+    private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
     private DragAndDropImportHandler importHandler;
 
     // Builds the menu
@@ -116,7 +117,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         locker.start();
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.variableRegistryImpl = VariableRegistryImpl.getInstance();
-        this.mcpService = new McpServiceImpl(toolRegistry);
+        this.chatEventBridge = new de.bund.zrb.service.McpChatEventBridge();
+        this.mcpService = new McpServiceImpl(toolRegistry, chatEventBridge);
         this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
         registerTools();
 
@@ -512,5 +514,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     public LeftDrawer getBookmarkDrawer() {
         return leftDrawer;
+    }
+
+    public de.bund.zrb.service.McpChatEventBridge getChatEventBridge() {
+        return chatEventBridge;
     }
 }

@@ -2,7 +2,6 @@ package de.bund.zrb.ui.drawer;
 
 import de.bund.zrb.ui.components.Chat;
 import de.bund.zrb.ui.components.WorkflowPanel;
-import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.McpService;
@@ -49,7 +48,8 @@ public class RightDrawer extends JPanel {
     }
 
     private void addChatTab() {
-        Chat chatPanel = new Chat(mainframeContext, chatManager);
+        // Bridge is optional; if not provided, tool events simply won't be displayed.
+        Chat chatPanel = new Chat(mainframeContext, chatManager, null);
         tabbedPane.addTab("💬 Chat", chatPanel);
     }
 

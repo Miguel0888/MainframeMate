@@ -2,6 +2,8 @@ package de.bund.zrb.service;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import de.zrb.bund.newApi.ChatEvent;
+import de.zrb.bund.newApi.ChatEventSink;
 import de.zrb.bund.newApi.ChatMessage;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -12,9 +14,15 @@ import java.util.UUID;
 public class McpServiceImpl implements McpService {
 
     private final ToolRegistry toolRegistry;
+    private final ChatEventSink eventSink;
 
     public McpServiceImpl(ToolRegistry registry) {
+        this(registry, null);
+    }
+
+    public McpServiceImpl(ToolRegistry registry, ChatEventSink eventSink) {
         this.toolRegistry = registry;
+        this.eventSink = eventSink;
     }
 
     @Override
@@ -34,15 +42,24 @@ public class McpServiceImpl implements McpService {
         // Eingabe-JSON extrahieren (tool_input oder arguments)
         JsonObject input = extractToolArguments(obj);
 
-        // Tool ausführen
-        JsonObject result = tool.execute(input, resultVar).asJson();
+        if (eventSink != null) {
+            eventSink.publish(sessionId, new ChatEvent(ChatEvent.Type.TOOL_USE, toolName, input));
+        }
 
-        // Ergebnis verarbeiten (z. B. an Modell zurücksenden)
+        // Tool ausführen
+        de.zrb.bund.newApi.mcp.McpToolResponse response = tool.execute(input, resultVar);
+        JsonObject result = response.asJson();
+
+        if (eventSink != null) {
+            eventSink.publish(sessionId, new ChatEvent(ChatEvent.Type.TOOL_RESULT, toolName, result));
+        }
+
+        // Ergebnis verarbeiten (z. B. an Modell zurücksenden) - aktuell nur UI
         ChatMessage toolResultMessage = new ChatMessage();
         toolResultMessage.setRole(ChatMessage.Role.tool);
         toolResultMessage.setToolResult(result);
 
-        // TODO: Speichere oder sende toolResultMessage zurück an Session
+        // TODO: In einem nächsten Schritt: toolResultMessage als Kontext an die KI zurückführen
     }
 
     /**
