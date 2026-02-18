@@ -13,10 +13,13 @@ public class SentenceTypeRegistryImpl implements SentenceTypeRegistry {
 
     private static SentenceTypeRegistryImpl instance;
 
-    private SentenceTypeSpec loadedSpec;
+    private SentenceTypeSpec loadedSpec = new SentenceTypeSpec();
 
     private SentenceTypeRegistryImpl() {
-        loadedSpec = SentenceTypeSettingsHelper.loadSentenceTypes();
+        SentenceTypeSpec loaded = SentenceTypeSettingsHelper.loadSentenceTypes();
+        if (loaded != null) {
+            loadedSpec = loaded;
+        }
     }
 
     public static synchronized SentenceTypeRegistryImpl getInstance() {
