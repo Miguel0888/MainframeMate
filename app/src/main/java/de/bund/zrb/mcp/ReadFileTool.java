@@ -46,15 +46,14 @@ public class ReadFileTool implements McpTool {
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("path"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("path", "C:\\TEST\\datei.txt");
-        example.put("maxLines", 100);
+        example.put("path", "<PFAD>");
 
         return new ToolSpec(
                 "read_file",
                 "Liest den Inhalt einer Datei oder listet ein Verzeichnis auf, ohne einen Tab zu öffnen. " +
                 "Bei Dateien wird der Textinhalt zurückgegeben. " +
                 "Bei Verzeichnissen wird eine Liste der Einträge zurückgegeben. " +
-                "Für FTP-Pfade muss vorher eine Verbindung bestehen.",
+                "Nur verwenden, wenn der Nutzer explizit nach Dateiinhalten oder Verzeichnislisten fragt.",
                 inputSchema,
                 example
         );

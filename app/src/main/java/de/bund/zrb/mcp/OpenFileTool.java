@@ -34,16 +34,13 @@ public class OpenFileTool implements McpTool {
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("file"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("file", "C:\\TEST\\datei.txt");
-        example.put("satzart", "100");
-        example.put("search", "BEGIN");
-        example.put("toCompare", true);
+        example.put("file", "<PFAD>");
 
         return new ToolSpec(
                 "open_file",
                 "Öffnet eine Datei oder ein Verzeichnis als neuen Tab im Editor. " +
-                "Lokale Pfade (z.B. C:\\TEST) und FTP-Pfade werden automatisch erkannt. " +
-                "Für FTP-Dateien muss vorher eine Verbindung bestehen.",
+                "Lokale absolute Pfade und FTP-Pfade werden automatisch erkannt. " +
+                "Nur verwenden, wenn der Nutzer explizit eine Datei öffnen möchte.",
                 inputSchema,
                 example
         );

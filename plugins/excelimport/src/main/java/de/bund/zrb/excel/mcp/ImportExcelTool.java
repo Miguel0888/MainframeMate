@@ -39,14 +39,8 @@ public class ImportExcelTool implements McpTool {
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, required);
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("file", "C:/daten/bestand_mai.xlsx");
-        example.put("satzart", "100");
-        example.put("hasHeader", true);
-        example.put("headerRowIndex", 0);
-        example.put("append", false);
-        example.put("separator", "");
-        example.put("search", ".*ABC.*");
-        example.put("toCompare", true);
+        example.put("file", "<PFAD_ZUR_EXCEL_DATEI>");
+        example.put("satzart", "<SATZART>");
 
         return new ToolSpec("import_excel", "Importiert eine Excel-Datei als Satzart in das System.", inputSchema, example);
     }
