@@ -628,13 +628,14 @@ public class ChatSession extends JPanel {
                 String followUp;
                 if (currentMode == ChatMode.AGENT) {
                     followUp = "Du hast Tool-Ergebnisse erhalten. " +
-                            "Prüfe, ob du die Aufgabe des Nutzers damit bereits vollständig beantworten kannst. " +
-                            "Falls NICHT, erzeuge sofort den nächsten Tool-Call als JSON (z.B. read_file für weitere Dateien). " +
-                            "Antworte dem Nutzer erst mit einer finalen Antwort, wenn du genug Informationen gesammelt hast. " +
-                            "Fehler in den Ergebnissen stoppen dich nicht – weise auf sie hin und mache weiter.";
+                            "Kannst du die Frage des Nutzers damit beantworten? " +
+                            "Wenn ja, antworte direkt in natürlicher Sprache (KEIN JSON, KEIN Tool-Call). " +
+                            "Nur wenn du KONKRET weitere Dateien lesen musst, um die Frage zu beantworten, " +
+                            "erzeuge einen weiteren Tool-Call. Lies keine Datei, die du bereits gelesen hast. " +
+                            "Wenn ein Fehler aufgetreten ist, weise darauf hin.";
                 } else {
-                    followUp = "Nutze die TOOL_RESULTS (JSON) oben und antworte dem Nutzer in EINER Nachricht. " +
-                            "Fehler stoppen die Queue nicht; wenn Fehler enthalten sind, weise darauf hin und schlage ggf. korrigierte Tool-Calls vor.";
+                    followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer. " +
+                            "Wenn Fehler enthalten sind, weise darauf hin.";
                 }
 
                 streamAssistantFollowUp(followUp);

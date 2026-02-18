@@ -36,21 +36,12 @@ public class VirtualResourceResolver {
     private String lastSystemType;
 
     private VirtualResourceKind resolveKindLocal(String localPath) throws FileServiceException {
-        try (FileService fs = new FileServiceFactory().createLocal()) {
-            try {
-                fs.list(localPath);
-                return VirtualResourceKind.DIRECTORY;
-            } catch (Exception e) {
-                // Not a directory -> fall through
-            }
-            fs.readFile(localPath);
-            return VirtualResourceKind.FILE;
-        } catch (Exception e) {
-            if (e instanceof FileServiceException) {
-                throw (FileServiceException) e;
-            }
-            throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR, "Local resolve failed", e);
+        java.io.File f = new java.io.File(localPath);
+        if (!f.exists()) {
+            throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.NOT_FOUND,
+                    "Path does not exist: " + localPath);
         }
+        return f.isDirectory() ? VirtualResourceKind.DIRECTORY : VirtualResourceKind.FILE;
     }
 
     private VirtualResourceKind resolveKindFtp(String ftpPath, ConnectionId connectionId) throws FileServiceException {
