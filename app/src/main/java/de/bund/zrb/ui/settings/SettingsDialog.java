@@ -6,6 +6,7 @@ import de.bund.zrb.ui.components.ComboBoxHelper;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.util.ExecutableLauncher;
+import de.bund.zrb.util.WindowsCryptoUtil;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -74,7 +75,17 @@ public class SettingsDialog {
     private static JCheckBox compareByDefaultBox;
     private static JComboBox<LockerStyle> lockStyleBox;
 
+    private static JTextField hostField;
+    private static JTextField userField;
+    private static JPasswordField passwordField;
+    private static JButton clearPasswordButton;
+    private static boolean clearPasswordRequested;
+
     public static void show(Component parent, FtpManager ftpManager) {
+        show(parent, ftpManager, 0);
+    }
+
+    public static void show(Component parent, FtpManager ftpManager, int initialTabIndex) {
         JTabbedPane tabs = new JTabbedPane();
 
         JPanel generalContent = new JPanel(new GridBagLayout());
@@ -94,7 +105,12 @@ public class SettingsDialog {
         tabs.addTab("FTP-Verbindung", connectPanel);
         tabs.add("KI", aiPanel);
 
+        if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabCount()) {
+            tabs.setSelectedIndex(initialTabIndex);
+        }
+
         settings = SettingsHelper.load();
+        clearPasswordRequested = false;
 
         createGeneralContent(generalContent, parent);
         createTransformContent(transformContent);
@@ -316,6 +332,33 @@ public class SettingsDialog {
 
     private static void createConnectContent(JPanel expertContent) {
         GridBagConstraints gbcConnect = createDefaultGbc();
+
+        // Server / Credentials
+        expertContent.add(new JLabel("Server (Host):"), gbcConnect);
+        gbcConnect.gridy++;
+        hostField = new JTextField(settings.host == null ? "" : settings.host, 24);
+        expertContent.add(hostField, gbcConnect);
+        gbcConnect.gridy++;
+
+        expertContent.add(new JLabel("Benutzer:"), gbcConnect);
+        gbcConnect.gridy++;
+        userField = new JTextField(settings.user == null ? "" : settings.user, 24);
+        expertContent.add(userField, gbcConnect);
+        gbcConnect.gridy++;
+
+        expertContent.add(new JLabel("Passwort (optional):"), gbcConnect);
+        gbcConnect.gridy++;
+        passwordField = new JPasswordField(24);
+        expertContent.add(passwordField, gbcConnect);
+        gbcConnect.gridy++;
+
+        clearPasswordButton = new JButton("Passwort löschen");
+        clearPasswordButton.addActionListener(e -> {
+            passwordField.setText("");
+            clearPasswordRequested = true;
+        });
+        expertContent.add(clearPasswordButton, gbcConnect);
+        gbcConnect.gridy++;
 
         // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE)
         expertContent.add(new JLabel("FTP Datei-Typ (TYPE):"), gbcConnect);
@@ -697,6 +740,31 @@ public class SettingsDialog {
             settings.soundEnabled = enableSound.isSelected();
             settings.savePassword = savePasswordBox.isSelected();
             settings.autoConnect = autoConnectBox.isSelected();
+
+            String hostInput = hostField != null ? hostField.getText().trim() : "";
+            String userInput = userField != null ? userField.getText().trim() : "";
+            if (!hostInput.isEmpty()) {
+                settings.host = hostInput;
+            }
+            if (!userInput.isEmpty()) {
+                settings.user = userInput;
+            }
+
+            if (passwordField != null) {
+                char[] passChars = passwordField.getPassword();
+                if (passChars != null && passChars.length > 0) {
+                    if (settings.savePassword) {
+                        settings.encryptedPassword = WindowsCryptoUtil.encrypt(new String(passChars));
+                    } else {
+                        settings.encryptedPassword = null;
+                    }
+                    clearPasswordRequested = false;
+                } else if (clearPasswordRequested) {
+                    settings.encryptedPassword = null;
+                    clearPasswordRequested = false;
+                }
+            }
+
             settings.ftpFileType = ComboBoxHelper.getSelectedEnumValue(typeBox, FtpFileType.class);
             settings.ftpTextFormat = ComboBoxHelper.getSelectedEnumValue(formatBox, FtpTextFormat.class);
             settings.ftpFileStructure = ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
