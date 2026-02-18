@@ -9,18 +9,24 @@ import de.bund.zrb.excel.service.cache.ExcelTableCache;
 import de.bund.zrb.excel.service.cache.ExcelTableKey;
 import de.bund.zrb.excel.service.cache.LruExcelSheetSnapshotCache;
 import de.bund.zrb.excel.service.cache.LruExcelTableCache;
+import de.bund.zrb.excel.service.cache.SoftReferenceExcelSheetSnapshotCache;
+import de.bund.zrb.excel.service.cache.SoftReferenceExcelTableCache;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.*;
 
 public class ExcelParser {
 
-    private static final ExcelTableCache CACHE = new LruExcelTableCache(5);
-    private static final ExcelSheetSnapshotCache SHEET_CACHE = new LruExcelSheetSnapshotCache(2);
+    private static final int CACHE_MAX_ENTRIES = Integer.getInteger("mainframemate.excelimport.cacheMaxEntries", 0);
+    private static final ExcelTableCache CACHE = createTableCache(CACHE_MAX_ENTRIES);
+    private static final ExcelSheetSnapshotCache SHEET_CACHE = createSheetCache(CACHE_MAX_ENTRIES);
+    private static final Map<ExcelTableKey, Object> TABLE_LOAD_LOCKS = new ConcurrentHashMap<>();
+    private static final Map<ExcelSheetKey, Object> SHEET_LOAD_LOCKS = new ConcurrentHashMap<>();
 
     public static Map<String, List<String>> readExcelAsTable(File excelFile, boolean evaluateFormulas, int headerRowIndex, boolean stopOnEmptyCell, boolean stopOnEmptyLine)
             throws IOException, InvalidFormatException {
@@ -43,15 +49,29 @@ public class ExcelParser {
                 return cached.get();
             }
         } else {
-            clearCache();
+            CACHE.invalidate(cacheKey);
         }
 
-        ExcelSheetSnapshot snapshot = readSheetSnapshot(excelFile, evaluateFormulas, readMode);
-        Map<String, List<String>> table = buildTable(snapshot, headerRowIndex, stopOnEmptyCell, stopOnEmptyLine);
+        Object tableLock = TABLE_LOAD_LOCKS.computeIfAbsent(cacheKey, key -> new Object());
+        synchronized (tableLock) {
+            try {
+                if (readMode == ExcelReadMode.USE_CACHE) {
+                    Optional<Map<String, List<String>>> cached = CACHE.get(cacheKey);
+                    if (cached.isPresent()) {
+                        return cached.get();
+                    }
+                }
 
-        Map<String, List<String>> result = toUnmodifiableSnapshot(table);
-        CACHE.put(cacheKey, result);
-        return result;
+                ExcelSheetSnapshot snapshot = readSheetSnapshot(excelFile, evaluateFormulas, readMode);
+                Map<String, List<String>> table = buildTable(snapshot, headerRowIndex, stopOnEmptyCell, stopOnEmptyLine);
+
+                Map<String, List<String>> result = toUnmodifiableSnapshot(table);
+                CACHE.put(cacheKey, result);
+                return result;
+            } finally {
+                TABLE_LOAD_LOCKS.remove(cacheKey, tableLock);
+            }
+        }
     }
 
     public static void clearCache() {
@@ -75,20 +95,47 @@ public class ExcelParser {
             SHEET_CACHE.invalidate(sheetKey);
         }
 
-        Workbook workbook = new XSSFWorkbook(excelFile);
-        Sheet sheet = workbook.getSheetAt(0);
-        FormulaEvaluator evaluator = evaluateFormulas ? workbook.getCreationHelper().createFormulaEvaluator() : null;
+        Object sheetLock = SHEET_LOAD_LOCKS.computeIfAbsent(sheetKey, key -> new Object());
+        synchronized (sheetLock) {
+            try {
+                if (readMode == ExcelReadMode.USE_CACHE) {
+                    Optional<ExcelSheetSnapshot> cached = SHEET_CACHE.get(sheetKey);
+                    if (cached.isPresent()) {
+                        return cached.get();
+                    }
+                }
 
-        List<ExcelRowSnapshot> rows = new ArrayList<>();
-        for (Row row : sheet) {
-            rows.add(snapshotOf(row, evaluator));
+                List<ExcelRowSnapshot> rows = new ArrayList<>();
+                try (Workbook workbook = new XSSFWorkbook(excelFile)) {
+                    Sheet sheet = workbook.getSheetAt(0);
+                    FormulaEvaluator evaluator = evaluateFormulas ? workbook.getCreationHelper().createFormulaEvaluator() : null;
+
+                    for (Row row : sheet) {
+                        rows.add(snapshotOf(row, evaluator));
+                    }
+                }
+
+                ExcelSheetSnapshot snapshot = new ExcelSheetSnapshot(rows);
+                SHEET_CACHE.put(sheetKey, snapshot);
+                return snapshot;
+            } finally {
+                SHEET_LOAD_LOCKS.remove(sheetKey, sheetLock);
+            }
         }
+    }
 
-        workbook.close();
+    private static ExcelTableCache createTableCache(int maxEntries) {
+        if (maxEntries == 0) {
+            return new SoftReferenceExcelTableCache();
+        }
+        return new LruExcelTableCache(maxEntries);
+    }
 
-        ExcelSheetSnapshot snapshot = new ExcelSheetSnapshot(rows);
-        SHEET_CACHE.put(sheetKey, snapshot);
-        return snapshot;
+    private static ExcelSheetSnapshotCache createSheetCache(int maxEntries) {
+        if (maxEntries == 0) {
+            return new SoftReferenceExcelSheetSnapshotCache();
+        }
+        return new LruExcelSheetSnapshotCache(maxEntries);
     }
 
     private static ExcelRowSnapshot snapshotOf(Row row, FormulaEvaluator evaluator) {
