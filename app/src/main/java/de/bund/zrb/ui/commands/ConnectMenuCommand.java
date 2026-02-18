@@ -1,23 +1,17 @@
 package de.bund.zrb.ui.commands;
 
-import de.bund.zrb.ftp.FtpManager;
-import de.bund.zrb.helper.SettingsHelper;
-import de.bund.zrb.model.Settings;
-import de.bund.zrb.ui.ConnectionTabImpl;
+import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
-import java.io.IOException;
 
 public class ConnectMenuCommand extends ShortcutMenuCommand {
 
     private final JFrame parent;
-    private final TabbedPaneManager tabManager;
 
     public ConnectMenuCommand(JFrame parent, TabbedPaneManager tabManager) {
         this.parent = parent;
-        this.tabManager = tabManager;
     }
 
     @Override
@@ -32,23 +26,14 @@ public class ConnectMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        FtpManager ftpManager = new FtpManager();
-        Settings settings = SettingsHelper.load();
-
-        try {
-            ftpManager.connect(settings.host, settings.user);
-            tabManager.addTab(new ConnectionTabImpl(ftpManager, tabManager, null));
-        } catch (IOException ex) {
-            String msg = ex.getMessage();
-            if ("Kein Passwort verfügbar".equals(msg)) {
-                // Benutzer hat den Login abgebrochen → nichts tun
-                return;
-            }
-
-            JOptionPane.showMessageDialog(parent,
-                    "Verbindung fehlgeschlagen:\n" + msg,
-                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        // Open default FTP root via VirtualResourceOpener path
+        if (parent instanceof MainFrame) {
+            ((MainFrame) parent).openFileOrDirectory("/");
+            return;
         }
-    }
 
+        JOptionPane.showMessageDialog(parent,
+                "Konnte Verbindung nicht öffnen (MainFrame fehlt).",
+                "Fehler", JOptionPane.ERROR_MESSAGE);
+    }
 }

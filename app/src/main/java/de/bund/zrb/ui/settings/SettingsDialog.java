@@ -99,6 +99,9 @@ public class SettingsDialog {
     }
 
     public static void show(Component parent, FtpManager ftpManager, int initialTabIndex) {
+        // Allow calling settings without an active FTP manager.
+        // Any actions requiring a live connection must be disabled/guarded.
+
         JTabbedPane tabs = new JTabbedPane();
 
         JPanel generalContent = new JPanel(new GridBagLayout());
@@ -897,7 +900,9 @@ public class SettingsDialog {
 
             SettingsHelper.save(settings);
 
-            ftpManager.getClient().setControlEncoding(settings.encoding);
+            if (ftpManager != null) {
+                ftpManager.getClient().setControlEncoding(settings.encoding);
+            }
 
 //            JOptionPane.showMessageDialog(parent,
 //                    "Einstellungen wurden gespeichert.",

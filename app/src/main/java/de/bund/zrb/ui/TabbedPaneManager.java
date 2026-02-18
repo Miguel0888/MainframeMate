@@ -168,10 +168,10 @@ public class TabbedPaneManager {
     /**
      * Öffnet einen neuen FileTab basierend auf VirtualResource (ohne FtpManager).
      */
-    public FtpTab openFileTab(VirtualResource resource, String content, String sentenceType, String searchPattern, Boolean toCompare) {
-        FileTabImpl fileTabImpl = new FileTabImpl(this, resource, content, sentenceType, searchPattern, toCompare);
+    public FileTab openFileTab(VirtualResource resource, String content, String sentenceType, String searchPattern, Boolean toCompare) {
+        de.bund.zrb.ui.FileTabImpl fileTabImpl = new de.bund.zrb.ui.FileTabImpl(this, resource, content, sentenceType, searchPattern, toCompare);
         addTab(fileTabImpl);
-        updateTooltipFor(fileTabImpl);
+        focusTabByAdapter(fileTabImpl);
         return fileTabImpl;
     }
 
