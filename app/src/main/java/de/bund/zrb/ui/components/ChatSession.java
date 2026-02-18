@@ -172,6 +172,15 @@ public class ChatSession extends JPanel {
                 String header = "🔧 Tool: " + (event.getToolName() == null ? "" : event.getToolName());
                 String body = event.getPayload() != null ? event.getPayload().toString() : "";
                 formatter.appendToolEvent(header, body);
+
+                // If context memory is enabled, feed tool result back into the session history
+                // so the next LLM call can take it into account.
+                if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()
+                        && event.getType() == de.zrb.bund.newApi.ChatEvent.Type.TOOL_RESULT) {
+                    String msg = "TOOL_RESULT " + (event.getToolName() == null ? "" : event.getToolName())
+                            + "\n```json\n" + body + "\n```";
+                    chatManager.getHistory(sessionId).addBotMessage(msg);
+                }
             });
         };
         chatEventBridge.addListener(chatEventListener);

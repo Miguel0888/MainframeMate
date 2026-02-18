@@ -19,17 +19,20 @@ public class RightDrawer extends JPanel {
     private final MainframeContext mainframeContext;
     private final ToolRegistry toolRegistry;
     private final McpService mcpService;
+    private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
 
     public RightDrawer(MainframeContext mainframeContext, ChatManager chatManager,
-                       ToolRegistry toolRegistry, McpService mcpService) {
+                       ToolRegistry toolRegistry, McpService mcpService,
+                       de.bund.zrb.service.McpChatEventBridge chatEventBridge) {
 
         this.mainframeContext = mainframeContext;
         this.chatManager = chatManager;
         this.toolRegistry = toolRegistry;
         this.mcpService = mcpService;
+        this.chatEventBridge = chatEventBridge;
 
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -41,6 +44,12 @@ public class RightDrawer extends JPanel {
         addChatTab();
     }
 
+    // Keep old constructor for binary/source compatibility
+    public RightDrawer(MainframeContext mainframeContext, ChatManager chatManager,
+                       ToolRegistry toolRegistry, McpService mcpService) {
+        this(mainframeContext, chatManager, toolRegistry, mcpService, null);
+    }
+
     private void addWorkflowTab() {
         WorkflowRunner runner = mainframeContext.getWorkflowRunner();
         WorkflowPanel workflowPanel = new WorkflowPanel(runner, mainframeContext);
@@ -49,7 +58,7 @@ public class RightDrawer extends JPanel {
 
     private void addChatTab() {
         // Bridge is optional; if not provided, tool events simply won't be displayed.
-        Chat chatPanel = new Chat(mainframeContext, chatManager, null);
+        Chat chatPanel = new Chat(mainframeContext, chatManager, chatEventBridge);
         tabbedPane.addTab("💬 Chat", chatPanel);
     }
 

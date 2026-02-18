@@ -252,7 +252,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (chatManager == null) {
             System.err.println("⚠️ Kein ChatService verfügbar – Eingabe wird ignoriert");
         }
-        rightDrawer = new RightDrawer(this, chatManager, toolRegistry, mcpService);
+        rightDrawer = new RightDrawer(this, chatManager, toolRegistry, mcpService, chatEventBridge);
 
         rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, rightDrawer);
         int defaultDivider = content.getPreferredSize().width - 300;
