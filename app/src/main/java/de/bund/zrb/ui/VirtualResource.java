@@ -8,12 +8,24 @@ public final class VirtualResource {
     private final VirtualResourceKind kind;
     private final String resolvedPath;
     private final boolean local;
+    private final VirtualBackendType backendType;
+    private final FtpResourceState ftpState;
 
     public VirtualResource(VirtualResourceRef ref, VirtualResourceKind kind, String resolvedPath, boolean local) {
+        this(ref, kind, resolvedPath, local ? VirtualBackendType.LOCAL : VirtualBackendType.FTP, null);
+    }
+
+    public VirtualResource(VirtualResourceRef ref,
+                           VirtualResourceKind kind,
+                           String resolvedPath,
+                           VirtualBackendType backendType,
+                           FtpResourceState ftpState) {
         this.ref = ref;
         this.kind = kind;
         this.resolvedPath = resolvedPath;
-        this.local = local;
+        this.backendType = backendType == null ? VirtualBackendType.LOCAL : backendType;
+        this.ftpState = ftpState;
+        this.local = this.backendType == VirtualBackendType.LOCAL;
     }
 
     public VirtualResourceRef getRef() {
@@ -31,5 +43,12 @@ public final class VirtualResource {
     public boolean isLocal() {
         return local;
     }
-}
 
+    public VirtualBackendType getBackendType() {
+        return backendType;
+    }
+
+    public FtpResourceState getFtpState() {
+        return ftpState;
+    }
+}

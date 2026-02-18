@@ -43,6 +43,8 @@ public class FileTabImpl implements FileTab {
     private final FileTabEventManager eventManager;
     private FtpFileBuffer buffer;
 
+    private VirtualResource resource;
+
 
     @Override
     public JPopupMenu createContextMenu(Runnable onClose) {
@@ -128,6 +130,50 @@ public class FileTabImpl implements FileTab {
         if(searchPattern != null && !searchPattern.isEmpty())
         {
             this.searchFor(searchPattern);
+        }
+    }
+
+    /**
+     * New constructor using VirtualResource + content (no FtpManager/Buffer).
+     */
+    public FileTabImpl(TabbedPaneManager tabbedPaneManager, VirtualResource resource, String content,
+                       String sentenceType, String searchPattern, Boolean toCompare) {
+        this.tabbedPaneManager = tabbedPaneManager;
+        this.contentService = null; // no legacy content service needed
+        this.resource = resource;
+        this.buffer = null;
+
+        model.setBuffer(null);
+        model.setSentenceType(sentenceType);
+
+        comparePanel = new ComparePanel(resource.getResolvedPath(), content);
+        comparePanel.setVisible(false);
+
+        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        splitPane.setTopComponent(editorPanel);
+        splitPane.setBottomComponent(comparePanel);
+        splitPane.setResizeWeight(1.0);
+        splitPane.setDividerSize(6);
+
+        mainPanel.add(splitPane, BorderLayout.CENTER);
+        mainPanel.add(statusBarPanel, BorderLayout.SOUTH);
+
+        legendController = new LegendController(statusBarPanel.getLegendWrapper());
+        filterCoordinator = new FilterCoordinator(
+                editorPanel.getTextArea(),
+                comparePanel.getOriginalTextArea(),
+                statusBarPanel.getGrepField(),
+                SettingsHelper.load().soundEnabled
+        );
+        eventManager = new FileTabEventManager(this);
+
+        setContent(content, sentenceType);
+
+        if (searchPattern != null && !searchPattern.isEmpty()) {
+            searchFor(searchPattern);
+        }
+        if (Boolean.TRUE.equals(toCompare)) {
+            toggleComparePanel();
         }
     }
 

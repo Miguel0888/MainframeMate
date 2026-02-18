@@ -406,5 +406,16 @@ public class CommonsNetFtpFileService implements FileService {
         }
         return trimmed;
     }
-}
 
+    public boolean isMvsMode() {
+        return mvsMode;
+    }
+
+    public String getSystemType() {
+        try {
+            return ftpClient.getSystemType();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+}

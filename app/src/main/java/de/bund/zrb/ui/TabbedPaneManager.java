@@ -165,6 +165,16 @@ public class TabbedPaneManager {
         return fileTabImpl;
     }
 
+    /**
+     * Öffnet einen neuen FileTab basierend auf VirtualResource (ohne FtpManager).
+     */
+    public FtpTab openFileTab(VirtualResource resource, String content, String sentenceType, String searchPattern, Boolean toCompare) {
+        FileTabImpl fileTabImpl = new FileTabImpl(this, resource, content, sentenceType, searchPattern, toCompare);
+        addTab(fileTabImpl);
+        updateTooltipFor(fileTabImpl);
+        return fileTabImpl;
+    }
+
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Plugin-Management
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
