@@ -4,6 +4,9 @@ import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceErrorCode;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.api.FileWriteResult;
+import de.bund.zrb.files.auth.ConnectionId;
+import de.bund.zrb.files.auth.Credentials;
+import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.files.path.MvsPathDialect;
@@ -35,6 +38,8 @@ public class CommonsNetFtpFileService implements FileService {
     private boolean recordStructure;
     private boolean mvsMode;
     private boolean closed;
+    private final ConnectionId connectionId;
+    private final CredentialsProvider credentialsProvider;
 
     public CommonsNetFtpFileService(String host, String user, String password) throws FileServiceException {
         this(host, user, password, SettingsHelper.load(), new MvsPathDialect());
@@ -50,7 +55,46 @@ public class CommonsNetFtpFileService implements FileService {
                 : null;
         this.recordStructure = false;
 
+        this.connectionId = new ConnectionId("ftp", host, user);
+        this.credentialsProvider = null;
+
         connect(host, user, password);
+    }
+
+    public CommonsNetFtpFileService(CredentialsProvider credentialsProvider, ConnectionId connectionId) throws FileServiceException {
+        this(credentialsProvider, connectionId, SettingsHelper.load(), new MvsPathDialect());
+    }
+
+    public CommonsNetFtpFileService(CredentialsProvider credentialsProvider,
+                                   ConnectionId connectionId,
+                                   Settings settings,
+                                   PathDialect mvsDialect) throws FileServiceException {
+        this.settings = settings == null ? SettingsHelper.load() : settings;
+        this.mvsDialect = mvsDialect == null ? new MvsPathDialect() : mvsDialect;
+        Integer ftpFileType = this.settings.ftpFileType == null ? null : this.settings.ftpFileType.getCode();
+        this.padding = ftpFileType == null || ftpFileType == FTP.ASCII_FILE_TYPE
+                ? ByteUtil.parseHexByte(this.settings.padding)
+                : null;
+        this.recordStructure = false;
+
+        this.connectionId = connectionId;
+        this.credentialsProvider = credentialsProvider;
+
+        connect();
+    }
+
+    private void connect() throws FileServiceException {
+        if (connectionId == null) {
+            throw new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "Missing ConnectionId");
+        }
+        if (credentialsProvider == null) {
+            throw new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "Missing CredentialsProvider");
+        }
+
+        Credentials credentials = credentialsProvider.resolve(connectionId)
+                .orElseThrow(() -> new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "No credentials available"));
+
+        connect(credentials.getHost(), credentials.getUsername(), credentials.getPassword());
     }
 
     private void connect(String host, String user, String password) throws FileServiceException {

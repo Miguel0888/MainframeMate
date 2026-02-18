@@ -81,6 +81,32 @@ public class LoginManager {
         return requestCredentialsAndPersist(host, username, settings);
     }
 
+    /**
+     * Non-interactive lookup: returns cached or stored password if available, otherwise null.
+     * This method must not trigger any UI prompt.
+     */
+    public String getCachedPassword(String host, String username) {
+        String key = toCacheKey(host, username);
+        Settings settings = SettingsHelper.load();
+
+        if (settings.autoConnect && encryptedPasswordCache.containsKey(key)) {
+            return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+        }
+
+        if (settings.savePassword
+                && host != null && host.equals(settings.host)
+                && username != null && username.equals(settings.user)
+                && settings.encryptedPassword != null) {
+            try {
+                return WindowsCryptoUtil.decrypt(settings.encryptedPassword);
+            } catch (Exception ignore) {
+                // ignore and return null
+            }
+        }
+
+        return null;
+    }
+
     public String requestFreshPassword(String host, String username) {
         Settings settings = SettingsHelper.load();
 
