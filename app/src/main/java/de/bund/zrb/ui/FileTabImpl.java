@@ -4,7 +4,7 @@ import de.bund.zrb.files.codec.RecordStructureCodec;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
-import de.bund.zrb.ui.preview.ViewMode;
+import de.bund.zrb.ui.preview.SplitPreviewTab;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
@@ -17,7 +17,6 @@ import de.bund.zrb.files.impl.auth.InteractiveCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.login.LoginManager;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
 import java.awt.*;
@@ -29,25 +28,22 @@ import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.path.VirtualResourceRef;
 
 /**
- * File editor tab with syntax highlighting support.
- *
- * Supports three view modes:
- * - RAW_ONLY: No syntax highlighting (plain text view)
- * - RENDERED_ONLY: With syntax highlighting (default for source code files)
- * - SPLIT: Both views side by side (not typically used for file editing)
- *
- * The content is never modified by the view mode - only visual highlighting changes.
+ * File editor tab that extends SplitPreviewTab to provide:
+ * - RAW/RENDERED/SPLIT view modes with syntax highlighting (from SplitPreviewTab)
+ * - Search/Filter functionality
+ * - Compare panel for diff viewing
+ * - Sentence type highlighting
+ * - File save operations
  */
-public class FileTabImpl implements FileTab {
+public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
     public static final double DEFAULT_DIVIDER_LOCATION = 0.7;
     private double currentDividerLocation = DEFAULT_DIVIDER_LOCATION;
     private static final String DIVIDER_LOCATION_KEY = "comparePanel.dividerLocation";
-    private final JPanel mainPanel = new JPanel(new BorderLayout());
+
     final FileTabModel model = new FileTabModel();
     final FileTabEventDispatcher dispatcher = new FileTabEventDispatcher();
 
-    final EditorPanel editorPanel = new EditorPanel();
     final ComparePanel comparePanel;
     final StatusBarPanel statusBarPanel = new StatusBarPanel();
 
@@ -55,16 +51,12 @@ public class FileTabImpl implements FileTab {
     final LegendController legendController;
     final FilterCoordinator filterCoordinator;
 
-    private final JSplitPane splitPane;
+    private final JSplitPane compareSplitPane;
     final TabbedPaneManager tabbedPaneManager;
     private final FileTabEventManager eventManager;
 
     private VirtualResource resource;
 
-    // View mode support
-    private ViewMode currentViewMode = ViewMode.RENDERED_ONLY;
-    private String detectedSyntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-    private JComboBox<ViewMode> viewModeCombo;
 
 
     @Override
@@ -153,34 +145,38 @@ public class FileTabImpl implements FileTab {
      */
     public FileTabImpl(TabbedPaneManager tabbedPaneManager, VirtualResource resource, String content,
                        String sentenceType, String searchPattern, Boolean toCompare) {
+        // Call SplitPreviewTab constructor
+        super(extractFileName(resource), content, null, null, null, resource.getBackendType() == VirtualBackendType.FTP);
+
         this.tabbedPaneManager = tabbedPaneManager;
         this.resource = resource;
         model.setResource(resource);
         model.setSentenceType(sentenceType);
 
+        // Create compare panel for diff functionality
         comparePanel = new ComparePanel(resource.getResolvedPath(), content);
         comparePanel.setVisible(false);
 
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setTopComponent(editorPanel);
-        splitPane.setBottomComponent(comparePanel);
-        splitPane.setResizeWeight(1.0);
-        splitPane.setDividerSize(6);
+        // Create vertical split pane for compare functionality
+        compareSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
-        // Create view mode toolbar
-        JToolBar viewModeToolbar = createViewModeToolbar();
+        // Remove the default content from SplitPreviewTab and wrap it in our split pane
+        // The rawScrollPane from parent contains the RSyntaxTextArea
+        compareSplitPane.setTopComponent(rawScrollPane);
+        compareSplitPane.setBottomComponent(comparePanel);
+        compareSplitPane.setResizeWeight(1.0);
+        compareSplitPane.setDividerSize(6);
 
-        // Main layout with toolbar at top
-        JPanel editorWrapper = new JPanel(new BorderLayout());
-        editorWrapper.add(viewModeToolbar, BorderLayout.NORTH);
-        editorWrapper.add(splitPane, BorderLayout.CENTER);
+        // Re-arrange the layout: replace content in contentPanel with our split pane
+        contentPanel.removeAll();
+        contentPanel.add(compareSplitPane, BorderLayout.CENTER);
 
-        mainPanel.add(editorWrapper, BorderLayout.CENTER);
+        // Add status bar at bottom of main panel
         mainPanel.add(statusBarPanel, BorderLayout.SOUTH);
 
         legendController = new LegendController(statusBarPanel.getLegendWrapper());
         filterCoordinator = new FilterCoordinator(
-                editorPanel.getTextArea(),
+                getRawPane(), // Use inherited rawPane from SplitPreviewTab
                 comparePanel.getOriginalTextArea(),
                 statusBarPanel.getGrepField(),
                 SettingsHelper.load().soundEnabled
@@ -188,7 +184,6 @@ public class FileTabImpl implements FileTab {
         eventManager = new FileTabEventManager(this);
 
         statusBarPanel.bindEvents(dispatcher);
-        editorPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
         eventManager.bindAll();
 
@@ -200,7 +195,11 @@ public class FileTabImpl implements FileTab {
         initDividerStateListener();
         showComparePanelWithDividerOnReady(toCompare);
 
-        setContent(content, sentenceType);
+        // Content already set via super constructor, but we need to handle sentence type
+        if (sentenceType != null) {
+            dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
+        }
+        statusBarPanel.setSelectedSentenceType(sentenceType);
 
         if (searchPattern != null && !searchPattern.isEmpty()) {
             searchFor(searchPattern);
@@ -208,68 +207,21 @@ public class FileTabImpl implements FileTab {
     }
 
     /**
-     * Creates the view mode toolbar with RAW/RENDERED/SPLIT selector.
+     * Extract file name from VirtualResource for display.
      */
-    private JToolBar createViewModeToolbar() {
-        JToolBar toolbar = new JToolBar();
-        toolbar.setFloatable(false);
-        toolbar.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-
-        toolbar.add(Box.createHorizontalGlue());
-
-        JLabel modeLabel = new JLabel("Ansicht: ");
-        toolbar.add(modeLabel);
-
-        viewModeCombo = new JComboBox<>(ViewMode.values());
-        viewModeCombo.setSelectedItem(ViewMode.RENDERED_ONLY);
-        viewModeCombo.setMaximumSize(new Dimension(120, 24));
-        viewModeCombo.addActionListener(e -> {
-            ViewMode selected = (ViewMode) viewModeCombo.getSelectedItem();
-            if (selected != null) {
-                applyViewMode(selected);
-            }
-        });
-        toolbar.add(viewModeCombo);
-
-        return toolbar;
-    }
-
-    /**
-     * Apply view mode - toggles syntax highlighting on/off.
-     * RAW_ONLY: No syntax highlighting
-     * RENDERED_ONLY: With syntax highlighting (default)
-     * SPLIT: Not typically used for file editing, same as RENDERED
-     */
-    private void applyViewMode(ViewMode mode) {
-        this.currentViewMode = mode;
-
-        switch (mode) {
-            case RAW_ONLY:
-                // Disable syntax highlighting
-                editorPanel.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-                editorPanel.getTextArea().setCodeFoldingEnabled(false);
-                break;
-            case RENDERED_ONLY:
-            case SPLIT:
-                // Enable syntax highlighting
-                editorPanel.getTextArea().setSyntaxEditingStyle(detectedSyntaxStyle);
-                editorPanel.getTextArea().setCodeFoldingEnabled(true);
-                break;
-        }
-    }
-
-    /**
-     * Get the current view mode.
-     */
-    public ViewMode getViewMode() {
-        return currentViewMode;
+    private static String extractFileName(VirtualResource resource) {
+        if (resource == null) return "[Neu]";
+        String path = resource.getResolvedPath();
+        if (path == null) return "[Neu]";
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
     }
 
     private void initDividerStateListener() {
-        splitPane.addPropertyChangeListener("dividerLocation", evt -> {
-            int height = splitPane.getHeight();
+        compareSplitPane.addPropertyChangeListener("dividerLocation", evt -> {
+            int height = compareSplitPane.getHeight();
             if (height > 0) {
-                int rawDivider = splitPane.getDividerLocation();
+                int rawDivider = compareSplitPane.getDividerLocation();
                 double relative = rawDivider / (double) height;
 
                 if (relative >= 0.10 && relative <= 1) {
@@ -284,11 +236,11 @@ public class FileTabImpl implements FileTab {
 
     private void showComparePanelWithDividerOnReady(Boolean toCompare) {
         if (Boolean.TRUE.equals(toCompare)) {
-            splitPane.addComponentListener(new ComponentAdapter() {
+            compareSplitPane.addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent e) {
-                    if (splitPane.getHeight() > 0) {
-                        splitPane.removeComponentListener(this); // nur einmal ausführen
+                    if (compareSplitPane.getHeight() > 0) {
+                        compareSplitPane.removeComponentListener(this); // nur einmal ausführen
                         showComparePanel();
                     }
                 }
@@ -309,7 +261,7 @@ public class FileTabImpl implements FileTab {
 
     public void showComparePanel() {
         comparePanel.setVisible(true);
-        splitPane.setDividerLocation(currentDividerLocation);
+        compareSplitPane.setDividerLocation(currentDividerLocation);
         statusBarPanel.getCompareButton().setVisible(false);
     }
 
@@ -318,7 +270,7 @@ public class FileTabImpl implements FileTab {
         comparePanel.setVisible(show);
 
         if (show) {
-            splitPane.setDividerLocation(currentDividerLocation);
+            compareSplitPane.setDividerLocation(currentDividerLocation);
             statusBarPanel.getCompareButton().setVisible(false);
         }
     }
@@ -329,7 +281,7 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public JComponent getComponent() {
-        return mainPanel;
+        return this; // Return this since we now extend SplitPreviewTab (which extends JPanel)
     }
 
     @Override
@@ -362,9 +314,9 @@ public class FileTabImpl implements FileTab {
 
     private void saveDividerLocation() {
         Settings settings = SettingsHelper.load();
-        int height = splitPane.getHeight();
+        int height = compareSplitPane.getHeight();
         if (height > 0) {
-            double relativeLocation = splitPane.getDividerLocation() / (double) height;
+            double relativeLocation = compareSplitPane.getDividerLocation() / (double) height;
             if(relativeLocation > 0) {
                 settings.applicationState.put(DIVIDER_LOCATION_KEY, String.valueOf(relativeLocation));
                 SettingsHelper.save(settings);
@@ -432,7 +384,7 @@ public class FileTabImpl implements FileTab {
                     expectedHash = "";
                 }
 
-                String newText = editorPanel.getTextArea().getText();
+                String newText = getRawPane().getText();
                 if (model.isAppend() && current != null) {
                     // IMPORTANT: Use getEditorText() for record structure files, not raw bytes
                     String oldText = current.getEditorText();
@@ -464,18 +416,17 @@ public class FileTabImpl implements FileTab {
 
                 FileWriteResult result = fs.writeIfUnchanged(resolvedPath, payload, expectedHash);
                 if (result != null && result.getStatus() == FileWriteResult.Status.CONFLICT) {
-                    JOptionPane.showMessageDialog(mainPanel,
+                    JOptionPane.showMessageDialog(this,
                             "⚠️ Konflikt beim Speichern: Datei wurde zwischenzeitlich verändert.",
                             "Konflikt", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
 
                 model.resetChanged();
-                editorPanel.resetUndoHistory();
                 tabbedPaneManager.updateTitleFor(this);
             }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel,
+            JOptionPane.showMessageDialog(this,
                     "Fehler beim Speichern (FileService):\n" + e.getMessage(),
                     "Speicherfehler", JOptionPane.ERROR_MESSAGE);
         }
@@ -483,19 +434,9 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public void setContent(String content) {
-        editorPanel.setTextSilently(content);
-        model.resetChanged(); // Wichtig: Änderungszustand zurücksetzen
-
-        // Apply syntax highlighting based on file extension
-        String path = resource != null ? resource.getResolvedPath() : model.getFullPath();
-        if (path != null) {
-            editorPanel.applySyntaxHighlighting(path);
-            // Store the detected syntax style for view mode switching
-            detectedSyntaxStyle = editorPanel.getCurrentSyntaxStyle();
-        }
-
-        // Apply current view mode (default is RENDERED with highlighting)
-        applyViewMode(currentViewMode);
+        // Use inherited setContent from SplitPreviewTab which sets rawContent and rawPane
+        super.setContent(content);
+        model.resetChanged();
     }
 
 
@@ -541,7 +482,7 @@ public class FileTabImpl implements FileTab {
 
     @Override
     public String getContent() {
-        return editorPanel.getTextArea().getText();
+        return getRawPane().getText();
     }
 
     @Override
