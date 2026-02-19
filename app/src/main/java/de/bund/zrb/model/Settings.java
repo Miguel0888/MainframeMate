@@ -48,6 +48,11 @@ public class Settings {
     public boolean enableHexDump = false; // Standard = aus
     public boolean removeFinalNewline = true; // Standard = an
 
+    // FTP Timeouts (0 = deaktiviert/unendlich)
+    public int ftpConnectTimeoutMs = 0;      // Connect timeout in ms (0 = aus)
+    public int ftpControlTimeoutMs = 0;      // Control socket SO_TIMEOUT in ms (0 = aus)
+    public int ftpDataTimeoutMs = 0;         // Data transfer timeout in ms (0 = aus)
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

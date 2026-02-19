@@ -33,9 +33,6 @@ import java.util.List;
 
 public class CommonsNetFtpFileService implements FileService {
 
-    private static final int CONNECT_TIMEOUT_MS = 10_000;
-    private static final int CONTROL_TIMEOUT_MS = 30_000;
-    private static final int DATA_TIMEOUT_MS = 30_000;
 
     private final FTPClient ftpClient = new FTPClient();
     private final Settings settings;
@@ -105,12 +102,32 @@ public class CommonsNetFtpFileService implements FileService {
 
     private void connect(String host, String user, String password) throws FileServiceException {
         try {
+            // Get timeout values from settings (0 = disabled/infinite)
+            int connectTimeout = settings.ftpConnectTimeoutMs;
+            int controlTimeout = settings.ftpControlTimeoutMs;
+            int dataTimeout = settings.ftpDataTimeoutMs;
+
+            // Log timeout configuration
+            System.out.println("[FTP] Connecting to " + host + " with timeouts: " +
+                    "connect=" + (connectTimeout == 0 ? "disabled" : connectTimeout + "ms") + ", " +
+                    "control=" + (controlTimeout == 0 ? "disabled" : controlTimeout + "ms") + ", " +
+                    "data=" + (dataTimeout == 0 ? "disabled" : dataTimeout + "ms"));
+
             ftpClient.setControlEncoding(settings.encoding);
-            ftpClient.setDefaultTimeout(CONNECT_TIMEOUT_MS);
-            ftpClient.setConnectTimeout(CONNECT_TIMEOUT_MS);
+
+            // Apply connect timeout (0 means no timeout)
+            if (connectTimeout > 0) {
+                ftpClient.setDefaultTimeout(connectTimeout);
+                ftpClient.setConnectTimeout(connectTimeout);
+            }
+
             ftpClient.connect(host);
-            ftpClient.setSoTimeout(CONTROL_TIMEOUT_MS);
-            applyDataTimeout(DATA_TIMEOUT_MS);
+
+            // Apply control socket timeout (0 means infinite wait)
+            ftpClient.setSoTimeout(controlTimeout);
+
+            // Apply data timeout (0 means infinite wait)
+            applyDataTimeout(dataTimeout);
 
             if (!ftpClient.login(user, password)) {
                 throw new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "FTP login failed");
@@ -134,6 +151,13 @@ public class CommonsNetFtpFileService implements FileService {
                     ? settings.ftpFileStructure.getCode() == FTP.RECORD_STRUCTURE
                     : mvsMode;
         } catch (IOException e) {
+            // Log root cause for diagnosis
+            Throwable rootCause = e;
+            while (rootCause.getCause() != null) {
+                rootCause = rootCause.getCause();
+            }
+            System.err.println("[FTP] Connection failed: " + rootCause.getClass().getSimpleName() +
+                    " - " + rootCause.getMessage());
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP connection failed", e);
         }
     }

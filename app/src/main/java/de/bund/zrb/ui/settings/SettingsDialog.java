@@ -41,6 +41,9 @@ public class SettingsDialog {
     private static JComboBox<FtpFileStructure> structureBox;
     private static JComboBox<FtpTextFormat> formatBox;
     private static JComboBox<FtpFileType> typeBox;
+    private static JSpinner ftpConnectTimeoutSpinner;
+    private static JSpinner ftpControlTimeoutSpinner;
+    private static JSpinner ftpDataTimeoutSpinner;
     private static JButton openFolderButton;
     private static JCheckBox autoConnectBox;
     private static JCheckBox savePasswordBox;
@@ -502,6 +505,36 @@ public class SettingsDialog {
         HelpButton hexDumpInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_HEX_DUMP);
         hexDumpPanel.add(hexDumpInfoBtn);
         expertContent.add(hexDumpPanel, gbcConnect);
+        gbcConnect.gridy++;
+
+        // Trennlinie für Timeouts
+        expertContent.add(new JLabel(" "), gbcConnect);
+        gbcConnect.gridy++;
+        expertContent.add(new JLabel("─── FTP Timeouts (0 = deaktiviert) ───"), gbcConnect);
+        gbcConnect.gridy++;
+
+        // Connect Timeout
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Connect Timeout (ms):",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT);
+        ftpConnectTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.ftpConnectTimeoutMs, 0, 300_000, 1000));
+        expertContent.add(ftpConnectTimeoutSpinner, gbcConnect);
+        gbcConnect.gridy++;
+
+        // Control Timeout
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Control Timeout (ms):",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONTROL);
+        ftpControlTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.ftpControlTimeoutMs, 0, 300_000, 1000));
+        expertContent.add(ftpControlTimeoutSpinner, gbcConnect);
+        gbcConnect.gridy++;
+
+        // Data Timeout
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Data Timeout (ms):",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_DATA);
+        ftpDataTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.ftpDataTimeoutMs, 0, 300_000, 1000));
+        expertContent.add(ftpDataTimeoutSpinner, gbcConnect);
         gbcConnect.gridy++;
     }
 
@@ -1127,6 +1160,12 @@ public class SettingsDialog {
             settings.ftpFileStructure = ComboBoxHelper.getSelectedEnumValue(structureBox, FtpFileStructure.class);
             settings.ftpTransferMode = ComboBoxHelper.getSelectedEnumValue(modeBox, FtpTransferMode.class);
             settings.enableHexDump = hexDumpBox.isSelected();
+
+            // FTP Timeouts
+            settings.ftpConnectTimeoutMs = ((Number) ftpConnectTimeoutSpinner.getValue()).intValue();
+            settings.ftpControlTimeoutMs = ((Number) ftpControlTimeoutSpinner.getValue()).intValue();
+            settings.ftpDataTimeoutMs = ((Number) ftpDataTimeoutSpinner.getValue()).intValue();
+
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();
             settings.importDelay = (Integer) importDelaySpinner.getValue();

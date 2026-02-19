@@ -442,6 +442,80 @@ public class HelpContentProvider {
                 "<li>Zur Analyse von Record-Markern (FF01/FF02)</li>" +
                 "</ul>" +
                 "<p>⚠️ Erzeugt viel Konsolenausgabe – nur für Debugging!</p>" +
+                "</body></html>"),
+
+        FTP_TIMEOUT_CONNECT("FTP Connect Timeout (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>⏱️ Connect Timeout</h3>" +
+                "<p>Maximale Wartezeit für den Verbindungsaufbau zum FTP-Server.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// CommonsNetFtpFileService:\n" +
+                "if (connectTimeout &gt; 0) {\n" +
+                "    ftpClient.setDefaultTimeout(timeout);\n" +
+                "    ftpClient.setConnectTimeout(timeout);\n" +
+                "}\n" +
+                "ftpClient.connect(host);</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>0</b> – Kein Timeout (wartet unendlich)</li>" +
+                "<li><b>&gt; 0</b> – Timeout in Millisekunden</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>0 (deaktiviert)</b> für maximale Kompatibilität. " +
+                "Bei langsamen VPN-Verbindungen kann ein Timeout von 30000ms (30s) sinnvoll sein.</p>" +
+                "</body></html>"),
+
+        FTP_TIMEOUT_CONTROL("FTP Control Timeout (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>⏱️ Control Socket Timeout (SO_TIMEOUT)</h3>" +
+                "<p>Maximale Wartezeit für Antworten auf dem Control-Kanal " +
+                "(FTP-Kommandos wie LIST, CWD, RETR).</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Nach erfolgreichem Connect:\n" +
+                "ftpClient.setSoTimeout(controlTimeout);\n" +
+                "// 0 = blockiert unendlich bis Daten kommen</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>0</b> – Kein Timeout (wartet unendlich)</li>" +
+                "<li><b>&gt; 0</b> – Timeout in Millisekunden</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>0 (deaktiviert)</b> für Mainframe-Verbindungen. " +
+                "Der Mainframe kann bei hoher Last langsam antworten.</p>" +
+                "</body></html>"),
+
+        FTP_TIMEOUT_DATA("FTP Data Timeout (technisch)",
+                "<html><body style='width: 450px; padding: 10px;'>" +
+                "<h3>⏱️ Data Transfer Timeout</h3>" +
+                "<p>Maximale Wartezeit für Datentransfers (Dateien lesen/schreiben, " +
+                "Verzeichnisse auflisten).</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Vor jedem Transfer:\n" +
+                "ftpClient.setDataTimeout(dataTimeout);\n" +
+                "// 0 = blockiert unendlich bis Transfer fertig</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>0</b> – Kein Timeout (wartet unendlich) ✅ <b>Standard</b></li>" +
+                "<li><b>&gt; 0</b> – Timeout in Millisekunden</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>⚠️ Wichtig für Mainframe</h4>" +
+                "<p>Bei MVS-Membern kann der Transfer je nach Mainframe-Last, " +
+                "VPN und Dateigröße <b>sehr lange dauern</b>.</p>" +
+                "<p>Ein zu kleiner Wert führt zu Abbrüchen beim Öffnen von Dateien!</p>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>0 (deaktiviert)</b> für maximale Kompatibilität mit dem " +
+                "bisherigen Verhalten. Nur bei Debugging oder bekannten " +
+                "Hänge-Problemen einen Wert setzen (z.B. 60000ms = 1 Minute).</p>" +
                 "</body></html>");
 
         private final String title;
