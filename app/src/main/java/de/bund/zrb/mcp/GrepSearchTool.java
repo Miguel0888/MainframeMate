@@ -364,11 +364,10 @@ public class GrepSearchTool implements McpTool {
                 return;
             }
 
-            // Decode content
-            Charset charset = resolveCharset(ctx.encoding, payload);
+            // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
             String content;
             try {
-                content = new String(bytes, charset);
+                content = payload.getEditorText();
             } catch (Exception e) {
                 result.skippedDecodeError++;
                 return;

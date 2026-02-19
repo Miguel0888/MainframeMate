@@ -113,8 +113,8 @@ public class JobPollingTab implements FtpTab {
                 retryTimer.stop();
                 animatedCircle.stop();
 
-                Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
-                String content = new String(payload.getBytes(), charset);
+                // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
+                String content = payload.getEditorText();
 
                 // Open file tab with VirtualResource (no Legacy manager)
                 FtpTab realTab = tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);

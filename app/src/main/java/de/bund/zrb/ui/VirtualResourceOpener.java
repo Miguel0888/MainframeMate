@@ -268,8 +268,8 @@ public final class VirtualResourceOpener {
     private FtpTab openFile(VirtualResource resource, FileService fs,
                             String sentenceType, String searchPattern, Boolean toCompare) throws FileServiceException {
         FilePayload payload = fs.readFile(resource.getResolvedPath());
-        Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
-        String content = new String(payload.getBytes(), charset);
+        // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
+        String content = payload.getEditorText();
 
         // Open file tab with VirtualResource (no Legacy manager)
         return tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);

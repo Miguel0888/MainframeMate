@@ -151,7 +151,8 @@ public class ReadFileTool implements McpTool {
             charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
         }
 
-        String content = new String(payload.getBytes(), charset);
+        // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
+        String content = payload.getEditorText();
 
         // Apply maxLines limit if specified
         int lineCount = countLines(content);

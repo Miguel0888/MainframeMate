@@ -7,6 +7,7 @@ import de.bund.zrb.files.api.FileWriteResult;
 import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.Credentials;
 import de.bund.zrb.files.auth.CredentialsProvider;
+import de.bund.zrb.files.codec.RecordStructureCodec;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.files.path.MvsPathDialect;
@@ -408,6 +409,13 @@ public class CommonsNetFtpFileService implements FileService {
             }
 
             Charset charset = Charset.forName(ftpClient.getControlEncoding());
+
+            // For RECORD_STRUCTURE, decode bytes to editor-friendly text
+            if (recordStructure) {
+                String editorText = RecordStructureCodec.decodeForEditor(bytes, charset, settings);
+                return FilePayload.fromBytesWithEditorText(bytes, charset, recordStructure, editorText);
+            }
+
             return FilePayload.fromBytes(bytes, charset, recordStructure);
         } catch (IOException e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP read failed: " + resolvedPath, e);

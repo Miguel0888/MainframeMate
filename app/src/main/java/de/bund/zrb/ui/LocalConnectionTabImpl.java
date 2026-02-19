@@ -303,7 +303,8 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     private void openLocalFile(String path) {
         try {
             FilePayload payload = fileService.readFile(path);
-            String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
+            // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
+            String content = payload.getEditorText();
             VirtualResource resource = new VirtualResource(de.bund.zrb.files.path.VirtualResourceRef.of(path), VirtualResourceKind.FILE, path, true);
             tabbedPaneManager.openFileTab(resource, content, null, null, false);
         } catch (Exception e) {

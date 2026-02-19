@@ -66,8 +66,8 @@ public class AsyncRawFileOpener {
                 System.out.println("[AsyncRawFileOpener] start open path=" + path);
 
                 FilePayload payload = readWithRetry(path);
-                Charset charset = payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset();
-                String content = new String(payload.getBytes(), charset);
+                // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
+                String content = payload.getEditorText();
 
                 long duration = System.currentTimeMillis() - started;
                 System.out.println("[AsyncRawFileOpener] read finished bytes=" + payload.getBytes().length +

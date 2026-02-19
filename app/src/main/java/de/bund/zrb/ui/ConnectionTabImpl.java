@@ -147,7 +147,8 @@ public class ConnectionTabImpl implements ConnectionTab {
                     // VirtualResource-based file open
                     try {
                         FilePayload payload = fileService.readFile(nextPath);
-                        String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
+                        // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
+                        String content = payload.getEditorText();
                         VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
                         tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
                     } catch (Exception ex) {

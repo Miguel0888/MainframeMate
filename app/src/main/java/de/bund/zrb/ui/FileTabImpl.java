@@ -1,5 +1,6 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.files.codec.RecordStructureCodec;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
@@ -350,8 +351,8 @@ public class FileTabImpl implements FileTab {
 
                 String newText = editorPanel.getTextArea().getText();
                 if (model.isAppend() && current != null) {
-                    java.nio.charset.Charset cs = current.getCharset() != null ? current.getCharset() : java.nio.charset.Charset.defaultCharset();
-                    String oldText = new String(current.getBytes(), cs);
+                    // IMPORTANT: Use getEditorText() for record structure files, not raw bytes
+                    String oldText = current.getEditorText();
                     if (!oldText.endsWith("\n") && !newText.startsWith("\n")) {
                         oldText += "\n";
                     }
@@ -366,7 +367,16 @@ public class FileTabImpl implements FileTab {
                 // Preserve record structure flag if we already know it (FTP/MVS)
                 boolean recordStructure = current != null && current.hasRecordStructure();
 
-                byte[] outBytes = newText.getBytes(targetCharset);
+                // Encode text back to remote format
+                byte[] outBytes;
+                if (recordStructure) {
+                    // Use RecordStructureCodec for MVS record structure
+                    Settings appSettings = SettingsHelper.load();
+                    outBytes = RecordStructureCodec.encodeForRemote(newText, targetCharset, appSettings);
+                } else {
+                    outBytes = newText.getBytes(targetCharset);
+                }
+
                 FilePayload payload = FilePayload.fromBytes(outBytes, targetCharset, recordStructure);
 
                 FileWriteResult result = fs.writeIfUnchanged(resolvedPath, payload, expectedHash);
