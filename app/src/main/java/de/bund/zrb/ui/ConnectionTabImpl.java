@@ -26,6 +26,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     private final FileService fileService;
     private final BrowserSessionState browserState;
     private final PathNavigator navigator;
+    private final DocumentPreviewOpener previewOpener;
 
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
@@ -44,6 +45,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         this.tabbedPaneManager = tabbedPaneManager;
         this.resource = resource;
         this.fileService = fileService;
+        this.previewOpener = new DocumentPreviewOpener(tabbedPaneManager);
         this.mainPanel = new JPanel(new BorderLayout());
 
         boolean mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
@@ -128,16 +130,22 @@ public class ConnectionTabImpl implements ConnectionTab {
                     // not a directory
                 }
 
-
-                // VirtualResource-based file open
-                try {
-                    FilePayload payload = fileService.readFile(nextPath);
-                    String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
-                    VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
-                    tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                // CTRL+Doppelklick = Raw-Datei öffnen (wie bisher)
+                // Normaler Doppelklick = Document Preview
+                if (e.isControlDown()) {
+                    // VirtualResource-based file open
+                    try {
+                        FilePayload payload = fileService.readFile(nextPath);
+                        String content = new String(payload.getBytes(), payload.getCharset() != null ? payload.getCharset() : Charset.defaultCharset());
+                        VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
+                        tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                                "Fehler", JOptionPane.ERROR_MESSAGE);
+                    }
+                } else {
+                    // Open Document Preview
+                    previewOpener.openPreviewAsync(fileService, nextPath, selected, mainPanel);
                 }
             }
         });

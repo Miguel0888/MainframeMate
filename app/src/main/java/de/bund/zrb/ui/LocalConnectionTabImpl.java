@@ -26,6 +26,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     private final DefaultListModel<String> listModel = new DefaultListModel<>();
     private final JList<String> fileList = new JList<>(listModel);
     private final TabbedPaneManager tabbedPaneManager;
+    private final DocumentPreviewOpener previewOpener;
 
     private final JTextField searchField = new JTextField();
     private List<FileNode> currentNodes = new ArrayList<>();
@@ -33,6 +34,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
 
     public LocalConnectionTabImpl(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
+        this.previewOpener = new DocumentPreviewOpener(tabbedPaneManager);
         this.mainPanel = new JPanel(new BorderLayout());
 
         this.fileService = new FileServiceFactory().createLocal();
@@ -82,7 +84,13 @@ public class LocalConnectionTabImpl implements ConnectionTab {
                 }
 
                 if (node != null) {
-                    openLocalFile(node.getPath());
+                    // CTRL+Doppelklick = Raw-Datei öffnen (wie bisher)
+                    // Normaler Doppelklick = Document Preview
+                    if (e.isControlDown()) {
+                        openLocalFile(node.getPath());
+                    } else {
+                        openDocumentPreview(node.getPath(), node.getName());
+                    }
                 }
             }
         });
@@ -302,6 +310,10 @@ public class LocalConnectionTabImpl implements ConnectionTab {
             JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void openDocumentPreview(String path, String fileName) {
+        previewOpener.openPreviewAsync(fileService, path, fileName, mainPanel);
     }
 
     private String defaultRootPath() {
