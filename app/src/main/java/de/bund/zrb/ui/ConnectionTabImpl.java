@@ -1,8 +1,6 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.files.api.FileService;
-import de.bund.zrb.files.api.FileServiceException;
-import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.ui.browser.BrowserSessionState;
@@ -35,6 +33,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     private final TabbedPaneManager tabbedPaneManager;
 
     private final JTextField searchField = new JTextField();
+    private final JLabel statusLabel = new JLabel(" ");
     private List<String> currentDirectoryFiles = new ArrayList<>();
     private List<FileNode> currentDirectoryNodes = new ArrayList<>();
 
@@ -257,6 +256,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         newFileButton.setToolTipText("Neue Datei anlegen");
         newFileButton.addActionListener(e -> createNewFile());
         leftPanel.add(newFileButton);
+        leftPanel.add(statusLabel);
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton deleteButton = new JButton("🗑");
@@ -312,15 +312,40 @@ public class ConnectionTabImpl implements ConnectionTab {
     private void updateFileList() {
         SwingUtilities.invokeLater(() -> {
             listModel.clear();
-            try {
-                List<FileNode> nodes = fileService.list(browserState.getCurrentPath());
-                currentDirectoryNodes = nodes == null ? new ArrayList<>() : nodes;
-                refreshListModelFromNodes();
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
+            statusLabel.setText("Lade...");
+            statusLabel.setForeground(Color.GRAY);
         });
+
+        // Run listing in background to avoid UI freeze
+        new Thread(() -> {
+            try {
+                String currentPath = browserState.getCurrentPath();
+                System.out.println("[ConnectionTab] Loading directory: " + currentPath);
+
+                List<FileNode> nodes = fileService.list(currentPath);
+
+                SwingUtilities.invokeLater(() -> {
+                    currentDirectoryNodes = nodes == null ? new ArrayList<>() : nodes;
+                    refreshListModelFromNodes();
+
+                    if (currentDirectoryNodes.isEmpty()) {
+                        statusLabel.setText("Keine Einträge gefunden");
+                        statusLabel.setForeground(Color.ORANGE.darker());
+                    } else {
+                        statusLabel.setText(currentDirectoryNodes.size() + " Einträge");
+                        statusLabel.setForeground(Color.DARK_GRAY);
+                    }
+                });
+            } catch (Exception e) {
+                System.err.println("[ConnectionTab] Error loading directory: " + e.getMessage());
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("Fehler: " + e.getMessage());
+                    statusLabel.setForeground(Color.RED);
+                    JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                });
+            }
+        }).start();
     }
 
     private void refreshListModelFromNodes() {

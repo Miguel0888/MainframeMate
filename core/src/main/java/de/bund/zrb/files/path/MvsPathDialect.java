@@ -120,7 +120,12 @@ public class MvsPathDialect implements PathDialect {
 
     /**
      * Creates a child path for listings.
-     * For member paths the join uses DATASET(MEMBER). Otherwise it joins with a dot.
+     *
+     * Rules:
+     * 1) If child already looks "absolute" (contains '.', '(' or is quoted): use child as-is
+     * 2) If parent is HLQ-level (no '.', no '('): join with '.' -> HLQ.CHILD
+     * 3) If parent is dataset-level (contains '.') and child looks like member: use DATASET(MEMBER)
+     * 4) Otherwise: join with '.'
      */
     public String childOf(String parentAbsolutePath, String childName) {
         String rawParent = unquote(parentAbsolutePath == null ? "" : parentAbsolutePath.trim());
@@ -130,18 +135,66 @@ public class MvsPathDialect implements PathDialect {
             return toAbsolutePath(name);
         }
 
-        // If the child itself already looks like a member spec, keep it as-is.
-        if (isMemberPath(name)) {
-            return toAbsolutePath(name);
+        if (name.isEmpty()) {
+            return toAbsolutePath(rawParent);
         }
 
-        // If parent is a dataset and child is a member name, generate DATASET(MEMBER).
-        // This is the common representation for PDS member navigation.
-        if (!name.isEmpty() && rawParent.indexOf('(') < 0) {
+        // Rule 1: If child already looks absolute or is a member spec, use it directly
+        if (name.contains(".") || name.contains("(") || name.startsWith("'")) {
+            // Child is already qualified - check if it starts with parent
+            String unquotedName = unquote(name);
+            if (unquotedName.toUpperCase().startsWith(rawParent.toUpperCase() + ".")) {
+                // Already fully qualified, use as-is
+                return toAbsolutePath(unquotedName);
+            }
+            // Different qualifier - might be a full path from server
+            if (unquotedName.contains(".")) {
+                return toAbsolutePath(unquotedName);
+            }
+        }
+
+        // Rule 2: If parent is HLQ-level (no dot, no parenthesis), join with dot
+        // HLQ examples: 'USERID', 'SYS1', 'TEST'
+        boolean parentIsHlq = !rawParent.contains(".") && !rawParent.contains("(");
+
+        if (parentIsHlq) {
+            // Join HLQ with child using dot: USERID + ABC -> USERID.ABC
+            return toAbsolutePath(rawParent + "." + name);
+        }
+
+        // Rule 3: Parent contains dot (is a dataset), check if child is member-like
+        // Member names: 1-8 chars, alphanumeric, no dots
+        boolean childLooksMemberLike = isMemberLike(name);
+
+        if (childLooksMemberLike && !rawParent.contains("(")) {
+            // Child looks like a member name, parent is a dataset -> DATASET(MEMBER)
             return toAbsolutePath(toMemberSpec(rawParent, name));
         }
 
+        // Rule 4: Default - join with dot
         return toAbsolutePath(rawParent + "." + name);
+    }
+
+    /**
+     * Check if a name looks like a PDS member name.
+     * Member names are 1-8 characters, alphanumeric (plus national chars @#$).
+     */
+    private boolean isMemberLike(String name) {
+        if (name == null || name.isEmpty() || name.length() > 8) {
+            return false;
+        }
+        // Member names don't contain dots or parentheses
+        if (name.contains(".") || name.contains("(") || name.contains(")")) {
+            return false;
+        }
+        // Check if all characters are valid for member names
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '@' && c != '#' && c != '$') {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String unquote(String path) {

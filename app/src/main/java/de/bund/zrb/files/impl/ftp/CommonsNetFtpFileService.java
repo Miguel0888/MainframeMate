@@ -111,14 +111,18 @@ public class CommonsNetFtpFileService implements FileService {
             String systemType = ftpClient.getSystemType();
             mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
 
+            // Configure FTP parser based on system type
+            if (mvsMode) {
+                System.out.println("[FTP] Detected MVS/zOS system, configuring MVS parser");
+                ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_MVS));
+            } else if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
+                ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_NT));
+            }
+
             applyTransferSettings(settings);
             recordStructure = settings.ftpFileStructure != null
                     ? settings.ftpFileStructure.getCode() == FTP.RECORD_STRUCTURE
                     : mvsMode;
-
-            if (systemType != null && systemType.toUpperCase().contains("WIN32NT")) {
-                ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_NT));
-            }
         } catch (IOException e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP connection failed", e);
         }
@@ -159,24 +163,167 @@ public class CommonsNetFtpFileService implements FileService {
     public List<FileNode> list(String absolutePath) throws FileServiceException {
         String resolved = resolvePath(absolutePath);
         try {
-            FTPFile[] files = ftpClient.listFiles(resolved);
-            if (files == null) {
-                return Collections.emptyList();
+            if (mvsMode) {
+                return listMvs(resolved);
+            }
+            return listUnix(resolved);
+        } catch (IOException e) {
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP list failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * List files on Unix/standard FTP servers using listFiles().
+     */
+    private List<FileNode> listUnix(String resolved) throws IOException {
+        FTPFile[] files = ftpClient.listFiles(resolved);
+        if (files == null || files.length == 0) {
+            System.out.println("[FTP] listFiles returned empty for: " + resolved + " - reply: " + ftpClient.getReplyString());
+            return Collections.emptyList();
+        }
+
+        List<FileNode> nodes = new ArrayList<FileNode>(files.length);
+        for (FTPFile file : files) {
+            String name = file.getName();
+            if (name == null || name.isEmpty() || ".".equals(name) || "..".equals(name)) {
+                continue;
+            }
+            String childPath = joinPath(resolved, name);
+            long size = file.getSize();
+            Calendar timestamp = file.getTimestamp();
+            long lastModified = timestamp == null ? 0L : timestamp.getTimeInMillis();
+            nodes.add(new FileNode(name, childPath, file.isDirectory(), size, lastModified));
+        }
+        return nodes;
+    }
+
+    /**
+     * List datasets/members on MVS/zOS using NLST (listNames) as primary strategy.
+     * Falls back to listFiles if NLST fails or returns empty.
+     */
+    private List<FileNode> listMvs(String resolved) throws IOException {
+        // Primary: Use NLST (listNames) - more reliable on MVS
+        String[] names = ftpClient.listNames(resolved);
+
+        if (names != null && names.length > 0) {
+            System.out.println("[FTP/MVS] listNames returned " + names.length + " entries for: " + resolved);
+            return buildMvsFileNodes(resolved, names);
+        }
+
+        // Fallback: Try listFiles (parser already configured at connect time)
+        System.out.println("[FTP/MVS] listNames empty/null, trying listFiles for: " + resolved + " - reply: " + ftpClient.getReplyString());
+
+        FTPFile[] files = ftpClient.listFiles(resolved);
+        if (files == null || files.length == 0) {
+            System.out.println("[FTP/MVS] listFiles also empty for: " + resolved + " - reply: " + ftpClient.getReplyString());
+            return Collections.emptyList();
+        }
+
+        System.out.println("[FTP/MVS] listFiles returned " + files.length + " entries for: " + resolved);
+        List<FileNode> nodes = new ArrayList<FileNode>(files.length);
+        for (FTPFile file : files) {
+            String name = file.getName();
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            String childPath = joinPathMvs(resolved, name);
+            long size = file.getSize();
+            Calendar timestamp = file.getTimestamp();
+            long lastModified = timestamp == null ? 0L : timestamp.getTimeInMillis();
+            // On MVS, directories are typically PDS (partitioned datasets)
+            boolean isDirectory = file.isDirectory() || isPds(name);
+            nodes.add(new FileNode(name, childPath, isDirectory, size, lastModified));
+        }
+        return nodes;
+    }
+
+    /**
+     * Build FileNodes from NLST output on MVS.
+     * NLST returns just names, no metadata - we need to infer directory status.
+     */
+    private List<FileNode> buildMvsFileNodes(String parent, String[] names) {
+        List<FileNode> nodes = new ArrayList<FileNode>(names.length);
+        String unquotedParent = unquote(parent);
+
+        for (String name : names) {
+            if (name == null || name.isEmpty()) {
+                continue;
             }
 
-            List<FileNode> nodes = new ArrayList<FileNode>(files.length);
-            for (FTPFile file : files) {
-                String name = file.getName();
-                String childPath = joinPath(resolved, name);
-                long size = file.getSize();
-                Calendar timestamp = file.getTimestamp();
-                long lastModified = timestamp == null ? 0L : timestamp.getTimeInMillis();
-                nodes.add(new FileNode(name, childPath, file.isDirectory(), size, lastModified));
+            String trimmedName = name.trim();
+            if (trimmedName.isEmpty()) {
+                continue;
             }
-            return nodes;
-        } catch (IOException e) {
-            throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP list failed", e);
+
+            // Determine display name and full path
+            String displayName;
+            String fullPath;
+
+            // Check if server returned fully qualified name
+            if (trimmedName.contains(".") && !unquotedParent.isEmpty() &&
+                trimmedName.toUpperCase().startsWith(unquotedParent.toUpperCase() + ".")) {
+                // Server returned fully qualified - extract relative part
+                displayName = trimmedName.substring(unquotedParent.length() + 1);
+                fullPath = mvsDialect.toAbsolutePath(trimmedName);
+            } else if (trimmedName.startsWith("'") && trimmedName.endsWith("'")) {
+                // Already quoted absolute path
+                displayName = unquote(trimmedName);
+                if (displayName.toUpperCase().startsWith(unquotedParent.toUpperCase() + ".")) {
+                    displayName = displayName.substring(unquotedParent.length() + 1);
+                }
+                fullPath = trimmedName;
+            } else {
+                // Relative name - join with parent
+                displayName = trimmedName;
+                fullPath = joinPathMvs(parent, trimmedName);
+            }
+
+            // On MVS, we can't easily determine if entry is directory without more info
+            // Assume non-member entries might be PDS (directories)
+            boolean isDirectory = !isMemberName(displayName) && !displayName.contains("(");
+
+            nodes.add(new FileNode(displayName, fullPath, isDirectory, 0L, 0L));
         }
+        return nodes;
+    }
+
+    /**
+     * Join path for MVS, distinguishing between HLQ navigation and member access.
+     */
+    private String joinPathMvs(String parent, String name) {
+        if (mvsDialect instanceof MvsPathDialect) {
+            return ((MvsPathDialect) mvsDialect).childOf(parent, name);
+        }
+
+        String rawParent = unquote(parent);
+        if (rawParent.isEmpty()) {
+            return mvsDialect.toAbsolutePath(name);
+        }
+        return mvsDialect.toAbsolutePath(rawParent + "." + name);
+    }
+
+    /**
+     * Check if name looks like a PDS (partitioned dataset).
+     * This is a heuristic - typically PDS don't have extensions.
+     */
+    private boolean isPds(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        // Simple heuristic: names without dots at the end might be PDS
+        // This is not reliable, but better than nothing
+        return !name.contains("(");
+    }
+
+    /**
+     * Check if name looks like a member name (short, no dots, alphanumeric).
+     */
+    private boolean isMemberName(String name) {
+        if (name == null || name.isEmpty() || name.length() > 8) {
+            return false;
+        }
+        // Member names are 1-8 chars, alphanumeric, no dots
+        return !name.contains(".") && !name.contains("(") && !name.contains(")");
     }
 
     @Override
