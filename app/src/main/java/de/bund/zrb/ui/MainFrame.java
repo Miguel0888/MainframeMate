@@ -91,6 +91,10 @@ public class MainFrame extends JFrame implements MainframeContext {
     private void registerTools() {
         toolRegistry.registerTool(new OpenFileTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadFileTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.SearchFileTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.StatPathTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.GrepSearchTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.ClockTimerTool(this));
         toolRegistry.registerTool(new FilterColumnTool(this));
         toolRegistry.registerTool(new SetVariableTool(this));
     }

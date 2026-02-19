@@ -77,9 +77,14 @@ public class ChatFormatter {
     }
 
     public void appendBotMessageChunk(String chunk) {
+        if (chunk == null || chunk.isEmpty()) {
+            return;
+        }
         buffer.append(chunk);
         SwingUtilities.invokeLater(() -> {
-//            currentBotContent.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+            if (currentBotContent == null) {
+                return;
+            }
             String html = ChatMarkdownFormatter.format(buffer.toString());
             currentBotContent.setText(formatHtml(html));
             applyDynamicSizing(currentBotContent);
@@ -178,6 +183,77 @@ public class ChatFormatter {
         messageContainer.add(wrapper);
         messageContainer.add(Box.createVerticalStrut(6));
         scrollToBottom();
+    }
+
+    public ToolApprovalRequest requestToolApproval(String toolName, String toolCallJson, boolean isWrite) {
+        ToolApprovalRequest request = new ToolApprovalRequest();
+        JPanel wrapper = createMessagePanelWrapper(Role.TOOL);
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setOpaque(false);
+
+        String title = "🔒 Freigabe: " + (toolName == null ? "" : toolName) + (isWrite ? " (WRITE)" : " (READ)");
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        header.add(titleLabel);
+        header.add(Box.createHorizontalGlue());
+
+        JButton detailsButton = new JButton("Details");
+        detailsButton.setFocusable(false);
+        header.add(detailsButton);
+
+        JButton approveButton = new JButton("Ausführen");
+        approveButton.setFocusable(false);
+        header.add(Box.createHorizontalStrut(6));
+        header.add(approveButton);
+
+        JButton cancelButton = new JButton("Abbrechen");
+        cancelButton.setFocusable(false);
+        header.add(Box.createHorizontalStrut(4));
+        header.add(cancelButton);
+
+        JTextPane bodyPane = createConfiguredTextPane();
+        String html = ChatMarkdownFormatter.format("```json\n" + (toolCallJson == null ? "" : toolCallJson) + "\n```");
+        bodyPane.setText(formatHtml(html));
+        bodyPane.setVisible(false);
+
+        detailsButton.addActionListener(e -> {
+            bodyPane.setVisible(!bodyPane.isVisible());
+            applyDynamicSizing(bodyPane);
+            wrapper.revalidate();
+            wrapper.repaint();
+            scrollToBottom();
+        });
+
+        java.util.concurrent.atomic.AtomicBoolean decided = new java.util.concurrent.atomic.AtomicBoolean(false);
+        approveButton.addActionListener(e -> {
+            if (decided.compareAndSet(false, true)) {
+                approveButton.setEnabled(false);
+                cancelButton.setEnabled(false);
+                titleLabel.setText(title + " ✅");
+                request.approve();
+            }
+        });
+
+        cancelButton.addActionListener(e -> {
+            if (decided.compareAndSet(false, true)) {
+                approveButton.setEnabled(false);
+                cancelButton.setEnabled(false);
+                titleLabel.setText(title + " ❌");
+                request.cancel();
+            }
+        });
+
+        wrapper.add(header);
+        wrapper.add(Box.createVerticalStrut(4));
+        wrapper.add(bodyPane);
+
+        messageContainer.add(wrapper);
+        messageContainer.add(Box.createVerticalStrut(6));
+        scrollToBottom();
+        return request;
     }
 
     private JTextPane createConfiguredTextPane() {

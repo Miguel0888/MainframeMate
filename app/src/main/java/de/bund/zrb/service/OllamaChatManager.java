@@ -1,6 +1,8 @@
 package de.bund.zrb.service;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.bund.zrb.model.Settings;
@@ -85,27 +87,42 @@ public class OllamaChatManager implements ChatManager {
         sessionHistories.computeIfAbsent(sessionId, ChatHistory::new).addBotMessage(message);
     }
 
+    /** Parse a single Ollama stream line. */
+    private static final class OllamaChunk {
+        final String text;
+        final boolean done;
+        final String error;
+
+        private OllamaChunk(String text, boolean done, String error) {
+            this.text = text;
+            this.done = done;
+            this.error = error;
+        }
+
+        static OllamaChunk empty() {
+            return new OllamaChunk(null, false, null);
+        }
+    }
+
     @Override
     public boolean streamAnswer(UUID sessionId, boolean useContext, String userInput, ChatStreamListener listener, boolean keepAlive) throws IOException {
-        if(sessionId == null) {
+        if (sessionId == null) {
             return false;
         }
         if (activeCalls.containsKey(sessionId)) {
-            // Eine Anfrage läuft bereits mit dieser SessionId → keine neue starten
+            // Reject concurrent requests for same session
             return false;
         }
+
         Settings settings = SettingsHelper.load();
         String url = settings.aiConfig.getOrDefault("ollama.url", apiUrlDefault);
         String model = settings.aiConfig.getOrDefault("ollama.model", modelDefault);
 
         OkHttpClient client = buildClient(url, settings);
 
-        ChatHistory history;
-        if(useContext) {
-            history = sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
-        } else {
-            history = null;
-        }
+        ChatHistory history = useContext
+                ? sessionHistories.computeIfAbsent(sessionId, ChatHistory::new)
+                : null;
 
         String prompt = (history != null)
                 ? buildPrompt(history, userInput)
@@ -118,12 +135,10 @@ public class OllamaChatManager implements ChatManager {
                 .build();
 
         Call call = client.newCall(request);
-        activeCalls.put(sessionId, call); // Optional: auch bei null erlaubt, oder nicht eintragen
-
+        activeCalls.put(sessionId, call);
         listener.onStreamStart();
 
         call.enqueue(new Callback() {
-
             @Override
             public void onFailure(Call call, IOException e) {
                 activeCalls.remove(sessionId);
@@ -141,9 +156,20 @@ public class OllamaChatManager implements ChatManager {
                     BufferedReader reader = new BufferedReader(body.charStream());
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        String chunk = extractResponse(line);
-                        if (chunk != null && !chunk.isEmpty()) {
-                            listener.onStreamChunk(chunk);
+                        OllamaChunk chunk = extractResponse(line);
+
+                        if (chunk.error != null && !chunk.error.trim().isEmpty()) {
+                            listener.onError(new IOException("Ollama error: " + chunk.error));
+                            return;
+                        }
+
+                        if (chunk.text != null && !chunk.text.isEmpty()) {
+                            listener.onStreamChunk(chunk.text);
+                        }
+
+                        if (chunk.done) {
+                            // Stop reading once model signals generation completed
+                            break;
                         }
                     }
 
@@ -187,14 +213,119 @@ public class OllamaChatManager implements ChatManager {
         return history.toPrompt(userInput);
     }
 
-    private String extractResponse(String jsonLine) {
+    private OllamaChunk extractResponse(String jsonLine) {
+        if (jsonLine == null || jsonLine.trim().isEmpty()) {
+            return OllamaChunk.empty();
+        }
+
         try {
             JsonObject obj = JsonParser.parseString(jsonLine).getAsJsonObject();
-            if (obj.has("response") && !obj.get("response").isJsonNull()) {
-                return obj.get("response").getAsString();
+
+            String error = null;
+            if (obj.has("error") && !obj.get("error").isJsonNull()) {
+                error = obj.get("error").getAsString();
             }
-        } catch (Exception ignored) {}
-        return null;
+
+            boolean done = obj.has("done") && !obj.get("done").isJsonNull() && obj.get("done").getAsBoolean();
+
+            // Ollama /api/generate streaming token
+            if (obj.has("response") && !obj.get("response").isJsonNull()) {
+                String response = obj.get("response").getAsString();
+                if (!response.isEmpty()) {
+                    return new OllamaChunk(response, done, error);
+                }
+            }
+
+            // Ollama /api/chat style fallback
+            if (obj.has("message") && obj.get("message").isJsonObject()) {
+                JsonObject message = obj.getAsJsonObject("message");
+                if (message.has("content") && !message.get("content").isJsonNull()) {
+                    JsonElement content = message.get("content");
+                    if (content.isJsonPrimitive()) {
+                        String text = content.getAsString();
+                        if (!text.isEmpty()) {
+                            return new OllamaChunk(text, done, error);
+                        }
+                    }
+                }
+
+                if (message.has("tool_calls") && message.get("tool_calls").isJsonArray()) {
+                    String toolCalls = formatToolCallsAsJsonLines(message.getAsJsonArray("tool_calls"));
+                    if (toolCalls != null && !toolCalls.isEmpty()) {
+                        return new OllamaChunk(toolCalls, done, error);
+                    }
+                }
+            }
+
+            if (obj.has("tool_calls") && obj.get("tool_calls").isJsonArray()) {
+                String toolCalls = formatToolCallsAsJsonLines(obj.getAsJsonArray("tool_calls"));
+                if (toolCalls != null && !toolCalls.isEmpty()) {
+                    return new OllamaChunk(toolCalls, done, error);
+                }
+            }
+
+            if (error != null && !error.trim().isEmpty()) {
+                return new OllamaChunk(null, done, error);
+            }
+
+            if (done) {
+                return new OllamaChunk(null, true, null);
+            }
+        } catch (Exception ignored) {
+            // ignore malformed chunks
+        }
+        return OllamaChunk.empty();
+    }
+
+    private String formatToolCallsAsJsonLines(JsonArray toolCalls) {
+        if (toolCalls == null || toolCalls.size() == 0) {
+            return null;
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < toolCalls.size(); i++) {
+            if (!toolCalls.get(i).isJsonObject()) {
+                continue;
+            }
+            JsonObject tc = toolCalls.get(i).getAsJsonObject();
+
+            JsonObject call = new JsonObject();
+            String name = null;
+            String args = null;
+
+            if (tc.has("function") && tc.get("function").isJsonObject()) {
+                JsonObject function = tc.getAsJsonObject("function");
+                if (function.has("name") && !function.get("name").isJsonNull()) {
+                    name = function.get("name").getAsString();
+                }
+                if (function.has("arguments") && !function.get("arguments").isJsonNull()) {
+                    JsonElement argElement = function.get("arguments");
+                    args = argElement.isJsonPrimitive() ? argElement.getAsString() : argElement.toString();
+                }
+            }
+
+            if (name == null && tc.has("name") && !tc.get("name").isJsonNull()) {
+                name = tc.get("name").getAsString();
+            }
+            if (args == null && tc.has("arguments") && !tc.get("arguments").isJsonNull()) {
+                JsonElement argElement = tc.get("arguments");
+                args = argElement.isJsonPrimitive() ? argElement.getAsString() : argElement.toString();
+            }
+
+            if (name == null || name.trim().isEmpty()) {
+                continue;
+            }
+
+            call.addProperty("name", name);
+            call.addProperty("arguments", args == null ? "" : args);
+
+            if (out.length() > 0) {
+                out.append("\n");
+            }
+            out.append(call.toString());
+        }
+
+        return out.length() == 0 ? null : out.toString();
     }
 
     private OkHttpClient buildClient(String url, Settings settings) {

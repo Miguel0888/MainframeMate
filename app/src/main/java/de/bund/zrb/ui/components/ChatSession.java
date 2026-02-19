@@ -6,11 +6,17 @@ import com.google.gson.JsonParser;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
+import de.bund.zrb.tools.ToolAccessType;
+import de.bund.zrb.tools.ToolAccessTypeDefaults;
+import de.bund.zrb.tools.ToolPolicy;
+import de.bund.zrb.tools.ToolPolicyRepository;
+import de.bund.zrb.ui.settings.ToolPolicyDialog;
 import de.bund.zrb.ui.util.ChatFormatter;
+import de.bund.zrb.ui.util.ToolApprovalDecision;
+import de.bund.zrb.ui.util.ToolApprovalRequest;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.newApi.mcp.McpTool;
 import de.bund.zrb.service.McpServiceImpl;
 
 import javax.swing.BorderFactory;
@@ -35,6 +41,8 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.sql.Timestamp;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 public class ChatSession extends JPanel {
@@ -44,10 +52,10 @@ public class ChatSession extends JPanel {
 
     private final ChatFormatter formatter;
     private final JTextArea inputArea;
-    private final JComboBox<String> toolComboBox;
     private final JLabel statusLabel;
     private final JButton cancelButton;
     private final MainframeContext maeinframeContext;
+    private final ToolPolicyRepository toolPolicyRepository;
     private boolean awaitingBotResponse = false;
 
     private final JComboBox<ChatMode> modeComboBox;
@@ -59,6 +67,9 @@ public class ChatSession extends JPanel {
     private final McpServiceImpl mcpService;
 
     private static final int MAX_TOOL_CALLS = 0; // 0 = unlimited
+    private volatile String lastUserRequestText = "";
+    private final Set<String> toolsUsedInThisChat = new HashSet<>();
+    private final Set<String> schemaKnownTools = new HashSet<>();
 
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
         this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
@@ -72,6 +83,7 @@ public class ChatSession extends JPanel {
         this.contextMemoryCheckbox = contextMemoryCheckbox;
         this.chatEventBridge = chatEventBridge;
         this.mcpService = new McpServiceImpl(ToolRegistryImpl.getInstance(), chatEventBridge);
+        this.toolPolicyRepository = new ToolPolicyRepository();
         this.sessionId = UUID.randomUUID();
 
         setLayout(new BorderLayout(4, 4));
@@ -124,14 +136,6 @@ public class ChatSession extends JPanel {
         });
 
 
-        toolComboBox = new JComboBox<>();
-        toolComboBox.addItem("");
-        ToolRegistryImpl.getInstance().getAllTools().forEach(tool ->
-                toolComboBox.addItem(tool.getSpec().getName())
-        );
-        toolComboBox.setPreferredSize(new Dimension(150, 24));
-        toolComboBox.setFocusable(false);
-
         // Chat-Mode Dropdown (Ask/Edit/Plan/Agent)
         modeComboBox = new JComboBox<>(ChatMode.values());
         modeComboBox.setSelectedItem(ChatMode.AGENT);
@@ -147,8 +151,13 @@ public class ChatSession extends JPanel {
 
         JPanel buttonPanel = new JPanel(new BorderLayout(4, 0));
         JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JButton toolPolicyButton = new JButton("🛠");
+        toolPolicyButton.setToolTipText("Tools konfigurieren");
+        toolPolicyButton.setFocusable(false);
+        toolPolicyButton.addActionListener(e -> ToolPolicyDialog.show(this));
+
         leftButtons.add(attachButton);
-        leftButtons.add(toolComboBox);
+        leftButtons.add(toolPolicyButton);
         leftButtons.add(modeComboBox);
 
         buttonPanel.add(leftButtons, BorderLayout.WEST);
@@ -244,13 +253,12 @@ public class ChatSession extends JPanel {
     private void sendMessage() {
         String message = inputArea.getText().trim();
         if (message.isEmpty()) return;
-
-        // Apply selected tool wrapper
-        message = applyTool(message);
+        lastUserRequestText = message;
 
         // Prefix with system prompt based on selected mode
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
-        String systemPrompt = mode != null ? mode.getSystemPrompt() : ChatMode.ASK.getSystemPrompt();
+        ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
+        String systemPrompt = composeSystemPrompt(resolvedMode);
 
         // Persist system prompt in history so it's included in every API call (incl. tool follow-ups)
         if (contextMemoryCheckbox.isSelected()) {
@@ -281,6 +289,9 @@ public class ChatSession extends JPanel {
 
                     @Override
                     public void onStreamChunk(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
                         currentBotResponse.append(chunk);
                         SwingUtilities.invokeLater(() -> formatter.appendBotMessageChunk(chunk));
                     }
@@ -302,6 +313,13 @@ public class ChatSession extends JPanel {
                                 }
 
                                 executeToolCallsSequentially(toolCalls);
+                            } else if (botText == null || botText.trim().isEmpty()) {
+                                formatter.removeCurrentBotMessage();
+                                formatter.appendToolEvent(
+                                        "⚠️ Leere Modellantwort",
+                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
+                                        true
+                                );
                             } else {
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
@@ -338,27 +356,130 @@ public class ChatSession extends JPanel {
         }).start();
     }
 
-    /**
-     * Baut den finalen Prompt fuer das Modell aus Systemprompt, optionaler History und aktuellem Usertext.
-     */
-    private String buildPromptWithMode(String systemPrompt, String userText, boolean useContext) {
+    private String composeSystemPrompt(ChatMode mode) {
         StringBuilder sb = new StringBuilder();
-        if (useContext) {
-            // System-Prompt steckt bereits in ChatHistory.toPrompt() (via setSystemPrompt)
-            sb.append(chatManager.getHistory(sessionId).toPrompt(userText));
-        } else {
-            // Kein Context: System-Prompt manuell voranstellen
-            if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-                sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
-            }
-            if (userText != null && !userText.trim().isEmpty()) {
-                sb.append("Du: ").append(userText.trim());
-            }
+        sb.append(mode.getSystemPrompt());
+
+        String languageInstruction = buildLanguageInstruction();
+        if (!languageInstruction.isEmpty()) {
+            sb.append("\n\n").append(languageInstruction);
+        }
+
+        String contractPrefix = resolveModeToolPrefix(mode);
+        String contractPostfix = resolveModeToolPostfix(mode);
+        if (!contractPrefix.isEmpty()) {
+            sb.append("\n\n").append(contractPrefix);
+        }
+
+        String summary = buildToolSummary(mode);
+        if (!summary.isEmpty()) {
+            sb.append("\n\n").append(summary);
+        }
+
+        if (!contractPostfix.isEmpty()) {
+            sb.append("\n\n").append(contractPostfix);
         }
         return sb.toString();
     }
 
+    private String buildLanguageInstruction() {
+        Settings settings = SettingsHelper.load();
+        String language = settings.aiConfig.getOrDefault("assistant.language", "de").trim().toLowerCase();
+        if (language.isEmpty() || "none".equals(language)) {
+            return "";
+        }
+        if ("en".equals(language) || "english".equals(language)) {
+            return "Respond in English.";
+        }
+        return "Sprich immer auf Deutsch.";
+    }
 
+    private String resolveModeToolPrefix(ChatMode mode) {
+        Settings settings = SettingsHelper.load();
+        String modeKey = "toolPrefix." + mode.name();
+        String value = settings.aiConfig.getOrDefault(modeKey, "").trim();
+        if (!value.isEmpty()) {
+            return value;
+        }
+        value = settings.aiConfig.getOrDefault("toolPrefix", "").trim();
+        if (!value.isEmpty()) {
+            return value;
+        }
+        return mode.getDefaultToolPrefix();
+    }
+
+    private String resolveModeToolPostfix(ChatMode mode) {
+        Settings settings = SettingsHelper.load();
+        String modeKey = "toolPostfix." + mode.name();
+        String value = settings.aiConfig.getOrDefault(modeKey, "").trim();
+        if (!value.isEmpty()) {
+            return value;
+        }
+        value = settings.aiConfig.getOrDefault("toolPostfix", "").trim();
+        if (!value.isEmpty()) {
+            return value;
+        }
+        return mode.getDefaultToolPostfix();
+    }
+
+    private String buildToolSummary(ChatMode mode) {
+        if (!mode.isToolAware()) {
+            return "";
+        }
+
+        java.util.List<ToolPolicy> policies = toolPolicyRepository.loadAll();
+        StringBuilder sb = new StringBuilder("Aktivierte Tools (nur Übersicht):\n");
+        boolean found = false;
+        for (ToolPolicy policy : policies) {
+            if (policy == null || !policy.isEnabled() || policy.getToolName() == null) {
+                continue;
+            }
+            ToolAccessType accessType = policy.getAccessType() != null
+                    ? policy.getAccessType()
+                    : ToolAccessTypeDefaults.resolveDefault(policy.getToolName());
+            if (!mode.getAllowedToolAccess().contains(accessType)) {
+                continue;
+            }
+
+            de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
+                    .filter(t -> policy.getToolName().equals(t.getSpec().getName()))
+                    .findFirst()
+                    .orElse(null);
+            String description = tool != null ? tool.getSpec().getDescription() : "";
+            sb.append("- ").append(policy.getToolName())
+                    .append(" [").append(accessType.name()).append("]")
+                    .append(policy.isAskBeforeUse() ? " [ASK]" : "")
+                    .append(description == null || description.trim().isEmpty() ? "" : ": " + description)
+                    .append("\n");
+            found = true;
+        }
+        sb.append("- describe_tool [READ]: Liefert Details/Schema für ein Tool nur bei Bedarf.\n");
+        if (!found) {
+            sb.append("- (keine aktivierten Tools in diesem Modus)\n");
+        }
+        sb.append("Nutze describe_tool, wenn du Tool-Details/Parameter brauchst.");
+        return sb.toString();
+    }
+
+    /**
+     * Build the final prompt for the model.
+     * If context is enabled, send only the current user text and rely on ChatManager history handling.
+     * If context is disabled, inline the system prompt manually.
+     */
+    private String buildPromptWithMode(String systemPrompt, String userText, boolean useContext) {
+        if (useContext) {
+            return userText == null ? "" : userText.trim();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+            sb.append("SYSTEM:\n").append(systemPrompt.trim()).append("\n\n");
+        }
+        if (userText != null && !userText.trim().isEmpty()) {
+            sb.append("Du: ").append(userText.trim());
+        }
+        return sb.toString();
+    }
     private JsonObject extractToolCall(String text) {
         if (text == null) {
             return null;
@@ -416,28 +537,94 @@ public class ChatSession extends JPanel {
                 return null;
             }
             JsonObject obj = parsed.getAsJsonObject();
+            JsonObject normalized = normalizeToolCall(obj);
 
-            // Accept both formats:
-            // 1) {"name":"open_file","input":{...}}
-            // 2) {"name":"open_file","tool_input":{...}}
-            // 3) {"name":"open_file","arguments":"{...}"}
-            if (!obj.has("name")) {
+            if (!normalized.has("name")) {
                 return null;
             }
-            if (!obj.has("input") && !obj.has("tool_input") && !obj.has("arguments")) {
+            if (!normalized.has("input") && !normalized.has("tool_input") && !normalized.has("arguments")) {
                 return null;
             }
-            return obj;
+            return normalized;
         } catch (Exception ignore) {
             return null;
         }
     }
 
+    /**
+     * Normalize permissive model outputs to our canonical call shape.
+     */
+    private JsonObject normalizeToolCall(JsonObject original) {
+        JsonObject obj = original.deepCopy();
+
+        JsonObject argsObj = null;
+        if (obj.has("arguments") && !obj.get("arguments").isJsonNull()) {
+            if (obj.get("arguments").isJsonObject()) {
+                argsObj = obj.getAsJsonObject("arguments");
+            } else if (obj.get("arguments").isJsonPrimitive()) {
+                try {
+                    JsonElement parsedArgs = JsonParser.parseString(obj.get("arguments").getAsString());
+                    if (parsedArgs.isJsonObject()) {
+                        argsObj = parsedArgs.getAsJsonObject();
+                    }
+                } catch (Exception ignore) {
+                    // keep raw arguments
+                }
+            }
+        }
+
+        if ((!obj.has("name") || obj.get("name").isJsonNull() || obj.get("name").getAsString().trim().isEmpty()
+                || "tool_name".equalsIgnoreCase(obj.get("name").getAsString()))
+                && argsObj != null && argsObj.has("name") && !argsObj.get("name").isJsonNull()) {
+            obj.addProperty("name", argsObj.get("name").getAsString());
+        }
+
+        if (obj.has("input") && obj.get("input").isJsonObject()) {
+            JsonObject input = obj.getAsJsonObject("input");
+            if (input.has("arguments") && input.get("arguments").isJsonPrimitive()) {
+                try {
+                    JsonElement parsedNested = JsonParser.parseString(input.get("arguments").getAsString());
+                    if (parsedNested.isJsonObject()) {
+                        JsonObject nested = parsedNested.getAsJsonObject();
+                        for (java.util.Map.Entry<String, JsonElement> e : nested.entrySet()) {
+                            if (!input.has(e.getKey())) {
+                                input.add(e.getKey(), e.getValue());
+                            }
+                        }
+                        input.remove("arguments");
+                    }
+                } catch (Exception ignore) {
+                    // ignore
+                }
+            }
+            obj.remove("arguments");
+        }
+
+        if (!obj.has("input") && !obj.has("tool_input") && argsObj != null) {
+            if (argsObj.has("input") && argsObj.get("input").isJsonObject()) {
+                obj.add("input", argsObj.getAsJsonObject("input"));
+            } else {
+                JsonObject cleanedArgs = argsObj.deepCopy();
+                cleanedArgs.remove("name");
+                if (cleanedArgs.size() > 0) {
+                    obj.add("input", cleanedArgs);
+                }
+            }
+        }
+
+        return obj;
+    }
+
     private void streamAssistantFollowUp(String followUpUserText) {
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
-        String systemPrompt = mode != null ? mode.getSystemPrompt() : ChatMode.ASK.getSystemPrompt();
-        String userText = (followUpUserText == null || followUpUserText.trim().isEmpty())
+        ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
+        String systemPrompt = composeSystemPrompt(resolvedMode);
+        String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
+        String userText = baseFollowUp
+                + "\n\nUrsprüngliche Nutzeranfrage: "
+                + (lastUserRequestText == null ? "" : lastUserRequestText)
+                + "\nAntworte direkt auf diese Anfrage auf Deutsch, ohne Standard-Floskeln wie I don't see a specific question.";
         String finalPrompt = buildPromptWithMode(systemPrompt, userText, true);
 
         new Thread(() -> {
@@ -455,6 +642,9 @@ public class ChatSession extends JPanel {
 
                     @Override
                     public void onStreamChunk(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
                         followUpResponse.append(chunk);
                         SwingUtilities.invokeLater(() -> formatter.appendBotMessageChunk(chunk));
                     }
@@ -472,6 +662,13 @@ public class ChatSession extends JPanel {
                                     formatter.appendBotToolCall("Tool-Call: " + toolName, call.toString());
                                 }
                                 executeToolCallsSequentially(toolCalls);
+                            } else if (botText == null || botText.trim().isEmpty()) {
+                                formatter.removeCurrentBotMessage();
+                                formatter.appendToolEvent(
+                                        "⚠️ Leere Modellantwort",
+                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
+                                        true
+                                );
                             } else {
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
@@ -503,30 +700,6 @@ public class ChatSession extends JPanel {
         }).start();
     }
 
-    private String applyTool(String userInput) {
-        String selectedToolName = (String) toolComboBox.getSelectedItem();
-        if (selectedToolName == null || selectedToolName.trim().isEmpty()) {
-            return userInput;
-        }
-
-        McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
-                .filter(t -> t.getSpec().getName().equals(selectedToolName))
-                .findFirst()
-                .orElse(null);
-
-        if (tool == null) return userInput;
-
-        Settings settings = SettingsHelper.load();
-        String prefix = settings.aiConfig.getOrDefault("toolPrefix", "");
-        String postfix = settings.aiConfig.getOrDefault("toolPostfix", "");
-        boolean wrap = Boolean.parseBoolean(settings.aiConfig.getOrDefault("wrapjson", "true"));
-        boolean pretty = Boolean.parseBoolean(settings.aiConfig.getOrDefault("prettyjson", "true"));
-        String toolJson = tool.getSpec().toWrappedJson(wrap, pretty);
-
-        return String.format("%s\n%s\n%s\n%s",
-                prefix, toolJson, postfix, userInput);
-    }
-
     private void setStatus(String status) {
         statusLabel.setText(status);
     }
@@ -541,14 +714,12 @@ public class ChatSession extends JPanel {
             return results;
         }
 
-        // 1) Try to parse full response
         JsonObject single = extractToolCall(text);
         if (single != null) {
             results.add(single);
             return results;
         }
 
-        // 2) Parse multiple JSON objects by brace matching
         String s = text;
         int depth = 0;
         int start = -1;
@@ -572,7 +743,6 @@ public class ChatSession extends JPanel {
             }
         }
 
-        // Enforce limit if configured
         if (MAX_TOOL_CALLS > 0 && results.size() > MAX_TOOL_CALLS) {
             return results.subList(0, MAX_TOOL_CALLS);
         }
@@ -589,7 +759,64 @@ public class ChatSession extends JPanel {
             java.util.List<JsonObject> results = new java.util.ArrayList<>();
 
             for (JsonObject call : calls) {
-                JsonObject result = executeSingleToolCall(call);
+                JsonObject effectiveCall = normalizeToolCall(call);
+                String requestedTool = effectiveCall.has("name") && !effectiveCall.get("name").isJsonNull()
+                        ? effectiveCall.get("name").getAsString()
+                        : null;
+
+                if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
+                    JsonObject describeCall = new JsonObject();
+                    describeCall.addProperty("name", "describe_tool");
+                    JsonObject describeInput = new JsonObject();
+                    describeInput.addProperty("tool", requestedTool);
+                    describeInput.addProperty("detailLevel", "schema");
+                    describeCall.add("input", describeInput);
+
+                    JsonObject describeResult = executeSingleToolCall(describeCall);
+                    if (isSuccessResult(describeResult)) {
+                        schemaKnownTools.add(requestedTool);
+                    }
+
+                    results.add(describeResult);
+                    JsonObject finalDescribe = describeResult == null ? new JsonObject() : describeResult;
+                    SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                            "Tool: describe_tool",
+                            finalDescribe.toString(),
+                            false
+                    ));
+                }
+
+                JsonObject result = executeSingleToolCall(effectiveCall);
+                if (shouldRetryToolCall(result)) {
+                    if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
+                        JsonObject describeCall = new JsonObject();
+                        describeCall.addProperty("name", "describe_tool");
+                        JsonObject describeInput = new JsonObject();
+                        describeInput.addProperty("tool", requestedTool);
+                        describeInput.addProperty("detailLevel", "schema");
+                        describeCall.add("input", describeInput);
+
+                        JsonObject describeResult = executeSingleToolCall(describeCall);
+                        if (isSuccessResult(describeResult)) {
+                            schemaKnownTools.add(requestedTool);
+                        }
+                        results.add(describeResult);
+                        JsonObject finalDescribe = describeResult == null ? new JsonObject() : describeResult;
+                        SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                                "Tool: describe_tool",
+                                finalDescribe.toString(),
+                                false
+                        ));
+                    }
+
+                    JsonObject repaired = repairToolCallForRetry(effectiveCall);
+                    result = executeSingleToolCall(repaired);
+                }
+
+                if (isSuccessResult(result) && requestedTool != null && !isSystemTool(requestedTool)) {
+                    toolsUsedInThisChat.add(requestedTool);
+                }
+
                 results.add(result);
 
                 boolean isError = result != null && result.has("status")
@@ -598,7 +825,7 @@ public class ChatSession extends JPanel {
 
                 String toolName = result != null && result.has("toolName") && !result.get("toolName").isJsonNull()
                         ? result.get("toolName").getAsString()
-                        : (call.has("name") ? call.get("name").getAsString() : "unbekannt");
+                        : (effectiveCall.has("name") ? effectiveCall.get("name").getAsString() : "unbekannt");
 
                 JsonObject finalResult = result == null ? new JsonObject() : result;
                 SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
@@ -623,19 +850,15 @@ public class ChatSession extends JPanel {
                         "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
                 );
 
-                // Build follow-up depending on mode
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
                 if (currentMode == ChatMode.AGENT) {
                     followUp = "Du hast Tool-Ergebnisse erhalten. " +
-                            "Kannst du die Frage des Nutzers damit beantworten? " +
-                            "Wenn ja, antworte direkt in natürlicher Sprache (KEIN JSON, KEIN Tool-Call). " +
-                            "Nur wenn du KONKRET weitere Dateien lesen musst, um die Frage zu beantworten, " +
-                            "erzeuge einen weiteren Tool-Call. Lies keine Datei, die du bereits gelesen hast. " +
-                            "Wenn ein Fehler aufgetreten ist, weise darauf hin.";
+                            "Beantworte jetzt die ursprüngliche Nutzeranfrage direkt und konkret auf Deutsch. " +
+                            "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
+                            "Erzeuge nur dann einen weiteren Tool-Call, wenn für die Beantwortung zwingend weitere Informationen fehlen.";
                 } else {
-                    followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer. " +
-                            "Wenn Fehler enthalten sind, weise darauf hin.";
+                    followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }
 
                 streamAssistantFollowUp(followUp);
@@ -643,25 +866,333 @@ public class ChatSession extends JPanel {
         }).start();
     }
 
+    private boolean shouldRetryToolCall(JsonObject result) {
+        if (result == null || !result.has("status") || result.get("status").isJsonNull()) {
+            return false;
+        }
+        String status = result.get("status").getAsString();
+        if (!"error".equalsIgnoreCase(status)) {
+            return false;
+        }
+        String message = result.has("message") && !result.get("message").isJsonNull()
+                ? result.get("message").getAsString()
+                : "";
+        return message.contains("Pflichtfelder fehlen") || message.toLowerCase().contains("arguments");
+    }
+
+    private boolean isSuccessResult(JsonObject result) {
+        if (result == null || !result.has("status") || result.get("status").isJsonNull()) {
+            return false;
+        }
+        String status = result.get("status").getAsString();
+        return "success".equalsIgnoreCase(status) || "ok".equalsIgnoreCase(status);
+    }
+
+    private JsonObject repairToolCallForRetry(JsonObject call) {
+        JsonObject repaired = normalizeToolCall(call);
+        if (repaired.has("input") && repaired.get("input").isJsonObject()) {
+            JsonObject input = repaired.getAsJsonObject("input");
+            if (input.has("arguments") && !input.get("arguments").isJsonNull() && input.get("arguments").isJsonPrimitive()) {
+                try {
+                    JsonElement parsed = JsonParser.parseString(input.get("arguments").getAsString());
+                    if (parsed.isJsonObject()) {
+                        JsonObject parsedObj = parsed.getAsJsonObject();
+                        for (java.util.Map.Entry<String, JsonElement> e : parsedObj.entrySet()) {
+                            if (!input.has(e.getKey())) {
+                                input.add(e.getKey(), e.getValue());
+                            }
+                        }
+                        input.remove("arguments");
+                    }
+                } catch (Exception ignore) {
+                    // keep original input
+                }
+            }
+        }
+        return repaired;
+    }
+
     private JsonObject executeSingleToolCall(JsonObject call) {
         try {
-            JsonObject result = mcpService.executeToolCall(call, null);
+            if (call == null) {
+                return createErrorResult(null, "Leerer Tool-Call", null);
+            }
+
+            String toolName = call.has("name") && !call.get("name").isJsonNull()
+                    ? call.get("name").getAsString()
+                    : null;
+
+            if (toolName == null || toolName.trim().isEmpty()) {
+                return createErrorResult(null, "Tool-Name fehlt", call);
+            }
+
+            if (!isSystemTool(toolName) && !isRegisteredTool(toolName)) {
+                return createUnknownToolResult(toolName, call);
+            }
+
+            if (!isSystemTool(toolName)) {
+                ToolPolicy policy = toolPolicyRepository.findByToolName(toolName);
+                if (policy == null || !policy.isEnabled()) {
+                    return createBlockedResult(toolName, "Tool ist vom Nutzer deaktiviert", call);
+                }
+
+                ToolAccessType accessType = policy.getAccessType() != null
+                        ? policy.getAccessType()
+                        : ToolAccessTypeDefaults.resolveDefault(toolName);
+
+                ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+                ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
+                if (resolvedMode.isToolAware() && !resolvedMode.getAllowedToolAccess().contains(accessType)) {
+                    return createBlockedResult(toolName, "Tool ist in diesem Modus nicht erlaubt", call);
+                }
+
+                if (policy.isAskBeforeUse()) {
+                    ToolApprovalDecision decision = requestUserApproval(toolName, call.toString(), accessType.isWrite());
+                    if (decision == ToolApprovalDecision.CANCELLED) {
+                        return createCancelledResult(toolName, call);
+                    }
+                }
+            }
+
+            JsonObject result = isSystemTool(toolName)
+                    ? executeSystemTool(toolName, call)
+                    : mcpService.executeToolCall(call, null);
             if (result != null && !result.has("toolName")) {
-                String toolName = call != null && call.has("name") ? call.get("name").getAsString() : "unbekannt";
                 result.addProperty("toolName", toolName);
             }
             return result;
+
         } catch (Exception e) {
-            JsonObject error = new JsonObject();
-            error.addProperty("status", "error");
-            error.addProperty("errorType", e.getClass().getName());
-            error.addProperty("message", e.getMessage() == null ? "Unbekannter Fehler" : e.getMessage());
-            error.add("toolCall", call);
-            error.addProperty("toolName", call != null && call.has("name") ? call.get("name").getAsString() : "unbekannt");
-            error.addProperty("hint",
-                    "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\\\TEST\"}} oder arguments/tool_input."
-            );
-            return error;
+            return createErrorResult(null, e.getMessage(), call);
         }
+    }
+
+    private boolean isSystemTool(String toolName) {
+        return "describe_tool".equalsIgnoreCase(toolName);
+    }
+
+    private boolean isRegisteredTool(String toolName) {
+        if (toolName == null || toolName.trim().isEmpty()) {
+            return false;
+        }
+        final String targetName = toolName;
+        return ToolRegistryImpl.getInstance().getAllTools().stream()
+                .anyMatch(t -> targetName.equalsIgnoreCase(t.getSpec().getName()));
+    }
+
+    private JsonObject executeSystemTool(String toolName, JsonObject call) {
+        if (!"describe_tool".equalsIgnoreCase(toolName)) {
+            return createErrorResult(toolName, "Unbekanntes Systemtool", call);
+        }
+
+        JsonObject input = call != null && call.has("input") && call.get("input").isJsonObject()
+                ? call.getAsJsonObject("input")
+                : new JsonObject();
+
+        String target = null;
+        if (input.has("tool") && !input.get("tool").isJsonNull()) {
+            target = input.get("tool").getAsString();
+        } else if (input.has("name") && !input.get("name").isJsonNull()) {
+            target = input.get("name").getAsString();
+        }
+
+        String detailLevel = input.has("detailLevel") && !input.get("detailLevel").isJsonNull()
+                ? input.get("detailLevel").getAsString().trim().toLowerCase()
+                : "schema";
+        boolean includeExamples = input.has("includeExamples") && !input.get("includeExamples").isJsonNull()
+                && input.get("includeExamples").getAsBoolean();
+
+        JsonObject result = new JsonObject();
+        result.addProperty("status", "ok");
+        result.addProperty("toolName", "describe_tool");
+
+        if (target == null || target.trim().isEmpty()) {
+            result.addProperty("status", "error");
+            result.addProperty("message", "input.tool oder input.name fehlt");
+            return result;
+        }
+
+        final String targetName = target;
+        de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
+                .filter(t -> targetName.equalsIgnoreCase(t.getSpec().getName()))
+                .findFirst()
+                .orElse(null);
+
+        if (tool == null) {
+            result.addProperty("status", "error");
+            result.addProperty("message", "Tool nicht gefunden: " + target);
+            return result;
+        }
+
+        String resolvedName = tool.getSpec().getName();
+        result.addProperty("targetTool", resolvedName);
+        result.addProperty("description", trimDescription(tool.getSpec().getDescription()));
+        result.addProperty("canonicalCallFormat", "{\"name\":\"" + resolvedName + "\",\"input\":{...}}");
+        result.addProperty("inputShapeRules", "Alle Parameter direkt unter input; kein input.arguments; kein toolName.");
+
+        ToolPolicy policy = toolPolicyRepository.findByToolName(resolvedName);
+        ToolAccessType accessType = policy != null && policy.getAccessType() != null
+                ? policy.getAccessType()
+                : ToolAccessTypeDefaults.resolveDefault(resolvedName);
+        result.addProperty("accessType", accessType.name());
+
+        com.google.gson.JsonObject spec = com.google.gson.JsonParser.parseString(tool.getSpec().toJson()).getAsJsonObject();
+        com.google.gson.JsonArray capabilities = buildCapabilities(resolvedName, tool.getSpec().getDescription());
+        result.add("capabilities", capabilities);
+
+        JsonObject constraints = new JsonObject();
+        if ("read_file".equalsIgnoreCase(resolvedName)) {
+            constraints.addProperty("directoryListing", "non_recursive");
+        }
+        if (constraints.size() > 0) {
+            result.add("constraints", constraints);
+        }
+
+        boolean wantsSchema = "schema".equals(detailLevel) || "full".equals(detailLevel)
+                || (!"summary".equals(detailLevel) && !"examples".equals(detailLevel));
+        if ("summary".equals(detailLevel)) {
+            wantsSchema = false;
+        }
+        if (wantsSchema && spec.has("input_schema")) {
+            result.add("inputSchema", spec.get("input_schema"));
+        }
+
+        boolean wantsExamples = includeExamples || "examples".equals(detailLevel) || "full".equals(detailLevel);
+        if (wantsExamples && tool.getSpec().getExampleInput() != null) {
+            com.google.gson.JsonArray examples = new com.google.gson.JsonArray();
+            JsonObject ex = new JsonObject();
+            ex.addProperty("purpose", "Beispielaufruf");
+            JsonObject callObj = new JsonObject();
+            callObj.addProperty("name", resolvedName);
+            callObj.add("input", com.google.gson.JsonParser.parseString(new com.google.gson.Gson().toJson(tool.getSpec().getExampleInput())).getAsJsonObject());
+            ex.add("call", callObj);
+            examples.add(ex);
+            result.add("examples", examples);
+        }
+
+        return result;
+    }
+
+    private String trimDescription(String description) {
+        if (description == null) {
+            return "";
+        }
+        String d = description.trim();
+        return d.length() > 250 ? d.substring(0, 250) : d;
+    }
+
+    private com.google.gson.JsonArray buildCapabilities(String toolName, String description) {
+        com.google.gson.JsonArray capabilities = new com.google.gson.JsonArray();
+        String n = toolName == null ? "" : toolName.toLowerCase();
+        String d = description == null ? "" : description.toLowerCase();
+
+        if ("read_file".equals(n) || d.contains("liest") || d.contains("read")) {
+            capabilities.add("read_file_content");
+        }
+        if ("read_file".equals(n) || d.contains("verzeichnis") || d.contains("directory")) {
+            capabilities.add("list_directory");
+        }
+        if (n.contains("open")) {
+            capabilities.add("open_resource");
+        }
+        return capabilities;
+    }
+
+    private ToolApprovalDecision requestUserApproval(String toolName, String toolCallJson, boolean isWrite) {
+        final ToolApprovalRequest[] requestHolder = new ToolApprovalRequest[1];
+        Runnable createUi = () -> requestHolder[0] = formatter.requestToolApproval(toolName, toolCallJson, isWrite);
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            createUi.run();
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(createUi);
+            } catch (Exception e) {
+                return fallbackApproval(toolName, isWrite);
+            }
+        }
+
+        ToolApprovalRequest request = requestHolder[0];
+        if (request == null) {
+            return fallbackApproval(toolName, isWrite);
+        }
+        return request.awaitDecision();
+    }
+
+    private ToolApprovalDecision fallbackApproval(String toolName, boolean isWrite) {
+        int option = JOptionPane.showConfirmDialog(this,
+                "Tool ausführen?\n\n" + toolName + (isWrite ? " (WRITE)" : " (READ)"),
+                "Tool-Freigabe", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        return option == JOptionPane.OK_OPTION ? ToolApprovalDecision.APPROVED : ToolApprovalDecision.CANCELLED;
+    }
+
+    private JsonObject createBlockedResult(String toolName, String message, JsonObject call) {
+        JsonObject o = new JsonObject();
+        o.addProperty("status", "blocked");
+        o.addProperty("toolName", toolName);
+        o.addProperty("message", message);
+        if (call != null) {
+            o.add("toolCall", call);
+        }
+        return o;
+    }
+
+    private JsonObject createCancelledResult(String toolName, JsonObject call) {
+        JsonObject o = new JsonObject();
+        o.addProperty("status", "cancelled");
+        o.addProperty("toolName", toolName);
+        o.addProperty("message", "Nutzer hat die Ausführung abgebrochen");
+        if (call != null) {
+            o.add("toolCall", call);
+        }
+        return o;
+    }
+
+    private JsonObject createErrorResult(String toolName, String message, JsonObject call) {
+        JsonObject error = new JsonObject();
+        error.addProperty("status", "error");
+        if (toolName != null) {
+            error.addProperty("toolName", toolName);
+        }
+        error.addProperty("errorType", "ToolExecutionError");
+        error.addProperty("message", message == null ? "Unbekannter Fehler" : message);
+        if (call != null) {
+            error.add("toolCall", call);
+        }
+        error.addProperty("hint",
+                "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\TEST\"}}."
+        );
+        return error;
+    }
+
+    private JsonObject createUnknownToolResult(String toolName, JsonObject call) {
+        JsonObject error = createErrorResult(toolName, "Tool nicht gefunden: " + toolName, call);
+        error.addProperty("errorType", "ToolNotFound");
+
+        com.google.gson.JsonArray availableTools = new com.google.gson.JsonArray();
+        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
+        for (ToolPolicy policy : toolPolicyRepository.loadAll()) {
+            if (policy == null || !policy.isEnabled() || policy.getToolName() == null || policy.getToolName().trim().isEmpty()) {
+                continue;
+            }
+
+            ToolAccessType accessType = policy.getAccessType() != null
+                    ? policy.getAccessType()
+                    : ToolAccessTypeDefaults.resolveDefault(policy.getToolName());
+            if (resolvedMode.isToolAware() && !resolvedMode.getAllowedToolAccess().contains(accessType)) {
+                continue;
+            }
+
+            if (isRegisteredTool(policy.getToolName())) {
+                availableTools.add(policy.getToolName());
+            }
+        }
+        availableTools.add("describe_tool");
+        error.add("availableTools", availableTools);
+        error.addProperty("hint",
+                "Nutze nur Tools aus availableTools. Wenn unsicher, rufe describe_tool mit detailLevel='schema' auf."
+        );
+        return error;
     }
 }
