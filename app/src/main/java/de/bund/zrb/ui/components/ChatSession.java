@@ -41,6 +41,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.sql.Timestamp;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -70,6 +71,18 @@ public class ChatSession extends JPanel {
     private volatile String lastUserRequestText = "";
     private final Set<String> toolsUsedInThisChat = new HashSet<>();
     private final Set<String> schemaKnownTools = new HashSet<>();
+
+    private static final class ToolSearchCandidate {
+        private final JsonObject card;
+        private final double score;
+        private final String name;
+
+        private ToolSearchCandidate(JsonObject card, double score, String name) {
+            this.card = card;
+            this.score = score;
+            this.name = name;
+        }
+    }
 
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
         this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
@@ -454,10 +467,11 @@ public class ChatSession extends JPanel {
             found = true;
         }
         sb.append("- describe_tool [READ]: Liefert Details/Schema für ein Tool nur bei Bedarf.\n");
+        sb.append("- search_tools [READ]: Sucht passende aktivierte Tools im aktuellen Modus.\n");
         if (!found) {
             sb.append("- (keine aktivierten Tools in diesem Modus)\n");
         }
-        sb.append("Nutze describe_tool, wenn du Tool-Details/Parameter brauchst.");
+        sb.append("Nutze search_tools, wenn du unsicher bist, welches Tool passt. Nutze describe_tool für Parameter/Schemas.");
         return sb.toString();
     }
 
@@ -968,7 +982,7 @@ public class ChatSession extends JPanel {
     }
 
     private boolean isSystemTool(String toolName) {
-        return "describe_tool".equalsIgnoreCase(toolName);
+        return "describe_tool".equalsIgnoreCase(toolName) || "search_tools".equalsIgnoreCase(toolName);
     }
 
     private boolean isRegisteredTool(String toolName) {
@@ -981,10 +995,16 @@ public class ChatSession extends JPanel {
     }
 
     private JsonObject executeSystemTool(String toolName, JsonObject call) {
-        if (!"describe_tool".equalsIgnoreCase(toolName)) {
-            return createErrorResult(toolName, "Unbekanntes Systemtool", call);
+        if ("describe_tool".equalsIgnoreCase(toolName)) {
+            return executeDescribeTool(call);
         }
+        if ("search_tools".equalsIgnoreCase(toolName)) {
+            return executeSearchTools(call);
+        }
+        return createErrorResult(toolName, "Unbekanntes Systemtool", call);
+    }
 
+    private JsonObject executeDescribeTool(JsonObject call) {
         JsonObject input = call != null && call.has("input") && call.get("input").isJsonObject()
                 ? call.getAsJsonObject("input")
                 : new JsonObject();
@@ -1071,6 +1091,257 @@ public class ChatSession extends JPanel {
         }
 
         return result;
+    }
+
+    private JsonObject executeSearchTools(JsonObject call) {
+        JsonObject input = call != null && call.has("input") && call.get("input").isJsonObject()
+                ? call.getAsJsonObject("input")
+                : new JsonObject();
+
+        String query = input.has("query") && !input.get("query").isJsonNull()
+                ? input.get("query").getAsString().trim()
+                : "";
+
+        int limit = 8;
+        if (input.has("limit") && !input.get("limit").isJsonNull()) {
+            try {
+                limit = input.get("limit").getAsInt();
+            } catch (Exception ignore) {
+                // keep default
+            }
+        }
+        if (limit < 1) {
+            limit = 1;
+        }
+        if (limit > 20) {
+            limit = 20;
+        }
+
+        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
+        if (input.has("mode") && !input.get("mode").isJsonNull()) {
+            String requested = input.get("mode").getAsString();
+            try {
+                resolvedMode = ChatMode.valueOf(requested.trim().toUpperCase());
+            } catch (Exception ignore) {
+                return createErrorResult("search_tools", "Unbekannter mode: " + requested, call);
+            }
+        }
+
+        String accessFilter = input.has("accessFilter") && !input.get("accessFilter").isJsonNull()
+                ? input.get("accessFilter").getAsString().trim().toUpperCase()
+                : "ANY";
+        if (!"ANY".equals(accessFilter) && !"READ_ONLY".equals(accessFilter) && !"WRITE_ONLY".equals(accessFilter)) {
+            return createErrorResult("search_tools", "Ungültiger accessFilter: " + accessFilter, call);
+        }
+
+        boolean includeSystemTools = !input.has("includeSystemTools") || input.get("includeSystemTools").isJsonNull()
+                || input.get("includeSystemTools").getAsBoolean();
+
+        java.util.Set<String> requiredTags = new java.util.LinkedHashSet<>();
+        if (input.has("tags") && input.get("tags").isJsonArray()) {
+            com.google.gson.JsonArray tags = input.getAsJsonArray("tags");
+            for (int i = 0; i < tags.size(); i++) {
+                if (!tags.get(i).isJsonNull()) {
+                    String tag = tags.get(i).getAsString().trim().toLowerCase();
+                    if (!tag.isEmpty()) {
+                        requiredTags.add(tag);
+                    }
+                }
+            }
+        }
+
+        java.util.List<ToolSearchCandidate> candidates = new java.util.ArrayList<>();
+        String q = query.toLowerCase();
+
+        for (ToolPolicy policy : toolPolicyRepository.loadAll()) {
+            if (policy == null || policy.getToolName() == null || policy.getToolName().trim().isEmpty()) {
+                continue;
+            }
+            if (!policy.isEnabled()) {
+                continue;
+            }
+
+            String toolName = policy.getToolName();
+            if (!isRegisteredTool(toolName)) {
+                continue;
+            }
+
+            ToolAccessType accessType = policy.getAccessType() != null
+                    ? policy.getAccessType()
+                    : ToolAccessTypeDefaults.resolveDefault(toolName);
+
+            if (resolvedMode.isToolAware() && !resolvedMode.getAllowedToolAccess().contains(accessType)) {
+                continue;
+            }
+            if ("READ_ONLY".equals(accessFilter) && accessType != ToolAccessType.READ) {
+                continue;
+            }
+            if ("WRITE_ONLY".equals(accessFilter) && accessType != ToolAccessType.WRITE) {
+                continue;
+            }
+
+            de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
+                    .filter(t -> toolName.equalsIgnoreCase(t.getSpec().getName()))
+                    .findFirst()
+                    .orElse(null);
+
+            String description = trimDescription(tool != null ? tool.getSpec().getDescription() : "");
+            com.google.gson.JsonArray capabilities = buildCapabilities(toolName, description);
+
+            java.util.Set<String> toolTags = new java.util.LinkedHashSet<>();
+            for (int i = 0; i < capabilities.size(); i++) {
+                toolTags.add(capabilities.get(i).getAsString().toLowerCase());
+            }
+
+            if (!requiredTags.isEmpty() && !toolTags.containsAll(requiredTags)) {
+                continue;
+            }
+
+            double score = scoreToolMatch(toolName, description, toolTags, q);
+            if (!q.isEmpty() && score <= 0d) {
+                continue;
+            }
+
+            JsonObject card = new JsonObject();
+            card.addProperty("name", toolName);
+            card.addProperty("accessType", accessType.name());
+            card.addProperty("askBeforeUse", policy.isAskBeforeUse());
+            card.addProperty("enabled", policy.isEnabled());
+            card.addProperty("description", description);
+            card.add("capabilities", capabilities);
+            card.addProperty("confidence", clampScore(score));
+            card.addProperty("reason", buildMatchReason(toolName, description, toolTags, q));
+            candidates.add(new ToolSearchCandidate(card, score, toolName.toLowerCase()));
+        }
+
+        if (includeSystemTools) {
+            candidates.add(createSystemToolCandidate("describe_tool", "READ", "Liefert Details/Schema für ein Tool nur bei Bedarf.", q));
+            candidates.add(createSystemToolCandidate("search_tools", "READ", "Sucht passende aktivierte Tools im aktuellen Modus.", q));
+        }
+
+        candidates.sort(Comparator.comparingDouble((ToolSearchCandidate c) -> c.score).reversed()
+                .thenComparing(c -> c.name));
+
+        com.google.gson.JsonArray results = new com.google.gson.JsonArray();
+        for (int i = 0; i < candidates.size() && results.size() < limit; i++) {
+            results.add(candidates.get(i).card);
+        }
+
+        JsonObject out = new JsonObject();
+        out.addProperty("status", "ok");
+        out.addProperty("toolName", "search_tools");
+        out.addProperty("query", query);
+        out.addProperty("mode", resolvedMode.name());
+        out.add("results", results);
+        return out;
+    }
+
+    private ToolSearchCandidate createSystemToolCandidate(String name, String accessType, String description, String queryLower) {
+        com.google.gson.JsonArray capabilities = new com.google.gson.JsonArray();
+        if ("describe_tool".equals(name)) {
+            capabilities.add("tool_schema_lookup");
+        } else if ("search_tools".equals(name)) {
+            capabilities.add("tool_discovery");
+        }
+        java.util.Set<String> tags = new java.util.LinkedHashSet<>();
+        for (int i = 0; i < capabilities.size(); i++) {
+            tags.add(capabilities.get(i).getAsString().toLowerCase());
+        }
+
+        double score = scoreToolMatch(name, description, tags, queryLower);
+        JsonObject card = new JsonObject();
+        card.addProperty("name", name);
+        card.addProperty("accessType", accessType);
+        card.addProperty("askBeforeUse", false);
+        card.addProperty("enabled", true);
+        card.addProperty("description", trimDescription(description));
+        card.add("capabilities", capabilities);
+        card.addProperty("confidence", clampScore(score));
+        card.addProperty("reason", buildMatchReason(name, description, tags, queryLower));
+        return new ToolSearchCandidate(card, score, name.toLowerCase());
+    }
+
+    private double scoreToolMatch(String name, String description, java.util.Set<String> tags, String queryLower) {
+        if (queryLower == null || queryLower.isEmpty()) {
+            return 0.5d;
+        }
+        String n = name == null ? "" : name.toLowerCase();
+        String d = description == null ? "" : description.toLowerCase();
+
+        if (n.equals(queryLower)) {
+            return 1.0d;
+        }
+        if (n.startsWith(queryLower)) {
+            return 0.9d;
+        }
+        if (n.contains(queryLower)) {
+            return 0.8d;
+        }
+
+        for (String tag : tags) {
+            if (tag.equals(queryLower)) {
+                return 0.78d;
+            }
+            if (tag.contains(queryLower) || queryLower.contains(tag)) {
+                return 0.72d;
+            }
+        }
+
+        if (d.contains(queryLower)) {
+            return 0.65d;
+        }
+
+        String[] terms = queryLower.split("\\s+");
+        int matches = 0;
+        for (String term : terms) {
+            if (term.isEmpty()) {
+                continue;
+            }
+            if (n.contains(term) || d.contains(term) || tags.stream().anyMatch(t -> t.contains(term))) {
+                matches++;
+            }
+        }
+        if (matches > 0) {
+            return Math.min(0.6d, 0.3d + (0.1d * matches));
+        }
+        return 0d;
+    }
+
+    private double clampScore(double score) {
+        if (score < 0d) {
+            return 0d;
+        }
+        if (score > 1d) {
+            return 1d;
+        }
+        return score;
+    }
+
+    private String buildMatchReason(String name, String description, java.util.Set<String> tags, String queryLower) {
+        if (queryLower == null || queryLower.isEmpty()) {
+            return "matched: default";
+        }
+        String n = name == null ? "" : name.toLowerCase();
+        String d = description == null ? "" : description.toLowerCase();
+        if (n.equals(queryLower)) {
+            return "matched: exact_name";
+        }
+        if (n.startsWith(queryLower)) {
+            return "matched: name_prefix";
+        }
+        if (n.contains(queryLower)) {
+            return "matched: name";
+        }
+        for (String tag : tags) {
+            if (tag.contains(queryLower) || queryLower.contains(tag)) {
+                return "matched: capability:" + tag;
+            }
+        }
+        if (d.contains(queryLower)) {
+            return "matched: description";
+        }
+        return "matched: partial";
     }
 
     private String trimDescription(String description) {
@@ -1189,9 +1460,10 @@ public class ChatSession extends JPanel {
             }
         }
         availableTools.add("describe_tool");
+        availableTools.add("search_tools");
         error.add("availableTools", availableTools);
         error.addProperty("hint",
-                "Nutze nur Tools aus availableTools. Wenn unsicher, rufe describe_tool mit detailLevel='schema' auf."
+                "Nutze nur Tools aus availableTools. Wenn unsicher, rufe search_tools auf und danach describe_tool mit detailLevel='schema'."
         );
         return error;
     }
