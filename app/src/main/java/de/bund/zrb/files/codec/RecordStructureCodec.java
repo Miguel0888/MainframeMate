@@ -15,6 +15,17 @@ import java.util.Arrays;
  *
  * This codec is the SINGLE source of truth for record/EOF marker handling.
  * No other code should interpret lineEnding/fileEndMarker/removeFinalNewline.
+ *
+ * Transformation order (Server → Editor):
+ * 1. Remove ALL padding bytes (e.g., 0x00) from the entire stream
+ * 2. Replace all record markers (FF01) with newlines
+ * 3. Remove EOF marker (FF02) if present at end
+ * 4. Optionally remove final newline
+ *
+ * Transformation order (Editor → Server):
+ * 1. Split text by newlines
+ * 2. Append record marker after each line
+ * 3. Append EOF marker at the end
  */
 public final class RecordStructureCodec {
 
@@ -25,12 +36,13 @@ public final class RecordStructureCodec {
     /**
      * Decode remote bytes to editor-friendly text.
      *
-     * Transformation:
-     * 1. Replace all occurrences of recordMarker (default FF01) with newline
-     * 2. Remove EOF marker (default FF02) if present at end
-     * 3. Optionally remove final newline if settings.removeFinalNewline is true
+     * Transformation order (matching original FileContentService.transformToLocal):
+     * 1. (Padding already removed during FTP download in CommonsNetFtpFileService.readAllBytes)
+     * 2. Replace all occurrences of recordMarker (default FF01) with newline
+     * 3. Remove EOF marker (default FF02) if present at end
+     * 4. Optionally remove final newline if settings.removeFinalNewline is true
      *
-     * @param remoteBytes the raw bytes from the FTP server
+     * @param remoteBytes the raw bytes from the FTP server (padding already removed)
      * @param charset the character encoding
      * @param settings the application settings containing marker configurations
      * @return editor-friendly text with proper newlines
@@ -56,23 +68,26 @@ public final class RecordStructureCodec {
         }
 
         // Step 3: Optionally remove final newline
+        // Note: This checks for byte 0x0A directly (works for ISO-8859-1/UTF-8)
         if (settings.removeFinalNewline && transformed.length > 0) {
-            byte[] newlineBytes = "\n".getBytes(charset);
-            if (endsWith(transformed, newlineBytes)) {
-                transformed = Arrays.copyOf(transformed, transformed.length - newlineBytes.length);
+            if (transformed[transformed.length - 1] == (byte) 0x0A) {
+                transformed = Arrays.copyOf(transformed, transformed.length - 1);
             }
         }
 
         return new String(transformed, charset);
     }
 
+
     /**
      * Encode editor text back to remote byte format.
      *
-     * Transformation:
-     * 1. Split text by newlines (including trailing empty lines)
-     * 2. Append recordMarker after each line
+     * Transformation (matching original FileContentService.transformToRemote):
+     * 1. Split text by newlines (including trailing empty lines via split("\n", -1))
+     * 2. Append recordMarker after EACH line (including the last one)
      * 3. Append EOF marker at the end if configured
+     *
+     * Note: Padding is NOT added back. The mainframe/FTP handles that.
      *
      * @param editorText the text from the editor
      * @param charset the character encoding

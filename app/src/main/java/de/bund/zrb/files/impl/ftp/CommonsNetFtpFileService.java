@@ -522,12 +522,19 @@ public class CommonsNetFtpFileService implements FileService {
         byte[] buffer = new byte[8192];
         int read;
         while ((read = in.read(buffer)) != -1) {
-            // Immer 1:1 übernehmen. Padding wird erst am Ende getrimmt.
-            out.write(buffer, 0, read);
+            if (padding != null) {
+                // Remove ALL padding bytes from the stream (matches original FtpFileBuffer behavior)
+                for (int i = 0; i < read; i++) {
+                    if (buffer[i] != padding) {
+                        out.write(buffer[i]);
+                    }
+                }
+            } else {
+                out.write(buffer, 0, read);
+            }
         }
 
-        byte[] bytes = out.toByteArray();
-        return TrailingPaddingTrimmer.trim(bytes, padding);
+        return out.toByteArray();
     }
 
     private String resolvePath(String path) {

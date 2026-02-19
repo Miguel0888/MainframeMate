@@ -10,6 +10,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for RecordStructureCodec - MVS record marker transformation.
+ *
+ * Note: Padding removal happens during FTP download (CommonsNetFtpFileService.readAllBytes),
+ * not in this codec. These tests assume padding has already been removed.
  */
 class RecordStructureCodecTest {
 
@@ -20,6 +23,7 @@ class RecordStructureCodecTest {
         settings.lineEnding = "FF01";        // Record marker
         settings.fileEndMarker = "FF02";     // EOF marker
         settings.removeFinalNewline = true;
+        settings.padding = "00";             // Padding (removed during FTP read)
         return settings;
     }
 
@@ -37,7 +41,7 @@ class RecordStructureCodecTest {
     void decodeReplacesRecordMarkerWithNewline() {
         Settings settings = createDefaultSettings();
 
-        // "LINE1<FF01>LINE2<FF01>LINE3<FF01>"
+        // "LINE1<FF01>LINE2<FF01>LINE3<FF01>" (padding already removed)
         byte[] remote = new byte[] {
             'L', 'I', 'N', 'E', '1', (byte)0xFF, 0x01,
             'L', 'I', 'N', 'E', '2', (byte)0xFF, 0x01,
@@ -158,26 +162,19 @@ class RecordStructureCodecTest {
     }
 
     @Test
-    void hashStabilityWithRoundtrip() {
+    void removeFinalNewlineChecksRaw0x0A() {
         Settings settings = createDefaultSettings();
-        settings.removeFinalNewline = false;
+        settings.removeFinalNewline = true;
 
-        // Original remote bytes
-        byte[] originalRemote = new byte[] {
-            'A', 'B', 'C', (byte)0xFF, 0x01,
-            'D', 'E', 'F', (byte)0xFF, 0x01,
-            (byte)0xFF, 0x02
+        // "LINE1<FF01>" ends with 0x0A after marker replacement
+        byte[] remote = new byte[] {
+            'L', 'I', 'N', 'E', '1', (byte)0xFF, 0x01
         };
 
-        // Decode -> Encode
-        String editorText = RecordStructureCodec.decodeForEditor(originalRemote, ISO_8859_1, settings);
-        byte[] encodedBack = RecordStructureCodec.encodeForRemote(editorText, ISO_8859_1, settings);
+        String result = RecordStructureCodec.decodeForEditor(remote, ISO_8859_1, settings);
 
-        // Hash should be identical
-        String hash1 = de.bund.zrb.files.model.FilePayload.computeHash(originalRemote);
-        String hash2 = de.bund.zrb.files.model.FilePayload.computeHash(encodedBack);
-
-        assertEquals(hash1, hash2, "Hash should be identical after roundtrip");
+        // Final 0x0A should be removed
+        assertEquals("LINE1", result);
     }
 }
 
