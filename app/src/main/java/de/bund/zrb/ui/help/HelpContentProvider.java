@@ -200,6 +200,123 @@ public class HelpContentProvider {
                 "<li>Große Dokumente werden in Abschnitte unterteilt</li>" +
                 "<li>⚠️ zeigt Warnungen bei der Verarbeitung an</li>" +
                 "</ul>" +
+                "</body></html>"),
+
+        // Technische Hilfe für Datenumwandlungs-Einstellungen
+        TRANSFORM_ENCODING("Zeichenkodierung (technisch)",
+                "<html><body style='width: 380px; padding: 10px;'>" +
+                "<h3>🔤 Zeichenkodierung</h3>" +
+                "<p>Bestimmt, wie Bytes in Text umgewandelt werden.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<ul>" +
+                "<li><b>FTPClient.setControlEncoding()</b> – Setzt das Encoding für FTP-Befehle</li>" +
+                "<li><b>FilePayload.getCharset()</b> – Wird beim Lesen/Schreiben verwendet</li>" +
+                "<li><b>RecordStructureCodec</b> – Konvertiert Bytes ↔ String</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>⚙️ Typische Werte</h4>" +
+                "<ul>" +
+                "<li><b>ISO-8859-1</b> – Standard für Mainframe (Latin-1, 8-Bit)</li>" +
+                "<li><b>UTF-8</b> – Moderne Systeme, Unicode</li>" +
+                "<li><b>Cp1252</b> – Windows Western European</li>" +
+                "</ul>" +
+                "<p>⚠️ Bei falschem Encoding erscheinen Umlaute als Sonderzeichen.</p>" +
+                "</body></html>"),
+
+        TRANSFORM_LINE_ENDING("Zeilenumbruch des Servers (technisch)",
+                "<html><body style='width: 400px; padding: 10px;'>" +
+                "<h3>↵ Zeilenumbruch (Record Marker)</h3>" +
+                "<p>Hex-Sequenz, die auf dem Mainframe das Ende eines Records markiert.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<p><b>RecordStructureCodec.decodeForEditor():</b></p>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Beim Lesen (Server → Editor):\n" +
+                "byte[] recordMarker = parseHex(settings.lineEnding);\n" +
+                "transformed = replaceBytes(bytes, recordMarker, \"\\n\");</pre>" +
+                "<p><b>RecordStructureCodec.encodeForRemote():</b></p>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Beim Speichern (Editor → Server):\n" +
+                "String[] lines = text.split(\"\\n\", -1);\n" +
+                "for (line : lines) {\n" +
+                "    out.write(line.getBytes());\n" +
+                "    out.write(recordMarker); // FF01\n" +
+                "}</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Standard: FF01</h4>" +
+                "<p>MVS/z/OS verwendet typischerweise <code>0xFF 0x01</code> als Record-Delimiter " +
+                "bei RECORD_STRUCTURE FTP-Transfers.</p>" +
+                "<p>Im Editor wird daraus ein normaler Zeilenumbruch <code>\\n</code> (0x0A).</p>" +
+                "</body></html>"),
+
+        TRANSFORM_STRIP_NEWLINE("Letzten Zeilenumbruch ausblenden (technisch)",
+                "<html><body style='width: 380px; padding: 10px;'>" +
+                "<h3>✂️ Letzten Zeilenumbruch entfernen</h3>" +
+                "<p>Entfernt den abschließenden Newline nach der Record-Marker-Konvertierung.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<p><b>RecordStructureCodec.decodeForEditor():</b></p>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Am Ende der Dekodierung:\n" +
+                "if (settings.removeFinalNewline) {\n" +
+                "    if (transformed[length-1] == 0x0A) {\n" +
+                "        transformed = Arrays.copyOf(\n" +
+                "            transformed, length - 1);\n" +
+                "    }\n" +
+                "}</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Warum?</h4>" +
+                "<p>Jeder Record endet mit <code>FF01</code>, das zu <code>\\n</code> wird. " +
+                "Ohne diese Option hätte der Text im Editor eine Extra-Leerzeile am Ende.</p>" +
+                "<p>⚠️ Prüft direkt auf Byte <code>0x0A</code> – funktioniert für ISO-8859-1/UTF-8, " +
+                "aber nicht für EBCDIC.</p>" +
+                "</body></html>"),
+
+        TRANSFORM_EOF_MARKER("Datei-Ende-Kennung (technisch)",
+                "<html><body style='width: 400px; padding: 10px;'>" +
+                "<h3>🏁 EOF-Marker (End of File)</h3>" +
+                "<p>Hex-Sequenz, die das logische Dateiende auf dem Mainframe markiert.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<p><b>Beim Lesen (Server → Editor):</b></p>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// RecordStructureCodec.decodeForEditor():\n" +
+                "byte[] endMarker = parseHex(settings.fileEndMarker);\n" +
+                "if (endsWith(transformed, endMarker)) {\n" +
+                "    // Entferne EOF-Marker am Ende\n" +
+                "    transformed = Arrays.copyOf(\n" +
+                "        transformed, length - endMarker.length);\n" +
+                "}</pre>" +
+                "<p><b>Beim Speichern (Editor → Server):</b></p>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// RecordStructureCodec.encodeForRemote():\n" +
+                "// Nach allen Records:\n" +
+                "out.write(endMarker); // FF02</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Standard: FF02</h4>" +
+                "<p>Typisch für MVS Record-Struktur. Wird nur am <b>Ende</b> der Datei " +
+                "geprüft/angehängt, nie in der Mitte.</p>" +
+                "<p>Leer = deaktiviert (kein EOF-Marker).</p>" +
+                "</body></html>"),
+
+        TRANSFORM_PADDING("Padding Byte (technisch)",
+                "<html><body style='width: 400px; padding: 10px;'>" +
+                "<h3>📦 Padding (Füllbyte)</h3>" +
+                "<p>Byte, das beim FTP-Download <b>komplett entfernt</b> wird.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<p><b>CommonsNetFtpFileService.readAllBytes():</b></p>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Während des FTP-Downloads:\n" +
+                "while ((read = in.read(buffer)) != -1) {\n" +
+                "    for (int i = 0; i &lt; read; i++) {\n" +
+                "        if (buffer[i] != padding) { // z.B. 0x00\n" +
+                "            out.write(buffer[i]);\n" +
+                "        }\n" +
+                "        // Padding-Bytes werden übersprungen!\n" +
+                "    }\n" +
+                "}</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Standard: 00</h4>" +
+                "<p>Mainframe füllt Records auf LRECL (Logical Record Length) mit " +
+                "<code>0x00</code> auf. Diese Füllbytes werden beim Lesen entfernt.</p>" +
+                "<p>⚠️ Wichtig: Wird <b>überall</b> im Stream entfernt, nicht nur am Ende!</p>" +
+                "<p>Leer = deaktiviert (keine Padding-Entfernung).</p>" +
                 "</body></html>");
 
         private final String title;

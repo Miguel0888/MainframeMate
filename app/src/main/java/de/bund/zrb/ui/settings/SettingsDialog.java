@@ -364,39 +364,75 @@ public class SettingsDialog {
     private static void createTransformContent(JPanel expertContent) {
         GridBagConstraints gbcTransform = createDefaultGbc();
 
-        // Zeichensatz-Auswahl
+        // Zeichensatz-Auswahl mit Info-Icon
         encodingCombo = new JComboBox<>();
         List<String> encodings = SettingsHelper.SUPPORTED_ENCODINGS;
         encodings.forEach(encodingCombo::addItem);
         String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
         encodingCombo.setSelectedItem(currentEncoding);
-        addEncodingSelector(expertContent, gbcTransform, encodingCombo);
-
-        // Zeilenumbruch
-        expertContent.add(new JLabel("Zeilenumbruch des Servers:"), gbcTransform);
+        addLabelWithInfoIcon(expertContent, gbcTransform, "Zeichenkodierung:",
+                HelpContentProvider.HelpTopic.TRANSFORM_ENCODING);
+        expertContent.add(encodingCombo, gbcTransform);
         gbcTransform.gridy++;
+
+        // Zeilenumbruch mit Info-Icon
+        addLabelWithInfoIcon(expertContent, gbcTransform, "Zeilenumbruch des Servers:",
+                HelpContentProvider.HelpTopic.TRANSFORM_LINE_ENDING);
         lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
         expertContent.add(lineEndingBox, gbcTransform);
         gbcTransform.gridy++;
 
-        stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden (falls vorhanden)");
+        // Checkbox mit Info-Icon
+        JPanel stripNewlinePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden");
         stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
-        expertContent.add(stripFinalNewlineBox, gbcTransform);
+        stripNewlinePanel.add(stripFinalNewlineBox);
+        JButton stripNewlineInfoBtn = createInfoButton(HelpContentProvider.HelpTopic.TRANSFORM_STRIP_NEWLINE);
+        stripNewlinePanel.add(stripNewlineInfoBtn);
+        expertContent.add(stripNewlinePanel, gbcTransform);
         gbcTransform.gridy++;
 
-        // Dateiende
-        expertContent.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbcTransform);
-        gbcTransform.gridy++;
+        // Dateiende mit Info-Icon
+        addLabelWithInfoIcon(expertContent, gbcTransform, "Datei-Ende-Kennung (z. B. FF02, leer = aus):",
+                HelpContentProvider.HelpTopic.TRANSFORM_EOF_MARKER);
         endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
         expertContent.add(endMarkerBox, gbcTransform);
         gbcTransform.gridy++;
 
-        // Padding
-        expertContent.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbcTransform);
-        gbcTransform.gridy++;
+        // Padding mit Info-Icon
+        addLabelWithInfoIcon(expertContent, gbcTransform, "Padding Byte (z. B. 00, leer = aus):",
+                HelpContentProvider.HelpTopic.TRANSFORM_PADDING);
         paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
         expertContent.add(paddingBox, gbcTransform);
         gbcTransform.gridy++;
+    }
+
+    /**
+     * Erstellt ein Label mit Info-Icon für technische Hilfe.
+     */
+    private static void addLabelWithInfoIcon(JPanel panel, GridBagConstraints gbc,
+                                              String labelText, HelpContentProvider.HelpTopic helpTopic) {
+        JPanel labelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        labelPanel.add(new JLabel(labelText));
+        labelPanel.add(Box.createHorizontalStrut(5));
+        JButton infoBtn = createInfoButton(helpTopic);
+        labelPanel.add(infoBtn);
+        panel.add(labelPanel, gbc);
+        gbc.gridy++;
+    }
+
+    /**
+     * Erstellt einen Info-Button mit ℹ️ Icon.
+     */
+    private static JButton createInfoButton(HelpContentProvider.HelpTopic helpTopic) {
+        JButton infoBtn = new JButton("ℹ");
+        infoBtn.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 12));
+        infoBtn.setMargin(new Insets(0, 4, 0, 4));
+        infoBtn.setFocusable(false);
+        infoBtn.setToolTipText("Technische Details anzeigen");
+        infoBtn.setVisible(settings.showHelpIcons);
+        infoBtn.addActionListener(e -> HelpContentProvider.showHelpPopup((Component) e.getSource(), helpTopic));
+        return infoBtn;
     }
 
     private static void createConnectContent(JPanel expertContent) {
