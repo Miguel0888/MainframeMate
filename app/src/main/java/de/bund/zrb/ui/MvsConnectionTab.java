@@ -1,6 +1,10 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.impl.vfs.mvs.*;
+import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.files.path.VirtualResourceRef;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -195,14 +199,41 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     }
 
     private void openMember(MvsVirtualResource resource) {
-        // TODO: Integrate with existing file opening mechanism
-        System.out.println("[MvsConnectionTab] Opening member: " + resource.getOpenPath());
+        String path = resource.getOpenPath();
+        System.out.println("[MvsConnectionTab] Opening resource: " + path);
 
-        // For now, show message
-        JOptionPane.showMessageDialog(mainPanel,
-                "Öffne: " + resource.getOpenPath(),
-                "Member öffnen",
-                JOptionPane.INFORMATION_MESSAGE);
+        FileService fs = null;
+        try {
+            fs = new FileServiceFactory().createFtp(host, user, password);
+            FilePayload payload = fs.readFile(path);
+            String content = new String(payload.getBytes(),
+                    payload.getCharset() != null ? payload.getCharset() : java.nio.charset.Charset.defaultCharset());
+
+            VirtualResource virtualResource = new VirtualResource(
+                    VirtualResourceRef.of("ftp:" + path),
+                    VirtualResourceKind.FILE,
+                    path,
+                    VirtualBackendType.FTP,
+                    new FtpResourceState(
+                            new de.bund.zrb.files.auth.ConnectionId("ftp", host, user),
+                            Boolean.TRUE,
+                            "MVS",
+                            encoding));
+
+            tabbedPaneManager.openFileTab(virtualResource, content, null, null, false);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Datei konnte nicht geöffnet werden:\n" + e.getMessage(),
+                    "Öffnen fehlgeschlagen",
+                    JOptionPane.ERROR_MESSAGE);
+        } finally {
+            if (fs != null) {
+                try {
+                    fs.close();
+                } catch (Exception ignore) {
+                }
+            }
+        }
     }
 
     private void applyFilter() {

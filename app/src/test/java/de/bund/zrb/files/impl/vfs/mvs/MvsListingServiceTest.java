@@ -79,4 +79,26 @@ class MvsListingServiceTest {
         assertEquals("'KKR097.TSO.CNTL(*)'", candidates.get(0));
     }
 
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void datasetListingParsesFullyQualifiedMemberAsMemberNode() throws Exception {
+        MvsListingService service = new MvsListingService(new FTPClient());
+        MvsLocation parent = MvsLocation.dataset("KKR097.ZABAK.CNTL");
+
+        Method method = MvsListingService.class.getDeclaredMethod(
+                "buildResourcesFromNames", String[].class, MvsLocation.class, AtomicBoolean.class);
+        method.setAccessible(true);
+
+        String[] names = {"KKR097.ZABAK.CNTL(#NATJCL)"};
+
+        List<MvsVirtualResource> resources = (List<MvsVirtualResource>) method.invoke(
+                service, names, parent, new AtomicBoolean(false));
+
+        assertEquals(1, resources.size());
+        assertEquals(MvsLocationType.MEMBER, resources.get(0).getType());
+        assertEquals("#NATJCL", resources.get(0).getDisplayName());
+        assertEquals("'KKR097.ZABAK.CNTL(#NATJCL)'", resources.get(0).getLocation().getLogicalPath());
+    }
+
 }

@@ -443,6 +443,18 @@ public class MvsListingService {
         }
 
         if (parent.getType() == MvsLocationType.DATASET) {
+            String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
+
+            // Member entry in fully qualified format: PDS(MEMBER)
+            if (unquotedChildUpper.startsWith(parentUnquoted + "(") && unquotedChild.endsWith(")")) {
+                int open = unquotedChild.indexOf('(');
+                int close = unquotedChild.lastIndexOf(')');
+                if (open > 0 && close > open + 1) {
+                    String memberName = unquotedChild.substring(open + 1, close);
+                    return MvsLocation.member(parentPath + "(" + memberName + ")");
+                }
+            }
+
             boolean isQualifiedChild = !parentUnquoted.isEmpty() &&
                     unquotedChildUpper.startsWith(parentUnquoted + ".");
 
@@ -452,7 +464,6 @@ public class MvsListingService {
                 if (nextQualifier.isEmpty()) {
                     return null;
                 }
-                String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
                 return MvsLocation.dataset(parentPath + "." + nextQualifier);
             }
         }

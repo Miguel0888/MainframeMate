@@ -122,9 +122,15 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
         switch (location.getType()) {
             case HLQ:
             case QUALIFIER_CONTEXT:
-            case DATASET:
                 navigateTo(location);
                 return true;
+
+            case DATASET:
+                if (ftpClient.isLikelyPartitionedDataset(location)) {
+                    navigateTo(location);
+                    return true;
+                }
+                return false;
 
             case MEMBER:
                 // Open as file
