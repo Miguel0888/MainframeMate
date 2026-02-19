@@ -3,6 +3,9 @@ package de.bund.zrb.ui;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
+import de.bund.zrb.ui.mvs.MvsInitialPathProvider;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -11,6 +14,10 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.charset.Charset;
@@ -38,6 +45,14 @@ public class ConnectionTabImpl implements ConnectionTab {
     private List<String> currentDirectoryFiles = new ArrayList<>();
     private List<FileNode> currentDirectoryNodes = new ArrayList<>();
 
+    private final boolean mvsMode;
+    private final String loginName;
+    private final Settings settings;
+    private final MvsInitialPathProvider initialPathProvider = new MvsInitialPathProvider();
+
+    private JCheckBox useLoginAsHlqBox;
+    private JTextField customHlqField;
+
     /**
      * Constructor using VirtualResource + FileService.
      */
@@ -48,11 +63,22 @@ public class ConnectionTabImpl implements ConnectionTab {
         this.previewOpener = new DocumentPreviewOpener(tabbedPaneManager);
         this.mainPanel = new JPanel(new BorderLayout());
 
-        boolean mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
+        this.settings = SettingsHelper.load();
+
+        this.mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
+        this.loginName = resolveLoginName(resource);
+
         this.navigator = new PathNavigator(mvsMode);
         this.browserState = new BrowserSessionState(navigator.normalize(resource.getResolvedPath()));
 
         initUI(searchPattern);
+    }
+
+    private String resolveLoginName(VirtualResource resource) {
+        if (resource == null || resource.getFtpState() == null || resource.getFtpState().getConnectionId() == null) {
+            return "";
+        }
+        return resource.getFtpState().getConnectionId().getUsername();
     }
 
     public ConnectionTabImpl(VirtualResource resource, FileService fileService, TabbedPaneManager tabbedPaneManager) {
@@ -62,14 +88,12 @@ public class ConnectionTabImpl implements ConnectionTab {
     private void initUI(String searchPattern) {
         JPanel pathPanel = new JPanel(new BorderLayout());
 
-        // 🔄 Refresh-Button links
         JButton refreshButton = new JButton("🔄");
         refreshButton.setToolTipText("Aktuellen Pfad neu laden");
         refreshButton.setMargin(new Insets(0, 0, 0, 0));
         refreshButton.setFont(refreshButton.getFont().deriveFont(Font.PLAIN, 18f));
         refreshButton.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // ⏴ Zurück-Button rechts
         JButton backButton = new JButton("⏴");
         backButton.setToolTipText("Zurück zum übergeordneten Verzeichnis");
         backButton.setMargin(new Insets(0, 0, 0, 0));
@@ -81,33 +105,34 @@ public class ConnectionTabImpl implements ConnectionTab {
             updateFileList();
         });
 
-        // Öffnen-Button rechts
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // Rechte Buttongruppe (⏴ Öffnen)
         JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(goButton);
 
-        // Panelaufbau
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
-        // Setup overlay label for status messages
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.add(pathPanel, BorderLayout.NORTH);
+        if (mvsMode) {
+            northPanel.add(createInitialHlqPanel(), BorderLayout.SOUTH);
+        }
+
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
         overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
 
-        // Use layered pane for overlay
         JScrollPane scrollPane = new JScrollPane(fileList);
         listContainer.add(scrollPane, BorderLayout.CENTER);
 
-        mainPanel.add(pathPanel, BorderLayout.NORTH);
+        mainPanel.add(northPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
@@ -128,7 +153,6 @@ public class ConnectionTabImpl implements ConnectionTab {
                     return;
                 }
 
-                // Best effort: try to treat as directory first, without using CWD.
                 String nextPath = navigator.childOf(browserState.getCurrentPath(), selected);
                 try {
                     List<FileNode> listed = fileService.list(nextPath);
@@ -141,13 +165,9 @@ public class ConnectionTabImpl implements ConnectionTab {
                     // not a directory
                 }
 
-                // CTRL+Doppelklick = Raw-Datei öffnen (wie bisher)
-                // Normaler Doppelklick = Document Preview
                 if (e.isControlDown()) {
-                    // VirtualResource-based file open
                     try {
                         FilePayload payload = fileService.readFile(nextPath);
-                        // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
                         String content = payload.getEditorText();
                         VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
                         tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
@@ -156,21 +176,21 @@ public class ConnectionTabImpl implements ConnectionTab {
                                 "Fehler", JOptionPane.ERROR_MESSAGE);
                     }
                 } else {
-                    // Open Document Preview
                     previewOpener.openPreviewAsync(fileService, nextPath, selected, mainPanel);
                 }
             }
         });
 
-        // Initial load - only if path is meaningful
+        if (mvsMode) {
+            applyInitialHlqToBrowserStateIfConfigured();
+        }
+
         String initialPath = browserState.getCurrentPath();
         pathField.setText(initialPath);
 
-        // Don't try to list empty path or MVS root '' - wait for user input
         if (initialPath != null && !initialPath.isEmpty() && !"''".equals(initialPath) && !"/".equals(initialPath)) {
             updateFileList();
         } else {
-            // Show hint for MVS
             showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
         }
 
@@ -179,6 +199,92 @@ public class ConnectionTabImpl implements ConnectionTab {
             applySearchFilter();
         }
     }
+
+    private void applyInitialHlqToBrowserStateIfConfigured() {
+        String currentPath = browserState.getCurrentPath();
+        if (!initialPathProvider.isRoot(currentPath)) {
+            return;
+        }
+
+        String resolved = initialPathProvider.resolveInitialPath(currentPath, loginName, settings);
+        if (resolved == null || initialPathProvider.isRoot(resolved)) {
+            return;
+        }
+
+        browserState.goTo(navigator.normalize(resolved));
+    }
+
+    private JPanel createInitialHlqPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 2));
+
+        useLoginAsHlqBox = new JCheckBox("Login als HLQ verwenden");
+        useLoginAsHlqBox.setToolTipText("Wenn aktiv, wird der Loginname als Start-HLQ gesetzt");
+        useLoginAsHlqBox.setSelected(settings.ftpUseLoginAsHlq);
+
+        panel.add(useLoginAsHlqBox);
+
+        panel.add(new JLabel("Default HLQ:"));
+
+        customHlqField = new JTextField(settings.ftpCustomHlq != null ? settings.ftpCustomHlq : "", 14);
+        customHlqField.setToolTipText("Wird nur verwendet, wenn die Checkbox aus ist (leer = wie bisher)");
+        customHlqField.setEnabled(!useLoginAsHlqBox.isSelected());
+        panel.add(customHlqField);
+
+        useLoginAsHlqBox.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                customHlqField.setEnabled(!useLoginAsHlqBox.isSelected());
+                persistInitialHlqSettingsFromUi();
+                applyInitialHlqNowFromSettingsOrShowHint();
+            }
+        });
+
+        customHlqField.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                persistInitialHlqSettingsFromUi();
+                applyInitialHlqNowFromSettingsOrShowHint();
+            }
+        });
+
+        customHlqField.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusLost(FocusEvent e) {
+                persistInitialHlqSettingsFromUi();
+            }
+        });
+
+        return panel;
+    }
+
+    private void persistInitialHlqSettingsFromUi() {
+        settings.ftpUseLoginAsHlq = useLoginAsHlqBox.isSelected();
+        settings.ftpCustomHlq = customHlqField.getText() == null ? "" : customHlqField.getText().trim();
+        SettingsHelper.save(settings);
+    }
+
+    private void applyInitialHlqNowFromSettingsOrShowHint() {
+        String configured = initialPathProvider.resolveConfiguredInitialHlqPath(loginName, settings);
+
+        if (configured == null || initialPathProvider.isRoot(configured)) {
+            resetToMvsRootAndShowHint();
+            return;
+        }
+
+        loadDirectory(configured);
+    }
+
+    private void resetToMvsRootAndShowHint() {
+        browserState.goTo(navigator.normalize(""));
+        pathField.setText(browserState.getCurrentPath());
+
+        currentDirectoryFiles = new ArrayList<>();
+        currentDirectoryNodes = new ArrayList<>();
+        listModel.clear();
+
+        showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+    }
+
 
     @Override
     public String getTitle() {
