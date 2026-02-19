@@ -52,6 +52,22 @@ dependencies {
 
     // VFS (local)
     implementation 'org.apache.commons:commons-vfs2:2.10.0'
+
+    // Document Ingestion - Tika (Type Detection + Fallback Extraction)
+    implementation 'org.apache.tika:tika-core:2.9.1'
+    implementation('org.apache.tika:tika-parsers-standard-package:2.9.1') {
+        // Exclude flexmark (requires Java 11+)
+        exclude group: 'com.vladsch.flexmark'
+    }
+
+    // PDFBox for PDF extraction
+    implementation 'org.apache.pdfbox:pdfbox:2.0.30'
+
+    // jsoup for HTML parsing
+    implementation 'org.jsoup:jsoup:1.17.2'
+
+    // Markdown rendering (commonmark - Java 8 compatible)
+    implementation 'org.commonmark:commonmark:0.21.0'
 }
 
 shadowJar {
