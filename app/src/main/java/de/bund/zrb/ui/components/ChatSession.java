@@ -69,6 +69,7 @@ public class ChatSession extends JPanel {
     private static final int MAX_TOOL_CALLS = 0; // 0 = unlimited
     private volatile String lastUserRequestText = "";
     private final Set<String> toolsUsedInThisChat = new HashSet<>();
+    private final Set<String> schemaKnownTools = new HashSet<>();
 
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
         this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
@@ -763,14 +764,19 @@ public class ChatSession extends JPanel {
                         ? effectiveCall.get("name").getAsString()
                         : null;
 
-                if (requestedTool != null && !isSystemTool(requestedTool) && !toolsUsedInThisChat.contains(requestedTool)) {
+                if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
                     JsonObject describeCall = new JsonObject();
                     describeCall.addProperty("name", "describe_tool");
                     JsonObject describeInput = new JsonObject();
                     describeInput.addProperty("tool", requestedTool);
+                    describeInput.addProperty("detailLevel", "schema");
                     describeCall.add("input", describeInput);
 
                     JsonObject describeResult = executeSingleToolCall(describeCall);
+                    if (isSuccessResult(describeResult)) {
+                        schemaKnownTools.add(requestedTool);
+                    }
+
                     results.add(describeResult);
                     JsonObject finalDescribe = describeResult == null ? new JsonObject() : describeResult;
                     SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
@@ -782,6 +788,27 @@ public class ChatSession extends JPanel {
 
                 JsonObject result = executeSingleToolCall(effectiveCall);
                 if (shouldRetryToolCall(result)) {
+                    if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
+                        JsonObject describeCall = new JsonObject();
+                        describeCall.addProperty("name", "describe_tool");
+                        JsonObject describeInput = new JsonObject();
+                        describeInput.addProperty("tool", requestedTool);
+                        describeInput.addProperty("detailLevel", "schema");
+                        describeCall.add("input", describeInput);
+
+                        JsonObject describeResult = executeSingleToolCall(describeCall);
+                        if (isSuccessResult(describeResult)) {
+                            schemaKnownTools.add(requestedTool);
+                        }
+                        results.add(describeResult);
+                        JsonObject finalDescribe = describeResult == null ? new JsonObject() : describeResult;
+                        SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                                "Tool: describe_tool",
+                                finalDescribe.toString(),
+                                false
+                        ));
+                    }
+
                     JsonObject repaired = repairToolCallForRetry(effectiveCall);
                     result = executeSingleToolCall(repaired);
                 }
@@ -820,21 +847,21 @@ public class ChatSession extends JPanel {
                 aggregated.add("results", arr);
 
                 chatManager.getHistory(sessionId).addToolMessage(
-                        "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
+                        "TOOL_RESULTS
+```json
+" + aggregated.toString() + "
+```"
                 );
 
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
                 if (currentMode == ChatMode.AGENT) {
                     followUp = "Du hast Tool-Ergebnisse erhalten. " +
-                            "Kannst du die Frage des Nutzers damit beantworten? " +
-                            "Wenn ja, antworte direkt in natürlicher Sprache (KEIN JSON, KEIN Tool-Call). " +
-                            "Nur wenn du KONKRET weitere Dateien lesen musst, um die Frage zu beantworten, " +
-                            "erzeuge einen weiteren Tool-Call. Lies keine Datei, die du bereits gelesen hast. " +
-                            "Wenn ein Fehler aufgetreten ist, weise darauf hin.";
+                            "Beantworte jetzt die ursprüngliche Nutzeranfrage direkt und konkret auf Deutsch. " +
+                            "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
+                            "Erzeuge nur dann einen weiteren Tool-Call, wenn für die Beantwortung zwingend weitere Informationen fehlen.";
                 } else {
-                    followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer. " +
-                            "Wenn Fehler enthalten sind, weise darauf hin.";
+                    followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }
 
                 streamAssistantFollowUp(followUp);
@@ -948,48 +975,117 @@ public class ChatSession extends JPanel {
             return createErrorResult(toolName, "Unbekanntes Systemtool", call);
         }
 
+        JsonObject input = call != null && call.has("input") && call.get("input").isJsonObject()
+                ? call.getAsJsonObject("input")
+                : new JsonObject();
+
         String target = null;
-        if (call.has("input") && call.get("input").isJsonObject()) {
-            JsonObject input = call.getAsJsonObject("input");
-            if (input.has("tool") && !input.get("tool").isJsonNull()) {
-                target = input.get("tool").getAsString();
-            } else if (input.has("name") && !input.get("name").isJsonNull()) {
-                target = input.get("name").getAsString();
-            }
+        if (input.has("tool") && !input.get("tool").isJsonNull()) {
+            target = input.get("tool").getAsString();
+        } else if (input.has("name") && !input.get("name").isJsonNull()) {
+            target = input.get("name").getAsString();
         }
+
+        String detailLevel = input.has("detailLevel") && !input.get("detailLevel").isJsonNull()
+                ? input.get("detailLevel").getAsString().trim().toLowerCase()
+                : "schema";
+        boolean includeExamples = input.has("includeExamples") && !input.get("includeExamples").isJsonNull()
+                && input.get("includeExamples").getAsBoolean();
 
         JsonObject result = new JsonObject();
         result.addProperty("status", "ok");
         result.addProperty("toolName", "describe_tool");
 
         if (target == null || target.trim().isEmpty()) {
+            result.addProperty("status", "error");
             result.addProperty("message", "input.tool oder input.name fehlt");
             return result;
         }
 
-        // Make target effectively final for use in lambda (Java 8 requires captured locals to be final/effectively final)
         final String targetName = target;
-
         de.zrb.bund.newApi.mcp.McpTool tool = ToolRegistryImpl.getInstance().getAllTools().stream()
                 .filter(t -> targetName.equalsIgnoreCase(t.getSpec().getName()))
                 .findFirst()
                 .orElse(null);
+
         if (tool == null) {
+            result.addProperty("status", "error");
             result.addProperty("message", "Tool nicht gefunden: " + target);
             return result;
         }
 
-        result.addProperty("targetTool", tool.getSpec().getName());
-        result.addProperty("description", tool.getSpec().getDescription());
+        String resolvedName = tool.getSpec().getName();
+        result.addProperty("targetTool", resolvedName);
+        result.addProperty("description", trimDescription(tool.getSpec().getDescription()));
+        result.addProperty("canonicalCallFormat", "{\"name\":\"" + resolvedName + "\",\"input\":{...}}");
+        result.addProperty("inputShapeRules", "Alle Parameter direkt unter input; kein input.arguments; kein toolName.");
+
+        ToolPolicy policy = toolPolicyRepository.findByToolName(resolvedName);
+        ToolAccessType accessType = policy != null && policy.getAccessType() != null
+                ? policy.getAccessType()
+                : ToolAccessTypeDefaults.resolveDefault(resolvedName);
+        result.addProperty("accessType", accessType.name());
 
         com.google.gson.JsonObject spec = com.google.gson.JsonParser.parseString(tool.getSpec().toJson()).getAsJsonObject();
-        if (spec.has("input_schema")) {
+        com.google.gson.JsonArray capabilities = buildCapabilities(resolvedName, tool.getSpec().getDescription());
+        result.add("capabilities", capabilities);
+
+        JsonObject constraints = new JsonObject();
+        if ("read_file".equalsIgnoreCase(resolvedName)) {
+            constraints.addProperty("directoryListing", "non_recursive");
+        }
+        if (constraints.size() > 0) {
+            result.add("constraints", constraints);
+        }
+
+        boolean wantsSchema = "schema".equals(detailLevel) || "full".equals(detailLevel)
+                || (!"summary".equals(detailLevel) && !"examples".equals(detailLevel));
+        if ("summary".equals(detailLevel)) {
+            wantsSchema = false;
+        }
+        if (wantsSchema && spec.has("input_schema")) {
             result.add("inputSchema", spec.get("input_schema"));
         }
-        if (tool.getSpec().getExampleInput() != null) {
-            result.add("exampleInput", com.google.gson.JsonParser.parseString(new com.google.gson.Gson().toJson(tool.getSpec().getExampleInput())));
+
+        boolean wantsExamples = includeExamples || "examples".equals(detailLevel) || "full".equals(detailLevel);
+        if (wantsExamples && tool.getSpec().getExampleInput() != null) {
+            com.google.gson.JsonArray examples = new com.google.gson.JsonArray();
+            JsonObject ex = new JsonObject();
+            ex.addProperty("purpose", "Beispielaufruf");
+            JsonObject callObj = new JsonObject();
+            callObj.addProperty("name", resolvedName);
+            callObj.add("input", com.google.gson.JsonParser.parseString(new com.google.gson.Gson().toJson(tool.getSpec().getExampleInput())).getAsJsonObject());
+            ex.add("call", callObj);
+            examples.add(ex);
+            result.add("examples", examples);
         }
+
         return result;
+    }
+
+    private String trimDescription(String description) {
+        if (description == null) {
+            return "";
+        }
+        String d = description.trim();
+        return d.length() > 250 ? d.substring(0, 250) : d;
+    }
+
+    private com.google.gson.JsonArray buildCapabilities(String toolName, String description) {
+        com.google.gson.JsonArray capabilities = new com.google.gson.JsonArray();
+        String n = toolName == null ? "" : toolName.toLowerCase();
+        String d = description == null ? "" : description.toLowerCase();
+
+        if ("read_file".equals(n) || d.contains("liest") || d.contains("read")) {
+            capabilities.add("read_file_content");
+        }
+        if ("read_file".equals(n) || d.contains("verzeichnis") || d.contains("directory")) {
+            capabilities.add("list_directory");
+        }
+        if (n.contains("open")) {
+            capabilities.add("open_resource");
+        }
+        return capabilities;
     }
 
     private ToolApprovalDecision requestUserApproval(String toolName, String toolCallJson, boolean isWrite) {
