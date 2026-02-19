@@ -77,9 +77,14 @@ public class ChatFormatter {
     }
 
     public void appendBotMessageChunk(String chunk) {
+        if (chunk == null || chunk.isEmpty()) {
+            return;
+        }
         buffer.append(chunk);
         SwingUtilities.invokeLater(() -> {
-//            currentBotContent.setText(formatHtml(escapeHtml(buffer.toString()).replace("\n", "<br/>")));
+            if (currentBotContent == null) {
+                return;
+            }
             String html = ChatMarkdownFormatter.format(buffer.toString());
             currentBotContent.setText(formatHtml(html));
             applyDynamicSizing(currentBotContent);
