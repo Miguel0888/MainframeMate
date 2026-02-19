@@ -7,12 +7,15 @@ import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.impl.auth.InteractiveCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
+import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.annotation.Nullable;
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.nio.charset.Charset;
 
 /**
@@ -209,6 +212,16 @@ public final class VirtualResourceOpener {
             return tab;
         }
 
+        // Check if this is an MVS connection
+        boolean isMvs = resource.getFtpState() != null &&
+                        Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
+
+        if (isMvs) {
+            // Use new MVS-specific tab with proper HLQ handling
+            return openMvsDirectory(resource, searchPattern);
+        }
+
+        // Use legacy connection tab for non-MVS FTP
         ConnectionTabImpl tab = new ConnectionTabImpl(resource, fs, tabManager, searchPattern);
         tabManager.addTab(tab);
         tab.loadDirectory(resource.getResolvedPath());
@@ -216,6 +229,40 @@ public final class VirtualResourceOpener {
             tab.searchFor(searchPattern);
         }
         return tab;
+    }
+
+    private FtpTab openMvsDirectory(VirtualResource resource, String searchPattern) {
+        try {
+            Settings settings = SettingsHelper.load();
+            String host = resource.getFtpState().getConnectionId().getHost();
+            String user = resource.getFtpState().getConnectionId().getUsername();
+
+            // Get password interactively
+            String password = LoginManager.getInstance().getPassword(host, user);
+            if (password == null) {
+                return null;
+            }
+
+            MvsConnectionTab tab = new MvsConnectionTab(
+                    tabManager, host, user, password, settings.encoding);
+            tabManager.addTab(tab);
+
+            // Navigate to initial path if specified
+            String initialPath = resource.getResolvedPath();
+            if (initialPath != null && !initialPath.isEmpty() &&
+                !"''".equals(initialPath) && !"/".equals(initialPath)) {
+                tab.loadDirectory(initialPath);
+            }
+
+            // Mark login as successful
+            LoginManager.getInstance().onLoginSuccess(host, user);
+
+            return tab;
+        } catch (IOException e) {
+            System.err.println("[VirtualResourceOpener] Failed to open MVS connection: " + e.getMessage());
+            showErrorDialog("MVS Verbindungsfehler", e.getMessage());
+            return null;
+        }
     }
 
     private FtpTab openFile(VirtualResource resource, FileService fs,
