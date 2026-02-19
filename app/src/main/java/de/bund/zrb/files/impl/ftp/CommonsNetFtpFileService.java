@@ -420,6 +420,7 @@ public class CommonsNetFtpFileService implements FileService {
     private FilePayload readFileInternal(String resolvedPath) throws FileServiceException {
         InputStream in = null;
         try {
+            long t0 = System.currentTimeMillis();
             in = ftpClient.retrieveFileStream(resolvedPath);
             if (in == null) {
                 throw new FileServiceException(FileServiceErrorCode.NOT_FOUND,
@@ -427,19 +428,31 @@ public class CommonsNetFtpFileService implements FileService {
             }
 
             byte[] bytes = readAllBytes(in);
+            long t1 = System.currentTimeMillis();
+            System.out.println("[FTP] readAllBytes took " + (t1 - t0) + "ms, bytes=" + bytes.length);
+
+            // WICHTIG: InputStream MUSS vor completePendingCommand() geschlossen werden!
+            // Sonst wartet completePendingCommand() endlos auf die Server-Antwort "226 Transfer Complete"
+            in.close();
+            in = null;
+
             if (!ftpClient.completePendingCommand()) {
                 throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
                         "FTP transfer incomplete: " + resolvedPath);
             }
+            long t2 = System.currentTimeMillis();
+            System.out.println("[FTP] completePendingCommand took " + (t2 - t1) + "ms");
 
             Charset charset = Charset.forName(ftpClient.getControlEncoding());
 
             // For RECORD_STRUCTURE, decode bytes to editor-friendly text
             if (recordStructure) {
                 String editorText = RecordStructureCodec.decodeForEditor(bytes, charset, settings);
+                System.out.println("[FTP] readFileInternal total: " + (System.currentTimeMillis() - t0) + "ms");
                 return FilePayload.fromBytesWithEditorText(bytes, charset, recordStructure, editorText);
             }
 
+            System.out.println("[FTP] readFileInternal total: " + (System.currentTimeMillis() - t0) + "ms");
             return FilePayload.fromBytes(bytes, charset, recordStructure);
         } catch (IOException e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP read failed: " + resolvedPath, e);
