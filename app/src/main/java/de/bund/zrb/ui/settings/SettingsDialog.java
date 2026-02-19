@@ -387,7 +387,7 @@ public class SettingsDialog {
         stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden");
         stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
         stripNewlinePanel.add(stripFinalNewlineBox);
-        JButton stripNewlineInfoBtn = createInfoButton(HelpContentProvider.HelpTopic.TRANSFORM_STRIP_NEWLINE);
+        HelpButton stripNewlineInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.TRANSFORM_STRIP_NEWLINE);
         stripNewlinePanel.add(stripNewlineInfoBtn);
         expertContent.add(stripNewlinePanel, gbcTransform);
         gbcTransform.gridy++;
@@ -415,24 +415,20 @@ public class SettingsDialog {
         JPanel labelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         labelPanel.add(new JLabel(labelText));
         labelPanel.add(Box.createHorizontalStrut(5));
-        JButton infoBtn = createInfoButton(helpTopic);
+        HelpButton infoBtn = createInfoHelpButton(helpTopic);
         labelPanel.add(infoBtn);
         panel.add(labelPanel, gbc);
         gbc.gridy++;
     }
 
     /**
-     * Erstellt einen Info-Button mit ℹ️ Icon.
+     * Erstellt einen blauen Fragezeichen-HelpButton für technische Hilfe.
      */
-    private static JButton createInfoButton(HelpContentProvider.HelpTopic helpTopic) {
-        JButton infoBtn = new JButton("ℹ");
-        infoBtn.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 12));
-        infoBtn.setMargin(new Insets(0, 4, 0, 4));
-        infoBtn.setFocusable(false);
-        infoBtn.setToolTipText("Technische Details anzeigen");
-        infoBtn.setVisible(settings.showHelpIcons);
-        infoBtn.addActionListener(e -> HelpContentProvider.showHelpPopup((Component) e.getSource(), helpTopic));
-        return infoBtn;
+    private static HelpButton createInfoHelpButton(HelpContentProvider.HelpTopic helpTopic) {
+        HelpButton helpBtn = new HelpButton("Technische Details anzeigen");
+        helpBtn.setVisible(settings.showHelpIcons);
+        helpBtn.addActionListener(e -> HelpContentProvider.showHelpPopup((Component) e.getSource(), helpTopic));
+        return helpBtn;
     }
 
     private static void createConnectContent(JPanel expertContent) {
@@ -465,42 +461,47 @@ public class SettingsDialog {
         expertContent.add(clearPasswordButton, gbcConnect);
         gbcConnect.gridy++;
 
-        // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE)
-        expertContent.add(new JLabel("FTP Datei-Typ (TYPE):"), gbcConnect);
-        gbcConnect.gridy++;
+        // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE) mit Info-Icons
+        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Datei-Typ (TYPE):",
+                HelpContentProvider.HelpTopic.FTP_FILE_TYPE);
         typeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileType.class, settings.ftpFileType, "Standard"
         );
         expertContent.add(typeBox, gbcConnect);
         gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("FTP Text-Format (FORMAT):"), gbcConnect);
-        gbcConnect.gridy++;
+        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Text-Format (FORMAT):",
+                HelpContentProvider.HelpTopic.FTP_TEXT_FORMAT);
         formatBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTextFormat.class, settings.ftpTextFormat, "Standard"
         );
         expertContent.add(formatBox, gbcConnect);
         gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbcConnect);
-        gbcConnect.gridy++;
+        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Dateistruktur (STRUCTURE):",
+                HelpContentProvider.HelpTopic.FTP_FILE_STRUCTURE);
         structureBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileStructure.class, settings.ftpFileStructure, "Automatisch"
         );
         expertContent.add(structureBox, gbcConnect);
         gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbcConnect);
-        gbcConnect.gridy++;
+        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Übertragungsmodus (MODE):",
+                HelpContentProvider.HelpTopic.FTP_TRANSFER_MODE);
         modeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTransferMode.class, settings.ftpTransferMode, "Standard"
         );
         expertContent.add(modeBox, gbcConnect);
         gbcConnect.gridy++;
 
-        hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen (Debugzwecke)");
+        // Hexdump Checkbox mit Info-Icon
+        JPanel hexDumpPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen");
         hexDumpBox.setSelected(settings.enableHexDump);
-        expertContent.add(hexDumpBox, gbcConnect);
+        hexDumpPanel.add(hexDumpBox);
+        HelpButton hexDumpInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_HEX_DUMP);
+        hexDumpPanel.add(hexDumpInfoBtn);
+        expertContent.add(hexDumpPanel, gbcConnect);
         gbcConnect.gridy++;
     }
 

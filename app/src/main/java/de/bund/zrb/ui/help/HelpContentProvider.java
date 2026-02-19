@@ -317,6 +317,131 @@ public class HelpContentProvider {
                 "<code>0x00</code> auf. Diese Füllbytes werden beim Lesen entfernt.</p>" +
                 "<p>⚠️ Wichtig: Wird <b>überall</b> im Stream entfernt, nicht nur am Ende!</p>" +
                 "<p>Leer = deaktiviert (keine Padding-Entfernung).</p>" +
+                "</body></html>"),
+
+        // Technische Hilfe für FTP-Verbindungs-Einstellungen
+        FTP_FILE_TYPE("FTP Datei-Typ / TYPE (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>📄 FTP TYPE Kommando</h3>" +
+                "<p>Legt fest, wie Daten zwischen Client und Server übertragen werden.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// CommonsNetFtpFileService:\n" +
+                "ftpClient.setFileType(FTP.ASCII_FILE_TYPE);\n" +
+                "// oder\n" +
+                "ftpClient.setFileType(FTP.BINARY_FILE_TYPE);</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Optionen</h4>" +
+                "<ul>" +
+                "<li><b>Standard</b> – Server-Default (meist ASCII)</li>" +
+                "<li><b>ASCII (A)</b> – Textdateien, Zeilenenden werden konvertiert</li>" +
+                "<li><b>BINARY/IMAGE (I)</b> – Binärdaten, keine Konvertierung</li>" +
+                "<li><b>EBCDIC (E)</b> – Mainframe-Zeichensatz</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Standard</b> belassen. Bei Problemen mit Umlauten oder " +
+                "binären Dateien auf <b>BINARY</b> wechseln.</p>" +
+                "</body></html>"),
+
+        FTP_TEXT_FORMAT("FTP Text-Format / FORMAT (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>📝 FTP FORMAT Parameter</h3>" +
+                "<p>Zusätzlicher Parameter für ASCII/EBCDIC-Übertragungen.</p>" +
+                "<hr>" +
+                "<h4>📍 FTP Protokoll</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>TYPE A N  // ASCII, Non-print\n" +
+                "TYPE A T  // ASCII, Telnet\n" +
+                "TYPE A C  // ASCII, Carriage Control</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Optionen</h4>" +
+                "<ul>" +
+                "<li><b>Standard</b> – Server-Default (meist Non-print)</li>" +
+                "<li><b>NON_PRINT (N)</b> – Keine Drucksteuerzeichen</li>" +
+                "<li><b>TELNET (T)</b> – Telnet-kompatible Formatierung</li>" +
+                "<li><b>CARRIAGE_CONTROL (C)</b> – ASA Carriage Control (Mainframe-Druck)</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Standard</b> belassen. Nur bei speziellen Druckdateien ändern.</p>" +
+                "</body></html>"),
+
+        FTP_FILE_STRUCTURE("FTP Dateistruktur / STRUCTURE (technisch)",
+                "<html><body style='width: 450px; padding: 10px;'>" +
+                "<h3>🏗️ FTP STRU Kommando</h3>" +
+                "<p>Legt die logische Struktur der Datei fest – <b>entscheidend für Mainframe!</b></p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// CommonsNetFtpFileService:\n" +
+                "ftpClient.setFileStructure(FTP.FILE_STRUCTURE);\n" +
+                "// oder für Mainframe:\n" +
+                "ftpClient.setFileStructure(FTP.RECORD_STRUCTURE);</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Optionen</h4>" +
+                "<ul>" +
+                "<li><b>Automatisch</b> – Erkennt MVS-Server und wählt RECORD_STRUCTURE, " +
+                "sonst FILE_STRUCTURE</li>" +
+                "<li><b>FILE_STRUCTURE (F)</b> – Datei als Byte-Stream (Unix/Windows)</li>" +
+                "<li><b>RECORD_STRUCTURE (R)</b> – Datei als Folge von Records (Mainframe)</li>" +
+                "<li><b>PAGE_STRUCTURE (P)</b> – Seitenbasiert (selten verwendet)</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>🔧 Was bedeutet \"Automatisch\"?</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Bei Verbindung:\n" +
+                "String systemType = ftpClient.getSystemType();\n" +
+                "if (systemType.contains(\"MVS\") || \n" +
+                "    systemType.contains(\"z/OS\")) {\n" +
+                "    // RECORD_STRUCTURE für Mainframe\n" +
+                "    mvsMode = true;\n" +
+                "}</pre>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Automatisch</b> ist die beste Wahl. Bei RECORD_STRUCTURE werden " +
+                "die Record-Marker (FF01) und EOF-Marker (FF02) korrekt verarbeitet.</p>" +
+                "</body></html>"),
+
+        FTP_TRANSFER_MODE("FTP Übertragungsmodus / MODE (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>📡 FTP MODE Kommando</h3>" +
+                "<p>Legt fest, wie Daten über die Verbindung übertragen werden.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// CommonsNetFtpFileService:\n" +
+                "ftpClient.setFileTransferMode(FTP.STREAM_TRANSFER_MODE);\n" +
+                "// oder\n" +
+                "ftpClient.setFileTransferMode(FTP.BLOCK_TRANSFER_MODE);</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Optionen</h4>" +
+                "<ul>" +
+                "<li><b>Standard</b> – Server-Default (fast immer STREAM)</li>" +
+                "<li><b>STREAM (S)</b> – Kontinuierlicher Datenstrom, EOF am Ende</li>" +
+                "<li><b>BLOCK (B)</b> – Daten in Blöcken mit Header (für Restarts)</li>" +
+                "<li><b>COMPRESSED (C)</b> – Komprimierte Übertragung (selten)</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Standard</b> belassen. BLOCK-Mode wird nur für spezielle " +
+                "Anwendungsfälle wie Restart nach Abbruch benötigt.</p>" +
+                "</body></html>"),
+
+        FTP_HEX_DUMP("Hexdump (technisch)",
+                "<html><body style='width: 400px; padding: 10px;'>" +
+                "<h3>🔍 Hexdump für Debugging</h3>" +
+                "<p>Zeigt die empfangenen/gesendeten Bytes als Hex-Werte in der Konsole an.</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// Bei aktiviertem Hexdump:\n" +
+                "if (settings.enableHexDump) {\n" +
+                "    System.out.println(HexDump.format(bytes));\n" +
+                "}</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Wann aktivieren?</h4>" +
+                "<ul>" +
+                "<li>Bei Problemen mit Zeichenkodierung (Umlaute)</li>" +
+                "<li>Bei unerwartetem Dateiinhalt</li>" +
+                "<li>Zur Analyse von Record-Markern (FF01/FF02)</li>" +
+                "</ul>" +
+                "<p>⚠️ Erzeugt viel Konsolenausgabe – nur für Debugging!</p>" +
                 "</body></html>");
 
         private final String title;
@@ -358,12 +483,13 @@ public class HelpContentProvider {
 
     /**
      * Zeigt ein leichtgewichtiges Popup für das gegebene Thema.
+     * Die Größe passt sich automatisch an den Inhalt an.
      */
     public static void showHelpPopup(Component invoker, HelpTopic topic) {
         JPopupMenu popup = new JPopupMenu();
         popup.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(0x1E88E5), 1),
-                BorderFactory.createEmptyBorder(8, 8, 8, 8)
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
 
         JEditorPane editorPane = new JEditorPane("text/html", topic.getHtmlContent());
@@ -371,18 +497,49 @@ public class HelpContentProvider {
         editorPane.setBackground(UIManager.getColor("Panel.background"));
         editorPane.setBorder(null);
 
-        JScrollPane scrollPane = new JScrollPane(editorPane);
-        scrollPane.setPreferredSize(new Dimension(320, 200));
-        scrollPane.setBorder(null);
+        // Automatische Größenanpassung: EditorPane bestimmt selbst die Größe
+        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        int maxWidth = Math.min(500, (int)(screenSize.width * 0.4));
+        int maxHeight = (int)(screenSize.height * 0.6);
 
-        popup.add(scrollPane);
+        // EditorPane Größe berechnen lassen
+        editorPane.setSize(new Dimension(maxWidth, Short.MAX_VALUE));
+        Dimension preferredSize = editorPane.getPreferredSize();
+
+        // Höhe begrenzen falls nötig
+        int finalHeight = Math.min(preferredSize.height + 10, maxHeight);
+        int finalWidth = Math.min(preferredSize.width + 25, maxWidth);
+
+        // Nur ScrollPane verwenden wenn Inhalt zu groß
+        if (preferredSize.height > maxHeight) {
+            JScrollPane scrollPane = new JScrollPane(editorPane);
+            scrollPane.setPreferredSize(new Dimension(finalWidth, finalHeight));
+            scrollPane.setBorder(null);
+            scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            popup.add(scrollPane);
+        } else {
+            // Kein ScrollPane nötig - direkt anzeigen
+            editorPane.setPreferredSize(new Dimension(finalWidth, finalHeight));
+            popup.add(editorPane);
+        }
 
         // Popup unter dem Button anzeigen
         int x = 0;
-        int y = invoker.getHeight();
-        if (invoker.getLocationOnScreen().x + 320 > Toolkit.getDefaultToolkit().getScreenSize().width) {
-            x = invoker.getWidth() - 320;
+        int y = invoker.getHeight() + 2;
+
+        // Sicherstellen, dass das Popup auf dem Bildschirm bleibt
+        try {
+            Point invokerLoc = invoker.getLocationOnScreen();
+            if (invokerLoc.x + finalWidth > screenSize.width) {
+                x = invoker.getWidth() - finalWidth;
+            }
+            if (invokerLoc.y + y + finalHeight > screenSize.height) {
+                y = -finalHeight - 2; // Über dem Button anzeigen
+            }
+        } catch (Exception ignored) {
+            // Falls getLocationOnScreen fehlschlägt
         }
+
         popup.show(invoker, x, y);
     }
 }
