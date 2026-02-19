@@ -129,9 +129,40 @@ public class JclElement {
                 }
                 break;
             case INCLUDE:
+            case COPY_STMT:
                 String member = parameters.get("MEMBER");
+                if (member == null) member = parameters.get("COPYBOOK");
                 if (member != null) {
                     sb.append(" → ").append(member);
+                }
+                break;
+            // COBOL types
+            case DATA_ITEM:
+                String pic = parameters.get("PIC");
+                if (pic != null) {
+                    sb.append("  PIC ").append(truncate(pic, 20));
+                }
+                String value = parameters.get("VALUE");
+                if (value != null) {
+                    sb.append("  = ").append(truncate(value, 15));
+                }
+                break;
+            case CALL_STMT:
+                String target = parameters.get("TARGET");
+                if (target != null) {
+                    sb.append(" → ").append(target);
+                }
+                break;
+            case PERFORM_STMT:
+                String perfTarget = parameters.get("TARGET");
+                if (perfTarget != null) {
+                    sb.append(" → ").append(perfTarget);
+                }
+                break;
+            case LEVEL_88:
+                String val88 = parameters.get("VALUE");
+                if (val88 != null) {
+                    sb.append("  = ").append(truncate(val88, 25));
                 }
                 break;
             default:

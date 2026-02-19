@@ -292,8 +292,8 @@ public class TabbedPaneManager {
             return;
         }
 
-        // Check if content looks like JCL
-        if (isJclContent(content)) {
+        // Check if content looks like JCL or COBOL
+        if (isJclContent(content) || isCobolContent(content)) {
             rightDrawer.updateJclOutline(content, sourceName);
 
             // Set up line navigator to jump to line in editor
@@ -322,6 +322,28 @@ public class TabbedPaneManager {
 
         // Consider it JCL if at least 2 lines start with //
         return jclLineCount >= 2;
+    }
+
+    /**
+     * Check if content looks like COBOL.
+     */
+    private boolean isCobolContent(String content) {
+        if (content == null || content.length() < 10) return false;
+
+        String[] lines = content.split("\\r?\\n", 30);
+        int cobolHits = 0;
+        for (String line : lines) {
+            String upper = line.toUpperCase();
+            if (upper.contains("IDENTIFICATION DIVISION")
+                    || upper.contains("PROCEDURE DIVISION")
+                    || upper.contains("DATA DIVISION")
+                    || upper.contains("ENVIRONMENT DIVISION")
+                    || upper.contains("WORKING-STORAGE SECTION")
+                    || upper.contains("PROGRAM-ID")) {
+                cobolHits++;
+            }
+        }
+        return cobolHits >= 1;
     }
 
     /**

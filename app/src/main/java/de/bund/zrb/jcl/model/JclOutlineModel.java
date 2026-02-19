@@ -4,13 +4,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Represents a parsed JCL document structure for outline view.
+ * Represents a parsed mainframe source document structure (JCL or COBOL) for outline view.
  */
 public class JclOutlineModel {
+
+    public enum Language { JCL, COBOL, UNKNOWN }
 
     private final List<JclElement> elements = new ArrayList<>();
     private String sourceName;
     private int totalLines;
+    private Language language = Language.UNKNOWN;
 
     public void addElement(JclElement element) {
         elements.add(element);
@@ -20,34 +23,65 @@ public class JclOutlineModel {
         return elements;
     }
 
+    // ── JCL helpers ─────────────────────────────────────────────────
+
     public List<JclElement> getJobs() {
-        List<JclElement> jobs = new ArrayList<>();
-        for (JclElement e : elements) {
-            if (e.getType() == JclElementType.JOB) {
-                jobs.add(e);
-            }
-        }
-        return jobs;
+        return filterByType(JclElementType.JOB);
     }
 
     public List<JclElement> getSteps() {
-        List<JclElement> steps = new ArrayList<>();
-        for (JclElement e : elements) {
-            if (e.getType() == JclElementType.EXEC) {
-                steps.add(e);
-            }
-        }
-        return steps;
+        return filterByType(JclElementType.EXEC);
     }
 
     public List<JclElement> getProcs() {
-        List<JclElement> procs = new ArrayList<>();
+        return filterByType(JclElementType.PROC);
+    }
+
+    // ── COBOL helpers ───────────────────────────────────────────────
+
+    public List<JclElement> getDivisions() {
+        return filterByType(JclElementType.DIVISION);
+    }
+
+    public List<JclElement> getSections() {
+        return filterByType(JclElementType.SECTION);
+    }
+
+    public List<JclElement> getParagraphs() {
+        return filterByType(JclElementType.PARAGRAPH);
+    }
+
+    public List<JclElement> getDataItems() {
+        List<JclElement> items = new ArrayList<>();
         for (JclElement e : elements) {
-            if (e.getType() == JclElementType.PROC) {
-                procs.add(e);
+            if (e.getType() == JclElementType.DATA_ITEM
+                    || e.getType() == JclElementType.LEVEL_01
+                    || e.getType() == JclElementType.LEVEL_77
+                    || e.getType() == JclElementType.LEVEL_88) {
+                items.add(e);
             }
         }
-        return procs;
+        return items;
+    }
+
+    // ── generic helpers ─────────────────────────────────────────────
+
+    private List<JclElement> filterByType(JclElementType type) {
+        List<JclElement> result = new ArrayList<>();
+        for (JclElement e : elements) {
+            if (e.getType() == type) {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    public Language getLanguage() {
+        return language;
+    }
+
+    public void setLanguage(Language language) {
+        this.language = language;
     }
 
     public String getSourceName() {
