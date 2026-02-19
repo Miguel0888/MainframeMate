@@ -1,10 +1,6 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.files.api.FileService;
-import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.impl.vfs.mvs.*;
-import de.bund.zrb.files.model.FilePayload;
-import de.bund.zrb.files.path.VirtualResourceRef;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -31,6 +27,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final TabbedPaneManager tabbedPaneManager;
     private final MvsFtpClient ftpClient;
     private final MvsBrowserController controller;
+    private final AsyncRawFileOpener rawFileOpener;
 
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
@@ -71,6 +68,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<>(listModel);
         fileList.setCellRenderer(new MvsResourceCellRenderer());
+        this.rawFileOpener = new AsyncRawFileOpener(tabbedPaneManager, mainPanel, host, user, password, encoding);
 
         initUI();
     }
@@ -200,40 +198,23 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
     private void openMember(MvsVirtualResource resource) {
         String path = resource.getOpenPath();
-        System.out.println("[MvsConnectionTab] Opening resource: " + path);
+        System.out.println("[MvsConnectionTab] Opening resource async: " + path);
 
-        FileService fs = null;
-        try {
-            fs = new FileServiceFactory().createFtp(host, user, password);
-            FilePayload payload = fs.readFile(path);
-            String content = new String(payload.getBytes(),
-                    payload.getCharset() != null ? payload.getCharset() : java.nio.charset.Charset.defaultCharset());
-
-            VirtualResource virtualResource = new VirtualResource(
-                    VirtualResourceRef.of("ftp:" + path),
-                    VirtualResourceKind.FILE,
-                    path,
-                    VirtualBackendType.FTP,
-                    new FtpResourceState(
-                            new de.bund.zrb.files.auth.ConnectionId("ftp", host, user),
-                            Boolean.TRUE,
-                            "MVS",
-                            encoding));
-
-            tabbedPaneManager.openFileTab(virtualResource, content, null, null, false);
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel,
-                    "Datei konnte nicht geöffnet werden:\n" + e.getMessage(),
-                    "Öffnen fehlgeschlagen",
-                    JOptionPane.ERROR_MESSAGE);
-        } finally {
-            if (fs != null) {
-                try {
-                    fs.close();
-                } catch (Exception ignore) {
-                }
-            }
-        }
+        rawFileOpener.openAsync(path,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText("Öffne Datei...");
+                        statusLabel.setForeground(Color.BLUE.darker());
+                    }
+                },
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText(" ");
+                        statusLabel.setForeground(Color.GRAY);
+                    }
+                });
     }
 
     private void applyFilter() {
@@ -361,6 +342,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     @Override
     public void onClose() {
         controller.shutdown();
+        rawFileOpener.shutdown();
         try {
             ftpClient.close();
         } catch (IOException e) {
