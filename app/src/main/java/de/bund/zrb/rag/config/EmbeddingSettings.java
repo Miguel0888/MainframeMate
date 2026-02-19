@@ -1,6 +1,10 @@
 package de.bund.zrb.rag.config;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.AiProvider;
+import de.bund.zrb.model.Settings;
+
+import java.util.Map;
 
 /**
  * Configuration for embedding generation.
@@ -124,6 +128,8 @@ public class EmbeddingSettings {
             case LOCAL_AI:
             case LLAMA_CPP_SERVER:
                 return "all-minilm";
+            case CUSTOM:
+                return "nomic-embed-text"; // Standard für selbstgehostete Server
             case DISABLED:
             default:
                 return "nomic-embed-text";
@@ -144,6 +150,8 @@ public class EmbeddingSettings {
                 return "http://localhost:8080/v1";
             case LLAMA_CPP_SERVER:
                 return "http://localhost:8080/v1";
+            case CUSTOM:
+                return "http://localhost:11434"; // Standard für selbstgehostete Server
             case DISABLED:
             default:
                 return "http://localhost:11434";
@@ -152,6 +160,59 @@ public class EmbeddingSettings {
 
     public static EmbeddingSettings defaults() {
         return new EmbeddingSettings();
+    }
+
+    /**
+     * Lädt die EmbeddingSettings aus den gespeicherten Anwendungseinstellungen.
+     * Verwendet die embeddingConfig aus Settings, falls vorhanden.
+     * Proxy-Einstellungen werden aus dem zentralen Proxy-Tab übernommen.
+     */
+    public static EmbeddingSettings fromStoredConfig() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> embConfig = settings.embeddingConfig;
+
+        EmbeddingSettings result = new EmbeddingSettings();
+
+        if (embConfig != null && !embConfig.isEmpty()) {
+            try {
+                String providerStr = embConfig.getOrDefault("provider", "OLLAMA");
+                result.setProvider(AiProvider.valueOf(providerStr));
+            } catch (IllegalArgumentException e) {
+                result.setProvider(AiProvider.OLLAMA);
+            }
+
+            result.setModel(embConfig.getOrDefault("model", "nomic-embed-text"));
+            result.setApiKey(embConfig.getOrDefault("apiKey", ""));
+            result.setBaseUrl(embConfig.getOrDefault("baseUrl", "http://localhost:11434"));
+
+            try {
+                result.setTimeoutSeconds(Integer.parseInt(embConfig.getOrDefault("timeout", "30")));
+            } catch (NumberFormatException e) {
+                result.setTimeoutSeconds(30);
+            }
+
+            try {
+                result.setBatchSize(Integer.parseInt(embConfig.getOrDefault("batchSize", "10")));
+            } catch (NumberFormatException e) {
+                result.setBatchSize(10);
+            }
+
+            result.setEnabled(Boolean.parseBoolean(embConfig.getOrDefault("enabled", "true")));
+        }
+
+        // Proxy-Einstellungen aus dem zentralen Proxy-Tab übernehmen
+        if (settings.proxyEnabled) {
+            result.setUseProxy(true);
+            if ("MANUAL".equals(settings.proxyMode)) {
+                result.setProxyHost(settings.proxyHost);
+                result.setProxyPort(settings.proxyPort);
+            }
+            // Bei PAC/WPAD wird der Proxy dynamisch ermittelt
+        } else {
+            result.setUseProxy(false);
+        }
+
+        return result;
     }
 }
 

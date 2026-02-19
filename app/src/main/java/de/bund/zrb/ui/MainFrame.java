@@ -172,6 +172,8 @@ public class MainFrame extends JFrame implements MainframeContext {
                 return new LocalAiChatManager(); // analog auf settings.aiConfig zugreifen
             case LLAMA_CPP_SERVER:
                 return new LlamaCppChatManager();
+            case CUSTOM:
+                return new CustomChatManager(); // selbstgehosteter Server mit erweiterten Optionen
             default:
                 return null; // DISABLED oder unbekannt
         }

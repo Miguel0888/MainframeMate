@@ -17,12 +17,12 @@ public class FocusSearchFieldCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.focusSearch";
+        return "edit.search";
     }
 
     @Override
     public String getLabel() {
-        return "Suchleiste fokussieren";
+        return "Suche fokussieren";
     }
 
     @Override

@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.components;
 
+import de.bund.zrb.ui.help.HelpContentProvider;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 
@@ -16,7 +17,7 @@ public class Chat extends JPanel {
     private final MainframeContext mainframeContext;
     private final ChatManager chatManager;
     private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
-    private final JTabbedPane chatTabs = new JTabbedPane();
+    private final TabbedPaneWithHelpOverlay chatTabs = new TabbedPaneWithHelpOverlay();
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
@@ -32,6 +33,14 @@ public class Chat extends JPanel {
 
         setLayout(new BorderLayout(8, 8));
         add(createHeader(), BorderLayout.NORTH);
+
+        // Hilfe-Button als Overlay über der Tab-Leiste
+        HelpButton helpButton = new HelpButton("Hilfe zum Chat",
+                e -> HelpContentProvider.showHelpPopup(
+                        (Component) e.getSource(),
+                        HelpContentProvider.HelpTopic.CHAT));
+        chatTabs.setHelpComponent(helpButton);
+
         add(chatTabs, BorderLayout.CENTER);
 
         addPlusTab();          // 1. "+"-Tab hinzufügen

@@ -1,5 +1,8 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.ui.components.HelpButton;
+import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
+import de.bund.zrb.ui.help.HelpContentProvider;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.FileTab;
@@ -16,11 +19,21 @@ import java.util.Optional;
 public class TabbedPaneManager {
 
     private final JTabbedPane tabbedPane = new JTabbedPane();
+    private final TabbedPaneWithHelpOverlay tabbedPaneWrapper;
     private final Map<Component, FtpTab> tabMap = new HashMap<>();
     private final MainframeContext mainframeContext;
 
     public TabbedPaneManager(MainframeContext mainFrame) {
         this.mainframeContext = mainFrame;
+        this.tabbedPaneWrapper = new TabbedPaneWithHelpOverlay(tabbedPane);
+
+        // Hilfe-Button als Overlay über der Tab-Leiste
+        HelpButton helpButton = new HelpButton("Hilfe zu Datei-Tabs",
+                e -> HelpContentProvider.showHelpPopup(
+                        (Component) e.getSource(),
+                        HelpContentProvider.HelpTopic.MAIN_TABS));
+        tabbedPaneWrapper.setHelpComponent(helpButton);
+
         tabbedPane.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -134,7 +147,7 @@ public class TabbedPaneManager {
     }
 
     public JComponent getComponent() {
-        return tabbedPane;
+        return tabbedPaneWrapper;
     }
 
     public Component getSelectedComponent() {

@@ -16,12 +16,12 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "bookmark.set";
+        return "edit.bookmark";
     }
 
     @Override
     public String getLabel() {
-        return "🕮 Bookmark setzen";
+        return "Bookmark setzen";
     }
 
     @Override

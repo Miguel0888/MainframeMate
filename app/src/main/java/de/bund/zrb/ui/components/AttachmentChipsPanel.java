@@ -1,6 +1,8 @@
 package de.bund.zrb.ui.components;
 
 import de.bund.zrb.chat.attachment.ChatAttachment;
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ui.help.HelpContentProvider;
 
 import javax.swing.*;
 import java.awt.*;
@@ -19,6 +21,7 @@ public class AttachmentChipsPanel extends JPanel {
     private final List<ChatAttachment> attachments = new ArrayList<>();
     private final Consumer<ChatAttachment> onRemove;
     private final JPanel chipsContainer;
+    private final HelpButton helpButton;
 
     public AttachmentChipsPanel() {
         this(null);
@@ -33,8 +36,29 @@ public class AttachmentChipsPanel extends JPanel {
         chipsContainer.setOpaque(false);
         add(chipsContainer, BorderLayout.CENTER);
 
+        // Hilfe-Button rechtsbündig
+        helpButton = new HelpButton("Wie funktionieren Anhänge?",
+                e -> HelpContentProvider.showHelpPopup(
+                        (Component) e.getSource(),
+                        HelpContentProvider.HelpTopic.ATTACHMENTS));
+        JPanel helpPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
+        helpPanel.setOpaque(false);
+        helpPanel.add(helpButton);
+        add(helpPanel, BorderLayout.EAST);
+
+        // HelpButton-Sichtbarkeit basierend auf Einstellungen
+        updateHelpVisibility();
+
         // Initially hidden
         setVisible(false);
+    }
+
+    /**
+     * Aktualisiert die Sichtbarkeit des Hilfe-Buttons basierend auf den Benutzereinstellungen.
+     */
+    public void updateHelpVisibility() {
+        boolean showHelp = SettingsHelper.load().showHelpIcons;
+        helpButton.setVisible(showHelp);
     }
 
     /**

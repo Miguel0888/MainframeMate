@@ -54,6 +54,7 @@ public class Settings {
     public HashMap<String, List<String>> fileImportVariables = new HashMap<>();
     public long workflowTimeout = 10_000; // 10 Sekunden default
     public boolean compareByDefault = false;
+    public boolean showHelpIcons = true; // Hilfe-Icons anzeigen (für erfahrene Benutzer deaktivierbar)
 
     // Proxy
     public boolean proxyEnabled = false;

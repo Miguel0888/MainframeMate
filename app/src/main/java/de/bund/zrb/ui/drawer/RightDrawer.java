@@ -1,7 +1,10 @@
 package de.bund.zrb.ui.drawer;
 
 import de.bund.zrb.ui.components.Chat;
+import de.bund.zrb.ui.components.HelpButton;
+import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
 import de.bund.zrb.ui.components.WorkflowPanel;
+import de.bund.zrb.ui.help.HelpContentProvider;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.McpService;
@@ -15,7 +18,7 @@ import java.util.Map;
 public class RightDrawer extends JPanel {
 
     private final ChatManager chatManager;
-    private final JTabbedPane tabbedPane;
+    private final TabbedPaneWithHelpOverlay tabbedPane;
     private final MainframeContext mainframeContext;
     private final ToolRegistry toolRegistry;
     private final McpService mcpService;
@@ -37,7 +40,15 @@ public class RightDrawer extends JPanel {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        tabbedPane = new JTabbedPane();
+        tabbedPane = new TabbedPaneWithHelpOverlay();
+
+        // Hilfe-Button als Overlay über der Tab-Leiste
+        HelpButton helpButton = new HelpButton("Hilfe zur Seitenleiste",
+                e -> HelpContentProvider.showHelpPopup(
+                        (Component) e.getSource(),
+                        HelpContentProvider.HelpTopic.RIGHT_DRAWER));
+        tabbedPane.setHelpComponent(helpButton);
+
         add(tabbedPane, BorderLayout.CENTER);
 
         addWorkflowTab();

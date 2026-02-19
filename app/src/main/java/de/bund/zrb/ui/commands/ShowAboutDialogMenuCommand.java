@@ -25,7 +25,7 @@ public class ShowAboutDialogMenuCommand extends ShortcutMenuCommand {
     @Override
     public void perform() {
         JOptionPane.showMessageDialog(parent,
-                "MainframeMate\nVersion 1.3.0\n© 2025 GZD",
+                "MainframeMate\nVersion 5.3.0\n© 2026 GZD",
                 "Über", JOptionPane.INFORMATION_MESSAGE);
     }
 }
