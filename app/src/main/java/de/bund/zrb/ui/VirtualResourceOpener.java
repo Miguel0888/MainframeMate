@@ -51,6 +51,10 @@ public final class VirtualResourceOpener {
             try {
                 resource = resolver.resolve(rawPath);
             } catch (FileServiceException e) {
+                // Benutzer hat abgebrochen - sofort beenden ohne Fehlermeldung
+                if (isAuthCancelled(e)) {
+                    return null;
+                }
                 if (isAuthError(e)) {
                     // Auth error during resolve - ask user to retry
                     LoginManager.RetryDecision decision = showLoginFailedDialog(e.getMessage(), attempts);
@@ -101,6 +105,11 @@ public final class VirtualResourceOpener {
             } catch (Exception e) {
                 closeQuietly(fs);
 
+                // Benutzer hat abgebrochen - sofort beenden ohne Fehlermeldung
+                if (isAuthCancelled(e)) {
+                    return null;
+                }
+
                 if (isAuthError(e)) {
                     // Auth error - invalidate password and ask user
                     if (!resource.isLocal() && resource.getFtpState() != null) {
@@ -131,6 +140,17 @@ public final class VirtualResourceOpener {
         showErrorDialog("Login fehlgeschlagen",
                 "Maximale Anzahl an Login-Versuchen erreicht.\nBitte prüfen Sie Ihre Zugangsdaten.");
         return null;
+    }
+
+    private boolean isAuthCancelled(Exception e) {
+        if (e instanceof de.bund.zrb.files.auth.AuthCancelledException) {
+            return true;
+        }
+        if (e instanceof FileServiceException) {
+            FileServiceException fse = (FileServiceException) e;
+            return fse.getErrorCode() == FileServiceErrorCode.AUTH_CANCELLED;
+        }
+        return false;
     }
 
     private boolean isAuthError(Exception e) {

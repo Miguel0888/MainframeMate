@@ -17,7 +17,7 @@ public class FileTabEventManager {
 
             if (event.newType == null || event.newType.trim().isEmpty()) {
                 // Satzart wurde "abgewählt"
-                fileTab.highlighter.clearHighlights(fileTab.editorPanel.getTextArea());
+                fileTab.highlighter.clearHighlights(fileTab.getRawPane());
                 fileTab.highlighter.clearHighlights(fileTab.comparePanel.getOriginalTextArea());
                 fileTab.legendController.clearLegend(); // optional
                 return;
@@ -25,7 +25,7 @@ public class FileTabEventManager {
 
             getRegistry().findDefinition(event.newType).ifPresent(def -> {
                 int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
-                fileTab.highlighter.highlightFields(fileTab.editorPanel.getTextArea(), def.getFields(), schemaLines);
+                fileTab.highlighter.highlightFields(fileTab.getRawPane(), def.getFields(), schemaLines);
                 fileTab.legendController.setDefinition(def);
                 fileTab.legendController.updateLegendForCaret(0);
                 fileTab.highlighter.highlightFields(fileTab.comparePanel.getOriginalTextArea(), def.getFields(), schemaLines);
@@ -60,8 +60,8 @@ public class FileTabEventManager {
             fileTab.showComparePanel(); // 👈 zentrales Verhalten
         });
 
-        fileTab.dispatcher.subscribe(UndoRequestedEvent.class, e -> fileTab.editorPanel.undo());
-        fileTab.dispatcher.subscribe(RedoRequestedEvent.class, e -> fileTab.editorPanel.redo());
+        fileTab.dispatcher.subscribe(UndoRequestedEvent.class, e -> fileTab.getRawPane().undoLastAction());
+        fileTab.dispatcher.subscribe(RedoRequestedEvent.class, e -> fileTab.getRawPane().redoLastAction());
 
         fileTab.dispatcher.subscribe(EditorContentChangedEvent.class, event -> {
             if(event.changed)

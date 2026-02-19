@@ -84,6 +84,10 @@ public class VirtualResourceResolver {
             }
             fs.readFile(ftpPath);
             return VirtualResourceKind.FILE;
+        } catch (de.bund.zrb.files.auth.AuthCancelledException e) {
+            // Benutzer hat abgebrochen - als AUTH_CANCELLED weiterleiten
+            throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.AUTH_CANCELLED,
+                    "Authentifizierung abgebrochen");
         } catch (Exception e) {
             // On FTP auth failure, clear the password immediately
             String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";

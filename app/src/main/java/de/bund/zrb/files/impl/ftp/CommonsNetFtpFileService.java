@@ -94,10 +94,15 @@ public class CommonsNetFtpFileService implements FileService {
             throw new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "Missing CredentialsProvider");
         }
 
-        Credentials credentials = credentialsProvider.resolve(connectionId)
-                .orElseThrow(() -> new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "No credentials available"));
+        try {
+            Credentials credentials = credentialsProvider.resolve(connectionId)
+                    .orElseThrow(() -> new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "No credentials available"));
 
-        connect(credentials.getHost(), credentials.getUsername(), credentials.getPassword());
+            connect(credentials.getHost(), credentials.getUsername(), credentials.getPassword());
+        } catch (de.bund.zrb.files.auth.AuthCancelledException e) {
+            // Benutzer hat die Passwort-Eingabe abgebrochen
+            throw new FileServiceException(FileServiceErrorCode.AUTH_CANCELLED, e.getMessage());
+        }
     }
 
     private void connect(String host, String user, String password) throws FileServiceException {

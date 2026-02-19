@@ -1,5 +1,6 @@
 package de.bund.zrb.files.impl.auth;
 
+import de.bund.zrb.files.auth.AuthCancelledException;
 import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.Credentials;
 import de.bund.zrb.files.auth.CredentialsProvider;
@@ -33,6 +34,7 @@ public class InteractiveCredentialsProvider implements CredentialsProvider {
     }
 
     private final InteractivePasswordLookup passwordLookup;
+    private boolean userCancelled = false;
 
     public InteractiveCredentialsProvider(InteractivePasswordLookup passwordLookup) {
         this.passwordLookup = java.util.Objects.requireNonNull(passwordLookup, "passwordLookup");
@@ -40,6 +42,8 @@ public class InteractiveCredentialsProvider implements CredentialsProvider {
 
     @Override
     public Optional<Credentials> resolve(ConnectionId connectionId) {
+        userCancelled = false;
+
         if (connectionId == null) {
             return Optional.empty();
         }
@@ -53,10 +57,19 @@ public class InteractiveCredentialsProvider implements CredentialsProvider {
         // Use interactive password lookup (may show dialog)
         String password = passwordLookup.getPassword(host, user);
         if (password == null) {
-            return Optional.empty();
+            // Benutzer hat abgebrochen - werfe spezielle Exception
+            userCancelled = true;
+            throw new AuthCancelledException();
         }
 
         return Optional.of(new Credentials(host, user, password));
+    }
+
+    /**
+     * Prüft, ob der Benutzer die letzte Passwort-Eingabe abgebrochen hat.
+     */
+    public boolean wasUserCancelled() {
+        return userCancelled;
     }
 }
 
