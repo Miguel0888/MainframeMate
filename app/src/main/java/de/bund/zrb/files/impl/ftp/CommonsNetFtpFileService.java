@@ -202,6 +202,12 @@ public class CommonsNetFtpFileService implements FileService {
      * Falls back to listFiles if NLST fails or returns empty.
      */
     private List<FileNode> listMvs(String resolved) throws IOException {
+        // MVS root '' cannot be listed - require HLQ
+        if (resolved == null || resolved.isEmpty() || "''".equals(resolved)) {
+            System.out.println("[FTP/MVS] Cannot list MVS root - HLQ required");
+            return Collections.emptyList();
+        }
+
         // Primary: Use NLST (listNames) - more reliable on MVS
         String[] names = ftpClient.listNames(resolved);
 
@@ -243,7 +249,7 @@ public class CommonsNetFtpFileService implements FileService {
      */
     private List<FileNode> buildMvsFileNodes(String parent, String[] names) {
         List<FileNode> nodes = new ArrayList<FileNode>(names.length);
-        String unquotedParent = unquote(parent);
+        String unquotedParent = unquote(parent).toUpperCase();
 
         for (String name : names) {
             if (name == null || name.isEmpty()) {
@@ -255,31 +261,45 @@ public class CommonsNetFtpFileService implements FileService {
                 continue;
             }
 
+            String unquotedName = unquote(trimmedName).toUpperCase();
+
+            // Skip if name equals parent (server returned the HLQ itself)
+            if (unquotedName.equals(unquotedParent)) {
+                System.out.println("[FTP/MVS] Skipping parent entry: " + trimmedName);
+                continue;
+            }
+
             // Determine display name and full path
             String displayName;
             String fullPath;
 
             // Check if server returned fully qualified name
-            if (trimmedName.contains(".") && !unquotedParent.isEmpty() &&
-                trimmedName.toUpperCase().startsWith(unquotedParent.toUpperCase() + ".")) {
+            if (unquotedName.startsWith(unquotedParent + ".")) {
                 // Server returned fully qualified - extract relative part
-                displayName = trimmedName.substring(unquotedParent.length() + 1);
-                fullPath = mvsDialect.toAbsolutePath(trimmedName);
+                String originalUnquoted = unquote(trimmedName);
+                displayName = originalUnquoted.substring(unquotedParent.length() + 1);
+                fullPath = mvsDialect.toAbsolutePath(originalUnquoted);
+                System.out.println("[FTP/MVS] Fully qualified: " + trimmedName + " -> display: " + displayName);
             } else if (trimmedName.startsWith("'") && trimmedName.endsWith("'")) {
                 // Already quoted absolute path
-                displayName = unquote(trimmedName);
-                if (displayName.toUpperCase().startsWith(unquotedParent.toUpperCase() + ".")) {
-                    displayName = displayName.substring(unquotedParent.length() + 1);
+                String originalUnquoted = unquote(trimmedName);
+                if (originalUnquoted.toUpperCase().startsWith(unquotedParent + ".")) {
+                    displayName = originalUnquoted.substring(unquotedParent.length() + 1);
+                } else {
+                    displayName = originalUnquoted;
                 }
                 fullPath = trimmedName;
+                System.out.println("[FTP/MVS] Quoted path: " + trimmedName + " -> display: " + displayName);
             } else {
                 // Relative name - join with parent
                 displayName = trimmedName;
                 fullPath = joinPathMvs(parent, trimmedName);
+                System.out.println("[FTP/MVS] Relative: " + trimmedName + " -> fullPath: " + fullPath);
             }
 
             // On MVS, we can't easily determine if entry is directory without more info
-            // Assume non-member entries might be PDS (directories)
+            // Heuristic: if displayName has no dot and is short, it might be a member
+            // Otherwise assume it's a dataset (directory)
             boolean isDirectory = !isMemberName(displayName) && !displayName.contains("(");
 
             nodes.add(new FileNode(displayName, fullPath, isDirectory, 0L, 0L));

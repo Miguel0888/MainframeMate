@@ -33,7 +33,8 @@ public class ConnectionTabImpl implements ConnectionTab {
     private final TabbedPaneManager tabbedPaneManager;
 
     private final JTextField searchField = new JTextField();
-    private final JLabel statusLabel = new JLabel(" ");
+    private final JLabel overlayLabel = new JLabel();
+    private final JPanel listContainer = new JPanel(new BorderLayout());
     private List<String> currentDirectoryFiles = new ArrayList<>();
     private List<FileNode> currentDirectoryNodes = new ArrayList<>();
 
@@ -95,8 +96,19 @@ public class ConnectionTabImpl implements ConnectionTab {
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
+        // Setup overlay label for status messages
+        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
+        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
+        overlayLabel.setOpaque(true);
+        overlayLabel.setVisible(false);
+
+        // Use layered pane for overlay
+        JScrollPane scrollPane = new JScrollPane(fileList);
+        listContainer.add(scrollPane, BorderLayout.CENTER);
+
         mainPanel.add(pathPanel, BorderLayout.NORTH);
-        mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
+        mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -149,9 +161,17 @@ public class ConnectionTabImpl implements ConnectionTab {
             }
         });
 
-        // Initial load
-        pathField.setText(browserState.getCurrentPath());
-        updateFileList();
+        // Initial load - only if path is meaningful
+        String initialPath = browserState.getCurrentPath();
+        pathField.setText(initialPath);
+
+        // Don't try to list empty path or MVS root '' - wait for user input
+        if (initialPath != null && !initialPath.isEmpty() && !"''".equals(initialPath) && !"/".equals(initialPath)) {
+            updateFileList();
+        } else {
+            // Show hint for MVS
+            showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+        }
 
         if (searchPattern != null && !searchPattern.trim().isEmpty()) {
             searchField.setText(searchPattern.trim());
@@ -256,7 +276,6 @@ public class ConnectionTabImpl implements ConnectionTab {
         newFileButton.setToolTipText("Neue Datei anlegen");
         newFileButton.addActionListener(e -> createNewFile());
         leftPanel.add(newFileButton);
-        leftPanel.add(statusLabel);
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton deleteButton = new JButton("🗑");
@@ -312,8 +331,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     private void updateFileList() {
         SwingUtilities.invokeLater(() -> {
             listModel.clear();
-            statusLabel.setText("Lade...");
-            statusLabel.setForeground(Color.GRAY);
+            showOverlayMessage("Lade...", Color.GRAY);
         });
 
         // Run listing in background to avoid UI freeze
@@ -329,23 +347,45 @@ public class ConnectionTabImpl implements ConnectionTab {
                     refreshListModelFromNodes();
 
                     if (currentDirectoryNodes.isEmpty()) {
-                        statusLabel.setText("Keine Einträge gefunden");
-                        statusLabel.setForeground(Color.ORANGE.darker());
+                        showOverlayMessage("Keine Einträge gefunden", Color.ORANGE.darker());
                     } else {
-                        statusLabel.setText(currentDirectoryNodes.size() + " Einträge");
-                        statusLabel.setForeground(Color.DARK_GRAY);
+                        hideOverlay();
                     }
                 });
             } catch (Exception e) {
                 System.err.println("[ConnectionTab] Error loading directory: " + e.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    statusLabel.setText("Fehler: " + e.getMessage());
-                    statusLabel.setForeground(Color.RED);
-                    JOptionPane.showMessageDialog(mainPanel, "Fehler beim Aktualisieren:\n" + e.getMessage(),
-                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                    showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
                 });
             }
         }).start();
+    }
+
+    /**
+     * Show an overlay message in the file list area.
+     */
+    private void showOverlayMessage(String message, Color color) {
+        overlayLabel.setText(message);
+        overlayLabel.setForeground(color);
+        overlayLabel.setBackground(new Color(255, 255, 255, 200));
+        overlayLabel.setVisible(true);
+
+        // Add overlay to list container if not already there
+        if (overlayLabel.getParent() != listContainer) {
+            listContainer.add(overlayLabel, BorderLayout.CENTER);
+        }
+        listContainer.revalidate();
+        listContainer.repaint();
+    }
+
+    /**
+     * Hide the overlay message.
+     */
+    private void hideOverlay() {
+        overlayLabel.setVisible(false);
+        listContainer.remove(overlayLabel);
+        listContainer.revalidate();
+        listContainer.repaint();
     }
 
     private void refreshListModelFromNodes() {
