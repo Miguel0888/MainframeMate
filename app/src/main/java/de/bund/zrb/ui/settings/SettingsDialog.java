@@ -520,31 +520,28 @@ public class SettingsDialog {
         expertContent.add(new JLabel("─── FTP Timeouts (0 = deaktiviert) ───"), gbcConnect);
         gbcConnect.gridy++;
 
-        // Connect Timeout mit Info-Icon neben dem Spinner
-        expertContent.add(new JLabel("Connect Timeout (ms):"), gbcConnect);
-        gbcConnect.gridy++;
+        // Connect Timeout
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Connect Timeout (ms):",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT);
         ftpConnectTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpConnectTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(createFieldWithHelpIcon(ftpConnectTimeoutSpinner,
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT), gbcConnect);
+        expertContent.add(ftpConnectTimeoutSpinner, gbcConnect);
         gbcConnect.gridy++;
 
-        // Control Timeout mit Info-Icon neben dem Spinner
-        expertContent.add(new JLabel("Control Timeout (ms):"), gbcConnect);
-        gbcConnect.gridy++;
+        // Control Timeout
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Control Timeout (ms):",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONTROL);
         ftpControlTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpControlTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(createFieldWithHelpIcon(ftpControlTimeoutSpinner,
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONTROL), gbcConnect);
+        expertContent.add(ftpControlTimeoutSpinner, gbcConnect);
         gbcConnect.gridy++;
 
-        // Data Timeout mit Info-Icon neben dem Spinner
-        expertContent.add(new JLabel("Data Timeout (ms):"), gbcConnect);
-        gbcConnect.gridy++;
+        // Data Timeout
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Data Timeout (ms):",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_DATA);
         ftpDataTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpDataTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(createFieldWithHelpIcon(ftpDataTimeoutSpinner,
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_DATA), gbcConnect);
+        expertContent.add(ftpDataTimeoutSpinner, gbcConnect);
         gbcConnect.gridy++;
 
         // Trennlinie für Retries
@@ -553,31 +550,28 @@ public class SettingsDialog {
         expertContent.add(new JLabel("─── FTP Retries ───"), gbcConnect);
         gbcConnect.gridy++;
 
-        // Max Attempts mit Info-Icon neben dem Spinner
-        expertContent.add(new JLabel("Maximale Versuche:"), gbcConnect);
-        gbcConnect.gridy++;
+        // Max Attempts
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Maximale Versuche:",
+                HelpContentProvider.HelpTopic.FTP_RETRY_MAX_ATTEMPTS);
         ftpRetryMaxAttemptsSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpRetryMaxAttempts, 1, 10, 1));
-        expertContent.add(createFieldWithHelpIcon(ftpRetryMaxAttemptsSpinner,
-                HelpContentProvider.HelpTopic.FTP_RETRY_MAX_ATTEMPTS), gbcConnect);
+        expertContent.add(ftpRetryMaxAttemptsSpinner, gbcConnect);
         gbcConnect.gridy++;
 
-        // Backoff mit Info-Icon neben dem Spinner
-        expertContent.add(new JLabel("Wartezeit zwischen Versuchen (ms):"), gbcConnect);
-        gbcConnect.gridy++;
+        // Backoff
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Wartezeit zwischen Versuchen (ms):",
+                HelpContentProvider.HelpTopic.FTP_RETRY_BACKOFF);
         ftpRetryBackoffSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpRetryBackoffMs, 0, 60_000, 500));
-        expertContent.add(createFieldWithHelpIcon(ftpRetryBackoffSpinner,
-                HelpContentProvider.HelpTopic.FTP_RETRY_BACKOFF), gbcConnect);
+        expertContent.add(ftpRetryBackoffSpinner, gbcConnect);
         gbcConnect.gridy++;
 
-        // Backoff Strategy mit Info-Icon neben dem Dropdown
-        expertContent.add(new JLabel("Backoff-Strategie:"), gbcConnect);
-        gbcConnect.gridy++;
+        // Backoff Strategy
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Backoff-Strategie:",
+                HelpContentProvider.HelpTopic.FTP_RETRY_STRATEGY);
         ftpRetryStrategyCombo = new JComboBox<>(new String[]{"FIXED", "EXPONENTIAL"});
         ftpRetryStrategyCombo.setSelectedItem(settings.ftpRetryBackoffStrategy);
-        expertContent.add(createFieldWithHelpIcon(ftpRetryStrategyCombo,
-                HelpContentProvider.HelpTopic.FTP_RETRY_STRATEGY), gbcConnect);
+        expertContent.add(ftpRetryStrategyCombo, gbcConnect);
         gbcConnect.gridy++;
 
         // Max Backoff (nur bei EXPONENTIAL relevant)
@@ -588,27 +582,32 @@ public class SettingsDialog {
         expertContent.add(ftpRetryMaxBackoffSpinner, gbcConnect);
         gbcConnect.gridy++;
 
-        // Retry on Timeout mit Info-Icon neben der Checkbox
+        // Retry on Timeout Checkbox mit Info-Icon
+        JPanel retryOnTimeoutPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         ftpRetryOnTimeoutBox = new JCheckBox("Retry bei Timeout-Fehlern");
         ftpRetryOnTimeoutBox.setSelected(settings.ftpRetryOnTimeout);
-        expertContent.add(createFieldWithHelpIcon(ftpRetryOnTimeoutBox,
-                HelpContentProvider.HelpTopic.FTP_RETRY_ON_TIMEOUT), gbcConnect);
+        retryOnTimeoutPanel.add(ftpRetryOnTimeoutBox);
+        retryOnTimeoutPanel.add(Box.createHorizontalStrut(5));
+        retryOnTimeoutPanel.add(createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_RETRY_ON_TIMEOUT));
+        expertContent.add(retryOnTimeoutPanel, gbcConnect);
         gbcConnect.gridy++;
 
-        // Retry on Transient IO mit Info-Icon neben der Checkbox
+        // Retry on Transient IO Checkbox mit Info-Icon
+        JPanel retryOnIoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         ftpRetryOnTransientIoBox = new JCheckBox("Retry bei IO-Fehlern (Connection Reset etc.)");
         ftpRetryOnTransientIoBox.setSelected(settings.ftpRetryOnTransientIo);
-        expertContent.add(createFieldWithHelpIcon(ftpRetryOnTransientIoBox,
-                HelpContentProvider.HelpTopic.FTP_RETRY_ON_IO), gbcConnect);
+        retryOnIoPanel.add(ftpRetryOnTransientIoBox);
+        retryOnIoPanel.add(Box.createHorizontalStrut(5));
+        retryOnIoPanel.add(createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_RETRY_ON_IO));
+        expertContent.add(retryOnIoPanel, gbcConnect);
         gbcConnect.gridy++;
 
-        // Retry on Reply Codes mit Info-Icon neben dem Textfeld
-        expertContent.add(new JLabel("Retry bei FTP Reply Codes (kommasepariert):"), gbcConnect);
-        gbcConnect.gridy++;
+        // Retry on Reply Codes
+        addLabelWithInfoIcon(expertContent, gbcConnect, "Retry bei FTP Reply Codes (kommasepariert):",
+                HelpContentProvider.HelpTopic.FTP_RETRY_ON_CODES);
         ftpRetryOnReplyCodesField = new JTextField(settings.ftpRetryOnReplyCodes, 20);
         ftpRetryOnReplyCodesField.setToolTipText("z.B. 421,425,426");
-        expertContent.add(createFieldWithHelpIcon(ftpRetryOnReplyCodesField,
-                HelpContentProvider.HelpTopic.FTP_RETRY_ON_CODES), gbcConnect);
+        expertContent.add(ftpRetryOnReplyCodesField, gbcConnect);
         gbcConnect.gridy++;
     }
 
