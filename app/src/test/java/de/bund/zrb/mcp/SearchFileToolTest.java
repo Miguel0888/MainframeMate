@@ -112,10 +112,11 @@ class SearchFileToolTest {
 
         assertEquals("success", json.get("status").getAsString());
         assertEquals("NAME", json.get("mode").getAsString());
-        assertEquals(2, json.get("hitCount").getAsInt());
+        assertEquals(2, json.get("fileHitCount").getAsInt());
 
-        JsonArray hits = json.getAsJsonArray("hits");
-        assertEquals(2, hits.size());
+        // NAME mode returns paths array, not hits
+        JsonArray paths = json.getAsJsonArray("paths");
+        assertEquals(2, paths.size());
     }
 
     @Test
@@ -403,5 +404,100 @@ class SearchFileToolTest {
         // Should find: report.txt (name + content), other.log (content only)
         assertTrue(json.get("hitCount").getAsInt() >= 2);
     }
-}
 
+    @Test
+    void execute_queryModeRegex_findsPattern() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "Order OP01\nOrder OP02\nNo match");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("mode", "CONTENT");
+        input.addProperty("query", "OP\\d{2}");
+        input.addProperty("queryMode", "REGEX");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals("REGEX", json.get("queryMode").getAsString());
+        assertEquals(2, json.get("hitCount").getAsInt());
+    }
+
+    @Test
+    void execute_queryModePlain_escapesSpecialChars() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "Price is $100.00");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("mode", "CONTENT");
+        input.addProperty("query", "$100.00");
+        input.addProperty("queryMode", "PLAIN");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals("PLAIN", json.get("queryMode").getAsString());
+        assertEquals(1, json.get("hitCount").getAsInt());
+    }
+
+    @Test
+    void execute_excludeFileNamePattern_excludesFiles() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "match here");
+        writeString(tempDir.resolve("test.bak"), "match here");
+        writeString(tempDir.resolve("test.tmp"), "match here");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("mode", "CONTENT");
+        input.addProperty("query", "match");
+        input.addProperty("fileNamePattern", "*.*");
+        input.addProperty("excludeFileNamePattern", "*.bak;*.tmp");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals(1, json.get("fileHitCount").getAsInt());
+
+        JsonArray hits = json.getAsJsonArray("hits");
+        JsonObject hit = hits.get(0).getAsJsonObject();
+        assertTrue(hit.get("path").getAsString().endsWith(".txt"));
+    }
+
+    @Test
+    void execute_backwardCompatibility_regexParameterStillWorks() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "Order OP01\nOrder OP02");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("mode", "CONTENT");
+        input.addProperty("query", "OP\\d{2}");
+        input.addProperty("regex", true); // Old parameter
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals(2, json.get("hitCount").getAsInt());
+    }
+
+    @Test
+    void execute_nameMode_returnsPathsArrayNotHits() throws IOException {
+        writeString(tempDir.resolve("file1.txt"), "content");
+        writeString(tempDir.resolve("file2.txt"), "content");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("mode", "NAME");
+        input.addProperty("fileNamePattern", "*.txt");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertTrue(json.has("paths"));
+        assertFalse(json.has("hits"));
+        assertEquals(2, json.getAsJsonArray("paths").size());
+    }
+}
