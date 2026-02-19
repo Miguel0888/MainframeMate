@@ -76,6 +76,7 @@ public class SettingsDialog {
     private static JTextArea aiToolPostfix;
     private static JComboBox<ChatMode> aiModeCombo;
     private static JButton aiResetToolContractButton;
+    private static JComboBox<String> aiLanguageCombo;
     private static JComboBox<AiProvider> providerCombo;
     private static JCheckBox llamaEnabledBox;
     private static JTextField llamaBinaryField;
@@ -524,6 +525,20 @@ public class SettingsDialog {
         aiToolPostfix.setLineWrap(true);
         aiToolPostfix.setWrapStyleWord(true);
         aiContent.add(new JScrollPane(aiToolPostfix), gbc);
+        gbc.gridy++;
+
+        aiContent.add(new JLabel("Antwortsprache (optional):"), gbc);
+        gbc.gridy++;
+        aiLanguageCombo = new JComboBox<>(new String[] {"Deutsch (Standard)", "Keine Vorgabe", "Englisch"});
+        String languageSetting = settings.aiConfig.getOrDefault("assistant.language", "de").trim().toLowerCase();
+        if ("".equals(languageSetting) || "none".equals(languageSetting)) {
+            aiLanguageCombo.setSelectedItem("Keine Vorgabe");
+        } else if ("en".equals(languageSetting) || "english".equals(languageSetting)) {
+            aiLanguageCombo.setSelectedItem("Englisch");
+        } else {
+            aiLanguageCombo.setSelectedItem("Deutsch (Standard)");
+        }
+        aiContent.add(aiLanguageCombo, gbc);
         gbc.gridy++;
 
         final ChatMode[] previousMode = new ChatMode[] {(ChatMode) aiModeCombo.getSelectedItem()};
@@ -1066,6 +1081,14 @@ public class SettingsDialog {
             settings.aiConfig.put("toolPostfix." + selectedMode.name(), aiToolPostfix.getText().trim());
             settings.aiConfig.remove("toolPrefix");
             settings.aiConfig.remove("toolPostfix");
+            String selectedLanguage = Objects.toString(aiLanguageCombo.getSelectedItem(), "Deutsch (Standard)");
+            if ("Keine Vorgabe".equals(selectedLanguage)) {
+                settings.aiConfig.put("assistant.language", "none");
+            } else if ("Englisch".equals(selectedLanguage)) {
+                settings.aiConfig.put("assistant.language", "en");
+            } else {
+                settings.aiConfig.put("assistant.language", "de");
+            }
             settings.aiConfig.put("provider", providerCombo.getSelectedItem().toString());
             settings.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
             settings.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
