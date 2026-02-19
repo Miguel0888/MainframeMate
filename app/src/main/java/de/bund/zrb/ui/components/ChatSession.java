@@ -41,6 +41,8 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.sql.Timestamp;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 public class ChatSession extends JPanel {
@@ -65,6 +67,8 @@ public class ChatSession extends JPanel {
     private final McpServiceImpl mcpService;
 
     private static final int MAX_TOOL_CALLS = 0; // 0 = unlimited
+    private volatile String lastUserRequestText = "";
+    private final Set<String> toolsUsedInThisChat = new HashSet<>();
 
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
         this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
@@ -248,6 +252,7 @@ public class ChatSession extends JPanel {
     private void sendMessage() {
         String message = inputArea.getText().trim();
         if (message.isEmpty()) return;
+        lastUserRequestText = message;
 
         // Prefix with system prompt based on selected mode
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
@@ -283,6 +288,9 @@ public class ChatSession extends JPanel {
 
                     @Override
                     public void onStreamChunk(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
                         currentBotResponse.append(chunk);
                         SwingUtilities.invokeLater(() -> formatter.appendBotMessageChunk(chunk));
                     }
@@ -350,6 +358,7 @@ public class ChatSession extends JPanel {
     private String composeSystemPrompt(ChatMode mode) {
         StringBuilder sb = new StringBuilder();
         sb.append(mode.getSystemPrompt());
+        sb.append("\n\nSprich immer auf Deutsch.");
 
         String contractPrefix = resolveModeToolPrefix(mode);
         String contractPostfix = resolveModeToolPostfix(mode);
@@ -553,6 +562,27 @@ public class ChatSession extends JPanel {
             obj.addProperty("name", argsObj.get("name").getAsString());
         }
 
+        if (obj.has("input") && obj.get("input").isJsonObject()) {
+            JsonObject input = obj.getAsJsonObject("input");
+            if (input.has("arguments") && input.get("arguments").isJsonPrimitive()) {
+                try {
+                    JsonElement parsedNested = JsonParser.parseString(input.get("arguments").getAsString());
+                    if (parsedNested.isJsonObject()) {
+                        JsonObject nested = parsedNested.getAsJsonObject();
+                        for (java.util.Map.Entry<String, JsonElement> e : nested.entrySet()) {
+                            if (!input.has(e.getKey())) {
+                                input.add(e.getKey(), e.getValue());
+                            }
+                        }
+                        input.remove("arguments");
+                    }
+                } catch (Exception ignore) {
+                    // ignore
+                }
+            }
+            obj.remove("arguments");
+        }
+
         if (!obj.has("input") && !obj.has("tool_input") && argsObj != null) {
             if (argsObj.has("input") && argsObj.get("input").isJsonObject()) {
                 obj.add("input", argsObj.getAsJsonObject("input"));
@@ -572,8 +602,12 @@ public class ChatSession extends JPanel {
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
         ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
         String systemPrompt = composeSystemPrompt(resolvedMode);
-        String userText = (followUpUserText == null || followUpUserText.trim().isEmpty())
+        String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
+        String userText = baseFollowUp
+                + "\n\nUrsprüngliche Nutzeranfrage: "
+                + (lastUserRequestText == null ? "" : lastUserRequestText)
+                + "\nAntworte direkt auf diese Anfrage auf Deutsch, ohne Standard-Floskeln wie I don't see a specific question.";
         String finalPrompt = buildPromptWithMode(systemPrompt, userText, true);
 
         new Thread(() -> {
@@ -591,6 +625,9 @@ public class ChatSession extends JPanel {
 
                     @Override
                     public void onStreamChunk(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
                         followUpResponse.append(chunk);
                         SwingUtilities.invokeLater(() -> formatter.appendBotMessageChunk(chunk));
                     }
@@ -705,7 +742,38 @@ public class ChatSession extends JPanel {
             java.util.List<JsonObject> results = new java.util.ArrayList<>();
 
             for (JsonObject call : calls) {
-                JsonObject result = executeSingleToolCall(call);
+                JsonObject effectiveCall = normalizeToolCall(call);
+                String requestedTool = effectiveCall.has("name") && !effectiveCall.get("name").isJsonNull()
+                        ? effectiveCall.get("name").getAsString()
+                        : null;
+
+                if (requestedTool != null && !isSystemTool(requestedTool) && !toolsUsedInThisChat.contains(requestedTool)) {
+                    JsonObject describeCall = new JsonObject();
+                    describeCall.addProperty("name", "describe_tool");
+                    JsonObject describeInput = new JsonObject();
+                    describeInput.addProperty("tool", requestedTool);
+                    describeCall.add("input", describeInput);
+
+                    JsonObject describeResult = executeSingleToolCall(describeCall);
+                    results.add(describeResult);
+                    JsonObject finalDescribe = describeResult == null ? new JsonObject() : describeResult;
+                    SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                            "Tool: describe_tool",
+                            finalDescribe.toString(),
+                            false
+                    ));
+                }
+
+                JsonObject result = executeSingleToolCall(effectiveCall);
+                if (shouldRetryToolCall(result)) {
+                    JsonObject repaired = repairToolCallForRetry(effectiveCall);
+                    result = executeSingleToolCall(repaired);
+                }
+
+                if (isSuccessResult(result) && requestedTool != null && !isSystemTool(requestedTool)) {
+                    toolsUsedInThisChat.add(requestedTool);
+                }
+
                 results.add(result);
 
                 boolean isError = result != null && result.has("status")
@@ -714,7 +782,7 @@ public class ChatSession extends JPanel {
 
                 String toolName = result != null && result.has("toolName") && !result.get("toolName").isJsonNull()
                         ? result.get("toolName").getAsString()
-                        : (call.has("name") ? call.get("name").getAsString() : "unbekannt");
+                        : (effectiveCall.has("name") ? effectiveCall.get("name").getAsString() : "unbekannt");
 
                 JsonObject finalResult = result == null ? new JsonObject() : result;
                 SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
@@ -756,6 +824,52 @@ public class ChatSession extends JPanel {
                 streamAssistantFollowUp(followUp);
             }
         }).start();
+    }
+
+    private boolean shouldRetryToolCall(JsonObject result) {
+        if (result == null || !result.has("status") || result.get("status").isJsonNull()) {
+            return false;
+        }
+        String status = result.get("status").getAsString();
+        if (!"error".equalsIgnoreCase(status)) {
+            return false;
+        }
+        String message = result.has("message") && !result.get("message").isJsonNull()
+                ? result.get("message").getAsString()
+                : "";
+        return message.contains("Pflichtfelder fehlen") || message.toLowerCase().contains("arguments");
+    }
+
+    private boolean isSuccessResult(JsonObject result) {
+        if (result == null || !result.has("status") || result.get("status").isJsonNull()) {
+            return false;
+        }
+        String status = result.get("status").getAsString();
+        return "success".equalsIgnoreCase(status) || "ok".equalsIgnoreCase(status);
+    }
+
+    private JsonObject repairToolCallForRetry(JsonObject call) {
+        JsonObject repaired = normalizeToolCall(call);
+        if (repaired.has("input") && repaired.get("input").isJsonObject()) {
+            JsonObject input = repaired.getAsJsonObject("input");
+            if (input.has("arguments") && !input.get("arguments").isJsonNull() && input.get("arguments").isJsonPrimitive()) {
+                try {
+                    JsonElement parsed = JsonParser.parseString(input.get("arguments").getAsString());
+                    if (parsed.isJsonObject()) {
+                        JsonObject parsedObj = parsed.getAsJsonObject();
+                        for (java.util.Map.Entry<String, JsonElement> e : parsedObj.entrySet()) {
+                            if (!input.has(e.getKey())) {
+                                input.add(e.getKey(), e.getValue());
+                            }
+                        }
+                        input.remove("arguments");
+                    }
+                } catch (Exception ignore) {
+                    // keep original input
+                }
+            }
+        }
+        return repaired;
     }
 
     private JsonObject executeSingleToolCall(JsonObject call) {
