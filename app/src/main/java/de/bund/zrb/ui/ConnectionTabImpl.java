@@ -20,6 +20,9 @@ import java.util.regex.Pattern;
 
 public class ConnectionTabImpl implements ConnectionTab {
 
+    private static final int MOUSE_BACK_BUTTON = 4;
+    private static final int MOUSE_FORWARD_BUTTON = 5;
+
     private VirtualResource resource;
     private final FileService fileService;
     private final BrowserSessionState browserState;
@@ -31,6 +34,8 @@ public class ConnectionTabImpl implements ConnectionTab {
     private final DefaultListModel<String> listModel = new DefaultListModel<>();
     private final JList<String> fileList = new JList<>(listModel);
     private final TabbedPaneManager tabbedPaneManager;
+    private JButton backButton;
+    private JButton forwardButton;
 
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
@@ -70,25 +75,27 @@ public class ConnectionTabImpl implements ConnectionTab {
         refreshButton.addActionListener(e -> loadDirectory(pathField.getText()));
 
         // ⏴ Zurück-Button rechts
-        JButton backButton = new JButton("⏴");
+        backButton = new JButton("⏴");
         backButton.setToolTipText("Zurück zum übergeordneten Verzeichnis");
         backButton.setMargin(new Insets(0, 0, 0, 0));
         backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
-        backButton.addActionListener(e -> {
-            String parent = navigator.parentOf(browserState.getCurrentPath());
-            browserState.goTo(parent);
-            pathField.setText(browserState.getCurrentPath());
-            updateFileList();
-        });
+        backButton.addActionListener(e -> navigateBack());
+
+        forwardButton = new JButton("⏵");
+        forwardButton.setToolTipText("Vorwärts zum nächsten Verzeichnis");
+        forwardButton.setMargin(new Insets(0, 0, 0, 0));
+        forwardButton.setFont(forwardButton.getFont().deriveFont(Font.PLAIN, 20f));
+        forwardButton.addActionListener(e -> navigateForward());
 
         // Öffnen-Button rechts
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // Rechte Buttongruppe (⏴ Öffnen)
-        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
+        // Rechte Buttongruppe (⏴ ⏵ Öffnen)
+        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
         rightButtons.add(backButton);
+        rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
         // Panelaufbau
@@ -112,6 +119,9 @@ public class ConnectionTabImpl implements ConnectionTab {
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(mainPanel);
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -178,6 +188,8 @@ public class ConnectionTabImpl implements ConnectionTab {
             searchField.setText(searchPattern.trim());
             applySearchFilter();
         }
+
+        updateNavigationButtons();
     }
 
     @Override
@@ -229,9 +241,53 @@ public class ConnectionTabImpl implements ConnectionTab {
     }
 
     public void loadDirectory(String path) {
-        browserState.goTo(navigator.normalize(path));
+        navigateTo(path, true);
+    }
+
+    private void navigateBack() {
+        browserState.back();
         pathField.setText(browserState.getCurrentPath());
+        updateNavigationButtons();
         updateFileList();
+    }
+
+    private void navigateForward() {
+        browserState.forward();
+        pathField.setText(browserState.getCurrentPath());
+        updateNavigationButtons();
+        updateFileList();
+    }
+
+    private void navigateTo(String path, boolean addToHistory) {
+        String normalized = navigator.normalize(path);
+        if (addToHistory) {
+            browserState.goTo(normalized);
+        }
+        pathField.setText(browserState.getCurrentPath());
+        updateNavigationButtons();
+        updateFileList();
+    }
+
+    private void updateNavigationButtons() {
+        if (backButton != null) {
+            backButton.setEnabled(browserState.canGoBack());
+        }
+        if (forwardButton != null) {
+            forwardButton.setEnabled(browserState.canGoForward());
+        }
+    }
+
+    private void installMouseNavigation(JComponent component) {
+        component.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    navigateBack();
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    navigateForward();
+                }
+            }
+        });
     }
 
     @Override
