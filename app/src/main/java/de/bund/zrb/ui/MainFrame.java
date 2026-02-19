@@ -97,6 +97,12 @@ public class MainFrame extends JFrame implements MainframeContext {
         toolRegistry.registerTool(new de.bund.zrb.mcp.ClockTimerTool(this));
         toolRegistry.registerTool(new FilterColumnTool(this));
         toolRegistry.registerTool(new SetVariableTool(this));
+
+        // Attachment RAG Tools
+        toolRegistry.registerTool(new de.bund.zrb.mcp.ListAttachmentsTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.SearchAttachmentsTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.ReadChunksTool(this));
+        toolRegistry.registerTool(new de.bund.zrb.mcp.ReadDocumentWindowTool(this));
     }
 
     @Override

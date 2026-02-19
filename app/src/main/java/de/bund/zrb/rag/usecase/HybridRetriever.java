@@ -34,13 +34,26 @@ public class HybridRetriever {
      * Retrieve top-K chunks for a query.
      */
     public List<ScoredChunk> retrieve(String query) {
-        return retrieve(query, config.getFinalTopK());
+        return retrieve(query, config.getFinalTopK(), null);
     }
 
     /**
      * Retrieve top-K chunks for a query.
      */
     public List<ScoredChunk> retrieve(String query, int topK) {
+        return retrieve(query, topK, null);
+    }
+
+    /**
+     * Retrieve top-K chunks for a query, filtered by allowed document IDs.
+     * This is the core method that supports attachment-based filtering.
+     *
+     * @param query the search query
+     * @param topK maximum number of results
+     * @param allowedDocumentIds if non-null/non-empty, only return chunks from these documents
+     * @return scored chunks
+     */
+    public List<ScoredChunk> retrieve(String query, int topK, Set<String> allowedDocumentIds) {
         if (query == null || query.trim().isEmpty()) {
             return Collections.emptyList();
         }
@@ -62,11 +75,18 @@ public class HybridRetriever {
             useLexical = false;
         }
 
+        // When filtering, fetch more results to compensate for filtering loss
+        int fetchMultiplier = (allowedDocumentIds != null && !allowedDocumentIds.isEmpty()) ? 3 : 1;
+
         // Lexical search
         if (useLexical) {
             try {
-                lexicalResults = lexicalIndex.search(query, config.getLuceneTopN());
-                LOG.fine("Lexical search returned " + lexicalResults.size() + " results");
+                lexicalResults = lexicalIndex.search(query, config.getLuceneTopN() * fetchMultiplier);
+                // Apply document filter
+                if (allowedDocumentIds != null && !allowedDocumentIds.isEmpty()) {
+                    lexicalResults = filterByDocumentIds(lexicalResults, allowedDocumentIds);
+                }
+                LOG.fine("Lexical search returned " + lexicalResults.size() + " results (after filter)");
             } catch (Exception e) {
                 LOG.warning("Lexical search failed: " + e.getMessage());
             }
@@ -77,8 +97,12 @@ public class HybridRetriever {
             try {
                 float[] queryEmbedding = embeddingClient.embed(query);
                 if (queryEmbedding != null && queryEmbedding.length > 0) {
-                    semanticResults = semanticIndex.search(queryEmbedding, config.getHnswTopM());
-                    LOG.fine("Semantic search returned " + semanticResults.size() + " results");
+                    semanticResults = semanticIndex.search(queryEmbedding, config.getHnswTopM() * fetchMultiplier);
+                    // Apply document filter
+                    if (allowedDocumentIds != null && !allowedDocumentIds.isEmpty()) {
+                        semanticResults = filterByDocumentIds(semanticResults, allowedDocumentIds);
+                    }
+                    LOG.fine("Semantic search returned " + semanticResults.size() + " results (after filter)");
                 }
             } catch (Exception e) {
                 LOG.warning("Semantic search failed: " + e.getMessage());
@@ -106,6 +130,19 @@ public class HybridRetriever {
                 topResults.size(), duration, lexicalResults.size(), semanticResults.size()));
 
         return new ArrayList<>(topResults);
+    }
+
+    /**
+     * Filter scored chunks to only include those from allowed document IDs.
+     */
+    private List<ScoredChunk> filterByDocumentIds(List<ScoredChunk> chunks, Set<String> allowedDocumentIds) {
+        List<ScoredChunk> filtered = new ArrayList<>();
+        for (ScoredChunk sc : chunks) {
+            if (sc.getChunk() != null && allowedDocumentIds.contains(sc.getChunk().getDocumentId())) {
+                filtered.add(sc);
+            }
+        }
+        return filtered;
     }
 
     private List<ScoredChunk> mergeAndScore(List<ScoredChunk> lexical, List<ScoredChunk> semantic) {

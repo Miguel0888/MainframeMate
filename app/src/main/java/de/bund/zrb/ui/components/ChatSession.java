@@ -10,6 +10,8 @@ import de.bund.zrb.chat.attachment.ChatAttachment;
 import de.bund.zrb.chat.attachment.ChatAttachmentStore;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.rag.service.RagService;
+import de.bund.zrb.rag.usecase.RagContextBuilder;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.tools.ToolAccessType;
 import de.bund.zrb.tools.ToolAccessTypeDefaults;
@@ -303,25 +305,62 @@ public class ChatSession extends JPanel {
     private void onAttachmentRemoved(ChatAttachment attachment) {
         currentAttachmentIds.remove(attachment.getId());
         ChatAttachmentStore.getInstance().remove(attachment.getId());
+
+        // Remove from RAG index to keep index/store consistent
+        try {
+            RagService.getInstance().removeDocument(attachment.getId());
+        } catch (Exception e) {
+            // Log but don't fail
+        }
+
         setStatus("📎 Anhang entfernt: " + attachment.getName());
     }
 
-    private String buildHiddenContextFromAttachments() {
+    /**
+     * Build hidden context from attachments using query-dependent RAG retrieval.
+     * Only the most relevant chunks (Top-K) are included, not the full document text.
+     *
+     * @param userQuery the user's query to match against
+     * @return hidden context string or empty
+     */
+    private String buildHiddenContextFromAttachments(String userQuery) {
         if (currentAttachmentIds.isEmpty()) {
             return "";
         }
 
         try {
-            AttachmentContextBuilder.BuildResult result = buildHiddenContextUseCase.execute(currentAttachmentIds);
+            // Use RAG to retrieve only relevant chunks
+            RagService ragService = RagService.getInstance();
+            Set<String> allowedIds = new HashSet<>(currentAttachmentIds);
+
+            // Build context using Top-K retrieval filtered by current attachments
+            RagContextBuilder.BuildResult result = ragService.buildContext(
+                    userQuery,
+                    ragService.getConfig().getFinalTopK(),
+                    allowedIds
+            );
 
             if (result.hasTruncations()) {
-                setStatus("⚠️ Anhänge wurden gekürzt (Kontextlimit)");
+                setStatus("⚠️ Attachment-Kontext wurde gekürzt");
             }
 
-            return result.getContext();
-        } catch (Exception e) {
-            setStatus("❌ Fehler beim Erstellen des Attachment-Kontexts");
+            String context = result.getContext();
+            if (context != null && !context.trim().isEmpty()) {
+                return "=== ATTACHMENT CONTEXT (Top-K Relevant Chunks) ===\n" + context + "\n=== END ATTACHMENT CONTEXT ===";
+            }
             return "";
+        } catch (Exception e) {
+            // Fallback to old method if RAG fails
+            try {
+                AttachmentContextBuilder.BuildResult result = buildHiddenContextUseCase.execute(currentAttachmentIds);
+                if (result.hasTruncations()) {
+                    setStatus("⚠️ Anhänge wurden gekürzt (Kontextlimit)");
+                }
+                return result.getContext();
+            } catch (Exception ex) {
+                setStatus("❌ Fehler beim Erstellen des Attachment-Kontexts");
+                return "";
+            }
         }
     }
 
@@ -340,8 +379,8 @@ public class ChatSession extends JPanel {
             chatManager.getHistory(sessionId).setSystemPrompt(systemPrompt);
         }
 
-        // Build hidden context from attachments (NOT shown in chat UI)
-        String hiddenContext = buildHiddenContextFromAttachments();
+        // Build hidden context from attachments using RAG (query-dependent, NOT shown in chat UI)
+        String hiddenContext = buildHiddenContextFromAttachments(message);
 
         String finalPrompt = buildPromptWithMode(systemPrompt, message, contextMemoryCheckbox.isSelected());
 

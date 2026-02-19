@@ -3,16 +3,20 @@ package de.bund.zrb.chat.attachment;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.ingestion.usecase.BuildDocumentFromTextUseCase;
+import de.bund.zrb.rag.service.RagService;
 import de.zrb.bund.newApi.ui.FtpTab;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * Use case for attaching a tab's content to the chat.
  * Creates a ChatAttachment from the tab's content and stores it.
+ * Also indexes the document in the RAG system for retrieval.
  */
 public class AttachTabToChatUseCase {
+
+    private static final Logger LOG = Logger.getLogger(AttachTabToChatUseCase.class.getName());
 
     private final ChatAttachmentStore store;
     private final BuildDocumentFromTextUseCase buildDocumentUseCase;
@@ -79,6 +83,9 @@ public class AttachTabToChatUseCase {
         // Store it
         store.store(attachment);
 
+        // Index in RAG for retrieval
+        indexAttachmentAsync(attachment);
+
         return attachment;
     }
 
@@ -101,14 +108,26 @@ public class AttachTabToChatUseCase {
                 .build();
 
         store.store(attachment);
+
+        // Index in RAG for retrieval
+        indexAttachmentAsync(attachment);
+
         return attachment;
     }
 
     /**
-     * Remove an attachment from the store.
+     * Remove an attachment from the store and RAG index.
      */
     public void detach(String attachmentId) {
         store.remove(attachmentId);
+
+        // Remove from RAG index
+        try {
+            RagService.getInstance().removeDocument(attachmentId);
+            LOG.fine("Removed attachment from RAG index: " + attachmentId);
+        } catch (Exception e) {
+            LOG.warning("Failed to remove attachment from RAG: " + e.getMessage());
+        }
     }
 
     /**
@@ -116,6 +135,26 @@ public class AttachTabToChatUseCase {
      */
     public List<ChatAttachment> getCurrentAttachments() {
         return store.getAllAttachments();
+    }
+
+    /**
+     * Index an attachment in the RAG system asynchronously.
+     */
+    private void indexAttachmentAsync(ChatAttachment attachment) {
+        if (attachment == null || attachment.getDocument() == null) {
+            return;
+        }
+
+        try {
+            RagService.getInstance().indexDocumentAsync(
+                    attachment.getId(),
+                    attachment.getName(),
+                    attachment.getDocument()
+            );
+            LOG.fine("Queued attachment for RAG indexing: " + attachment.getName());
+        } catch (Exception e) {
+            LOG.warning("Failed to index attachment in RAG: " + e.getMessage());
+        }
     }
 
     /**

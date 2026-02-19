@@ -33,6 +33,23 @@ public class RagService {
 
     private static final Logger LOG = Logger.getLogger(RagService.class.getName());
 
+    // Singleton instance
+    private static volatile RagService INSTANCE;
+
+    /**
+     * Get the singleton instance.
+     */
+    public static RagService getInstance() {
+        if (INSTANCE == null) {
+            synchronized (RagService.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new RagService();
+                }
+            }
+        }
+        return INSTANCE;
+    }
+
     private final RagConfig config;
     private final EmbeddingSettings embeddingSettings;
 
@@ -45,6 +62,9 @@ public class RagService {
     private final RenderDocumentUseCase renderUseCase;
 
     private final Map<String, IndexedDocument> indexedDocuments = new ConcurrentHashMap<>();
+    // Chunk store for tool-calling (read_chunks, read_document_window)
+    private final Map<String, Chunk> chunkStore = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> documentChunkIds = new ConcurrentHashMap<>();
     private final ExecutorService executor;
 
     public RagService() {
@@ -111,6 +131,14 @@ public class RagService {
         // Index in Lucene
         lexicalIndex.indexChunks(chunks);
 
+        // Store chunks for tool-calling access
+        List<String> chunkIds = new ArrayList<>();
+        for (Chunk chunk : chunks) {
+            chunkStore.put(chunk.getChunkId(), chunk);
+            chunkIds.add(chunk.getChunkId());
+        }
+        documentChunkIds.put(documentId, chunkIds);
+
         // Generate embeddings and index in semantic index
         if (embeddingClient.isAvailable()) {
             for (Chunk chunk : chunks) {
@@ -140,6 +168,14 @@ public class RagService {
     public void removeDocument(String documentId) {
         lexicalIndex.removeDocument(documentId);
         semanticIndex.removeDocument(documentId);
+
+        // Remove chunks from store
+        List<String> chunkIds = documentChunkIds.remove(documentId);
+        if (chunkIds != null) {
+            for (String chunkId : chunkIds) {
+                chunkStore.remove(chunkId);
+            }
+        }
         indexedDocuments.remove(documentId);
         LOG.info("Removed document from RAG: " + documentId);
     }
@@ -156,6 +192,28 @@ public class RagService {
      */
     public List<ScoredChunk> retrieve(String query, int topK) {
         return retriever.retrieve(query, topK);
+    }
+
+    /**
+     * Retrieve relevant chunks for a query, filtered by allowed document IDs.
+     * This is used for attachment-based RAG where only specific documents should be searched.
+     *
+     * @param query the search query
+     * @param topK maximum number of results
+     * @param allowedDocumentIds if non-null/non-empty, only return chunks from these documents
+     * @return scored chunks
+     */
+    public List<ScoredChunk> retrieve(String query, int topK, Set<String> allowedDocumentIds) {
+        return retriever.retrieve(query, topK, allowedDocumentIds);
+    }
+
+    /**
+     * Build hidden context from a query, filtered by allowed document IDs.
+     * Used for attachment-based RAG.
+     */
+    public RagContextBuilder.BuildResult buildContext(String query, int topK, Set<String> allowedDocumentIds) {
+        List<ScoredChunk> chunks = retrieve(query, topK, allowedDocumentIds);
+        return contextBuilder.build(chunks, "Attachment Context");
     }
 
     /**
@@ -204,12 +262,108 @@ public class RagService {
     }
 
     /**
+     * Get indexed document info.
+     */
+    public IndexedDocument getIndexedDocument(String documentId) {
+        return indexedDocuments.get(documentId);
+    }
+
+    /**
+     * Get all indexed documents.
+     */
+    public Collection<IndexedDocument> getIndexedDocuments() {
+        return new ArrayList<>(indexedDocuments.values());
+    }
+
+    // ==================== Chunk Access for Tool-Calling ====================
+
+    /**
+     * Get a single chunk by ID.
+     */
+    public Chunk getChunk(String chunkId) {
+        return chunkStore.get(chunkId);
+    }
+
+    /**
+     * Get multiple chunks by IDs.
+     */
+    public List<Chunk> getChunks(List<String> chunkIds) {
+        List<Chunk> result = new ArrayList<>();
+        for (String chunkId : chunkIds) {
+            Chunk chunk = chunkStore.get(chunkId);
+            if (chunk != null) {
+                result.add(chunk);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Get a window of chunks around an anchor chunk.
+     *
+     * @param anchorChunkId the chunk to center on
+     * @param before number of chunks before
+     * @param after number of chunks after
+     * @return list of chunks in order
+     */
+    public List<Chunk> getChunkWindow(String anchorChunkId, int before, int after) {
+        Chunk anchor = chunkStore.get(anchorChunkId);
+        if (anchor == null) {
+            return Collections.emptyList();
+        }
+
+        String documentId = anchor.getDocumentId();
+        List<String> docChunkIds = documentChunkIds.get(documentId);
+        if (docChunkIds == null) {
+            return Collections.singletonList(anchor);
+        }
+
+        int anchorIndex = -1;
+        for (int i = 0; i < docChunkIds.size(); i++) {
+            if (docChunkIds.get(i).equals(anchorChunkId)) {
+                anchorIndex = i;
+                break;
+            }
+        }
+
+        if (anchorIndex < 0) {
+            return Collections.singletonList(anchor);
+        }
+
+        int start = Math.max(0, anchorIndex - before);
+        int end = Math.min(docChunkIds.size(), anchorIndex + after + 1);
+
+        List<Chunk> window = new ArrayList<>();
+        for (int i = start; i < end; i++) {
+            Chunk chunk = chunkStore.get(docChunkIds.get(i));
+            if (chunk != null) {
+                window.add(chunk);
+            }
+        }
+
+        return window;
+    }
+
+    /**
+     * Get all chunks for a document.
+     */
+    public List<Chunk> getDocumentChunks(String documentId) {
+        List<String> chunkIds = documentChunkIds.get(documentId);
+        if (chunkIds == null) {
+            return Collections.emptyList();
+        }
+        return getChunks(chunkIds);
+    }
+
+    /**
      * Clear all indices.
      */
     public void clear() {
         lexicalIndex.clear();
         semanticIndex.clear();
         indexedDocuments.clear();
+        chunkStore.clear();
+        documentChunkIds.clear();
         LOG.info("RAG indices cleared");
     }
 
