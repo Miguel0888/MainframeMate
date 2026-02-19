@@ -100,13 +100,17 @@ public class HelpContentProvider {
                 "<li><b>Cloud</b> – OpenAI, Claude, Perplexity, Grok, Gemini</li>" +
                 "<li><b>LlamaCpp</b> – Direkte GGUF-Modell-Ausführung</li>" +
                 "<li><b>LocalAI</b> – Ollama-kompatible API</li>" +
+                "<li><b>Custom</b> – Selbstgehostete Server mit erweiterten Optionen</li>" +
                 "</ul>" +
                 "<hr>" +
-                "<h4>⚙️ Weitere Optionen</h4>" +
+                "<h4>🔧 Custom-Provider</h4>" +
+                "<p>Für selbstgehostete LLM-Server mit speziellen Anforderungen:</p>" +
                 "<ul>" +
-                "<li><b>Tool-Contract</b> – Anweisungen für Tool-Calls</li>" +
-                "<li><b>Editor-Einstellungen</b> – Schriftart und -größe</li>" +
-                "<li><b>JSON-Formatierung</b> – Pretty-Print aktivieren</li>" +
+                "<li>Beliebige API-URL und Authentifizierung</li>" +
+                "<li>Benutzerdefinierte Header</li>" +
+                "<li>Anpassbare Timeouts und Retries</li>" +
+                "<li>SSL-Verifizierung deaktivierbar</li>" +
+                "<li>Ollama- oder OpenAI-Antwortformat</li>" +
                 "</ul>" +
                 "<p>💡 Proxy wird automatisch aus dem Proxy-Tab verwendet.</p>" +
                 "</body></html>"),

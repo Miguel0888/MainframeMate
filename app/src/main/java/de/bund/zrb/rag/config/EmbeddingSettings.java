@@ -128,6 +128,8 @@ public class EmbeddingSettings {
             case LOCAL_AI:
             case LLAMA_CPP_SERVER:
                 return "all-minilm";
+            case CUSTOM:
+                return "nomic-embed-text"; // Standard für selbstgehostete Server
             case DISABLED:
             default:
                 return "nomic-embed-text";
@@ -148,6 +150,8 @@ public class EmbeddingSettings {
                 return "http://localhost:8080/v1";
             case LLAMA_CPP_SERVER:
                 return "http://localhost:8080/v1";
+            case CUSTOM:
+                return "http://localhost:11434"; // Standard für selbstgehostete Server
             case DISABLED:
             default:
                 return "http://localhost:11434";

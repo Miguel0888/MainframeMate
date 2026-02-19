@@ -51,6 +51,23 @@ public class AiProviderSettingsPanel extends JPanel {
     private final JSpinner llamaContextSpinner;
     private final JTextField llamaTempField;
 
+    // Custom-Felder (selbstgehostete Server)
+    private final JTextField customUrlField;
+    private final JTextField customModelField;
+    private final JTextField customApiKeyField;
+    private final JTextField customAuthHeaderField;
+    private final JTextField customAuthPrefixField;
+    private final JTextField customKeepAliveField;
+    private final JTextField customTemperatureField;
+    private final JSpinner customMaxTokensSpinner;
+    private final JTextArea customSystemPromptField;
+    private final JComboBox<String> customResponseFormatCombo;
+    private final JTextField customHeadersField;
+    private final JSpinner customConnectTimeoutSpinner;
+    private final JSpinner customReadTimeoutSpinner;
+    private final JSpinner customMaxRetriesSpinner;
+    private final JCheckBox customSkipSslVerifyBox;
+
     // Test-Bereich
     private final JButton testButton;
     private final JLabel statusLabel;
@@ -87,6 +104,7 @@ public class AiProviderSettingsPanel extends JPanel {
         providerCombo.addItem(AiProvider.CLOUD);
         providerCombo.addItem(AiProvider.LOCAL_AI);
         providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER);
+        providerCombo.addItem(AiProvider.CUSTOM);
         providerSelectPanel.add(providerCombo, gbc);
 
         mainPanel.add(providerSelectPanel);
@@ -274,6 +292,122 @@ public class AiProviderSettingsPanel extends JPanel {
 
         providerOptionsPanel.add(llamaPanel, AiProvider.LLAMA_CPP_SERVER.name());
 
+        // CUSTOM Panel (selbstgehostete Server)
+        JPanel customPanel = new JPanel(new GridBagLayout());
+        customPanel.setBorder(new TitledBorder("Custom Server Einstellungen"));
+        gbc = new GridBagConstraints();
+        gbc.insets = new Insets(3, 4, 3, 4);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0;
+
+        // Basis-Einstellungen
+        gbc.gridy = 0;
+        customPanel.add(new JLabel("API-URL:"), gbc);
+        gbc.gridy = 1;
+        customUrlField = new JTextField(30);
+        customPanel.add(customUrlField, gbc);
+
+        gbc.gridy = 2;
+        customPanel.add(new JLabel("Modell:"), gbc);
+        gbc.gridy = 3;
+        customModelField = new JTextField(20);
+        customPanel.add(customModelField, gbc);
+
+        gbc.gridy = 4;
+        customPanel.add(new JLabel("Keep-Alive:"), gbc);
+        gbc.gridy = 5;
+        customKeepAliveField = new JTextField("10m", 10);
+        customPanel.add(customKeepAliveField, gbc);
+
+        // Authentifizierung
+        gbc.gridy = 6;
+        customPanel.add(new JLabel("── Authentifizierung ──"), gbc);
+
+        gbc.gridy = 7;
+        customPanel.add(new JLabel("API-Key:"), gbc);
+        gbc.gridy = 8;
+        customApiKeyField = new JTextField(30);
+        customPanel.add(customApiKeyField, gbc);
+
+        gbc.gridy = 9;
+        customPanel.add(new JLabel("Auth-Header:"), gbc);
+        gbc.gridy = 10;
+        customAuthHeaderField = new JTextField("Authorization", 20);
+        customPanel.add(customAuthHeaderField, gbc);
+
+        gbc.gridy = 11;
+        customPanel.add(new JLabel("Auth-Prefix:"), gbc);
+        gbc.gridy = 12;
+        customAuthPrefixField = new JTextField("Bearer", 15);
+        customPanel.add(customAuthPrefixField, gbc);
+
+        // Generierungsparameter
+        gbc.gridy = 13;
+        customPanel.add(new JLabel("── Generierung ──"), gbc);
+
+        gbc.gridy = 14;
+        customPanel.add(new JLabel("Temperatur:"), gbc);
+        gbc.gridy = 15;
+        customTemperatureField = new JTextField("0.7", 5);
+        customPanel.add(customTemperatureField, gbc);
+
+        gbc.gridy = 16;
+        customPanel.add(new JLabel("Max Tokens (0 = unbegrenzt):"), gbc);
+        gbc.gridy = 17;
+        customMaxTokensSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 100000, 100));
+        customPanel.add(customMaxTokensSpinner, gbc);
+
+        gbc.gridy = 18;
+        customPanel.add(new JLabel("Response-Format:"), gbc);
+        gbc.gridy = 19;
+        customResponseFormatCombo = new JComboBox<>(new String[]{"ollama", "openai"});
+        customPanel.add(customResponseFormatCombo, gbc);
+
+        gbc.gridy = 20;
+        customPanel.add(new JLabel("System-Prompt:"), gbc);
+        gbc.gridy = 21;
+        customSystemPromptField = new JTextArea(3, 30);
+        customSystemPromptField.setLineWrap(true);
+        customSystemPromptField.setWrapStyleWord(true);
+        JScrollPane systemPromptScroll = new JScrollPane(customSystemPromptField);
+        systemPromptScroll.setPreferredSize(new Dimension(300, 60));
+        customPanel.add(systemPromptScroll, gbc);
+
+        // Netzwerk-Einstellungen
+        gbc.gridy = 22;
+        customPanel.add(new JLabel("── Netzwerk ──"), gbc);
+
+        gbc.gridy = 23;
+        customPanel.add(new JLabel("Zusätzliche Header (Header1: Wert1; Header2: Wert2):"), gbc);
+        gbc.gridy = 24;
+        customHeadersField = new JTextField(30);
+        customPanel.add(customHeadersField, gbc);
+
+        gbc.gridy = 25;
+        customPanel.add(new JLabel("Connect-Timeout (Sekunden):"), gbc);
+        gbc.gridy = 26;
+        customConnectTimeoutSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 300, 1));
+        customPanel.add(customConnectTimeoutSpinner, gbc);
+
+        gbc.gridy = 27;
+        customPanel.add(new JLabel("Read-Timeout (ms, 0 = unbegrenzt):"), gbc);
+        gbc.gridy = 28;
+        customReadTimeoutSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 300000, 1000));
+        customPanel.add(customReadTimeoutSpinner, gbc);
+
+        gbc.gridy = 29;
+        customPanel.add(new JLabel("Max Retries:"), gbc);
+        gbc.gridy = 30;
+        customMaxRetriesSpinner = new JSpinner(new SpinnerNumberModel(3, 0, 10, 1));
+        customPanel.add(customMaxRetriesSpinner, gbc);
+
+        gbc.gridy = 31;
+        customSkipSslVerifyBox = new JCheckBox("SSL-Verifizierung überspringen (für selbstsignierte Zertifikate)");
+        customPanel.add(customSkipSslVerifyBox, gbc);
+
+        providerOptionsPanel.add(customPanel, AiProvider.CUSTOM.name());
+
         mainPanel.add(providerOptionsPanel);
 
         // Test-Bereich
@@ -307,15 +441,27 @@ public class AiProviderSettingsPanel extends JPanel {
             ollamaModelField.setText("nomic-embed-text");
             ollamaKeepAliveField.setText("5m");
             cloudModelField.setText("text-embedding-3-small");
+            customUrlField.setText("http://localhost:11434/api/embeddings");
+            customModelField.setText("nomic-embed-text");
         } else {
             ollamaUrlField.setText("http://localhost:11434/api/generate");
             ollamaModelField.setText("llama3.2");
             ollamaKeepAliveField.setText("10m");
             cloudModelField.setText("gpt-4o-mini");
+            customUrlField.setText("http://localhost:11434/api/generate");
+            customModelField.setText("llama3.2");
         }
         llamaStreamingBox.setSelected(true);
         llamaBinaryField.setText("C:/llamacpp/llama-server");
         llamaModelField.setText("models/mistral.gguf");
+
+        // Custom Defaults
+        customKeepAliveField.setText("10m");
+        customAuthHeaderField.setText("Authorization");
+        customAuthPrefixField.setText("Bearer");
+        customTemperatureField.setText("0.7");
+        customResponseFormatCombo.setSelectedItem("ollama");
+
         applyCloudVendorDefaults(false);
     }
 
@@ -451,6 +597,8 @@ public class AiProviderSettingsPanel extends JPanel {
             case LLAMA_CPP_SERVER:
                 url = "http://localhost:" + llamaPortSpinner.getValue() + "/health";
                 break;
+            case CUSTOM:
+                return testCustomConnection();
             default:
                 return false;
         }
@@ -462,6 +610,39 @@ public class AiProviderSettingsPanel extends JPanel {
             conn.setReadTimeout(5000);
             int code = conn.getResponseCode();
             return code >= 200 && code < 400;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean testCustomConnection() {
+        String url = customUrlField.getText().trim();
+        if (url.isEmpty()) return false;
+
+        // Falls URL einen API-Pfad enthält, versuche die Basis-URL zu ermitteln
+        String testUrl = url;
+        if (url.contains("/api/")) {
+            testUrl = url.substring(0, url.indexOf("/api/")) + "/api/tags";
+        }
+
+        try {
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(testUrl).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+
+            // Auth hinzufügen falls konfiguriert
+            String apiKey = customApiKeyField.getText().trim();
+            if (!apiKey.isEmpty()) {
+                String authHeader = customAuthHeaderField.getText().trim();
+                String authPrefix = customAuthPrefixField.getText().trim();
+                String authValue = authPrefix.isEmpty() ? apiKey : authPrefix + " " + apiKey;
+                conn.setRequestProperty(authHeader.isEmpty() ? "Authorization" : authHeader, authValue);
+            }
+
+            int code = conn.getResponseCode();
+            // 401/403 ist OK wenn Auth fehlt, aber Server erreichbar
+            return code < 500;
         } catch (Exception e) {
             return false;
         }
@@ -536,6 +717,33 @@ public class AiProviderSettingsPanel extends JPanel {
         } catch (NumberFormatException e) { /* ignore */ }
         llamaTempField.setText(config.getOrDefault("llama.temp", "0.7"));
 
+        // Custom
+        customUrlField.setText(config.getOrDefault("custom.url",
+                configType == ConfigType.EMBEDDING ? "http://localhost:11434/api/embeddings" : "http://localhost:11434/api/generate"));
+        customModelField.setText(config.getOrDefault("custom.model",
+                configType == ConfigType.EMBEDDING ? "nomic-embed-text" : "llama3.2"));
+        customApiKeyField.setText(config.getOrDefault("custom.apiKey", ""));
+        customAuthHeaderField.setText(config.getOrDefault("custom.authHeader", "Authorization"));
+        customAuthPrefixField.setText(config.getOrDefault("custom.authPrefix", "Bearer"));
+        customKeepAliveField.setText(config.getOrDefault("custom.keepAlive", "10m"));
+        customTemperatureField.setText(config.getOrDefault("custom.temperature", "0.7"));
+        try {
+            customMaxTokensSpinner.setValue(Integer.parseInt(config.getOrDefault("custom.maxTokens", "0")));
+        } catch (NumberFormatException e) { /* ignore */ }
+        customSystemPromptField.setText(config.getOrDefault("custom.systemPrompt", ""));
+        customResponseFormatCombo.setSelectedItem(config.getOrDefault("custom.responseFormat", "ollama"));
+        customHeadersField.setText(config.getOrDefault("custom.headers", ""));
+        try {
+            customConnectTimeoutSpinner.setValue(Integer.parseInt(config.getOrDefault("custom.connectTimeout", "10")));
+        } catch (NumberFormatException e) { /* ignore */ }
+        try {
+            customReadTimeoutSpinner.setValue(Integer.parseInt(config.getOrDefault("custom.readTimeout", "0")));
+        } catch (NumberFormatException e) { /* ignore */ }
+        try {
+            customMaxRetriesSpinner.setValue(Integer.parseInt(config.getOrDefault("custom.maxRetries", "3")));
+        } catch (NumberFormatException e) { /* ignore */ }
+        customSkipSslVerifyBox.setSelected(Boolean.parseBoolean(config.getOrDefault("custom.skipSslVerify", "false")));
+
         // Provider-Panel anzeigen
         AiProvider selected = (AiProvider) providerCombo.getSelectedItem();
         if (selected != null) {
@@ -578,6 +786,23 @@ public class AiProviderSettingsPanel extends JPanel {
         config.put("llama.context", llamaContextSpinner.getValue().toString());
         config.put("llama.temp", llamaTempField.getText().trim());
 
+        // Custom
+        config.put("custom.url", customUrlField.getText().trim());
+        config.put("custom.model", customModelField.getText().trim());
+        config.put("custom.apiKey", customApiKeyField.getText().trim());
+        config.put("custom.authHeader", customAuthHeaderField.getText().trim());
+        config.put("custom.authPrefix", customAuthPrefixField.getText().trim());
+        config.put("custom.keepAlive", customKeepAliveField.getText().trim());
+        config.put("custom.temperature", customTemperatureField.getText().trim());
+        config.put("custom.maxTokens", customMaxTokensSpinner.getValue().toString());
+        config.put("custom.systemPrompt", customSystemPromptField.getText());
+        config.put("custom.responseFormat", Objects.toString(customResponseFormatCombo.getSelectedItem(), "ollama"));
+        config.put("custom.headers", customHeadersField.getText().trim());
+        config.put("custom.connectTimeout", customConnectTimeoutSpinner.getValue().toString());
+        config.put("custom.readTimeout", customReadTimeoutSpinner.getValue().toString());
+        config.put("custom.maxRetries", customMaxRetriesSpinner.getValue().toString());
+        config.put("custom.skipSslVerify", String.valueOf(customSkipSslVerifyBox.isSelected()));
+
         return config;
     }
 
@@ -598,6 +823,7 @@ public class AiProviderSettingsPanel extends JPanel {
             case OLLAMA: return ollamaModelField.getText().trim();
             case CLOUD: return cloudModelField.getText().trim();
             case LLAMA_CPP_SERVER: return llamaModelField.getText().trim();
+            case CUSTOM: return customModelField.getText().trim();
             default: return "";
         }
     }
@@ -612,14 +838,19 @@ public class AiProviderSettingsPanel extends JPanel {
             case OLLAMA: return ollamaUrlField.getText().trim();
             case CLOUD: return cloudApiUrlField.getText().trim();
             case LLAMA_CPP_SERVER: return "http://localhost:" + llamaPortSpinner.getValue();
+            case CUSTOM: return customUrlField.getText().trim();
             default: return "";
         }
     }
 
     /**
-     * Gibt den API-Key zurück (nur für Cloud).
+     * Gibt den API-Key zurück (für Cloud und Custom).
      */
     public String getApiKey() {
+        AiProvider provider = getSelectedProvider();
+        if (provider == AiProvider.CUSTOM) {
+            return customApiKeyField.getText().trim();
+        }
         return cloudApiKeyField.getText().trim();
     }
 }

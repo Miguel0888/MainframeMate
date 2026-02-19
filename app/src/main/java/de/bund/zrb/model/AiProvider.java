@@ -5,5 +5,6 @@ public enum AiProvider {
     OLLAMA,
     CLOUD,
     LOCAL_AI,
-    LLAMA_CPP_SERVER
+    LLAMA_CPP_SERVER,
+    CUSTOM  // Selbstgehostete Variante mit erweiterten Einstellungen
 }
