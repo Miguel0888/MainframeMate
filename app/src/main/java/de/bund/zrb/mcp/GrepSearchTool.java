@@ -42,6 +42,12 @@ public class GrepSearchTool implements McpTool {
         COUNT    // Only match count per file and total (grep -c)
     }
 
+    // Pattern modes
+    public enum PatternMode {
+        PLAIN,   // Plain text search (default)
+        REGEX    // Regular expression search
+    }
+
     public GrepSearchTool(MainframeContext context) {
         this.context = context;
     }
@@ -51,12 +57,14 @@ public class GrepSearchTool implements McpTool {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("root", new ToolSpec.Property("string", "Datei oder Verzeichnis (lokal oder FTP)"));
         properties.put("pattern", new ToolSpec.Property("string", "Suchmuster (Text oder Regex)"));
+        properties.put("patternMode", new ToolSpec.Property("string", "Pattern-Modus: PLAIN (default) oder REGEX"));
         properties.put("recursive", new ToolSpec.Property("boolean", "Rekursiv in Unterverzeichnissen suchen (default: true)"));
-        properties.put("fileNamePattern", new ToolSpec.Property("string", "Dateinamen-Filter, z.B. '*.txt;*.json' (default: '*')"));
-        properties.put("regex", new ToolSpec.Property("boolean", "Pattern als Regex interpretieren (default: false)"));
+        properties.put("fileNamePattern", new ToolSpec.Property("string", "Glob-Pattern für Dateinamen, z.B. '*.txt;*.json' (default: '*')"));
+        properties.put("excludeFileNamePattern", new ToolSpec.Property("string", "Glob-Pattern zum Ausschließen von Dateien, z.B. '*.bak;*.tmp'"));
         properties.put("caseSensitive", new ToolSpec.Property("boolean", "Groß-/Kleinschreibung beachten (default: false)"));
-        properties.put("wholeWord", new ToolSpec.Property("boolean", "Nur ganze Wörter (default: false, nur bei regex=false)"));
+        properties.put("wholeWord", new ToolSpec.Property("boolean", "Nur ganze Wörter (default: false, nur bei patternMode=PLAIN)"));
         properties.put("invertMatch", new ToolSpec.Property("boolean", "Zeilen ohne Match ausgeben, wie grep -v (default: false)"));
+        properties.put("outputMode", new ToolSpec.Property("string", "Ausgabemodus: MATCHES (default), FILES (nur Pfade), COUNT (nur Anzahl)"));
         properties.put("maxHits", new ToolSpec.Property("integer", "Max. Treffer gesamt (default: 200)"));
         properties.put("maxMatchesPerFile", new ToolSpec.Property("integer", "Max. Treffer pro Datei (default: 50)"));
         properties.put("maxFileSizeBytes", new ToolSpec.Property("integer", "Max. Dateigröße in Bytes (default: 5000000)"));
@@ -65,24 +73,25 @@ public class GrepSearchTool implements McpTool {
         properties.put("includeBinary", new ToolSpec.Property("boolean", "Binärdateien durchsuchen (default: false)"));
         properties.put("includeContext", new ToolSpec.Property("boolean", "Kontextzeilen anzeigen (default: false)"));
         properties.put("contextLines", new ToolSpec.Property("integer", "Anzahl Kontextzeilen (default: 2)"));
-        properties.put("outputMode", new ToolSpec.Property("string", "Ausgabemodus: MATCHES (default), FILES (nur Pfade), COUNT (nur Anzahl)"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Arrays.asList("root", "pattern"));
 
         Map<String, Object> example = new LinkedHashMap<>();
         example.put("root", "C:\\TEST");
         example.put("pattern", "Hamburg Hafen");
+        example.put("patternMode", "PLAIN");
+        example.put("fileNamePattern", "*.txt");
         example.put("recursive", true);
         example.put("includeContext", true);
-        example.put("contextLines", 2);
 
         return new ToolSpec(
                 "grep_search",
                 "Durchsucht Dateien nach Text oder Regex-Muster (wie grep/ripgrep). " +
-                "Gibt Datei, Zeilennummer und Trefferzeilen zurück. " +
+                "patternMode=PLAIN: Textsuche. patternMode=REGEX: Regex-Suche. " +
                 "outputMode=MATCHES: alle Treffer mit Details. " +
                 "outputMode=FILES: nur Pfade mit Treffern (wie grep -l). " +
                 "outputMode=COUNT: nur Trefferanzahl (wie grep -c). " +
+                "Glob-Pattern unterstützt: * (beliebige Zeichen), ? (ein Zeichen), ; (mehrere Patterns). " +
                 "Für FTP-Pfade muss vorher eine Verbindung bestehen.",
                 inputSchema,
                 example
@@ -106,12 +115,14 @@ public class GrepSearchTool implements McpTool {
             // Parse input parameters
             String root = input.get("root").getAsString();
             String pattern = input.get("pattern").getAsString();
+            PatternMode patternMode = parsePatternMode(getOptionalString(input, "patternMode", "PLAIN"));
             boolean recursive = getOptionalBoolean(input, "recursive", true);
             String fileNamePattern = getOptionalString(input, "fileNamePattern", "*");
-            boolean regex = getOptionalBoolean(input, "regex", false);
+            String excludeFileNamePattern = getOptionalString(input, "excludeFileNamePattern", null);
             boolean caseSensitive = getOptionalBoolean(input, "caseSensitive", false);
             boolean wholeWord = getOptionalBoolean(input, "wholeWord", false);
             boolean invertMatch = getOptionalBoolean(input, "invertMatch", false);
+            OutputMode outputMode = parseOutputMode(getOptionalString(input, "outputMode", "MATCHES"));
             int maxHits = getOptionalInt(input, "maxHits", 200);
             int maxMatchesPerFile = getOptionalInt(input, "maxMatchesPerFile", 50);
             long maxFileSizeBytes = getOptionalLong(input, "maxFileSizeBytes", 5_000_000L);
@@ -120,17 +131,21 @@ public class GrepSearchTool implements McpTool {
             boolean includeBinary = getOptionalBoolean(input, "includeBinary", false);
             boolean includeContext = getOptionalBoolean(input, "includeContext", false);
             int contextLines = getOptionalInt(input, "contextLines", 2);
-            OutputMode outputMode = parseOutputMode(getOptionalString(input, "outputMode", "MATCHES"));
+
+            // Backward compatibility: check for old 'regex' parameter
+            if (input.has("regex") && !input.get("regex").isJsonNull() && input.get("regex").getAsBoolean()) {
+                patternMode = PatternMode.REGEX;
+            }
 
             // Build search context
             GrepContext ctx = new GrepContext(
-                    root, pattern, recursive, fileNamePattern, regex, caseSensitive, wholeWord,
-                    invertMatch, maxHits, maxMatchesPerFile, maxFileSizeBytes, timeoutMs,
-                    encoding, includeBinary, includeContext, contextLines, outputMode
+                    root, pattern, patternMode, recursive, fileNamePattern, excludeFileNamePattern,
+                    caseSensitive, wholeWord, invertMatch, outputMode, maxHits, maxMatchesPerFile,
+                    maxFileSizeBytes, timeoutMs, encoding, includeBinary, includeContext, contextLines
             );
 
             // Compile the search pattern
-            ctx.compiledPattern = compilePattern(pattern, regex, caseSensitive, wholeWord);
+            ctx.compiledPattern = compilePattern(pattern, patternMode == PatternMode.REGEX, caseSensitive, wholeWord);
 
             // Execute search
             GrepResult result = executeGrep(ctx);
@@ -156,9 +171,14 @@ public class GrepSearchTool implements McpTool {
         response.addProperty("toolName", "grep_search");
         response.addProperty("root", ctx.root);
         response.addProperty("pattern", ctx.pattern);
-        response.addProperty("regex", ctx.regex);
-        response.addProperty("recursive", ctx.recursive);
+        response.addProperty("patternMode", ctx.patternMode.name());
         response.addProperty("outputMode", ctx.outputMode.name());
+        response.addProperty("fileNamePattern", ctx.fileNamePattern);
+        if (ctx.excludeFileNamePattern != null) {
+            response.addProperty("excludeFileNamePattern", ctx.excludeFileNamePattern);
+        }
+        response.addProperty("recursive", ctx.recursive);
+        response.addProperty("timedOut", result.timedOut);
 
         switch (ctx.outputMode) {
             case FILES:
@@ -178,12 +198,11 @@ public class GrepSearchTool implements McpTool {
             totalHits += fr.matches.size();
         }
 
-        response.addProperty("hitCount", totalHits);
         response.addProperty("fileHitCount", result.fileResults.size());
+        response.addProperty("hitCount", totalHits);
         response.addProperty("skippedTooLarge", result.skippedTooLarge);
         response.addProperty("skippedBinary", result.skippedBinary);
         response.addProperty("skippedDecodeError", result.skippedDecodeError);
-        response.addProperty("timedOut", result.timedOut);
 
         JsonArray hitsArray = new JsonArray();
         for (GrepFileResult fr : result.fileResults) {
@@ -280,8 +299,11 @@ public class GrepSearchTool implements McpTool {
             return;
         }
 
-        // Compile filename patterns
-        List<Pattern> filePatterns = compileFileNamePatterns(ctx.fileNamePattern, false);
+        // Compile filename patterns (include and exclude)
+        List<Pattern> includePatterns = compileFileNamePatterns(ctx.fileNamePattern, false);
+        List<Pattern> excludePatterns = ctx.excludeFileNamePattern != null
+                ? compileFileNamePatterns(ctx.excludeFileNamePattern, false)
+                : Collections.emptyList();
 
         for (FileNode node : entries) {
             // Check limits
@@ -298,8 +320,9 @@ public class GrepSearchTool implements McpTool {
                     grepDirectory(fs, node.getPath(), ctx, result, startTime);
                 }
             } else {
-                // Check if filename matches pattern
-                if (matchesFileNamePattern(node.getName(), filePatterns)) {
+                // Check if filename matches include pattern and not exclude pattern
+                if (matchesFileNamePattern(node.getName(), includePatterns) &&
+                    !matchesFileNamePattern(node.getName(), excludePatterns)) {
                     grepSingleFile(fs, node.getPath(), node.getName(), node.getSize(), ctx, result, startTime);
                 }
             }
@@ -382,7 +405,7 @@ public class GrepSearchTool implements McpTool {
             boolean hasMatch = matcher.find();
 
             // Handle invert match (grep -v)
-            boolean includeThisLine = ctx.invertMatch ? !hasMatch : hasMatch;
+            boolean includeThisLine = ctx.invertMatch != hasMatch;
 
             if (includeThisLine) {
                 GrepMatch match = new GrepMatch();
@@ -499,212 +522,8 @@ public class GrepSearchTool implements McpTool {
     }
 
     private boolean matchesFileNamePattern(String fileName, List<Pattern> patterns) {
-        for (Pattern pattern : patterns) {
-            if (pattern.matcher(fileName).matches()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isBinary(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) {
+        if (patterns.isEmpty()) {
             return false;
         }
-        int checkLength = Math.min(bytes.length, 8192);
-        for (int i = 0; i < checkLength; i++) {
-            if (bytes[i] == 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private Charset resolveCharset(String encoding, FilePayload payload) {
-        if (encoding != null && !encoding.trim().isEmpty()) {
-            try {
-                return Charset.forName(encoding);
-            } catch (Exception ignored) {
-            }
-        }
-        if (payload.getCharset() != null) {
-            return payload.getCharset();
-        }
-        return Charset.defaultCharset();
-    }
-
-    private boolean isTimedOut(GrepContext ctx, long startTime) {
-        return System.currentTimeMillis() - startTime > ctx.timeoutMs;
-    }
-
-    private int getTotalHits(GrepResult result) {
-        int total = 0;
-        for (GrepFileResult fr : result.fileResults) {
-            total += fr.matches.size();
-        }
-        return total;
-    }
-
-    private OutputMode parseOutputMode(String modeStr) {
-        if (modeStr == null || modeStr.isEmpty()) {
-            return OutputMode.MATCHES;
-        }
-        try {
-            return OutputMode.valueOf(modeStr.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return OutputMode.MATCHES;
-        }
-    }
-
-    // Helper methods for parsing input
-    private String getOptionalString(JsonObject input, String key, String defaultValue) {
-        if (input.has(key) && !input.get(key).isJsonNull()) {
-            return input.get(key).getAsString();
-        }
-        return defaultValue;
-    }
-
-    private boolean getOptionalBoolean(JsonObject input, String key, boolean defaultValue) {
-        if (input.has(key) && !input.get(key).isJsonNull()) {
-            return input.get(key).getAsBoolean();
-        }
-        return defaultValue;
-    }
-
-    private int getOptionalInt(JsonObject input, String key, int defaultValue) {
-        if (input.has(key) && !input.get(key).isJsonNull()) {
-            return input.get(key).getAsInt();
-        }
-        return defaultValue;
-    }
-
-    private long getOptionalLong(JsonObject input, String key, long defaultValue) {
-        if (input.has(key) && !input.get(key).isJsonNull()) {
-            return input.get(key).getAsLong();
-        }
-        return defaultValue;
-    }
-
-    private McpToolResponse errorResponse(String message, String errorType, String resultVar) {
-        return errorResponse(message, errorType, resultVar, null);
-    }
-
-    private McpToolResponse errorResponse(String message, String errorType, String resultVar, String errorCode) {
-        JsonObject response = new JsonObject();
-        response.addProperty("status", "error");
-        response.addProperty("toolName", "grep_search");
-        response.addProperty("errorType", errorType);
-        response.addProperty("message", message);
-        if (errorCode != null) {
-            response.addProperty("errorCode", errorCode);
-        }
-        response.addProperty("hint", "Prüfe den Pfad oder die FTP-Verbindung.");
-        return new McpToolResponse(response, resultVar, null);
-    }
-
-    // Inner classes for grep context and results
-
-    private static class GrepContext {
-        final String root;
-        final String pattern;
-        final boolean recursive;
-        final String fileNamePattern;
-        final boolean regex;
-        final boolean caseSensitive;
-        final boolean wholeWord;
-        final boolean invertMatch;
-        final int maxHits;
-        final int maxMatchesPerFile;
-        final long maxFileSizeBytes;
-        final long timeoutMs;
-        final String encoding;
-        final boolean includeBinary;
-        final boolean includeContext;
-        final int contextLines;
-        final OutputMode outputMode;
-        Pattern compiledPattern;
-
-        GrepContext(String root, String pattern, boolean recursive, String fileNamePattern,
-                    boolean regex, boolean caseSensitive, boolean wholeWord, boolean invertMatch,
-                    int maxHits, int maxMatchesPerFile, long maxFileSizeBytes, long timeoutMs,
-                    String encoding, boolean includeBinary, boolean includeContext, int contextLines,
-                    OutputMode outputMode) {
-            this.root = root;
-            this.pattern = pattern;
-            this.recursive = recursive;
-            this.fileNamePattern = fileNamePattern;
-            this.regex = regex;
-            this.caseSensitive = caseSensitive;
-            this.wholeWord = wholeWord;
-            this.invertMatch = invertMatch;
-            this.maxHits = maxHits;
-            this.maxMatchesPerFile = maxMatchesPerFile;
-            this.maxFileSizeBytes = maxFileSizeBytes;
-            this.timeoutMs = timeoutMs;
-            this.encoding = encoding;
-            this.includeBinary = includeBinary;
-            this.includeContext = includeContext;
-            this.contextLines = contextLines;
-            this.outputMode = outputMode;
-        }
-    }
-
-    private static class GrepResult {
-        List<GrepFileResult> fileResults = new ArrayList<>();
-        int skippedTooLarge = 0;
-        int skippedBinary = 0;
-        int skippedDecodeError = 0;
-        boolean timedOut = false;
-    }
-
-    private static class GrepFileResult {
-        String path;
-        List<GrepMatch> matches = new ArrayList<>();
-    }
-
-    private static class GrepMatch {
-        int lineNumber;
-        String line;
-        List<int[]> matchRanges; // [start, end] pairs
-        List<String> contextBefore;
-        List<String> contextAfter;
-
-        JsonObject toJson(boolean includeContext) {
-            JsonObject obj = new JsonObject();
-            obj.addProperty("lineNumber", lineNumber);
-            obj.addProperty("line", line);
-
-            if (matchRanges != null && !matchRanges.isEmpty()) {
-                JsonArray rangesArray = new JsonArray();
-                for (int[] range : matchRanges) {
-                    JsonObject rangeObj = new JsonObject();
-                    rangeObj.addProperty("start", range[0]);
-                    rangeObj.addProperty("end", range[1]);
-                    rangesArray.add(rangeObj);
-                }
-                obj.add("matchRanges", rangesArray);
-            }
-
-            if (includeContext) {
-                if (contextBefore != null) {
-                    JsonArray before = new JsonArray();
-                    for (String s : contextBefore) {
-                        before.add(s);
-                    }
-                    obj.add("contextBefore", before);
-                }
-
-                if (contextAfter != null) {
-                    JsonArray after = new JsonArray();
-                    for (String s : contextAfter) {
-                        after.add(s);
-                    }
-                    obj.add("contextAfter", after);
-                }
-            }
-
-            return obj;
-        }
-    }
-}
-
+        for (Pattern pattern : patterns) {
+            if

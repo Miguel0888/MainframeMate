@@ -561,5 +561,93 @@ class GrepSearchToolTest {
         assertTrue(line.endsWith("..."));
         assertTrue(line.length() <= 510); // 500 + "..."
     }
-}
 
+    @Test
+    void execute_patternModeRegex_findsPattern() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "Order OP01\nOrder OP02\nNo match");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("pattern", "OP\\d{2}");
+        input.addProperty("patternMode", "REGEX");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals("REGEX", json.get("patternMode").getAsString());
+        assertEquals(2, json.get("hitCount").getAsInt());
+    }
+
+    @Test
+    void execute_patternModePlain_escapesSpecialChars() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "Price is $100.00");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("pattern", "$100.00");
+        input.addProperty("patternMode", "PLAIN");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals("PLAIN", json.get("patternMode").getAsString());
+        assertEquals(1, json.get("hitCount").getAsInt());
+    }
+
+    @Test
+    void execute_excludeFileNamePattern_excludesFiles() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "match here");
+        writeString(tempDir.resolve("test.bak"), "match here");
+        writeString(tempDir.resolve("test.tmp"), "match here");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("pattern", "match");
+        input.addProperty("fileNamePattern", "*.*");
+        input.addProperty("excludeFileNamePattern", "*.bak;*.tmp");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals(1, json.get("fileHitCount").getAsInt());
+
+        JsonArray hits = json.getAsJsonArray("hits");
+        JsonObject hit = hits.get(0).getAsJsonObject();
+        assertTrue(hit.get("path").getAsString().endsWith(".txt"));
+    }
+
+    @Test
+    void execute_backwardCompatibility_regexParameterStillWorks() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "Order OP01\nOrder OP02");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("pattern", "OP\\d{2}");
+        input.addProperty("regex", true); // Old parameter
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertEquals(2, json.get("hitCount").getAsInt());
+    }
+
+    @Test
+    void execute_responseIncludesPatternMode() throws IOException {
+        writeString(tempDir.resolve("test.txt"), "match");
+
+        JsonObject input = new JsonObject();
+        input.addProperty("root", tempDir.toString());
+        input.addProperty("pattern", "match");
+
+        McpToolResponse response = tool.execute(input, null);
+        JsonObject json = response.asJson();
+
+        assertEquals("success", json.get("status").getAsString());
+        assertTrue(json.has("patternMode"));
+        assertEquals("PLAIN", json.get("patternMode").getAsString()); // Default
+    }
+}

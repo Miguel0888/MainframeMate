@@ -27,6 +27,8 @@ import java.util.regex.PatternSyntaxException;
 /**
  * MCP Tool that searches for files by name/pattern and/or content.
  * Supports recursive directory traversal, regex patterns, context lines, and various limits.
+ *
+ * accessType: READ
  */
 public class SearchFileTool implements McpTool {
 
@@ -39,6 +41,12 @@ public class SearchFileTool implements McpTool {
         BOTH     // Search in both name and content
     }
 
+    // Query modes (for content search)
+    public enum QueryMode {
+        PLAIN,   // Plain text search
+        REGEX    // Regular expression search
+    }
+
     public SearchFileTool(MainframeContext context) {
         this.context = context;
     }
@@ -48,11 +56,12 @@ public class SearchFileTool implements McpTool {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("root", new ToolSpec.Property("string", "Startverzeichnis oder Datei (lokal oder FTP-Pfad)"));
         properties.put("mode", new ToolSpec.Property("string", "Suchmodus: NAME (nur Dateinamen), CONTENT (nur Inhalt), BOTH (beides)"));
-        properties.put("query", new ToolSpec.Property("string", "Suchbegriff (Pflicht bei CONTENT/BOTH, optional bei NAME mit fileNamePattern)"));
+        properties.put("query", new ToolSpec.Property("string", "Suchbegriff (Pflicht bei CONTENT/BOTH)"));
+        properties.put("queryMode", new ToolSpec.Property("string", "Query-Modus: PLAIN (default) oder REGEX"));
         properties.put("recursive", new ToolSpec.Property("boolean", "Rekursiv in Unterverzeichnissen suchen (default: true)"));
-        properties.put("fileNamePattern", new ToolSpec.Property("string", "Dateinamen-Pattern, z.B. '*.txt' oder '*.txt;*.json' (default: '*')"));
+        properties.put("fileNamePattern", new ToolSpec.Property("string", "Glob-Pattern für Dateinamen, z.B. '*.txt' oder '*.txt;*.json' (default: '*')"));
+        properties.put("excludeFileNamePattern", new ToolSpec.Property("string", "Glob-Pattern zum Ausschließen von Dateien, z.B. '*.bak;*.tmp'"));
         properties.put("caseSensitive", new ToolSpec.Property("boolean", "Groß-/Kleinschreibung beachten (default: false)"));
-        properties.put("regex", new ToolSpec.Property("boolean", "Query als regulären Ausdruck interpretieren (default: false)"));
         properties.put("maxHits", new ToolSpec.Property("integer", "Maximale Anzahl Treffer (default: 50)"));
         properties.put("maxMatchesPerFile", new ToolSpec.Property("integer", "Maximale Matches pro Datei (default: 5)"));
         properties.put("maxFileSizeBytes", new ToolSpec.Property("integer", "Maximale Dateigröße in Bytes (default: 5000000)"));
@@ -68,17 +77,17 @@ public class SearchFileTool implements McpTool {
         example.put("root", "C:\\TEST");
         example.put("mode", "CONTENT");
         example.put("query", "Hamburg Hafen");
+        example.put("queryMode", "PLAIN");
         example.put("recursive", true);
-        example.put("fileNamePattern", "*.txt");
-        example.put("maxHits", 50);
+        example.put("fileNamePattern", "*.txt;*.json");
 
         return new ToolSpec(
                 "search_file",
                 "Durchsucht Dateien nach Name/Pattern und/oder Inhalt. " +
-                "MODE=NAME: Findet Dateien anhand des Dateinamens (fileNamePattern). " +
-                "MODE=CONTENT: Findet Dateien, die den query-Text enthalten. " +
+                "MODE=NAME: Findet Dateien anhand des Dateinamens (Glob-Pattern via fileNamePattern). " +
+                "MODE=CONTENT: Findet Dateien, die den query-Text enthalten (PLAIN oder REGEX). " +
                 "MODE=BOTH: Kombiniert beide Sucharten. " +
-                "Unterstützt Regex, Kontextzeilen und verschiedene Limits. " +
+                "Glob-Pattern unterstützt: * (beliebige Zeichen), ? (ein Zeichen), ; (mehrere Patterns). " +
                 "Für FTP-Pfade muss vorher eine Verbindung bestehen.",
                 inputSchema,
                 example
@@ -103,10 +112,11 @@ public class SearchFileTool implements McpTool {
             String root = input.get("root").getAsString();
             SearchMode mode = parseMode(input.get("mode").getAsString());
             String query = getOptionalString(input, "query", null);
+            QueryMode queryMode = parseQueryMode(getOptionalString(input, "queryMode", "PLAIN"));
             boolean recursive = getOptionalBoolean(input, "recursive", true);
             String fileNamePattern = getOptionalString(input, "fileNamePattern", "*");
+            String excludeFileNamePattern = getOptionalString(input, "excludeFileNamePattern", null);
             boolean caseSensitive = getOptionalBoolean(input, "caseSensitive", false);
-            boolean regex = getOptionalBoolean(input, "regex", false);
             int maxHits = getOptionalInt(input, "maxHits", 50);
             int maxMatchesPerFile = getOptionalInt(input, "maxMatchesPerFile", 5);
             long maxFileSizeBytes = getOptionalLong(input, "maxFileSizeBytes", 5_000_000L);
@@ -116,7 +126,12 @@ public class SearchFileTool implements McpTool {
             boolean includeBinary = getOptionalBoolean(input, "includeBinary", false);
             long timeoutMs = getOptionalLong(input, "timeoutMs", 5000L);
 
-            // Validate: query required for CONTENT and BOTH modes (unless fileNamePattern is set for BOTH)
+            // Backward compatibility: check for old 'regex' parameter
+            if (input.has("regex") && !input.get("regex").isJsonNull() && input.get("regex").getAsBoolean()) {
+                queryMode = QueryMode.REGEX;
+            }
+
+            // Validate: query required for CONTENT and BOTH modes
             if ((mode == SearchMode.CONTENT || mode == SearchMode.BOTH) &&
                 (query == null || query.trim().isEmpty())) {
                 return errorResponse("Pflichtfeld 'query' fehlt für Modus " + mode, "ToolExecutionError", resultVar);
@@ -124,35 +139,16 @@ public class SearchFileTool implements McpTool {
 
             // Build search context
             SearchContext ctx = new SearchContext(
-                    root, mode, query, recursive, fileNamePattern, caseSensitive, regex,
-                    maxHits, maxMatchesPerFile, maxFileSizeBytes, includeContext, contextLines,
-                    encoding, includeBinary, timeoutMs
+                    root, mode, query, queryMode, recursive, fileNamePattern, excludeFileNamePattern,
+                    caseSensitive, maxHits, maxMatchesPerFile, maxFileSizeBytes, includeContext,
+                    contextLines, encoding, includeBinary, timeoutMs
             );
 
             // Execute search
             SearchResult result = executeSearch(ctx);
 
-            // Build response
-            response.addProperty("status", "success");
-            response.addProperty("root", root);
-            response.addProperty("mode", mode.name());
-            if (query != null) {
-                response.addProperty("query", query);
-            }
-            response.addProperty("recursive", recursive);
-            response.addProperty("hitCount", result.hits.size());
-            response.addProperty("skippedTooLarge", result.skippedTooLarge);
-            response.addProperty("skippedBinary", result.skippedBinary);
-            response.addProperty("skippedDecodeError", result.skippedDecodeError);
-            response.addProperty("timedOut", result.timedOut);
-
-            JsonArray hitsArray = new JsonArray();
-            for (SearchHit hit : result.hits) {
-                hitsArray.add(hit.toJson());
-            }
-            response.add("hits", hitsArray);
-
-            return new McpToolResponse(response, resultVar, null);
+            // Build response based on mode
+            return buildResponse(ctx, result, resultVar);
 
         } catch (FileServiceException e) {
             return errorResponse(e.getMessage() != null ? e.getMessage() : e.getClass().getName(),
@@ -164,6 +160,51 @@ public class SearchFileTool implements McpTool {
             return errorResponse(e.getMessage() != null ? e.getMessage() : e.getClass().getName(),
                     "ToolExecutionError", resultVar);
         }
+    }
+
+    private McpToolResponse buildResponse(SearchContext ctx, SearchResult result, String resultVar) {
+        JsonObject response = new JsonObject();
+        response.addProperty("status", "success");
+        response.addProperty("toolName", "search_file");
+        response.addProperty("mode", ctx.mode.name());
+        response.addProperty("root", ctx.root);
+        response.addProperty("recursive", ctx.recursive);
+        response.addProperty("fileNamePattern", ctx.fileNamePattern);
+        if (ctx.excludeFileNamePattern != null) {
+            response.addProperty("excludeFileNamePattern", ctx.excludeFileNamePattern);
+        }
+        response.addProperty("timedOut", result.timedOut);
+
+        if (ctx.mode == SearchMode.NAME) {
+            // NAME mode: return only paths
+            response.addProperty("fileHitCount", result.hits.size());
+            JsonArray pathsArray = new JsonArray();
+            for (SearchHit hit : result.hits) {
+                pathsArray.add(hit.path);
+            }
+            response.add("paths", pathsArray);
+        } else {
+            // CONTENT or BOTH mode: return full hit details
+            response.addProperty("query", ctx.query);
+            response.addProperty("queryMode", ctx.queryMode.name());
+            response.addProperty("fileHitCount", result.hits.size());
+
+            int totalMatches = 0;
+            for (SearchHit hit : result.hits) {
+                totalMatches += hit.matchCount;
+            }
+            response.addProperty("hitCount", totalMatches);
+            response.addProperty("skippedTooLarge", result.skippedTooLarge);
+            response.addProperty("skippedBinary", result.skippedBinary);
+
+            JsonArray hitsArray = new JsonArray();
+            for (SearchHit hit : result.hits) {
+                hitsArray.add(hit.toJson());
+            }
+            response.add("hits", hitsArray);
+        }
+
+        return new McpToolResponse(response, resultVar, null);
     }
 
     private SearchResult executeSearch(SearchContext ctx) throws FileServiceException {
@@ -213,8 +254,11 @@ public class SearchFileTool implements McpTool {
             return;
         }
 
-        // Compile filename patterns
-        List<Pattern> filePatterns = compileFileNamePatterns(ctx.fileNamePattern, ctx.caseSensitive);
+        // Compile filename patterns (include and exclude)
+        List<Pattern> includePatterns = compileFileNamePatterns(ctx.fileNamePattern, ctx.caseSensitive);
+        List<Pattern> excludePatterns = ctx.excludeFileNamePattern != null
+                ? compileFileNamePatterns(ctx.excludeFileNamePattern, ctx.caseSensitive)
+                : Collections.emptyList();
 
         for (FileNode node : entries) {
             // Check limits
@@ -231,8 +275,9 @@ public class SearchFileTool implements McpTool {
                     searchDirectory(fs, node.getPath(), ctx, result, startTime);
                 }
             } else {
-                // Check if filename matches pattern
-                if (matchesFileNamePattern(node.getName(), filePatterns)) {
+                // Check if filename matches include pattern and not exclude pattern
+                if (matchesFileNamePattern(node.getName(), includePatterns) &&
+                    !matchesFileNamePattern(node.getName(), excludePatterns)) {
                     searchSingleFile(fs, node.getPath(), node.getName(), node.getSize(),
                             node.getLastModifiedMillis(), ctx, result, startTime);
                 }
@@ -249,7 +294,7 @@ public class SearchFileTool implements McpTool {
 
     private void searchSingleFile(FileService fs, String filePath, String fileName, long fileSize,
                                    long lastModified, SearchContext ctx, SearchResult result,
-                                   long startTime) throws FileServiceException {
+                                   long startTime) {
         // Check timeout
         if (isTimedOut(ctx, startTime)) {
             result.timedOut = true;
@@ -270,21 +315,13 @@ public class SearchFileTool implements McpTool {
         boolean nameMatched = false;
         boolean contentMatched = false;
 
-        // NAME search: check if filename/path matches query
-        if (ctx.mode == SearchMode.NAME || ctx.mode == SearchMode.BOTH) {
-            if (ctx.query != null && !ctx.query.isEmpty()) {
-                Pattern queryPattern = compileQueryPattern(ctx.query, ctx.caseSensitive, ctx.regex);
-                if (queryPattern.matcher(filePath).find() || queryPattern.matcher(fileName).find()) {
-                    nameMatched = true;
-                    hit.matchCount++;
-                }
-            } else {
-                // NAME mode without query but with fileNamePattern - already filtered
-                nameMatched = true;
-            }
+        // NAME search: file already matched by pattern, just add it
+        if (ctx.mode == SearchMode.NAME) {
+            nameMatched = true;
+            hit.matchCount = 1;
         }
 
-        // CONTENT search
+        // CONTENT or BOTH search
         if (ctx.mode == SearchMode.CONTENT || ctx.mode == SearchMode.BOTH) {
             // Check file size limit
             if (fileSize > ctx.maxFileSizeBytes) {
@@ -351,7 +388,7 @@ public class SearchFileTool implements McpTool {
             return matches;
         }
 
-        Pattern pattern = compileQueryPattern(ctx.query, ctx.caseSensitive, ctx.regex);
+        Pattern pattern = compileQueryPattern(ctx.query, ctx.caseSensitive, ctx.queryMode == QueryMode.REGEX);
         String[] lines = content.split("\n", -1);
 
         for (int i = 0; i < lines.length && matches.size() < ctx.maxMatchesPerFile; i++) {
@@ -448,6 +485,9 @@ public class SearchFileTool implements McpTool {
     }
 
     private boolean matchesFileNamePattern(String fileName, List<Pattern> patterns) {
+        if (patterns.isEmpty()) {
+            return false;
+        }
         for (Pattern pattern : patterns) {
             if (pattern.matcher(fileName).matches()) {
                 return true;
@@ -495,6 +535,17 @@ public class SearchFileTool implements McpTool {
             return SearchMode.valueOf(modeStr.toUpperCase());
         } catch (IllegalArgumentException e) {
             return SearchMode.CONTENT;
+        }
+    }
+
+    private QueryMode parseQueryMode(String modeStr) {
+        if (modeStr == null || modeStr.isEmpty()) {
+            return QueryMode.PLAIN;
+        }
+        try {
+            return QueryMode.valueOf(modeStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return QueryMode.PLAIN;
         }
     }
 
@@ -550,10 +601,11 @@ public class SearchFileTool implements McpTool {
         final String root;
         final SearchMode mode;
         final String query;
+        final QueryMode queryMode;
         final boolean recursive;
         final String fileNamePattern;
+        final String excludeFileNamePattern;
         final boolean caseSensitive;
-        final boolean regex;
         final int maxHits;
         final int maxMatchesPerFile;
         final long maxFileSizeBytes;
@@ -563,18 +615,19 @@ public class SearchFileTool implements McpTool {
         final boolean includeBinary;
         final long timeoutMs;
 
-        SearchContext(String root, SearchMode mode, String query, boolean recursive,
-                      String fileNamePattern, boolean caseSensitive, boolean regex,
+        SearchContext(String root, SearchMode mode, String query, QueryMode queryMode, boolean recursive,
+                      String fileNamePattern, String excludeFileNamePattern, boolean caseSensitive,
                       int maxHits, int maxMatchesPerFile, long maxFileSizeBytes,
                       boolean includeContext, int contextLines, String encoding,
                       boolean includeBinary, long timeoutMs) {
             this.root = root;
             this.mode = mode;
             this.query = query;
+            this.queryMode = queryMode;
             this.recursive = recursive;
             this.fileNamePattern = fileNamePattern;
+            this.excludeFileNamePattern = excludeFileNamePattern;
             this.caseSensitive = caseSensitive;
-            this.regex = regex;
             this.maxHits = maxHits;
             this.maxMatchesPerFile = maxMatchesPerFile;
             this.maxFileSizeBytes = maxFileSizeBytes;
@@ -605,7 +658,6 @@ public class SearchFileTool implements McpTool {
         JsonObject toJson() {
             JsonObject obj = new JsonObject();
             obj.addProperty("path", path);
-            obj.addProperty("isDirectory", isDirectory);
             obj.addProperty("fileSize", fileSize);
             obj.addProperty("lastModified", lastModified);
             obj.addProperty("matchCount", matchCount);
