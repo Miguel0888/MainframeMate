@@ -368,6 +368,11 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
+    public List<FtpTab> getAllOpenTabs() {
+        return tabManager.getAllOpenTabs();
+    }
+
+    @Override
     public void focusFileTab(Bookmarkable tab) {
         tabManager.focusTabByAdapter(tab);
     }

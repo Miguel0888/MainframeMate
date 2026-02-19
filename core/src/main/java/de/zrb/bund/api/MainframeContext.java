@@ -38,6 +38,12 @@ public interface MainframeContext {
 
     BookmarkManager getBookmarkManager();
     List<Bookmarkable> getAllFileTabs();
+
+    /**
+     * Get all currently open tabs (for attachment selection).
+     */
+    List<FtpTab> getAllOpenTabs();
+
     void focusFileTab(Bookmarkable tab);
 
     void refresh();

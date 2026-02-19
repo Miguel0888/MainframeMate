@@ -126,13 +126,15 @@ public class DocumentPreviewOpener {
                 // Step 5: Open preview tab on EDT
                 LOG.fine("Step 5: Opening preview tab...");
                 List<String> warnings = extractionResult.getWarnings();
+                final Document finalDocument = document;
                 SwingUtilities.invokeLater(() -> {
                     try {
                         DocumentPreviewTab previewTab = new DocumentPreviewTab(
                                 fileName,
                                 markdown,
                                 metadata,
-                                warnings
+                                warnings,
+                                finalDocument
                         );
                         tabbedPaneManager.addTab(previewTab);
                         LOG.info("Preview tab opened for: " + fileName);
@@ -194,6 +196,7 @@ public class DocumentPreviewOpener {
 
                 String markdown = renderUseCase.renderToMarkdown(document);
                 List<String> warnings = extractionResult.getWarnings();
+                final Document finalDocument = document;
 
                 SwingUtilities.invokeLater(() -> {
                     try {
@@ -201,7 +204,8 @@ public class DocumentPreviewOpener {
                                 fileName,
                                 markdown,
                                 metadata,
-                                warnings
+                                warnings,
+                                finalDocument
                         );
                         tabbedPaneManager.addTab(previewTab);
                     } catch (Exception e) {

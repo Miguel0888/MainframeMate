@@ -180,6 +180,10 @@ public class TabbedPaneManager {
         return result;
     }
 
+    public java.util.List<FtpTab> getAllOpenTabs() {
+        return new java.util.ArrayList<>(tabMap.values());
+    }
+
     public void focusTabByAdapter(Bookmarkable tab) {
         if (!(tab instanceof FtpTab)) return;
 

@@ -3,6 +3,11 @@ package de.bund.zrb.ui.components;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import de.bund.zrb.chat.attachment.AttachTabToChatUseCase;
+import de.bund.zrb.chat.attachment.AttachmentContextBuilder;
+import de.bund.zrb.chat.attachment.BuildHiddenContextUseCase;
+import de.bund.zrb.chat.attachment.ChatAttachment;
+import de.bund.zrb.chat.attachment.ChatAttachmentStore;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
@@ -18,6 +23,7 @@ import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.api.MainframeContext;
 import de.bund.zrb.service.McpServiceImpl;
+import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -41,7 +47,9 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -71,6 +79,12 @@ public class ChatSession extends JPanel {
     private final Set<String> toolsUsedInThisChat = new HashSet<>();
     private final Set<String> schemaKnownTools = new HashSet<>();
 
+    // Attachment system
+    private final AttachmentChipsPanel attachmentChipsPanel;
+    private final AttachTabToChatUseCase attachTabUseCase;
+    private final BuildHiddenContextUseCase buildHiddenContextUseCase;
+    private final List<String> currentAttachmentIds = new ArrayList<>();
+
     public ChatSession(MainframeContext mainframeContext, ChatManager chatManager, JCheckBox keepAliveCheckbox, JCheckBox contextMemoryCheckbox) {
         this(mainframeContext, chatManager, keepAliveCheckbox, contextMemoryCheckbox, null);
     }
@@ -85,6 +99,11 @@ public class ChatSession extends JPanel {
         this.mcpService = new McpServiceImpl(ToolRegistryImpl.getInstance(), chatEventBridge);
         this.toolPolicyRepository = new ToolPolicyRepository();
         this.sessionId = UUID.randomUUID();
+
+        // Initialize attachment system
+        this.attachTabUseCase = new AttachTabToChatUseCase();
+        this.buildHiddenContextUseCase = new BuildHiddenContextUseCase();
+        this.attachmentChipsPanel = new AttachmentChipsPanel(this::onAttachmentRemoved);
 
         setLayout(new BorderLayout(4, 4));
 
@@ -129,10 +148,10 @@ public class ChatSession extends JPanel {
         sendButton.setToolTipText("Nachricht senden");
         sendButton.addActionListener(e -> sendMessage());
 
-        JButton attachButton = new JButton("+");
-        attachButton.setToolTipText("Aktiven Tab teilen");
+        JButton attachButton = new JButton("📎");
+        attachButton.setToolTipText("Tab anhängen");
         attachButton.addActionListener(e -> {
-            onAttachContent();
+            showAttachTabDialog();
         });
 
 
@@ -182,9 +201,16 @@ public class ChatSession extends JPanel {
         statusPanel.add(cancelButton, BorderLayout.EAST);
         statusPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
+        // Input panel with attachment chips
         JPanel inputPanel = new JPanel(new BorderLayout(4, 4));
         inputPanel.add(statusPanel, BorderLayout.NORTH);
-        inputPanel.add(inputScroll, BorderLayout.CENTER);
+
+        // Wrapper for input area + attachment chips
+        JPanel inputWrapper = new JPanel(new BorderLayout());
+        inputWrapper.add(attachmentChipsPanel, BorderLayout.NORTH);
+        inputWrapper.add(inputScroll, BorderLayout.CENTER);
+
+        inputPanel.add(inputWrapper, BorderLayout.CENTER);
         inputPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(inputPanel, BorderLayout.SOUTH);
@@ -230,24 +256,73 @@ public class ChatSession extends JPanel {
     }
 
     private void onAttachContent() {
-        maeinframeContext.getSelectedTab().ifPresent(tab -> {
-            String code = tab.getContent();
-            if (code != null && !code.trim().isEmpty()) {
-                String escaped = code.replace("```", "ʼʼʼ"); // Triple backtick schützen
-                String wrapped = "```\n" + escaped + "\n```";
+        // Legacy method - now opens dialog
+        showAttachTabDialog();
+    }
 
-                // Optional: ans Eingabefeld anhängen oder ersetzen
-                inputArea.setText(inputArea.getText().isEmpty()
-                        ? wrapped
-                        : inputArea.getText() + "\n\n" + wrapped);
-                inputArea.requestFocus();
-                inputArea.setCaretPosition(inputArea.getText().length());
+    private void showAttachTabDialog() {
+        // Get available tabs from TabbedPaneManager
+        List<FtpTab> availableTabs = maeinframeContext.getAllOpenTabs();
+
+        if (availableTabs.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Keine Tabs zum Anhängen geöffnet.",
+                    "Keine Tabs", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        AttachTabDialog dialog = new AttachTabDialog(SwingUtilities.getWindowAncestor(this), availableTabs);
+        List<FtpTab> selectedTabs = dialog.showAndGetSelection();
+
+        for (FtpTab tab : selectedTabs) {
+            attachTab(tab);
+        }
+    }
+
+    private void attachTab(FtpTab tab) {
+        if (tab == null) return;
+
+        try {
+            ChatAttachment attachment = attachTabUseCase.execute(tab);
+            if (attachment != null) {
+                currentAttachmentIds.add(attachment.getId());
+                attachmentChipsPanel.addAttachment(attachment);
+                setStatus("📎 Anhang hinzugefügt: " + attachment.getName());
             } else {
                 JOptionPane.showMessageDialog(this,
-                        "Der aktuelle Editor-Tab ist leer oder nicht lesbar.",
-                        "Kein Inhalt", JOptionPane.WARNING_MESSAGE);
+                        "Tab konnte nicht angehängt werden (kein Inhalt).",
+                        "Anhang fehlgeschlagen", JOptionPane.WARNING_MESSAGE);
             }
-        });
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Fehler beim Anhängen:\n" + e.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void onAttachmentRemoved(ChatAttachment attachment) {
+        currentAttachmentIds.remove(attachment.getId());
+        ChatAttachmentStore.getInstance().remove(attachment.getId());
+        setStatus("📎 Anhang entfernt: " + attachment.getName());
+    }
+
+    private String buildHiddenContextFromAttachments() {
+        if (currentAttachmentIds.isEmpty()) {
+            return "";
+        }
+
+        try {
+            AttachmentContextBuilder.BuildResult result = buildHiddenContextUseCase.execute(currentAttachmentIds);
+
+            if (result.hasTruncations()) {
+                setStatus("⚠️ Anhänge wurden gekürzt (Kontextlimit)");
+            }
+
+            return result.getContext();
+        } catch (Exception e) {
+            setStatus("❌ Fehler beim Erstellen des Attachment-Kontexts");
+            return "";
+        }
     }
 
     private void sendMessage() {
@@ -265,12 +340,26 @@ public class ChatSession extends JPanel {
             chatManager.getHistory(sessionId).setSystemPrompt(systemPrompt);
         }
 
+        // Build hidden context from attachments (NOT shown in chat UI)
+        String hiddenContext = buildHiddenContextFromAttachments();
+
         String finalPrompt = buildPromptWithMode(systemPrompt, message, contextMemoryCheckbox.isSelected());
+
+        // Prepend hidden context to the prompt (invisible in UI)
+        if (!hiddenContext.isEmpty()) {
+            finalPrompt = hiddenContext + "\n\n" + finalPrompt;
+        }
 
         awaitingBotResponse = true;
 
-        final String userMessageForHistory = message;
+        final String userMessageForHistory = message; // Only store user message, not hidden context
         final String finalMessage = finalPrompt;
+        final int attachmentCount = currentAttachmentIds.size();
+
+        // Clear attachments after sending
+        currentAttachmentIds.clear();
+        attachmentChipsPanel.clear();
+
         new Thread(() -> {
             try {
                 final StringBuilder currentBotResponse = new StringBuilder();
@@ -279,7 +368,11 @@ public class ChatSession extends JPanel {
                     public void onStreamStart() {
                         SwingUtilities.invokeLater(() -> {
                             Timestamp usrId = chatManager.getHistory(sessionId).addUserMessage(userMessageForHistory);
-                            formatter.appendUserMessage(userMessageForHistory, () -> chatManager.getHistory(sessionId).remove(usrId));
+                            // Show attachment count in UI (but not content)
+                            String displayMessage = attachmentCount > 0
+                                ? userMessageForHistory + "\n\n📎 " + attachmentCount + " Anhang(e)"
+                                : userMessageForHistory;
+                            formatter.appendUserMessage(displayMessage, () -> chatManager.getHistory(sessionId).remove(usrId));
                             inputArea.setText("");
                             formatter.startBotMessage();
                             setStatus("🤖 Bot schreibt...");

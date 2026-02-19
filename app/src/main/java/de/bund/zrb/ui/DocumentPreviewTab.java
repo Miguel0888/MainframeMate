@@ -1,5 +1,7 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.chat.attachment.AttachTabToChatUseCase;
+import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -16,8 +18,9 @@ import java.util.List;
  * Tab for displaying document previews rendered from the Document Model.
  * Stores raw Markdown and renders it as HTML for display.
  * Provides Copy Raw functionality.
+ * Implements DocumentPreviewTabAdapter for attachment support.
  */
-public class DocumentPreviewTab implements ConnectionTab {
+public class DocumentPreviewTab implements ConnectionTab, AttachTabToChatUseCase.DocumentPreviewTabAdapter {
 
     private final JPanel mainPanel;
     private final JEditorPane previewPane;
@@ -26,12 +29,18 @@ public class DocumentPreviewTab implements ConnectionTab {
     private final DocumentMetadata metadata;
     private final List<String> warnings;
     private final ChatMarkdownFormatter formatter;
+    private final Document document;
 
     public DocumentPreviewTab(String sourceName, String rawMarkdown, DocumentMetadata metadata, List<String> warnings) {
+        this(sourceName, rawMarkdown, metadata, warnings, null);
+    }
+
+    public DocumentPreviewTab(String sourceName, String rawMarkdown, DocumentMetadata metadata, List<String> warnings, Document document) {
         this.sourceName = sourceName;
         this.rawMarkdown = rawMarkdown;
         this.metadata = metadata;
         this.warnings = warnings;
+        this.document = document;
         this.formatter = ChatMarkdownFormatter.getInstance();
 
         this.mainPanel = new JPanel(new BorderLayout());
@@ -263,6 +272,7 @@ public class DocumentPreviewTab implements ConnectionTab {
     /**
      * Get the document metadata.
      */
+    @Override
     public DocumentMetadata getMetadata() {
         return metadata;
     }
@@ -270,8 +280,17 @@ public class DocumentPreviewTab implements ConnectionTab {
     /**
      * Get any warnings from extraction.
      */
+    @Override
     public List<String> getWarnings() {
         return warnings;
+    }
+
+    /**
+     * Get the Document model (for attachment support).
+     */
+    @Override
+    public Document getDocument() {
+        return document;
     }
 }
 
