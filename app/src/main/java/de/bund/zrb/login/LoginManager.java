@@ -17,6 +17,15 @@ public class LoginManager {
         RETRY_WITH_NEW_PASSWORD
     }
 
+    /**
+     * Decision for retry after login failure.
+     */
+    public enum RetryDecision {
+        CANCEL,
+        RETRY,
+        RETRY_WITH_NEW_PASSWORD
+    }
+
     private static final LoginManager INSTANCE = new LoginManager();
 
     private boolean loginTemporarilyBlocked = false;

@@ -209,4 +209,14 @@ public class TabbedPaneManager {
             updateTooltipFor(newTab);
         }
     }
+
+    /**
+     * Get the parent frame for dialogs.
+     */
+    public Frame getParentFrame() {
+        if (mainframeContext instanceof Frame) {
+            return (Frame) mainframeContext;
+        }
+        return (Frame) SwingUtilities.getWindowAncestor(tabbedPane);
+    }
 }
