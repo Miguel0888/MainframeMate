@@ -8,9 +8,10 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -296,7 +297,7 @@ public class MvsListingService {
      */
     private List<MvsVirtualResource> buildResourcesFromNames(String[] names, MvsLocation parentLocation,
                                                               AtomicBoolean cancellation) {
-        List<MvsVirtualResource> results = new ArrayList<MvsVirtualResource>();
+        Map<String, MvsVirtualResource> deduped = new LinkedHashMap<String, MvsVirtualResource>();
         String parentUnquoted = MvsQuoteNormalizer.unquote(parentLocation.getLogicalPath()).toUpperCase();
 
         for (String name : names) {
@@ -319,11 +320,14 @@ public class MvsListingService {
 
             MvsLocation childLocation = createChildLocation(parentLocation, trimmed, parentUnquoted);
             if (childLocation != null && !childLocation.equals(parentLocation)) {
-                results.add(MvsVirtualResource.builder(childLocation).build());
+                String key = childLocation.getLogicalPath().toUpperCase();
+                if (!deduped.containsKey(key)) {
+                    deduped.put(key, MvsVirtualResource.builder(childLocation).build());
+                }
             }
         }
 
-        return results;
+        return new ArrayList<MvsVirtualResource>(deduped.values());
     }
 
     /**
@@ -331,7 +335,7 @@ public class MvsListingService {
      */
     private List<MvsVirtualResource> buildResourcesFromFtpFiles(FTPFile[] files, MvsLocation parentLocation,
                                                                  AtomicBoolean cancellation) {
-        List<MvsVirtualResource> results = new ArrayList<MvsVirtualResource>();
+        Map<String, MvsVirtualResource> deduped = new LinkedHashMap<String, MvsVirtualResource>();
         String parentUnquoted = MvsQuoteNormalizer.unquote(parentLocation.getLogicalPath()).toUpperCase();
 
         for (FTPFile file : files) {
@@ -361,6 +365,11 @@ public class MvsListingService {
 
             MvsLocation childLocation = createChildLocation(parentLocation, trimmed, parentUnquoted);
             if (childLocation != null && !childLocation.equals(parentLocation)) {
+                String key = childLocation.getLogicalPath().toUpperCase();
+                if (deduped.containsKey(key)) {
+                    continue;
+                }
+
                 MvsVirtualResource.Builder builder = MvsVirtualResource.builder(childLocation);
 
                 if (file.getSize() >= 0) {
@@ -370,11 +379,11 @@ public class MvsListingService {
                     builder.lastModified(file.getTimestamp().getTimeInMillis());
                 }
 
-                results.add(builder.build());
+                deduped.put(key, builder.build());
             }
         }
 
-        return results;
+        return new ArrayList<MvsVirtualResource>(deduped.values());
     }
 
     /**
@@ -393,6 +402,15 @@ public class MvsListingService {
 
         if (actualName.isEmpty()) {
             return null;
+        }
+
+        if (parent.getType() == MvsLocationType.HLQ) {
+            int dot = actualName.indexOf('.');
+            String nextQualifier = dot >= 0 ? actualName.substring(0, dot) : actualName;
+            if (nextQualifier.isEmpty()) {
+                return null;
+            }
+            return parent.createChild(nextQualifier);
         }
 
         return parent.createChild(actualName);
