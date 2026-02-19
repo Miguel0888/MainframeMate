@@ -367,52 +367,67 @@ public class SettingsDialog {
     private static void createTransformContent(JPanel expertContent) {
         GridBagConstraints gbcTransform = createDefaultGbc();
 
-        // Zeichensatz-Auswahl mit Info-Icon
+        // Zeichensatz-Auswahl mit Info-Icon neben dem Dropdown
+        expertContent.add(new JLabel("Zeichenkodierung:"), gbcTransform);
+        gbcTransform.gridy++;
         encodingCombo = new JComboBox<>();
         List<String> encodings = SettingsHelper.SUPPORTED_ENCODINGS;
         encodings.forEach(encodingCombo::addItem);
         String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
         encodingCombo.setSelectedItem(currentEncoding);
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Zeichenkodierung:",
-                HelpContentProvider.HelpTopic.TRANSFORM_ENCODING);
-        expertContent.add(encodingCombo, gbcTransform);
+        expertContent.add(createFieldWithHelpIcon(encodingCombo,
+                HelpContentProvider.HelpTopic.TRANSFORM_ENCODING), gbcTransform);
         gbcTransform.gridy++;
 
-        // Zeilenumbruch mit Info-Icon
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Zeilenumbruch des Servers:",
-                HelpContentProvider.HelpTopic.TRANSFORM_LINE_ENDING);
+        // Zeilenumbruch mit Info-Icon neben dem Dropdown
+        expertContent.add(new JLabel("Zeilenumbruch des Servers:"), gbcTransform);
+        gbcTransform.gridy++;
         lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
-        expertContent.add(lineEndingBox, gbcTransform);
+        expertContent.add(createFieldWithHelpIcon(lineEndingBox,
+                HelpContentProvider.HelpTopic.TRANSFORM_LINE_ENDING), gbcTransform);
         gbcTransform.gridy++;
 
-        // Checkbox mit Info-Icon
-        JPanel stripNewlinePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // Checkbox mit Info-Icon rechts daneben
         stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden");
         stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
-        stripNewlinePanel.add(stripFinalNewlineBox);
-        HelpButton stripNewlineInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.TRANSFORM_STRIP_NEWLINE);
-        stripNewlinePanel.add(stripNewlineInfoBtn);
-        expertContent.add(stripNewlinePanel, gbcTransform);
+        expertContent.add(createFieldWithHelpIcon(stripFinalNewlineBox,
+                HelpContentProvider.HelpTopic.TRANSFORM_STRIP_NEWLINE), gbcTransform);
         gbcTransform.gridy++;
 
-        // Dateiende mit Info-Icon
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Datei-Ende-Kennung (z. B. FF02, leer = aus):",
-                HelpContentProvider.HelpTopic.TRANSFORM_EOF_MARKER);
+        // Dateiende mit Info-Icon neben dem Dropdown
+        expertContent.add(new JLabel("Datei-Ende-Kennung (z. B. FF02, leer = aus):"), gbcTransform);
+        gbcTransform.gridy++;
         endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
-        expertContent.add(endMarkerBox, gbcTransform);
+        expertContent.add(createFieldWithHelpIcon(endMarkerBox,
+                HelpContentProvider.HelpTopic.TRANSFORM_EOF_MARKER), gbcTransform);
         gbcTransform.gridy++;
 
-        // Padding mit Info-Icon
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Padding Byte (z. B. 00, leer = aus):",
-                HelpContentProvider.HelpTopic.TRANSFORM_PADDING);
+        // Padding mit Info-Icon neben dem Dropdown
+        expertContent.add(new JLabel("Padding Byte (z. B. 00, leer = aus):"), gbcTransform);
+        gbcTransform.gridy++;
         paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
-        expertContent.add(paddingBox, gbcTransform);
+        expertContent.add(createFieldWithHelpIcon(paddingBox,
+                HelpContentProvider.HelpTopic.TRANSFORM_PADDING), gbcTransform);
         gbcTransform.gridy++;
     }
 
     /**
-     * Erstellt ein Label mit Info-Icon für technische Hilfe.
+     * Erstellt ein Panel mit dem Eingabefeld und einem Info-Icon rechts daneben.
      */
+    private static JPanel createFieldWithHelpIcon(JComponent field, HelpContentProvider.HelpTopic helpTopic) {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        panel.add(field);
+        panel.add(Box.createHorizontalStrut(5));
+        HelpButton infoBtn = createInfoHelpButton(helpTopic);
+        panel.add(infoBtn);
+        return panel;
+    }
+
+    /**
+     * Erstellt ein Label mit Info-Icon für technische Hilfe.
+     * @deprecated Verwende createFieldWithHelpIcon() stattdessen
+     */
+    @Deprecated
     private static void addLabelWithInfoIcon(JPanel panel, GridBagConstraints gbc,
                                               String labelText, HelpContentProvider.HelpTopic helpTopic) {
         JPanel labelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -464,47 +479,48 @@ public class SettingsDialog {
         expertContent.add(clearPasswordButton, gbcConnect);
         gbcConnect.gridy++;
 
-        // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE) mit Info-Icons
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Datei-Typ (TYPE):",
-                HelpContentProvider.HelpTopic.FTP_FILE_TYPE);
+        // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE) mit Info-Icons neben Dropdowns
+        expertContent.add(new JLabel("FTP Datei-Typ (TYPE):"), gbcConnect);
+        gbcConnect.gridy++;
         typeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileType.class, settings.ftpFileType, "Standard"
         );
-        expertContent.add(typeBox, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(typeBox,
+                HelpContentProvider.HelpTopic.FTP_FILE_TYPE), gbcConnect);
         gbcConnect.gridy++;
 
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Text-Format (FORMAT):",
-                HelpContentProvider.HelpTopic.FTP_TEXT_FORMAT);
+        expertContent.add(new JLabel("FTP Text-Format (FORMAT):"), gbcConnect);
+        gbcConnect.gridy++;
         formatBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTextFormat.class, settings.ftpTextFormat, "Standard"
         );
-        expertContent.add(formatBox, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(formatBox,
+                HelpContentProvider.HelpTopic.FTP_TEXT_FORMAT), gbcConnect);
         gbcConnect.gridy++;
 
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Dateistruktur (STRUCTURE):",
-                HelpContentProvider.HelpTopic.FTP_FILE_STRUCTURE);
+        expertContent.add(new JLabel("FTP Dateistruktur (STRUCTURE):"), gbcConnect);
+        gbcConnect.gridy++;
         structureBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpFileStructure.class, settings.ftpFileStructure, "Automatisch"
         );
-        expertContent.add(structureBox, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(structureBox,
+                HelpContentProvider.HelpTopic.FTP_FILE_STRUCTURE), gbcConnect);
         gbcConnect.gridy++;
 
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Übertragungsmodus (MODE):",
-                HelpContentProvider.HelpTopic.FTP_TRANSFER_MODE);
+        expertContent.add(new JLabel("FTP Übertragungsmodus (MODE):"), gbcConnect);
+        gbcConnect.gridy++;
         modeBox = ComboBoxHelper.createComboBoxWithNullOption(
                 FtpTransferMode.class, settings.ftpTransferMode, "Standard"
         );
-        expertContent.add(modeBox, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(modeBox,
+                HelpContentProvider.HelpTopic.FTP_TRANSFER_MODE), gbcConnect);
         gbcConnect.gridy++;
 
-        // Hexdump Checkbox mit Info-Icon
-        JPanel hexDumpPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        // Hexdump Checkbox mit Info-Icon rechts daneben
         hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen");
         hexDumpBox.setSelected(settings.enableHexDump);
-        hexDumpPanel.add(hexDumpBox);
-        HelpButton hexDumpInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_HEX_DUMP);
-        hexDumpPanel.add(hexDumpInfoBtn);
-        expertContent.add(hexDumpPanel, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(hexDumpBox,
+                HelpContentProvider.HelpTopic.FTP_HEX_DUMP), gbcConnect);
         gbcConnect.gridy++;
 
         // Trennlinie für Timeouts
@@ -513,28 +529,31 @@ public class SettingsDialog {
         expertContent.add(new JLabel("─── FTP Timeouts (0 = deaktiviert) ───"), gbcConnect);
         gbcConnect.gridy++;
 
-        // Connect Timeout
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Connect Timeout (ms):",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT);
+        // Connect Timeout mit Info-Icon neben dem Spinner
+        expertContent.add(new JLabel("Connect Timeout (ms):"), gbcConnect);
+        gbcConnect.gridy++;
         ftpConnectTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpConnectTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(ftpConnectTimeoutSpinner, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(ftpConnectTimeoutSpinner,
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT), gbcConnect);
         gbcConnect.gridy++;
 
-        // Control Timeout
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Control Timeout (ms):",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONTROL);
+        // Control Timeout mit Info-Icon neben dem Spinner
+        expertContent.add(new JLabel("Control Timeout (ms):"), gbcConnect);
+        gbcConnect.gridy++;
         ftpControlTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpControlTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(ftpControlTimeoutSpinner, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(ftpControlTimeoutSpinner,
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONTROL), gbcConnect);
         gbcConnect.gridy++;
 
-        // Data Timeout
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Data Timeout (ms):",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_DATA);
+        // Data Timeout mit Info-Icon neben dem Spinner
+        expertContent.add(new JLabel("Data Timeout (ms):"), gbcConnect);
+        gbcConnect.gridy++;
         ftpDataTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
                 settings.ftpDataTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(ftpDataTimeoutSpinner, gbcConnect);
+        expertContent.add(createFieldWithHelpIcon(ftpDataTimeoutSpinner,
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_DATA), gbcConnect);
         gbcConnect.gridy++;
     }
 
