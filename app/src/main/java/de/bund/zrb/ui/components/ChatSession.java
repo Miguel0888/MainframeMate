@@ -511,21 +511,61 @@ public class ChatSession extends JPanel {
                 return null;
             }
             JsonObject obj = parsed.getAsJsonObject();
+            JsonObject normalized = normalizeToolCall(obj);
 
-            // Accept both formats:
-            // 1) {"name":"open_file","input":{...}}
-            // 2) {"name":"open_file","tool_input":{...}}
-            // 3) {"name":"open_file","arguments":"{...}"}
-            if (!obj.has("name")) {
+            if (!normalized.has("name")) {
                 return null;
             }
-            if (!obj.has("input") && !obj.has("tool_input") && !obj.has("arguments")) {
+            if (!normalized.has("input") && !normalized.has("tool_input") && !normalized.has("arguments")) {
                 return null;
             }
-            return obj;
+            return normalized;
         } catch (Exception ignore) {
             return null;
         }
+    }
+
+    /**
+     * Normalize permissive model outputs to our canonical call shape.
+     */
+    private JsonObject normalizeToolCall(JsonObject original) {
+        JsonObject obj = original.deepCopy();
+
+        JsonObject argsObj = null;
+        if (obj.has("arguments") && !obj.get("arguments").isJsonNull()) {
+            if (obj.get("arguments").isJsonObject()) {
+                argsObj = obj.getAsJsonObject("arguments");
+            } else if (obj.get("arguments").isJsonPrimitive()) {
+                try {
+                    JsonElement parsedArgs = JsonParser.parseString(obj.get("arguments").getAsString());
+                    if (parsedArgs.isJsonObject()) {
+                        argsObj = parsedArgs.getAsJsonObject();
+                    }
+                } catch (Exception ignore) {
+                    // keep raw arguments
+                }
+            }
+        }
+
+        if ((!obj.has("name") || obj.get("name").isJsonNull() || obj.get("name").getAsString().trim().isEmpty()
+                || "tool_name".equalsIgnoreCase(obj.get("name").getAsString()))
+                && argsObj != null && argsObj.has("name") && !argsObj.get("name").isJsonNull()) {
+            obj.addProperty("name", argsObj.get("name").getAsString());
+        }
+
+        if (!obj.has("input") && !obj.has("tool_input") && argsObj != null) {
+            if (argsObj.has("input") && argsObj.get("input").isJsonObject()) {
+                obj.add("input", argsObj.getAsJsonObject("input"));
+            } else {
+                JsonObject cleanedArgs = argsObj.deepCopy();
+                cleanedArgs.remove("name");
+                if (cleanedArgs.size() > 0) {
+                    obj.add("input", cleanedArgs);
+                }
+            }
+        }
+
+        return obj;
     }
 
     private void streamAssistantFollowUp(String followUpUserText) {
