@@ -516,6 +516,149 @@ public class HelpContentProvider {
                 "<p><b>0 (deaktiviert)</b> für maximale Kompatibilität mit dem " +
                 "bisherigen Verhalten. Nur bei Debugging oder bekannten " +
                 "Hänge-Problemen einen Wert setzen (z.B. 60000ms = 1 Minute).</p>" +
+                "</body></html>"),
+
+        FTP_RETRY_MAX_ATTEMPTS("FTP Retry Max Attempts (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>🔄 Maximale Versuche</h3>" +
+                "<p>Gesamtanzahl der Versuche pro FTP-Operation (inkl. erstem Versuch).</p>" +
+                "<hr>" +
+                "<h4>📍 Verwendung im Code</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// RetryExecutor:\n" +
+                "for (int attempt = 1; attempt &lt;= maxAttempts; attempt++) {\n" +
+                "    try {\n" +
+                "        return operation.call();\n" +
+                "    } catch (Exception e) {\n" +
+                "        if (!policy.shouldRetry(e, attempt)) break;\n" +
+                "    }\n" +
+                "}</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>1</b> – Kein Retry (genau 1 Versuch)</li>" +
+                "<li><b>2</b> – 1 Retry (Standard, wie bisher)</li>" +
+                "<li><b>3</b> – 2 Retries</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>2</b> für normale Nutzung. Bei instabilen VPN-Verbindungen " +
+                "höheren Wert (z.B. 3) verwenden.</p>" +
+                "</body></html>"),
+
+        FTP_RETRY_BACKOFF("FTP Retry Backoff (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>⏳ Wartezeit zwischen Versuchen</h3>" +
+                "<p>Pause vor dem nächsten Versuch bei FIXED oder Basis-Wert bei EXPONENTIAL.</p>" +
+                "<hr>" +
+                "<h4>📍 Berechnung</h4>" +
+                "<pre style='background:#f0f0f0;padding:5px;'>// FIXED:\n" +
+                "delay = backoffMs;\n\n" +
+                "// EXPONENTIAL:\n" +
+                "delay = backoffMs * 2^attemptIndex;\n" +
+                "// z.B. 1000ms: 1s, 2s, 4s, 8s...</pre>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>0</b> – Keine Wartezeit (sofort weiter)</li>" +
+                "<li><b>&gt; 0</b> – Wartezeit in Millisekunden</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>0</b> für schnelle Reaktion. Bei Server-Überlastung " +
+                "Backoff von 1000-5000ms verwenden.</p>" +
+                "</body></html>"),
+
+        FTP_RETRY_STRATEGY("FTP Retry Strategy (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>📈 Backoff-Strategie</h3>" +
+                "<p>Bestimmt, wie die Wartezeit zwischen Versuchen berechnet wird.</p>" +
+                "<hr>" +
+                "<h4>⚙️ Optionen</h4>" +
+                "<ul>" +
+                "<li><b>FIXED</b> – Immer gleiche Wartezeit</li>" +
+                "<li><b>EXPONENTIAL</b> – Verdoppelt sich pro Versuch</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>📍 Beispiel EXPONENTIAL</h4>" +
+                "<p>Mit backoffMs=1000:</p>" +
+                "<ul>" +
+                "<li>Versuch 2: 1000ms warten</li>" +
+                "<li>Versuch 3: 2000ms warten</li>" +
+                "<li>Versuch 4: 4000ms warten</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>FIXED</b> für einfache Fälle. <b>EXPONENTIAL</b> wenn Server " +
+                "bei wiederholten Anfragen überlastet werden könnte.</p>" +
+                "</body></html>"),
+
+        FTP_RETRY_ON_TIMEOUT("FTP Retry bei Timeout (technisch)",
+                "<html><body style='width: 400px; padding: 10px;'>" +
+                "<h3>⏱️ Retry bei Timeout</h3>" +
+                "<p>Ob bei Timeout-Fehlern ein Retry erfolgen soll.</p>" +
+                "<hr>" +
+                "<h4>📍 Geprüfte Exceptions</h4>" +
+                "<ul>" +
+                "<li><code>SocketTimeoutException</code></li>" +
+                "<li><code>InterruptedIOException</code> mit \"timeout\" in Message</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>Aktiviert</b> – Retry bei Timeouts (Standard)</li>" +
+                "<li><b>Deaktiviert</b> – Kein Retry bei Timeouts</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Aktiviert</b> lassen. Timeouts sind oft transient " +
+                "(VPN-Verzögerung, Mainframe-Last).</p>" +
+                "</body></html>"),
+
+        FTP_RETRY_ON_IO("FTP Retry bei IO-Fehlern (technisch)",
+                "<html><body style='width: 420px; padding: 10px;'>" +
+                "<h3>🔌 Retry bei transienten IO-Fehlern</h3>" +
+                "<p>Ob bei Verbindungsfehlern ein Retry erfolgen soll.</p>" +
+                "<hr>" +
+                "<h4>📍 Geprüfte Fehlermeldungen</h4>" +
+                "<ul>" +
+                "<li>Connection reset</li>" +
+                "<li>Broken pipe</li>" +
+                "<li>Connection refused</li>" +
+                "<li>Network is unreachable</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>⚙️ Werte</h4>" +
+                "<ul>" +
+                "<li><b>Aktiviert</b> – Retry bei IO-Fehlern (Standard)</li>" +
+                "<li><b>Deaktiviert</b> – Kein Retry bei IO-Fehlern</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Aktiviert</b> lassen. Verbindungsabbrüche sind oft temporär.</p>" +
+                "</body></html>"),
+
+        FTP_RETRY_ON_CODES("FTP Retry Reply Codes (technisch)",
+                "<html><body style='width: 450px; padding: 10px;'>" +
+                "<h3>📋 FTP Reply Codes für Retry</h3>" +
+                "<p>Kommaseparierte Liste von FTP-Fehlercodes, bei denen ein Retry erfolgen soll.</p>" +
+                "<hr>" +
+                "<h4>📍 Typische Codes</h4>" +
+                "<ul>" +
+                "<li><b>421</b> – Service not available (temporär)</li>" +
+                "<li><b>425</b> – Can't open data connection</li>" +
+                "<li><b>426</b> – Connection closed, transfer aborted</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>⚠️ Nicht retriebar (Beispiele)</h4>" +
+                "<ul>" +
+                "<li><b>530</b> – Not logged in (Authentifizierung)</li>" +
+                "<li><b>550</b> – File not found (permanenter Fehler)</li>" +
+                "<li><b>553</b> – Permission denied</li>" +
+                "</ul>" +
+                "<hr>" +
+                "<h4>💡 Empfehlung</h4>" +
+                "<p><b>Leer lassen</b> für Standard. Bei bekannten temporären " +
+                "Server-Problemen Codes wie <code>421,425,426</code> eintragen.</p>" +
                 "</body></html>");
 
         private final String title;

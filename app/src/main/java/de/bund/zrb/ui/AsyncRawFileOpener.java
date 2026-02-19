@@ -4,16 +4,22 @@ import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.files.path.VirtualResourceRef;
+import de.bund.zrb.files.retry.FtpRetryPolicy;
+import de.bund.zrb.files.retry.RetryExecutor;
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 
 import javax.swing.*;
 import java.awt.*;
-import java.nio.charset.Charset;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Async opener for raw FTP files used by MVS tab.
  * Keeps a reusable FileService session and performs all IO outside EDT.
+ * Uses configurable retry policy from Settings.
  */
 public class AsyncRawFileOpener {
 
@@ -27,6 +33,8 @@ public class AsyncRawFileOpener {
 
     private final Object lock = new Object();
     private FileService openFileService;
+    private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private RetryExecutor currentRetryExecutor;
 
     public AsyncRawFileOpener(TabbedPaneManager tabbedPaneManager,
                               Component parentComponent,
@@ -47,7 +55,18 @@ public class AsyncRawFileOpener {
         });
     }
 
+    /**
+     * Bricht laufende Operationen ab.
+     */
+    public void cancel() {
+        cancelled.set(true);
+        if (currentRetryExecutor != null) {
+            currentRetryExecutor.cancel();
+        }
+    }
+
     public void openAsync(String path, Runnable onStartUi, Runnable onDoneUi) {
+        cancelled.set(false);
         final Window window = SwingUtilities.getWindowAncestor(parentComponent);
         final Cursor originalCursor = window != null ? window.getCursor() : null;
 
@@ -85,16 +104,21 @@ public class AsyncRawFileOpener {
                                 encoding));
 
                 SwingUtilities.invokeLater(() -> tabbedPaneManager.openFileTab(virtualResource, content, null, null, false));
+            } catch (InterruptedException ie) {
+                System.out.println("[AsyncRawFileOpener] cancelled path=" + path);
             } catch (Exception e) {
                 long duration = System.currentTimeMillis() - started;
                 System.err.println("[AsyncRawFileOpener] open failed after " + duration + "ms path=" + path +
                         " error=" + e.getMessage());
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                        parentComponent,
-                        "Datei konnte nicht geöffnet werden:\n" + e.getMessage(),
-                        "Öffnen fehlgeschlagen",
-                        JOptionPane.ERROR_MESSAGE));
+                if (!cancelled.get()) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                            parentComponent,
+                            "Datei konnte nicht geöffnet werden:\n" + e.getMessage(),
+                            "Öffnen fehlgeschlagen",
+                            JOptionPane.ERROR_MESSAGE));
+                }
             } finally {
+                currentRetryExecutor = null;
                 SwingUtilities.invokeLater(() -> {
                     if (window != null && originalCursor != null) {
                         window.setCursor(originalCursor);
@@ -107,22 +131,29 @@ public class AsyncRawFileOpener {
         });
     }
 
-    private FilePayload readWithRetry(String path) throws Exception {
-        Exception last = null;
+    private FilePayload readWithRetry(final String path) throws Exception {
+        // Get retry policy from Settings
+        Settings settings = SettingsHelper.load();
+        FtpRetryPolicy policy = FtpRetryPolicy.fromSettings(settings);
 
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            try {
+        // Log active policy
+        System.out.println("[AsyncRawFileOpener] RetryPolicy: " + policy);
+
+        // Create executor with logging listener
+        RetryExecutor retryExecutor = new RetryExecutor(policy,
+                RetryExecutor.createLoggingListener("readFile(" + path + ")"));
+        currentRetryExecutor = retryExecutor;
+
+        return retryExecutor.execute(new Callable<FilePayload>() {
+            @Override
+            public FilePayload call() throws Exception {
+                if (cancelled.get()) {
+                    throw new InterruptedException("Operation cancelled");
+                }
                 FileService service = getOrCreateService();
-                System.out.println("[AsyncRawFileOpener] read attempt=" + attempt + " path=" + path);
                 return service.readFile(path);
-            } catch (Exception e) {
-                last = e;
-                System.err.println("[AsyncRawFileOpener] read attempt failed=" + attempt + " error=" + e.getMessage());
-                resetService();
             }
-        }
-
-        throw last != null ? last : new IllegalStateException("Unbekannter Fehler beim Datei-Öffnen");
+        }, null);
     }
 
     private FileService getOrCreateService() throws Exception {

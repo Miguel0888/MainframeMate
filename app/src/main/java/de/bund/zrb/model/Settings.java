@@ -53,6 +53,15 @@ public class Settings {
     public int ftpControlTimeoutMs = 0;      // Control socket SO_TIMEOUT in ms (0 = aus)
     public int ftpDataTimeoutMs = 0;         // Data transfer timeout in ms (0 = aus)
 
+    // FTP Retry-Konfiguration
+    public int ftpRetryMaxAttempts = 2;           // Gesamtanzahl Versuche (1 = kein Retry)
+    public int ftpRetryBackoffMs = 0;             // Wartezeit zwischen Versuchen (0 = keine)
+    public String ftpRetryBackoffStrategy = "FIXED"; // FIXED oder EXPONENTIAL
+    public int ftpRetryMaxBackoffMs = 0;          // Max Backoff bei EXPONENTIAL (0 = keine Kappung)
+    public boolean ftpRetryOnTimeout = true;      // Retry bei Timeout-Exceptions
+    public boolean ftpRetryOnTransientIo = true;  // Retry bei transienten IO-Fehlern
+    public String ftpRetryOnReplyCodes = "";      // Kommaseparierte FTP Reply Codes (z.B. "421,425,426")
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";
