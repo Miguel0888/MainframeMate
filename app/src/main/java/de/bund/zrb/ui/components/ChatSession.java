@@ -926,6 +926,10 @@ public class ChatSession extends JPanel {
                 return createErrorResult(null, "Tool-Name fehlt", call);
             }
 
+            if (!isSystemTool(toolName) && !isRegisteredTool(toolName)) {
+                return createUnknownToolResult(toolName, call);
+            }
+
             if (!isSystemTool(toolName)) {
                 ToolPolicy policy = toolPolicyRepository.findByToolName(toolName);
                 if (policy == null || !policy.isEnabled()) {
@@ -965,6 +969,15 @@ public class ChatSession extends JPanel {
 
     private boolean isSystemTool(String toolName) {
         return "describe_tool".equalsIgnoreCase(toolName);
+    }
+
+    private boolean isRegisteredTool(String toolName) {
+        if (toolName == null || toolName.trim().isEmpty()) {
+            return false;
+        }
+        final String targetName = toolName;
+        return ToolRegistryImpl.getInstance().getAllTools().stream()
+                .anyMatch(t -> targetName.equalsIgnoreCase(t.getSpec().getName()));
     }
 
     private JsonObject executeSystemTool(String toolName, JsonObject call) {
@@ -1148,6 +1161,37 @@ public class ChatSession extends JPanel {
         }
         error.addProperty("hint",
                 "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\TEST\"}}."
+        );
+        return error;
+    }
+
+    private JsonObject createUnknownToolResult(String toolName, JsonObject call) {
+        JsonObject error = createErrorResult(toolName, "Tool nicht gefunden: " + toolName, call);
+        error.addProperty("errorType", "ToolNotFound");
+
+        com.google.gson.JsonArray availableTools = new com.google.gson.JsonArray();
+        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
+        for (ToolPolicy policy : toolPolicyRepository.loadAll()) {
+            if (policy == null || !policy.isEnabled() || policy.getToolName() == null || policy.getToolName().trim().isEmpty()) {
+                continue;
+            }
+
+            ToolAccessType accessType = policy.getAccessType() != null
+                    ? policy.getAccessType()
+                    : ToolAccessTypeDefaults.resolveDefault(policy.getToolName());
+            if (resolvedMode.isToolAware() && !resolvedMode.getAllowedToolAccess().contains(accessType)) {
+                continue;
+            }
+
+            if (isRegisteredTool(policy.getToolName())) {
+                availableTools.add(policy.getToolName());
+            }
+        }
+        availableTools.add("describe_tool");
+        error.add("availableTools", availableTools);
+        error.addProperty("hint",
+                "Nutze nur Tools aus availableTools. Wenn unsicher, rufe describe_tool mit detailLevel='schema' auf."
         );
         return error;
     }
