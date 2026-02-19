@@ -27,6 +27,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final TabbedPaneManager tabbedPaneManager;
     private final MvsFtpClient ftpClient;
     private final MvsBrowserController controller;
+    private final AsyncRawFileOpener rawFileOpener;
 
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
@@ -67,6 +68,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<>(listModel);
         fileList.setCellRenderer(new MvsResourceCellRenderer());
+        this.rawFileOpener = new AsyncRawFileOpener(tabbedPaneManager, mainPanel, host, user, password, encoding);
 
         initUI();
     }
@@ -79,14 +81,24 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         refreshButton.setToolTipText("Aktualisieren");
         refreshButton.addActionListener(e -> controller.refresh());
 
+        JButton backButton = new JButton("⏴");
+        backButton.setToolTipText("Zurück zur übergeordneten Ebene");
+        backButton.setMargin(new Insets(0, 0, 0, 0));
+        backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
+        backButton.addActionListener(e -> navigateBack());
+
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> navigateToPath());
 
         pathField.addActionListener(e -> navigateToPath());
 
+        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
+        rightButtons.add(backButton);
+        rightButtons.add(goButton);
+
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
-        pathPanel.add(goButton, BorderLayout.EAST);
+        pathPanel.add(rightButtons, BorderLayout.EAST);
 
         // Overlay setup
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -161,6 +173,15 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         controller.navigateTo(path);
     }
 
+    private void navigateBack() {
+        if (controller.canGoBack()) {
+            hideOverlay();
+            controller.goBack();
+        } else {
+            showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+        }
+    }
+
     private void handleDoubleClick() {
         MvsVirtualResource selected = fileList.getSelectedValue();
         if (selected == null) {
@@ -176,14 +197,24 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     }
 
     private void openMember(MvsVirtualResource resource) {
-        // TODO: Integrate with existing file opening mechanism
-        System.out.println("[MvsConnectionTab] Opening member: " + resource.getOpenPath());
+        String path = resource.getOpenPath();
+        System.out.println("[MvsConnectionTab] Opening resource async: " + path);
 
-        // For now, show message
-        JOptionPane.showMessageDialog(mainPanel,
-                "Öffne: " + resource.getOpenPath(),
-                "Member öffnen",
-                JOptionPane.INFORMATION_MESSAGE);
+        rawFileOpener.openAsync(path,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText("Öffne Datei...");
+                        statusLabel.setForeground(Color.BLUE.darker());
+                    }
+                },
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText(" ");
+                        statusLabel.setForeground(Color.GRAY);
+                    }
+                });
     }
 
     private void applyFilter() {
@@ -223,9 +254,17 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 if (isLoading) {
                     statusLabel.setText(loadedCount + " Einträge, lade...");
                     statusLabel.setForeground(Color.BLUE);
+                    if (loadedCount == 0) {
+                        showOverlayMessage("Lade Einträge...", Color.GRAY);
+                    }
                 } else {
                     statusLabel.setText(loadedCount + " Einträge");
                     statusLabel.setForeground(Color.DARK_GRAY);
+                    if (loadedCount == 0) {
+                        showOverlayMessage("Keine Einträge gefunden", Color.ORANGE.darker());
+                    } else {
+                        hideOverlay();
+                    }
                 }
             }
         });
@@ -303,6 +342,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     @Override
     public void onClose() {
         controller.shutdown();
+        rawFileOpener.shutdown();
         try {
             ftpClient.close();
         } catch (IOException e) {
@@ -369,16 +409,17 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 String icon;
                 switch (resource.getType()) {
                     case HLQ:
-                        icon = "🗂️";
+                    case QUALIFIER_CONTEXT:
+                        icon = "📁";
                         break;
                     case DATASET:
-                        icon = "📁";
+                        icon = "📂";
                         break;
                     case MEMBER:
                         icon = "📄";
                         break;
                     default:
-                        icon = "📦";
+                        icon = "📄";
                 }
 
                 setText(icon + " " + resource.getDisplayName());

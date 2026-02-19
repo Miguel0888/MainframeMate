@@ -21,6 +21,7 @@ public class MvsLoadedModel {
      */
     public interface ModelListener {
         void onItemsAdded(List<MvsVirtualResource> newItems);
+        void onModelCleared();
         void onLoadingStateChanged(boolean isLoading);
         void onError(String message);
     }
@@ -77,6 +78,9 @@ public class MvsLoadedModel {
         items.clear();
         loadedCount = 0;
         loading = false;
+        for (ModelListener listener : listeners) {
+            listener.onModelCleared();
+        }
     }
 
     /**

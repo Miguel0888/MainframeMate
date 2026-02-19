@@ -23,6 +23,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -30,6 +31,10 @@ import java.util.Collections;
 import java.util.List;
 
 public class CommonsNetFtpFileService implements FileService {
+
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final int CONTROL_TIMEOUT_MS = 30_000;
+    private static final int DATA_TIMEOUT_MS = 30_000;
 
     private final FTPClient ftpClient = new FTPClient();
     private final Settings settings;
@@ -100,7 +105,11 @@ public class CommonsNetFtpFileService implements FileService {
     private void connect(String host, String user, String password) throws FileServiceException {
         try {
             ftpClient.setControlEncoding(settings.encoding);
+            ftpClient.setDefaultTimeout(CONNECT_TIMEOUT_MS);
+            ftpClient.setConnectTimeout(CONNECT_TIMEOUT_MS);
             ftpClient.connect(host);
+            ftpClient.setSoTimeout(CONTROL_TIMEOUT_MS);
+            applyDataTimeout(DATA_TIMEOUT_MS);
 
             if (!ftpClient.login(user, password)) {
                 throw new FileServiceException(FileServiceErrorCode.AUTH_FAILED, "FTP login failed");
@@ -125,6 +134,26 @@ public class CommonsNetFtpFileService implements FileService {
                     : mvsMode;
         } catch (IOException e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP connection failed", e);
+        }
+    }
+
+    private void applyDataTimeout(int timeoutMs) {
+        try {
+            Method intMethod = FTPClient.class.getMethod("setDataTimeout", int.class);
+            intMethod.invoke(ftpClient, timeoutMs);
+            return;
+        } catch (Exception ignore) {
+            // try Duration-based API below
+        }
+
+        try {
+            Class<?> durationClass = Class.forName("java.time.Duration");
+            Method ofMillis = durationClass.getMethod("ofMillis", long.class);
+            Object duration = ofMillis.invoke(null, (long) timeoutMs);
+            Method durationMethod = FTPClient.class.getMethod("setDataTimeout", durationClass);
+            durationMethod.invoke(ftpClient, duration);
+        } catch (Exception ignore) {
+            // best effort only
         }
     }
 

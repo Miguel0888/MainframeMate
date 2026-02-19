@@ -54,11 +54,11 @@ public class MvsListingService {
         }
 
         String queryPath = location.getQueryPath();
-        System.out.println("[MvsListingService] Listing: logicalPath=" + location.getLogicalPath() +
-                          ", queryPath=" + queryPath + ", type=" + location.getType());
+        System.out.println("[MvsListingService] Listing: logicalPathValue=" + location.getLogicalPath() +
+                          ", queryPathValue=" + queryPath + ", type=" + location.getType());
 
         // Build query candidates
-        List<String> queryCandidates = buildQueryCandidates(queryPath);
+        List<String> queryCandidates = buildQueryCandidates(location, queryPath);
 
         List<MvsVirtualResource> results = Collections.emptyList();
 
@@ -97,25 +97,46 @@ public class MvsListingService {
     /**
      * Build query candidates to try.
      */
-    private List<String> buildQueryCandidates(String queryPath) {
+    private List<String> buildQueryCandidates(MvsLocation location, String queryPath) {
         List<String> candidates = new ArrayList<String>();
 
+        // For DATASET context prefer explicit member query first.
+        if (location.getType() == MvsLocationType.DATASET) {
+            String memberQuery = toMemberQuery(location.getLogicalPath());
+            if (!memberQuery.isEmpty()) {
+                candidates.add(memberQuery);
+            }
+        }
+
         // Primary: as-is
-        candidates.add(queryPath);
+        if (!candidates.contains(queryPath)) {
+            candidates.add(queryPath);
+        }
 
         // Try uppercase variant
         String unquoted = MvsQuoteNormalizer.unquote(queryPath);
         String uppercase = unquoted.toUpperCase();
         if (!uppercase.equals(unquoted)) {
-            candidates.add(MvsQuoteNormalizer.normalize(uppercase));
+            String normalizedUpper = MvsQuoteNormalizer.normalize(uppercase);
+            if (!candidates.contains(normalizedUpper)) {
+                candidates.add(normalizedUpper);
+            }
         }
 
         // Try unquoted variant (some servers don't like quotes)
-        if (!unquoted.equals(queryPath)) {
+        if (!unquoted.equals(queryPath) && !candidates.contains(unquoted)) {
             candidates.add(unquoted);
         }
 
         return candidates;
+    }
+
+    private String toMemberQuery(String logicalPath) {
+        String unquoted = MvsQuoteNormalizer.unquote(logicalPath);
+        if (unquoted.isEmpty() || unquoted.contains("(")) {
+            return "";
+        }
+        return MvsQuoteNormalizer.normalize(unquoted + "(*)");
     }
 
     /**
@@ -124,7 +145,7 @@ public class MvsListingService {
     private List<MvsVirtualResource> tryNlst(String queryPath, MvsLocation parentLocation,
                                              AtomicBoolean cancellation) {
         try {
-            System.out.println("[MvsListingService] Trying NLST: " + queryPath);
+            System.out.println("[MvsListingService] effectiveCommand=NLST queryPathValue=" + queryPath);
             String[] names = ftpClient.listNames(queryPath);
 
             int replyCode = ftpClient.getReplyCode();
@@ -153,7 +174,7 @@ public class MvsListingService {
                                                    int pageSize, AtomicBoolean cancellation,
                                                    PageCallback callback) {
         try {
-            System.out.println("[MvsListingService] Trying LIST (paged): " + queryPath);
+            System.out.println("[MvsListingService] effectiveCommand=LIST(paged) queryPathValue=" + queryPath);
             FTPListParseEngine engine = ftpClient.initiateListParsing(queryPath);
 
             if (engine == null) {
@@ -201,7 +222,7 @@ public class MvsListingService {
     private List<MvsVirtualResource> tryListRaw(String queryPath, MvsLocation parentLocation,
                                                  AtomicBoolean cancellation) {
         try {
-            System.out.println("[MvsListingService] Trying LIST (raw): " + queryPath);
+            System.out.println("[MvsListingService] effectiveCommand=LIST(raw) queryPathValue=" + queryPath);
             FTPFile[] files = ftpClient.listFiles(queryPath);
 
             if (files == null || files.length == 0) {
@@ -404,13 +425,47 @@ public class MvsListingService {
             return null;
         }
 
-        if (parent.getType() == MvsLocationType.HLQ) {
+        if (parent.getType() == MvsLocationType.HLQ || parent.getType() == MvsLocationType.QUALIFIER_CONTEXT) {
             int dot = actualName.indexOf('.');
-            String nextQualifier = dot >= 0 ? actualName.substring(0, dot) : actualName;
-            if (nextQualifier.isEmpty()) {
-                return null;
+            if (dot >= 0) {
+                String nextQualifier = actualName.substring(0, dot);
+                if (nextQualifier.isEmpty()) {
+                    return null;
+                }
+                return parent.createChild(nextQualifier);
             }
-            return parent.createChild(nextQualifier);
+
+            String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
+            if (parentPath.isEmpty()) {
+                return MvsLocation.dataset(actualName);
+            }
+            return MvsLocation.dataset(parentPath + "." + actualName);
+        }
+
+        if (parent.getType() == MvsLocationType.DATASET) {
+            String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
+
+            // Member entry in fully qualified format: PDS(MEMBER)
+            if (unquotedChildUpper.startsWith(parentUnquoted + "(") && unquotedChild.endsWith(")")) {
+                int open = unquotedChild.indexOf('(');
+                int close = unquotedChild.lastIndexOf(')');
+                if (open > 0 && close > open + 1) {
+                    String memberName = unquotedChild.substring(open + 1, close);
+                    return MvsLocation.member(parentPath + "(" + memberName + ")");
+                }
+            }
+
+            boolean isQualifiedChild = !parentUnquoted.isEmpty() &&
+                    unquotedChildUpper.startsWith(parentUnquoted + ".");
+
+            if (isQualifiedChild) {
+                int dot = actualName.indexOf('.');
+                String nextQualifier = dot >= 0 ? actualName.substring(0, dot) : actualName;
+                if (nextQualifier.isEmpty()) {
+                    return null;
+                }
+                return MvsLocation.dataset(parentPath + "." + nextQualifier);
+            }
         }
 
         return parent.createChild(actualName);

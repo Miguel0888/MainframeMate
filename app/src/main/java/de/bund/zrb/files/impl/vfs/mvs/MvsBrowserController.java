@@ -1,6 +1,8 @@
 package de.bund.zrb.files.impl.vfs.mvs;
 
 import javax.swing.*;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -32,6 +34,8 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
     private final List<BrowserListener> listeners = new CopyOnWriteArrayList<BrowserListener>();
 
     private MvsLocation currentLocation;
+    private final Deque<MvsLocation> backStack = new ArrayDeque<MvsLocation>();
+    private final Deque<MvsLocation> forwardStack = new ArrayDeque<MvsLocation>();
 
     public MvsBrowserController(MvsFtpClient ftpClient) {
         this.ftpClient = ftpClient;
@@ -72,12 +76,24 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
      * Navigate to a location.
      */
     public void navigateTo(MvsLocation location) {
+        navigateTo(location, true);
+    }
+
+    private void navigateTo(MvsLocation location, boolean trackHistory) {
         System.out.println("[MvsBrowserController] Navigating to: " + location);
+
+        if (location == null) {
+            location = MvsLocation.root();
+        }
+
+        if (trackHistory && currentLocation != null && !currentLocation.equals(location)) {
+            backStack.push(currentLocation);
+            forwardStack.clear();
+        }
 
         currentLocation = location;
 
         if (location.getType() == MvsLocationType.ROOT) {
-            // ROOT - show hint
             model.clear();
             notifyStatus("Bitte HLQ eingeben (z.B. USERID)");
             notifyViewModelChanged();
@@ -85,12 +101,10 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
         }
 
         if (location.getType() == MvsLocationType.MEMBER) {
-            // MEMBER - this should open the file, not list
             notifyStatus("Member kann nicht aufgelistet werden");
             return;
         }
 
-        // HLQ or DATASET - load children
         pageLoader.loadChildren(location);
     }
 
@@ -107,10 +121,16 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
 
         switch (location.getType()) {
             case HLQ:
-            case DATASET:
-                // Navigate into it
+            case QUALIFIER_CONTEXT:
                 navigateTo(location);
                 return true;
+
+            case DATASET:
+                if (ftpClient.isLikelyPartitionedDataset(location)) {
+                    navigateTo(location);
+                    return true;
+                }
+                return false;
 
             case MEMBER:
                 // Open as file
@@ -121,12 +141,44 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
         }
     }
 
+    public boolean canGoBack() {
+        return !backStack.isEmpty();
+    }
+
+    public boolean canGoForward() {
+        return !forwardStack.isEmpty();
+    }
+
+    public void goBack() {
+        if (backStack.isEmpty()) {
+            return;
+        }
+
+        if (currentLocation != null) {
+            forwardStack.push(currentLocation);
+        }
+
+        navigateTo(backStack.pop(), false);
+    }
+
+    public void goForward() {
+        if (forwardStack.isEmpty()) {
+            return;
+        }
+
+        if (currentLocation != null) {
+            backStack.push(currentLocation);
+        }
+
+        navigateTo(forwardStack.pop(), false);
+    }
+
     /**
      * Refresh current listing.
      */
     public void refresh() {
         if (currentLocation != null) {
-            navigateTo(currentLocation);
+            navigateTo(currentLocation, false);
         }
     }
 
@@ -185,6 +237,11 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
     @Override
     public void onItemsAdded(List<MvsVirtualResource> newItems) {
         // Notify UI that view model may have changed
+        notifyViewModelChanged();
+    }
+
+    @Override
+    public void onModelCleared() {
         notifyViewModelChanged();
     }
 
