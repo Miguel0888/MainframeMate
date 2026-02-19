@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.util;
 
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
 import de.bund.zrb.model.Settings;
 import org.jetbrains.annotations.NotNull;
 
@@ -368,9 +369,36 @@ public class ChatFormatter {
         Settings settings = SettingsHelper.load();
         String fontName = settings.aiConfig.getOrDefault("editor.font", "SansSerif");
         int fontSize = Integer.parseInt(settings.aiConfig.getOrDefault("editor.fontSize", "16"));
+
+        // CSS for proper Markdown rendering: tables, code, headings, etc.
+        String css = String.format(
+                "body { font-family: %s; font-size: %dpx; margin: 0; padding: 0; line-height: 1.4; } " +
+                "p { margin: 4px 0; } " +
+                "h1 { font-size: 1.5em; margin: 8px 0 4px 0; font-weight: bold; } " +
+                "h2 { font-size: 1.3em; margin: 6px 0 4px 0; font-weight: bold; } " +
+                "h3 { font-size: 1.1em; margin: 4px 0 2px 0; font-weight: bold; } " +
+                "h4, h5, h6 { font-size: 1em; margin: 4px 0 2px 0; font-weight: bold; } " +
+                "table { border-collapse: collapse; margin: 8px 0; width: 100%%; } " +
+                "th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; } " +
+                "th { background-color: #f0f0f0; font-weight: bold; } " +
+                "tr:nth-child(even) { background-color: #fafafa; } " +
+                "pre { background-color: #f5f5f5; padding: 8px; border-radius: 4px; border: 1px solid #ddd; " +
+                "      font-family: monospace; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto; } " +
+                "code { background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; font-family: monospace; } " +
+                "pre code { background-color: transparent; padding: 0; } " +
+                "blockquote { border-left: 3px solid #ccc; margin: 8px 0; padding-left: 12px; color: #666; } " +
+                "ul, ol { margin: 4px 0; padding-left: 24px; } " +
+                "li { margin: 2px 0; } " +
+                "a { color: #0066cc; } " +
+                "hr { border: none; border-top: 1px solid #ccc; margin: 8px 0; } " +
+                "strong, b { font-weight: bold; } " +
+                "em, i { font-style: italic; }",
+                fontName, fontSize
+        );
+
         return String.format(
-                "<html><body style='font-family:%s; font-size:%dpx; margin:0; text-align:left;'>%s</body></html>",
-                fontName, fontSize, html
+                "<html><head><style>%s</style></head><body>%s</body></html>",
+                css, html
         );
     }
 

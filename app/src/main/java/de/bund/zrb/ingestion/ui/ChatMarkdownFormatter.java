@@ -47,6 +47,39 @@ public class ChatMarkdownFormatter {
     }
 
     /**
+     * Static convenience method for formatting Markdown to HTML.
+     * Used by ChatFormatter for compatibility.
+     *
+     * @param markdown the raw Markdown text
+     * @return HTML string for display
+     */
+    public static String format(String markdown) {
+        String html = INSTANCE.renderToHtml(markdown);
+        // Allow controlled <br> tags in the output
+        // The user/bot may have typed <br> which got escaped to &lt;br&gt;
+        // We normalize these back to <br/> for line breaks
+        html = normalizeBreakTags(html);
+        return html;
+    }
+
+    /**
+     * Normalize escaped <br> tags back to actual line breaks.
+     * Only allows &lt;br&gt;, &lt;br/&gt;, &lt;br /&gt; to become <br/>.
+     * This is a controlled exception to the HTML escaping.
+     */
+    private static String normalizeBreakTags(String html) {
+        if (html == null) return "";
+        // Normalize various escaped br tag forms to <br/>
+        return html
+                .replace("&lt;br&gt;", "<br/>")
+                .replace("&lt;br/&gt;", "<br/>")
+                .replace("&lt;br /&gt;", "<br/>")
+                .replace("&lt;BR&gt;", "<br/>")
+                .replace("&lt;BR/&gt;", "<br/>")
+                .replace("&lt;BR /&gt;", "<br/>");
+    }
+
+    /**
      * Render Markdown to HTML for display.
      * The input Markdown is preserved for copy functionality.
      *
