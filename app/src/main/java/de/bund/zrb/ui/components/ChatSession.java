@@ -847,10 +847,7 @@ public class ChatSession extends JPanel {
                 aggregated.add("results", arr);
 
                 chatManager.getHistory(sessionId).addToolMessage(
-                        "TOOL_RESULTS
-```json
-" + aggregated.toString() + "
-```"
+                        "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
                 );
 
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
