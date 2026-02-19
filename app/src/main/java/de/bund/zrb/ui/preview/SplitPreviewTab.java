@@ -45,7 +45,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             "java", "py", "js", "ts", "c", "cpp", "h", "hpp", "go", "rb", "php",
             "sql", "sh", "bash", "bat", "cmd", "ps1", "groovy", "gradle", "scala",
             "kotlin", "kt", "lua", "perl", "pl", "json", "xml", "yml", "yaml",
-            "properties", "ini", "csv", "css"
+            "properties", "ini", "csv", "css",
+            // Mainframe languages
+            "jcl", "proc", "prc", "cbl", "cob", "cobol"
     ));
 
     // Document extensions that need HTML rendering (Markdown, etc.)
@@ -62,7 +64,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected static final Set<String> TEXT_EXTENSIONS = new HashSet<>(Arrays.asList(
             "txt", "md", "json", "yml", "yaml", "properties", "ini", "conf", "cfg",
             "xml", "csv", "log", "java", "py", "js", "ts", "html", "css", "sql",
-            "sh", "bat", "ps1", "rb", "php", "c", "cpp", "h", "hpp", "go"
+            "sh", "bat", "ps1", "rb", "php", "c", "cpp", "h", "hpp", "go",
+            // Mainframe languages
+            "jcl", "proc", "prc", "cbl", "cob", "cobol"
     ));
 
     // Extension to RSyntaxTextArea syntax style mapping
@@ -105,7 +109,18 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         SYNTAX_STYLES.put("lua", SyntaxConstants.SYNTAX_STYLE_LUA);
         SYNTAX_STYLES.put("perl", SyntaxConstants.SYNTAX_STYLE_PERL);
         SYNTAX_STYLES.put("pl", SyntaxConstants.SYNTAX_STYLE_PERL);
+        // Mainframe languages
+        SYNTAX_STYLES.put("cbl", SyntaxConstants.SYNTAX_STYLE_NONE); // COBOL - no native support
+        SYNTAX_STYLES.put("cob", SyntaxConstants.SYNTAX_STYLE_NONE);
+        SYNTAX_STYLES.put("cobol", SyntaxConstants.SYNTAX_STYLE_NONE);
+        SYNTAX_STYLES.put("jcl", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE); // JCL - use properties as approximation
+        SYNTAX_STYLES.put("proc", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE); // JCL PROC
+        SYNTAX_STYLES.put("prc", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);  // JCL PROC variant
     }
+
+    // JCL detection patterns - JCL typically starts with // in columns 1-2
+    private static final String JCL_PATTERN_START = "//";
+    private static final String[] JCL_KEYWORDS = {"JOB", "EXEC", "DD", "PROC", "PEND", "SET", "JCLLIB", "INCLUDE"};
 
     protected final String sourceName;
     protected final String sourcePath;
@@ -202,10 +217,18 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Check if file is source code (uses RSyntaxTextArea with highlighting for RENDERED view)
+     * Also detects Mainframe languages (JCL, COBOL) by content analysis.
      */
     protected boolean isSourceCodeFile(String name) {
         String ext = getExtension(name);
-        return ext != null && SOURCE_CODE_EXTENSIONS.contains(ext);
+        if (ext != null && SOURCE_CODE_EXTENSIONS.contains(ext)) {
+            return true;
+        }
+        // For files without extension (common on Mainframe), check content
+        if (rawContent != null && !rawContent.isEmpty()) {
+            return isJclContent(rawContent) || isCobolContent(rawContent);
+        }
+        return false;
     }
 
     /**
@@ -261,7 +284,76 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             String style = SYNTAX_STYLES.get(ext);
             if (style != null) return style;
         }
+        // No extension match - try content-based detection
+        return detectSyntaxStyleByContent();
+    }
+
+    /**
+     * Detect syntax style by analyzing file content.
+     * Used for Mainframe files without extensions (JCL, COBOL, etc.)
+     */
+    protected String detectSyntaxStyleByContent() {
+        if (rawContent == null || rawContent.isEmpty()) {
+            return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+
+        // Check for JCL: lines starting with // followed by JCL keywords
+        if (isJclContent(rawContent)) {
+            return SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE; // Best available approximation
+        }
+
+        // Check for COBOL: look for IDENTIFICATION DIVISION, PROCEDURE DIVISION, etc.
+        if (isCobolContent(rawContent)) {
+            return SyntaxConstants.SYNTAX_STYLE_NONE; // No native COBOL support
+        }
+
         return SyntaxConstants.SYNTAX_STYLE_NONE;
+    }
+
+    /**
+     * Detect if content is JCL (Job Control Language).
+     * JCL characteristics:
+     * - Lines start with // in columns 1-2
+     * - Contains JCL keywords like JOB, EXEC, DD, PROC
+     * - Comments start with //*
+     */
+    protected boolean isJclContent(String content) {
+        if (content == null || content.length() < 3) return false;
+
+        String[] lines = content.split("\\r?\\n", 20); // Check first 20 lines
+        int jclLineCount = 0;
+        int jclKeywordCount = 0;
+
+        for (String line : lines) {
+            if (line.startsWith(JCL_PATTERN_START)) {
+                jclLineCount++;
+                // Check for JCL keywords
+                String upperLine = line.toUpperCase();
+                for (String keyword : JCL_KEYWORDS) {
+                    if (upperLine.contains(" " + keyword + " ") ||
+                        upperLine.contains(" " + keyword + ",") ||
+                        upperLine.contains("//" + keyword + " ")) {
+                        jclKeywordCount++;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Consider it JCL if most lines start with // and at least one JCL keyword found
+        return jclLineCount >= 2 && jclKeywordCount >= 1;
+    }
+
+    /**
+     * Detect if content is COBOL.
+     */
+    protected boolean isCobolContent(String content) {
+        if (content == null) return false;
+        String upper = content.toUpperCase();
+        return upper.contains("IDENTIFICATION DIVISION") ||
+               upper.contains("PROCEDURE DIVISION") ||
+               upper.contains("DATA DIVISION") ||
+               upper.contains("WORKING-STORAGE SECTION");
     }
 
     /**
