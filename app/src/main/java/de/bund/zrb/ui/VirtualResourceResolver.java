@@ -5,7 +5,6 @@ import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.impl.auth.LoginManagerCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
-import de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService;
 import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
@@ -16,12 +15,24 @@ public class VirtualResourceResolver {
     public VirtualResource resolve(String rawPath) throws FileServiceException {
         VirtualResourceRef ref = VirtualResourceRef.of(rawPath);
 
+        // Check for explicit FTP prefix first (e.g. "ftp:/", "ftp:/dir/file.txt")
+        if (ref.isFtpPath()) {
+            String ftpPath = ref.getFtpPath();
+            Settings settings = SettingsHelper.load();
+            ConnectionId connectionId = new ConnectionId("ftp", settings.host, settings.user);
+
+            VirtualResourceKind kind = resolveKindFtp(ftpPath, connectionId);
+            FtpResourceState ftpState = new FtpResourceState(connectionId, lastMvsMode, lastSystemType, settings.encoding);
+            return new VirtualResource(ref, kind, ftpPath, VirtualBackendType.FTP, ftpState);
+        }
+
         if (ref.isFileUri() || ref.isLocalAbsolutePath()) {
             String localPath = toLocalPath(ref);
             VirtualResourceKind kind = resolveKindLocal(localPath);
             return new VirtualResource(ref, kind, localPath, VirtualBackendType.LOCAL, null);
         }
 
+        // Default: treat as FTP path (legacy behavior for non-prefixed paths like relative FTP paths)
         String ftpPath = rawPath == null ? "" : rawPath.trim();
         Settings settings = SettingsHelper.load();
         ConnectionId connectionId = new ConnectionId("ftp", settings.host, settings.user);

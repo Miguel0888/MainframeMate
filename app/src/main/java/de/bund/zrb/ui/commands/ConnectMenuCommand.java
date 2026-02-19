@@ -21,14 +21,14 @@ public class ConnectMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Neue Verbindung...";
+        return "FTP-Verbindung...";
     }
 
     @Override
     public void perform() {
-        // Open default FTP root via VirtualResourceOpener path
+        // Open FTP root via explicit ftp: prefix to avoid confusion with local "/" on Unix
         if (parent instanceof MainFrame) {
-            ((MainFrame) parent).openFileOrDirectory("/");
+            ((MainFrame) parent).openFileOrDirectory("ftp:/");
             return;
         }
 

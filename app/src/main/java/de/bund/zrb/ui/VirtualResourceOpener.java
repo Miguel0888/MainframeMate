@@ -46,15 +46,35 @@ public final class VirtualResourceOpener {
                 (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
         );
 
-        try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
+        FileService fs = null;
+        try {
+            fs = new FileServiceFactory().create(resource, credentialsProvider);
+
             if (resource.getKind() == VirtualResourceKind.DIRECTORY) {
+                // IMPORTANT: For directory tabs, DO NOT close FileService here!
+                // The tab owns the FileService and will close it in onClose().
                 return openDirectory(resource, fs, searchPattern);
             } else {
-                return openFile(resource, fs, sentenceType, searchPattern, toCompare);
+                // For file tabs, we can close after reading
+                try {
+                    return openFile(resource, fs, sentenceType, searchPattern, toCompare);
+                } finally {
+                    closeQuietly(fs);
+                }
             }
         } catch (Exception e) {
             System.err.println("[VirtualResourceOpener] open failed: " + e.getMessage());
+            closeQuietly(fs);
             return null;
+        }
+    }
+
+    private void closeQuietly(FileService fs) {
+        if (fs != null) {
+            try {
+                fs.close();
+            } catch (Exception ignored) {
+            }
         }
     }
 
