@@ -391,6 +391,13 @@ public class MainFrame extends JFrame implements MainframeContext {
         // ToDo: And mayby active tabs too..
     }
 
+    /**
+     * Get the right drawer for outline updates etc.
+     */
+    public RightDrawer getRightDrawer() {
+        return rightDrawer;
+    }
+
     private void restoreWindowState() {
         Settings settings = SettingsHelper.load();
         Map<String, String> state = settings.applicationState;

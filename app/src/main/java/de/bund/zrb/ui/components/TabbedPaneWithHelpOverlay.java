@@ -98,6 +98,10 @@ public class TabbedPaneWithHelpOverlay extends JPanel {
         return tabbedPane.getTabCount();
     }
 
+    public String getTitleAt(int index) {
+        return tabbedPane.getTitleAt(index);
+    }
+
     public void setSelectedIndex(int index) {
         tabbedPane.setSelectedIndex(index);
     }

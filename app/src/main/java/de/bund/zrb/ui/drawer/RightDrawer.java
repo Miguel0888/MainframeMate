@@ -2,6 +2,7 @@ package de.bund.zrb.ui.drawer;
 
 import de.bund.zrb.ui.components.Chat;
 import de.bund.zrb.ui.components.HelpButton;
+import de.bund.zrb.ui.components.JclOutlinePanel;
 import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
 import de.bund.zrb.ui.components.WorkflowPanel;
 import de.bund.zrb.ui.help.HelpContentProvider;
@@ -23,6 +24,8 @@ public class RightDrawer extends JPanel {
     private final ToolRegistry toolRegistry;
     private final McpService mcpService;
     private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
+
+    private final JclOutlinePanel outlinePanel;
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
@@ -51,7 +54,11 @@ public class RightDrawer extends JPanel {
 
         add(tabbedPane, BorderLayout.CENTER);
 
+        // Initialize outline panel
+        outlinePanel = new JclOutlinePanel();
+
         addWorkflowTab();
+        addOutlineTab();
         addChatTab();
     }
 
@@ -67,6 +74,10 @@ public class RightDrawer extends JPanel {
         tabbedPane.addTab("📋 Workflow", workflowPanel);
     }
 
+    private void addOutlineTab() {
+        tabbedPane.addTab("📑 Outline", outlinePanel);
+    }
+
     private void addChatTab() {
         // Bridge is optional; if not provided, tool events simply won't be displayed.
         Chat chatPanel = new Chat(mainframeContext, chatManager, chatEventBridge);
@@ -78,6 +89,44 @@ public class RightDrawer extends JPanel {
         if (keepAliveCheckbox != null && contextMemoryCheckbox != null) {
             state.put("chat.keepAlive", String.valueOf(keepAliveCheckbox.isSelected()));
             state.put("chat.rememberContext", String.valueOf(contextMemoryCheckbox.isSelected()));
+        }
+    }
+
+    /**
+     * Update the JCL outline panel with content from a file.
+     * Call this when a JCL file is opened or its content changes.
+     */
+    public void updateJclOutline(String jclContent, String sourceName) {
+        if (outlinePanel != null) {
+            outlinePanel.setContent(jclContent, sourceName);
+        }
+    }
+
+    /**
+     * Clear the JCL outline panel.
+     */
+    public void clearJclOutline() {
+        if (outlinePanel != null) {
+            outlinePanel.clear();
+        }
+    }
+
+    /**
+     * Get the JCL outline panel for external configuration.
+     */
+    public JclOutlinePanel getOutlinePanel() {
+        return outlinePanel;
+    }
+
+    /**
+     * Switch to the Outline tab.
+     */
+    public void showOutlineTab() {
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            if (tabbedPane.getTitleAt(i).contains("Outline")) {
+                tabbedPane.setSelectedIndex(i);
+                break;
+            }
         }
     }
 }

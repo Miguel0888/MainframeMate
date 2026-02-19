@@ -2,13 +2,17 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ui.components.HelpButton;
 import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
+import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.help.HelpContentProvider;
+import de.bund.zrb.ui.preview.SplitPreviewTab;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -33,6 +37,14 @@ public class TabbedPaneManager {
                         (Component) e.getSource(),
                         HelpContentProvider.HelpTopic.MAIN_TABS));
         tabbedPaneWrapper.setHelpComponent(helpButton);
+
+        // Tab change listener for JCL outline updates
+        tabbedPane.addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                updateJclOutlineForSelectedTab();
+            }
+        });
 
         tabbedPane.addMouseListener(new MouseAdapter() {
             @Override
@@ -231,5 +243,111 @@ public class TabbedPaneManager {
             return (Frame) mainframeContext;
         }
         return (Frame) SwingUtilities.getWindowAncestor(tabbedPane);
+    }
+
+    /**
+     * Update JCL outline panel when a tab is selected.
+     * Detects if the selected tab contains JCL content and updates the outline.
+     */
+    private void updateJclOutlineForSelectedTab() {
+        // Get RightDrawer from MainFrame
+        if (!(mainframeContext instanceof MainFrame)) {
+            return;
+        }
+
+        MainFrame mainFrame = (MainFrame) mainframeContext;
+        RightDrawer rightDrawer = mainFrame.getRightDrawer();
+        if (rightDrawer == null) {
+            return;
+        }
+
+        Component selected = tabbedPane.getSelectedComponent();
+        if (selected == null) {
+            rightDrawer.clearJclOutline();
+            return;
+        }
+
+        FtpTab tab = tabMap.get(selected);
+        if (tab == null) {
+            rightDrawer.clearJclOutline();
+            return;
+        }
+
+        // Get content and source name
+        String content = null;
+        String sourceName = null;
+
+        if (tab instanceof FileTabImpl) {
+            FileTabImpl fileTab = (FileTabImpl) tab;
+            content = fileTab.getContent();
+            sourceName = fileTab.getPath();
+        } else if (tab instanceof SplitPreviewTab) {
+            SplitPreviewTab previewTab = (SplitPreviewTab) tab;
+            content = previewTab.getContent();
+            sourceName = previewTab.getPath();
+        }
+
+        if (content == null || content.isEmpty()) {
+            rightDrawer.clearJclOutline();
+            return;
+        }
+
+        // Check if content looks like JCL
+        if (isJclContent(content)) {
+            rightDrawer.updateJclOutline(content, sourceName);
+
+            // Set up line navigator to jump to line in editor
+            rightDrawer.getOutlinePanel().setLineNavigator(lineNumber -> {
+                navigateToLine(tab, lineNumber);
+            });
+        } else {
+            rightDrawer.clearJclOutline();
+        }
+    }
+
+    /**
+     * Check if content looks like JCL.
+     */
+    private boolean isJclContent(String content) {
+        if (content == null || content.length() < 3) return false;
+
+        String[] lines = content.split("\\r?\\n", 20);
+        int jclLineCount = 0;
+
+        for (String line : lines) {
+            if (line.startsWith("//")) {
+                jclLineCount++;
+            }
+        }
+
+        // Consider it JCL if at least 2 lines start with //
+        return jclLineCount >= 2;
+    }
+
+    /**
+     * Navigate to a specific line in the tab's editor.
+     */
+    private void navigateToLine(FtpTab tab, int lineNumber) {
+        try {
+            if (tab instanceof FileTabImpl) {
+                FileTabImpl fileTab = (FileTabImpl) tab;
+                org.fife.ui.rsyntaxtextarea.RSyntaxTextArea textArea = fileTab.getRawPane();
+                if (textArea != null) {
+                    int offset = textArea.getLineStartOffset(lineNumber - 1);
+                    textArea.setCaretPosition(offset);
+                    textArea.requestFocusInWindow();
+                }
+            } else if (tab instanceof SplitPreviewTab) {
+                SplitPreviewTab previewTab = (SplitPreviewTab) tab;
+                org.fife.ui.rsyntaxtextarea.RSyntaxTextArea textArea = previewTab.getRawPane();
+                if (textArea != null) {
+                    int offset = textArea.getLineStartOffset(lineNumber - 1);
+                    textArea.setCaretPosition(offset);
+                    textArea.requestFocusInWindow();
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Could not navigate to line " + lineNumber + ": " + e.getMessage());
+        }
     }
 }

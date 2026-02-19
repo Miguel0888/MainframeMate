@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'com.github.johnrengelman.shadow' version '7.1.2'
     id 'application'
+    id 'antlr'
 }
 
 repositories {
@@ -74,6 +75,10 @@ dependencies {
     implementation 'org.apache.lucene:lucene-core:8.11.3'
     implementation 'org.apache.lucene:lucene-queryparser:8.11.3'
     implementation 'org.apache.lucene:lucene-analyzers-common:8.11.3'
+
+    // ANTLR for JCL parsing (4.9.3 = last Java 8 compatible version)
+    antlr 'org.antlr:antlr4:4.9.3'
+    implementation 'org.antlr:antlr4-runtime:4.9.3'
 }
 
 shadowJar {
@@ -87,6 +92,22 @@ application {
 test {
     useJUnitPlatform()
 }
+
+// ANTLR configuration
+generateGrammarSource {
+    arguments += ['-visitor', '-listener', '-package', 'de.bund.zrb.jcl.parser']
+    outputDirectory = file("${project.buildDir}/generated-src/antlr/main/de/bund/zrb/jcl/parser")
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "${project.buildDir}/generated-src/antlr/main"
+        }
+    }
+}
+
+compileJava.dependsOn generateGrammarSource
 
 tasks.named('build') {
     dependsOn ':plugins:excelimport:copyToAppPlugins'
