@@ -210,7 +210,8 @@ public final class MvsLocation {
 
     @Override
     public String toString() {
-        return "MvsLocation{type=" + type + ", logical='" + logicalPath + "', display='" + displayName + "'}";
+        // Don't wrap logicalPath in quotes since it's already quoted internally
+        return "MvsLocation{type=" + type + ", logicalPath=" + logicalPath + ", displayName=" + displayName + "}";
     }
 
     @Override

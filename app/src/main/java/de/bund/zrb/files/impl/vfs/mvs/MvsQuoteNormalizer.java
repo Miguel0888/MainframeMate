@@ -25,6 +25,7 @@ public final class MvsQuoteNormalizer {
      * - 'HLQ.*' -> 'HLQ.*'
      * - HLQ.DATA.SET -> 'HLQ.DATA.SET'
      * - HLQ.PDS(MEM) -> 'HLQ.PDS(MEM)'
+     * - HLQ. -> 'HLQ' (trailing dot removed)
      *
      * @param path the path to normalize
      * @return normalized path with exactly one pair of outer quotes
@@ -46,8 +47,31 @@ public final class MvsQuoteNormalizer {
             return "''";
         }
 
+        // Remove trailing dots (unless it's a wildcard pattern)
+        if (!stripped.endsWith(".*") && !stripped.endsWith("*")) {
+            stripped = stripTrailingDots(stripped);
+        }
+
+        if (stripped.isEmpty()) {
+            return "''";
+        }
+
         // Add exactly one pair of quotes
         return "'" + stripped + "'";
+    }
+
+    /**
+     * Remove trailing dots from a string.
+     */
+    private static String stripTrailingDots(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        int end = s.length();
+        while (end > 0 && s.charAt(end - 1) == '.') {
+            end--;
+        }
+        return end > 0 ? s.substring(0, end) : "";
     }
 
     /**

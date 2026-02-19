@@ -41,6 +41,20 @@ class MvsQuoteNormalizerTest {
     }
 
     @Test
+    void normalizeRemovesTrailingDots() {
+        assertEquals("'HLQ'", MvsQuoteNormalizer.normalize("HLQ."));
+        assertEquals("'HLQ'", MvsQuoteNormalizer.normalize("HLQ.."));
+        assertEquals("'HLQ.DATA'", MvsQuoteNormalizer.normalize("HLQ.DATA."));
+        assertEquals("'HLQ'", MvsQuoteNormalizer.normalize("'HLQ.'"));
+    }
+
+    @Test
+    void normalizePreservesTrailingDotsForWildcards() {
+        assertEquals("'HLQ.*'", MvsQuoteNormalizer.normalize("HLQ.*"));
+        // Wildcard pattern should not be modified
+    }
+
+    @Test
     void unquoteRemovesOuterQuotes() {
         assertEquals("HLQ", MvsQuoteNormalizer.unquote("'HLQ'"));
         assertEquals("HLQ.DATA.SET", MvsQuoteNormalizer.unquote("'HLQ.DATA.SET'"));
