@@ -16,12 +16,12 @@ public class ShowComparePanelCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.compare";
+        return "edit.compare";
     }
 
     @Override
     public String getLabel() {
-        return "Vergleichsansicht anzeigen";
+        return "Vergleich anzeigen";
     }
 
     @Override
