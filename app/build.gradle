@@ -68,6 +68,11 @@ dependencies {
 
     // Markdown rendering (commonmark - Java 8 compatible)
     implementation 'org.commonmark:commonmark:0.21.0'
+
+    // Lucene for lexical search (RAG) - 8.11.x is Java 8 compatible
+    implementation 'org.apache.lucene:lucene-core:8.11.3'
+    implementation 'org.apache.lucene:lucene-queryparser:8.11.3'
+    implementation 'org.apache.lucene:lucene-analyzers-common:8.11.3'
 }
 
 shadowJar {

@@ -49,6 +49,7 @@ public class Settings {
     public boolean removeFinalNewline = true; // Standard = an
 
     public HashMap<String, String> aiConfig = new HashMap<>();
+    public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";
     public HashMap<String, List<String>> fileImportVariables = new HashMap<>();
     public long workflowTimeout = 10_000; // 10 Sekunden default
