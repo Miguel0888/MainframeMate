@@ -8,10 +8,10 @@ import de.bund.zrb.ingestion.model.DocumentSource;
 import de.bund.zrb.ingestion.model.ExtractionResult;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
-import de.bund.zrb.ingestion.port.render.RenderFormat;
 import de.bund.zrb.ingestion.usecase.BuildDocumentFromTextUseCase;
 import de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase;
 import de.bund.zrb.ingestion.usecase.RenderDocumentUseCase;
+import de.bund.zrb.ui.preview.SplitPreviewTab;
 
 import javax.swing.*;
 import java.awt.*;
@@ -67,6 +67,20 @@ public class DocumentPreviewOpener {
      * @param parentComponent the parent component for dialogs
      */
     public void openPreviewAsync(FileService fileService, String path, String fileName, Component parentComponent) {
+        openPreviewAsync(fileService, path, fileName, parentComponent, false);
+    }
+
+    /**
+     * Open a document preview asynchronously.
+     *
+     * @param fileService the file service to use for reading
+     * @param path the file path
+     * @param fileName the display name
+     * @param parentComponent the parent component for dialogs
+     * @param isRemote whether this is a remote file (FTP)
+     */
+    public void openPreviewAsync(FileService fileService, String path, String fileName,
+                                 Component parentComponent, boolean isRemote) {
         // Set busy cursor
         Window window = SwingUtilities.getWindowAncestor(parentComponent);
         Cursor originalCursor = null;
@@ -127,14 +141,16 @@ public class DocumentPreviewOpener {
                 LOG.fine("Step 5: Opening preview tab...");
                 List<String> warnings = extractionResult.getWarnings();
                 final Document finalDocument = document;
+                final boolean finalIsRemote = isRemote;
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        DocumentPreviewTab previewTab = new DocumentPreviewTab(
+                        SplitPreviewTab previewTab = new SplitPreviewTab(
                                 fileName,
                                 markdown,
                                 metadata,
                                 warnings,
-                                finalDocument
+                                finalDocument,
+                                finalIsRemote
                         );
                         tabbedPaneManager.addTab(previewTab);
                         LOG.info("Preview tab opened for: " + fileName);
@@ -200,12 +216,13 @@ public class DocumentPreviewOpener {
 
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        DocumentPreviewTab previewTab = new DocumentPreviewTab(
+                        SplitPreviewTab previewTab = new SplitPreviewTab(
                                 fileName,
                                 markdown,
                                 metadata,
                                 warnings,
-                                finalDocument
+                                finalDocument,
+                                false // isRemote
                         );
                         tabbedPaneManager.addTab(previewTab);
                     } catch (Exception e) {
