@@ -107,10 +107,7 @@ public enum ChatMode {
 
     private static String defaultToolPrefix() {
         return "Wenn du ein Tool benutzen willst, antworte NUR mit dem JSON-Tool-Call (kein weiterer Text). " +
-                "Format: {\"name\":\"tool_name\",\"input\":{...}}. " +
-                "Wenn du nicht sicher bist, welches Tool passt, rufe zuerst search_tools auf. " +
-                "Wenn du ein Tool zum ersten Mal nutzt oder bei Parametern unsicher bist, rufe describe_tool mit detailLevel='schema' auf. " +
-                "Wenn du kein Tool brauchst, antworte normal.";
+                "Format: {\"name\":\"tool_name\",\"input\":{...}}. Wenn du kein Tool brauchst, antworte normal.";
     }
 
     @Override
