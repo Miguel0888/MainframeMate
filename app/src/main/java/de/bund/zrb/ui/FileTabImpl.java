@@ -4,6 +4,7 @@ import de.bund.zrb.files.codec.RecordStructureCodec;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.filetab.*;
 import de.bund.zrb.ui.filetab.event.*;
+import de.bund.zrb.ui.preview.ViewMode;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
@@ -16,6 +17,7 @@ import de.bund.zrb.files.impl.auth.InteractiveCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.login.LoginManager;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
 import java.awt.*;
@@ -26,6 +28,16 @@ import java.util.Map;
 import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.path.VirtualResourceRef;
 
+/**
+ * File editor tab with syntax highlighting support.
+ *
+ * Supports three view modes:
+ * - RAW_ONLY: No syntax highlighting (plain text view)
+ * - RENDERED_ONLY: With syntax highlighting (default for source code files)
+ * - SPLIT: Both views side by side (not typically used for file editing)
+ *
+ * The content is never modified by the view mode - only visual highlighting changes.
+ */
 public class FileTabImpl implements FileTab {
 
     public static final double DEFAULT_DIVIDER_LOCATION = 0.7;
@@ -48,6 +60,11 @@ public class FileTabImpl implements FileTab {
     private final FileTabEventManager eventManager;
 
     private VirtualResource resource;
+
+    // View mode support
+    private ViewMode currentViewMode = ViewMode.RENDERED_ONLY;
+    private String detectedSyntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+    private JComboBox<ViewMode> viewModeCombo;
 
 
     @Override
@@ -150,7 +167,15 @@ public class FileTabImpl implements FileTab {
         splitPane.setResizeWeight(1.0);
         splitPane.setDividerSize(6);
 
-        mainPanel.add(splitPane, BorderLayout.CENTER);
+        // Create view mode toolbar
+        JToolBar viewModeToolbar = createViewModeToolbar();
+
+        // Main layout with toolbar at top
+        JPanel editorWrapper = new JPanel(new BorderLayout());
+        editorWrapper.add(viewModeToolbar, BorderLayout.NORTH);
+        editorWrapper.add(splitPane, BorderLayout.CENTER);
+
+        mainPanel.add(editorWrapper, BorderLayout.CENTER);
         mainPanel.add(statusBarPanel, BorderLayout.SOUTH);
 
         legendController = new LegendController(statusBarPanel.getLegendWrapper());
@@ -180,6 +205,64 @@ public class FileTabImpl implements FileTab {
         if (searchPattern != null && !searchPattern.isEmpty()) {
             searchFor(searchPattern);
         }
+    }
+
+    /**
+     * Creates the view mode toolbar with RAW/RENDERED/SPLIT selector.
+     */
+    private JToolBar createViewModeToolbar() {
+        JToolBar toolbar = new JToolBar();
+        toolbar.setFloatable(false);
+        toolbar.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+        toolbar.add(Box.createHorizontalGlue());
+
+        JLabel modeLabel = new JLabel("Ansicht: ");
+        toolbar.add(modeLabel);
+
+        viewModeCombo = new JComboBox<>(ViewMode.values());
+        viewModeCombo.setSelectedItem(ViewMode.RENDERED_ONLY);
+        viewModeCombo.setMaximumSize(new Dimension(120, 24));
+        viewModeCombo.addActionListener(e -> {
+            ViewMode selected = (ViewMode) viewModeCombo.getSelectedItem();
+            if (selected != null) {
+                applyViewMode(selected);
+            }
+        });
+        toolbar.add(viewModeCombo);
+
+        return toolbar;
+    }
+
+    /**
+     * Apply view mode - toggles syntax highlighting on/off.
+     * RAW_ONLY: No syntax highlighting
+     * RENDERED_ONLY: With syntax highlighting (default)
+     * SPLIT: Not typically used for file editing, same as RENDERED
+     */
+    private void applyViewMode(ViewMode mode) {
+        this.currentViewMode = mode;
+
+        switch (mode) {
+            case RAW_ONLY:
+                // Disable syntax highlighting
+                editorPanel.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+                editorPanel.getTextArea().setCodeFoldingEnabled(false);
+                break;
+            case RENDERED_ONLY:
+            case SPLIT:
+                // Enable syntax highlighting
+                editorPanel.getTextArea().setSyntaxEditingStyle(detectedSyntaxStyle);
+                editorPanel.getTextArea().setCodeFoldingEnabled(true);
+                break;
+        }
+    }
+
+    /**
+     * Get the current view mode.
+     */
+    public ViewMode getViewMode() {
+        return currentViewMode;
     }
 
     private void initDividerStateListener() {
@@ -407,7 +490,12 @@ public class FileTabImpl implements FileTab {
         String path = resource != null ? resource.getResolvedPath() : model.getFullPath();
         if (path != null) {
             editorPanel.applySyntaxHighlighting(path);
+            // Store the detected syntax style for view mode switching
+            detectedSyntaxStyle = editorPanel.getCurrentSyntaxStyle();
         }
+
+        // Apply current view mode (default is RENDERED with highlighting)
+        applyViewMode(currentViewMode);
     }
 
 
