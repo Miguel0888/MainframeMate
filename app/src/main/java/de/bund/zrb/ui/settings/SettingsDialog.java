@@ -51,6 +51,8 @@ public class SettingsDialog {
     private static JCheckBox ftpRetryOnTimeoutBox;
     private static JCheckBox ftpRetryOnTransientIoBox;
     private static JTextField ftpRetryOnReplyCodesField;
+    private static JCheckBox ftpUseLoginAsHlqBox;
+    private static JTextField ftpCustomHlqField;
     private static JButton openFolderButton;
     private static JCheckBox autoConnectBox;
     private static JCheckBox savePasswordBox;
@@ -609,6 +611,33 @@ public class SettingsDialog {
         ftpRetryOnReplyCodesField.setToolTipText("z.B. 421,425,426");
         expertContent.add(ftpRetryOnReplyCodesField, gbcConnect);
         gbcConnect.gridy++;
+
+        // Trennlinie für Initial HLQ
+        expertContent.add(new JLabel(" "), gbcConnect);
+        gbcConnect.gridy++;
+        expertContent.add(new JLabel("─── Initial HLQ (Startverzeichnis) ───"), gbcConnect);
+        gbcConnect.gridy++;
+
+        // Checkbox: Login-Name als HLQ verwenden
+        ftpUseLoginAsHlqBox = new JCheckBox("Login-Namen als HLQ verwenden");
+        ftpUseLoginAsHlqBox.setSelected(settings.ftpUseLoginAsHlq);
+        ftpUseLoginAsHlqBox.setToolTipText("Wenn aktiviert, wird der Benutzername als initialer HLQ verwendet (wie IBM-Client)");
+        expertContent.add(ftpUseLoginAsHlqBox, gbcConnect);
+        gbcConnect.gridy++;
+
+        // Custom HLQ Textfeld
+        expertContent.add(new JLabel("Benutzerdefinierter HLQ (falls Checkbox aus):"), gbcConnect);
+        gbcConnect.gridy++;
+        ftpCustomHlqField = new JTextField(settings.ftpCustomHlq != null ? settings.ftpCustomHlq : "", 20);
+        ftpCustomHlqField.setToolTipText("z.B. USERID oder PROD.DATA - wird nur verwendet, wenn Checkbox deaktiviert");
+        expertContent.add(ftpCustomHlqField, gbcConnect);
+        gbcConnect.gridy++;
+
+        // Enable/Disable Logik für das Textfeld
+        ftpCustomHlqField.setEnabled(!settings.ftpUseLoginAsHlq);
+        ftpUseLoginAsHlqBox.addActionListener(e -> {
+            ftpCustomHlqField.setEnabled(!ftpUseLoginAsHlqBox.isSelected());
+        });
     }
 
     private static void createColorContent(JPanel colorContent, Component parent) {
@@ -1247,6 +1276,10 @@ public class SettingsDialog {
             settings.ftpRetryOnTimeout = ftpRetryOnTimeoutBox.isSelected();
             settings.ftpRetryOnTransientIo = ftpRetryOnTransientIoBox.isSelected();
             settings.ftpRetryOnReplyCodes = ftpRetryOnReplyCodesField.getText().trim();
+
+            // FTP Initial HLQ
+            settings.ftpUseLoginAsHlq = ftpUseLoginAsHlqBox.isSelected();
+            settings.ftpCustomHlq = ftpCustomHlqField.getText().trim();
 
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();

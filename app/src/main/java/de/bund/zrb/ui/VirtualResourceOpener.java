@@ -247,8 +247,33 @@ public final class VirtualResourceOpener {
                     tabManager, host, user, password, settings.encoding);
             tabManager.addTab(tab);
 
-            // Navigate to initial path if specified
+            // Determine initial path
             String initialPath = resource.getResolvedPath();
+
+            // If no specific path given, use initial HLQ from settings
+            if (initialPath == null || initialPath.isEmpty() ||
+                "''".equals(initialPath) || "/".equals(initialPath)) {
+                // Check settings for initial HLQ
+                if (settings.ftpUseLoginAsHlq) {
+                    // Use login name as HLQ (like IBM client)
+                    initialPath = "'" + user.toUpperCase() + "'";
+                    System.out.println("[VirtualResourceOpener] Using login name as initial HLQ: " + initialPath);
+                } else if (settings.ftpCustomHlq != null && !settings.ftpCustomHlq.trim().isEmpty()) {
+                    // Use custom HLQ from settings
+                    String customHlq = settings.ftpCustomHlq.trim().toUpperCase();
+                    // Ensure proper quoting
+                    if (!customHlq.startsWith("'")) {
+                        customHlq = "'" + customHlq;
+                    }
+                    if (!customHlq.endsWith("'")) {
+                        customHlq = customHlq + "'";
+                    }
+                    initialPath = customHlq;
+                    System.out.println("[VirtualResourceOpener] Using custom HLQ from settings: " + initialPath);
+                }
+            }
+
+            // Navigate to initial path if we have one
             if (initialPath != null && !initialPath.isEmpty() &&
                 !"''".equals(initialPath) && !"/".equals(initialPath)) {
                 tab.loadDirectory(initialPath);

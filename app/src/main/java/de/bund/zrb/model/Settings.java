@@ -62,6 +62,10 @@ public class Settings {
     public boolean ftpRetryOnTransientIo = true;  // Retry bei transienten IO-Fehlern
     public String ftpRetryOnReplyCodes = "";      // Kommaseparierte FTP Reply Codes (z.B. "421,425,426")
 
+    // FTP Initial HLQ (Startverzeichnis nach Login)
+    public boolean ftpUseLoginAsHlq = true;       // true = Login-Name als HLQ verwenden
+    public String ftpCustomHlq = "";              // Benutzerdefinierter HLQ (nur wenn ftpUseLoginAsHlq=false)
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";
