@@ -526,4 +526,223 @@ public class GrepSearchTool implements McpTool {
             return false;
         }
         for (Pattern pattern : patterns) {
-            if
+            if (pattern.matcher(fileName).matches()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isBinary(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return false;
+        }
+        int checkLength = Math.min(bytes.length, 8192);
+        for (int i = 0; i < checkLength; i++) {
+            if (bytes[i] == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Charset resolveCharset(String encoding, FilePayload payload) {
+        if (encoding != null && !encoding.trim().isEmpty()) {
+            try {
+                return Charset.forName(encoding);
+            } catch (Exception ignored) {
+            }
+        }
+        if (payload.getCharset() != null) {
+            return payload.getCharset();
+        }
+        return Charset.defaultCharset();
+    }
+
+    private boolean isTimedOut(GrepContext ctx, long startTime) {
+        return System.currentTimeMillis() - startTime > ctx.timeoutMs;
+    }
+
+    private int getTotalHits(GrepResult result) {
+        int total = 0;
+        for (GrepFileResult fr : result.fileResults) {
+            total += fr.matches.size();
+        }
+        return total;
+    }
+
+    private OutputMode parseOutputMode(String modeStr) {
+        if (modeStr == null || modeStr.isEmpty()) {
+            return OutputMode.MATCHES;
+        }
+        try {
+            return OutputMode.valueOf(modeStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return OutputMode.MATCHES;
+        }
+    }
+
+    private PatternMode parsePatternMode(String modeStr) {
+        if (modeStr == null || modeStr.isEmpty()) {
+            return PatternMode.PLAIN;
+        }
+        try {
+            return PatternMode.valueOf(modeStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return PatternMode.PLAIN;
+        }
+    }
+
+    // Helper methods for parsing input
+    private String getOptionalString(JsonObject input, String key, String defaultValue) {
+        if (input.has(key) && !input.get(key).isJsonNull()) {
+            return input.get(key).getAsString();
+        }
+        return defaultValue;
+    }
+
+    private boolean getOptionalBoolean(JsonObject input, String key, boolean defaultValue) {
+        if (input.has(key) && !input.get(key).isJsonNull()) {
+            return input.get(key).getAsBoolean();
+        }
+        return defaultValue;
+    }
+
+    private int getOptionalInt(JsonObject input, String key, int defaultValue) {
+        if (input.has(key) && !input.get(key).isJsonNull()) {
+            return input.get(key).getAsInt();
+        }
+        return defaultValue;
+    }
+
+    private long getOptionalLong(JsonObject input, String key, long defaultValue) {
+        if (input.has(key) && !input.get(key).isJsonNull()) {
+            return input.get(key).getAsLong();
+        }
+        return defaultValue;
+    }
+
+    private McpToolResponse errorResponse(String message, String errorType, String resultVar) {
+        return errorResponse(message, errorType, resultVar, null);
+    }
+
+    private McpToolResponse errorResponse(String message, String errorType, String resultVar, String errorCode) {
+        JsonObject response = new JsonObject();
+        response.addProperty("status", "error");
+        response.addProperty("toolName", "grep_search");
+        response.addProperty("errorType", errorType);
+        response.addProperty("message", message);
+        if (errorCode != null) {
+            response.addProperty("errorCode", errorCode);
+        }
+        response.addProperty("hint", "Prüfe den Pfad oder die FTP-Verbindung.");
+        return new McpToolResponse(response, resultVar, null);
+    }
+
+    // Inner classes for grep context and results
+
+    private static class GrepContext {
+        final String root;
+        final String pattern;
+        final PatternMode patternMode;
+        final boolean recursive;
+        final String fileNamePattern;
+        final String excludeFileNamePattern;
+        final boolean caseSensitive;
+        final boolean wholeWord;
+        final boolean invertMatch;
+        final OutputMode outputMode;
+        final int maxHits;
+        final int maxMatchesPerFile;
+        final long maxFileSizeBytes;
+        final long timeoutMs;
+        final String encoding;
+        final boolean includeBinary;
+        final boolean includeContext;
+        final int contextLines;
+        Pattern compiledPattern;
+
+        GrepContext(String root, String pattern, PatternMode patternMode, boolean recursive,
+                    String fileNamePattern, String excludeFileNamePattern, boolean caseSensitive,
+                    boolean wholeWord, boolean invertMatch, OutputMode outputMode,
+                    int maxHits, int maxMatchesPerFile, long maxFileSizeBytes, long timeoutMs,
+                    String encoding, boolean includeBinary, boolean includeContext, int contextLines) {
+            this.root = root;
+            this.pattern = pattern;
+            this.patternMode = patternMode;
+            this.recursive = recursive;
+            this.fileNamePattern = fileNamePattern;
+            this.excludeFileNamePattern = excludeFileNamePattern;
+            this.caseSensitive = caseSensitive;
+            this.wholeWord = wholeWord;
+            this.invertMatch = invertMatch;
+            this.outputMode = outputMode;
+            this.maxHits = maxHits;
+            this.maxMatchesPerFile = maxMatchesPerFile;
+            this.maxFileSizeBytes = maxFileSizeBytes;
+            this.timeoutMs = timeoutMs;
+            this.encoding = encoding;
+            this.includeBinary = includeBinary;
+            this.includeContext = includeContext;
+            this.contextLines = contextLines;
+        }
+    }
+
+    private static class GrepResult {
+        List<GrepFileResult> fileResults = new ArrayList<>();
+        int skippedTooLarge = 0;
+        int skippedBinary = 0;
+        int skippedDecodeError = 0;
+        boolean timedOut = false;
+    }
+
+    private static class GrepFileResult {
+        String path;
+        List<GrepMatch> matches = new ArrayList<>();
+    }
+
+    private static class GrepMatch {
+        int lineNumber;
+        String line;
+        List<int[]> matchRanges; // [start, end] pairs
+        List<String> contextBefore;
+        List<String> contextAfter;
+
+        JsonObject toJson(boolean includeContext) {
+            JsonObject obj = new JsonObject();
+            obj.addProperty("lineNumber", lineNumber);
+            obj.addProperty("line", line);
+
+            if (matchRanges != null && !matchRanges.isEmpty()) {
+                JsonArray rangesArray = new JsonArray();
+                for (int[] range : matchRanges) {
+                    JsonObject rangeObj = new JsonObject();
+                    rangeObj.addProperty("start", range[0]);
+                    rangeObj.addProperty("end", range[1]);
+                    rangesArray.add(rangeObj);
+                }
+                obj.add("matchRanges", rangesArray);
+            }
+
+            if (includeContext) {
+                if (contextBefore != null) {
+                    JsonArray before = new JsonArray();
+                    for (String s : contextBefore) {
+                        before.add(s);
+                    }
+                    obj.add("contextBefore", before);
+                }
+
+                if (contextAfter != null) {
+                    JsonArray after = new JsonArray();
+                    for (String s : contextAfter) {
+                        after.add(s);
+                    }
+                    obj.add("contextAfter", after);
+                }
+            }
+
+            return obj;
+        }
+    }
+}
