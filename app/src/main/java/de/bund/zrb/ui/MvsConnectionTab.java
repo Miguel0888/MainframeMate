@@ -34,7 +34,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final JList<MvsVirtualResource> fileList;
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
-    private final JPanel listContainer = new JPanel(new BorderLayout());
+    private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
 
     // Connection info for reopening
@@ -94,10 +94,17 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
         overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
+        overlayLabel.setAlignmentX(0.5f);
+        overlayLabel.setAlignmentY(0.5f);
 
         // List setup
         JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.add(scrollPane, BorderLayout.CENTER);
+        scrollPane.setAlignmentX(0.5f);
+        scrollPane.setAlignmentY(0.5f);
+
+        listContainer.setLayout(new OverlayLayout(listContainer));
+        listContainer.add(overlayLabel);
+        listContainer.add(scrollPane);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         fileList.addMouseListener(new MouseAdapter() {
@@ -255,19 +262,12 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setForeground(color);
         overlayLabel.setBackground(new Color(255, 255, 255, 220));
         overlayLabel.setVisible(true);
-
-        if (overlayLabel.getParent() != listContainer) {
-            listContainer.add(overlayLabel, BorderLayout.CENTER);
-        }
         listContainer.revalidate();
         listContainer.repaint();
     }
 
     private void hideOverlay() {
         overlayLabel.setVisible(false);
-        if (overlayLabel.getParent() == listContainer) {
-            listContainer.remove(overlayLabel);
-        }
         listContainer.revalidate();
         listContainer.repaint();
     }
@@ -388,4 +388,3 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         }
     }
 }
-
