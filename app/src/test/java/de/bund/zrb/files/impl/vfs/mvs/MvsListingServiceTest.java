@@ -63,4 +63,20 @@ class MvsListingServiceTest {
         assertEquals("'KKR097.JCLKURS.SOURCE'", resources.get(1).getLocation().getLogicalPath());
     }
 
+
+    @Test
+    void datasetQueryCandidatesPreferMemberPattern() throws Exception {
+        MvsListingService service = new MvsListingService(new FTPClient());
+        MvsLocation dataset = MvsLocation.dataset("KKR097.TSO.CNTL");
+
+        Method method = MvsListingService.class.getDeclaredMethod(
+                "buildQueryCandidates", MvsLocation.class, String.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<String> candidates = (List<String>) method.invoke(service, dataset, dataset.getQueryPath());
+
+        assertEquals("'KKR097.TSO.CNTL(*)'", candidates.get(0));
+    }
+
 }

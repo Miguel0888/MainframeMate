@@ -58,7 +58,7 @@ public class MvsListingService {
                           ", queryPathValue=" + queryPath + ", type=" + location.getType());
 
         // Build query candidates
-        List<String> queryCandidates = buildQueryCandidates(queryPath);
+        List<String> queryCandidates = buildQueryCandidates(location, queryPath);
 
         List<MvsVirtualResource> results = Collections.emptyList();
 
@@ -97,25 +97,46 @@ public class MvsListingService {
     /**
      * Build query candidates to try.
      */
-    private List<String> buildQueryCandidates(String queryPath) {
+    private List<String> buildQueryCandidates(MvsLocation location, String queryPath) {
         List<String> candidates = new ArrayList<String>();
 
+        // For DATASET context prefer explicit member query first.
+        if (location.getType() == MvsLocationType.DATASET) {
+            String memberQuery = toMemberQuery(location.getLogicalPath());
+            if (!memberQuery.isEmpty()) {
+                candidates.add(memberQuery);
+            }
+        }
+
         // Primary: as-is
-        candidates.add(queryPath);
+        if (!candidates.contains(queryPath)) {
+            candidates.add(queryPath);
+        }
 
         // Try uppercase variant
         String unquoted = MvsQuoteNormalizer.unquote(queryPath);
         String uppercase = unquoted.toUpperCase();
         if (!uppercase.equals(unquoted)) {
-            candidates.add(MvsQuoteNormalizer.normalize(uppercase));
+            String normalizedUpper = MvsQuoteNormalizer.normalize(uppercase);
+            if (!candidates.contains(normalizedUpper)) {
+                candidates.add(normalizedUpper);
+            }
         }
 
         // Try unquoted variant (some servers don't like quotes)
-        if (!unquoted.equals(queryPath)) {
+        if (!unquoted.equals(queryPath) && !candidates.contains(unquoted)) {
             candidates.add(unquoted);
         }
 
         return candidates;
+    }
+
+    private String toMemberQuery(String logicalPath) {
+        String unquoted = MvsQuoteNormalizer.unquote(logicalPath);
+        if (unquoted.isEmpty() || unquoted.contains("(")) {
+            return "";
+        }
+        return MvsQuoteNormalizer.normalize(unquoted + "(*)");
     }
 
     /**

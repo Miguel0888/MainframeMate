@@ -248,6 +248,11 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 } else {
                     statusLabel.setText(loadedCount + " Einträge");
                     statusLabel.setForeground(Color.DARK_GRAY);
+                    if (loadedCount == 0) {
+                        showOverlayMessage("Keine Einträge gefunden", Color.ORANGE.darker());
+                    } else {
+                        hideOverlay();
+                    }
                 }
             }
         });
@@ -392,16 +397,16 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 switch (resource.getType()) {
                     case HLQ:
                     case QUALIFIER_CONTEXT:
-                        icon = "🗂️";
+                        icon = "📁";
                         break;
                     case DATASET:
-                        icon = "📁";
+                        icon = "📂";
                         break;
                     case MEMBER:
                         icon = "📄";
                         break;
                     default:
-                        icon = "📦";
+                        icon = "📄";
                 }
 
                 setText(icon + " " + resource.getDisplayName());
