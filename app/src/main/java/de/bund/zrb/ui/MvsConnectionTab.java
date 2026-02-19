@@ -34,7 +34,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final JList<MvsVirtualResource> fileList;
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
-    private final JPanel listContainer = new JPanel(new BorderLayout());
+    private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
 
     // Connection info for reopening
@@ -79,14 +79,24 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         refreshButton.setToolTipText("Aktualisieren");
         refreshButton.addActionListener(e -> controller.refresh());
 
+        JButton backButton = new JButton("⏴");
+        backButton.setToolTipText("Zurück zur übergeordneten Ebene");
+        backButton.setMargin(new Insets(0, 0, 0, 0));
+        backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
+        backButton.addActionListener(e -> navigateBack());
+
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> navigateToPath());
 
         pathField.addActionListener(e -> navigateToPath());
 
+        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
+        rightButtons.add(backButton);
+        rightButtons.add(goButton);
+
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
-        pathPanel.add(goButton, BorderLayout.EAST);
+        pathPanel.add(rightButtons, BorderLayout.EAST);
 
         // Overlay setup
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -94,10 +104,17 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
         overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
+        overlayLabel.setAlignmentX(0.5f);
+        overlayLabel.setAlignmentY(0.5f);
 
         // List setup
         JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.add(scrollPane, BorderLayout.CENTER);
+        scrollPane.setAlignmentX(0.5f);
+        scrollPane.setAlignmentY(0.5f);
+
+        listContainer.setLayout(new OverlayLayout(listContainer));
+        listContainer.add(overlayLabel);
+        listContainer.add(scrollPane);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         fileList.addMouseListener(new MouseAdapter() {
@@ -152,6 +169,47 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         String path = pathField.getText().trim();
         hideOverlay();
         controller.navigateTo(path);
+    }
+
+    private void navigateBack() {
+        MvsLocation current = controller.getCurrentLocation();
+        if (current == null || current.getType() == MvsLocationType.ROOT) {
+            showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+            return;
+        }
+
+        switch (current.getType()) {
+            case HLQ:
+                controller.navigateTo(MvsLocation.root());
+                break;
+            case DATASET:
+                String datasetPath = MvsQuoteNormalizer.unquote(current.getLogicalPath());
+                int lastDot = datasetPath.lastIndexOf('.');
+                if (lastDot <= 0) {
+                    controller.navigateTo(MvsLocation.root());
+                    break;
+                }
+
+                String parentPath = datasetPath.substring(0, lastDot);
+                if (parentPath.contains(".")) {
+                    controller.navigateTo(MvsLocation.dataset(parentPath));
+                } else {
+                    controller.navigateTo(MvsLocation.hlq(parentPath));
+                }
+                break;
+            case MEMBER:
+                String memberPath = MvsQuoteNormalizer.unquote(current.getLogicalPath());
+                int openParen = memberPath.indexOf('(');
+                if (openParen > 0) {
+                    controller.navigateTo(MvsLocation.dataset(memberPath.substring(0, openParen)));
+                } else {
+                    controller.navigateTo(MvsLocation.root());
+                }
+                break;
+            default:
+                controller.navigateTo(MvsLocation.root());
+                break;
+        }
     }
 
     private void handleDoubleClick() {
@@ -255,19 +313,12 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setForeground(color);
         overlayLabel.setBackground(new Color(255, 255, 255, 220));
         overlayLabel.setVisible(true);
-
-        if (overlayLabel.getParent() != listContainer) {
-            listContainer.add(overlayLabel, BorderLayout.CENTER);
-        }
         listContainer.revalidate();
         listContainer.repaint();
     }
 
     private void hideOverlay() {
         overlayLabel.setVisible(false);
-        if (overlayLabel.getParent() == listContainer) {
-            listContainer.remove(overlayLabel);
-        }
         listContainer.revalidate();
         listContainer.repaint();
     }
@@ -388,4 +439,3 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         }
     }
 }
-
