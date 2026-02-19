@@ -402,6 +402,12 @@ public class FileTabImpl implements FileTab {
     public void setContent(String content) {
         editorPanel.setTextSilently(content);
         model.resetChanged(); // Wichtig: Änderungszustand zurücksetzen
+
+        // Apply syntax highlighting based on file extension
+        String path = resource != null ? resource.getResolvedPath() : model.getFullPath();
+        if (path != null) {
+            editorPanel.applySyntaxHighlighting(path);
+        }
     }
 
 
