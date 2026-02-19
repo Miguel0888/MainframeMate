@@ -68,6 +68,7 @@ dependencies {
 
     // Markdown rendering (commonmark - Java 8 compatible)
     implementation 'org.commonmark:commonmark:0.21.0'
+    implementation 'org.commonmark:commonmark-ext-gfm-tables:0.21.0'
 
     // Lucene for lexical search (RAG) - 8.11.x is Java 8 compatible
     implementation 'org.apache.lucene:lucene-core:8.11.3'

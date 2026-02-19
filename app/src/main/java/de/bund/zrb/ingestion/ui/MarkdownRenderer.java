@@ -1,11 +1,16 @@
 package de.bund.zrb.ingestion.ui;
 
+import org.commonmark.Extension;
+import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
- * Markdown renderer for UI display using commonmark-java.
+ * Markdown renderer for UI display using commonmark with GFM extensions.
  * Converts Markdown text to HTML for rendering in the chat UI.
  */
 public class MarkdownRenderer {
@@ -14,8 +19,15 @@ public class MarkdownRenderer {
     private final HtmlRenderer renderer;
 
     public MarkdownRenderer() {
-        this.parser = Parser.builder().build();
-        this.renderer = HtmlRenderer.builder().build();
+        // Enable GFM tables extension
+        List<Extension> extensions = Arrays.<Extension>asList(TablesExtension.create());
+
+        this.parser = Parser.builder()
+                .extensions(extensions)
+                .build();
+        this.renderer = HtmlRenderer.builder()
+                .extensions(extensions)
+                .build();
     }
 
     /**

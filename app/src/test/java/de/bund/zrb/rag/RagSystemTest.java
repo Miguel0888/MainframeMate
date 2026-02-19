@@ -36,6 +36,15 @@ class RagSystemTest {
         contextBuilder = new RagContextBuilder(config);
     }
 
+    // Helper for Java 8 compatibility (String.repeat is Java 11+)
+    private String repeatString(String s, int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            sb.append(s);
+        }
+        return sb.toString();
+    }
+
     // ========== Chunker Tests ==========
 
     @Test
@@ -63,7 +72,7 @@ class RagSystemTest {
 
     @Test
     void chunker_assignsIncrementalPositions() {
-        String text = "Paragraph one. ".repeat(50) + "\n\n" + "Paragraph two. ".repeat(50);
+        String text = repeatString("Paragraph one. ", 50) + "\n\n" + repeatString("Paragraph two. ", 50);
 
         List<Chunk> chunks = chunker.chunk(text, "doc1", "test.txt", "text/plain");
 
@@ -74,7 +83,7 @@ class RagSystemTest {
 
     @Test
     void chunker_generatesUniqueChunkIds() {
-        String text = "Some text that will be chunked. ".repeat(50);
+        String text = repeatString("Some text that will be chunked. ", 50);
 
         List<Chunk> chunks = chunker.chunk(text, "doc1", "test.txt", "text/plain");
 

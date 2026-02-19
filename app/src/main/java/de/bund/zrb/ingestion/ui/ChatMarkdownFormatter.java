@@ -1,17 +1,23 @@
 package de.bund.zrb.ingestion.ui;
 
+import org.commonmark.Extension;
+import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
- * Chat-specific Markdown formatter using commonmark library.
+ * Chat-specific Markdown formatter using commonmark library with GFM extensions.
  * Converts Markdown text to HTML for display in the chat UI.
  *
  * This formatter:
  * - Uses library-based parsing (no regex)
- * - Produces safe HTML output
+ * - Produces safe HTML output (escapes HTML in input)
  * - Preserves raw Markdown for copy functionality
+ * - Supports GFM-style tables
  */
 public class ChatMarkdownFormatter {
 
@@ -21,9 +27,15 @@ public class ChatMarkdownFormatter {
     private final HtmlRenderer renderer;
 
     public ChatMarkdownFormatter() {
-        this.parser = Parser.builder().build();
+        // Enable GFM tables extension
+        List<Extension> extensions = Arrays.<Extension>asList(TablesExtension.create());
+
+        this.parser = Parser.builder()
+                .extensions(extensions)
+                .build();
         this.renderer = HtmlRenderer.builder()
-                .escapeHtml(true) // Escape any HTML in the input
+                .escapeHtml(true) // Escape any HTML in the input for security
+                .extensions(extensions)
                 .build();
     }
 
