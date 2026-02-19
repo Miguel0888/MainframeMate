@@ -54,8 +54,8 @@ public class MvsListingService {
         }
 
         String queryPath = location.getQueryPath();
-        System.out.println("[MvsListingService] Listing: logicalPath=" + location.getLogicalPath() +
-                          ", queryPath=" + queryPath + ", type=" + location.getType());
+        System.out.println("[MvsListingService] Listing: logicalPathValue=" + location.getLogicalPath() +
+                          ", queryPathValue=" + queryPath + ", type=" + location.getType());
 
         // Build query candidates
         List<String> queryCandidates = buildQueryCandidates(queryPath);
@@ -124,7 +124,7 @@ public class MvsListingService {
     private List<MvsVirtualResource> tryNlst(String queryPath, MvsLocation parentLocation,
                                              AtomicBoolean cancellation) {
         try {
-            System.out.println("[MvsListingService] Trying NLST: " + queryPath);
+            System.out.println("[MvsListingService] effectiveCommand=NLST queryPathValue=" + queryPath);
             String[] names = ftpClient.listNames(queryPath);
 
             int replyCode = ftpClient.getReplyCode();
@@ -153,7 +153,7 @@ public class MvsListingService {
                                                    int pageSize, AtomicBoolean cancellation,
                                                    PageCallback callback) {
         try {
-            System.out.println("[MvsListingService] Trying LIST (paged): " + queryPath);
+            System.out.println("[MvsListingService] effectiveCommand=LIST(paged) queryPathValue=" + queryPath);
             FTPListParseEngine engine = ftpClient.initiateListParsing(queryPath);
 
             if (engine == null) {
@@ -201,7 +201,7 @@ public class MvsListingService {
     private List<MvsVirtualResource> tryListRaw(String queryPath, MvsLocation parentLocation,
                                                  AtomicBoolean cancellation) {
         try {
-            System.out.println("[MvsListingService] Trying LIST (raw): " + queryPath);
+            System.out.println("[MvsListingService] effectiveCommand=LIST(raw) queryPathValue=" + queryPath);
             FTPFile[] files = ftpClient.listFiles(queryPath);
 
             if (files == null || files.length == 0) {
@@ -404,13 +404,21 @@ public class MvsListingService {
             return null;
         }
 
-        if (parent.getType() == MvsLocationType.HLQ) {
+        if (parent.getType() == MvsLocationType.HLQ || parent.getType() == MvsLocationType.QUALIFIER_CONTEXT) {
             int dot = actualName.indexOf('.');
-            String nextQualifier = dot >= 0 ? actualName.substring(0, dot) : actualName;
-            if (nextQualifier.isEmpty()) {
-                return null;
+            if (dot >= 0) {
+                String nextQualifier = actualName.substring(0, dot);
+                if (nextQualifier.isEmpty()) {
+                    return null;
+                }
+                return parent.createChild(nextQualifier);
             }
-            return parent.createChild(nextQualifier);
+
+            String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
+            if (parentPath.isEmpty()) {
+                return MvsLocation.dataset(actualName);
+            }
+            return MvsLocation.dataset(parentPath + "." + actualName);
         }
 
         if (parent.getType() == MvsLocationType.DATASET) {

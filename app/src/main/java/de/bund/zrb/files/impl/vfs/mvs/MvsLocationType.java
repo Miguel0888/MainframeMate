@@ -11,23 +11,23 @@ public enum MvsLocationType {
     ROOT,
 
     /**
-     * High-Level Qualifier (e.g., 'USERID').
-     * Not a directory - it's a search context.
-     * Listing requires querying 'HLQ.*'
+     * Legacy HLQ type for top-level qualifier context (e.g. USERID).
      */
     HLQ,
 
     /**
-     * A dataset (e.g., 'USERID.DATA.SET').
-     * Can be either PDS (partitioned) or SEQ (sequential).
-     * Needs probing to determine type.
+     * Qualifier browse context (HLQ or nested qualifier prefixes).
+     * Listing requires querying '<logicalPath>.*'.
+     */
+    QUALIFIER_CONTEXT,
+
+    /**
+     * A concrete dataset (e.g., 'USERID.DATA.SET').
      */
     DATASET,
 
     /**
      * A member of a PDS (e.g., 'USERID.PDS(MEMBER)').
-     * This is always a "file" that can be opened.
      */
     MEMBER
 }
-

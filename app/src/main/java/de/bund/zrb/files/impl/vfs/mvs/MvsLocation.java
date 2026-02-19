@@ -36,6 +36,15 @@ public final class MvsLocation {
     }
 
     /**
+     * Create qualifier context location for hierarchical browsing.
+     */
+    public static MvsLocation qualifierContext(String qualifierPath) {
+        String normalized = MvsQuoteNormalizer.normalize(qualifierPath);
+        String display = extractLastQualifier(MvsQuoteNormalizer.unquote(normalized));
+        return new MvsLocation(MvsLocationType.QUALIFIER_CONTEXT, normalized, display);
+    }
+
+    /**
      * Create DATASET location.
      * @param datasetName the full dataset name (will be normalized/quoted)
      */
@@ -75,9 +84,9 @@ public final class MvsLocation {
             return member(normalized);
         }
 
-        // Check if it's HLQ (no dots) or dataset (has dots)
+        // Bare qualifier (no dot) -> HLQ. Dotted path -> qualifier context.
         if (unquoted.contains(".")) {
-            return dataset(normalized);
+            return qualifierContext(normalized);
         }
 
         return hlq(normalized);
@@ -93,9 +102,9 @@ public final class MvsLocation {
             case ROOT:
                 return "''";
             case HLQ:
-                // HLQ listing requires wildcard
-                String unquoted = MvsQuoteNormalizer.unquote(logicalPath);
-                return MvsQuoteNormalizer.normalize(unquoted + ".*");
+            case QUALIFIER_CONTEXT:
+                // Qualifier browsing requires wildcard
+                return MvsQuoteNormalizer.toWildcardQuery(logicalPath);
             case DATASET:
                 // Dataset listing (members) uses the dataset itself
                 return logicalPath;
@@ -134,6 +143,7 @@ public final class MvsLocation {
     public boolean isDirectory() {
         return type == MvsLocationType.ROOT ||
                type == MvsLocationType.HLQ ||
+               type == MvsLocationType.QUALIFIER_CONTEXT ||
                type == MvsLocationType.DATASET;
     }
 
@@ -156,13 +166,12 @@ public final class MvsLocation {
                 return hlq(unquotedChild);
 
             case HLQ:
-                // Child of HLQ is DATASET
-                // Check if child is already fully qualified
+            case QUALIFIER_CONTEXT:
+                // Child of qualifier context is another qualifier context.
                 if (unquotedChild.toUpperCase().startsWith(unquotedParent.toUpperCase() + ".")) {
-                    return dataset(unquotedChild);
+                    return qualifierContext(unquotedChild);
                 }
-                // Otherwise, join with parent
-                return dataset(unquotedParent + "." + unquotedChild);
+                return qualifierContext(unquotedParent + "." + unquotedChild);
 
             case DATASET:
                 // Child of DATASET is MEMBER

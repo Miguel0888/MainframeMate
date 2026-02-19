@@ -38,7 +38,7 @@ class MvsLocationTest {
     @Test
     void parseDatasetReturnsDataset() {
         MvsLocation loc = MvsLocation.parse("USERID.DATA.SET");
-        assertEquals(MvsLocationType.DATASET, loc.getType());
+        assertEquals(MvsLocationType.QUALIFIER_CONTEXT, loc.getType());
         assertEquals("'USERID.DATA.SET'", loc.getLogicalPath());
         assertEquals("SET", loc.getDisplayName());
     }
@@ -58,17 +58,17 @@ class MvsLocationTest {
     }
 
     @Test
-    void datasetQueryPathIsItself() {
-        MvsLocation loc = MvsLocation.dataset("USERID.PDS");
-        assertEquals("'USERID.PDS'", loc.getQueryPath());
+    void qualifierContextQueryPathHasWildcard() {
+        MvsLocation loc = MvsLocation.qualifierContext("USERID.PDS");
+        assertEquals("'USERID.PDS.*'", loc.getQueryPath());
     }
 
     @Test
-    void hlqChildIsDataset() {
+    void hlqChildIsQualifierContext() {
         MvsLocation parent = MvsLocation.hlq("USERID");
         MvsLocation child = parent.createChild("DATA.SET");
 
-        assertEquals(MvsLocationType.DATASET, child.getType());
+        assertEquals(MvsLocationType.QUALIFIER_CONTEXT, child.getType());
         assertEquals("'USERID.DATA.SET'", child.getLogicalPath());
     }
 
@@ -78,7 +78,7 @@ class MvsLocationTest {
         // Server returned fully qualified name
         MvsLocation child = parent.createChild("USERID.DATA.SET");
 
-        assertEquals(MvsLocationType.DATASET, child.getType());
+        assertEquals(MvsLocationType.QUALIFIER_CONTEXT, child.getType());
         assertEquals("'USERID.DATA.SET'", child.getLogicalPath());
     }
 
@@ -96,6 +96,7 @@ class MvsLocationTest {
     void isDirectoryForHlqAndDataset() {
         assertTrue(MvsLocation.root().isDirectory());
         assertTrue(MvsLocation.hlq("USERID").isDirectory());
+        assertTrue(MvsLocation.qualifierContext("USERID.PDS").isDirectory());
         assertTrue(MvsLocation.dataset("USERID.PDS").isDirectory());
         assertFalse(MvsLocation.member("USERID.PDS(MEM)").isDirectory());
     }

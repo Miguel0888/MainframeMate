@@ -172,43 +172,11 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     }
 
     private void navigateBack() {
-        MvsLocation current = controller.getCurrentLocation();
-        if (current == null || current.getType() == MvsLocationType.ROOT) {
+        if (controller.canGoBack()) {
+            hideOverlay();
+            controller.goBack();
+        } else {
             showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
-            return;
-        }
-
-        switch (current.getType()) {
-            case HLQ:
-                controller.navigateTo(MvsLocation.root());
-                break;
-            case DATASET:
-                String datasetPath = MvsQuoteNormalizer.unquote(current.getLogicalPath());
-                int lastDot = datasetPath.lastIndexOf('.');
-                if (lastDot <= 0) {
-                    controller.navigateTo(MvsLocation.root());
-                    break;
-                }
-
-                String parentPath = datasetPath.substring(0, lastDot);
-                if (parentPath.contains(".")) {
-                    controller.navigateTo(MvsLocation.dataset(parentPath));
-                } else {
-                    controller.navigateTo(MvsLocation.hlq(parentPath));
-                }
-                break;
-            case MEMBER:
-                String memberPath = MvsQuoteNormalizer.unquote(current.getLogicalPath());
-                int openParen = memberPath.indexOf('(');
-                if (openParen > 0) {
-                    controller.navigateTo(MvsLocation.dataset(memberPath.substring(0, openParen)));
-                } else {
-                    controller.navigateTo(MvsLocation.root());
-                }
-                break;
-            default:
-                controller.navigateTo(MvsLocation.root());
-                break;
         }
     }
 
@@ -274,6 +242,9 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 if (isLoading) {
                     statusLabel.setText(loadedCount + " Einträge, lade...");
                     statusLabel.setForeground(Color.BLUE);
+                    if (loadedCount == 0) {
+                        showOverlayMessage("Lade Einträge...", Color.GRAY);
+                    }
                 } else {
                     statusLabel.setText(loadedCount + " Einträge");
                     statusLabel.setForeground(Color.DARK_GRAY);
@@ -420,6 +391,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 String icon;
                 switch (resource.getType()) {
                     case HLQ:
+                    case QUALIFIER_CONTEXT:
                         icon = "🗂️";
                         break;
                     case DATASET:
