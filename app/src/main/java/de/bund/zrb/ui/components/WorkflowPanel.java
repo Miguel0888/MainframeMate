@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.components;
 
 import de.bund.zrb.helper.WorkflowStorage;
+import de.bund.zrb.ui.help.HelpContentProvider;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 import de.zrb.bund.newApi.workflow.WorkflowMcpData;
@@ -52,6 +53,15 @@ public class WorkflowPanel extends JPanel {
         headerPanel.add(selectorPanel, BorderLayout.CENTER);
 
         JPanel headerButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+
+        // Hilfe-Button
+        HelpButton helpButton = new HelpButton("Hilfe zu Workflows",
+                e -> HelpContentProvider.showHelpPopup(
+                        (Component) e.getSource(),
+                        HelpContentProvider.HelpTopic.WORKFLOW));
+        helpButton.setVisible(de.bund.zrb.helper.SettingsHelper.load().showHelpIcons);
+        headerButtons.add(helpButton);
+
         JButton renameWorkflow = new JButton("✏");
         renameWorkflow.setToolTipText("Workflow umbenennen");
         JButton saveWorkflow = new JButton("💾");

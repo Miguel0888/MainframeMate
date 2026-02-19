@@ -68,7 +68,7 @@ public class RagService {
     private final ExecutorService executor;
 
     public RagService() {
-        this(RagConfig.defaults(), EmbeddingSettings.defaults());
+        this(RagConfig.defaults(), EmbeddingSettings.fromStoredConfig());
     }
 
     public RagService(RagConfig config, EmbeddingSettings embeddingSettings) {

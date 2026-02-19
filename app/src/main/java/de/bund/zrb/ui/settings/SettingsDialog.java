@@ -7,6 +7,9 @@ import de.bund.zrb.files.ftpconfig.FtpTransferMode;
 import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ChatMode;
 import de.bund.zrb.ui.components.ComboBoxHelper;
+import de.bund.zrb.ui.components.HelpButton;
+import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
+import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.util.ExecutableLauncher;
@@ -93,6 +96,7 @@ public class SettingsDialog {
     private static JCheckBox enableLock;
     private static JCheckBox enableLockRetroStyle;
     private static JCheckBox compareByDefaultBox;
+    private static JCheckBox showHelpIconsBox;
     private static JComboBox<LockerStyle> lockStyleBox;
 
     private static JTextField hostField;
@@ -109,6 +113,7 @@ public class SettingsDialog {
     private static RSyntaxTextArea proxyPacScriptArea;
     private static JTextField proxyTestUrlField;
     private static JButton proxyTestButton;
+    private static RagSettingsPanel ragSettingsPanel;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -118,7 +123,7 @@ public class SettingsDialog {
         // Allow calling settings without an active FTP manager.
         // Any actions requiring a live connection must be disabled/guarded.
 
-        JTabbedPane tabs = new JTabbedPane();
+        TabbedPaneWithHelpOverlay tabs = new TabbedPaneWithHelpOverlay();
 
         JPanel generalContent = new JPanel(new GridBagLayout());
         JScrollPane generalPanel = new JScrollPane(generalContent);
@@ -130,6 +135,7 @@ public class SettingsDialog {
         JScrollPane connectPanel = new JScrollPane(connectContent);
         JPanel aiContent = new JPanel(new GridBagLayout());
         JScrollPane aiPanel = new JScrollPane(aiContent);
+        ragSettingsPanel = new RagSettingsPanel();
         JPanel proxyContent = new JPanel(new GridBagLayout());
         JScrollPane proxyPanel = new JScrollPane(proxyContent);
 
@@ -137,8 +143,28 @@ public class SettingsDialog {
         tabs.addTab("Farbzuordnung", colorPanel);
         tabs.addTab("Datenumwandlung", transformPanel);
         tabs.addTab("FTP-Verbindung", connectPanel);
-        tabs.add("KI", aiPanel);
-        tabs.add("Proxy", proxyPanel);
+        tabs.addTab("KI", aiPanel);
+        tabs.addTab("RAG", ragSettingsPanel);
+        tabs.addTab("Proxy", proxyPanel);
+
+        // Hilfe-Button mit kontextsensitiver Hilfe je nach ausgewähltem Tab
+        HelpButton helpButton = new HelpButton("Hilfe zu Einstellungen");
+        helpButton.addActionListener(e -> {
+            int selectedTab = tabs.getSelectedIndex();
+            HelpContentProvider.HelpTopic topic;
+            switch (selectedTab) {
+                case 0: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL; break;
+                case 1: topic = HelpContentProvider.HelpTopic.SETTINGS_COLORS; break;
+                case 2: topic = HelpContentProvider.HelpTopic.SETTINGS_TRANSFORM; break;
+                case 3: topic = HelpContentProvider.HelpTopic.SETTINGS_FTP; break;
+                case 4: topic = HelpContentProvider.HelpTopic.SETTINGS_AI; break;
+                case 5: topic = HelpContentProvider.HelpTopic.SETTINGS_RAG; break;
+                case 6: topic = HelpContentProvider.HelpTopic.SETTINGS_PROXY; break;
+                default: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL;
+            }
+            HelpContentProvider.showHelpPopup((Component) e.getSource(), topic);
+        });
+        tabs.setHelpComponent(helpButton);
 
         if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabCount()) {
             tabs.setSelectedIndex(initialTabIndex);
@@ -190,7 +216,14 @@ public class SettingsDialog {
         generalContent.add(compareByDefaultBox, gbcGeneral);
         gbcGeneral.gridy++;
 
-        // Marker-Linie (z. B. bei Spalte 80)
+        // Hilfe-Icons anzeigen
+        showHelpIconsBox = new JCheckBox("Hilfe-Icons anzeigen");
+        showHelpIconsBox.setSelected(settings.showHelpIcons);
+        showHelpIconsBox.setToolTipText("Deaktivieren für erfahrene Benutzer");
+        generalContent.add(showHelpIconsBox, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // Marker-Linie (z. B. bei Spalte 80)
         gbcGeneral.gridwidth = 2;
         generalContent.add(new JLabel("Vertikale Markierung bei Spalte (0 = aus):"), gbcGeneral);
         gbcGeneral.gridy++;
@@ -993,7 +1026,7 @@ public class SettingsDialog {
         proxyContent.add(proxyTestButton, gbc);
     }
 
-    private static void showAndApply(Component parent, JTabbedPane tabs) {
+    private static void showAndApply(Component parent, JComponent tabs) {
         // Dialog formatieren
         JPanel container = new JPanel(new BorderLayout());
         container.add(tabs, BorderLayout.CENTER);
@@ -1070,6 +1103,7 @@ public class SettingsDialog {
             settings.lockPrenotification = (Integer) lockPre.getValue();
             settings.lockEnabled = enableLock.isSelected();
             settings.lockStyle = lockStyleBox.getSelectedIndex();
+            settings.showHelpIcons = showHelpIconsBox.isSelected();
 
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());
@@ -1120,6 +1154,11 @@ public class SettingsDialog {
             settings.proxyNoProxyLocal = proxyNoProxyLocalBox.isSelected();
             settings.proxyPacScript = proxyPacScriptArea.getText();
             settings.proxyTestUrl = proxyTestUrlField.getText().trim();
+
+            // RAG/Embedding-Einstellungen vom Panel übernehmen
+            if (ragSettingsPanel != null) {
+                ragSettingsPanel.saveToSettings(settings);
+            }
 
             SettingsHelper.save(settings);
 
