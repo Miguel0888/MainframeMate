@@ -11,7 +11,7 @@ import de.zrb.bund.newApi.ui.FileTab;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.api.FileWriteResult;
-import de.bund.zrb.files.impl.auth.LoginManagerCredentialsProvider;
+import de.bund.zrb.files.impl.auth.InteractiveCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.login.LoginManager;
@@ -324,8 +324,8 @@ public class FileTabImpl implements FileTab {
 
     private void saveViaFileService() {
         try {
-            CredentialsProvider credentialsProvider = new LoginManagerCredentialsProvider(
-                    (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
+            CredentialsProvider credentialsProvider = new InteractiveCredentialsProvider(
+                    (host, user) -> LoginManager.getInstance().getPassword(host, user)
             );
 
             String resolvedPath = resource.getResolvedPath();

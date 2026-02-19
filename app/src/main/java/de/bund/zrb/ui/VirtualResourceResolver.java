@@ -3,7 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.auth.ConnectionId;
-import de.bund.zrb.files.impl.auth.LoginManagerCredentialsProvider;
+import de.bund.zrb.files.impl.auth.InteractiveCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.helper.SettingsHelper;
@@ -56,8 +56,9 @@ public class VirtualResourceResolver {
     }
 
     private VirtualResourceKind resolveKindFtp(String ftpPath, ConnectionId connectionId) throws FileServiceException {
-        LoginManagerCredentialsProvider provider = new LoginManagerCredentialsProvider(
-                (host, user) -> LoginManager.getInstance().getCachedPassword(host, user)
+        // Use interactive credentials provider that can show password dialog
+        InteractiveCredentialsProvider provider = new InteractiveCredentialsProvider(
+                (host, user) -> LoginManager.getInstance().getPassword(host, user)
         );
         FileService fs = null;
         try {
