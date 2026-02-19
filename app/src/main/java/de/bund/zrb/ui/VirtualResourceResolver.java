@@ -63,6 +63,10 @@ public class VirtualResourceResolver {
         FileService fs = null;
         try {
             fs = new FileServiceFactory().createFtp(connectionId, provider);
+
+            // Mark session as active after successful FTP connection
+            LoginManager.getInstance().onLoginSuccess(connectionId.getHost(), connectionId.getUsername());
+
             if (fs instanceof de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService) {
                 de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService svc = (de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService) fs;
                 lastMvsMode = svc.isMvsMode();
@@ -81,6 +85,12 @@ public class VirtualResourceResolver {
             fs.readFile(ftpPath);
             return VirtualResourceKind.FILE;
         } catch (Exception e) {
+            // On FTP auth failure, clear the password immediately
+            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+            if (errorMsg.contains("auth") || errorMsg.contains("login") || errorMsg.contains("credentials")) {
+                LoginManager.getInstance().onLoginFailed(connectionId.getHost(), connectionId.getUsername());
+            }
+
             if (e instanceof FileServiceException) {
                 throw (FileServiceException) e;
             }

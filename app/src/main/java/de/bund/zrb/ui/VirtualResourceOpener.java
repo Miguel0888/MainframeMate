@@ -51,6 +51,14 @@ public final class VirtualResourceOpener {
         try {
             fs = new FileServiceFactory().create(resource, credentialsProvider);
 
+            // Mark session as active after successful FTP connection
+            if (!resource.isLocal() && resource.getFtpState() != null) {
+                LoginManager.getInstance().onLoginSuccess(
+                        resource.getFtpState().getConnectionId().getHost(),
+                        resource.getFtpState().getConnectionId().getUsername()
+                );
+            }
+
             if (resource.getKind() == VirtualResourceKind.DIRECTORY) {
                 // IMPORTANT: For directory tabs, DO NOT close FileService here!
                 // The tab owns the FileService and will close it in onClose().
@@ -65,6 +73,18 @@ public final class VirtualResourceOpener {
             }
         } catch (Exception e) {
             System.err.println("[VirtualResourceOpener] open failed: " + e.getMessage());
+
+            // On FTP auth failure, clear the password immediately
+            if (!resource.isLocal() && resource.getFtpState() != null) {
+                String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+                if (errorMsg.contains("auth") || errorMsg.contains("login") || errorMsg.contains("credentials")) {
+                    LoginManager.getInstance().onLoginFailed(
+                            resource.getFtpState().getConnectionId().getHost(),
+                            resource.getFtpState().getConnectionId().getUsername()
+                    );
+                }
+            }
+
             closeQuietly(fs);
             return null;
         }

@@ -56,7 +56,8 @@ public class ApplicationLocker implements LoginCredentialsProvider {
     }
 
     public void start() {
-        if (!SettingsHelper.load().lockEnabled) return;
+        // ApplicationLocker is always started - it will only lock when there's an active session
+        // The actual locking decision is made in userNotLoggedIn() which checks shouldLockApplication()
 
         inactivityTimer = new Timer(timeoutMillis, e -> startWarningCountdown());
         inactivityTimer.setRepeats(false);
@@ -70,7 +71,7 @@ public class ApplicationLocker implements LoginCredentialsProvider {
     }
 
     public void lock() {
-        if (locked || userNotLoggedIn()) return;
+        if (locked || !shouldLock()) return;
 
         locked = true;
         warningActive = false;
@@ -97,9 +98,18 @@ public class ApplicationLocker implements LoginCredentialsProvider {
         resetAllTimers(false);
     }
 
-    private boolean userNotLoggedIn() {
+    /**
+     * Check if application should be locked.
+     * Returns true if:
+     * - Lock is enabled in settings AND
+     * - There's an active session (password cached/stored or successful login occurred)
+     */
+    private boolean shouldLock() {
         Settings settings = SettingsHelper.load();
-        return !loginManager.isLoggedIn(settings.host, settings.user);
+        if (!settings.lockEnabled) {
+            return false;
+        }
+        return loginManager.shouldLockApplication();
     }
 
     private void resetAllTimers(boolean mayCancelCountdown) {
@@ -114,7 +124,7 @@ public class ApplicationLocker implements LoginCredentialsProvider {
     }
 
     private void startWarningCountdown() {
-        if (locked || warningActive || userNotLoggedIn()) return;
+        if (locked || warningActive || !shouldLock()) return;
 
         warningActive = true;
 
