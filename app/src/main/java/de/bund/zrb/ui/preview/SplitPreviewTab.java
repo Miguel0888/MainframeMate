@@ -3,6 +3,7 @@ package de.bund.zrb.ui.preview;
 import de.bund.zrb.chat.attachment.AttachTabToChatUseCase;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
+import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -10,6 +11,8 @@ import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.html.HTMLEditorKit;
+import javax.swing.text.html.StyleSheet;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
@@ -24,21 +27,42 @@ import java.util.Set;
 /**
  * Enhanced preview/editor tab with split view (Raw + Rendered), view mode toggle,
  * and optional sidebar showing file details and index status.
- * Uses RSyntaxTextArea for both Raw and Rendered views to preserve data integrity
- * while providing syntax highlighting.
+ *
+ * Architecture:
+ * - RAW view: RSyntaxTextArea WITHOUT syntax highlighting (plain text view)
+ * - RENDERED view depends on file type:
+ *   - For source code files: RSyntaxTextArea WITH syntax highlighting (same content, just highlighted)
+ *   - For documents (MD, HTML): JEditorPane with HTML/Markdown rendering
+ *   - For binary docs (PDF, DOCX): JEditorPane showing extracted text as HTML
+ * - Default mode: RENDERED_ONLY
+ *
+ * IMPORTANT: Data integrity is preserved - highlighting never changes the actual content.
  */
 public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabToChatUseCase.DocumentPreviewTabAdapter {
 
-    // Text file extensions that default to SPLIT mode
-    private static final Set<String> TEXT_EXTENSIONS = new HashSet<>(Arrays.asList(
-            "txt", "md", "json", "yml", "yaml", "properties", "ini", "conf", "cfg",
-            "xml", "csv", "log", "java", "py", "js", "ts", "html", "css", "sql",
-            "sh", "bat", "ps1", "rb", "php", "c", "cpp", "h", "hpp", "go", "rs"
+    // Source code extensions - use RSyntaxTextArea with highlighting for RENDERED view
+    protected static final Set<String> SOURCE_CODE_EXTENSIONS = new HashSet<>(Arrays.asList(
+            "java", "py", "js", "ts", "c", "cpp", "h", "hpp", "go", "rb", "php",
+            "sql", "sh", "bash", "bat", "cmd", "ps1", "groovy", "gradle", "scala",
+            "kotlin", "kt", "lua", "perl", "pl", "json", "xml", "yml", "yaml",
+            "properties", "ini", "csv", "css"
     ));
 
-    // Binary document formats that default to RENDERED_ONLY
-    private static final Set<String> RENDERED_ONLY_EXTENSIONS = new HashSet<>(Arrays.asList(
+    // Document extensions that need HTML rendering (Markdown, etc.)
+    protected static final Set<String> HTML_RENDERED_EXTENSIONS = new HashSet<>(Arrays.asList(
+            "md", "markdown", "html", "htm"
+    ));
+
+    // Binary document formats that only support RENDERED view (extracted text shown as HTML)
+    protected static final Set<String> BINARY_DOCUMENT_EXTENSIONS = new HashSet<>(Arrays.asList(
             "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp"
+    ));
+
+    // Text file extensions (includes source code and plain text)
+    protected static final Set<String> TEXT_EXTENSIONS = new HashSet<>(Arrays.asList(
+            "txt", "md", "json", "yml", "yaml", "properties", "ini", "conf", "cfg",
+            "xml", "csv", "log", "java", "py", "js", "ts", "html", "css", "sql",
+            "sh", "bat", "ps1", "rb", "php", "c", "cpp", "h", "hpp", "go"
     ));
 
     // Extension to RSyntaxTextArea syntax style mapping
@@ -83,30 +107,33 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         SYNTAX_STYLES.put("pl", SyntaxConstants.SYNTAX_STYLE_PERL);
     }
 
-    private final String sourceName;
-    private final String sourcePath;
-    private String rawContent;
-    private final DocumentMetadata metadata;
-    private final List<String> warnings;
-    private final Document document;
-    private final boolean isTextFile;
-    private final boolean isRemote;
-    private final String syntaxStyle;
+    protected final String sourceName;
+    protected final String sourcePath;
+    protected String rawContent;
+    protected final DocumentMetadata metadata;
+    protected final List<String> warnings;
+    protected final Document document;
+    protected final boolean isTextFile;
+    protected final boolean isRemote;
+    protected final String syntaxStyle;
+    protected final boolean isSourceCode;       // Source code files use RSyntaxTextArea for rendering
+    protected final boolean needsHtmlRendering; // MD/HTML/Binary docs use JEditorPane for rendering
+    protected final ChatMarkdownFormatter markdownFormatter;
 
-    // UI Components - both use RSyntaxTextArea for consistent editing and highlighting
-    private final JPanel mainPanel;
-    private final RSyntaxTextArea rawPane;
-    private final RSyntaxTextArea renderedPane;
-    private final JSplitPane splitPane;
-    private final RTextScrollPane rawScrollPane;
-    private final RTextScrollPane renderedScrollPane;
-    private final IndexStatusSidebar sidebar;
-    private final JPanel contentPanel;
+    // UI Components
+    protected final JPanel mainPanel;
+    protected final RSyntaxTextArea rawPane;              // RSyntaxTextArea for RAW view (no highlighting)
+    protected final JEditorPane htmlRenderedPane;         // HTML rendering for MD/Binary documents
+    protected final JSplitPane splitPane;
+    protected final RTextScrollPane rawScrollPane;
+    protected final JScrollPane htmlRenderedScrollPane;
+    protected final IndexStatusSidebar sidebar;
+    protected final JPanel contentPanel;
 
     // State
-    private ViewMode currentMode;
-    private boolean sidebarVisible = false;
-    private boolean hasUnsavedChanges = false;
+    protected ViewMode currentMode;
+    protected boolean sidebarVisible = false;
+    protected boolean hasUnsavedChanges = false;
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
@@ -119,14 +146,21 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.isRemote = isRemote;
         this.isTextFile = determineIfTextFile(sourceName, metadata);
         this.syntaxStyle = detectSyntaxStyle(sourceName);
+        this.isSourceCode = isSourceCodeFile(sourceName);
+        this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
+        this.markdownFormatter = ChatMarkdownFormatter.getInstance();
 
         setLayout(new BorderLayout());
 
-        // Create components - both panes use RSyntaxTextArea
+        // Create RAW pane (RSyntaxTextArea WITHOUT highlighting)
         this.rawPane = createRawPane();
-        this.renderedPane = createRenderedPane();
         this.rawScrollPane = new RTextScrollPane(rawPane);
-        this.renderedScrollPane = new RTextScrollPane(renderedPane);
+
+        // Create HTML rendered pane for documents that need it
+        this.htmlRenderedPane = createHtmlRenderedPane();
+        this.htmlRenderedScrollPane = new JScrollPane(htmlRenderedPane);
+
+        // Create split pane
         this.splitPane = createSplitPane();
         this.sidebar = new IndexStatusSidebar();
         this.mainPanel = new JPanel(new BorderLayout());
@@ -153,15 +187,52 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             add(createStatusBar(), BorderLayout.SOUTH);
         }
 
-        // Set default mode: RENDERED_ONLY for all (shows syntax highlighting)
+        // Set default mode: RENDERED_ONLY
         this.currentMode = ViewMode.RENDERED_ONLY;
         applyViewMode(currentMode);
 
         // Populate sidebar
         updateSidebarInfo();
+
+        // Render HTML content if needed
+        if (needsHtmlRendering) {
+            renderHtmlContent();
+        }
     }
 
-    private boolean determineIfTextFile(String name, DocumentMetadata metadata) {
+    /**
+     * Check if file is source code (uses RSyntaxTextArea with highlighting for RENDERED view)
+     */
+    protected boolean isSourceCodeFile(String name) {
+        String ext = getExtension(name);
+        return ext != null && SOURCE_CODE_EXTENSIONS.contains(ext);
+    }
+
+    /**
+     * Check if file needs HTML rendering (MD, HTML, or binary documents)
+     */
+    protected boolean needsHtmlRendering(String name, DocumentMetadata meta) {
+        String ext = getExtension(name);
+        if (ext != null && (HTML_RENDERED_EXTENSIONS.contains(ext) || BINARY_DOCUMENT_EXTENSIONS.contains(ext))) {
+            return true;
+        }
+        // Also check MIME type for binary documents
+        if (meta != null && meta.getMimeType() != null) {
+            String mime = meta.getMimeType().toLowerCase();
+            if (mime.contains("pdf") || mime.contains("msword") || mime.contains("officedocument")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected String getExtension(String name) {
+        if (name == null) return null;
+        int dotIndex = name.lastIndexOf('.');
+        return dotIndex > 0 ? name.substring(dotIndex + 1).toLowerCase() : null;
+    }
+
+    protected boolean determineIfTextFile(String name, DocumentMetadata metadata) {
         // Check MIME type first
         if (metadata != null && metadata.getMimeType() != null) {
             String mime = metadata.getMimeType().toLowerCase();
@@ -171,13 +242,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         // Fallback to extension
-        if (name != null) {
-            int dotIndex = name.lastIndexOf('.');
-            if (dotIndex > 0) {
-                String ext = name.substring(dotIndex + 1).toLowerCase();
-                if (RENDERED_ONLY_EXTENSIONS.contains(ext)) return false;
-                if (TEXT_EXTENSIONS.contains(ext)) return true;
-            }
+        String ext = getExtension(name);
+        if (ext != null) {
+            if (BINARY_DOCUMENT_EXTENSIONS.contains(ext)) return false;
+            if (TEXT_EXTENSIONS.contains(ext) || SOURCE_CODE_EXTENSIONS.contains(ext)) return true;
         }
 
         // Default to text
@@ -187,26 +255,25 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /**
      * Detect RSyntaxTextArea syntax style based on file extension.
      */
-    private String detectSyntaxStyle(String name) {
-        if (name == null) return SyntaxConstants.SYNTAX_STYLE_NONE;
-
-        int dotIndex = name.lastIndexOf('.');
-        if (dotIndex > 0) {
-            String ext = name.substring(dotIndex + 1).toLowerCase();
+    protected String detectSyntaxStyle(String name) {
+        String ext = getExtension(name);
+        if (ext != null) {
             String style = SYNTAX_STYLES.get(ext);
-            if (style != null) {
-                return style;
-            }
+            if (style != null) return style;
         }
         return SyntaxConstants.SYNTAX_STYLE_NONE;
     }
 
-    private RSyntaxTextArea createRawPane() {
+    /**
+     * Create RAW pane - RSyntaxTextArea WITHOUT syntax highlighting.
+     * This is the plain text view that shows content exactly as-is.
+     */
+    protected RSyntaxTextArea createRawPane() {
         RSyntaxTextArea area = new RSyntaxTextArea();
-        area.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE); // Raw = no highlighting
+        area.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE); // NO highlighting for RAW
         area.setCodeFoldingEnabled(false);
         area.setFont(new Font("Consolas", Font.PLAIN, 13));
-        area.setEditable(isTextFile); // Only text files are editable
+        area.setEditable(isTextFile);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         area.setText(rawContent);
@@ -214,76 +281,137 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         // Track changes
         area.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { markChanged(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { markChanged(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { markChanged(); }
-            private void markChanged() {
-                if (isTextFile) {
-                    hasUnsavedChanges = true;
-                    rawContent = area.getText();
-                    // Sync to rendered pane
-                    if (renderedPane != null) {
-                        renderedPane.setText(rawContent);
-                    }
-                }
-            }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
         });
 
         return area;
     }
 
+    protected void onRawContentChanged() {
+        if (isTextFile) {
+            hasUnsavedChanges = true;
+            rawContent = rawPane.getText();
+            // Re-render HTML if needed
+            if (needsHtmlRendering && currentMode != ViewMode.RAW_ONLY) {
+                renderHtmlContent();
+            }
+        }
+    }
+
     /**
-     * Creates the rendered pane with syntax highlighting.
-     * IMPORTANT: Uses RSyntaxTextArea, NOT HTML rendering, to preserve data integrity.
-     * The text content is IDENTICAL to raw - only visual highlighting is added.
+     * Create HTML rendered pane for documents (Markdown, binary docs).
+     * This is used when the file needs actual HTML rendering (not just syntax highlighting).
      */
-    private RSyntaxTextArea createRenderedPane() {
+    protected JEditorPane createHtmlRenderedPane() {
+        JEditorPane pane = new JEditorPane();
+        pane.setEditable(false);
+        pane.setContentType("text/html");
+
+        HTMLEditorKit kit = new HTMLEditorKit();
+        StyleSheet styleSheet = kit.getStyleSheet();
+        styleSheet.addRule("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; " +
+                "margin: 16px; line-height: 1.6; }");
+        styleSheet.addRule("h1, h2, h3 { margin-top: 20px; margin-bottom: 12px; }");
+        styleSheet.addRule("p { margin: 0 0 12px 0; }");
+        styleSheet.addRule("pre { background-color: #f5f5f5; padding: 12px; border-radius: 4px; " +
+                "font-family: Consolas, monospace; white-space: pre-wrap; }");
+        styleSheet.addRule("code { background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; " +
+                "font-family: Consolas, monospace; }");
+        styleSheet.addRule("table { border-collapse: collapse; width: 100%; margin: 12px 0; }");
+        styleSheet.addRule("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }");
+        styleSheet.addRule("th { background-color: #f0f0f0; font-weight: bold; }");
+        styleSheet.addRule("blockquote { border-left: 4px solid #ddd; margin: 0; padding-left: 16px; color: #666; }");
+        styleSheet.addRule("ul, ol { padding-left: 24px; }");
+        pane.setEditorKit(kit);
+
+        return pane;
+    }
+
+    /**
+     * Render content to HTML (for Markdown and document files).
+     */
+    protected void renderHtmlContent() {
+        if (rawContent != null && !rawContent.isEmpty()) {
+            try {
+                String html = markdownFormatter.renderToHtml(rawContent);
+                htmlRenderedPane.setText("<html><body>" + html + "</body></html>");
+                SwingUtilities.invokeLater(() -> htmlRenderedPane.setCaretPosition(0));
+            } catch (Exception e) {
+                htmlRenderedPane.setText("<html><body><p style='color:red;'>Rendering-Fehler: " +
+                        escapeHtml(e.getMessage()) + "</p></body></html>");
+            }
+        } else {
+            htmlRenderedPane.setText("<html><body><p><i>Kein Inhalt</i></p></body></html>");
+        }
+    }
+
+    /**
+     * Create a RSyntaxTextArea with syntax highlighting for the RENDERED view of source code files.
+     */
+    protected RSyntaxTextArea createHighlightedSourcePane() {
         RSyntaxTextArea area = new RSyntaxTextArea();
-        area.setSyntaxEditingStyle(syntaxStyle); // Syntax highlighting based on file type
+        area.setSyntaxEditingStyle(syntaxStyle); // WITH highlighting
         area.setCodeFoldingEnabled(true);
         area.setFont(new Font("Consolas", Font.PLAIN, 13));
-        area.setEditable(isTextFile); // Editable if text file
-        area.setLineWrap(false); // Code is typically not wrapped
+        area.setEditable(isTextFile);
+        area.setLineWrap(false);
         area.setWrapStyleWord(false);
         area.setText(rawContent);
         area.setCaretPosition(0);
 
-        // Track changes and sync back to raw pane
+        // Sync changes back to rawContent and rawPane
         area.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { syncFromRendered(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { syncFromRendered(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncFromRendered(); }
-            private void syncFromRendered() {
-                if (isTextFile) {
-                    hasUnsavedChanges = true;
-                    rawContent = area.getText();
-                    // Sync to raw pane if not already in sync
-                    if (rawPane != null && !rawPane.getText().equals(rawContent)) {
-                        SwingUtilities.invokeLater(() -> {
-                            int caretPos = rawPane.getCaretPosition();
-                            rawPane.setText(rawContent);
-                            try {
-                                rawPane.setCaretPosition(Math.min(caretPos, rawContent.length()));
-                            } catch (Exception ignored) {}
-                        });
-                    }
-                }
-            }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
         });
 
         return area;
     }
 
+    protected void syncFromHighlighted(RSyntaxTextArea highlightedArea) {
+        if (isTextFile) {
+            hasUnsavedChanges = true;
+            rawContent = highlightedArea.getText();
+            // Sync to raw pane
+            if (rawPane != null && !rawPane.getText().equals(rawContent)) {
+                SwingUtilities.invokeLater(() -> {
+                    int caretPos = rawPane.getCaretPosition();
+                    rawPane.setText(rawContent);
+                    try {
+                        rawPane.setCaretPosition(Math.min(caretPos, rawContent.length()));
+                    } catch (Exception ignored) {}
+                });
+            }
+        }
+    }
 
-    private JSplitPane createSplitPane() {
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, rawScrollPane, renderedScrollPane);
+
+    protected JSplitPane createSplitPane() {
+        // Initial setup - will be reconfigured by applyViewMode
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        split.setLeftComponent(rawScrollPane);
+
+        // Right component depends on file type
+        if (needsHtmlRendering) {
+            split.setRightComponent(htmlRenderedScrollPane);
+        } else if (isSourceCode) {
+            // For source code: right side will have highlighted pane (created in applyViewMode)
+            split.setRightComponent(new RTextScrollPane(createHighlightedSourcePane()));
+        } else {
+            // Plain text files - just use raw pane on both sides initially
+            split.setRightComponent(rawScrollPane);
+        }
+
         split.setResizeWeight(0.5);
         split.setDividerLocation(0.5);
         split.setOneTouchExpandable(true);
         return split;
     }
 
-    private JToolBar createToolbar() {
+    protected JToolBar createToolbar() {
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
         toolbar.setBorder(new EmptyBorder(4, 8, 4, 8));
@@ -320,7 +448,8 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         JComboBox<ViewMode> modeCombo = new JComboBox<>(ViewMode.values());
         modeCombo.setName("viewModeCombo");
-        modeCombo.setSelectedItem(isTextFile ? ViewMode.SPLIT : ViewMode.RENDERED_ONLY);
+        // Default is RENDERED_ONLY
+        modeCombo.setSelectedItem(ViewMode.RENDERED_ONLY);
         modeCombo.setMaximumSize(new Dimension(120, 28));
         modeCombo.addActionListener(e -> {
             ViewMode selected = (ViewMode) modeCombo.getSelectedItem();
@@ -342,7 +471,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         return toolbar;
     }
 
-    private JPanel createStatusBar() {
+    protected JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
         statusBar.setBorder(new EmptyBorder(4, 8, 4, 8));
         statusBar.setBackground(new Color(245, 245, 245));
@@ -350,6 +479,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         StringBuilder status = new StringBuilder();
         if (metadata != null && metadata.getMimeType() != null) {
             status.append("Type: ").append(metadata.getMimeType());
+        }
+        if (isSourceCode) {
+            if (status.length() > 0) status.append(" | ");
+            status.append("💻 Quellcode");
         }
         if (warnings != null && !warnings.isEmpty()) {
             if (status.length() > 0) status.append(" | ");
@@ -364,22 +497,59 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         return statusBar;
     }
 
-    private void applyViewMode(ViewMode mode) {
+    /**
+     * Apply view mode - key method that handles switching between views.
+     *
+     * For source code files:
+     * - RAW_ONLY: RSyntaxTextArea WITHOUT highlighting
+     * - RENDERED_ONLY: RSyntaxTextArea WITH syntax highlighting
+     * - SPLIT: Both side by side
+     *
+     * For documents (MD, HTML, PDF, DOCX):
+     * - RAW_ONLY: RSyntaxTextArea WITHOUT highlighting (plain text)
+     * - RENDERED_ONLY: JEditorPane with HTML rendering
+     * - SPLIT: Both side by side
+     */
+    protected void applyViewMode(ViewMode mode) {
         this.currentMode = mode;
-
         contentPanel.removeAll();
 
         switch (mode) {
             case SPLIT:
                 splitPane.setLeftComponent(rawScrollPane);
-                splitPane.setRightComponent(renderedScrollPane);
+                if (needsHtmlRendering) {
+                    // Documents use HTML rendering on the right
+                    splitPane.setRightComponent(htmlRenderedScrollPane);
+                } else if (isSourceCode) {
+                    // Source code uses highlighted RSyntaxTextArea on the right
+                    splitPane.setRightComponent(new RTextScrollPane(createHighlightedSourcePane()));
+                } else {
+                    // Plain text - just raw on both sides (no real split benefit)
+                    splitPane.setRightComponent(rawScrollPane);
+                }
                 splitPane.setDividerLocation(0.5);
                 contentPanel.add(splitPane, BorderLayout.CENTER);
                 break;
+
             case RENDERED_ONLY:
-                contentPanel.add(renderedScrollPane, BorderLayout.CENTER);
+                if (needsHtmlRendering) {
+                    // Documents show HTML rendering
+                    contentPanel.add(htmlRenderedScrollPane, BorderLayout.CENTER);
+                } else if (isSourceCode) {
+                    // Source code: use rawPane but WITH highlighting applied
+                    rawPane.setSyntaxEditingStyle(syntaxStyle);
+                    rawPane.setCodeFoldingEnabled(true);
+                    contentPanel.add(rawScrollPane, BorderLayout.CENTER);
+                } else {
+                    // Plain text - just show raw pane (no highlighting available)
+                    contentPanel.add(rawScrollPane, BorderLayout.CENTER);
+                }
                 break;
+
             case RAW_ONLY:
+                // Always show RAW without highlighting
+                rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+                rawPane.setCodeFoldingEnabled(false);
                 contentPanel.add(rawScrollPane, BorderLayout.CENTER);
                 break;
         }
@@ -388,7 +558,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         contentPanel.repaint();
     }
 
-    private void toggleSidebar() {
+    protected void toggleSidebar() {
         sidebarVisible = !sidebarVisible;
         sidebar.setVisible(sidebarVisible);
 
@@ -401,7 +571,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
 
-    private void updateSidebarInfo() {
+    protected void updateSidebarInfo() {
         // File details
         Long fileSize = null;
         Long lastModified = null;
@@ -443,7 +613,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
     }
 
-    private void copyRaw(ActionEvent e) {
+    protected void copyRaw(ActionEvent e) {
         String content = rawPane.getText();
         if (content != null && !content.isEmpty()) {
             StringSelection selection = new StringSelection(content);
@@ -459,12 +629,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
 
-    private String truncate(String text, int maxLen) {
+    protected String truncate(String text, int maxLen) {
         if (text == null) return "";
         return text.length() > maxLen ? text.substring(0, maxLen - 3) + "..." : text;
     }
 
-    private String escapeHtml(String text) {
+    protected String escapeHtml(String text) {
         if (text == null) return "";
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
@@ -594,5 +764,37 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     public boolean isTextFile() {
         return isTextFile;
     }
-}
 
+    /**
+     * Get the raw pane (RSyntaxTextArea) for direct access.
+     */
+    public RSyntaxTextArea getRawPane() {
+        return rawPane;
+    }
+
+    /**
+     * Check if file is source code.
+     */
+    public boolean isSourceCode() {
+        return isSourceCode;
+    }
+
+    /**
+     * Set content programmatically.
+     */
+    public void setContent(String content) {
+        this.rawContent = content != null ? content : "";
+        rawPane.setText(this.rawContent);
+        rawPane.setCaretPosition(0);
+        if (needsHtmlRendering) {
+            renderHtmlContent();
+        }
+    }
+
+    /**
+     * Get current syntax style.
+     */
+    public String getSyntaxStyle() {
+        return syntaxStyle;
+    }
+}
