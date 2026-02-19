@@ -101,6 +101,11 @@ public final class VirtualResourceOpener {
             } catch (Exception e) {
                 closeQuietly(fs);
 
+                if (isUserCancelledAuth(e)) {
+                    // User aborted password dialog; do not treat this as failed login.
+                    return null;
+                }
+
                 if (isAuthError(e)) {
                     // Auth error - invalidate password and ask user
                     if (!resource.isLocal() && resource.getFtpState() != null) {
@@ -140,6 +145,18 @@ public final class VirtualResourceOpener {
         }
         String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
         return msg.contains("auth") || msg.contains("login") || msg.contains("credentials") || msg.contains("password");
+    }
+
+    private boolean isUserCancelledAuth(Exception e) {
+        if (!(e instanceof FileServiceException)) {
+            return false;
+        }
+        FileServiceException fse = (FileServiceException) e;
+        if (fse.getErrorCode() != FileServiceErrorCode.AUTH_FAILED) {
+            return false;
+        }
+        String message = fse.getMessage();
+        return message != null && message.toLowerCase().contains("no credentials available");
     }
 
     private LoginManager.RetryDecision showLoginFailedDialog(String errorMessage, int attempt) {
