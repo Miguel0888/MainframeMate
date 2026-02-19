@@ -358,7 +358,11 @@ public class ChatSession extends JPanel {
     private String composeSystemPrompt(ChatMode mode) {
         StringBuilder sb = new StringBuilder();
         sb.append(mode.getSystemPrompt());
-        sb.append("\n\nSprich immer auf Deutsch.");
+
+        String languageInstruction = buildLanguageInstruction();
+        if (!languageInstruction.isEmpty()) {
+            sb.append("\n\n").append(languageInstruction);
+        }
 
         String contractPrefix = resolveModeToolPrefix(mode);
         String contractPostfix = resolveModeToolPostfix(mode);
@@ -375,6 +379,18 @@ public class ChatSession extends JPanel {
             sb.append("\n\n").append(contractPostfix);
         }
         return sb.toString();
+    }
+
+    private String buildLanguageInstruction() {
+        Settings settings = SettingsHelper.load();
+        String language = settings.aiConfig.getOrDefault("assistant.language", "de").trim().toLowerCase();
+        if (language.isEmpty() || "none".equals(language)) {
+            return "";
+        }
+        if ("en".equals(language) || "english".equals(language)) {
+            return "Respond in English.";
+        }
+        return "Sprich immer auf Deutsch.";
     }
 
     private String resolveModeToolPrefix(ChatMode mode) {
