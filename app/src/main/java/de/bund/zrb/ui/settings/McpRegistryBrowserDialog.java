@@ -14,8 +14,8 @@ import java.util.List;
  * "App Store"-style dialog for browsing the MCP Registry,
  * viewing server details, and installing/enabling MCP servers.
  * <p>
- * Loads the complete catalogue on open, then filters client-side
- * with smart ranking (short name match > description match).
+ * Two tabs: <b>Marketplace</b> (full catalogue with search) and
+ * <b>Installiert</b> (installed servers with start/stop/remove).
  * </p>
  */
 public class McpRegistryBrowserDialog {
@@ -26,11 +26,45 @@ public class McpRegistryBrowserDialog {
         McpServerManager manager = McpServerManager.getInstance();
 
         JDialog dialog = new JDialog(
-                parent instanceof Frame ? (Frame) parent : (Frame) SwingUtilities.getAncestorOfClass(Frame.class, parent),
-                "MCP Registry Browser", true);
-        dialog.setLayout(new BorderLayout(4, 4));
+                parent instanceof Frame ? (Frame) parent
+                        : (Frame) SwingUtilities.getAncestorOfClass(Frame.class, parent),
+                "MCP Registry", true);
+        dialog.setLayout(new BorderLayout());
 
-        // ── Top bar: search + refresh ───────────────────────────────
+        JTabbedPane tabs = new JTabbedPane();
+
+        // ════════════════════════════════════════════════════════════
+        //  Tab 1: Marketplace
+        // ════════════════════════════════════════════════════════════
+        JPanel marketplaceTab = buildMarketplaceTab(apiClient, manager, dialog);
+        tabs.addTab("Marketplace", marketplaceTab);
+
+        // ════════════════════════════════════════════════════════════
+        //  Tab 2: Installiert
+        // ════════════════════════════════════════════════════════════
+        InstalledTab installedTab = new InstalledTab(manager, dialog, apiClient);
+        tabs.addTab("Installiert", installedTab.panel);
+
+        // Refresh installed list when switching to that tab
+        tabs.addChangeListener(e -> {
+            if (tabs.getSelectedIndex() == 1) installedTab.refresh();
+        });
+
+        dialog.add(tabs, BorderLayout.CENTER);
+        dialog.setSize(920, 580);
+        dialog.setLocationRelativeTo(parent);
+        dialog.setVisible(true);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Marketplace tab
+    // ════════════════════════════════════════════════════════════════
+
+    private static JPanel buildMarketplaceTab(McpRegistryApiClient apiClient,
+                                               McpServerManager manager, JDialog dialog) {
+        JPanel panel = new JPanel(new BorderLayout(4, 4));
+
+        // ── Top bar ─────────────────────────────────────────────────
         JPanel topBar = new JPanel(new BorderLayout(4, 4));
         topBar.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
 
@@ -43,12 +77,10 @@ public class McpRegistryBrowserDialog {
         searchPanel.add(new JLabel("Suche: "), BorderLayout.WEST);
         searchPanel.add(searchField, BorderLayout.CENTER);
         searchPanel.add(refreshBtn, BorderLayout.EAST);
-
         topBar.add(searchPanel, BorderLayout.CENTER);
-        dialog.add(topBar, BorderLayout.NORTH);
+        panel.add(topBar, BorderLayout.NORTH);
 
-        // ── Server list table ───────────────────────────────────────
-        // allServers = complete catalogue; displayServers = currently shown (filtered)
+        // ── Table ───────────────────────────────────────────────────
         List<McpRegistryServerInfo> allServers = new ArrayList<>();
         List<McpRegistryServerInfo> displayServers = new ArrayList<>();
 
@@ -97,7 +129,8 @@ public class McpRegistryBrowserDialog {
         // Status column coloring
         table.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel, boolean focus, int row, int col) {
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
+                                                           boolean focus, int row, int col) {
                 Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
                 String v = String.valueOf(value);
                 if (v.contains("Installiert")) c.setForeground(new Color(0, 100, 200));
@@ -111,7 +144,8 @@ public class McpRegistryBrowserDialog {
         // Name column: bold for known publishers
         table.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel, boolean focus, int row, int col) {
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
+                                                           boolean focus, int row, int col) {
                 Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
                 if (row < displayServers.size()) {
                     McpRegistryServerInfo info = displayServers.get(row);
@@ -123,10 +157,9 @@ public class McpRegistryBrowserDialog {
             }
         });
 
-        JScrollPane scrollPane = new JScrollPane(table);
-        dialog.add(scrollPane, BorderLayout.CENTER);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
 
-        // ── Bottom bar: count + actions ─────────────────────────────
+        // ── Bottom bar ──────────────────────────────────────────────
         JPanel bottomBar = new JPanel(new BorderLayout(4, 4));
         bottomBar.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
 
@@ -141,14 +174,13 @@ public class McpRegistryBrowserDialog {
         actionPanel.add(detailsBtn);
         actionPanel.add(installBtn);
         bottomBar.add(actionPanel, BorderLayout.EAST);
-        dialog.add(bottomBar, BorderLayout.SOUTH);
+        panel.add(bottomBar, BorderLayout.SOUTH);
 
-        // ── Filter logic (runs on EDT) ──────────────────────────────
+        // ── Filter ──────────────────────────────────────────────────
         Runnable applyFilter = () -> {
             String query = searchField.getText().trim();
             displayServers.clear();
             List<McpRegistryServerInfo> filtered = McpRegistryApiClient.filterServers(allServers, query);
-            // Hide deleted unless searching specifically
             for (McpRegistryServerInfo s : filtered) {
                 if (!s.isDeleted()) displayServers.add(s);
             }
@@ -160,7 +192,7 @@ public class McpRegistryBrowserDialog {
             }
         };
 
-        // ── Search: live filter with small delay ────────────────────
+        // Live search with debounce
         javax.swing.Timer[] filterTimer = {null};
         searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             private void schedule() {
@@ -204,12 +236,11 @@ public class McpRegistryBrowserDialog {
                 configs.removeIf(c -> c.getName().equals(info.getName()));
                 manager.saveConfigs(configs);
                 installBtn.setText("Installieren");
-                model.fireTableDataChanged();
             } else {
                 doInstall(dialog, apiClient, info, manager);
                 installBtn.setText("Deinstallieren");
-                model.fireTableDataChanged();
             }
+            model.fireTableDataChanged();
         });
 
         table.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -218,8 +249,8 @@ public class McpRegistryBrowserDialog {
             }
         });
 
-        refreshBtn.addActionListener(e -> {
-            apiClient.invalidateCache();
+        // ── Refresh ─────────────────────────────────────────────────
+        Runnable loadAll = () -> {
             allServers.clear();
             displayServers.clear();
             model.fireTableDataChanged();
@@ -234,11 +265,11 @@ public class McpRegistryBrowserDialog {
                                     () -> statusLabel.setText("Lade... " + total + " Server (Seite " + page + ")")
                             ));
                     SwingUtilities.invokeLater(() -> {
-                        allServers.clear();
                         allServers.addAll(loaded);
                         searchField.setEnabled(true);
                         refreshBtn.setEnabled(true);
                         applyFilter.run();
+                        searchField.requestFocusInWindow();
                     });
                 } catch (Exception ex) {
                     SwingUtilities.invokeLater(() -> {
@@ -248,37 +279,191 @@ public class McpRegistryBrowserDialog {
                     });
                 }
             }, "mcp-registry-load").start();
+        };
+
+        refreshBtn.addActionListener(e -> {
+            apiClient.invalidateCache();
+            loadAll.run();
         });
 
-        // ── Initial load ────────────────────────────────────────────
-        dialog.setSize(900, 560);
-        dialog.setLocationRelativeTo(parent);
+        // Initial load
+        loadAll.run();
 
-        // Start loading in background
-        new Thread(() -> {
-            try {
-                List<McpRegistryServerInfo> loaded = apiClient.loadAllServers(
-                        (total, page) -> SwingUtilities.invokeLater(
-                                () -> statusLabel.setText("Lade... " + total + " Server (Seite " + page + ")")
-                        ));
-                SwingUtilities.invokeLater(() -> {
-                    allServers.addAll(loaded);
-                    applyFilter.run();
-                    searchField.requestFocusInWindow();
-                });
-            } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> statusLabel.setText("Fehler: " + ex.getMessage()));
-            }
-        }, "mcp-registry-initial-load").start();
-
-        dialog.setVisible(true);
+        return panel;
     }
 
-    // ── Details dialog ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════
+    //  Installed tab (inner helper class)
+    // ════════════════════════════════════════════════════════════════
+
+    private static class InstalledTab {
+        final JPanel panel;
+        private final McpServerManager manager;
+        private final JDialog dialog;
+        private final McpRegistryApiClient apiClient;
+
+        private final List<McpServerConfig> configs = new ArrayList<>();
+        private final AbstractTableModel model;
+        private final JTable table;
+
+        InstalledTab(McpServerManager manager, JDialog dialog, McpRegistryApiClient apiClient) {
+            this.manager = manager;
+            this.dialog = dialog;
+            this.apiClient = apiClient;
+
+            panel = new JPanel(new BorderLayout(4, 4));
+
+            // ── Info ────────────────────────────────────────────────
+            JLabel info = new JLabel(
+                    "<html><b>Installierte MCP-Server</b> \u2014 Starten, stoppen oder entfernen.</html>");
+            info.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+            panel.add(info, BorderLayout.NORTH);
+
+            // ── Table ───────────────────────────────────────────────
+            String[] COLS = {"Name", "Befehl", "Aktiv", "Status"};
+            model = new AbstractTableModel() {
+                @Override public int getRowCount() { return configs.size(); }
+                @Override public int getColumnCount() { return COLS.length; }
+                @Override public String getColumnName(int col) { return COLS[col]; }
+
+                @Override
+                public Object getValueAt(int row, int col) {
+                    McpServerConfig c = configs.get(row);
+                    switch (col) {
+                        case 0: return McpRegistryApiClient.getShortName(c.getName());
+                        case 1: return c.getCommand() + " " + String.join(" ", c.getArgs());
+                        case 2: return c.isEnabled() ? "Ja" : "Nein";
+                        case 3: return manager.isRunning(c.getName()) ? "\u25CF L\u00E4uft" : "\u25CB Gestoppt";
+                        default: return "";
+                    }
+                }
+            };
+
+            table = new JTable(model);
+            table.setRowHeight(26);
+            table.getColumnModel().getColumn(0).setPreferredWidth(200);
+            table.getColumnModel().getColumn(1).setPreferredWidth(300);
+            table.getColumnModel().getColumn(2).setPreferredWidth(60);
+            table.getColumnModel().getColumn(3).setPreferredWidth(100);
+
+            // Status column coloring
+            table.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
+                @Override
+                public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
+                                                               boolean focus, int row, int col) {
+                    Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                    String v = String.valueOf(value);
+                    c.setForeground(v.contains("L\u00E4uft") ? new Color(0, 140, 0) : Color.GRAY);
+                    return c;
+                }
+            });
+
+            panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+            // ── Buttons ─────────────────────────────────────────────
+            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
+            btnPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+
+            JButton startBtn = new JButton("Starten");
+            JButton stopBtn = new JButton("Stoppen");
+            JButton removeBtn = new JButton("Entfernen");
+            JButton toggleBtn = new JButton("Aktivieren/Deaktivieren");
+            startBtn.setEnabled(false);
+            stopBtn.setEnabled(false);
+            removeBtn.setEnabled(false);
+            toggleBtn.setEnabled(false);
+            btnPanel.add(toggleBtn);
+            btnPanel.add(startBtn);
+            btnPanel.add(stopBtn);
+            btnPanel.add(removeBtn);
+            panel.add(btnPanel, BorderLayout.SOUTH);
+
+            // ── Selection ───────────────────────────────────────────
+            table.getSelectionModel().addListSelectionListener(e -> {
+                if (e.getValueIsAdjusting()) return;
+                int row = table.getSelectedRow();
+                boolean sel = row >= 0 && row < configs.size();
+                removeBtn.setEnabled(sel);
+                if (sel) {
+                    McpServerConfig cfg = configs.get(row);
+                    boolean running = manager.isRunning(cfg.getName());
+                    startBtn.setEnabled(!running && cfg.isEnabled());
+                    stopBtn.setEnabled(running);
+                    toggleBtn.setEnabled(true);
+                    toggleBtn.setText(cfg.isEnabled() ? "Deaktivieren" : "Aktivieren");
+                } else {
+                    startBtn.setEnabled(false);
+                    stopBtn.setEnabled(false);
+                    toggleBtn.setEnabled(false);
+                }
+            });
+
+            startBtn.addActionListener(e -> {
+                int row = table.getSelectedRow();
+                if (row < 0) return;
+                McpServerConfig cfg = configs.get(row);
+                new Thread(() -> {
+                    manager.startServer(cfg);
+                    SwingUtilities.invokeLater(this::refresh);
+                }, "mcp-start-" + cfg.getName()).start();
+            });
+
+            stopBtn.addActionListener(e -> {
+                int row = table.getSelectedRow();
+                if (row < 0) return;
+                manager.stopServer(configs.get(row).getName());
+                refresh();
+            });
+
+            removeBtn.addActionListener(e -> {
+                int row = table.getSelectedRow();
+                if (row < 0) return;
+                McpServerConfig cfg = configs.get(row);
+                int confirm = JOptionPane.showConfirmDialog(dialog,
+                        "Server \"" + McpRegistryApiClient.getShortName(cfg.getName())
+                                + "\" wirklich entfernen?",
+                        "Entfernen", JOptionPane.YES_NO_OPTION);
+                if (confirm != JOptionPane.YES_OPTION) return;
+                manager.stopServer(cfg.getName());
+                List<McpServerConfig> all = manager.loadConfigs();
+                all.removeIf(c -> c.getName().equals(cfg.getName()));
+                manager.saveConfigs(all);
+                refresh();
+            });
+
+            toggleBtn.addActionListener(e -> {
+                int row = table.getSelectedRow();
+                if (row < 0) return;
+                McpServerConfig cfg = configs.get(row);
+                List<McpServerConfig> all = manager.loadConfigs();
+                for (McpServerConfig c : all) {
+                    if (c.getName().equals(cfg.getName())) {
+                        c.setEnabled(!c.isEnabled());
+                        if (!c.isEnabled()) manager.stopServer(c.getName());
+                    }
+                }
+                manager.saveConfigs(all);
+                refresh();
+            });
+
+            refresh();
+        }
+
+        void refresh() {
+            configs.clear();
+            configs.addAll(manager.loadConfigs());
+            model.fireTableDataChanged();
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Details dialog
+    // ════════════════════════════════════════════════════════════════
 
     private static void showDetailsDialog(Window parent, McpRegistryApiClient apiClient,
                                           McpRegistryServerInfo listInfo, McpServerManager manager) {
-        JDialog detail = new JDialog(parent, "Details: " + McpRegistryApiClient.getShortName(listInfo.getName()),
+        JDialog detail = new JDialog(parent,
+                "Details: " + McpRegistryApiClient.getShortName(listInfo.getName()),
                 Dialog.ModalityType.APPLICATION_MODAL);
         detail.setLayout(new BorderLayout(8, 8));
 
@@ -344,7 +529,8 @@ public class McpRegistryBrowserDialog {
         content.add(Box.createVerticalStrut(2));
 
         // Full name + publisher
-        JLabel nameLabel = new JLabel(info.getName() + "  \u2022  " + McpRegistryApiClient.getPublisher(info.getName()));
+        JLabel nameLabel = new JLabel(info.getName() + "  \u2022  "
+                + McpRegistryApiClient.getPublisher(info.getName()));
         nameLabel.setFont(monoFont);
         nameLabel.setForeground(Color.GRAY);
         nameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -466,7 +652,9 @@ public class McpRegistryBrowserDialog {
         }
     }
 
-    // ── Install flow ────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════
+    //  Install flow
+    // ════════════════════════════════════════════════════════════════
 
     private static void doInstall(Window parent, McpRegistryApiClient apiClient,
                                   McpRegistryServerInfo info, McpServerManager manager) {
@@ -503,10 +691,12 @@ public class McpRegistryBrowserDialog {
             int trust = JOptionPane.showConfirmDialog(parent,
                     "Sicherheitshinweis:\n\n"
                             + "Server: " + detail.getName() + "\n"
-                            + "Befehl: " + config.getCommand() + " " + String.join(" ", config.getArgs()) + "\n\n"
+                            + "Befehl: " + config.getCommand() + " "
+                            + String.join(" ", config.getArgs()) + "\n\n"
                             + "Dieser Befehl f\u00FChrt lokalen Code aus.\n"
                             + "Vertrauen Sie diesem Server?",
-                    "Vertrauensbest\u00E4tigung", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    "Vertrauensbest\u00E4tigung", JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
             if (trust != JOptionPane.YES_OPTION) return;
         }
 
@@ -598,7 +788,8 @@ public class McpRegistryBrowserDialog {
         String argsStr = argsField.getText().trim();
         if (cmd.isEmpty() && modeBox.getSelectedItem() != null
                 && ((String) modeBox.getSelectedItem()).contains("stdio")) {
-            JOptionPane.showMessageDialog(parent, "Befehl ist erforderlich f\u00FCr stdio-Server.",
+            JOptionPane.showMessageDialog(parent,
+                    "Befehl ist erforderlich f\u00FCr stdio-Server.",
                     "Fehler", JOptionPane.ERROR_MESSAGE);
             return null;
         }
@@ -610,7 +801,9 @@ public class McpRegistryBrowserDialog {
         return new McpServerConfig(info.getName(), cmd, args, enabledBox.isSelected());
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════
+    //  Helpers
+    // ════════════════════════════════════════════════════════════════
 
     private static boolean isInstalled(McpRegistryServerInfo info, McpServerManager manager) {
         for (McpServerConfig c : manager.loadConfigs()) {
