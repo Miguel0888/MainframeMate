@@ -290,7 +290,29 @@ public class NdvClient implements Closeable {
                 + ", props.getType()=" + props.getType());
 
         // Try downloadSource via reflection to handle the monitor parameter correctly
-        IDownloadResult result = downloadSourceSafe(sysFile, library, props);
+        // First try with null sysFile (server uses session context after logon),
+        // then fallback to the provided sysFile
+        IDownloadResult result = null;
+        NdvException lastError = null;
+
+        IPalTypeSystemFile[] sysFileCandidates = { null, sysFile };
+        for (IPalTypeSystemFile sf : sysFileCandidates) {
+            try {
+                System.out.println("[NdvClient] Trying downloadSource with sysFile="
+                        + (sf != null ? "dbid=" + sf.getDatabaseId() + ",fnr=" + sf.getFileNumber() : "null"));
+                result = downloadSourceSafe(sf, library, props);
+                if (result != null) {
+                    break; // success
+                }
+            } catch (NdvException e) {
+                System.err.println("[NdvClient] downloadSource attempt failed: " + e.getMessage());
+                lastError = e;
+            }
+        }
+
+        if (result == null && lastError != null) {
+            throw lastError;
+        }
 
         System.out.println("[NdvClient] readSource: downloadSource returned, result=" + (result != null ? "ok" : "null"));
         if (result != null) {
@@ -346,9 +368,10 @@ public class NdvClient implements Closeable {
             // Find the downloadSource method
             java.lang.reflect.Method downloadMethod = null;
             for (java.lang.reflect.Method m : pal.getClass().getMethods()) {
-                if (m.getName().equals("downloadSource")) {
-                    downloadMethod = m;
-                    break;
+                if (m.getName().equals("downloadSource") || m.getName().equals("fileOperationDownloadSource")) {
+                    if (downloadMethod == null || m.getName().equals("downloadSource")) {
+                        downloadMethod = m;
+                    }
                 }
             }
             if (downloadMethod == null) {
@@ -356,36 +379,39 @@ public class NdvClient implements Closeable {
             }
 
             Class<?>[] paramTypes = downloadMethod.getParameterTypes();
-            System.out.println("[NdvClient] downloadSource has " + paramTypes.length + " parameters");
+            System.out.println("[NdvClient] downloadSource has " + paramTypes.length + " parameters:");
+            for (int i = 0; i < paramTypes.length; i++) {
+                System.out.println("[NdvClient]   param[" + i + "]: " + paramTypes[i].getName());
+            }
 
-            // Build arguments array
+            // Build arguments in the expected order:
+            // downloadSource(IProgressMonitor, IPalTypeSystemFile, String library, IFileProperties, IDownloadOptions/Map)
             Object[] args = new Object[paramTypes.length];
-            int sysFileIdx = -1, libraryIdx = -1, propsIdx = -1;
-
             for (int i = 0; i < paramTypes.length; i++) {
                 Class<?> pt = paramTypes[i];
-                String ptName = pt.getName();
-                System.out.println("[NdvClient]   resolving param[" + i + "]: " + ptName);
 
-                if (pt.isAssignableFrom(sysFile.getClass())) {
+                if (sysFile != null && IPalTypeSystemFile.class.isAssignableFrom(pt)) {
                     args[i] = sysFile;
-                    sysFileIdx = i;
+                    System.out.println("[NdvClient]   arg[" + i + "] = sysFile (dbid=" + sysFile.getDatabaseId() + ", fnr=" + sysFile.getFileNumber() + ")");
+                } else if (sysFile == null && IPalTypeSystemFile.class.isAssignableFrom(pt)) {
+                    args[i] = null;
+                    System.out.println("[NdvClient]   arg[" + i + "] = null (sysFile)");
                 } else if (pt == String.class) {
                     args[i] = library;
-                    libraryIdx = i;
-                } else if (pt.isAssignableFrom(props.getClass())) {
+                    System.out.println("[NdvClient]   arg[" + i + "] = library: " + library);
+                } else if (IFileProperties.class.isAssignableFrom(pt)) {
                     args[i] = props;
-                    propsIdx = i;
+                    System.out.println("[NdvClient]   arg[" + i + "] = props: " + props.getName() + " type=" + props.getType());
                 } else if (pt.isInterface()) {
-                    // Create a no-op dynamic proxy for any interface (e.g. IProgressMonitor)
-                    System.out.println("[NdvClient]   creating no-op proxy for: " + ptName);
+                    // Create a no-op dynamic proxy (for IProgressMonitor, IDownloadOptions, etc.)
+                    System.out.println("[NdvClient]   arg[" + i + "] = no-op proxy for: " + pt.getName());
+                    final Class<?> proxyIface = pt;
                     args[i] = java.lang.reflect.Proxy.newProxyInstance(
                             pt.getClassLoader(),
                             new Class<?>[]{ pt },
                             new java.lang.reflect.InvocationHandler() {
                                 @Override
                                 public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] methodArgs) {
-                                    // Return sensible defaults
                                     Class<?> rt = method.getReturnType();
                                     if (rt == boolean.class) return false;
                                     if (rt == int.class) return 0;
@@ -395,14 +421,18 @@ public class NdvClient implements Closeable {
                                 }
                             }
                     );
-                } else {
-                    // Primitive or unknown – leave null
+                } else if (java.util.Map.class.isAssignableFrom(pt)) {
                     args[i] = null;
+                    System.out.println("[NdvClient]   arg[" + i + "] = null (Map)");
+                } else {
+                    args[i] = null;
+                    System.out.println("[NdvClient]   arg[" + i + "] = null (" + pt.getName() + ")");
                 }
             }
 
-            System.out.println("[NdvClient] Calling downloadSource via reflection...");
+            System.out.println("[NdvClient] Calling downloadSource...");
             Object result = downloadMethod.invoke(pal, args);
+            System.out.println("[NdvClient] downloadSource returned: " + (result != null ? result.getClass().getName() : "null"));
             return (IDownloadResult) result;
 
         } catch (java.lang.reflect.InvocationTargetException e) {
@@ -413,10 +443,11 @@ public class NdvClient implements Closeable {
             if (cause instanceof NullPointerException) {
                 System.err.println("[NdvClient] downloadSource NPE even with proxy:");
                 cause.printStackTrace();
-                throw new NdvException("downloadSource interner NPE – StackTrace: "
+                throw new NdvException("downloadSource NPE: "
                         + (cause.getStackTrace().length > 0 ? cause.getStackTrace()[0] : "unbekannt"), (Exception) cause);
             }
-            throw new NdvException("downloadSource Fehler: " + cause, cause instanceof Exception ? (Exception) cause : null);
+            String msg = cause != null ? cause.getMessage() : e.getMessage();
+            throw new NdvException("downloadSource Fehler: " + msg, cause instanceof Exception ? (Exception) cause : e);
         } catch (Exception e) {
             throw new NdvException("downloadSource reflection Fehler: " + e.getMessage(), e);
         }
