@@ -43,8 +43,20 @@ public class NdvClient implements Closeable {
             pal.connect(params);
             connected = true;
             System.out.println("[NdvClient] Connected to " + host + ":" + port + " as " + user);
+        } catch (java.net.ConnectException e) {
+            throw new NdvException(
+                    "Verbindung abgelehnt: " + host + ":" + port
+                    + "\n\nMögliche Ursachen:"
+                    + "\n• NDV-Server läuft nicht oder ist nicht erreichbar"
+                    + "\n• Port " + port + " ist falsch (Standard: 2700)"
+                    + "\n• Firewall/Proxy blockiert die Verbindung"
+                    + "\n• VPN nicht verbunden", e);
+        } catch (java.net.UnknownHostException e) {
+            throw new NdvException(
+                    "Host nicht gefunden: " + host
+                    + "\n\nBitte Hostnamen oder IP-Adresse prüfen.", e);
         } catch (PalConnectResultException e) {
-            throw new NdvException("NDV login failed: " + e.getMessage(), e);
+            throw new NdvException("NDV-Login fehlgeschlagen: " + e.getMessage(), e);
         }
     }
 
