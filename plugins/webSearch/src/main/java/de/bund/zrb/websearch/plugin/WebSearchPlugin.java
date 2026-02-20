@@ -1,27 +1,30 @@
 package de.bund.zrb.websearch.plugin;
 
+import de.bund.zrb.mcpserver.tool.impl.*;
 import de.bund.zrb.websearch.commands.WebSearchSettingsMenuCommand;
+import de.bund.zrb.websearch.tools.BrowserToolAdapter;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.api.MenuCommand;
 import de.zrb.bund.newApi.mcp.McpTool;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * WebSearch plugin – provides a headless browser MCP server
- * (wd4j-mcp-server) for web browsing and searching from the chat.
+ * WebSearch plugin – provides browser tools for web browsing and searching.
  *
- * <p>This plugin does <b>not</b> ship its own McpTools directly;
- * instead it declares itself as an MCP server plugin. The application
- * runs the browser tools in-process via the wd4j-mcp-server library
- * that is part of the core.</p>
+ * <p>Wraps the wd4j-mcp-server tools (BrowserNavigate, BrowserClick, etc.)
+ * as regular McpTools that are registered in the ToolRegistry, just like
+ * the ExcelImport plugin registers its ImportExcelTool.</p>
  */
 public class WebSearchPlugin implements MainframeMatePlugin {
 
     private MainframeContext context;
+    private WebSearchBrowserManager browserManager;
+    private List<McpTool> tools;
 
     @Override
     public String getPluginName() {
@@ -31,6 +34,8 @@ public class WebSearchPlugin implements MainframeMatePlugin {
     @Override
     public void initialize(MainframeContext mainFrame) {
         this.context = mainFrame;
+        this.browserManager = new WebSearchBrowserManager(mainFrame);
+        this.tools = createTools();
     }
 
     @Override
@@ -42,24 +47,22 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
     @Override
     public List<McpTool> getTools() {
-        // Tools come from the in-process MCP server, not from this plugin directly
-        return Collections.emptyList();
+        return tools != null ? tools : Collections.<McpTool>emptyList();
     }
 
-    // ── MCP Server Plugin API ───────────────────────────────────────
-
-    @Override
-    public boolean isMcpServerPlugin() {
-        return true;
-    }
-
-    @Override
-    public String getMcpServerDisplayName() {
-        return "Websearch";
-    }
-
-    @Override
-    public boolean isMcpServerEnabledByDefault() {
-        return false;
+    private List<McpTool> createTools() {
+        List<McpTool> list = new ArrayList<>();
+        list.add(new BrowserToolAdapter(new BrowserOpenTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserLaunchTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserNavigateTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserClickCssTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserTypeCssTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserEvalTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserScreenshotTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserCloseTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowserWaitForTool(), browserManager));
+        list.add(new BrowserToolAdapter(new PageDomSnapshotTool(), browserManager));
+        list.add(new BrowserToolAdapter(new PageExtractTool(), browserManager));
+        return list;
     }
 }

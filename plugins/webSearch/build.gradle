@@ -5,6 +5,7 @@ plugins {
 dependencies {
     implementation project(':core')
     implementation project(':wd4j')
+    implementation project(':wd4j-mcp-server')
     implementation 'com.google.code.gson:gson:2.8.9'
 }
 
@@ -34,4 +35,3 @@ task installPlugin(type: Copy) {
 }
 
 build.finalizedBy installPlugin
-

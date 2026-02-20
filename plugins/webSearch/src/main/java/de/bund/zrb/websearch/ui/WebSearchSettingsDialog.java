@@ -80,8 +80,8 @@ public class WebSearchSettingsDialog extends JDialog {
         // ── Info-Label ──────────────────────────────────────────────
         gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
         JLabel infoLabel = new JLabel(
-                "<html><i>Der Websearch MCP-Server wird im Hintergrund gestartet, "
-                + "wenn er im MCP-Menü (🔌) aktiviert ist.</i></html>");
+                "<html><i>Die Browser-Tools (browser_navigate, browser_click_css, ...) werden "
+                + "automatisch in der Tool-Registry registriert und stehen im Chat zur Verfügung.</i></html>");
         infoLabel.setForeground(Color.GRAY);
         form.add(infoLabel, gbc);
 

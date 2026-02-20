@@ -11,10 +11,6 @@ dependencies {
 
     implementation 'com.google.code.gson:gson:2.10.1' // Für MCP Service
 
-    // WebDriver BiDi + MCP Server (in-process browser control)
-    // 'api' so that dependents (app) can see these classes transitively
-    api project(':wd4j')
-    api project(':wd4j-mcp-server')
 
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'

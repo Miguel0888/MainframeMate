@@ -45,23 +45,6 @@ public class McpServerDialog {
 
         table.setRowHeight(24);
 
-        // Row renderer: gray out built-in command column
-        DefaultTableCellRenderer builtInAwareRenderer = new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel, boolean focus, int row, int col) {
-                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
-                int modelRow = t.convertRowIndexToModel(row);
-                McpServerConfig cfg = configs.get(modelRow);
-                if (cfg.isBuiltIn() && !sel) {
-                    c.setForeground(Color.GRAY);
-                } else if (!sel) {
-                    c.setForeground(t.getForeground());
-                }
-                return c;
-            }
-        };
-        table.getColumnModel().getColumn(1).setCellRenderer(builtInAwareRenderer);
-        table.getColumnModel().getColumn(2).setCellRenderer(builtInAwareRenderer);
 
         JPanel center = new JPanel(new BorderLayout(4, 4));
         center.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
@@ -96,9 +79,8 @@ public class McpServerDialog {
             }
             int modelRow = table.convertRowIndexToModel(row);
             McpServerConfig cfg = configs.get(modelRow);
-            boolean bi = cfg.isBuiltIn();
-            editBtn.setEnabled(!bi);
-            removeBtn.setEnabled(!bi);
+            editBtn.setEnabled(true);
+            removeBtn.setEnabled(true);
             startBtn.setEnabled(cfg.isEnabled() && !manager.isRunning(cfg.getName()));
             stopBtn.setEnabled(manager.isRunning(cfg.getName()));
         };
@@ -136,7 +118,6 @@ public class McpServerDialog {
             if (row < 0) return;
             int modelRow = table.convertRowIndexToModel(row);
             McpServerConfig cfg = configs.get(modelRow);
-            if (cfg.isBuiltIn()) return; // built-in servers cannot be edited
             McpServerConfig edited = showEditDialog(dialog, cfg);
             if (edited != null) {
                 // Stop old server if running
@@ -154,7 +135,6 @@ public class McpServerDialog {
             if (row < 0) return;
             int modelRow = table.convertRowIndexToModel(row);
             McpServerConfig cfg = configs.get(modelRow);
-            if (cfg.isBuiltIn()) return; // built-in servers cannot be removed
             int choice = JOptionPane.showConfirmDialog(dialog,
                     "Server '" + cfg.getName() + "' wirklich entfernen?",
                     "Entfernen", JOptionPane.YES_NO_OPTION);
@@ -210,7 +190,7 @@ public class McpServerDialog {
      * @param existing existing config to edit, or null for a new server
      * @return the edited config, or null if cancelled
      */
-    private static McpServerConfig showEditDialog(Dialog parent, McpServerConfig existing) {
+    public static McpServerConfig showEditDialog(Window parent, McpServerConfig existing) {
         JTextField nameField = new JTextField(existing != null ? existing.getName() : "", 20);
         JTextField commandField = new JTextField(existing != null ? existing.getCommand() : "", 30);
         JTextField argsField = new JTextField(
@@ -298,11 +278,8 @@ public class McpServerDialog {
             McpServerConfig cfg = configs.get(row);
             switch (col) {
                 case 0: return cfg.isEnabled();
-                case 1: return cfg.isBuiltIn() ? "🔒 " + cfg.getName() : cfg.getName();
+                case 1: return cfg.getName();
                 case 2: {
-                    if (cfg.isBuiltIn()) {
-                        return "(integriert)";
-                    }
                     String cmd = cfg.getCommand();
                     if (cfg.getArgs() != null && !cfg.getArgs().isEmpty()) {
                         cmd += " " + String.join(" ", cfg.getArgs());

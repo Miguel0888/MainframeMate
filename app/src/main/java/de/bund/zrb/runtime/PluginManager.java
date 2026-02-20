@@ -1,6 +1,5 @@
 package de.bund.zrb.runtime;
 
-import de.bund.zrb.mcp.registry.McpServerManager;
 import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.commands.InstallPluginMenuCommand;
 import de.zrb.bund.api.MenuCommand;
@@ -18,7 +17,6 @@ import java.util.*;
 public class PluginManager {
 
     private static final List<MainframeMatePlugin> plugins = new ArrayList<>();
-    /** Track loaded plugin names to prevent duplicates. */
     private static final Set<String> loadedPluginNames = new HashSet<>();
 
     public static void registerPlugin(MainframeMatePlugin plugin) {
@@ -88,9 +86,6 @@ public class PluginManager {
         } catch (IOException e) {
             System.err.println("❌ Fehler beim Lesen der Plugins: " + e.getMessage());
         }
-
-        // After all plugins are loaded, register their MCP servers
-        registerMcpServersFromPlugins();
     }
 
     private static void loadPluginJar(Path jarPath, MainFrame mainFrame) {
@@ -121,23 +116,6 @@ public class PluginManager {
         }
     }
 
-    /**
-     * For every loaded plugin that declares an MCP server JAR,
-     * register it as a built-in server in the McpServerManager.
-     */
-    private static void registerMcpServersFromPlugins() {
-        McpServerManager manager = McpServerManager.getInstance();
-        for (MainframeMatePlugin plugin : plugins) {
-            if (!plugin.isMcpServerPlugin()) continue;
-
-            String displayName = plugin.getMcpServerDisplayName();
-            boolean enabledByDefault = plugin.isMcpServerEnabledByDefault();
-
-            manager.registerPluginMcpServer(displayName, enabledByDefault);
-            System.out.println("🔌 MCP-Server registriert via Plugin: " + displayName);
-        }
-    }
-
     private static void registerCommandsSafely(MainframeMatePlugin plugin, MainFrame mainFrame) {
         for (Object obj : plugin.getCommands(mainFrame)) {
             if (obj instanceof MenuCommand) {
@@ -165,6 +143,4 @@ public class PluginManager {
             }
         }
     }
-
-
 }

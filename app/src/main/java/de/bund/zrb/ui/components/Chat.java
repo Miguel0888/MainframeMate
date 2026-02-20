@@ -2,15 +2,21 @@ package de.bund.zrb.ui.components;
 
 import de.bund.zrb.mcp.registry.McpServerConfig;
 import de.bund.zrb.mcp.registry.McpServerManager;
+import de.bund.zrb.runtime.ToolRegistryImpl;
+import de.bund.zrb.tools.ToolPolicy;
+import de.bund.zrb.tools.ToolPolicyRepository;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.settings.McpServerDialog;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
+import de.zrb.bund.newApi.mcp.McpTool;
 
 import javax.swing.*;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -26,6 +32,7 @@ public class Chat extends JPanel {
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
     private JButton mcpMenuButton;
+    private JButton toolsMenuButton;
 
     public Chat(MainframeContext mainframeContext, ChatManager chatManager) {
         this(mainframeContext, chatManager, null);
@@ -82,10 +89,18 @@ public class Chat extends JPanel {
         mcpMenuButton.addActionListener(e -> showMcpMenu());
         updateMcpButtonState();
 
+        // Tools menu button
+        toolsMenuButton = new JButton("🛠️ Tools");
+        toolsMenuButton.setFont(smallFont);
+        toolsMenuButton.setFocusable(false);
+        toolsMenuButton.setToolTipText("Tools verwalten");
+        toolsMenuButton.addActionListener(e -> showToolsMenu());
+
         JPanel checkboxPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         checkboxPanel.add(contextMemoryCheckbox);
         checkboxPanel.add(keepAliveCheckbox);
         checkboxPanel.add(mcpMenuButton);
+        checkboxPanel.add(toolsMenuButton);
 
         header.add(checkboxPanel, BorderLayout.EAST);
         header.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -127,6 +142,58 @@ public class Chat extends JPanel {
         popup.add(manageItem);
 
         popup.show(mcpMenuButton, 0, mcpMenuButton.getHeight());
+    }
+
+    private void showToolsMenu() {
+        JPopupMenu popup = new JPopupMenu();
+
+        ToolPolicyRepository policyRepo = new ToolPolicyRepository();
+        List<ToolPolicy> policies = policyRepo.loadAll();
+        Map<String, ToolPolicy> policyMap = new HashMap<>();
+        for (ToolPolicy p : policies) {
+            policyMap.put(p.getToolName(), p);
+        }
+
+        List<McpTool> allTools = new java.util.ArrayList<>(
+                ToolRegistryImpl.getInstance().getAllTools());
+
+        if (allTools.isEmpty()) {
+            JMenuItem empty = new JMenuItem("(keine Tools registriert)");
+            empty.setEnabled(false);
+            popup.add(empty);
+        } else {
+            for (final McpTool tool : allTools) {
+                String name = tool.getSpec().getName();
+                ToolPolicy policy = policyMap.get(name);
+                boolean enabled = policy == null || policy.isEnabled();
+
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(name, enabled);
+                item.setToolTipText(tool.getSpec().getDescription());
+                item.addActionListener(e -> {
+                    ToolPolicy p = policyMap.get(name);
+                    if (p == null) {
+                        p = new ToolPolicy(name, !enabled, false,
+                                de.bund.zrb.tools.ToolAccessTypeDefaults.resolveDefault(name));
+                        policyMap.put(name, p);
+                    } else {
+                        p.setEnabled(!p.isEnabled());
+                    }
+                    policyRepo.saveAll(new java.util.ArrayList<>(policyMap.values()));
+                });
+                popup.add(item);
+            }
+        }
+
+        popup.addSeparator();
+
+        JMenuItem manageItem = new JMenuItem("⚙ MCP Registry...");
+        manageItem.addActionListener(e -> {
+            McpServerDialog.show(this);
+            updateMcpButtonState();
+        });
+        popup.add(manageItem);
+
+        popup.show(toolsMenuButton, 0, toolsMenuButton.getHeight());
     }
 
     private void updateMcpButtonState() {
