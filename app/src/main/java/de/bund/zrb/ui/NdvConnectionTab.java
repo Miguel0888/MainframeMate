@@ -320,6 +320,13 @@ public class NdvConnectionTab implements ConnectionTab {
         worker.execute();
     }
 
+    /**
+     * Navigate to a specific library (public entry point for bookmarks).
+     */
+    public void navigateToLibrary(String library) {
+        openLibrary(library);
+    }
+
     private void openLibrary(String library) {
         openLibraryInternal(library);
         addToHistory(library);

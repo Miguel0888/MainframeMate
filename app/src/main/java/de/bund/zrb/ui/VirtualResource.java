@@ -66,4 +66,11 @@ public final class VirtualResource {
     public NdvResourceState getNdvState() {
         return ndvState;
     }
+
+    /**
+     * Create a copy of this resource with a different kind (FILE/DIRECTORY).
+     */
+    public VirtualResource withKind(VirtualResourceKind newKind) {
+        return new VirtualResource(ref, newKind, resolvedPath, backendType, ftpState, ndvState);
+    }
 }

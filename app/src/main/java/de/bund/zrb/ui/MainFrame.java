@@ -287,7 +287,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
 
     private Component initBookmarkDrawer(Component content) {
-        leftDrawer = new LeftDrawer(this::openFileOrDirectory);
+        leftDrawer = new LeftDrawer(this::openBookmark);
 
         leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
@@ -361,6 +361,101 @@ public class MainFrame extends JFrame implements MainframeContext {
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
         return new VirtualResourceOpener(tabManager)
                 .open(path, sentenceType, searchPattern, toCompare);
+    }
+
+    /**
+     * Open a bookmark – routes to the correct backend based on the bookmark's protocol prefix.
+     */
+    private void openBookmark(de.bund.zrb.model.BookmarkEntry entry) {
+        if (entry == null || entry.path == null) return;
+        String backend = entry.getBackendType();
+        String rawPath = entry.getRawPath();
+        boolean isFile = !"DIRECTORY".equals(entry.resourceKind); // bookmarks from FileTabs are always files
+
+        switch (backend) {
+            case "FTP":
+                // Use ftp: prefix so VirtualResourceResolver routes it to FTP
+                // forceFile=true skips the list() probe that misclassifies MVS members as directories
+                new VirtualResourceOpener(tabManager)
+                        .open("ftp:" + rawPath, null, null, null, isFile);
+                break;
+            case "NDV":
+                openNdvBookmark(rawPath);
+                break;
+            default:
+                // LOCAL – forceFile avoids unnecessary list() probe
+                new VirtualResourceOpener(tabManager)
+                        .open(rawPath, null, null, null, isFile);
+                break;
+        }
+    }
+
+    /**
+     * Open an NDV bookmark: connect (or reuse connection), navigate to library and open the object.
+     */
+    private void openNdvBookmark(String rawPath) {
+        // rawPath format: "LIBRARY/OBJECTNAME" or just "OBJECTNAME"
+        Settings settings = SettingsHelper.load();
+        String host = settings.host;
+        String user = settings.user;
+        int port = settings.ndvPort;
+
+        if (host == null || host.isEmpty() || user == null || user.isEmpty()) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Bitte zuerst Server-Einstellungen konfigurieren.",
+                    "NDV-Verbindung", javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String password = LoginManager.getInstance().getPassword(host, user);
+        if (password == null || password.isEmpty()) return;
+
+        // Parse library and object name from rawPath
+        String library = settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary.trim() : "";
+        String objectName = rawPath;
+        if (rawPath.contains("/")) {
+            int slash = rawPath.indexOf('/');
+            library = rawPath.substring(0, slash);
+            objectName = rawPath.substring(slash + 1);
+        }
+
+        final String fHost = host;
+        final String fUser = user;
+        final String fPassword = password;
+        final String fLibrary = library.toUpperCase();
+
+        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+
+        new javax.swing.SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                de.bund.zrb.ndv.NdvClient client = new de.bund.zrb.ndv.NdvClient();
+                client.connect(fHost, port, fUser, fPassword);
+                LoginManager.getInstance().onLoginSuccess(fHost, fUser);
+
+                NdvConnectionTab tab = new NdvConnectionTab(tabManager, client);
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    tabManager.addTab(tab);
+                    if (!fLibrary.isEmpty()) {
+                        tab.navigateToLibrary(fLibrary);
+                    }
+                });
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    get();
+                } catch (Exception e) {
+                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "NDV-Verbindung fehlgeschlagen:\n" + msg,
+                            "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     @Override

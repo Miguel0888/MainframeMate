@@ -18,10 +18,10 @@ public class LeftDrawer extends JPanel {
     private final JTree tree;
     private final DefaultTreeModel treeModel;
     private final DefaultMutableTreeNode rootNode;
-    private final Consumer<String> onBookmarkClick;
+    private final Consumer<BookmarkEntry> onBookmarkOpen;
 
-    public LeftDrawer(Consumer<String> onBookmarkClick) {
-        this.onBookmarkClick = onBookmarkClick;
+    public LeftDrawer(Consumer<BookmarkEntry> onBookmarkOpen) {
+        this.onBookmarkOpen = onBookmarkOpen;
 
         setLayout(new BorderLayout());
         setPreferredSize(new Dimension(220, 0));
@@ -67,6 +67,7 @@ public class LeftDrawer extends JPanel {
         // Ensure "Allgemein" folder exists
         ensureGeneralFolder();
         BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
+        entry.resourceKind = "FILE"; // bookmarks from file tabs are always files
         BookmarkHelper.addBookmarkToFolder("Allgemein", entry);
         refreshBookmarks();
     }
@@ -136,15 +137,7 @@ public class LeftDrawer extends JPanel {
                     if (nodeObj instanceof BookmarkEntry) {
                         BookmarkEntry entry = (BookmarkEntry) nodeObj;
                         if (entry.isLeaf()) {
-                            String routingPath = entry.getRoutingPath();
-                            if ("NDV".equals(entry.getBackendType())) {
-                                // NDV bookmarks can't be opened via openFileOrDirectory
-                                JOptionPane.showMessageDialog(tree,
-                                        "NDV-Dateien bitte über NDV-Verbindung öffnen.",
-                                        "Hinweis", JOptionPane.INFORMATION_MESSAGE);
-                            } else {
-                                onBookmarkClick.accept(routingPath);
-                            }
+                            onBookmarkOpen.accept(entry);
                         }
                     }
                 }

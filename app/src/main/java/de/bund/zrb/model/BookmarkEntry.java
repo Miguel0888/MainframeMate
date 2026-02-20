@@ -9,6 +9,7 @@ public class BookmarkEntry {
     public String label;
     public String path;      // protocol-prefixed: "local://C:\file", "ftp:///path", "ndv://LIB/OBJ"
     public boolean folder;
+    public String resourceKind; // "FILE" or "DIRECTORY" – null treated as FILE for leaf bookmarks
     public List<BookmarkEntry> children;
 
     // Known protocol prefixes

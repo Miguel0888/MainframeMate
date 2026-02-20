@@ -41,6 +41,18 @@ public final class VirtualResourceOpener {
                        @Nullable String sentenceType,
                        @Nullable String searchPattern,
                        @Nullable Boolean toCompare) {
+        return open(rawPath, sentenceType, searchPattern, toCompare, false);
+    }
+
+    /**
+     * Open a resource. If forceFile is true, skip the directory/file detection and treat as FILE directly.
+     * This is used by bookmarks that already know the resource kind.
+     */
+    public FtpTab open(String rawPath,
+                       @Nullable String sentenceType,
+                       @Nullable String searchPattern,
+                       @Nullable Boolean toCompare,
+                       boolean forceFile) {
 
         int attempts = 0;
 
@@ -50,6 +62,10 @@ public final class VirtualResourceOpener {
             VirtualResource resource;
             try {
                 resource = resolver.resolve(rawPath);
+                // If caller knows this is a file (e.g. from a bookmark), override resolved kind
+                if (forceFile && resource.getKind() == VirtualResourceKind.DIRECTORY) {
+                    resource = resource.withKind(VirtualResourceKind.FILE);
+                }
             } catch (FileServiceException e) {
                 // Benutzer hat abgebrochen - sofort beenden ohne Fehlermeldung
                 if (isAuthCancelled(e)) {
