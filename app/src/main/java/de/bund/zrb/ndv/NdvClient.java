@@ -140,20 +140,28 @@ public class NdvClient implements Closeable {
                     }
                 }
             }
-            // Fetch remaining pages
-            while (libs != null && libs.length > 0) {
-                libs = pal.getLibrariesNext();
-                if (libs != null) {
-                    for (IPalTypeLibrary lib : libs) {
-                        if (lib != null && lib.getLibrary() != null) {
-                            result.add(lib.getLibrary().trim());
+            // Fetch remaining pages (getLibrariesNext throws PalResultException when done)
+            if (libs != null && libs.length > 0) {
+                int safetyLimit = 1000; // prevent infinite loops
+                for (int page = 0; page < safetyLimit; page++) {
+                    try {
+                        IPalTypeLibrary[] more = pal.getLibrariesNext();
+                        if (more == null || more.length == 0) break;
+                        for (IPalTypeLibrary lib : more) {
+                            if (lib != null && lib.getLibrary() != null) {
+                                result.add(lib.getLibrary().trim());
+                            }
                         }
+                    } catch (PalResultException done) {
+                        // End of data
+                        break;
                     }
                 }
             }
         } catch (PalResultException e) {
             throw new NdvException("Failed to list libraries: " + e.getMessage(), e);
         }
+        System.out.println("[NdvClient] Listed " + result.size() + " libraries");
         return result;
     }
 
@@ -175,15 +183,28 @@ public class NdvClient implements Closeable {
         try {
             IPalTypeObject[] objects = pal.getObjectsFirst(sysFile, library, filter, kind, type);
             addObjects(result, objects);
+            System.out.println("[NdvClient] getObjectsFirst returned " + (objects != null ? objects.length : 0) + " objects");
 
-            // Fetch remaining pages
-            while (objects != null && objects.length > 0) {
-                objects = pal.getObjectsNext();
-                addObjects(result, objects);
+            // Fetch remaining pages (getObjectsNext throws PalResultException when done)
+            if (objects != null && objects.length > 0) {
+                int safetyLimit = 1000; // prevent infinite loops
+                for (int page = 0; page < safetyLimit; page++) {
+                    try {
+                        IPalTypeObject[] more = pal.getObjectsNext();
+                        if (more == null || more.length == 0) break;
+                        System.out.println("[NdvClient] getObjectsNext page " + (page + 1) + " returned " + more.length + " objects");
+                        addObjects(result, more);
+                    } catch (PalResultException done) {
+                        // End of data
+                        System.out.println("[NdvClient] getObjectsNext ended (PalResultException = end of data)");
+                        break;
+                    }
+                }
             }
         } catch (PalResultException e) {
             throw new NdvException("Failed to list objects in library '" + library + "': " + e.getMessage(), e);
         }
+        System.out.println("[NdvClient] Listed " + result.size() + " objects in " + library);
         return result;
     }
 
