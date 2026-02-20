@@ -10,6 +10,8 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
@@ -19,6 +21,9 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 public class LocalConnectionTabImpl implements ConnectionTab {
+
+    private static final int MOUSE_BACK_BUTTON = 4;
+    private static final int MOUSE_FORWARD_BUTTON = 5;
 
     private final FileService fileService;
     private final JPanel mainPanel;
@@ -31,6 +36,10 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     private final JTextField searchField = new JTextField();
     private List<FileNode> currentNodes = new ArrayList<>();
     private List<String> currentFiles = new ArrayList<>();
+    private final List<String> backHistory = new ArrayList<>();
+    private final List<String> forwardHistory = new ArrayList<>();
+    private JButton backButton;
+    private JButton forwardButton;
 
     public LocalConnectionTabImpl(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
@@ -47,18 +56,25 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         refreshButton.setFont(refreshButton.getFont().deriveFont(Font.PLAIN, 18f));
         refreshButton.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        JButton backButton = new JButton("⏴");
+        backButton = new JButton("⏴");
         backButton.setToolTipText("Zurück zum übergeordneten Verzeichnis");
         backButton.setMargin(new Insets(0, 0, 0, 0));
         backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
-        backButton.addActionListener(e -> loadDirectory(parentOf(pathField.getText())));
+        backButton.addActionListener(e -> navigateBack());
+
+        forwardButton = new JButton("⏵");
+        forwardButton.setToolTipText("Vorwärts zum nächsten Verzeichnis");
+        forwardButton.setMargin(new Insets(0, 0, 0, 0));
+        forwardButton.setFont(forwardButton.getFont().deriveFont(Font.PLAIN, 20f));
+        forwardButton.addActionListener(e -> navigateForward());
 
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
         rightButtons.add(backButton);
+        rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
         pathPanel.add(refreshButton, BorderLayout.WEST);
@@ -70,6 +86,9 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(mainPanel);
         fileList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -95,8 +114,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
             }
         });
 
-        pathField.setText(defaultRootPath());
-        updateFileList();
+        loadDirectory(defaultRootPath(), false);
     }
 
     @Override
@@ -166,8 +184,65 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     }
 
     public void loadDirectory(String path) {
-        pathField.setText(normalizePath(path));
+        loadDirectory(path, true);
+    }
+
+    private void loadDirectory(String path, boolean addToHistory) {
+        String targetPath = normalizePath(path);
+        String currentPath = pathField.getText();
+        if (addToHistory && !currentPath.isEmpty() && !currentPath.equals(targetPath)) {
+            backHistory.add(currentPath);
+            forwardHistory.clear();
+        }
+        pathField.setText(targetPath);
+        updateNavigationButtons();
         updateFileList();
+    }
+
+    private void navigateBack() {
+        if (backHistory.isEmpty()) {
+            return;
+        }
+        String currentPath = normalizePath(pathField.getText());
+        forwardHistory.add(currentPath);
+        String previousPath = backHistory.remove(backHistory.size() - 1);
+        pathField.setText(previousPath);
+        updateNavigationButtons();
+        updateFileList();
+    }
+
+    private void navigateForward() {
+        if (forwardHistory.isEmpty()) {
+            return;
+        }
+        String currentPath = normalizePath(pathField.getText());
+        backHistory.add(currentPath);
+        String nextPath = forwardHistory.remove(forwardHistory.size() - 1);
+        pathField.setText(nextPath);
+        updateNavigationButtons();
+        updateFileList();
+    }
+
+    private void updateNavigationButtons() {
+        if (backButton != null) {
+            backButton.setEnabled(!backHistory.isEmpty());
+        }
+        if (forwardButton != null) {
+            forwardButton.setEnabled(!forwardHistory.isEmpty());
+        }
+    }
+
+    private void installMouseNavigation(JComponent component) {
+        component.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    navigateBack();
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    navigateForward();
+                }
+            }
+        });
     }
 
     private JPanel createStatusBar() {
@@ -178,6 +253,11 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         newFileButton.setToolTipText("Neue Datei anlegen");
         newFileButton.addActionListener(e -> createNewFile());
         leftPanel.add(newFileButton);
+
+        JButton newFolderButton = new JButton("📁+");
+        newFolderButton.setToolTipText("Neuen Ordner anlegen");
+        newFolderButton.addActionListener(e -> createNewFolder());
+        leftPanel.add(newFolderButton);
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton deleteButton = new JButton("🗑");
@@ -276,6 +356,22 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         }
     }
 
+    private void createNewFolder() {
+        String name = JOptionPane.showInputDialog(mainPanel, "Name des neuen Ordners:", "Neuer Ordner", JOptionPane.PLAIN_MESSAGE);
+        if (name == null || name.trim().isEmpty()) return;
+
+        try {
+            String target = joinPath(pathField.getText(), name.trim());
+            if (fileService.createDirectory(target)) {
+                updateFileList();
+            } else {
+                JOptionPane.showMessageDialog(mainPanel, "Ordner konnte nicht angelegt werden.", "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Anlegen des Ordners:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void deleteSelectedEntry() {
         String selected = fileList.getSelectedValue();
         if (selected == null) {
@@ -337,9 +433,4 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         return p.toAbsolutePath().normalize().toString();
     }
 
-    private String parentOf(String path) {
-        Path p = Paths.get(normalizePath(path));
-        Path parent = p.getParent();
-        return parent == null ? normalizePath(path) : parent.toString();
-    }
 }

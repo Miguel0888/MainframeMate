@@ -10,7 +10,6 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -23,6 +22,9 @@ import java.util.List;
  * - State-based navigation (HLQ/DATASET/MEMBER)
  */
 public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.BrowserListener {
+
+    private static final int MOUSE_BACK_BUTTON = 4;
+    private static final int MOUSE_FORWARD_BUTTON = 5;
 
     private final TabbedPaneManager tabbedPaneManager;
     private final MvsFtpClient ftpClient;
@@ -37,6 +39,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
+    private JButton backButton;
+    private JButton forwardButton;
 
     // Connection info for reopening
     private final String host;
@@ -81,19 +85,26 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         refreshButton.setToolTipText("Aktualisieren");
         refreshButton.addActionListener(e -> controller.refresh());
 
-        JButton backButton = new JButton("⏴");
-        backButton.setToolTipText("Zurück zur übergeordneten Ebene");
+        backButton = new JButton("⏴");
+        backButton.setToolTipText("Zurück zur vorherigen Ansicht");
         backButton.setMargin(new Insets(0, 0, 0, 0));
         backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
         backButton.addActionListener(e -> navigateBack());
+
+        forwardButton = new JButton("⏵");
+        forwardButton.setToolTipText("Vorwärts zur nächsten Ansicht");
+        forwardButton.setMargin(new Insets(0, 0, 0, 0));
+        forwardButton.setFont(forwardButton.getFont().deriveFont(Font.PLAIN, 20f));
+        forwardButton.addActionListener(e -> navigateForward());
 
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> navigateToPath());
 
         pathField.addActionListener(e -> navigateToPath());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 2, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
         rightButtons.add(backButton);
+        rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
         pathPanel.add(refreshButton, BorderLayout.WEST);
@@ -119,6 +130,9 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         listContainer.add(scrollPane);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(mainPanel);
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -138,6 +152,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
         // Show initial hint
         showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+        updateNavigationButtons();
     }
 
     private JPanel createStatusBar() {
@@ -158,11 +173,18 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
             public void changedUpdate(DocumentEvent e) { applyFilter(); }
         });
 
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton newFolderButton = new JButton("📁+");
+        newFolderButton.setToolTipText("Neuen Ordner/Qualifier anlegen");
+        newFolderButton.addActionListener(e -> createNewFolder());
+        leftPanel.add(newFolderButton);
+
         // Status
         statusLabel.setForeground(Color.GRAY);
 
-        statusBar.add(statusLabel, BorderLayout.WEST);
+        statusBar.add(leftPanel, BorderLayout.WEST);
         statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;
     }
@@ -174,12 +196,46 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     }
 
     private void navigateBack() {
-        if (controller.canGoBack()) {
-            hideOverlay();
-            controller.goBack();
-        } else {
+        if (!controller.canGoBack()) {
             showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+            return;
         }
+
+        hideOverlay();
+        controller.goBack();
+        updateNavigationButtons();
+    }
+
+    private void navigateForward() {
+        if (!controller.canGoForward()) {
+            return;
+        }
+
+        hideOverlay();
+        controller.goForward();
+        updateNavigationButtons();
+    }
+
+    private void updateNavigationButtons() {
+        if (backButton != null) {
+            backButton.setEnabled(controller.canGoBack());
+        }
+        if (forwardButton != null) {
+            forwardButton.setEnabled(controller.canGoForward());
+        }
+    }
+
+    private void installMouseNavigation(JComponent component) {
+        component.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    navigateBack();
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    navigateForward();
+                }
+            }
+        });
     }
 
     private void handleDoubleClick() {
@@ -217,6 +273,69 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 });
     }
 
+    private void createNewFolder() {
+        MvsLocation currentLocation = controller.getCurrentLocation();
+        if (currentLocation != null && currentLocation.getType() == MvsLocationType.MEMBER) {
+            JOptionPane.showMessageDialog(mainPanel, "In einem Member kann kein Ordner angelegt werden.", "Hinweis", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String suggestion = controller.getCurrentPath();
+        String input = JOptionPane.showInputDialog(mainPanel,
+                "Name des neuen Ordners/Qualifiers (z.B. USER.TEST):",
+                suggestion == null ? "" : suggestion);
+
+        if (input == null || input.trim().isEmpty()) {
+            return;
+        }
+
+        String target = buildDatasetName(input.trim());
+
+        try {
+            boolean created = ftpClient.getFtpClient().makeDirectory(MvsQuoteNormalizer.normalize(target));
+            if (created) {
+                controller.refresh();
+            } else {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Ordner konnte nicht angelegt werden:\n" + ftpClient.getReplyString(),
+                        "Fehler",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Fehler beim Anlegen des Ordners:\n" + e.getMessage(),
+                    "Fehler",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private String buildDatasetName(String input) {
+        if (input.contains(".")) {
+            return input.toUpperCase();
+        }
+
+        String currentPath = controller.getCurrentPath();
+        if (currentPath == null || currentPath.trim().isEmpty()) {
+            return input.toUpperCase();
+        }
+
+        String base = MvsQuoteNormalizer.unquote(currentPath).toUpperCase();
+        if (base.endsWith(".*")) {
+            base = base.substring(0, base.length() - 2);
+        }
+        if (base.endsWith("*")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (base.endsWith(".")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (base.isEmpty()) {
+            return input.toUpperCase();
+        }
+
+        return base + "." + input.toUpperCase();
+    }
+
     private void applyFilter() {
         String filter = searchField.getText();
         controller.setFilter(filter);
@@ -242,6 +361,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
                 // Update path field
                 pathField.setText(controller.getCurrentPath());
+                updateNavigationButtons();
             }
         });
     }
