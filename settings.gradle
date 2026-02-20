@@ -6,3 +6,5 @@ include 'wd4j'
 include 'wd4j-mcp-server'
 include 'plugins:excelimport'
 include 'plugins:webSearch'
+
+include 'ndv'
