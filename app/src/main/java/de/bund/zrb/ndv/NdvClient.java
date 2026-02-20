@@ -270,12 +270,7 @@ public class NdvClient implements Closeable {
             return cachedDownloadSysFile;
         }
 
-        IPalTypeSystemFile[] sysFiles;
-        try {
-            sysFiles = pal.getSystemFiles();
-        } catch (PalResultException e) {
-            throw new NdvException("getSystemFiles fehlgeschlagen: " + e.getMessage(), e);
-        }
+        IPalTypeSystemFile[] sysFiles = getCachedSystemFiles();
 
         if (sysFiles == null || sysFiles.length == 0) {
             throw new NdvException("Server liefert keine SystemFiles – Download nicht möglich");
@@ -338,23 +333,23 @@ public class NdvClient implements Closeable {
     /**
      * Download source code of a Natural object.
      * <p>
-     * Uses the server's system files (resolved via {@code getSystemFiles()}) to obtain
-     * a real DBID/FNR for the download. {@code downloadSource()} does NOT accept a default
-     * system file (0/0/0) – unlike listing operations which tolerate defaults.
+     * Uses the DBID/FNR from the {@code NdvObjectInfo} (which came from the listing)
+     * to create the correct {@code IPalTypeSystemFile} for this specific object.
+     * {@code downloadSource()} requires the exact system file where the object resides;
+     * a default (0/0/0) causes NAT3017, and a "global guess" can hit the wrong file.
      *
-     * @param library    library name
-     * @param name       object name
-     * @param objectType object type (ObjectType.PROGRAM etc.)
+     * @param library library name
+     * @param objInfo object info (from listing, carries DBID/FNR)
      * @return source code as string (lines joined with \n)
      */
-    public String readSource(String library, String name, int objectType)
+    public String readSource(String library, NdvObjectInfo objInfo)
             throws IOException, NdvException {
         checkConnected();
         if (library == null || library.isEmpty()) {
             throw new NdvException("readSource: library is null or empty");
         }
-        if (name == null || name.isEmpty()) {
-            throw new NdvException("readSource: name is null or empty");
+        if (objInfo == null) {
+            throw new NdvException("readSource: objInfo is null");
         }
 
         // Ensure we are logged on to the correct library
@@ -362,20 +357,21 @@ public class NdvClient implements Closeable {
             logon(library);
         }
 
-        // ── Step 1: Get a system file with real DBID/FNR ──
-        IPalTypeSystemFile sysFile = resolveDownloadSystemFile();
+        // ── Step 1: Resolve system file for THIS object (not a global guess) ──
+        IPalTypeSystemFile sysFile = resolveSystemFileForObject(objInfo);
 
-        System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name
-                + ", type=" + objectType
-                + ", sysFile=dbid=" + sysFile.getDatabaseId() + "/fnr=" + sysFile.getFileNumber()
-                + "/kind=" + sysFile.getKind());
+        System.out.println("[NdvClient] readSource: library=" + library
+                + ", obj=" + objInfo.getName() + ", type=" + objInfo.getType()
+                + ", obj.dbid/fnr=" + objInfo.getDatabaseId() + "/" + objInfo.getFileNumber()
+                + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
+                + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
 
         // ── Step 2: Create download transaction context ──
         ITransactionContextDownload ctx =
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
-            IFileProperties props = new ObjectProperties.Builder(name, objectType).build();
+            IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
 
             IDownloadResult result = pal.downloadSource(ctx, sysFile, library, props, options);
@@ -387,23 +383,79 @@ public class NdvClient implements Closeable {
             }
             return "";
         } catch (PalResultException e) {
-            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + name + "' in '" + library
-                    + "' (DBID=" + sysFile.getDatabaseId() + ", FNR=" + sysFile.getFileNumber() + "): " + e.getMessage(), e);
+            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + objInfo.getName()
+                    + "' in '" + library + "' (DBID=" + sysFile.getDatabaseId()
+                    + ", FNR=" + sysFile.getFileNumber() + "): " + e.getMessage(), e);
         } finally {
             try {
                 pal.disposeTransactionContext(ctx);
-            } catch (Exception e) {
-                System.err.println("[NdvClient] Warning: disposeTransactionContext failed: " + e.getMessage());
+            } catch (Exception ignored) {
             }
         }
     }
 
     /**
-     * Read source using object info (convenience overload).
+     * Resolve the correct IPalTypeSystemFile for a specific object.
+     * <p>
+     * If the object carries valid DBID/FNR (from the listing), we build a concrete
+     * system file with those exact values. The kind is looked up from the server's
+     * system file list; if not found, FUSER is assumed as default.
+     * <p>
+     * If the object has invalid DBID/FNR (≤ 0), we fall back to the global
+     * resolveDownloadSystemFile() strategy (FUSER preference).
      */
-    public String readSource(String library, NdvObjectInfo objInfo)
+    private IPalTypeSystemFile resolveSystemFileForObject(NdvObjectInfo objInfo)
             throws IOException, NdvException {
-        return readSource(library, objInfo.getName(), objInfo.getType());
+        int dbid = objInfo.getDatabaseId();
+        int fnr = objInfo.getFileNumber();
+
+        if (dbid > 0 && fnr > 0) {
+            // Object has concrete DBID/FNR from the listing – use them
+            int kind = findKindByDbidFnr(dbid, fnr);
+            System.out.println("[NdvClient] resolveSystemFileForObject: using object's own DBID/FNR: "
+                    + dbid + "/" + fnr + ", kind=" + sysFileKindName(kind));
+            return PalTypeSystemFileFactory.newInstance(dbid, fnr, kind);
+        }
+
+        // Fallback: object didn't carry valid DBID/FNR – use global strategy
+        System.out.println("[NdvClient] resolveSystemFileForObject: obj DBID/FNR invalid ("
+                + dbid + "/" + fnr + "), falling back to global system file");
+        return resolveDownloadSystemFile();
+    }
+
+    /**
+     * Look up the kind (FNAT/FUSER/FDIC/...) for a given DBID/FNR pair
+     * by matching against the server's system files.
+     *
+     * @return the kind, or FUSER as default if no match found
+     */
+    private int findKindByDbidFnr(int dbid, int fnr) throws IOException, NdvException {
+        IPalTypeSystemFile[] sysFiles = getCachedSystemFiles();
+        if (sysFiles != null) {
+            for (IPalTypeSystemFile sf : sysFiles) {
+                if (sf.getDatabaseId() == dbid && sf.getFileNumber() == fnr) {
+                    return sf.getKind();
+                }
+            }
+        }
+        // Not found in server's list – default to FUSER (most common for user sources)
+        return IPalTypeSystemFile.FUSER;
+    }
+
+    // Cached system files (fetched once per connection)
+    private volatile IPalTypeSystemFile[] cachedSystemFiles;
+
+    private IPalTypeSystemFile[] getCachedSystemFiles() throws IOException, NdvException {
+        if (cachedSystemFiles != null) {
+            return cachedSystemFiles;
+        }
+        try {
+            cachedSystemFiles = pal.getSystemFiles();
+        } catch (PalResultException e) {
+            System.err.println("[NdvClient] getSystemFiles failed: " + e.getMessage());
+            return null;
+        }
+        return cachedSystemFiles;
     }
 
     private String joinLines(String[] lines) {

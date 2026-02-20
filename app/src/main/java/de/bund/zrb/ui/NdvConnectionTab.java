@@ -83,25 +83,34 @@ public class NdvConnectionTab implements ConnectionTab {
     }
 
     /**
-     * Resolve the actual system file (FNAT/FUSER) from the server.
-     * The default (0,0,0) works for listing but not for downloadSource.
+     * Resolve the actual system file (FNAT/FUSER) from the server for listing operations.
+     * Prefers FUSER (kind=2), falls back to first valid, then default (0,0,0).
      */
     private static IPalTypeSystemFile resolveSystemFile(NdvClient client) {
         try {
             IPalTypeSystemFile[] sysFiles = client.getSystemFiles();
             if (sysFiles != null && sysFiles.length > 0) {
-                // Use the first system file (typically FUSER)
-                IPalTypeSystemFile sf = sysFiles[0];
-                System.out.println("[NdvConnectionTab] Using system file: dbid=" + sf.getDatabaseId()
-                        + ", fnr=" + sf.getFileNumber()
-                        + " (out of " + sysFiles.length + " available)");
-                // Log all available for debugging
+                IPalTypeSystemFile fuserFile = null;
+                IPalTypeSystemFile firstValid = null;
+
                 for (int i = 0; i < sysFiles.length; i++) {
                     IPalTypeSystemFile s = sysFiles[i];
-                    System.out.println("[NdvConnectionTab]   sysFile[" + i + "]: dbid=" + s.getDatabaseId()
-                            + ", fnr=" + s.getFileNumber());
+                    System.out.println("[NdvConnectionTab]   sysFile[" + i + "]: kind=" + s.getKind()
+                            + ", dbid=" + s.getDatabaseId() + ", fnr=" + s.getFileNumber());
+                    if (s.getKind() == IPalTypeSystemFile.FUSER && fuserFile == null) {
+                        fuserFile = s;
+                    }
+                    if (firstValid == null && s.getDatabaseId() > 0 && s.getFileNumber() > 0) {
+                        firstValid = s;
+                    }
                 }
-                return sf;
+
+                IPalTypeSystemFile chosen = fuserFile != null ? fuserFile
+                        : firstValid != null ? firstValid : sysFiles[0];
+                System.out.println("[NdvConnectionTab] Using system file: kind=" + chosen.getKind()
+                        + ", dbid=" + chosen.getDatabaseId() + ", fnr=" + chosen.getFileNumber()
+                        + " (out of " + sysFiles.length + " available)");
+                return chosen;
             }
         } catch (Exception e) {
             System.err.println("[NdvConnectionTab] Could not resolve system files, using defaults: " + e.getMessage());
