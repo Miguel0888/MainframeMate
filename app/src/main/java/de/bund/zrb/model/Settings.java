@@ -69,6 +69,7 @@ public class Settings {
     // NDV (Natural Development Server) Settings
     public int ndvPort = 8011;                     // NDV-Server Port (Standard: 8011)
     public String ndvDefaultLibrary = "";           // Default-Bibliothek (optional, leer = keine)
+    public String ndvLibPath = "";                  // Pfad zu NDV-JARs (leer = ~/.mainframemate/lib/)
 
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings

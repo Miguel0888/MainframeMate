@@ -111,6 +111,7 @@ public class SettingsDialog {
 
     private static JSpinner ndvPortSpinner;
     private static JTextField ndvDefaultLibraryField;
+    private static JTextField ndvLibPathField;
 
     private static JCheckBox proxyEnabledBox;
     private static JComboBox<String> proxyModeBox;
@@ -620,10 +621,67 @@ public class SettingsDialog {
         ndvContent.add(ndvDefaultLibraryField, gbc);
         gbc.gridy++;
 
+        // ─── NDV Bibliotheken (JARs) ───
+        ndvContent.add(new JLabel(" "), gbc);
+        gbc.gridy++;
+        ndvContent.add(new JLabel("─── NDV-Bibliotheken (JARs) ───"), gbc);
+        gbc.gridy++;
+
+        ndvContent.add(new JLabel("Pfad zu NDV-JARs (leer = Standard):"), gbc);
+        gbc.gridy++;
+
+        String defaultLibDir = de.bund.zrb.ndv.NdvLibLoader.getLibDir().getAbsolutePath();
+        ndvLibPathField = new JTextField(settings.ndvLibPath != null && !settings.ndvLibPath.isEmpty()
+                ? settings.ndvLibPath : "", 24);
+        ndvLibPathField.setToolTipText("Standard: " + defaultLibDir);
+        ndvContent.add(ndvLibPathField, gbc);
+        gbc.gridy++;
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        JButton openLibFolderButton = new JButton("📂 Lib-Ordner öffnen");
+        openLibFolderButton.setToolTipText("Öffnet den Ordner, in dem die NDV-JARs erwartet werden");
+        openLibFolderButton.addActionListener(e -> {
+            String customPath = ndvLibPathField.getText().trim();
+            java.io.File libDir;
+            if (!customPath.isEmpty()) {
+                libDir = new java.io.File(customPath);
+            } else {
+                libDir = de.bund.zrb.ndv.NdvLibLoader.getLibDir();
+            }
+            // Create directory if it doesn't exist
+            if (!libDir.exists()) {
+                libDir.mkdirs();
+            }
+            try {
+                java.awt.Desktop.getDesktop().open(libDir);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(ndvContent,
+                        "Ordner konnte nicht geöffnet werden:\n" + libDir.getAbsolutePath()
+                                + "\n\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        buttonPanel.add(openLibFolderButton);
+        ndvContent.add(buttonPanel, gbc);
+        gbc.gridy++;
+
+        // Status info
+        gbc.gridy++;
+        boolean available = de.bund.zrb.ndv.NdvLibLoader.isAvailable();
+        JLabel statusLabel = new JLabel(available
+                ? "✅ NDV-Bibliotheken gefunden"
+                : "⚠ NDV-JARs nicht gefunden in: " + defaultLibDir);
+        statusLabel.setForeground(available ? new Color(0, 128, 0) : new Color(200, 100, 0));
+        ndvContent.add(statusLabel, gbc);
+        gbc.gridy++;
+
         // Info
         gbc.gridy++;
         JLabel infoLabel = new JLabel("<html><small>Server-Adresse und Benutzer werden unter Einstellungen → Server verwaltet.<br>"
-                + "NDV verwendet dieselben Zugangsdaten wie FTP.</small></html>");
+                + "NDV verwendet dieselben Zugangsdaten wie FTP.<br><br>"
+                + "Benötigte JARs (von NaturalONE/Software AG):<br>"
+                + "• com.softwareag.naturalone.natural.ndvserveraccess_*.jar<br>"
+                + "• com.softwareag.naturalone.natural.auxiliary_*.jar</small></html>");
         infoLabel.setForeground(Color.GRAY);
         ndvContent.add(infoLabel, gbc);
     }
@@ -1246,6 +1304,7 @@ public class SettingsDialog {
             // NDV Settings
             settings.ndvPort = ((Number) ndvPortSpinner.getValue()).intValue();
             settings.ndvDefaultLibrary = ndvDefaultLibraryField.getText().trim();
+            settings.ndvLibPath = ndvLibPathField.getText().trim();
 
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();
