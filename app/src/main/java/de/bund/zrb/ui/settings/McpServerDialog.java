@@ -45,6 +45,24 @@ public class McpServerDialog {
 
         table.setRowHeight(24);
 
+        // Row renderer: gray out built-in command column
+        DefaultTableCellRenderer builtInAwareRenderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel, boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                int modelRow = t.convertRowIndexToModel(row);
+                McpServerConfig cfg = configs.get(modelRow);
+                if (cfg.isBuiltIn() && !sel) {
+                    c.setForeground(Color.GRAY);
+                } else if (!sel) {
+                    c.setForeground(t.getForeground());
+                }
+                return c;
+            }
+        };
+        table.getColumnModel().getColumn(1).setCellRenderer(builtInAwareRenderer);
+        table.getColumnModel().getColumn(2).setCellRenderer(builtInAwareRenderer);
+
         JPanel center = new JPanel(new BorderLayout(4, 4));
         center.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
         center.add(new JScrollPane(table), BorderLayout.CENTER);
@@ -65,6 +83,33 @@ public class McpServerDialog {
         actionPanel.add(stopBtn);
 
         center.add(actionPanel, BorderLayout.SOUTH);
+
+        // Enable/disable buttons based on selection
+        Runnable updateButtons = () -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                editBtn.setEnabled(false);
+                removeBtn.setEnabled(false);
+                startBtn.setEnabled(false);
+                stopBtn.setEnabled(false);
+                return;
+            }
+            int modelRow = table.convertRowIndexToModel(row);
+            McpServerConfig cfg = configs.get(modelRow);
+            boolean bi = cfg.isBuiltIn();
+            editBtn.setEnabled(!bi);
+            removeBtn.setEnabled(!bi);
+            startBtn.setEnabled(cfg.isEnabled() && !manager.isRunning(cfg.getName()));
+            stopBtn.setEnabled(manager.isRunning(cfg.getName()));
+        };
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) updateButtons.run();
+        });
+        // Initial state
+        editBtn.setEnabled(false);
+        removeBtn.setEnabled(false);
+        startBtn.setEnabled(false);
+        stopBtn.setEnabled(false);
 
         JDialog dialog = new JDialog((Frame) null, "MCP Server verwalten", true);
         dialog.setLayout(new BorderLayout(4, 4));
@@ -91,6 +136,7 @@ public class McpServerDialog {
             if (row < 0) return;
             int modelRow = table.convertRowIndexToModel(row);
             McpServerConfig cfg = configs.get(modelRow);
+            if (cfg.isBuiltIn()) return; // built-in servers cannot be edited
             McpServerConfig edited = showEditDialog(dialog, cfg);
             if (edited != null) {
                 // Stop old server if running
@@ -108,6 +154,7 @@ public class McpServerDialog {
             if (row < 0) return;
             int modelRow = table.convertRowIndexToModel(row);
             McpServerConfig cfg = configs.get(modelRow);
+            if (cfg.isBuiltIn()) return; // built-in servers cannot be removed
             int choice = JOptionPane.showConfirmDialog(dialog,
                     "Server '" + cfg.getName() + "' wirklich entfernen?",
                     "Entfernen", JOptionPane.YES_NO_OPTION);
@@ -129,7 +176,10 @@ public class McpServerDialog {
             if (!manager.isRunning(cfg.getName())) {
                 new Thread(() -> {
                     manager.startServer(cfg);
-                    SwingUtilities.invokeLater(model::fireTableDataChanged);
+                    SwingUtilities.invokeLater(() -> {
+                        model.fireTableDataChanged();
+                        updateButtons.run();
+                    });
                 }, "mcp-start-" + cfg.getName()).start();
             }
         });
@@ -142,6 +192,7 @@ public class McpServerDialog {
             if (manager.isRunning(cfg.getName())) {
                 manager.stopServer(cfg.getName());
                 model.fireTableDataChanged();
+                updateButtons.run();
             }
         });
 
@@ -247,7 +298,7 @@ public class McpServerDialog {
             McpServerConfig cfg = configs.get(row);
             switch (col) {
                 case 0: return cfg.isEnabled();
-                case 1: return cfg.getName();
+                case 1: return cfg.isBuiltIn() ? "🔒 " + cfg.getName() : cfg.getName();
                 case 2: {
                     String cmd = cfg.getCommand();
                     if (cfg.getArgs() != null && !cfg.getArgs().isEmpty()) {

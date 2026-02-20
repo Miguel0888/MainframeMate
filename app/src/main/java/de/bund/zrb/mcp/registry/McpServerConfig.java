@@ -14,6 +14,9 @@ public class McpServerConfig {
     private List<String> args = new ArrayList<>();
     private boolean enabled = true;
 
+    /** Built-in servers are pre-configured, non-removable, but can be disabled. */
+    private transient boolean builtIn = false;
+
     public McpServerConfig() {}
 
     public McpServerConfig(String name, String command, List<String> args, boolean enabled) {
@@ -34,6 +37,9 @@ public class McpServerConfig {
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public boolean isBuiltIn() { return builtIn; }
+    public void setBuiltIn(boolean builtIn) { this.builtIn = builtIn; }
 
     @Override
     public String toString() {

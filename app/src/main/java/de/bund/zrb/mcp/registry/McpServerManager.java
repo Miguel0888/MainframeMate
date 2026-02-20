@@ -32,13 +32,73 @@ public class McpServerManager {
         void onServerStateChanged();
     }
 
-    private McpServerManager() {}
+    private McpServerManager() {
+        registerBuiltInServers();
+    }
 
     public static synchronized McpServerManager getInstance() {
         if (instance == null) {
             instance = new McpServerManager();
         }
         return instance;
+    }
+
+    // ── Built-in server registration ────────────────────────────────
+
+    private void registerBuiltInServers() {
+        // Websearch (wd4j-mcp-server)
+        String jarPath = resolveBuiltInJarPath("wd4j-mcp-server");
+        if (jarPath != null) {
+            McpServerConfig websearch = new McpServerConfig(
+                    "Websearch",
+                    "java",
+                    java.util.Arrays.asList("-jar", jarPath),
+                    false  // disabled by default – user must opt-in
+            );
+            configRepository.registerBuiltIn(websearch);
+            System.err.println("[McpServerManager] Built-in 'Websearch' registered: " + jarPath);
+        } else {
+            System.err.println("[McpServerManager] Built-in 'Websearch' JAR not found – skipped.");
+        }
+    }
+
+    /**
+     * Tries to locate the fat-JAR for a built-in MCP server.
+     * Looks in several common locations relative to the application.
+     */
+    private static String resolveBuiltInJarPath(String baseName) {
+        // Candidates (relative to working dir and relative to JAR location)
+        String[] candidates = {
+                baseName + "/build/libs/" + baseName + ".jar",
+                "lib/" + baseName + ".jar",
+                baseName + ".jar",
+                "../" + baseName + "/build/libs/" + baseName + ".jar",
+        };
+
+        for (String candidate : candidates) {
+            java.io.File f = new java.io.File(candidate);
+            if (f.isFile()) {
+                try {
+                    return f.getCanonicalPath();
+                } catch (Exception e) {
+                    return f.getAbsolutePath();
+                }
+            }
+        }
+
+        // Try to find via classloader location (deployed alongside main jar)
+        try {
+            java.security.CodeSource cs = McpServerManager.class.getProtectionDomain().getCodeSource();
+            if (cs != null) {
+                java.io.File appDir = new java.io.File(cs.getLocation().toURI()).getParentFile();
+                java.io.File nearby = new java.io.File(appDir, baseName + ".jar");
+                if (nearby.isFile()) {
+                    return nearby.getCanonicalPath();
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
     }
 
     // ── Listeners ───────────────────────────────────────────────────
