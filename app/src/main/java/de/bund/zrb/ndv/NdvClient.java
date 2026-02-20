@@ -260,10 +260,12 @@ public class NdvClient implements Closeable {
      * @param library  library name
      * @param name     object name
      * @param type     object type (ObjectType.PROGRAM etc.)
+     * @param databaseId Adabas database ID of the object (from IPalTypeObject.getDatabaseId())
+     * @param fileNumber Adabas file number of the object (from IPalTypeObject.getFileNumber())
      * @return source code as string (lines joined with \n)
      */
     public String readSource(IPalTypeSystemFile sysFile, String library,
-                             String name, int type) throws IOException, NdvException {
+                             String name, int type, int databaseId, int fileNumber) throws IOException, NdvException {
         checkConnected();
         if (library == null || library.isEmpty()) {
             throw new NdvException("readSource: library is null or empty");
@@ -278,6 +280,7 @@ public class NdvClient implements Closeable {
         }
 
         System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name + ", type=" + type
+                + ", dbid=" + databaseId + ", fnr=" + fileNumber
                 + ", sysFile=" + (sysFile != null ? "dbid=" + sysFile.getDatabaseId() + ",fnr=" + sysFile.getFileNumber() : "null"));
 
         // Create a proper transaction context for download (required by the API)
@@ -285,7 +288,12 @@ public class NdvClient implements Closeable {
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
-            IFileProperties props = new ObjectProperties.Builder(name, type).build();
+            // Build ObjectProperties with the object's actual DBID/FNR (critical for Mainframe/Adabas!)
+            // Without these, the server gets DB/FNR 0/0 which causes NAT3017 "Invalid file number"
+            IFileProperties props = new ObjectProperties.Builder(name, type)
+                    .databaseId(databaseId)
+                    .fileNumber(fileNumber)
+                    .build();
 
             // Use explicit option set (NONE = default download behavior)
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
@@ -297,6 +305,7 @@ public class NdvClient implements Closeable {
                     + ctx.getClass().getSimpleName()
                     + ", sysFile=dbid=" + effectiveSysFile.getDatabaseId()
                     + "/fnr=" + effectiveSysFile.getFileNumber()
+                    + ", props.dbid=" + databaseId + "/fnr=" + fileNumber
                     + ", library=" + library
                     + ", name=" + props.getName()
                     + ", type=" + props.getType());
@@ -338,7 +347,8 @@ public class NdvClient implements Closeable {
      */
     public String readSource(IPalTypeSystemFile sysFile, String library, NdvObjectInfo objInfo)
             throws IOException, NdvException {
-        return readSource(sysFile, library, objInfo.getName(), objInfo.getType());
+        return readSource(sysFile, library, objInfo.getName(), objInfo.getType(),
+                objInfo.getDatabaseId(), objInfo.getFileNumber());
     }
 
     /**

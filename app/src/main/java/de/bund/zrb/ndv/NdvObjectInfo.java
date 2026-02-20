@@ -22,10 +22,13 @@ public class NdvObjectInfo {
     private final int sourceSize;
     private final String user;
     private final String sourceDate;
+    private final int databaseId;
+    private final int fileNumber;
 
     public NdvObjectInfo(String name, String longName, int kind, int type,
                          String typeName, String typeExtension,
-                         int sourceSize, String user, String sourceDate) {
+                         int sourceSize, String user, String sourceDate,
+                         int databaseId, int fileNumber) {
         this.name = name;
         this.longName = longName;
         this.kind = kind;
@@ -35,6 +38,8 @@ public class NdvObjectInfo {
         this.sourceSize = sourceSize;
         this.user = user;
         this.sourceDate = sourceDate;
+        this.databaseId = databaseId;
+        this.fileNumber = fileNumber;
     }
 
     public static NdvObjectInfo fromPalObject(IPalTypeObject obj) {
@@ -59,7 +64,11 @@ public class NdvObjectInfo {
             dateStr = srcDate.toString();
         }
 
-        return new NdvObjectInfo(name, longName, kind, type, typeName, typeExt, sourceSize, user, dateStr);
+        // Capture DBID/FNR for downloadSource (critical for Mainframe/Adabas)
+        int dbid = obj.getDatabaseId();
+        int fnr = obj.getFileNumber();
+
+        return new NdvObjectInfo(name, longName, kind, type, typeName, typeExt, sourceSize, user, dateStr, dbid, fnr);
     }
 
     public String getName() { return name; }
@@ -71,6 +80,8 @@ public class NdvObjectInfo {
     public int getSourceSize() { return sourceSize; }
     public String getUser() { return user; }
     public String getSourceDate() { return sourceDate; }
+    public int getDatabaseId() { return databaseId; }
+    public int getFileNumber() { return fileNumber; }
 
     /**
      * Get display name: name (type).
