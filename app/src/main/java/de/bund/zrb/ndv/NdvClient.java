@@ -42,10 +42,24 @@ public class NdvClient implements Closeable {
         // CP=IBM01141 = EBCDIC Germany/Austria (default from NaturalONE Eclipse plugin)
         params.put(ConnectKey.PARM, "CFICU=ON,CP=IBM01141");
 
+        // The NDV library sends Charset.defaultCharset().name() as the client codepage.
+        // On modern JVMs this is "UTF-8" which the mainframe rejects (NAT7734 "CP UTF-8 not SBCS").
+        // Temporarily override file.encoding and reset the cached default charset
+        // so the lib reports a SBCS codepage during connect.
+        String originalEncoding = System.getProperty("file.encoding");
         try {
+            System.setProperty("file.encoding", "ISO-8859-1");
+            // Reset the cached default charset in java.nio.charset.Charset (Java 8)
+            try {
+                java.lang.reflect.Field defaultCharset = java.nio.charset.Charset.class.getDeclaredField("defaultCharset");
+                defaultCharset.setAccessible(true);
+                defaultCharset.set(null, null);
+            } catch (Exception ignored) {
+                // If reflection fails, the system property change alone might still work
+            }
             pal.connect(params);
             connected = true;
-            System.out.println("[NdvClient] Connected to " + host + ":" + port + " as " + user);
+            System.out.println("[NdvClient] Connected to " + host + ":" + port + " as " + this.user);
         } catch (java.net.ConnectException e) {
             throw new NdvException(
                     "Verbindung abgelehnt: " + host + ":" + port
@@ -60,6 +74,17 @@ public class NdvClient implements Closeable {
                     + "\n\nBitte Hostnamen oder IP-Adresse prüfen.", e);
         } catch (PalConnectResultException e) {
             throw new NdvException("NDV-Login fehlgeschlagen: " + e.getMessage(), e);
+        } finally {
+            // Restore original encoding and reset charset cache
+            if (originalEncoding != null) {
+                System.setProperty("file.encoding", originalEncoding);
+            }
+            try {
+                java.lang.reflect.Field defaultCharset = java.nio.charset.Charset.class.getDeclaredField("defaultCharset");
+                defaultCharset.setAccessible(true);
+                defaultCharset.set(null, null);
+            } catch (Exception ignored) {
+            }
         }
     }
 
