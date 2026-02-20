@@ -41,7 +41,7 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         JTextField hostField = new JTextField(20);
-        JSpinner portSpinner = new JSpinner(new SpinnerNumberModel(2700, 1, 65535, 1));
+        JSpinner portSpinner = new JSpinner(new SpinnerNumberModel(8011, 1, 65535, 1));
         JTextField userField = new JTextField(20);
         JPasswordField passField = new JPasswordField(20);
         JTextField libraryField = new JTextField(20);

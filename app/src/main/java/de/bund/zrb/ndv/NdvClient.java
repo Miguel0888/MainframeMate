@@ -31,13 +31,15 @@ public class NdvClient implements Closeable {
     public void connect(String host, int port, String user, String password) throws IOException, NdvException {
         this.host = host;
         this.port = port;
-        this.user = user;
+        this.user = user.toUpperCase();
 
         Map<String, String> params = new HashMap<String, String>();
         params.put(ConnectKey.HOST, host);
         params.put(ConnectKey.PORT, String.valueOf(port));
-        params.put(ConnectKey.USERID, user);
+        params.put(ConnectKey.USERID, this.user);
         params.put(ConnectKey.PASSWORD, password);
+        // Session parameters: disable ICU (avoids NAT7734 "CP UTF-8 not SBCS")
+        params.put(ConnectKey.PARM, "CFICU=OFF");
 
         try {
             pal.connect(params);
