@@ -415,15 +415,21 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (password == null || password.isEmpty()) return;
 
         // Parse library and object name from rawPath
-        String library = settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary.trim() : "";
+        String library = "";
         String objectName = null;
-        if (rawPath.contains("/")) {
-            int slash = rawPath.indexOf('/');
-            library = rawPath.substring(0, slash);
-            objectName = rawPath.substring(slash + 1);
-        } else {
-            // rawPath is just a library name or object name
-            library = rawPath;
+        if (rawPath != null && !rawPath.isEmpty()) {
+            if (rawPath.contains("/")) {
+                int slash = rawPath.indexOf('/');
+                library = rawPath.substring(0, slash);
+                objectName = rawPath.substring(slash + 1);
+                if (objectName != null && objectName.isEmpty()) objectName = null;
+            } else {
+                library = rawPath;
+            }
+        }
+        // Fallback to default library from settings if raw path was empty
+        if (library.isEmpty() && settings.ndvDefaultLibrary != null && !settings.ndvDefaultLibrary.trim().isEmpty()) {
+            library = settings.ndvDefaultLibrary.trim();
         }
 
         final String fHost = host;
@@ -770,6 +776,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
     }
 }
+
+
 
 
 

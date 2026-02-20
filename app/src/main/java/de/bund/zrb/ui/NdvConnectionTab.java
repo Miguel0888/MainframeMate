@@ -637,10 +637,12 @@ public class NdvConnectionTab implements ConnectionTab {
 
     @Override
     public String getPath() {
+        // Return raw path (library name only, no protocol prefix).
+        // The bookmark system adds the "ndv://" prefix via BookmarkEntry.buildPath("NDV", ...).
         if (currentLibrary != null) {
-            return "ndv://" + host + "/" + currentLibrary;
+            return currentLibrary;
         }
-        return "ndv://" + host;
+        return "";
     }
 
     @Override

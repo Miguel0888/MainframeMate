@@ -211,6 +211,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         pathField.setText(previousPath);
         updateNavigationButtons();
         updateFileList();
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateForward() {
@@ -223,6 +224,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         pathField.setText(nextPath);
         updateNavigationButtons();
         updateFileList();
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void updateNavigationButtons() {

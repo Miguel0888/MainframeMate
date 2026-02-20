@@ -135,6 +135,7 @@ public class ConnectionTabImpl implements ConnectionTab {
                     browserState.goTo(node.getPath());
                     pathField.setText(browserState.getCurrentPath());
                     updateFileList();
+                    tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
                     return;
                 }
 
@@ -146,6 +147,7 @@ public class ConnectionTabImpl implements ConnectionTab {
                     browserState.goTo(nextPath);
                     pathField.setText(browserState.getCurrentPath());
                     refreshListModelFromNodes();
+                    tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
                     return;
                 } catch (Exception ignore) {
                     // not a directory
@@ -249,6 +251,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         pathField.setText(browserState.getCurrentPath());
         updateNavigationButtons();
         updateFileList();
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateForward() {
@@ -256,6 +259,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         pathField.setText(browserState.getCurrentPath());
         updateNavigationButtons();
         updateFileList();
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateTo(String path, boolean addToHistory) {
