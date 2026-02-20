@@ -4,11 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Represents a parsed mainframe source document structure (JCL or COBOL) for outline view.
+ * Represents a parsed mainframe source document structure (JCL, COBOL, or Natural) for outline view.
  */
 public class JclOutlineModel {
 
-    public enum Language { JCL, COBOL, UNKNOWN }
+    public enum Language { JCL, COBOL, NATURAL, UNKNOWN }
 
     private final List<JclElement> elements = new ArrayList<>();
     private String sourceName;
@@ -62,6 +62,48 @@ public class JclOutlineModel {
             }
         }
         return items;
+    }
+
+    // ── Natural helpers ────────────────────────────────────────────
+
+    public List<JclElement> getSubroutines() {
+        List<JclElement> result = new ArrayList<>();
+        for (JclElement e : elements) {
+            if (e.getType() == JclElementType.NAT_SUBROUTINE
+                    || e.getType() == JclElementType.NAT_INLINE_SUBROUTINE) {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    public List<JclElement> getNaturalCalls() {
+        List<JclElement> result = new ArrayList<>();
+        for (JclElement e : elements) {
+            if (e.getType() == JclElementType.NAT_CALLNAT
+                    || e.getType() == JclElementType.NAT_CALL
+                    || e.getType() == JclElementType.NAT_FETCH
+                    || e.getType() == JclElementType.NAT_PERFORM) {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+    public List<JclElement> getNaturalDbOps() {
+        List<JclElement> result = new ArrayList<>();
+        for (JclElement e : elements) {
+            if (e.getType() == JclElementType.NAT_READ
+                    || e.getType() == JclElementType.NAT_FIND
+                    || e.getType() == JclElementType.NAT_HISTOGRAM
+                    || e.getType() == JclElementType.NAT_STORE
+                    || e.getType() == JclElementType.NAT_UPDATE
+                    || e.getType() == JclElementType.NAT_DELETE
+                    || e.getType() == JclElementType.NAT_GET) {
+                result.add(e);
+            }
+        }
+        return result;
     }
 
     // ── generic helpers ─────────────────────────────────────────────

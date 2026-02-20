@@ -1,7 +1,7 @@
 package de.bund.zrb.jcl.model;
 
 /**
- * Types of mainframe outline elements (JCL + COBOL) for outline view.
+ * Types of mainframe outline elements (JCL + COBOL + Natural) for outline view.
  */
 public enum JclElementType {
     // ── JCL ─────────────────────────────────────────────────────────
@@ -36,7 +36,48 @@ public enum JclElementType {
     PROCEDURE_DIVISION("▶", "Procedure Division"),
     LEVEL_01("📦", "01 Level"),
     LEVEL_77("📦", "77 Level"),
-    LEVEL_88("✅", "88 Condition");
+    LEVEL_88("✅", "88 Condition"),
+
+    // ── Natural (Software AG) ───────────────────────────────────────
+    NAT_DEFINE_DATA("💾", "DEFINE DATA"),
+    NAT_LOCAL("📦", "LOCAL"),
+    NAT_PARAMETER("🔗", "PARAMETER"),
+    NAT_GLOBAL("🌐", "GLOBAL"),
+    NAT_INDEPENDENT("📌", "INDEPENDENT"),
+    NAT_DATA_VIEW("📊", "VIEW"),
+    NAT_DATA_VAR("🔢", "Variable"),
+    NAT_DATA_REDEFINE("🔄", "REDEFINE"),
+    NAT_DATA_CONST("📌", "CONST"),
+    NAT_SUBROUTINE("📦", "SUBROUTINE"),
+    NAT_INLINE_SUBROUTINE("📦", "Inline Subroutine"),
+    NAT_PERFORM("🔄", "PERFORM"),
+    NAT_CALLNAT("📞", "CALLNAT"),
+    NAT_CALL("📞", "CALL"),
+    NAT_FETCH("📞", "FETCH"),
+    NAT_SUBPROGRAM("📦", "SUBPROGRAM"),
+    NAT_PROGRAM("🏷", "PROGRAM"),
+    NAT_FUNCTION("⚡", "FUNCTION"),
+    NAT_MAP("🖥", "MAP"),
+    NAT_HELPROUTINE("❓", "HELPROUTINE"),
+    NAT_COPYCODE("📎", "COPYCODE"),
+    NAT_READ("📖", "READ"),
+    NAT_FIND("🔍", "FIND"),
+    NAT_HISTOGRAM("📊", "HISTOGRAM"),
+    NAT_STORE("💾", "STORE"),
+    NAT_UPDATE("✏", "UPDATE"),
+    NAT_DELETE("🗑", "DELETE"),
+    NAT_GET("📖", "GET"),
+    NAT_DECIDE("❓", "DECIDE"),
+    NAT_IF_BLOCK("❓", "IF Block"),
+    NAT_FOR("🔄", "FOR"),
+    NAT_REPEAT("🔄", "REPEAT"),
+    NAT_INPUT("🖥", "INPUT"),
+    NAT_WRITE("📝", "WRITE"),
+    NAT_DISPLAY("📝", "DISPLAY"),
+    NAT_PRINT("🖨", "PRINT"),
+    NAT_ON_ERROR("⚠", "ON ERROR"),
+    NAT_INCLUDE("📎", "INCLUDE"),
+    NAT_END("🔚", "END");
 
     private final String icon;
     private final String displayName;
@@ -55,7 +96,11 @@ public enum JclElementType {
     }
 
     public boolean isCobol() {
-        return ordinal() >= DIVISION.ordinal();
+        return ordinal() >= DIVISION.ordinal() && ordinal() <= LEVEL_88.ordinal();
+    }
+
+    public boolean isNatural() {
+        return ordinal() >= NAT_DEFINE_DATA.ordinal();
     }
 
     public boolean isJcl() {

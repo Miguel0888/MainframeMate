@@ -165,6 +165,83 @@ public class JclElement {
                     sb.append("  = ").append(truncate(val88, 25));
                 }
                 break;
+            // Natural types
+            case NAT_CALLNAT:
+            case NAT_CALL:
+            case NAT_FETCH:
+                String natTarget = parameters.get("TARGET");
+                if (natTarget != null) {
+                    sb.append(" → ").append(natTarget);
+                }
+                break;
+            case NAT_PERFORM:
+                String natPerfTarget = parameters.get("TARGET");
+                if (natPerfTarget != null) {
+                    sb.append(" → ").append(natPerfTarget);
+                }
+                break;
+            case NAT_DATA_VAR:
+                String natLevel = parameters.get("LEVEL");
+                String natFormat = parameters.get("FORMAT");
+                if (natLevel != null) {
+                    sb.append(" (").append(natLevel).append(")");
+                }
+                if (natFormat != null) {
+                    sb.append("  ").append(natFormat);
+                }
+                String natInit = parameters.get("INIT");
+                if (natInit != null) {
+                    sb.append(" = ").append(truncate(natInit, 15));
+                }
+                break;
+            case NAT_DATA_VIEW:
+                String viewOf = parameters.get("OF");
+                if (viewOf != null) {
+                    sb.append(" OF ").append(viewOf);
+                }
+                break;
+            case NAT_DATA_REDEFINE:
+                String redefVar = parameters.get("REDEFINES");
+                if (redefVar != null) {
+                    sb.append(" → ").append(redefVar);
+                }
+                break;
+            case NAT_READ:
+            case NAT_FIND:
+            case NAT_HISTOGRAM:
+            case NAT_STORE:
+            case NAT_UPDATE:
+            case NAT_DELETE:
+            case NAT_GET:
+                String dbFile = parameters.get("FILE");
+                if (dbFile != null) {
+                    sb.append(" ").append(dbFile);
+                }
+                String dbWith = parameters.get("WITH");
+                if (dbWith != null) {
+                    sb.append(" WITH ").append(truncate(dbWith, 20));
+                }
+                break;
+            case NAT_DECIDE:
+                String decideOn = parameters.get("ON");
+                if (decideOn != null) {
+                    sb.append(" ON ").append(truncate(decideOn, 20));
+                }
+                break;
+            case NAT_INCLUDE:
+            case NAT_COPYCODE:
+                String ccName = parameters.get("COPYCODE");
+                if (ccName != null) {
+                    sb.append(" → ").append(ccName);
+                }
+                break;
+            case NAT_INPUT:
+            case NAT_MAP:
+                String mapName = parameters.get("MAP");
+                if (mapName != null) {
+                    sb.append(" → ").append(mapName);
+                }
+                break;
             default:
                 break;
         }

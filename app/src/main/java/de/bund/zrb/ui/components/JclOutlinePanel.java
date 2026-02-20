@@ -5,6 +5,7 @@ import de.bund.zrb.jcl.model.JclElementType;
 import de.bund.zrb.jcl.model.JclOutlineModel;
 import de.bund.zrb.jcl.parser.AntlrJclParser;
 import de.bund.zrb.jcl.parser.CobolParser;
+import de.bund.zrb.jcl.parser.NaturalParser;
 
 import javax.swing.*;
 import javax.swing.event.TreeSelectionListener;
@@ -20,7 +21,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Panel displaying mainframe source outline (JCL + COBOL) similar to Eclipse outline view.
+ * Panel displaying mainframe source outline (JCL + COBOL + Natural) similar to Eclipse outline view.
  * Automatically detects the language and shows appropriate structure.
  */
 public class JclOutlinePanel extends JPanel {
@@ -36,6 +37,7 @@ public class JclOutlinePanel extends JPanel {
     private Consumer<Integer> lineNavigator;
     private final AntlrJclParser jclParser = new AntlrJclParser();
     private final CobolParser cobolParser = new CobolParser();
+    private final NaturalParser naturalParser = new NaturalParser();
 
     // Filter options – dynamically switched per language
     private static final String FILTER_ALL = "Alle";
@@ -52,6 +54,13 @@ public class JclOutlinePanel extends JPanel {
     private static final String COB_FILTER_PARAGRAPHS = "Paragraphs";
     private static final String COB_FILTER_DATA = "Data Items";
     private static final String COB_FILTER_CALLS = "Calls/Performs";
+
+    // Natural filters
+    private static final String NAT_FILTER_DATA = "DEFINE DATA";
+    private static final String NAT_FILTER_SUBROUTINES = "Subroutines";
+    private static final String NAT_FILTER_CALLS = "Calls";
+    private static final String NAT_FILTER_DB = "DB Zugriffe";
+    private static final String NAT_FILTER_FLOW = "Kontrollfluss";
 
     public JclOutlinePanel() {
         setLayout(new BorderLayout(4, 4));
@@ -128,7 +137,9 @@ public class JclOutlinePanel extends JPanel {
         }
 
         // Detect language and parse
-        if (isCobolContent(content)) {
+        if (isNaturalContent(content)) {
+            currentModel = naturalParser.parse(content, sourceName);
+        } else if (isCobolContent(content)) {
             currentModel = cobolParser.parse(content, sourceName);
         } else {
             currentModel = jclParser.parse(content, sourceName);
@@ -174,6 +185,29 @@ public class JclOutlinePanel extends JPanel {
 
     // ── Language detection ───────────────────────────────────────────
 
+    private boolean isNaturalContent(String content) {
+        if (content == null) return false;
+        String[] lines = content.split("\\r?\\n", 40);
+        int naturalHits = 0;
+        for (String line : lines) {
+            String trimmed = line.trim().toUpperCase();
+            if (trimmed.startsWith("DEFINE DATA")
+                    || trimmed.startsWith("END-DEFINE")
+                    || trimmed.startsWith("DEFINE SUBROUTINE")
+                    || trimmed.startsWith("CALLNAT ")
+                    || trimmed.startsWith("END-SUBROUTINE")
+                    || trimmed.startsWith("LOCAL USING")
+                    || trimmed.startsWith("PARAMETER USING")
+                    || trimmed.startsWith("DECIDE ON")
+                    || trimmed.startsWith("DECIDE FOR")
+                    || trimmed.startsWith("INPUT USING MAP")
+                    || trimmed.startsWith("FETCH RETURN")) {
+                naturalHits++;
+            }
+        }
+        return naturalHits >= 2;
+    }
+
     private boolean isCobolContent(String content) {
         if (content == null) return false;
         String[] lines = content.split("\\r?\\n", 30);
@@ -198,25 +232,41 @@ public class JclOutlinePanel extends JPanel {
         filterCombo.removeAllItems();
         filterCombo.addItem(FILTER_ALL);
 
-        if (currentModel != null && currentModel.getLanguage() == JclOutlineModel.Language.COBOL) {
-            filterCombo.addItem(COB_FILTER_DIVISIONS);
-            filterCombo.addItem(COB_FILTER_SECTIONS);
-            filterCombo.addItem(COB_FILTER_PARAGRAPHS);
-            filterCombo.addItem(COB_FILTER_DATA);
-            filterCombo.addItem(COB_FILTER_CALLS);
-        } else {
-            filterCombo.addItem(JCL_FILTER_JOBS);
-            filterCombo.addItem(JCL_FILTER_STEPS);
-            filterCombo.addItem(JCL_FILTER_DD);
-            filterCombo.addItem(JCL_FILTER_PROCS);
+        if (currentModel != null) {
+            switch (currentModel.getLanguage()) {
+                case NATURAL:
+                    filterCombo.addItem(NAT_FILTER_DATA);
+                    filterCombo.addItem(NAT_FILTER_SUBROUTINES);
+                    filterCombo.addItem(NAT_FILTER_CALLS);
+                    filterCombo.addItem(NAT_FILTER_DB);
+                    filterCombo.addItem(NAT_FILTER_FLOW);
+                    break;
+                case COBOL:
+                    filterCombo.addItem(COB_FILTER_DIVISIONS);
+                    filterCombo.addItem(COB_FILTER_SECTIONS);
+                    filterCombo.addItem(COB_FILTER_PARAGRAPHS);
+                    filterCombo.addItem(COB_FILTER_DATA);
+                    filterCombo.addItem(COB_FILTER_CALLS);
+                    break;
+                default:
+                    filterCombo.addItem(JCL_FILTER_JOBS);
+                    filterCombo.addItem(JCL_FILTER_STEPS);
+                    filterCombo.addItem(JCL_FILTER_DD);
+                    filterCombo.addItem(JCL_FILTER_PROCS);
+                    break;
+            }
         }
     }
 
     private void updateTitle() {
-        if (currentModel != null && currentModel.getLanguage() == JclOutlineModel.Language.COBOL) {
-            titleLabel.setText("📑 COBOL Outline");
-        } else {
-            titleLabel.setText("📑 JCL Outline");
+        if (currentModel == null) {
+            titleLabel.setText("📑 Outline");
+            return;
+        }
+        switch (currentModel.getLanguage()) {
+            case NATURAL: titleLabel.setText("📑 Natural Outline"); break;
+            case COBOL:   titleLabel.setText("📑 COBOL Outline"); break;
+            default:      titleLabel.setText("📑 JCL Outline"); break;
         }
     }
 
@@ -234,10 +284,10 @@ public class JclOutlinePanel extends JPanel {
         List<JclElement> elements = getFilteredElements(filter);
 
         if (FILTER_ALL.equals(filter)) {
-            if (currentModel.getLanguage() == JclOutlineModel.Language.COBOL) {
-                buildCobolGroupedTree(elements);
-            } else {
-                buildJclGroupedTree(elements);
+            switch (currentModel.getLanguage()) {
+                case NATURAL: buildNaturalGroupedTree(elements); break;
+                case COBOL:   buildCobolGroupedTree(elements); break;
+                default:      buildJclGroupedTree(elements); break;
             }
         } else {
             buildFlatTree(elements);
@@ -316,6 +366,69 @@ public class JclOutlinePanel extends JPanel {
         addIfNotEmpty(rootNode, othersNode);
     }
 
+    private void buildNaturalGroupedTree(List<JclElement> elements) {
+        DefaultMutableTreeNode dataNode = new DefaultMutableTreeNode("💾 DEFINE DATA");
+        DefaultMutableTreeNode subsNode = new DefaultMutableTreeNode("📦 Subroutines");
+        DefaultMutableTreeNode callsNode = new DefaultMutableTreeNode("📞 Calls");
+        DefaultMutableTreeNode dbNode = new DefaultMutableTreeNode("📊 DB Zugriffe");
+        DefaultMutableTreeNode flowNode = new DefaultMutableTreeNode("🔄 Kontrollfluss");
+        DefaultMutableTreeNode ioNode = new DefaultMutableTreeNode("🖥 I/O");
+        DefaultMutableTreeNode othersNode = new DefaultMutableTreeNode("⚙ Andere");
+
+        for (JclElement element : elements) {
+            DefaultMutableTreeNode node = createNodeWithChildren(element);
+            switch (element.getType()) {
+                case NAT_DEFINE_DATA:
+                case NAT_LOCAL:
+                case NAT_PARAMETER:
+                case NAT_GLOBAL:
+                case NAT_INDEPENDENT:
+                case NAT_DATA_VAR:
+                case NAT_DATA_VIEW:
+                case NAT_DATA_REDEFINE:
+                case NAT_DATA_CONST:
+                    dataNode.add(node); break;
+                case NAT_SUBROUTINE:
+                case NAT_INLINE_SUBROUTINE:
+                    subsNode.add(node); break;
+                case NAT_CALLNAT:
+                case NAT_CALL:
+                case NAT_FETCH:
+                case NAT_PERFORM:
+                    callsNode.add(node); break;
+                case NAT_READ:
+                case NAT_FIND:
+                case NAT_HISTOGRAM:
+                case NAT_STORE:
+                case NAT_UPDATE:
+                case NAT_DELETE:
+                case NAT_GET:
+                    dbNode.add(node); break;
+                case NAT_DECIDE:
+                case NAT_IF_BLOCK:
+                case NAT_FOR:
+                case NAT_REPEAT:
+                case NAT_ON_ERROR:
+                    flowNode.add(node); break;
+                case NAT_INPUT:
+                case NAT_WRITE:
+                case NAT_DISPLAY:
+                case NAT_PRINT:
+                    ioNode.add(node); break;
+                default:
+                    othersNode.add(node); break;
+            }
+        }
+
+        addIfNotEmpty(rootNode, dataNode);
+        addIfNotEmpty(rootNode, subsNode);
+        addIfNotEmpty(rootNode, callsNode);
+        addIfNotEmpty(rootNode, dbNode);
+        addIfNotEmpty(rootNode, flowNode);
+        addIfNotEmpty(rootNode, ioNode);
+        addIfNotEmpty(rootNode, othersNode);
+    }
+
     private void buildFlatTree(List<JclElement> elements) {
         for (JclElement element : elements) {
             rootNode.add(createNodeWithChildren(element));
@@ -373,6 +486,39 @@ public class JclOutlinePanel extends JPanel {
                         || e.getType() == JclElementType.LEVEL_77 || e.getType() == JclElementType.LEVEL_88;
             case COB_FILTER_CALLS:
                 return e.getType() == JclElementType.CALL_STMT || e.getType() == JclElementType.PERFORM_STMT;
+            // Natural
+            case NAT_FILTER_DATA:
+                return e.getType() == JclElementType.NAT_DEFINE_DATA
+                        || e.getType() == JclElementType.NAT_LOCAL
+                        || e.getType() == JclElementType.NAT_PARAMETER
+                        || e.getType() == JclElementType.NAT_GLOBAL
+                        || e.getType() == JclElementType.NAT_INDEPENDENT
+                        || e.getType() == JclElementType.NAT_DATA_VAR
+                        || e.getType() == JclElementType.NAT_DATA_VIEW
+                        || e.getType() == JclElementType.NAT_DATA_REDEFINE
+                        || e.getType() == JclElementType.NAT_DATA_CONST;
+            case NAT_FILTER_SUBROUTINES:
+                return e.getType() == JclElementType.NAT_SUBROUTINE
+                        || e.getType() == JclElementType.NAT_INLINE_SUBROUTINE;
+            case NAT_FILTER_CALLS:
+                return e.getType() == JclElementType.NAT_CALLNAT
+                        || e.getType() == JclElementType.NAT_CALL
+                        || e.getType() == JclElementType.NAT_FETCH
+                        || e.getType() == JclElementType.NAT_PERFORM;
+            case NAT_FILTER_DB:
+                return e.getType() == JclElementType.NAT_READ
+                        || e.getType() == JclElementType.NAT_FIND
+                        || e.getType() == JclElementType.NAT_HISTOGRAM
+                        || e.getType() == JclElementType.NAT_STORE
+                        || e.getType() == JclElementType.NAT_UPDATE
+                        || e.getType() == JclElementType.NAT_DELETE
+                        || e.getType() == JclElementType.NAT_GET;
+            case NAT_FILTER_FLOW:
+                return e.getType() == JclElementType.NAT_DECIDE
+                        || e.getType() == JclElementType.NAT_IF_BLOCK
+                        || e.getType() == JclElementType.NAT_FOR
+                        || e.getType() == JclElementType.NAT_REPEAT
+                        || e.getType() == JclElementType.NAT_ON_ERROR;
             default:
                 return true;
         }
@@ -411,6 +557,12 @@ public class JclOutlinePanel extends JPanel {
             int paras = currentModel.getParagraphs().size();
             int total = currentModel.getElementCount();
             statusLabel.setText(String.format("%d Div, %d Sec, %d Para, %d Elemente", divs, secs, paras, total));
+        } else if (currentModel.getLanguage() == JclOutlineModel.Language.NATURAL) {
+            int subs = currentModel.getSubroutines().size();
+            int calls = currentModel.getNaturalCalls().size();
+            int dbOps = currentModel.getNaturalDbOps().size();
+            int total = currentModel.getElementCount();
+            statusLabel.setText(String.format("%d Subs, %d Calls, %d DB, %d Elemente", subs, calls, dbOps, total));
         } else {
             int jobs = currentModel.getJobs().size();
             int steps = currentModel.getSteps().size();
@@ -421,7 +573,7 @@ public class JclOutlinePanel extends JPanel {
 
     private void showPlaceholder() {
         rootNode.removeAllChildren();
-        rootNode.add(new DefaultMutableTreeNode("📭 Öffne eine JCL/COBOL-Datei"));
+        rootNode.add(new DefaultMutableTreeNode("📭 Öffne eine JCL/COBOL/Natural-Datei"));
         treeModel.reload();
         statusLabel.setText("Keine Datei geladen");
     }

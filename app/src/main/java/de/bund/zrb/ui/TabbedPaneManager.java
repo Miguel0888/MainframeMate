@@ -292,8 +292,8 @@ public class TabbedPaneManager {
             return;
         }
 
-        // Check if content looks like JCL or COBOL
-        if (isJclContent(content) || isCobolContent(content)) {
+        // Check if content looks like JCL, COBOL, or Natural
+        if (isJclContent(content) || isCobolContent(content) || isNaturalContent(content)) {
             rightDrawer.updateJclOutline(content, sourceName);
 
             // Set up line navigator to jump to line in editor
@@ -344,6 +344,33 @@ public class TabbedPaneManager {
             }
         }
         return cobolHits >= 1;
+    }
+
+    /**
+     * Check if content looks like Natural (Software AG).
+     */
+    private boolean isNaturalContent(String content) {
+        if (content == null || content.length() < 10) return false;
+
+        String[] lines = content.split("\\r?\\n", 40);
+        int naturalHits = 0;
+        for (String line : lines) {
+            String trimmed = line.trim().toUpperCase();
+            if (trimmed.startsWith("DEFINE DATA")
+                    || trimmed.startsWith("END-DEFINE")
+                    || trimmed.startsWith("DEFINE SUBROUTINE")
+                    || trimmed.startsWith("CALLNAT ")
+                    || trimmed.startsWith("END-SUBROUTINE")
+                    || trimmed.startsWith("LOCAL USING")
+                    || trimmed.startsWith("PARAMETER USING")
+                    || trimmed.startsWith("DECIDE ON")
+                    || trimmed.startsWith("DECIDE FOR")
+                    || trimmed.startsWith("INPUT USING MAP")
+                    || trimmed.startsWith("FETCH RETURN")) {
+                naturalHits++;
+            }
+        }
+        return naturalHits >= 2;
     }
 
     /**
