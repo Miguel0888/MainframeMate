@@ -470,6 +470,59 @@ public class NdvClient implements Closeable {
         return sb.toString();
     }
 
+    /**
+     * Upload (save) source code of a Natural object back to the server.
+     *
+     * @param library    library name
+     * @param objInfo    object info (carries name, type, DBID/FNR)
+     * @param sourceText source code as single string (lines separated by \n)
+     */
+    public void writeSource(String library, NdvObjectInfo objInfo, String sourceText)
+            throws IOException, NdvException {
+        checkConnected();
+        if (library == null || library.isEmpty()) {
+            throw new NdvException("writeSource: library is null or empty");
+        }
+        if (objInfo == null) {
+            throw new NdvException("writeSource: objInfo is null");
+        }
+        if (sourceText == null) {
+            sourceText = "";
+        }
+
+        // Ensure we are logged on to the correct library
+        if (!library.equals(currentLibrary)) {
+            logon(library);
+        }
+
+        // Resolve system file for this object
+        IPalTypeSystemFile sysFile = resolveSystemFileForObject(objInfo);
+
+        // Split text into lines for uploadSource
+        String[] sourceLines = sourceText.split("\n", -1);
+
+        System.out.println("[NdvClient] writeSource: library=" + library
+                + ", obj=" + objInfo.getName() + ", type=" + objInfo.getType()
+                + ", lines=" + sourceLines.length
+                + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
+                + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
+
+        try {
+            IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+
+            // Use empty set for upload options (no special options needed for basic save)
+            Set<EUploadOption> options = EnumSet.noneOf(EUploadOption.class);
+
+            pal.uploadSource(sysFile, library, props, options, sourceLines);
+
+            System.out.println("[NdvClient] writeSource: successfully uploaded "
+                    + sourceLines.length + " lines for " + objInfo.getName());
+        } catch (PalResultException e) {
+            throw new NdvException("Quellcode-Upload fehlgeschlagen für '" + objInfo.getName()
+                    + "' in '" + library + "': " + e.getMessage(), e);
+        }
+    }
+
 
     /**
      * Get the current logon library.

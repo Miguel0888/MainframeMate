@@ -3,9 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ndv.NdvClient;
 import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ndv.NdvObjectInfo;
-import de.bund.zrb.ui.preview.SplitPreviewTab;
-import de.bund.zrb.ingestion.model.document.Document;
-import de.bund.zrb.ingestion.model.document.DocumentMetadata;
+import de.bund.zrb.files.path.VirtualResourceRef;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
 import com.softwareag.naturalone.natural.pal.external.ObjectKind;
 import de.zrb.bund.api.Bookmarkable;
@@ -451,35 +449,35 @@ public class NdvConnectionTab implements ConnectionTab {
                         return;
                     }
 
-                    // Create tab title
-                    String tabName = objInfo.getName() + " (" + objInfo.getTypeName() + ")";
-                    String fullName = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();
-
-                    // Create Document model
-                    DocumentMetadata meta = DocumentMetadata.builder()
-                            .sourceName(fullName)
-                            .mimeType("text/natural")
-                            .build();
-                    Document doc = Document.fromText(source, meta);
-
-                    // Open in SplitPreviewTab
-                    SplitPreviewTab previewTab = new SplitPreviewTab(
-                            tabName,
-                            source,
-                            meta,
-                            new ArrayList<String>(),
-                            doc,
-                            false // not remote (NDV source is read into memory)
+                    // Build a VirtualResource with NDV backend (enables save via FileTabImpl)
+                    String fullPath = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();
+                    NdvResourceState ndvState = new NdvResourceState(client, currentLibrary, objInfo);
+                    VirtualResource resource = new VirtualResource(
+                            de.bund.zrb.files.path.VirtualResourceRef.of(fullPath),
+                            VirtualResourceKind.FILE,
+                            fullPath,
+                            VirtualBackendType.NDV,
+                            null,  // no FTP state
+                            ndvState
                     );
 
-                    tabbedPaneManager.addTab(previewTab);
+                    // Open in FileTabImpl (editable, saveable, with search/compare)
+                    FileTabImpl fileTab = new FileTabImpl(
+                            tabbedPaneManager,
+                            resource,
+                            source,
+                            null,   // sentenceType
+                            null,   // searchPattern
+                            false   // toCompare
+                    );
+
+                    tabbedPaneManager.addTab(fileTab);
                     statusLabel.setText("Geöffnet: " + objInfo.getName());
                 } catch (Exception e) {
                     String msg = e.getMessage();
                     if (msg == null || msg.isEmpty()) {
                         msg = e.getClass().getSimpleName();
                     }
-                    // For NPE, include stack trace info
                     if (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null) {
                         Throwable cause = e.getCause();
                         msg = cause.getClass().getSimpleName();

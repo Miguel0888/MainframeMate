@@ -6,7 +6,9 @@ import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService;
 import de.bund.zrb.files.impl.local.VfsLocalFileService;
+import de.bund.zrb.files.impl.ndv.NdvFileService;
 import de.bund.zrb.ui.FtpResourceState;
+import de.bund.zrb.ui.NdvResourceState;
 import de.bund.zrb.ui.VirtualBackendType;
 import de.bund.zrb.ui.VirtualResource;
 
@@ -46,6 +48,15 @@ public class FileServiceFactory {
 
         if (resource.getBackendType() == VirtualBackendType.LOCAL) {
             return createLocal();
+        }
+
+        if (resource.getBackendType() == VirtualBackendType.NDV) {
+            NdvResourceState ndvState = resource.getNdvState();
+            if (ndvState == null) {
+                throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR,
+                        "Missing NdvResourceState in VirtualResource");
+            }
+            return new NdvFileService(ndvState.getClient(), ndvState.getLibrary(), ndvState.getObjectInfo());
         }
 
         // FTP

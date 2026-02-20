@@ -10,6 +10,7 @@ public final class VirtualResource {
     private final boolean local;
     private final VirtualBackendType backendType;
     private final FtpResourceState ftpState;
+    private final NdvResourceState ndvState;
 
     public VirtualResource(VirtualResourceRef ref, VirtualResourceKind kind, String resolvedPath, boolean local) {
         this(ref, kind, resolvedPath, local ? VirtualBackendType.LOCAL : VirtualBackendType.FTP, null);
@@ -20,11 +21,21 @@ public final class VirtualResource {
                            String resolvedPath,
                            VirtualBackendType backendType,
                            FtpResourceState ftpState) {
+        this(ref, kind, resolvedPath, backendType, ftpState, null);
+    }
+
+    public VirtualResource(VirtualResourceRef ref,
+                           VirtualResourceKind kind,
+                           String resolvedPath,
+                           VirtualBackendType backendType,
+                           FtpResourceState ftpState,
+                           NdvResourceState ndvState) {
         this.ref = ref;
         this.kind = kind;
         this.resolvedPath = resolvedPath;
         this.backendType = backendType == null ? VirtualBackendType.LOCAL : backendType;
         this.ftpState = ftpState;
+        this.ndvState = ndvState;
         this.local = this.backendType == VirtualBackendType.LOCAL;
     }
 
@@ -50,5 +61,9 @@ public final class VirtualResource {
 
     public FtpResourceState getFtpState() {
         return ftpState;
+    }
+
+    public NdvResourceState getNdvState() {
+        return ndvState;
     }
 }

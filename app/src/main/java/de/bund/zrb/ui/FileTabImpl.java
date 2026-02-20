@@ -121,6 +121,11 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         }
 
         // FTP: hier nehmen wir erstmal einen absoluten Pfad per Dialog.
+        if (resource.getBackendType() == VirtualBackendType.NDV) {
+            // NDV: "Save As" is not applicable – save back to same object
+            saveViaFileService();
+            return;
+        }
         String suggested = resource.getResolvedPath() == null ? "" : resource.getResolvedPath();
         String target = JOptionPane.showInputDialog(mainPanel, "Zielpfad (FTP, absolut):", suggested);
         if (target == null) {
@@ -146,7 +151,8 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     public FileTabImpl(TabbedPaneManager tabbedPaneManager, VirtualResource resource, String content,
                        String sentenceType, String searchPattern, Boolean toCompare) {
         // Call SplitPreviewTab constructor
-        super(extractFileName(resource), content, null, null, null, resource.getBackendType() == VirtualBackendType.FTP);
+        super(extractFileName(resource), content, null, null, null,
+                resource.getBackendType() == VirtualBackendType.FTP || resource.getBackendType() == VirtualBackendType.NDV);
 
         this.tabbedPaneManager = tabbedPaneManager;
         this.resource = resource;
