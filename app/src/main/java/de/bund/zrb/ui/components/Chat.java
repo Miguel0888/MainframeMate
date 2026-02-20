@@ -77,7 +77,7 @@ public class Chat extends JPanel {
         contextMemoryCheckbox.setFont(smallFont);
 
         // MCP Server menu button
-        toolsMenuButton = new JButton("\uD83D\uDD0C Tools");
+        toolsMenuButton = new JButton("\uD83D\uDD27 Tools");
         toolsMenuButton.setFont(smallFont);
         toolsMenuButton.setFocusable(false);
         toolsMenuButton.setToolTipText("Tools verwalten");
@@ -136,7 +136,7 @@ public class Chat extends JPanel {
 
         popup.addSeparator();
 
-        JMenuItem manageItem = new JMenuItem("\u2699 MCP Registry...");
+        JMenuItem manageItem = new JMenuItem("\uD83D\uDD0C MCP Registry...");
         manageItem.addActionListener(e -> McpRegistryBrowserDialog.show(this));
         popup.add(manageItem);
 
