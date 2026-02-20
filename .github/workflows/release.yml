@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew projects
 
       - name: Build project
-        run: ./gradlew clean :app:shadowJar :wd4j-mcp-server:shadowJar
+        run: ./gradlew clean :app:shadowJar :plugins:excelimport:jar :wd4j-mcp-server:shadowJar
 
       - name: Determine version
         id: version

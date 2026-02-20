@@ -17,6 +17,13 @@ import java.util.*;
 public class PluginManager {
 
     private static final List<MainframeMatePlugin> plugins = new ArrayList<>();
+    /** Track loaded plugin names to prevent duplicates. */
+    private static final Set<String> loadedPluginNames = new HashSet<>();
+
+    /** JAR filenames that are MCP server binaries, not MainframeMatePlugins. */
+    private static final Set<String> MCP_SERVER_JARS = new HashSet<>(Arrays.asList(
+            "wd4j-mcp-server.jar"
+    ));
 
     public static void registerPlugin(MainframeMatePlugin plugin) {
         plugins.add(plugin);
@@ -55,6 +62,11 @@ public class PluginManager {
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginDir, "*.jar")) {
             for (Path jarPath : stream) {
+                String fileName = jarPath.getFileName().toString();
+                if (MCP_SERVER_JARS.contains(fileName)) {
+                    System.out.println("⏭️ MCP-Server JAR übersprungen: " + fileName);
+                    continue;
+                }
                 loadPluginJar(jarPath, mainFrame);
             }
         } catch (IOException e) {
@@ -71,7 +83,13 @@ public class PluginManager {
                     ServiceLoader.load(MainframeMatePlugin.class, loader);
 
             for (MainframeMatePlugin plugin : serviceLoader) {
-                System.out.println("✅ Plugin geladen: " + plugin.getPluginName());
+                String pluginName = plugin.getPluginName();
+                if (loadedPluginNames.contains(pluginName)) {
+                    System.out.println("⏭️ Plugin bereits geladen, übersprungen: " + pluginName);
+                    continue;
+                }
+                loadedPluginNames.add(pluginName);
+                System.out.println("✅ Plugin geladen: " + pluginName);
                 plugin.initialize(mainFrame);
                 registerCommandsSafely(plugin, mainFrame);
                 registerToolsSafely(plugin, mainFrame);
