@@ -58,8 +58,9 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
     private VirtualResource resource;
 
-
-
+    public VirtualResource getResource() {
+        return resource;
+    }
     @Override
     public JPopupMenu createContextMenu(Runnable onClose) {
         JPopupMenu menu = new JPopupMenu();
@@ -68,7 +69,8 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         bookmarkItem.addActionListener(e -> {
             MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
             String link = resource != null ? resource.getResolvedPath() : null;
-            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), link);
+            String backend = resource != null ? resource.getBackendType().name() : null;
+            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), link, backend);
         });
 
         JMenuItem saveAsItem = new JMenuItem("💾 Speichern unter...");

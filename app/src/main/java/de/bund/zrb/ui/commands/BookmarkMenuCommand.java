@@ -1,5 +1,7 @@
 package de.bund.zrb.ui.commands;
 
+import de.bund.zrb.ui.FileTabImpl;
+import de.bund.zrb.ui.MainFrame;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.api.ShortcutMenuCommand;
@@ -38,13 +40,25 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
             return;
         }
 
-        String label = JOptionPane.showInputDialog(context.getMainFrame(),
-                "Bezeichnung für Bookmark:", tab.getTitle());
+        // Determine backend type
+        String backendType = "LOCAL";
+        if (tab instanceof FileTabImpl) {
+            FileTabImpl ft = (FileTabImpl) tab;
+            if (ft.getResource() != null) {
+                backendType = ft.getResource().getBackendType().name();
+            }
+        }
 
-        if (label != null && !label.trim().isEmpty()) {
-            context.getBookmarkManager().addBookmark(label.trim(), path);
-            context.refresh();
-            JOptionPane.showMessageDialog(context.getMainFrame(), "Bookmark hinzugefügt:\n" + label);
+        if (context instanceof MainFrame) {
+            MainFrame mainFrame = (MainFrame) context;
+            boolean added = mainFrame.getBookmarkDrawer().toggleBookmark(path, backendType);
+            if (added) {
+                JOptionPane.showMessageDialog(context.getMainFrame(), "Bookmark hinzugefügt:\n" + path);
+            } else {
+                JOptionPane.showMessageDialog(context.getMainFrame(), "Bookmark entfernt:\n" + path);
+            }
+            // Refresh star buttons in tab headers
+            mainFrame.getTabManager().refreshStarButtons();
         }
     }
 }

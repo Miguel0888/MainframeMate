@@ -2,6 +2,7 @@ package de.bund.zrb.ui;
 
 import de.bund.zrb.ui.components.HelpButton;
 import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
+import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.preview.SplitPreviewTab;
@@ -113,9 +114,20 @@ public class TabbedPaneManager {
         }
     }
 
+    private static final String STAR_EMPTY = "☆";
+    private static final String STAR_FILLED = "★";
+
     private void addClosableTabComponent(int index, FtpTab tab) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         tabPanel.setOpaque(false);
+
+        // Favorite star button (only for file tabs)
+        JButton starButton = null;
+        if (tab instanceof FileTabImpl) {
+            FileTabImpl fileTab = (FileTabImpl) tab;
+            starButton = createStarButton(fileTab);
+            tabPanel.add(starButton);
+        }
 
         JLabel titleLabel = new JLabel(tab.getTitle());
         JButton closeButton = new JButton("×");
@@ -131,11 +143,89 @@ public class TabbedPaneManager {
         tabbedPane.setTabComponentAt(index, tabPanel);
     }
 
+    private JButton createStarButton(FileTabImpl fileTab) {
+        VirtualResource res = fileTab.getResource();
+        String rawPath = res != null ? res.getResolvedPath() : null;
+        String backendType = res != null ? res.getBackendType().name() : "LOCAL";
+
+        LeftDrawer drawer = getBookmarkDrawer();
+        boolean isBookmarked = drawer != null && drawer.isBookmarked(rawPath, backendType);
+
+        JButton starButton = new JButton(isBookmarked ? STAR_FILLED : STAR_EMPTY);
+        starButton.setMargin(new Insets(0, 0, 0, 2));
+        starButton.setBorder(BorderFactory.createEmptyBorder());
+        starButton.setFocusable(false);
+        starButton.setContentAreaFilled(false);
+        starButton.setToolTipText(isBookmarked ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
+        starButton.setForeground(isBookmarked ? new Color(255, 200, 0) : Color.GRAY);
+        starButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        starButton.addActionListener(e -> {
+            String path = fileTab.getResource() != null ? fileTab.getResource().getResolvedPath() : null;
+            String backend = fileTab.getResource() != null ? fileTab.getResource().getBackendType().name() : "LOCAL";
+            LeftDrawer d = getBookmarkDrawer();
+            if (d != null && path != null) {
+                boolean added = d.toggleBookmark(path, backend);
+                starButton.setText(added ? STAR_FILLED : STAR_EMPTY);
+                starButton.setForeground(added ? new Color(255, 200, 0) : Color.GRAY);
+                starButton.setToolTipText(added ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
+            }
+        });
+
+        return starButton;
+    }
+
+    private LeftDrawer getBookmarkDrawer() {
+        if (mainframeContext instanceof MainFrame) {
+            return ((MainFrame) mainframeContext).getBookmarkDrawer();
+        }
+        return null;
+    }
+
     public void closeTab(int index) {
         Component comp = tabbedPane.getComponentAt(index);
         FtpTab tab = tabMap.remove(comp);
         if (tab != null) tab.onClose();
         tabbedPane.remove(index);
+    }
+
+    /**
+     * Refresh all star (favorite) buttons in tab headers to match current bookmark state.
+     */
+    public void refreshStarButtons() {
+        LeftDrawer drawer = getBookmarkDrawer();
+        if (drawer == null) return;
+
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            Component tabComp = tabbedPane.getTabComponentAt(i);
+            if (!(tabComp instanceof JPanel)) continue;
+
+            Component contentComp = tabbedPane.getComponentAt(i);
+            FtpTab tab = tabMap.get(contentComp);
+            if (!(tab instanceof FileTabImpl)) continue;
+
+            FileTabImpl fileTab = (FileTabImpl) tab;
+            VirtualResource res = fileTab.getResource();
+            if (res == null) continue;
+
+            String rawPath = res.getResolvedPath();
+            String backendType = res.getBackendType().name();
+            boolean isBookmarked = drawer.isBookmarked(rawPath, backendType);
+
+            JPanel panel = (JPanel) tabComp;
+            for (Component c : panel.getComponents()) {
+                if (c instanceof JButton) {
+                    JButton btn = (JButton) c;
+                    String text = btn.getText();
+                    if (STAR_EMPTY.equals(text) || STAR_FILLED.equals(text)) {
+                        btn.setText(isBookmarked ? STAR_FILLED : STAR_EMPTY);
+                        btn.setForeground(isBookmarked ? new Color(255, 200, 0) : Color.GRAY);
+                        btn.setToolTipText(isBookmarked ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     public void saveSelectedComponent() {

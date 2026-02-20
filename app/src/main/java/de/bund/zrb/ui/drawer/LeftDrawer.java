@@ -57,9 +57,62 @@ public class LeftDrawer extends JPanel {
     }
 
     public void setBookmarkForCurrentPath(Component parent, String path) {
+        setBookmarkForCurrentPath(parent, path, null);
+    }
+
+    public void setBookmarkForCurrentPath(Component parent, String path, String backendType) {
+        if (path == null || path.trim().isEmpty()) return;
+        String prefixedPath = BookmarkEntry.buildPath(backendType, path);
         String label = new File(path).getName();
-        BookmarkHelper.addBookmark(new BookmarkEntry(label, path, false));
+        // Ensure "Allgemein" folder exists
+        ensureGeneralFolder();
+        BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
+        BookmarkHelper.addBookmarkToFolder("Allgemein", entry);
         refreshBookmarks();
+    }
+
+    /**
+     * Check if a path (raw, without protocol prefix) is bookmarked.
+     */
+    public boolean isBookmarked(String rawPath, String backendType) {
+        if (rawPath == null) return false;
+        String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
+        return isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath);
+    }
+
+    /**
+     * Toggle bookmark: add if not present, remove if already bookmarked.
+     * Returns true if bookmark was added, false if removed.
+     */
+    public boolean toggleBookmark(String rawPath, String backendType) {
+        if (rawPath == null) return false;
+        String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
+        if (isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath)) {
+            BookmarkHelper.removeBookmarkByPath(prefixedPath);
+            refreshBookmarks();
+            return false;
+        } else {
+            setBookmarkForCurrentPath(null, rawPath, backendType);
+            return true;
+        }
+    }
+
+    private boolean isBookmarkedRecursive(List<BookmarkEntry> entries, String prefixedPath) {
+        for (BookmarkEntry e : entries) {
+            if (!e.folder && prefixedPath.equals(e.path)) return true;
+            if (e.folder && e.children != null) {
+                if (isBookmarkedRecursive(e.children, prefixedPath)) return true;
+            }
+        }
+        return false;
+    }
+
+    private void ensureGeneralFolder() {
+        List<BookmarkEntry> bookmarks = BookmarkHelper.loadBookmarks();
+        for (BookmarkEntry e : bookmarks) {
+            if (e.folder && "Allgemein".equals(e.label)) return;
+        }
+        BookmarkHelper.addBookmark(new BookmarkEntry("Allgemein", null, true));
     }
 
     private void installMouseHandler() {
@@ -83,7 +136,15 @@ public class LeftDrawer extends JPanel {
                     if (nodeObj instanceof BookmarkEntry) {
                         BookmarkEntry entry = (BookmarkEntry) nodeObj;
                         if (entry.isLeaf()) {
-                            onBookmarkClick.accept(entry.path);
+                            String routingPath = entry.getRoutingPath();
+                            if ("NDV".equals(entry.getBackendType())) {
+                                // NDV bookmarks can't be opened via openFileOrDirectory
+                                JOptionPane.showMessageDialog(tree,
+                                        "NDV-Dateien bitte über NDV-Verbindung öffnen.",
+                                        "Hinweis", JOptionPane.INFORMATION_MESSAGE);
+                            } else {
+                                onBookmarkClick.accept(routingPath);
+                            }
                         }
                     }
                 }
@@ -191,8 +252,15 @@ public class LeftDrawer extends JPanel {
             if (userObj instanceof BookmarkEntry) {
                 BookmarkEntry entry = (BookmarkEntry) userObj;
                 setText(entry.label);
-                setToolTipText(entry.path);
-                setIcon(entry.folder ? folderIcon : fileIcon);
+                if (entry.folder) {
+                    setToolTipText(null);
+                    setIcon(folderIcon);
+                } else {
+                    String backend = entry.getBackendType();
+                    String raw = entry.getRawPath();
+                    setToolTipText("[" + backend + "] " + raw);
+                    setIcon(fileIcon);
+                }
             }
 
             return comp;
