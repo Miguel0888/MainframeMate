@@ -104,6 +104,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         toolRegistry.registerTool(new de.bund.zrb.mcp.SearchAttachmentsTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadChunksTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadDocumentWindowTool(this));
+
+        // Built-in MCP Tools
+        toolRegistry.registerTool(new de.bund.zrb.mcp.WebsearchTool());
     }
 
     @Override

@@ -46,20 +46,45 @@ public class McpServerManager {
     // ── Built-in server registration ────────────────────────────────
 
     private void registerBuiltInServers() {
-        // Websearch (wd4j-mcp-server)
-        String jarPath = resolveBuiltInJarPath("wd4j-mcp-server");
-        if (jarPath != null) {
-            McpServerConfig websearch = new McpServerConfig(
-                    "Websearch",
-                    "java",
-                    java.util.Arrays.asList("-jar", jarPath),
-                    false  // disabled by default – user must opt-in
-            );
-            configRepository.registerBuiltIn(websearch);
-            System.err.println("[McpServerManager] Built-in 'Websearch' registered: " + jarPath);
-        } else {
-            System.err.println("[McpServerManager] Built-in 'Websearch' JAR not found – skipped.");
+        // Websearch (wd4j-mcp-server) – always registered, JAR resolved at start time
+        McpServerConfig websearch = new McpServerConfig(
+                "Websearch",
+                "java",
+                java.util.Arrays.asList("-jar", "<auto:wd4j-mcp-server>"),
+                false  // disabled by default – user must opt-in
+        );
+        configRepository.registerBuiltIn(websearch);
+        System.err.println("[McpServerManager] Built-in 'Websearch' registered.");
+    }
+
+    /**
+     * For built-in servers with an {@code <auto:...>} JAR placeholder,
+     * resolve the actual path before starting.
+     *
+     * @return a config copy with resolved args, or null if the JAR cannot be found
+     */
+    private McpServerConfig resolveBuiltInArgs(McpServerConfig config) {
+        List<String> args = config.getArgs();
+        if (args == null) return config;
+
+        List<String> resolved = new ArrayList<>();
+        for (String arg : args) {
+            if (arg.startsWith("<auto:") && arg.endsWith(">")) {
+                String baseName = arg.substring(6, arg.length() - 1);
+                String jarPath = resolveBuiltInJarPath(baseName);
+                if (jarPath == null) {
+                    return null; // cannot resolve
+                }
+                resolved.add(jarPath);
+            } else {
+                resolved.add(arg);
+            }
         }
+
+        McpServerConfig copy = new McpServerConfig(
+                config.getName(), config.getCommand(), resolved, config.isEnabled());
+        copy.setBuiltIn(config.isBuiltIn());
+        return copy;
     }
 
     /**
@@ -140,7 +165,16 @@ public class McpServerManager {
             return;
         }
 
-        McpServerClient client = new McpServerClient(config);
+        // Resolve <auto:...> placeholders in built-in server args
+        McpServerConfig resolved = resolveBuiltInArgs(config);
+        if (resolved == null) {
+            System.err.println("[McpServerManager] Cannot start '" + config.getName()
+                    + "': built-in JAR not found. Build it first with: gradlew :wd4j-mcp-server:shadowJar");
+            fireStateChanged();
+            return;
+        }
+
+        McpServerClient client = new McpServerClient(resolved);
         try {
             client.start();
             runningServers.put(config.getName(), client);

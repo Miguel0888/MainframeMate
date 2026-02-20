@@ -300,6 +300,9 @@ public class McpServerDialog {
                 case 0: return cfg.isEnabled();
                 case 1: return cfg.isBuiltIn() ? "🔒 " + cfg.getName() : cfg.getName();
                 case 2: {
+                    if (cfg.isBuiltIn()) {
+                        return "(integriert)";
+                    }
                     String cmd = cfg.getCommand();
                     if (cfg.getArgs() != null && !cfg.getArgs().isEmpty()) {
                         cmd += " " + String.join(" ", cfg.getArgs());
