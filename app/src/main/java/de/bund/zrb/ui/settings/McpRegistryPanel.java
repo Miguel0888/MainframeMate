@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.settings;
 
+import de.bund.zrb.mcp.registry.McpRegistrySettings;
 import de.bund.zrb.mcp.registry.McpServerConfig;
 import de.bund.zrb.mcp.registry.McpServerManager;
 
@@ -34,22 +35,51 @@ public class McpRegistryPanel extends JPanel {
         setLayout(new BorderLayout(4, 4));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        // ── Top: info + browse button ───────────────────────────────
-        JPanel topPanel = new JPanel(new BorderLayout(8, 0));
+        // ── Top: info + registry URL + browse button ────────────────
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
 
         JLabel info = new JLabel(
-                "<html><b>MCP Registry</b> \u2014 Externe MCP-Server einbinden und verwalten.<br>"
-                + "Durchsuchen Sie die Registry oder f\u00FCgen Sie Server manuell hinzu.</html>");
-        topPanel.add(info, BorderLayout.CENTER);
+                "<html><b>MCP Registry</b> \u2014 Externe MCP-Server einbinden und verwalten.</html>");
+        info.setAlignmentX(Component.LEFT_ALIGNMENT);
+        topPanel.add(info);
+        topPanel.add(Box.createVerticalStrut(6));
 
-        JButton browseBtn = new JButton("\uD83D\uDD0D Registry durchsuchen...");
-        browseBtn.setToolTipText("MCP-Server aus der offiziellen Registry suchen und installieren");
+        // Registry URL row
+        McpRegistrySettings regSettings = McpRegistrySettings.load();
+        JPanel urlRow = new JPanel(new BorderLayout(4, 0));
+        urlRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        urlRow.add(new JLabel("Registry-URL: "), BorderLayout.WEST);
+        JTextField urlField = new JTextField(regSettings.getRegistryBaseUrl(), 30);
+        urlRow.add(urlField, BorderLayout.CENTER);
+        JButton saveUrlBtn = new JButton("Speichern");
+        saveUrlBtn.addActionListener(e -> {
+            String url = urlField.getText().trim();
+            if (!url.isEmpty()) {
+                regSettings.setRegistryBaseUrl(url);
+                regSettings.save();
+            }
+        });
+        JPanel urlBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        urlBtns.add(saveUrlBtn);
+        JButton browseBtn = new JButton("Registry durchsuchen...");
+        browseBtn.setToolTipText("MCP-Server aus der Registry suchen und installieren");
         browseBtn.addActionListener(e -> {
+            // Save URL before browsing
+            String url = urlField.getText().trim();
+            if (!url.isEmpty()) {
+                regSettings.setRegistryBaseUrl(url);
+                regSettings.save();
+            }
             McpRegistryBrowserDialog.show(SwingUtilities.getWindowAncestor(this));
             refreshConfigs();
         });
-        topPanel.add(browseBtn, BorderLayout.EAST);
-        topPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        urlBtns.add(browseBtn);
+        urlRow.add(urlBtns, BorderLayout.EAST);
+        urlRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topPanel.add(urlRow);
+        topPanel.add(Box.createVerticalStrut(8));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
         add(topPanel, BorderLayout.NORTH);
 
         // ── Table: installed servers ────────────────────────────────

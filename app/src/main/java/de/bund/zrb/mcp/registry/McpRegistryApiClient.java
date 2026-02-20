@@ -11,8 +11,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.LinkedHashMap;
 
 /**
  * HTTP client for the MCP Registry API.
@@ -51,20 +51,48 @@ public class McpRegistryApiClient {
         String cacheKey = "list_" + Math.abs(url.toString().hashCode());
         String json = fetchWithCache(url.toString(), cacheKey);
 
-        JsonObject root = parseJson(json);
-        List<McpRegistryServerInfo> servers = new ArrayList<>();
-        if (root.has("servers") && root.get("servers").isJsonArray()) {
-            for (JsonElement el : root.getAsJsonArray("servers")) {
-                servers.add(McpRegistryServerInfo.fromListEntry(el.getAsJsonObject()));
+        System.err.println("[McpRegistryApi] Response preview: "
+                + json.substring(0, Math.min(json.length(), 500)));
+
+        JsonElement parsed = JsonParser.parseString(json);
+        // Use LinkedHashMap to deduplicate by name, keeping first (newest) entry
+        LinkedHashMap<String, McpRegistryServerInfo> dedup = new LinkedHashMap<>();
+        String nextCursor = null;
+
+        if (parsed.isJsonObject()) {
+            JsonObject root = parsed.getAsJsonObject();
+
+            if (root.has("servers") && root.get("servers").isJsonArray()) {
+                for (JsonElement el : root.getAsJsonArray("servers")) {
+                    if (el.isJsonObject()) {
+                        McpRegistryServerInfo info = McpRegistryServerInfo.fromListEntry(el.getAsJsonObject());
+                        if (info.getName() != null && !dedup.containsKey(info.getName())) {
+                            dedup.put(info.getName(), info);
+                        }
+                    }
+                }
+            }
+
+            // Pagination cursor: try both snake_case and camelCase
+            if (root.has("metadata") && root.get("metadata").isJsonObject()) {
+                JsonObject meta = root.getAsJsonObject("metadata");
+                JsonElement nc = meta.has("next_cursor") ? meta.get("next_cursor")
+                        : meta.has("nextCursor") ? meta.get("nextCursor") : null;
+                if (nc != null && !nc.isJsonNull()) nextCursor = nc.getAsString();
+            }
+        } else if (parsed.isJsonArray()) {
+            for (JsonElement el : parsed.getAsJsonArray()) {
+                if (el.isJsonObject()) {
+                    McpRegistryServerInfo info = McpRegistryServerInfo.fromListEntry(el.getAsJsonObject());
+                    if (info.getName() != null && !dedup.containsKey(info.getName())) {
+                        dedup.put(info.getName(), info);
+                    }
+                }
             }
         }
 
-        String nextCursor = null;
-        if (root.has("metadata") && root.getAsJsonObject("metadata").has("nextCursor")) {
-            JsonElement nc = root.getAsJsonObject("metadata").get("nextCursor");
-            if (!nc.isJsonNull()) nextCursor = nc.getAsString();
-        }
-
+        List<McpRegistryServerInfo> servers = new ArrayList<>(dedup.values());
+        System.err.println("[McpRegistryApi] Parsed " + servers.size() + " unique servers, nextCursor=" + nextCursor);
         return new ListResult(servers, nextCursor);
     }
 
@@ -74,10 +102,13 @@ public class McpRegistryApiClient {
      * Fetch details for a specific server (latest version).
      */
     public McpRegistryServerInfo getServerDetails(String serverName) throws IOException {
+        // URL-encode each path segment separately (org/name → org%2Fname)
         String encoded = URLEncoder.encode(serverName, "UTF-8").replace("+", "%20");
         String url = settings.getRegistryBaseUrl() + "/v0.1/servers/" + encoded + "/versions/latest";
         String cacheKey = "detail_" + Math.abs(url.hashCode());
         String json = fetchWithCache(url, cacheKey);
+        System.err.println("[McpRegistryApi] Detail response preview: "
+                + json.substring(0, Math.min(json.length(), 500)));
         JsonObject root = parseJson(json);
         return McpRegistryServerInfo.fromDetail(root);
     }

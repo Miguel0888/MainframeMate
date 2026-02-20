@@ -10,13 +10,15 @@ import java.util.List;
 
 /**
  * Parsed metadata for a single MCP server entry from the registry API.
+ * <p>Robust parsing: tries multiple field name variants (camelCase and snake_case)
+ * and handles both flat and nested response structures.</p>
  */
 public class McpRegistryServerInfo {
 
     private final String name;
     private final String title;
     private final String description;
-    private final String status; // "active", "deprecated", "deleted"
+    private final String status;
     private final String latestVersion;
     private final List<PackageInfo> packages;
     private final List<RemoteInfo> remotes;
@@ -41,7 +43,7 @@ public class McpRegistryServerInfo {
     // ── Getters ─────────────────────────────────────────────────────
 
     public String getName() { return name; }
-    public String getTitle() { return title != null ? title : name; }
+    public String getTitle() { return title != null && !title.isEmpty() ? title : name; }
     public String getDescription() { return description != null ? description : ""; }
     public String getStatus() { return status != null ? status : "active"; }
     public String getLatestVersion() { return latestVersion; }
@@ -59,78 +61,187 @@ public class McpRegistryServerInfo {
 
     /**
      * Parse a server entry from the registry list endpoint.
+     * The official API wraps each entry as: {@code {"server": {...}, "_meta": {...}}}
      */
     public static McpRegistryServerInfo fromListEntry(JsonObject obj) {
-        String name = getString(obj, "name");
-        String title = getString(obj, "title");
-        String description = getString(obj, "description");
-        String status = getString(obj, "status");
-        return new McpRegistryServerInfo(name, title, description, status,
-                null, Collections.<PackageInfo>emptyList(), Collections.<RemoteInfo>emptyList(),
-                Collections.<VariableInfo>emptyList(), Collections.<HeaderInfo>emptyList());
+        // Unwrap "server" envelope if present; keep original for _meta
+        JsonObject envelope = obj;
+        JsonObject serverObj = getObj(obj, "server");
+        if (serverObj != null) obj = serverObj;
+
+        String name = getStr(obj, "name");
+        String title = getStr(obj, "title", "display_name");
+        String description = getStr(obj, "description");
+        String status = getStr(obj, "status");
+        String version = getStr(obj, "version");
+
+        // Read status from _meta if not set directly
+        if (status == null) {
+            JsonObject meta = getObj(envelope, "_meta");
+            if (meta != null) {
+                JsonObject official = getObj(meta, "io.modelcontextprotocol.registry/official");
+                if (official != null) {
+                    String metaStatus = getStr(official, "status");
+                    if (metaStatus != null) status = metaStatus;
+                }
+            }
+        }
+
+        List<PackageInfo> pkgs = new ArrayList<>();
+        List<RemoteInfo> rems = new ArrayList<>();
+
+        // Try nested version_detail (official registry format)
+        JsonObject vd = getObj(obj, "version_detail");
+        if (vd != null) {
+            if (version == null) version = getStr(vd, "version");
+            if (description == null || description.isEmpty()) description = getStr(vd, "description");
+            if (title == null || title.isEmpty()) title = getStr(vd, "title", "display_name");
+            pkgs.addAll(parsePackages(vd));
+            rems.addAll(parseRemotes(vd));
+        }
+
+        // Also try top-level packages/remotes
+        pkgs.addAll(parsePackages(obj));
+        rems.addAll(parseRemotes(obj));
+
+        return new McpRegistryServerInfo(name, title, description, status, version,
+                pkgs, rems, Collections.<VariableInfo>emptyList(), Collections.<HeaderInfo>emptyList());
     }
 
     /**
      * Parse a full server detail from the versions/latest endpoint.
+     * The official API wraps as: {@code {"server": {...}, "_meta": {...}}}
      */
     public static McpRegistryServerInfo fromDetail(JsonObject obj) {
-        String name = getString(obj, "name");
-        String title = getString(obj, "title");
-        String description = getString(obj, "description");
-        String status = getString(obj, "status");
-        String version = getString(obj, "version");
+        // Unwrap "server" envelope if present; keep original for _meta
+        JsonObject envelope = obj;
+        JsonObject serverObj = getObj(obj, "server");
+        if (serverObj != null) obj = serverObj;
+
+        String name = getStr(obj, "name");
+        String title = getStr(obj, "title", "display_name");
+        String description = getStr(obj, "description");
+        String status = getStr(obj, "status");
+        String version = getStr(obj, "version");
+
+        // Try reading status from _meta (official registry uses _meta.io.modelcontextprotocol.registry/official.status)
+        if (status == null) {
+            JsonObject meta = getObj(envelope, "_meta");
+            if (meta != null) {
+                JsonObject official = getObj(meta, "io.modelcontextprotocol.registry/official");
+                if (official != null) {
+                    String metaStatus = getStr(official, "status");
+                    if (metaStatus != null) status = metaStatus;
+                }
+            }
+        }
+
+        // Try nested version_detail
+        JsonObject vd = getObj(obj, "version_detail");
+        if (vd != null) {
+            if (version == null) version = getStr(vd, "version");
+            if (description == null || description.isEmpty()) description = getStr(vd, "description");
+            if (title == null || title.isEmpty()) title = getStr(vd, "title", "display_name");
+        }
 
         List<PackageInfo> pkgs = new ArrayList<>();
-        if (obj.has("packages") && obj.get("packages").isJsonArray()) {
-            for (JsonElement el : obj.getAsJsonArray("packages")) {
-                pkgs.add(PackageInfo.parse(el.getAsJsonObject()));
-            }
-        }
+        pkgs.addAll(parsePackages(obj));
+        if (vd != null) pkgs.addAll(parsePackages(vd));
 
         List<RemoteInfo> rems = new ArrayList<>();
-        if (obj.has("remotes") && obj.get("remotes").isJsonArray()) {
-            for (JsonElement el : obj.getAsJsonArray("remotes")) {
-                rems.add(RemoteInfo.parse(el.getAsJsonObject()));
-            }
-        }
+        rems.addAll(parseRemotes(obj));
+        if (vd != null) rems.addAll(parseRemotes(vd));
 
-        // Variables may be nested in remotes or at top-level
         List<VariableInfo> vars = new ArrayList<>();
-        if (obj.has("variables") && obj.get("variables").isJsonArray()) {
-            for (JsonElement el : obj.getAsJsonArray("variables")) {
-                vars.add(VariableInfo.parse(el.getAsJsonObject()));
-            }
-        }
-        // Also check inside each remote
-        for (RemoteInfo rem : rems) {
-            vars.addAll(rem.getVariables());
-        }
+        vars.addAll(parseVariables(obj));
+        if (vd != null) vars.addAll(parseVariables(vd));
+        for (RemoteInfo rem : rems) vars.addAll(rem.getVariables());
 
         List<HeaderInfo> hdrs = new ArrayList<>();
-        if (obj.has("headers") && obj.get("headers").isJsonArray()) {
-            for (JsonElement el : obj.getAsJsonArray("headers")) {
-                hdrs.add(HeaderInfo.parse(el.getAsJsonObject()));
-            }
-        }
-        for (RemoteInfo rem : rems) {
-            hdrs.addAll(rem.getHeaders());
-        }
+        hdrs.addAll(parseHeaders(obj));
+        if (vd != null) hdrs.addAll(parseHeaders(vd));
+        for (RemoteInfo rem : rems) hdrs.addAll(rem.getHeaders());
 
         return new McpRegistryServerInfo(name, title, description, status, version,
                 pkgs, rems, vars, hdrs);
     }
 
-    private static String getString(JsonObject obj, String key) {
-        return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsString() : null;
+    // ── Robust field access ─────────────────────────────────────────
+
+    private static String getStr(JsonObject obj, String... keys) {
+        for (String key : keys) {
+            if (obj.has(key) && !obj.get(key).isJsonNull()) {
+                return obj.get(key).getAsString();
+            }
+        }
+        return null;
+    }
+
+    private static JsonObject getObj(JsonObject obj, String key) {
+        if (obj.has(key) && obj.get(key).isJsonObject()) {
+            return obj.getAsJsonObject(key);
+        }
+        return null;
+    }
+
+    private static JsonArray getArr(JsonObject obj, String key) {
+        if (obj.has(key) && obj.get(key).isJsonArray()) {
+            return obj.getAsJsonArray(key);
+        }
+        return null;
+    }
+
+    private static List<PackageInfo> parsePackages(JsonObject obj) {
+        List<PackageInfo> result = new ArrayList<>();
+        JsonArray arr = getArr(obj, "packages");
+        if (arr != null) {
+            for (JsonElement el : arr) {
+                if (el.isJsonObject()) result.add(PackageInfo.parse(el.getAsJsonObject()));
+            }
+        }
+        return result;
+    }
+
+    private static List<RemoteInfo> parseRemotes(JsonObject obj) {
+        List<RemoteInfo> result = new ArrayList<>();
+        JsonArray arr = getArr(obj, "remotes");
+        if (arr != null) {
+            for (JsonElement el : arr) {
+                if (el.isJsonObject()) result.add(RemoteInfo.parse(el.getAsJsonObject()));
+            }
+        }
+        return result;
+    }
+
+    private static List<VariableInfo> parseVariables(JsonObject obj) {
+        List<VariableInfo> result = new ArrayList<>();
+        JsonArray arr = getArr(obj, "variables");
+        if (arr != null) {
+            for (JsonElement el : arr) {
+                if (el.isJsonObject()) result.add(VariableInfo.parse(el.getAsJsonObject()));
+            }
+        }
+        return result;
+    }
+
+    private static List<HeaderInfo> parseHeaders(JsonObject obj) {
+        List<HeaderInfo> result = new ArrayList<>();
+        JsonArray arr = getArr(obj, "headers");
+        if (arr != null) {
+            for (JsonElement el : arr) {
+                if (el.isJsonObject()) result.add(HeaderInfo.parse(el.getAsJsonObject()));
+            }
+        }
+        return result;
     }
 
     // ── Inner classes ───────────────────────────────────────────────
 
     public static class PackageInfo {
-        public final String registryType; // npm, pypi, nuget, oci, mcpb
+        public final String registryType;
         public final String name;
         public final String version;
-        public final String transportType; // stdio
+        public final String transportType;
 
         PackageInfo(String registryType, String name, String version, String transportType) {
             this.registryType = registryType;
@@ -140,14 +251,12 @@ public class McpRegistryServerInfo {
         }
 
         static PackageInfo parse(JsonObject obj) {
-            String regType = getString(obj, "registryType");
-            String name = getString(obj, "name");
-            if (name == null) name = getString(obj, "identifier");
-            String ver = getString(obj, "version");
+            String regType = getStr(obj, "registry_type", "registryType");
+            String name = getStr(obj, "name", "identifier");
+            String ver = getStr(obj, "version");
             String ttype = null;
-            if (obj.has("transport") && obj.get("transport").isJsonObject()) {
-                ttype = getString(obj.getAsJsonObject("transport"), "type");
-            }
+            JsonObject transport = getObj(obj, "transport");
+            if (transport != null) ttype = getStr(transport, "type");
             return new PackageInfo(regType, name, ver, ttype != null ? ttype : "stdio");
         }
 
@@ -158,13 +267,17 @@ public class McpRegistryServerInfo {
                     + " [" + transportType + "]";
         }
 
-        private static String getString(JsonObject o, String k) {
-            return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : null;
+        private static String getStr(JsonObject o, String... keys) {
+            return McpRegistryServerInfo.getStr(o, keys);
+        }
+
+        private static JsonObject getObj(JsonObject o, String key) {
+            return McpRegistryServerInfo.getObj(o, key);
         }
     }
 
     public static class RemoteInfo {
-        public final String type; // streamable-http, sse
+        public final String type;
         public final String url;
         private final List<VariableInfo> variables;
         private final List<HeaderInfo> headers;
@@ -180,33 +293,22 @@ public class McpRegistryServerInfo {
         public List<HeaderInfo> getHeaders() { return headers; }
 
         static RemoteInfo parse(JsonObject obj) {
-            String type = getString(obj, "type");
-            String url = getString(obj, "url");
+            String type = getStr(obj, "transport_type", "type");
+            String url = getStr(obj, "url");
 
-            List<VariableInfo> vars = new ArrayList<>();
-            if (obj.has("variables") && obj.get("variables").isJsonArray()) {
-                for (JsonElement el : obj.getAsJsonArray("variables")) {
-                    vars.add(VariableInfo.parse(el.getAsJsonObject()));
-                }
-            }
-
-            List<HeaderInfo> hdrs = new ArrayList<>();
-            if (obj.has("headers") && obj.get("headers").isJsonArray()) {
-                for (JsonElement el : obj.getAsJsonArray("headers")) {
-                    hdrs.add(HeaderInfo.parse(el.getAsJsonObject()));
-                }
-            }
+            List<VariableInfo> vars = McpRegistryServerInfo.parseVariables(obj);
+            List<HeaderInfo> hdrs = McpRegistryServerInfo.parseHeaders(obj);
 
             return new RemoteInfo(type, url, vars, hdrs);
         }
 
         @Override
         public String toString() {
-            return type + ": " + url;
+            return (type != null ? type : "http") + ": " + url;
         }
 
-        private static String getString(JsonObject o, String k) {
-            return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : null;
+        private static String getStr(JsonObject o, String... keys) {
+            return McpRegistryServerInfo.getStr(o, keys);
         }
     }
 
@@ -229,22 +331,22 @@ public class McpRegistryServerInfo {
         }
 
         static VariableInfo parse(JsonObject obj) {
-            String name = getString(obj, "name");
-            String desc = getString(obj, "description");
-            boolean req = obj.has("required") && obj.get("required").getAsBoolean();
-            String def = getString(obj, "default");
-            boolean secret = obj.has("isSecret") && obj.get("isSecret").getAsBoolean();
+            String name = getStr(obj, "name");
+            String desc = getStr(obj, "description");
+            boolean req = obj.has("required") && !obj.get("required").isJsonNull() && obj.get("required").getAsBoolean();
+            String def = getStr(obj, "default");
+            boolean secret = obj.has("isSecret") && !obj.get("isSecret").isJsonNull() && obj.get("isSecret").getAsBoolean();
+            if (!secret) secret = obj.has("is_secret") && !obj.get("is_secret").isJsonNull() && obj.get("is_secret").getAsBoolean();
             List<String> choices = new ArrayList<>();
-            if (obj.has("choices") && obj.get("choices").isJsonArray()) {
-                for (JsonElement el : obj.getAsJsonArray("choices")) {
-                    choices.add(el.getAsString());
-                }
+            JsonArray arr = McpRegistryServerInfo.getArr(obj, "choices");
+            if (arr != null) {
+                for (JsonElement el : arr) choices.add(el.getAsString());
             }
             return new VariableInfo(name, desc, req, def, secret, choices);
         }
 
-        private static String getString(JsonObject o, String k) {
-            return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : null;
+        private static String getStr(JsonObject o, String... keys) {
+            return McpRegistryServerInfo.getStr(o, keys);
         }
     }
 
@@ -262,15 +364,16 @@ public class McpRegistryServerInfo {
         }
 
         static HeaderInfo parse(JsonObject obj) {
-            String name = getString(obj, "name");
-            String desc = getString(obj, "description");
-            boolean req = obj.has("required") && obj.get("required").getAsBoolean();
-            boolean secret = obj.has("isSecret") && obj.get("isSecret").getAsBoolean();
+            String name = getStr(obj, "name");
+            String desc = getStr(obj, "description");
+            boolean req = obj.has("required") && !obj.get("required").isJsonNull() && obj.get("required").getAsBoolean();
+            boolean secret = obj.has("isSecret") && !obj.get("isSecret").isJsonNull() && obj.get("isSecret").getAsBoolean();
+            if (!secret) secret = obj.has("is_secret") && !obj.get("is_secret").isJsonNull() && obj.get("is_secret").getAsBoolean();
             return new HeaderInfo(name, desc, req, secret);
         }
 
-        private static String getString(JsonObject o, String k) {
-            return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : null;
+        private static String getStr(JsonObject o, String... keys) {
+            return McpRegistryServerInfo.getStr(o, keys);
         }
     }
 }

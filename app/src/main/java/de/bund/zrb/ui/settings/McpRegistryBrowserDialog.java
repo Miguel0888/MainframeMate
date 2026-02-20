@@ -34,8 +34,6 @@ public class McpRegistryBrowserDialog {
         JButton searchBtn = new JButton("Suchen");
         JButton refreshBtn = new JButton("\u21BB");
         refreshBtn.setToolTipText("Cache leeren & neu laden");
-        JButton settingsBtn = new JButton("\u2699");
-        settingsBtn.setToolTipText("Registry-URL konfigurieren");
 
         JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
         searchPanel.add(new JLabel("Suche: "), BorderLayout.WEST);
@@ -44,7 +42,6 @@ public class McpRegistryBrowserDialog {
         JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         rightButtons.add(searchBtn);
         rightButtons.add(refreshBtn);
-        rightButtons.add(settingsBtn);
 
         topBar.add(searchPanel, BorderLayout.CENTER);
         topBar.add(rightButtons, BorderLayout.EAST);
@@ -52,7 +49,6 @@ public class McpRegistryBrowserDialog {
 
         // ── Server list table ───────────────────────────────────────
         List<McpRegistryServerInfo> servers = new ArrayList<>();
-        String[] cursorHolder = {null}; // mutable holder for pagination
 
         String[] COLUMNS = {"Name", "Beschreibung", "Status", "Aktion"};
         AbstractTableModel model = new AbstractTableModel() {
@@ -143,7 +139,12 @@ public class McpRegistryBrowserDialog {
         dialog.add(bottomBar, BorderLayout.SOUTH);
 
         // ── State ───────────────────────────────────────────────────
-        List<String> cursorStack = new ArrayList<>(); // prev cursors for back-navigation
+        // cursorStack holds the cursors used to load previous pages (for back-navigation)
+        // cursorHolder[0] = cursor for the CURRENT page (null = first page)
+        // nextCursorHolder[0] = cursor returned by API for the NEXT page
+        List<String> cursorStack = new ArrayList<>();
+        String[] cursorHolder = {null};
+        String[] nextCursorHolder = {null};
         boolean[] showDeleted = {false};
 
         // ── Load function ───────────────────────────────────────────
@@ -166,10 +167,11 @@ public class McpRegistryBrowserDialog {
                             servers.add(s);
                         }
                         model.fireTableDataChanged();
+                        nextCursorHolder[0] = result.nextCursor;
                         nextBtn.setEnabled(result.nextCursor != null);
-                        cursorHolder[0] = result.nextCursor;
                         prevBtn.setEnabled(!cursorStack.isEmpty());
-                        pageLabel.setText(servers.size() + " Server geladen");
+                        int page = cursorStack.size() + 1;
+                        pageLabel.setText("Seite " + page + " \u2014 " + servers.size() + " Server");
                         searchBtn.setEnabled(true);
                     });
                 } catch (Exception e) {
@@ -185,6 +187,7 @@ public class McpRegistryBrowserDialog {
         searchBtn.addActionListener(e -> {
             cursorStack.clear();
             cursorHolder[0] = null;
+            nextCursorHolder[0] = null;
             loadFn[0].run();
         });
 
@@ -194,38 +197,27 @@ public class McpRegistryBrowserDialog {
             apiClient.invalidateCache();
             cursorStack.clear();
             cursorHolder[0] = null;
+            nextCursorHolder[0] = null;
             loadFn[0].run();
         });
 
         nextBtn.addActionListener(e -> {
-            if (cursorHolder[0] != null) {
+            if (nextCursorHolder[0] != null) {
+                // Save current page cursor so we can go back
                 cursorStack.add(cursorHolder[0]);
+                cursorHolder[0] = nextCursorHolder[0];
                 loadFn[0].run();
             }
         });
 
         prevBtn.addActionListener(e -> {
             if (!cursorStack.isEmpty()) {
-                cursorStack.remove(cursorStack.size() - 1);
-                cursorHolder[0] = cursorStack.isEmpty() ? null : cursorStack.get(cursorStack.size() - 1);
+                // Pop the previous page cursor
+                cursorHolder[0] = cursorStack.remove(cursorStack.size() - 1);
                 loadFn[0].run();
             }
         });
 
-        settingsBtn.addActionListener(e -> {
-            String current = settings.getRegistryBaseUrl();
-            String newUrl = (String) JOptionPane.showInputDialog(dialog,
-                    "Registry Base URL:", "MCP Registry Einstellungen",
-                    JOptionPane.PLAIN_MESSAGE, null, null, current);
-            if (newUrl != null && !newUrl.trim().isEmpty()) {
-                settings.setRegistryBaseUrl(newUrl.trim());
-                settings.save();
-                apiClient.invalidateCache();
-                cursorStack.clear();
-                cursorHolder[0] = null;
-                loadFn[0].run();
-            }
-        });
 
         table.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
