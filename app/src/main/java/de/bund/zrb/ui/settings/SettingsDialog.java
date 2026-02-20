@@ -109,6 +109,11 @@ public class SettingsDialog {
     private static JCheckBox showHelpIconsBox;
     private static JComboBox<LockerStyle> lockStyleBox;
 
+    // Local History
+    private static JCheckBox historyEnabledBox;
+    private static JSpinner historyMaxVersionsSpinner;
+    private static JSpinner historyMaxAgeDaysSpinner;
+
     private static JSpinner ndvPortSpinner;
     private static JTextField ndvDefaultLibraryField;
     private static JTextField ndvLibPathField;
@@ -345,6 +350,57 @@ public class SettingsDialog {
         lockStyleBox = new JComboBox<>(LockerStyle.values());
         lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
         generalContent.add(lockStyleBox, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        // ===== Local History =====
+        generalContent.add(new JLabel("── Lokale Historie ──"), gbcGeneral);
+        gbcGeneral.gridy++;
+
+        historyEnabledBox = new JCheckBox("Lokale Historie aktivieren");
+        historyEnabledBox.setSelected(settings.historyEnabled);
+        generalContent.add(historyEnabledBox, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        generalContent.add(new JLabel("Max. Versionen pro Datei:"), gbcGeneral);
+        gbcGeneral.gridy++;
+        historyMaxVersionsSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.historyMaxVersionsPerFile, 1, 10000, 10));
+        generalContent.add(historyMaxVersionsSpinner, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        generalContent.add(new JLabel("Max. Alter (Tage):"), gbcGeneral);
+        gbcGeneral.gridy++;
+        historyMaxAgeDaysSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.historyMaxAgeDays, 1, 3650, 10));
+        generalContent.add(historyMaxAgeDaysSpinner, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        JButton pruneNowButton = new JButton("🧹 Historie jetzt bereinigen");
+        pruneNowButton.addActionListener(e -> {
+            int maxVer = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
+            int maxAge = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();
+            de.bund.zrb.history.LocalHistoryService.getInstance().prune(maxVer, maxAge);
+            JOptionPane.showMessageDialog(parent, "Bereinigung abgeschlossen.",
+                    "Lokale Historie", JOptionPane.INFORMATION_MESSAGE);
+        });
+        generalContent.add(pruneNowButton, gbcGeneral);
+        gbcGeneral.gridy++;
+
+        JButton clearAllHistoryButton = new JButton("🗑️ Gesamte Historie löschen");
+        clearAllHistoryButton.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(parent,
+                    "Wirklich die gesamte lokale Historie für alle Backends löschen?",
+                    "Historie löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                de.bund.zrb.history.LocalHistoryService svc = de.bund.zrb.history.LocalHistoryService.getInstance();
+                svc.clearBackend(de.bund.zrb.ui.VirtualBackendType.LOCAL);
+                svc.clearBackend(de.bund.zrb.ui.VirtualBackendType.FTP);
+                svc.clearBackend(de.bund.zrb.ui.VirtualBackendType.NDV);
+                JOptionPane.showMessageDialog(parent, "Gesamte Historie gelöscht.",
+                        "Lokale Historie", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+        generalContent.add(clearAllHistoryButton, gbcGeneral);
         gbcGeneral.gridy++;
 
         // User Profile Folder
@@ -1321,6 +1377,11 @@ public class SettingsDialog {
             settings.lockEnabled = enableLock.isSelected();
             settings.lockStyle = lockStyleBox.getSelectedIndex();
             settings.showHelpIcons = showHelpIconsBox.isSelected();
+
+            // Local History
+            settings.historyEnabled = historyEnabledBox.isSelected();
+            settings.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
+            settings.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();
 
             settings.aiConfig.put("editor.font", aiEditorFontCombo.getSelectedItem().toString());
             settings.aiConfig.put("editor.fontSize", aiEditorFontSizeCombo.getSelectedItem().toString());

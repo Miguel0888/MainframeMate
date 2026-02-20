@@ -20,8 +20,10 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.FSDirectory;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -29,7 +31,8 @@ import java.util.logging.Logger;
 
 /**
  * Lucene-based lexical (BM25) index for chunk retrieval.
- * Uses in-memory storage with Lucene 8.11.x (Java 8 compatible).
+ * Supports both in-memory (ByteBuffersDirectory) and persistent (FSDirectory) storage.
+ * Lucene 8.11.x (Java 8 compatible).
  */
 public class LuceneLexicalIndex implements LexicalIndex {
 
@@ -50,22 +53,79 @@ public class LuceneLexicalIndex implements LexicalIndex {
     private final Map<String, Chunk> chunkCache = new ConcurrentHashMap<>();
     private boolean available = false;
 
+    /**
+     * In-memory index (non-persistent, for tests/backwards compatibility).
+     */
     public LuceneLexicalIndex() {
         this.directory = new ByteBuffersDirectory();
         this.analyzer = new StandardAnalyzer();
-        initialize();
+        initialize(8.0);
     }
 
-    private synchronized void initialize() {
+    /**
+     * Persistent index on disk.
+     *
+     * @param indexPath path to the directory where the Lucene index is stored
+     */
+    public LuceneLexicalIndex(Path indexPath) throws IOException {
+        indexPath.toFile().mkdirs();
+        this.directory = FSDirectory.open(indexPath);
+        this.analyzer = new StandardAnalyzer();
+        initialize(8.0);
+        rebuildCacheFromIndex();
+    }
+
+    private synchronized void initialize(double ramBufferMB) {
         try {
             IndexWriterConfig config = new IndexWriterConfig(analyzer);
             config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+            config.setRAMBufferSizeMB(ramBufferMB);
             this.writer = new IndexWriter(directory, config);
+            this.writer.commit(); // ensure segments exist for reader
             this.available = true;
-            LOG.info("Lucene 8.11 index initialized");
+            LOG.info("Lucene 8.11 index initialized (ramBuffer=" + ramBufferMB + "MB)");
         } catch (IOException e) {
             LOG.log(Level.SEVERE, "Failed to initialize Lucene index", e);
             this.available = false;
+        }
+    }
+
+    /**
+     * Rebuild the in-memory chunk cache from a persisted index.
+     */
+    private void rebuildCacheFromIndex() {
+        try {
+            refreshReader();
+            if (searcher == null) return;
+
+            int numDocs = searcher.getIndexReader().numDocs();
+            if (numDocs == 0) return;
+
+            for (int i = 0; i < searcher.getIndexReader().maxDoc(); i++) {
+                try {
+                    Document doc = searcher.doc(i);
+                    String chunkId = doc.get(FIELD_CHUNK_ID);
+                    String docId = doc.get(FIELD_DOCUMENT_ID);
+                    String sourceName = doc.get(FIELD_SOURCE_NAME);
+                    String text = doc.get(FIELD_TEXT);
+                    String heading = doc.get(FIELD_HEADING);
+
+                    if (chunkId != null && docId != null) {
+                        Chunk.Builder builder = Chunk.builder()
+                                .chunkId(chunkId)
+                                .documentId(docId);
+                        if (sourceName != null) builder.sourceName(sourceName);
+                        if (text != null) builder.text(text);
+                        if (heading != null) builder.heading(heading);
+                        chunkCache.put(chunkId, builder.build());
+                    }
+                } catch (Exception e) {
+                    // skip deleted or problematic docs
+                }
+            }
+            LOG.info("Rebuilt chunk cache from persisted index: " + chunkCache.size() + " chunks");
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Failed to rebuild cache from index", e);
         }
     }
 
@@ -190,7 +250,7 @@ public class LuceneLexicalIndex implements LexicalIndex {
         }
 
         if (chunk.getText() != null) {
-            doc.add(new TextField(FIELD_TEXT, chunk.getText(), Field.Store.NO));
+            doc.add(new TextField(FIELD_TEXT, chunk.getText(), Field.Store.YES));
         }
 
         if (chunk.getHeading() != null) {

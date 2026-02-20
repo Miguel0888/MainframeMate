@@ -210,6 +210,27 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         if (searchPattern != null && !searchPattern.isEmpty()) {
             searchFor(searchPattern);
         }
+
+        // Record initial version in local history (so we have the opened state for comparison)
+        recordInitialVersion(content);
+    }
+
+    /**
+     * Records the initial version of a file when it is first opened.
+     */
+    private void recordInitialVersion(String content) {
+        if (resource == null || content == null || content.isEmpty()) return;
+        String path = resource.getResolvedPath();
+        if (path == null || path.isEmpty()) return;
+        try {
+            Settings s = SettingsHelper.load();
+            if (s.historyEnabled) {
+                de.bund.zrb.history.LocalHistoryService.getInstance()
+                        .recordVersion(resource.getBackendType(), path, content, "geöffnet");
+            }
+        } catch (Exception e) {
+            System.err.println("[LocalHistory] Failed to record initial version: " + e.getMessage());
+        }
     }
 
     /**
@@ -269,6 +290,51 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         comparePanel.setVisible(true);
         compareSplitPane.setDividerLocation(currentDividerLocation);
         statusBarPanel.getCompareButton().setVisible(false);
+
+        // Load history versions into the compare panel
+        loadHistoryIntoComparePanel();
+    }
+
+    /**
+     * Load saved versions from LocalHistoryService into the compare panel's version dropdown.
+     * When a version is selected, show its content in the compare view.
+     */
+    private void loadHistoryIntoComparePanel() {
+        if (resource == null) return;
+        String filePath = resource.getResolvedPath();
+        if (filePath == null || filePath.isEmpty()) return;
+
+        try {
+            java.util.List<de.bund.zrb.history.HistoryEntry> versions =
+                    de.bund.zrb.history.LocalHistoryService.getInstance()
+                            .getVersions(resource.getBackendType(), filePath);
+
+            comparePanel.getBarPanel().setHistoryVersions(versions);
+            comparePanel.getBarPanel().onHistoryVersionSelected(entry -> {
+                if (entry == null) return;
+                String content = de.bund.zrb.history.LocalHistoryService.getInstance()
+                        .getVersionContent(resource.getBackendType(), entry.getVersionId());
+                if (content != null) {
+                    comparePanel.getOriginalTextArea().setText(content);
+                    comparePanel.getBarPanel().setPathText(
+                            filePath + " – Version: " + entry.toString());
+                }
+            });
+
+            // Auto-select latest version if available
+            if (!versions.isEmpty()) {
+                de.bund.zrb.history.HistoryEntry latest = versions.get(0);
+                String content = de.bund.zrb.history.LocalHistoryService.getInstance()
+                        .getVersionContent(resource.getBackendType(), latest.getVersionId());
+                if (content != null) {
+                    comparePanel.getOriginalTextArea().setText(content);
+                    comparePanel.getBarPanel().setPathText(
+                            filePath + " – Version: " + latest.toString());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[FileTabImpl] Failed to load history: " + e.getMessage());
+        }
     }
 
     public void toggleComparePanel() {
@@ -419,6 +485,17 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 }
 
                 FilePayload payload = FilePayload.fromBytes(outBytes, targetCharset, recordStructure);
+
+                // Record version in local history before writing
+                try {
+                    Settings histSettings = SettingsHelper.load();
+                    if (histSettings.historyEnabled) {
+                        de.bund.zrb.history.LocalHistoryService.getInstance()
+                                .recordVersion(resource.getBackendType(), resolvedPath, newText, "vor Speichern");
+                    }
+                } catch (Exception histEx) {
+                    System.err.println("[LocalHistory] Failed to record version: " + histEx.getMessage());
+                }
 
                 FileWriteResult result = fs.writeIfUnchanged(resolvedPath, payload, expectedHash);
                 if (result != null && result.getStatus() == FileWriteResult.Status.CONFLICT) {

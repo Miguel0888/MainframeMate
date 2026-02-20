@@ -3,6 +3,7 @@ package de.bund.zrb.rag.service;
 import de.bund.zrb.ingestion.infrastructure.render.RendererRegistry;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.usecase.RenderDocumentUseCase;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.rag.config.EmbeddingSettings;
 import de.bund.zrb.rag.config.RagConfig;
 import de.bund.zrb.rag.infrastructure.InMemorySemanticIndex;
@@ -18,6 +19,8 @@ import de.bund.zrb.rag.port.SemanticIndex;
 import de.bund.zrb.rag.usecase.HybridRetriever;
 import de.bund.zrb.rag.usecase.RagContextBuilder;
 
+import java.io.File;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -76,7 +79,7 @@ public class RagService {
         this.embeddingSettings = embeddingSettings;
 
         this.chunker = new MarkdownChunker(config);
-        this.lexicalIndex = new LuceneLexicalIndex();
+        this.lexicalIndex = createPersistentLexicalIndex();
         this.semanticIndex = new InMemorySemanticIndex();
         this.embeddingClient = new MultiProviderEmbeddingClient(embeddingSettings);
         this.retriever = new HybridRetriever(lexicalIndex, semanticIndex, embeddingClient, config);
@@ -90,6 +93,21 @@ public class RagService {
         });
 
         LOG.info("RAG service initialized");
+    }
+
+    /**
+     * Create a persistent Lucene lexical index under ~/.mainframemate/db/rag/lexical/.
+     * Falls back to in-memory index on error.
+     */
+    private static LuceneLexicalIndex createPersistentLexicalIndex() {
+        try {
+            File settingsFolder = SettingsHelper.getSettingsFolder();
+            Path indexPath = new File(settingsFolder, "db/rag/lexical").toPath();
+            return new LuceneLexicalIndex(indexPath);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to create persistent lexical index, falling back to in-memory", e);
+            return new LuceneLexicalIndex();
+        }
     }
 
     /**
