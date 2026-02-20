@@ -24,6 +24,7 @@ dependencies {
 
     // NDV (Natural Development Server) - NATSPOD protocol library
     implementation files('../lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar')
+    implementation files('../lib/com.softwareag.naturalone.natural.auxiliary_8.4.1.0000-0251.jar')
 
     // JSON
     implementation 'com.google.code.gson:gson:2.10.1'
