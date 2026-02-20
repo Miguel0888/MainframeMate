@@ -180,6 +180,7 @@ public class TabbedPaneManager {
 
         LeftDrawer drawer = getBookmarkDrawer();
         boolean isBookmarked = drawer != null && rawPath != null && drawer.isBookmarked(rawPath, backendType);
+        System.out.println("[Star] createStarButton: rawPath=" + rawPath + " backend=" + backendType + " isBookmarked=" + isBookmarked);
 
         JButton starButton = new JButton(isBookmarked ? STAR_FILLED : STAR_EMPTY);
         starButton.setMargin(new Insets(0, 0, 0, 2));
@@ -242,10 +243,13 @@ public class TabbedPaneManager {
             if (tab == null) continue;
 
             String rawPath = getPathForTab(tab);
-            if (rawPath == null || rawPath.isEmpty()) continue;
-
-            String backendType = getBackendTypeForTab(tab);
-            boolean isBookmarked = drawer.isBookmarked(rawPath, backendType);
+            boolean isBookmarked;
+            if (rawPath == null || rawPath.isEmpty()) {
+                isBookmarked = false;
+            } else {
+                String backendType = getBackendTypeForTab(tab);
+                isBookmarked = drawer.isBookmarked(rawPath, backendType);
+            }
 
             JPanel panel = (JPanel) tabComp;
             for (Component c : panel.getComponents()) {
@@ -283,6 +287,7 @@ public class TabbedPaneManager {
 
         String backendType = getBackendTypeForTab(tab);
         boolean isBookmarked = drawer.isBookmarked(rawPath, backendType);
+        System.out.println("[Star] refreshStarForTab: rawPath=" + rawPath + " backend=" + backendType + " isBookmarked=" + isBookmarked);
 
         JPanel panel = (JPanel) tabComp;
         for (Component c : panel.getComponents()) {

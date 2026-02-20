@@ -263,6 +263,7 @@ public class NdvConnectionTab implements ConnectionTab {
         currentLevel = BrowseLevel.LIBRARIES;
         currentLibrary = null;
         pathField.setText("");
+        tabbedPaneManager.refreshStarForTab(this);
         showOverlayMessage("Lade Bibliotheken...", Color.GRAY);
         statusLabel.setText("Laden...");
 
