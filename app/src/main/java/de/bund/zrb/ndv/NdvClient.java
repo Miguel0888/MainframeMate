@@ -38,8 +38,9 @@ public class NdvClient implements Closeable {
         params.put(ConnectKey.PORT, String.valueOf(port));
         params.put(ConnectKey.USERID, this.user);
         params.put(ConnectKey.PASSWORD, password);
-        // Session parameters: disable ICU (avoids NAT7734 "CP UTF-8 not SBCS")
-        params.put(ConnectKey.PARM, "CFICU=OFF");
+        // Session parameters: CFICU=ON required by server (NAT7022),
+        // CP=ECS1252 to use a SBCS codepage (avoids NAT7734 "CP UTF-8 not SBCS")
+        params.put(ConnectKey.PARM, "CFICU=ON,CP=ECS1252");
 
         try {
             pal.connect(params);
