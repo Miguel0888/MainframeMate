@@ -6,7 +6,7 @@ import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.api.FileWriteResult;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
-import de.bund.zrb.ndv.NdvClient;
+import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvObjectInfo;
 
 import java.nio.charset.Charset;
@@ -19,20 +19,20 @@ import java.util.List;
  * Allows reading and writing Natural source code via the NATSPOD protocol,
  * using the same FileService interface as FTP and local files.
  * <p>
- * This makes NDV sources editable and saveable in the same FileTabImpl
- * that is used for FTP and local files.
+ * All PAL operations are routed through {@link NdvService} which synchronises
+ * access to the underlying single-socket connection.
  */
 public class NdvFileService implements FileService {
 
-    private final NdvClient client;
+    private final NdvService service;
     private final String library;
     private final NdvObjectInfo objectInfo;
 
-    public NdvFileService(NdvClient client, String library, NdvObjectInfo objectInfo) {
-        if (client == null) throw new IllegalArgumentException("NdvClient must not be null");
+    public NdvFileService(NdvService service, String library, NdvObjectInfo objectInfo) {
+        if (service == null) throw new IllegalArgumentException("NdvService must not be null");
         if (library == null) throw new IllegalArgumentException("library must not be null");
         if (objectInfo == null) throw new IllegalArgumentException("objectInfo must not be null");
-        this.client = client;
+        this.service = service;
         this.library = library;
         this.objectInfo = objectInfo;
     }
@@ -46,7 +46,7 @@ public class NdvFileService implements FileService {
     @Override
     public FilePayload readFile(String absolutePath) throws FileServiceException {
         try {
-            String source = client.readSource(library, objectInfo);
+            String source = service.readSource(library, objectInfo);
             byte[] bytes = source.getBytes(StandardCharsets.UTF_8);
             return FilePayload.fromBytes(bytes, StandardCharsets.UTF_8, false);
         } catch (Exception e) {
@@ -60,7 +60,7 @@ public class NdvFileService implements FileService {
         try {
             Charset cs = payload.getCharset() != null ? payload.getCharset() : StandardCharsets.UTF_8;
             String text = new String(payload.getBytes(), cs);
-            client.writeSource(library, objectInfo, text);
+            service.writeSource(library, objectInfo, text);
         } catch (Exception e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
                     "NDV writeSource failed for " + objectInfo.getName() + ": " + e.getMessage(), e);

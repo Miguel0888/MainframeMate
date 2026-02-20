@@ -1,10 +1,9 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ndv.NdvClient;
+import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ndv.NdvObjectInfo;
 import de.bund.zrb.files.path.VirtualResourceRef;
-import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
 import com.softwareag.naturalone.natural.pal.external.ObjectKind;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -34,7 +33,7 @@ public class NdvConnectionTab implements ConnectionTab {
     private static final int MOUSE_FORWARD_BUTTON = 5;
 
     private final TabbedPaneManager tabbedPaneManager;
-    private final NdvClient client;
+    private final NdvService service;
     private final String host;
     private final String user;
 
@@ -54,7 +53,6 @@ public class NdvConnectionTab implements ConnectionTab {
     private enum BrowseLevel { LIBRARIES, OBJECTS }
     private BrowseLevel currentLevel = BrowseLevel.LIBRARIES;
     private String currentLibrary = null;
-    private IPalTypeSystemFile currentSysFile;
 
     // Full data for filtering
     private List<Object> allItems = new ArrayList<Object>();
@@ -63,20 +61,19 @@ public class NdvConnectionTab implements ConnectionTab {
     private final List<String> history = new ArrayList<String>();
     private int historyIndex = -1;
 
-    public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvClient client) {
-        this(tabbedPaneManager, client, true);
+    public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvService service) {
+        this(tabbedPaneManager, service, true);
     }
 
     /**
      * @param autoLoadLibraries if false, skips initial loadLibraries() call.
      *        Use false when navigateToLibrary/navigateToLibraryAndOpen will be called immediately after.
      */
-    public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvClient client, boolean autoLoadLibraries) {
+    public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvService service, boolean autoLoadLibraries) {
         this.tabbedPaneManager = tabbedPaneManager;
-        this.client = client;
-        this.host = client.getHost();
-        this.user = client.getUser();
-        this.currentSysFile = resolveSystemFile(client);
+        this.service = service;
+        this.host = service.getHost();
+        this.user = service.getUser();
 
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<Object>(listModel);
@@ -90,42 +87,6 @@ public class NdvConnectionTab implements ConnectionTab {
         }
     }
 
-    /**
-     * Resolve the actual system file (FNAT/FUSER) from the server for listing operations.
-     * Prefers FUSER (kind=2), falls back to first valid, then default (0,0,0).
-     */
-    private static IPalTypeSystemFile resolveSystemFile(NdvClient client) {
-        try {
-            IPalTypeSystemFile[] sysFiles = client.getSystemFiles();
-            if (sysFiles != null && sysFiles.length > 0) {
-                IPalTypeSystemFile fuserFile = null;
-                IPalTypeSystemFile firstValid = null;
-
-                for (int i = 0; i < sysFiles.length; i++) {
-                    IPalTypeSystemFile s = sysFiles[i];
-                    System.out.println("[NdvConnectionTab]   sysFile[" + i + "]: kind=" + s.getKind()
-                            + ", dbid=" + s.getDatabaseId() + ", fnr=" + s.getFileNumber());
-                    if (s.getKind() == IPalTypeSystemFile.FUSER && fuserFile == null) {
-                        fuserFile = s;
-                    }
-                    if (firstValid == null && s.getDatabaseId() > 0 && s.getFileNumber() > 0) {
-                        firstValid = s;
-                    }
-                }
-
-                IPalTypeSystemFile chosen = fuserFile != null ? fuserFile
-                        : firstValid != null ? firstValid : sysFiles[0];
-                System.out.println("[NdvConnectionTab] Using system file: kind=" + chosen.getKind()
-                        + ", dbid=" + chosen.getDatabaseId() + ", fnr=" + chosen.getFileNumber()
-                        + " (out of " + sysFiles.length + " available)");
-                return chosen;
-            }
-        } catch (Exception e) {
-            System.err.println("[NdvConnectionTab] Could not resolve system files, using defaults: " + e.getMessage());
-        }
-        // Fallback to defaults
-        return client.getDefaultSystemFile();
-    }
 
     private void initUI() {
         // Path panel
@@ -308,7 +269,7 @@ public class NdvConnectionTab implements ConnectionTab {
         SwingWorker<List<String>, Void> worker = new SwingWorker<List<String>, Void>() {
             @Override
             protected List<String> doInBackground() throws Exception {
-                return client.listLibraries(currentSysFile, "*");
+                return service.listLibraries("*");
             }
 
             @Override
@@ -375,12 +336,12 @@ public class NdvConnectionTab implements ConnectionTab {
             protected Void doInBackground() throws Exception {
                 // Logon to the library first
                 try {
-                    client.logon(currentLibrary);
+                    service.logon(currentLibrary);
                 } catch (NdvException e) {
                     System.err.println("[NdvConnectionTab] Logon warning (may continue): " + e.getMessage());
                 }
-                client.listObjectsProgressive(currentSysFile, currentLibrary, "*",
-                        ObjectKind.SOURCE, 0, new NdvClient.PageCallback() {
+                service.listObjectsProgressive(currentLibrary, "*",
+                        ObjectKind.SOURCE, 0, new de.bund.zrb.ndv.NdvClient.PageCallback() {
                             @Override
                             public boolean onPage(List<NdvObjectInfo> pageItems, int totalSoFar) {
                                 publish(pageItems);
@@ -498,7 +459,7 @@ public class NdvConnectionTab implements ConnectionTab {
         SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() throws Exception {
-                return client.readSource(currentLibrary, objInfo);
+                return service.readSource(currentLibrary, objInfo);
             }
 
             @Override
@@ -516,7 +477,7 @@ public class NdvConnectionTab implements ConnectionTab {
 
                     // Build a VirtualResource with NDV backend (enables save via FileTabImpl)
                     String fullPath = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();
-                    NdvResourceState ndvState = new NdvResourceState(client, currentLibrary, objInfo);
+                    NdvResourceState ndvState = new NdvResourceState(service, currentLibrary, objInfo);
                     VirtualResource resource = new VirtualResource(
                             de.bund.zrb.files.path.VirtualResourceRef.of(fullPath),
                             VirtualResourceKind.FILE,
@@ -641,7 +602,7 @@ public class NdvConnectionTab implements ConnectionTab {
 
     @Override
     public String getTooltip() {
-        return "NDV: " + user + "@" + host + ":" + client.getPort()
+        return "NDV: " + user + "@" + host + ":" + service.getPort()
                 + (currentLibrary != null ? " - " + currentLibrary : "");
     }
 
@@ -653,7 +614,7 @@ public class NdvConnectionTab implements ConnectionTab {
     @Override
     public void onClose() {
         try {
-            client.close();
+            service.close();
         } catch (IOException e) {
             System.err.println("[NdvConnectionTab] Error closing: " + e.getMessage());
         }

@@ -432,24 +432,24 @@ public class MainFrame extends JFrame implements MainframeContext {
         setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
 
         // Only connect in background, create UI on EDT
-        new javax.swing.SwingWorker<de.bund.zrb.ndv.NdvClient, Void>() {
+        new javax.swing.SwingWorker<de.bund.zrb.ndv.NdvService, Void>() {
             @Override
-            protected de.bund.zrb.ndv.NdvClient doInBackground() throws Exception {
-                de.bund.zrb.ndv.NdvClient client = new de.bund.zrb.ndv.NdvClient();
-                client.connect(fHost, fPort, fUser, fPassword);
+            protected de.bund.zrb.ndv.NdvService doInBackground() throws Exception {
+                de.bund.zrb.ndv.NdvService service = new de.bund.zrb.ndv.NdvService();
+                service.connect(fHost, fPort, fUser, fPassword);
                 LoginManager.getInstance().onLoginSuccess(fHost, fUser);
 
-                return client;
+                return service;
             }
 
             @Override
             protected void done() {
                 setCursor(java.awt.Cursor.getDefaultCursor());
                 try {
-                    de.bund.zrb.ndv.NdvClient client = get();
+                    de.bund.zrb.ndv.NdvService service = get();
                     // Create tab on EDT - skip auto-load if we navigate to library immediately
                     boolean hasLibrary = !fLibrary.isEmpty();
-                    NdvConnectionTab tab = new NdvConnectionTab(tabManager, client, !hasLibrary);
+                    NdvConnectionTab tab = new NdvConnectionTab(tabManager, service, !hasLibrary);
                     tabManager.addTab(tab);
                     // Navigate to library (and optionally auto-open object)
                     if (hasLibrary) {

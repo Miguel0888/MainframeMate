@@ -3,7 +3,7 @@ package de.bund.zrb.ui.commands;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.ndv.NdvClient;
+import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ui.NdvConnectionTab;
 import de.bund.zrb.ui.TabbedPaneManager;
@@ -81,8 +81,8 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
         SwingWorker<NdvConnectionTab, Void> worker = new SwingWorker<NdvConnectionTab, Void>() {
             @Override
             protected NdvConnectionTab doInBackground() throws Exception {
-                NdvClient client = new NdvClient();
-                client.connect(fHost, fPort, fUser, fPassword);
+                NdvService service = new NdvService();
+                service.connect(fHost, fPort, fUser, fPassword);
 
                 // Mark session as active (for ApplicationLocker)
                 LoginManager.getInstance().onLoginSuccess(fHost, fUser);
@@ -90,13 +90,13 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
                 // Logon to default library if specified
                 if (!fLibrary.isEmpty()) {
                     try {
-                        client.logon(fLibrary.toUpperCase());
+                        service.logon(fLibrary.toUpperCase());
                     } catch (NdvException e) {
                         System.err.println("[ConnectNdvMenuCommand] Default library logon warning: " + e.getMessage());
                     }
                 }
 
-                return new NdvConnectionTab(tabManager, client);
+                return new NdvConnectionTab(tabManager, service);
             }
 
             @Override

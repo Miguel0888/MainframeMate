@@ -1,6 +1,6 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.ndv.NdvClient;
+import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvObjectInfo;
 
 /**
@@ -8,18 +8,18 @@ import de.bund.zrb.ndv.NdvObjectInfo;
  */
 public final class NdvResourceState {
 
-    private final NdvClient client;
+    private final NdvService service;
     private final String library;
     private final NdvObjectInfo objectInfo;
 
-    public NdvResourceState(NdvClient client, String library, NdvObjectInfo objectInfo) {
-        this.client = client;
+    public NdvResourceState(NdvService service, String library, NdvObjectInfo objectInfo) {
+        this.service = service;
         this.library = library;
         this.objectInfo = objectInfo;
     }
 
-    public NdvClient getClient() {
-        return client;
+    public NdvService getService() {
+        return service;
     }
 
     public String getLibrary() {

@@ -56,7 +56,7 @@ public class FileServiceFactory {
                 throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR,
                         "Missing NdvResourceState in VirtualResource");
             }
-            return new NdvFileService(ndvState.getClient(), ndvState.getLibrary(), ndvState.getObjectInfo());
+            return new NdvFileService(ndvState.getService(), ndvState.getLibrary(), ndvState.getObjectInfo());
         }
 
         // FTP
