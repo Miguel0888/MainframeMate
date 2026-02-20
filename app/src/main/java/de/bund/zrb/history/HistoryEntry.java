@@ -34,8 +34,7 @@ public final class HistoryEntry {
         java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
         String date = sdf.format(new java.util.Date(timestamp));
         String sizeInfo = contentLength > 0 ? " (" + contentLength + " Zeichen)" : "";
-        String labelInfo = (label != null && !label.isEmpty()) ? " – " + label : "";
-        return date + sizeInfo + labelInfo;
+        return date + sizeInfo;
     }
 }
 

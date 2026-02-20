@@ -316,8 +316,6 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                         .getVersionContent(resource.getBackendType(), entry.getVersionId());
                 if (content != null) {
                     comparePanel.getOriginalTextArea().setText(content);
-                    comparePanel.getBarPanel().setPathText(
-                            filePath + " – Version: " + entry.toString());
                 }
             });
 
@@ -328,8 +326,6 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                         .getVersionContent(resource.getBackendType(), latest.getVersionId());
                 if (content != null) {
                     comparePanel.getOriginalTextArea().setText(content);
-                    comparePanel.getBarPanel().setPathText(
-                            filePath + " – Version: " + latest.toString());
                 }
             }
         } catch (Exception e) {
