@@ -247,16 +247,14 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
     private void initDividerStateListener() {
         compareSplitPane.addPropertyChangeListener("dividerLocation", evt -> {
+            if (!comparePanel.isVisible()) return; // ignore layout events when hidden
             int height = compareSplitPane.getHeight();
             if (height > 0) {
                 int rawDivider = compareSplitPane.getDividerLocation();
                 double relative = rawDivider / (double) height;
 
-                if (relative >= 0.10 && relative <= 1) {
+                if (relative >= 0.10 && relative <= 0.95) {
                     currentDividerLocation = relative;
-                } else {
-                    // optional: Debug-Ausgabe
-                    System.err.println("⚠ Ignored out-of-range divider value: " + relative);
                 }
             }
         });
