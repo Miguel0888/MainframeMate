@@ -1,7 +1,10 @@
 package de.bund.zrb.ui.commands;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.login.LoginManager;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.ndv.NdvClient;
-import de.bund.zrb.ui.MainFrame;
+import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ui.NdvConnectionTab;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.ShortcutMenuCommand;
@@ -11,6 +14,7 @@ import java.awt.*;
 
 /**
  * Menu command "NDV-Verbindung..." to connect to a Natural Development Server.
+ * Uses the shared server credentials from Settings + LoginManager (same as FTP).
  */
 public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
 
@@ -34,84 +38,42 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        // Show connection dialog
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        Settings settings = SettingsHelper.load();
 
-        JTextField hostField = new JTextField(20);
-        JSpinner portSpinner = new JSpinner(new SpinnerNumberModel(8011, 1, 65535, 1));
-        JTextField userField = new JTextField(20);
-        JPasswordField passField = new JPasswordField(20);
-        JTextField libraryField = new JTextField(20);
+        String host = settings.host;
+        String user = settings.user;
 
-        // Pre-fill from last known settings if available
-        hostField.setText("");
-        userField.setText("");
-
-        // Row 0: Host
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        panel.add(new JLabel("Host:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        panel.add(hostField, gbc);
-
-        // Row 1: Port
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        panel.add(new JLabel("Port:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        panel.add(portSpinner, gbc);
-
-        // Row 2: User
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
-        panel.add(new JLabel("Benutzer:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        panel.add(userField, gbc);
-
-        // Row 3: Password
-        gbc.gridx = 0; gbc.gridy = 3; gbc.weightx = 0;
-        panel.add(new JLabel("Passwort:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        panel.add(passField, gbc);
-
-        // Row 4: Library (optional)
-        gbc.gridx = 0; gbc.gridy = 4; gbc.weightx = 0;
-        panel.add(new JLabel("Bibliothek (optional):"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        panel.add(libraryField, gbc);
-
-        // Row 5: Info
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
-        JLabel infoLabel = new JLabel("<html><small>Verbindet zum Natural Development Server (NATSPOD-Protokoll).</small></html>");
-        infoLabel.setForeground(Color.GRAY);
-        panel.add(infoLabel, gbc);
-
-        int result = JOptionPane.showConfirmDialog(parent, panel,
-                "NDV-Verbindung herstellen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result != JOptionPane.OK_OPTION) {
+        // Validate host/user from settings
+        if (host == null || host.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Kein Server konfiguriert.\nBitte unter Einstellungen → Server den Host angeben.",
+                    "Kein Server", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (user == null || user.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Kein Benutzer konfiguriert.\nBitte unter Einstellungen → Server den Benutzer angeben.",
+                    "Kein Benutzer", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
-        String host = hostField.getText().trim();
-        int port = (Integer) portSpinner.getValue();
-        String user = userField.getText().trim();
-        String password = new String(passField.getPassword());
-        String library = libraryField.getText().trim();
+        host = host.trim();
+        user = user.trim();
+        int port = settings.ndvPort;
+        String defaultLibrary = settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary.trim() : "";
 
-        // Validate
-        if (host.isEmpty()) {
-            JOptionPane.showMessageDialog(parent, "Bitte Host angeben.", "Fehler", JOptionPane.ERROR_MESSAGE);
+        // Get password via LoginManager (cached, stored, or interactive prompt)
+        String password = LoginManager.getInstance().getPassword(host, user);
+        if (password == null || password.isEmpty()) {
+            // User cancelled the password dialog
             return;
         }
-        if (user.isEmpty()) {
-            JOptionPane.showMessageDialog(parent, "Bitte Benutzer angeben.", "Fehler", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        if (password.isEmpty()) {
-            JOptionPane.showMessageDialog(parent, "Bitte Passwort angeben.", "Fehler", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+
+        final String fHost = host;
+        final String fUser = user;
+        final int fPort = port;
+        final String fPassword = password;
+        final String fLibrary = defaultLibrary;
 
         // Connect in background
         parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
@@ -120,11 +82,18 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
             @Override
             protected NdvConnectionTab doInBackground() throws Exception {
                 NdvClient client = new NdvClient();
-                client.connect(host, port, user, password);
+                client.connect(fHost, fPort, fUser, fPassword);
 
-                // Logon to library if specified
-                if (!library.isEmpty()) {
-                    client.logon(library.toUpperCase());
+                // Mark session as active (for ApplicationLocker)
+                LoginManager.getInstance().onLoginSuccess(fHost, fUser);
+
+                // Logon to default library if specified
+                if (!fLibrary.isEmpty()) {
+                    try {
+                        client.logon(fLibrary.toUpperCase());
+                    } catch (NdvException e) {
+                        System.err.println("[ConnectNdvMenuCommand] Default library logon warning: " + e.getMessage());
+                    }
                 }
 
                 return new NdvConnectionTab(tabManager, client);
@@ -141,10 +110,17 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
                     if (e.getCause() != null) {
                         msg = e.getCause().getMessage();
                     }
+
+                    // On auth failure, clear the cached password
+                    if (msg != null && (msg.contains("Login") || msg.contains("login")
+                            || msg.contains("NAT0873") || msg.contains("NAT7734"))) {
+                        LoginManager.getInstance().invalidatePassword(fHost, fUser);
+                    }
+
                     JOptionPane.showMessageDialog(parent,
                             "NDV-Verbindung fehlgeschlagen:\n" + msg,
                             "Verbindungsfehler", JOptionPane.ERROR_MESSAGE);
-                    System.err.println("[ConnectNdvMenuCommand] Connection failed: " + e.getMessage());
+                    System.err.println("[ConnectNdvMenuCommand] Connection failed: " + msg);
                 }
             }
         };

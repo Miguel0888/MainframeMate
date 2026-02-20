@@ -66,6 +66,10 @@ public class Settings {
     public boolean ftpUseLoginAsHlq = true;       // true = Login-Name als HLQ verwenden
     public String ftpCustomHlq = "";              // Benutzerdefinierter HLQ (nur wenn ftpUseLoginAsHlq=false)
 
+    // NDV (Natural Development Server) Settings
+    public int ndvPort = 8011;                     // NDV-Server Port (Standard: 8011)
+    public String ndvDefaultLibrary = "";           // Default-Bibliothek (optional, leer = keine)
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

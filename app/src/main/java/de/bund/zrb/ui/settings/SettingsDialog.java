@@ -116,6 +116,8 @@ public class SettingsDialog {
     private static JPasswordField passwordField;
     private static JButton clearPasswordButton;
     private static boolean clearPasswordRequested;
+    private static JSpinner ndvPortSpinner;
+    private static JTextField ndvDefaultLibraryField;
 
     private static JCheckBox proxyEnabledBox;
     private static JComboBox<String> proxyModeBox;
@@ -446,7 +448,10 @@ public class SettingsDialog {
     private static void createConnectContent(JPanel expertContent) {
         GridBagConstraints gbcConnect = createDefaultGbc();
 
-        // Server / Credentials
+        // ─── Server-Zugangsdaten (gemeinsam für FTP + NDV) ───
+        expertContent.add(new JLabel("─── Server-Zugangsdaten ───"), gbcConnect);
+        gbcConnect.gridy++;
+
         expertContent.add(new JLabel("Server (Host):"), gbcConnect);
         gbcConnect.gridy++;
         hostField = new JTextField(settings.host == null ? "" : settings.host, 24);
@@ -459,18 +464,34 @@ public class SettingsDialog {
         expertContent.add(userField, gbcConnect);
         gbcConnect.gridy++;
 
-        expertContent.add(new JLabel("Passwort (optional):"), gbcConnect);
-        gbcConnect.gridy++;
-        passwordField = new JPasswordField(24);
-        expertContent.add(passwordField, gbcConnect);
+        JPanel passwordPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        JButton managePasswordButton = new JButton("Passwort verwalten...");
+        managePasswordButton.addActionListener(e -> showPasswordDialog(expertContent));
+        passwordPanel.add(managePasswordButton);
+        expertContent.add(passwordPanel, gbcConnect);
         gbcConnect.gridy++;
 
-        clearPasswordButton = new JButton("Passwort löschen");
-        clearPasswordButton.addActionListener(e -> {
-            passwordField.setText("");
-            clearPasswordRequested = true;
-        });
-        expertContent.add(clearPasswordButton, gbcConnect);
+        // Hidden fields for password management (populated by dialog)
+        passwordField = new JPasswordField(24);
+        clearPasswordRequested = false;
+
+        // ─── NDV (Natural Development Server) ───
+        expertContent.add(new JLabel(" "), gbcConnect);
+        gbcConnect.gridy++;
+        expertContent.add(new JLabel("─── NDV (Natural Development Server) ───"), gbcConnect);
+        gbcConnect.gridy++;
+
+        addLabelWithInfoIcon(expertContent, gbcConnect, "NDV Port:",
+                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT); // reuse topic for now
+        ndvPortSpinner = new JSpinner(new SpinnerNumberModel(settings.ndvPort, 1, 65535, 1));
+        expertContent.add(ndvPortSpinner, gbcConnect);
+        gbcConnect.gridy++;
+
+        expertContent.add(new JLabel("Default-Bibliothek (optional):"), gbcConnect);
+        gbcConnect.gridy++;
+        ndvDefaultLibraryField = new JTextField(settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary : "", 20);
+        ndvDefaultLibraryField.setToolTipText("z.B. ABAK-T – wird beim Verbinden automatisch geöffnet (leer = keine)");
+        expertContent.add(ndvDefaultLibraryField, gbcConnect);
         gbcConnect.gridy++;
 
         // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE) mit Info-Icons
@@ -638,6 +659,51 @@ public class SettingsDialog {
         ftpUseLoginAsHlqBox.addActionListener(e -> {
             ftpCustomHlqField.setEnabled(!ftpUseLoginAsHlqBox.isSelected());
         });
+    }
+
+    /**
+     * Shows a separate dialog for managing the server password.
+     */
+    private static void showPasswordDialog(Component parent) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1; gbc.gridwidth = 2;
+
+        panel.add(new JLabel("Neues Passwort eingeben:"), gbc);
+        gbc.gridy++;
+        JPasswordField newPassField = new JPasswordField(24);
+        panel.add(newPassField, gbc);
+        gbc.gridy++;
+
+        JCheckBox savePassBox = new JCheckBox("Passwort speichern (verschlüsselt)");
+        savePassBox.setSelected(settings.savePassword);
+        panel.add(savePassBox, gbc);
+        gbc.gridy++;
+
+        JButton clearBtn = new JButton("Gespeichertes Passwort löschen");
+        clearBtn.addActionListener(e -> {
+            passwordField.setText("");
+            clearPasswordRequested = true;
+            JOptionPane.showMessageDialog(panel,
+                    "Passwort wird beim Speichern der Einstellungen gelöscht.",
+                    "Info", JOptionPane.INFORMATION_MESSAGE);
+        });
+        panel.add(clearBtn, gbc);
+
+        int result = JOptionPane.showConfirmDialog(
+                parent, panel, "Passwort verwalten",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            char[] passChars = newPassField.getPassword();
+            if (passChars != null && passChars.length > 0) {
+                passwordField.setText(new String(passChars));
+                clearPasswordRequested = false;
+            }
+            settings.savePassword = savePassBox.isSelected();
+        }
     }
 
     private static void createColorContent(JPanel colorContent, Component parent) {
@@ -1280,6 +1346,10 @@ public class SettingsDialog {
             // FTP Initial HLQ
             settings.ftpUseLoginAsHlq = ftpUseLoginAsHlqBox.isSelected();
             settings.ftpCustomHlq = ftpCustomHlqField.getText().trim();
+
+            // NDV Settings
+            settings.ndvPort = ((Number) ndvPortSpinner.getValue()).intValue();
+            settings.ndvDefaultLibrary = ndvDefaultLibraryField.getText().trim();
 
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();
