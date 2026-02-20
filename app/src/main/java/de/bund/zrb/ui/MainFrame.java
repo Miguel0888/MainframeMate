@@ -481,6 +481,7 @@ public class MainFrame extends JFrame implements MainframeContext {
      * Open an NDV FILE bookmark directly: connect, read source, open FileTab.
      * Uses the NDV metadata stored in the bookmark entry (objectName, type, dbid, fnr)
      * so no ConnectionTab is needed.
+     * Falls back to directory flow if metadata is missing (legacy bookmarks).
      */
     private void openNdvFileBookmark(de.bund.zrb.model.BookmarkEntry entry) {
         Settings settings = SettingsHelper.load();
@@ -498,31 +499,40 @@ public class MainFrame extends JFrame implements MainframeContext {
         String password = LoginManager.getInstance().getPassword(host, user);
         if (password == null || password.isEmpty()) return;
 
-        // Reconstruct NdvObjectInfo from stored bookmark metadata
-        final String library = entry.ndvLibrary != null ? entry.ndvLibrary : "";
-        final String objectName = entry.ndvObjectName != null ? entry.ndvObjectName : "";
-        if (library.isEmpty() || objectName.isEmpty()) {
-            // Fallback: no metadata stored (legacy bookmark) – fall back to directory flow
+        // Use NdvService resolver to parse the path and reconstruct NdvObjectInfo
+        de.bund.zrb.ndv.NdvService tempResolver = new de.bund.zrb.ndv.NdvService();
+        final de.bund.zrb.ndv.NdvService.ResolvedNdvPath resolved;
+
+        if (entry.ndvLibrary != null && !entry.ndvLibrary.isEmpty()
+                && entry.ndvObjectName != null && !entry.ndvObjectName.isEmpty()) {
+            // Rich metadata from bookmark: use the full resolver with DBID/FNR
+            resolved = tempResolver.resolvePath(
+                    entry.ndvLibrary + "/" + entry.ndvObjectName
+                            + (entry.ndvTypeExtension != null && !entry.ndvTypeExtension.isEmpty()
+                            ? "." + entry.ndvTypeExtension : ""),
+                    entry.ndvObjectType,
+                    entry.ndvTypeExtension,
+                    entry.ndvDbid,
+                    entry.ndvFnr
+            );
+        } else {
+            // No metadata (legacy bookmark): parse from raw path
+            resolved = tempResolver.resolvePath(entry.getRawPath());
+        }
+
+        if (!resolved.isFile()) {
+            // Resolved as library, not a file → fall back to directory flow
             openNdvDirectoryBookmark(entry.getRawPath());
             return;
         }
 
-        final de.bund.zrb.ndv.NdvObjectInfo objInfo = new de.bund.zrb.ndv.NdvObjectInfo(
-                objectName, objectName,
-                com.softwareag.naturalone.natural.pal.external.ObjectKind.SOURCE,
-                entry.ndvObjectType,
-                "", // typeName will be derived
-                entry.ndvTypeExtension != null ? entry.ndvTypeExtension : "",
-                0, "", "",
-                entry.ndvDbid, entry.ndvFnr
-        );
-
+        final de.bund.zrb.ndv.NdvObjectInfo objInfo = resolved.getObjectInfo();
         final String fHost = host;
         final String fUser = user;
         final int fPort = port;
         final String fPassword = password;
-        final String fLibrary = library.toUpperCase();
-        final String fullPath = fLibrary + "/" + objectName
+        final String fLibrary = resolved.getLibrary();
+        final String fullPath = fLibrary + "/" + objInfo.getName()
                 + (objInfo.getTypeExtension().isEmpty() ? "" : "." + objInfo.getTypeExtension());
 
         setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
