@@ -104,9 +104,6 @@ public class MainFrame extends JFrame implements MainframeContext {
         toolRegistry.registerTool(new de.bund.zrb.mcp.SearchAttachmentsTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadChunksTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadDocumentWindowTool(this));
-
-        // Built-in MCP Tools
-        toolRegistry.registerTool(new de.bund.zrb.mcp.WebsearchTool());
     }
 
     @Override
@@ -133,8 +130,6 @@ public class MainFrame extends JFrame implements MainframeContext {
         this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
         registerTools();
 
-        // Start enabled external MCP servers
-        de.bund.zrb.mcp.registry.McpServerManager.getInstance().startEnabledServers();
 
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
@@ -158,6 +153,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         restoreWindowState();
         initUI();
+
+        // Start enabled MCP servers (after plugins have registered via initUI → PluginManager)
+        de.bund.zrb.mcp.registry.McpServerManager.getInstance().startEnabledServers();
     }
 
     private ChatManager getAiService() {

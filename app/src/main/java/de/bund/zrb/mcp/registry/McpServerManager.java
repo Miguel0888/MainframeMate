@@ -33,7 +33,8 @@ public class McpServerManager {
     }
 
     private McpServerManager() {
-        registerBuiltInServers();
+        // Built-in servers are registered via registerPluginMcpServer()
+        // called from PluginManager.registerMcpServersFromPlugins()
     }
 
     public static synchronized McpServerManager getInstance() {
@@ -43,18 +44,25 @@ public class McpServerManager {
         return instance;
     }
 
-    // ── Built-in server registration ────────────────────────────────
+    // ── Plugin-driven MCP server registration ───────────────────────
 
-    private void registerBuiltInServers() {
-        // Websearch (wd4j-mcp-server) – always registered, JAR resolved at start time
-        McpServerConfig websearch = new McpServerConfig(
-                "Websearch",
+    /**
+     * Register an MCP server declared by a plugin.
+     * The JAR is expected in the plugin directory ({@code ~/.mainframemate/plugins/}).
+     *
+     * @param displayName      human-readable name (e.g. "Websearch")
+     * @param jarFileName      filename of the fat-JAR (e.g. "wd4j-mcp-server.jar")
+     * @param enabledByDefault whether the server should be enabled on first registration
+     */
+    public void registerPluginMcpServer(String displayName, String jarFileName, boolean enabledByDefault) {
+        McpServerConfig config = new McpServerConfig(
+                displayName,
                 "java",
-                java.util.Arrays.asList("-jar", "<auto:wd4j-mcp-server>"),
-                false  // disabled by default – user must opt-in
+                java.util.Arrays.asList("-jar", "<auto:" + jarFileName.replace(".jar", "") + ">"),
+                enabledByDefault
         );
-        configRepository.registerBuiltIn(websearch);
-        System.err.println("[McpServerManager] Built-in 'Websearch' registered.");
+        configRepository.registerBuiltIn(config);
+        System.err.println("[McpServerManager] Built-in '" + displayName + "' registered (jar: " + jarFileName + ")");
     }
 
     /**
