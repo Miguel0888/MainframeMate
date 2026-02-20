@@ -166,37 +166,45 @@ public class NdvClient implements Closeable {
     }
 
     /**
-     * List objects in a library.
-     *
-     * @param sysFile system file
-     * @param library library name
-     * @param filter  name filter, e.g. "*" for all
-     * @param kind    object kind (ObjectKind.SOURCE, GP, ANY, etc.)
-     * @param type    object type bitmask (ObjectType.PROGRAM | ObjectType.SUBPROGRAM | ... or 0 for all)
-     * @return list of NdvObjectInfo
+     * Callback interface for progressive object listing.
      */
-    public List<NdvObjectInfo> listObjects(IPalTypeSystemFile sysFile, String library,
-                                            String filter, int kind, int type)
+    public interface PageCallback {
+        /** Called for each page of results. Return false to stop loading. */
+        boolean onPage(List<NdvObjectInfo> pageItems, int totalSoFar);
+    }
+
+    /**
+     * List objects in a library with progressive page callbacks.
+     */
+    public int listObjectsProgressive(IPalTypeSystemFile sysFile, String library,
+                                       String filter, int kind, int type,
+                                       PageCallback callback)
             throws IOException, NdvException {
         checkConnected();
-        List<NdvObjectInfo> result = new ArrayList<NdvObjectInfo>();
+        int total = 0;
         try {
             IPalTypeObject[] objects = pal.getObjectsFirst(sysFile, library, filter, kind, type);
-            addObjects(result, objects);
-            System.out.println("[NdvClient] getObjectsFirst returned " + (objects != null ? objects.length : 0) + " objects");
+            List<NdvObjectInfo> page = toInfoList(objects);
+            total += page.size();
+            System.out.println("[NdvClient] getObjectsFirst returned " + page.size() + " objects");
+            if (!page.isEmpty() && !callback.onPage(page, total)) {
+                return total;
+            }
 
-            // Fetch remaining pages (getObjectsNext throws PalResultException when done)
             if (objects != null && objects.length > 0) {
-                int safetyLimit = 1000; // prevent infinite loops
-                for (int page = 0; page < safetyLimit; page++) {
+                int safetyLimit = 1000;
+                for (int p = 0; p < safetyLimit; p++) {
                     try {
                         IPalTypeObject[] more = pal.getObjectsNext();
                         if (more == null || more.length == 0) break;
-                        System.out.println("[NdvClient] getObjectsNext page " + (page + 1) + " returned " + more.length + " objects");
-                        addObjects(result, more);
+                        List<NdvObjectInfo> morePage = toInfoList(more);
+                        total += morePage.size();
+                        System.out.println("[NdvClient] getObjectsNext page " + (p + 1) + " returned " + morePage.size() + " objects");
+                        if (!morePage.isEmpty() && !callback.onPage(morePage, total)) {
+                            return total;
+                        }
                     } catch (PalResultException done) {
-                        // End of data
-                        System.out.println("[NdvClient] getObjectsNext ended (PalResultException = end of data)");
+                        System.out.println("[NdvClient] getObjectsNext ended (end of data)");
                         break;
                     }
                 }
@@ -204,8 +212,36 @@ public class NdvClient implements Closeable {
         } catch (PalResultException e) {
             throw new NdvException("Failed to list objects in library '" + library + "': " + e.getMessage(), e);
         }
-        System.out.println("[NdvClient] Listed " + result.size() + " objects in " + library);
+        System.out.println("[NdvClient] Listed " + total + " objects in " + library);
+        return total;
+    }
+
+    /**
+     * List objects in a library (blocking, returns all at once).
+     */
+    public List<NdvObjectInfo> listObjects(IPalTypeSystemFile sysFile, String library,
+                                            String filter, int kind, int type)
+            throws IOException, NdvException {
+        final List<NdvObjectInfo> result = new ArrayList<NdvObjectInfo>();
+        listObjectsProgressive(sysFile, library, filter, kind, type, new PageCallback() {
+            @Override
+            public boolean onPage(List<NdvObjectInfo> pageItems, int totalSoFar) {
+                result.addAll(pageItems);
+                return true;
+            }
+        });
         return result;
+    }
+
+    private List<NdvObjectInfo> toInfoList(IPalTypeObject[] objects) {
+        List<NdvObjectInfo> list = new ArrayList<NdvObjectInfo>();
+        if (objects == null) return list;
+        for (IPalTypeObject obj : objects) {
+            if (obj != null && obj.getName() != null) {
+                list.add(NdvObjectInfo.fromPalObject(obj));
+            }
+        }
+        return list;
     }
 
     private void addObjects(List<NdvObjectInfo> result, IPalTypeObject[] objects) {

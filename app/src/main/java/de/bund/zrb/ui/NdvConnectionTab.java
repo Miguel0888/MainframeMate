@@ -43,7 +43,7 @@ public class NdvConnectionTab implements ConnectionTab {
     // UI components
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
-    private final DefaultListModel<Object> listModel = new DefaultListModel<Object>();
+    private DefaultListModel<Object> listModel = new DefaultListModel<Object>();
     private final JList<Object> fileList;
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
@@ -300,35 +300,59 @@ public class NdvConnectionTab implements ConnectionTab {
         pathField.setText(currentLibrary);
         showOverlayMessage("Lade Objekte aus " + currentLibrary + "...", Color.GRAY);
         statusLabel.setText("Laden...");
+        allItems.clear();
 
-        SwingWorker<List<NdvObjectInfo>, Void> worker = new SwingWorker<List<NdvObjectInfo>, Void>() {
+        SwingWorker<Void, List<NdvObjectInfo>> worker = new SwingWorker<Void, List<NdvObjectInfo>>() {
             @Override
-            protected List<NdvObjectInfo> doInBackground() throws Exception {
+            protected Void doInBackground() throws Exception {
                 // Logon to the library first
                 try {
                     client.logon(currentLibrary);
                 } catch (NdvException e) {
                     System.err.println("[NdvConnectionTab] Logon warning (may continue): " + e.getMessage());
                 }
-                return client.listObjects(currentSysFile, currentLibrary, "*",
-                        ObjectKind.SOURCE, 0);
+                client.listObjectsProgressive(currentSysFile, currentLibrary, "*",
+                        ObjectKind.SOURCE, 0, new NdvClient.PageCallback() {
+                            @Override
+                            public boolean onPage(List<NdvObjectInfo> pageItems, int totalSoFar) {
+                                publish(pageItems);
+                                return !isCancelled();
+                            }
+                        });
+                return null;
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            protected void process(List<List<NdvObjectInfo>> chunks) {
+                for (List<NdvObjectInfo> page : chunks) {
+                    allItems.addAll(page);
+                }
+                applyFilter();
+                hideOverlay();
+                statusLabel.setText(allItems.size() + " Objekte in " + currentLibrary + " (laden...)");
             }
 
             @Override
             protected void done() {
                 try {
-                    List<NdvObjectInfo> objects = get();
-                    allItems.clear();
-                    allItems.addAll(objects);
+                    get(); // rethrow exceptions
                     applyFilter();
                     hideOverlay();
-                    statusLabel.setText(objects.size() + " Objekte in " + currentLibrary);
-                    if (objects.isEmpty()) {
+                    statusLabel.setText(allItems.size() + " Objekte in " + currentLibrary);
+                    if (allItems.isEmpty()) {
                         showOverlayMessage("Keine Objekte in " + currentLibrary, new Color(200, 100, 0));
                     }
                 } catch (Exception e) {
-                    showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
-                    statusLabel.setText("Fehler");
+                    if (!allItems.isEmpty()) {
+                        // Partial results available
+                        applyFilter();
+                        hideOverlay();
+                        statusLabel.setText(allItems.size() + " Objekte (unvollständig)");
+                    } else {
+                        showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
+                        statusLabel.setText("Fehler");
+                    }
                     System.err.println("[NdvConnectionTab] Error loading objects: " + e.getMessage());
                 }
             }
@@ -429,7 +453,8 @@ public class NdvConnectionTab implements ConnectionTab {
 
     private void applyFilter() {
         String filter = searchField.getText().trim().toLowerCase();
-        listModel.clear();
+        // Build new model off-EDT-event-storm: create a fresh model, populate, then swap
+        DefaultListModel<Object> newModel = new DefaultListModel<Object>();
         for (Object item : allItems) {
             String text;
             if (item instanceof String) {
@@ -440,9 +465,12 @@ public class NdvConnectionTab implements ConnectionTab {
                 text = item.toString().toLowerCase();
             }
             if (filter.isEmpty() || text.contains(filter)) {
-                listModel.addElement(item);
+                newModel.addElement(item);
             }
         }
+        // Single atomic swap – only one UI repaint
+        listModel = newModel;
+        fileList.setModel(listModel);
     }
 
     // ==================== Overlay ====================
