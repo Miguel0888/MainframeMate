@@ -37,6 +37,13 @@ public class ToolRegistryImpl implements ToolRegistry {
         toolsByName.put(name, wrapped);
     }
 
+    /**
+     * Entfernt ein Tool aus der Registry (z.B. wenn ein externer MCP-Server gestoppt wird).
+     */
+    public void unregisterTool(String toolName) {
+        toolsByName.remove(toolName);
+    }
+
     private McpTool wrapWithUserSpec(McpTool original, ToolSpec override) {
         if (override == null) return original;
         return new McpTool() {

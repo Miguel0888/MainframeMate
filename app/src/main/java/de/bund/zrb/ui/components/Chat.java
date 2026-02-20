@@ -1,12 +1,16 @@
 package de.bund.zrb.ui.components;
 
+import de.bund.zrb.mcp.registry.McpServerConfig;
+import de.bund.zrb.mcp.registry.McpServerManager;
 import de.bund.zrb.ui.help.HelpContentProvider;
+import de.bund.zrb.ui.settings.McpServerDialog;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -21,6 +25,7 @@ public class Chat extends JPanel {
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
+    private JButton mcpMenuButton;
 
     public Chat(MainframeContext mainframeContext, ChatManager chatManager) {
         this(mainframeContext, chatManager, null);
@@ -69,13 +74,71 @@ public class Chat extends JPanel {
         keepAliveCheckbox.setFont(smallFont);
         contextMemoryCheckbox.setFont(smallFont);
 
+        // MCP Server menu button
+        mcpMenuButton = new JButton("🔌 MCP");
+        mcpMenuButton.setFont(smallFont);
+        mcpMenuButton.setFocusable(false);
+        mcpMenuButton.setToolTipText("MCP Server verwalten");
+        mcpMenuButton.addActionListener(e -> showMcpMenu());
+        updateMcpButtonState();
+
         JPanel checkboxPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         checkboxPanel.add(contextMemoryCheckbox);
         checkboxPanel.add(keepAliveCheckbox);
+        checkboxPanel.add(mcpMenuButton);
 
         header.add(checkboxPanel, BorderLayout.EAST);
         header.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         return header;
+    }
+
+    private void showMcpMenu() {
+        JPopupMenu popup = new JPopupMenu();
+
+        McpServerManager manager = McpServerManager.getInstance();
+        List<McpServerConfig> configs = manager.loadConfigs();
+
+        if (!configs.isEmpty()) {
+            for (final McpServerConfig cfg : configs) {
+                boolean running = manager.isRunning(cfg.getName());
+                String label = (running ? "🟢 " : "⚪ ") + cfg.getName();
+                JMenuItem item = new JMenuItem(label);
+                item.addActionListener(e -> {
+                    if (running) {
+                        manager.stopServer(cfg.getName());
+                    } else {
+                        new Thread(() -> {
+                            manager.startServer(cfg);
+                            SwingUtilities.invokeLater(this::updateMcpButtonState);
+                        }, "mcp-toggle-" + cfg.getName()).start();
+                    }
+                    updateMcpButtonState();
+                });
+                popup.add(item);
+            }
+            popup.addSeparator();
+        }
+
+        JMenuItem manageItem = new JMenuItem("⚙ MCP Server verwalten...");
+        manageItem.addActionListener(e -> {
+            McpServerDialog.show(this);
+            updateMcpButtonState();
+        });
+        popup.add(manageItem);
+
+        popup.show(mcpMenuButton, 0, mcpMenuButton.getHeight());
+    }
+
+    private void updateMcpButtonState() {
+        McpServerManager manager = McpServerManager.getInstance();
+        int activeCount = manager.getRunningServerNames().size();
+        if (activeCount > 0) {
+            mcpMenuButton.setText("🔌 MCP (" + activeCount + ")");
+            mcpMenuButton.setToolTipText(activeCount + " MCP Server aktiv");
+        } else {
+            mcpMenuButton.setText("🔌 MCP");
+            mcpMenuButton.setToolTipText("MCP Server verwalten");
+        }
     }
 
     private void addNewChatSession() {
