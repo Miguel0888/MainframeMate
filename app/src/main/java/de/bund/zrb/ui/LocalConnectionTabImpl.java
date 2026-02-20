@@ -103,12 +103,12 @@ public class LocalConnectionTabImpl implements ConnectionTab {
                 }
 
                 if (node != null) {
-                    // CTRL+Doppelklick = Raw-Datei öffnen (wie bisher)
-                    // Normaler Doppelklick = Document Preview
+                    // Normaler Doppelklick = Datei im Editor öffnen (mit Compare, Suche, etc.)
+                    // CTRL+Doppelklick = Document Preview (gerendertes Markdown, z.B. für PDFs)
                     if (e.isControlDown()) {
-                        openLocalFile(node.getPath());
-                    } else {
                         openDocumentPreview(node.getPath(), node.getName());
+                    } else {
+                        openLocalFile(node.getPath());
                     }
                 }
             }
