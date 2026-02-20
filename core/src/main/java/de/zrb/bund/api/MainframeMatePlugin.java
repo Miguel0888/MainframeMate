@@ -19,21 +19,20 @@ public interface MainframeMatePlugin {
     List<McpTool> getTools();
 
     /**
-     * If this plugin bundles an MCP server that should be started as a separate
-     * process, return the JAR filename (e.g. {@code "wd4j-mcp-server.jar"}).
-     * The JAR is expected in the plugins directory ({@code ~/.mainframemate/plugins/}).
+     * Whether this plugin provides an in-process MCP server.
+     * If {@code true}, the application will register the server in the
+     * MCP server manager using {@link #getMcpServerDisplayName()} and
+     * start it when the user enables it.
      *
-     * <p>Return {@code null} (default) if this plugin does not provide an MCP server.</p>
-     *
-     * @return the JAR filename, or {@code null}
+     * @return {@code true} if this plugin is an MCP server plugin
      */
-    default String getMcpServerJarName() {
-        return null;
+    default boolean isMcpServerPlugin() {
+        return false;
     }
 
     /**
-     * If this plugin provides an MCP server, this returns the display name
-     * for the server in the MCP registry (defaults to {@link #getPluginName()}).
+     * Display name for the MCP server in the registry
+     * (defaults to {@link #getPluginName()}).
      */
     default String getMcpServerDisplayName() {
         return getPluginName();

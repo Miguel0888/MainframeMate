@@ -81,23 +81,8 @@ public class PluginManager {
             }
         }
 
-        // Collect MCP-server JAR filenames declared by already-loaded plugins
-        // so we don't try to load them as regular plugins via ServiceLoader
-        Set<String> mcpServerJars = new HashSet<>();
-        for (MainframeMatePlugin p : plugins) {
-            String jar = p.getMcpServerJarName();
-            if (jar != null && !jar.isEmpty()) {
-                mcpServerJars.add(jar);
-            }
-        }
-
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginDir, "*.jar")) {
             for (Path jarPath : stream) {
-                String fileName = jarPath.getFileName().toString();
-                if (mcpServerJars.contains(fileName)) {
-                    System.out.println("⏭️ MCP-Server JAR übersprungen (gehört zu Plugin): " + fileName);
-                    continue;
-                }
                 loadPluginJar(jarPath, mainFrame);
             }
         } catch (IOException e) {
@@ -143,15 +128,13 @@ public class PluginManager {
     private static void registerMcpServersFromPlugins() {
         McpServerManager manager = McpServerManager.getInstance();
         for (MainframeMatePlugin plugin : plugins) {
-            String jarName = plugin.getMcpServerJarName();
-            if (jarName == null || jarName.isEmpty()) continue;
+            if (!plugin.isMcpServerPlugin()) continue;
 
             String displayName = plugin.getMcpServerDisplayName();
             boolean enabledByDefault = plugin.isMcpServerEnabledByDefault();
 
-            manager.registerPluginMcpServer(displayName, jarName, enabledByDefault);
-            System.out.println("🔌 MCP-Server registriert via Plugin: "
-                    + displayName + " → " + jarName);
+            manager.registerPluginMcpServer(displayName, enabledByDefault);
+            System.out.println("🔌 MCP-Server registriert via Plugin: " + displayName);
         }
     }
 

@@ -20,6 +20,10 @@ public class ToolResult {
         this.isError = isError;
     }
 
+    public boolean isError() {
+        return isError;
+    }
+
     // ── Factory methods ─────────────────────────────────────────────
 
     public static ToolResult text(String text) {

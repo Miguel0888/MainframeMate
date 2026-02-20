@@ -118,7 +118,6 @@ compileJava.dependsOn generateGrammarSource
 tasks.named('assemble') {
     dependsOn ':plugins:excelimport:installPlugin'
     dependsOn ':plugins:webSearch:installPlugin'
-    dependsOn ':wd4j-mcp-server:installPlugin'
 }
 
 //// Includes the AI driver and license files into the JAR
