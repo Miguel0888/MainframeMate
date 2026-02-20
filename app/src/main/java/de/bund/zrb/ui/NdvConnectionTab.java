@@ -70,7 +70,7 @@ public class NdvConnectionTab implements ConnectionTab {
         this.client = client;
         this.host = client.getHost();
         this.user = client.getUser();
-        this.currentSysFile = client.getDefaultSystemFile();
+        this.currentSysFile = resolveSystemFile(client);
 
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<Object>(listModel);
@@ -80,6 +80,34 @@ public class NdvConnectionTab implements ConnectionTab {
 
         initUI();
         loadLibraries();
+    }
+
+    /**
+     * Resolve the actual system file (FNAT/FUSER) from the server.
+     * The default (0,0,0) works for listing but not for downloadSource.
+     */
+    private static IPalTypeSystemFile resolveSystemFile(NdvClient client) {
+        try {
+            IPalTypeSystemFile[] sysFiles = client.getSystemFiles();
+            if (sysFiles != null && sysFiles.length > 0) {
+                // Use the first system file (typically FUSER)
+                IPalTypeSystemFile sf = sysFiles[0];
+                System.out.println("[NdvConnectionTab] Using system file: dbid=" + sf.getDatabaseId()
+                        + ", fnr=" + sf.getFileNumber()
+                        + " (out of " + sysFiles.length + " available)");
+                // Log all available for debugging
+                for (int i = 0; i < sysFiles.length; i++) {
+                    IPalTypeSystemFile s = sysFiles[i];
+                    System.out.println("[NdvConnectionTab]   sysFile[" + i + "]: dbid=" + s.getDatabaseId()
+                            + ", fnr=" + s.getFileNumber());
+                }
+                return sf;
+            }
+        } catch (Exception e) {
+            System.err.println("[NdvConnectionTab] Could not resolve system files, using defaults: " + e.getMessage());
+        }
+        // Fallback to defaults
+        return client.getDefaultSystemFile();
     }
 
     private void initUI() {
