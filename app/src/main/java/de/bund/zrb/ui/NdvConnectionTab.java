@@ -1,0 +1,567 @@
+package de.bund.zrb.ui;
+
+import de.bund.zrb.ndv.NdvClient;
+import de.bund.zrb.ndv.NdvException;
+import de.bund.zrb.ndv.NdvObjectInfo;
+import de.bund.zrb.ui.preview.SplitPreviewTab;
+import de.bund.zrb.ingestion.model.document.Document;
+import de.bund.zrb.ingestion.model.document.DocumentMetadata;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
+import com.softwareag.naturalone.natural.pal.external.ObjectKind;
+import de.zrb.bund.api.Bookmarkable;
+import de.zrb.bund.newApi.ui.ConnectionTab;
+
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.IOException;
+import java.util.*;
+import java.util.List;
+
+/**
+ * NDV (Natural Development Server) connection tab.
+ * Allows browsing Natural libraries and objects via the NATSPOD protocol,
+ * and opening source code in editor/preview tabs.
+ *
+ * Navigation levels:
+ * 1. Libraries (root) - list of Natural libraries
+ * 2. Objects - list of Natural objects in a library
+ */
+public class NdvConnectionTab implements ConnectionTab {
+
+    private static final int MOUSE_BACK_BUTTON = 4;
+    private static final int MOUSE_FORWARD_BUTTON = 5;
+
+    private final TabbedPaneManager tabbedPaneManager;
+    private final NdvClient client;
+    private final String host;
+    private final String user;
+
+    // UI components
+    private final JPanel mainPanel;
+    private final JTextField pathField = new JTextField();
+    private final DefaultListModel<Object> listModel = new DefaultListModel<Object>();
+    private final JList<Object> fileList;
+    private final JTextField searchField = new JTextField();
+    private final JLabel overlayLabel = new JLabel();
+    private final JPanel listContainer;
+    private final JLabel statusLabel = new JLabel(" ");
+    private JButton backButton;
+    private JButton forwardButton;
+
+    // Navigation state
+    private enum BrowseLevel { LIBRARIES, OBJECTS }
+    private BrowseLevel currentLevel = BrowseLevel.LIBRARIES;
+    private String currentLibrary = null;
+    private IPalTypeSystemFile currentSysFile;
+
+    // Full data for filtering
+    private List<Object> allItems = new ArrayList<Object>();
+
+    // History
+    private final List<String> history = new ArrayList<String>();
+    private int historyIndex = -1;
+
+    public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvClient client) {
+        this.tabbedPaneManager = tabbedPaneManager;
+        this.client = client;
+        this.host = client.getHost();
+        this.user = client.getUser();
+        this.currentSysFile = client.getDefaultSystemFile();
+
+        this.mainPanel = new JPanel(new BorderLayout());
+        this.fileList = new JList<Object>(listModel);
+        this.listContainer = new JPanel();
+
+        fileList.setCellRenderer(new NdvCellRenderer());
+
+        initUI();
+        loadLibraries();
+    }
+
+    private void initUI() {
+        // Path panel
+        JPanel pathPanel = new JPanel(new BorderLayout());
+
+        JButton refreshButton = new JButton("🔄");
+        refreshButton.setToolTipText("Aktualisieren");
+        refreshButton.addActionListener(e -> refresh());
+
+        backButton = new JButton("⏴");
+        backButton.setToolTipText("Zurück");
+        backButton.setMargin(new Insets(0, 0, 0, 0));
+        backButton.setFont(backButton.getFont().deriveFont(Font.PLAIN, 20f));
+        backButton.addActionListener(e -> navigateBack());
+
+        forwardButton = new JButton("⏵");
+        forwardButton.setToolTipText("Vorwärts");
+        forwardButton.setMargin(new Insets(0, 0, 0, 0));
+        forwardButton.setFont(forwardButton.getFont().deriveFont(Font.PLAIN, 20f));
+        forwardButton.addActionListener(e -> navigateForward());
+
+        JButton goButton = new JButton("Öffnen");
+        goButton.addActionListener(e -> navigateToPath());
+
+        pathField.addActionListener(e -> navigateToPath());
+
+        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        rightButtons.add(backButton);
+        rightButtons.add(forwardButton);
+        rightButtons.add(goButton);
+
+        pathPanel.add(refreshButton, BorderLayout.WEST);
+        pathPanel.add(pathField, BorderLayout.CENTER);
+        pathPanel.add(rightButtons, BorderLayout.EAST);
+
+        // Overlay setup
+        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
+        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
+        overlayLabel.setOpaque(true);
+        overlayLabel.setVisible(false);
+
+        // List setup
+        JScrollPane scrollPane = new JScrollPane(fileList);
+        listContainer.setLayout(new OverlayLayout(listContainer));
+        listContainer.add(overlayLabel);
+        listContainer.add(scrollPane);
+
+        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(mainPanel);
+        fileList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    handleDoubleClick();
+                }
+            }
+        });
+
+        // Status bar
+        JPanel statusBar = createStatusBar();
+
+        // Main layout
+        mainPanel.add(pathPanel, BorderLayout.NORTH);
+        mainPanel.add(listContainer, BorderLayout.CENTER);
+        mainPanel.add(statusBar, BorderLayout.SOUTH);
+
+        updateNavigationButtons();
+    }
+
+    private JPanel createStatusBar() {
+        JPanel statusBar = new JPanel(new BorderLayout());
+
+        JPanel filterPanel = new JPanel(new BorderLayout());
+        filterPanel.add(new JLabel("🔎 "), BorderLayout.WEST);
+        filterPanel.add(searchField, BorderLayout.CENTER);
+
+        searchField.setToolTipText("Filter");
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) { applyFilter(); }
+            @Override
+            public void removeUpdate(DocumentEvent e) { applyFilter(); }
+            @Override
+            public void changedUpdate(DocumentEvent e) { applyFilter(); }
+        });
+
+        statusLabel.setForeground(Color.GRAY);
+
+        statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(statusLabel, BorderLayout.EAST);
+
+        return statusBar;
+    }
+
+    // ==================== Navigation ====================
+
+    private void navigateToPath() {
+        String path = pathField.getText().trim();
+        if (path.isEmpty()) {
+            loadLibraries();
+            addToHistory("");
+        } else {
+            openLibrary(path);
+            addToHistory(path);
+        }
+    }
+
+    private void navigateBack() {
+        if (historyIndex > 0) {
+            historyIndex--;
+            String path = history.get(historyIndex);
+            if (path.isEmpty()) {
+                loadLibraries();
+            } else {
+                openLibraryWithoutHistory(path);
+            }
+            updateNavigationButtons();
+        } else if (currentLevel == BrowseLevel.OBJECTS) {
+            loadLibraries();
+            addToHistory("");
+        }
+    }
+
+    private void navigateForward() {
+        if (historyIndex < history.size() - 1) {
+            historyIndex++;
+            String path = history.get(historyIndex);
+            if (path.isEmpty()) {
+                loadLibraries();
+            } else {
+                openLibraryWithoutHistory(path);
+            }
+            updateNavigationButtons();
+        }
+    }
+
+    private void addToHistory(String path) {
+        // Remove forward history
+        while (history.size() > historyIndex + 1) {
+            history.remove(history.size() - 1);
+        }
+        history.add(path);
+        historyIndex = history.size() - 1;
+        updateNavigationButtons();
+    }
+
+    private void updateNavigationButtons() {
+        backButton.setEnabled(historyIndex > 0 || currentLevel == BrowseLevel.OBJECTS);
+        forwardButton.setEnabled(historyIndex < history.size() - 1);
+    }
+
+    private void installMouseNavigation(JComponent component) {
+        component.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    navigateBack();
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    navigateForward();
+                }
+            }
+        });
+    }
+
+    // ==================== Loading ====================
+
+    private void loadLibraries() {
+        currentLevel = BrowseLevel.LIBRARIES;
+        currentLibrary = null;
+        pathField.setText("");
+        showOverlayMessage("Lade Bibliotheken...", Color.GRAY);
+        statusLabel.setText("Laden...");
+
+        SwingWorker<List<String>, Void> worker = new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                return client.listLibraries(currentSysFile, "*");
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> libs = get();
+                    allItems.clear();
+                    allItems.addAll(libs);
+                    applyFilter();
+                    hideOverlay();
+                    statusLabel.setText(libs.size() + " Bibliotheken");
+                    if (libs.isEmpty()) {
+                        showOverlayMessage("Keine Bibliotheken gefunden", new Color(200, 100, 0));
+                    }
+                } catch (Exception e) {
+                    showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
+                    statusLabel.setText("Fehler");
+                    System.err.println("[NdvConnectionTab] Error loading libraries: " + e.getMessage());
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void openLibrary(String library) {
+        openLibraryInternal(library);
+        addToHistory(library);
+    }
+
+    private void openLibraryWithoutHistory(String library) {
+        openLibraryInternal(library);
+    }
+
+    private void openLibraryInternal(String library) {
+        currentLevel = BrowseLevel.OBJECTS;
+        currentLibrary = library.toUpperCase();
+        pathField.setText(currentLibrary);
+        showOverlayMessage("Lade Objekte aus " + currentLibrary + "...", Color.GRAY);
+        statusLabel.setText("Laden...");
+
+        SwingWorker<List<NdvObjectInfo>, Void> worker = new SwingWorker<List<NdvObjectInfo>, Void>() {
+            @Override
+            protected List<NdvObjectInfo> doInBackground() throws Exception {
+                // Logon to the library first
+                try {
+                    client.logon(currentLibrary);
+                } catch (NdvException e) {
+                    System.err.println("[NdvConnectionTab] Logon warning (may continue): " + e.getMessage());
+                }
+                return client.listObjects(currentSysFile, currentLibrary, "*",
+                        ObjectKind.SOURCE, 0);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<NdvObjectInfo> objects = get();
+                    allItems.clear();
+                    allItems.addAll(objects);
+                    applyFilter();
+                    hideOverlay();
+                    statusLabel.setText(objects.size() + " Objekte in " + currentLibrary);
+                    if (objects.isEmpty()) {
+                        showOverlayMessage("Keine Objekte in " + currentLibrary, new Color(200, 100, 0));
+                    }
+                } catch (Exception e) {
+                    showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
+                    statusLabel.setText("Fehler");
+                    System.err.println("[NdvConnectionTab] Error loading objects: " + e.getMessage());
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void refresh() {
+        if (currentLevel == BrowseLevel.LIBRARIES) {
+            loadLibraries();
+        } else if (currentLibrary != null) {
+            openLibraryInternal(currentLibrary);
+        }
+    }
+
+    // ==================== Double-click handling ====================
+
+    private void handleDoubleClick() {
+        Object selected = fileList.getSelectedValue();
+        if (selected == null) return;
+
+        if (selected instanceof String) {
+            // Library name -> open library
+            openLibrary((String) selected);
+        } else if (selected instanceof NdvObjectInfo) {
+            // Object -> download and open source
+            NdvObjectInfo objInfo = (NdvObjectInfo) selected;
+            openSource(objInfo);
+        }
+    }
+
+    private void openSource(NdvObjectInfo objInfo) {
+        if (!objInfo.hasSource()) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Dieses Objekt hat keinen Quellcode (Typ: " + objInfo.getTypeName() + ")",
+                    "Kein Quellcode", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        statusLabel.setText("Lade Quellcode: " + objInfo.getName() + "...");
+        mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                return client.readSource(currentSysFile, currentLibrary, objInfo);
+            }
+
+            @Override
+            protected void done() {
+                mainPanel.setCursor(Cursor.getDefaultCursor());
+                try {
+                    String source = get();
+                    if (source == null || source.isEmpty()) {
+                        JOptionPane.showMessageDialog(mainPanel,
+                                "Leerer Quellcode für " + objInfo.getName(),
+                                "Kein Inhalt", JOptionPane.WARNING_MESSAGE);
+                        statusLabel.setText("Leerer Quellcode");
+                        return;
+                    }
+
+                    // Create tab title
+                    String tabName = objInfo.getName() + " (" + objInfo.getTypeName() + ")";
+                    String fullName = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();
+
+                    // Create Document model
+                    DocumentMetadata meta = DocumentMetadata.builder()
+                            .sourceName(fullName)
+                            .mimeType("text/natural")
+                            .build();
+                    Document doc = Document.fromText(source, meta);
+
+                    // Open in SplitPreviewTab
+                    SplitPreviewTab previewTab = new SplitPreviewTab(
+                            tabName,
+                            source,
+                            meta,
+                            new ArrayList<String>(),
+                            doc,
+                            false // not remote (NDV source is read into memory)
+                    );
+
+                    tabbedPaneManager.addTab(previewTab);
+                    statusLabel.setText("Geöffnet: " + objInfo.getName());
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(mainPanel,
+                            "Fehler beim Laden des Quellcodes:\n" + e.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                    statusLabel.setText("Fehler beim Laden");
+                    System.err.println("[NdvConnectionTab] Error reading source: " + e.getMessage());
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    // ==================== Filter ====================
+
+    private void applyFilter() {
+        String filter = searchField.getText().trim().toLowerCase();
+        listModel.clear();
+        for (Object item : allItems) {
+            String text;
+            if (item instanceof String) {
+                text = ((String) item).toLowerCase();
+            } else if (item instanceof NdvObjectInfo) {
+                text = ((NdvObjectInfo) item).toString().toLowerCase();
+            } else {
+                text = item.toString().toLowerCase();
+            }
+            if (filter.isEmpty() || text.contains(filter)) {
+                listModel.addElement(item);
+            }
+        }
+    }
+
+    // ==================== Overlay ====================
+
+    private void showOverlayMessage(String message, Color color) {
+        overlayLabel.setText(message);
+        overlayLabel.setForeground(color);
+        overlayLabel.setBackground(new Color(color.getRed(), color.getGreen(), color.getBlue(), 30));
+        overlayLabel.setVisible(true);
+    }
+
+    private void hideOverlay() {
+        overlayLabel.setVisible(false);
+    }
+
+    // ==================== Cell Renderer ====================
+
+    private static class NdvCellRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                                                       int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+
+            if (value instanceof String) {
+                // Library
+                setText("📚 " + value);
+                setFont(getFont().deriveFont(Font.BOLD));
+            } else if (value instanceof NdvObjectInfo) {
+                NdvObjectInfo obj = (NdvObjectInfo) value;
+                setText(obj.getIcon() + " " + obj.getName() + "  [" + obj.getTypeName() + "]"
+                        + (obj.getUser().isEmpty() ? "" : "  (" + obj.getUser() + ")"));
+                setFont(getFont().deriveFont(Font.PLAIN));
+            }
+
+            return this;
+        }
+    }
+
+    // ==================== ConnectionTab interface ====================
+
+    @Override
+    public String getTitle() {
+        return "🔗 NDV: " + user + "@" + host;
+    }
+
+    @Override
+    public String getTooltip() {
+        return "NDV: " + user + "@" + host + ":" + client.getPort()
+                + (currentLibrary != null ? " - " + currentLibrary : "");
+    }
+
+    @Override
+    public JComponent getComponent() {
+        return mainPanel;
+    }
+
+    @Override
+    public void onClose() {
+        try {
+            client.close();
+        } catch (IOException e) {
+            System.err.println("[NdvConnectionTab] Error closing: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void saveIfApplicable() {
+        // Not applicable
+    }
+
+    @Override
+    public String getContent() {
+        return "";
+    }
+
+    @Override
+    public void markAsChanged() {
+        // Not applicable
+    }
+
+    @Override
+    public String getPath() {
+        if (currentLibrary != null) {
+            return "ndv://" + host + "/" + currentLibrary;
+        }
+        return "ndv://" + host;
+    }
+
+    @Override
+    public Bookmarkable.Type getType() {
+        return Bookmarkable.Type.CONNECTION;
+    }
+
+    @Override
+    public void focusSearchField() {
+        searchField.requestFocusInWindow();
+    }
+
+    @Override
+    public void searchFor(String searchPattern) {
+        searchField.setText(searchPattern);
+        applyFilter();
+    }
+
+    @Override
+    public JPopupMenu createContextMenu(Runnable onCloseCallback) {
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
+        closeItem.addActionListener(e -> onCloseCallback.run());
+
+        JMenuItem refreshItem = new JMenuItem("🔄 Aktualisieren");
+        refreshItem.addActionListener(e -> refresh());
+
+        menu.add(refreshItem);
+        menu.addSeparator();
+        menu.add(closeItem);
+
+        return menu;
+    }
+}
+
