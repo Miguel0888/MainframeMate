@@ -1,5 +1,6 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.ui.filetab.DiffHighlighter;
 import de.bund.zrb.ui.filetab.event.*;
 import de.zrb.bund.api.SentenceTypeRegistry;
 
@@ -52,6 +53,9 @@ public class FileTabEventManager {
         });
 
         fileTab.dispatcher.subscribe(CloseComparePanelEvent.class, event -> {
+            fileTab.saveDividerLocation();
+            DiffHighlighter.clearDiffHighlights(fileTab.getRawPane());
+            DiffHighlighter.clearDiffHighlights(fileTab.comparePanel.getOriginalTextArea());
             fileTab.comparePanel.setVisible(false);
             fileTab.statusBarPanel.getCompareButton().setVisible(true);
         });

@@ -37,7 +37,8 @@ import de.bund.zrb.files.path.VirtualResourceRef;
  */
 public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
-    public static final double DEFAULT_DIVIDER_LOCATION = 0.7;
+    public static final double DEFAULT_DIVIDER_LOCATION = 0.6;
+    private static final int MIN_COMPARE_HEIGHT = 80; // minimum pixels for compare panel
     private double currentDividerLocation = DEFAULT_DIVIDER_LOCATION;
     private static final String DIVIDER_LOCATION_KEY = "comparePanel.dividerLocation";
 
@@ -288,11 +289,14 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
     public void showComparePanel() {
         comparePanel.setVisible(true);
-        compareSplitPane.setDividerLocation(currentDividerLocation);
         statusBarPanel.getCompareButton().setVisible(false);
 
-        // Load history versions into the compare panel
-        loadHistoryIntoComparePanel();
+        // Apply divider location after layout is done, so the split pane has its final size
+        SwingUtilities.invokeLater(() -> {
+            applyDividerLocation();
+            // Load history versions into the compare panel
+            loadHistoryIntoComparePanel();
+        });
     }
 
     /**
@@ -316,6 +320,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                         .getVersionContent(resource.getBackendType(), entry.getVersionId());
                 if (content != null) {
                     comparePanel.getOriginalTextArea().setText(content);
+                    applyDiffHighlighting();
                 }
             });
 
@@ -326,6 +331,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                         .getVersionContent(resource.getBackendType(), latest.getVersionId());
                 if (content != null) {
                     comparePanel.getOriginalTextArea().setText(content);
+                    applyDiffHighlighting();
                 }
             }
         } catch (Exception e) {
@@ -333,13 +339,34 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         }
     }
 
+    /**
+     * Apply diff highlighting between the editor (top) and the compare panel (bottom).
+     */
+    private void applyDiffHighlighting() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                DiffHighlighter.applyDiff(getRawPane(), comparePanel.getOriginalTextArea());
+            } catch (Exception e) {
+                System.err.println("[FileTabImpl] Diff highlighting failed: " + e.getMessage());
+            }
+        });
+    }
+
     public void toggleComparePanel() {
         boolean show = !comparePanel.isVisible();
+
+        if (!show) {
+            // Closing: save position and clear highlights
+            saveDividerLocation();
+            DiffHighlighter.clearDiffHighlights(getRawPane());
+            DiffHighlighter.clearDiffHighlights(comparePanel.getOriginalTextArea());
+        }
+
         comparePanel.setVisible(show);
 
         if (show) {
-            compareSplitPane.setDividerLocation(currentDividerLocation);
             statusBarPanel.getCompareButton().setVisible(false);
+            SwingUtilities.invokeLater(this::applyDividerLocation);
         }
     }
 
@@ -380,16 +407,45 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     }
 
 
-    private void saveDividerLocation() {
-        Settings settings = SettingsHelper.load();
+    void saveDividerLocation() {
         int height = compareSplitPane.getHeight();
-        if (height > 0) {
-            double relativeLocation = compareSplitPane.getDividerLocation() / (double) height;
-            if(relativeLocation > 0) {
+        if (height > 0 && comparePanel.isVisible()) {
+            int dividerPos = compareSplitPane.getDividerLocation();
+            double relativeLocation = dividerPos / (double) height;
+            if (relativeLocation > 0.1 && relativeLocation < 0.95) {
+                currentDividerLocation = relativeLocation;
+                Settings settings = SettingsHelper.load();
                 settings.applicationState.put(DIVIDER_LOCATION_KEY, String.valueOf(relativeLocation));
                 SettingsHelper.save(settings);
             }
         }
+    }
+
+    /**
+     * Apply the stored divider location as pixel position.
+     * Enforces a minimum height for the compare panel so it's always visible.
+     */
+    private void applyDividerLocation() {
+        int totalHeight = compareSplitPane.getHeight();
+        if (totalHeight <= 0) {
+            // Layout not ready yet – defer once more
+            SwingUtilities.invokeLater(this::applyDividerLocation);
+            return;
+        }
+
+        int dividerSize = compareSplitPane.getDividerSize();
+        int pixelPos = (int) (totalHeight * currentDividerLocation);
+
+        // Enforce minimum compare panel height
+        int maxDividerPos = totalHeight - dividerSize - MIN_COMPARE_HEIGHT;
+        if (pixelPos > maxDividerPos) {
+            pixelPos = maxDividerPos;
+        }
+        if (pixelPos < MIN_COMPARE_HEIGHT) {
+            pixelPos = MIN_COMPARE_HEIGHT;
+        }
+
+        compareSplitPane.setDividerLocation(pixelPos);
     }
 
     private void restoreDividerLocation() {
