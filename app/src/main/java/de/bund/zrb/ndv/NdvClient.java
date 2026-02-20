@@ -256,7 +256,7 @@ public class NdvClient implements Closeable {
     /**
      * Download source code of a Natural object.
      *
-     * @param sysFile  system file
+     * @param sysFile  system file (with real DBID/FNR from getSystemFiles())
      * @param library  library name
      * @param name     object name
      * @param type     object type (ObjectType.PROGRAM etc.)
@@ -265,192 +265,72 @@ public class NdvClient implements Closeable {
     public String readSource(IPalTypeSystemFile sysFile, String library,
                              String name, int type) throws IOException, NdvException {
         checkConnected();
-        if (sysFile == null) {
-            throw new NdvException("readSource: sysFile is null");
-        }
         if (library == null || library.isEmpty()) {
             throw new NdvException("readSource: library is null or empty");
         }
         if (name == null || name.isEmpty()) {
             throw new NdvException("readSource: name is null or empty");
         }
-        System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name + ", type=" + type);
 
         // Ensure we are logged on to the correct library
         if (!library.equals(currentLibrary)) {
             logon(library);
         }
 
-        // Log the downloadSource method signature for debugging
-        logDownloadSourceSignature();
+        System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name + ", type=" + type
+                + ", sysFile=" + (sysFile != null ? "dbid=" + sysFile.getDatabaseId() + ",fnr=" + sysFile.getFileNumber() : "null"));
 
-        IFileProperties props = new ObjectProperties.Builder(name, type).build();
-        System.out.println("[NdvClient] readSource: props=" + props
-                + ", props.getName()=" + props.getName()
-                + ", props.getType()=" + props.getType());
+        // Create a proper transaction context for download (required by the API)
+        ITransactionContextDownload ctx =
+                (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
-        // Try downloadSource via reflection to handle the monitor parameter correctly
-        // First try with null sysFile (server uses session context after logon),
-        // then fallback to the provided sysFile
-        IDownloadResult result = null;
-        NdvException lastError = null;
-
-        IPalTypeSystemFile[] sysFileCandidates = { null, sysFile };
-        for (IPalTypeSystemFile sf : sysFileCandidates) {
-            try {
-                System.out.println("[NdvClient] Trying downloadSource with sysFile="
-                        + (sf != null ? "dbid=" + sf.getDatabaseId() + ",fnr=" + sf.getFileNumber() : "null"));
-                result = downloadSourceSafe(sf, library, props);
-                if (result != null) {
-                    break; // success
-                }
-            } catch (NdvException e) {
-                System.err.println("[NdvClient] downloadSource attempt failed: " + e.getMessage());
-                lastError = e;
-            }
-        }
-
-        if (result == null && lastError != null) {
-            throw lastError;
-        }
-
-        System.out.println("[NdvClient] readSource: downloadSource returned, result=" + (result != null ? "ok" : "null"));
-        if (result != null) {
-            String[] lines = null;
-            try {
-                lines = result.getSource();
-            } catch (NullPointerException npe) {
-                System.err.println("[NdvClient] result.getSource() threw NPE:");
-                npe.printStackTrace();
-                throw new NdvException("getSource() interner Fehler (NPE) für '" + name + "'", npe);
-            }
-            System.out.println("[NdvClient] readSource: getSource() returned " + (lines != null ? lines.length + " lines" : "null"));
-            if (lines != null) {
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < lines.length; i++) {
-                    if (i > 0) sb.append('\n');
-                    sb.append(lines[i] != null ? lines[i] : "");
-                }
-                return sb.toString();
-            }
-        }
-        return "";
-    }
-
-    /**
-     * Log the downloadSource method signature via reflection (once).
-     */
-    private static boolean signatureLogged = false;
-    private void logDownloadSourceSignature() {
-        if (signatureLogged) return;
-        signatureLogged = true;
         try {
-            for (java.lang.reflect.Method m : pal.getClass().getMethods()) {
-                if (m.getName().equals("downloadSource")) {
-                    System.out.println("[NdvClient] downloadSource signature: " + m.toGenericString());
-                    Class<?>[] params = m.getParameterTypes();
-                    for (int i = 0; i < params.length; i++) {
-                        System.out.println("[NdvClient]   param[" + i + "]: " + params[i].getName());
-                    }
-                }
+            IFileProperties props = new ObjectProperties.Builder(name, type).build();
+
+            // Use explicit option set (NONE = default download behavior)
+            Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
+
+            // Use the provided sysFile; if null, use default (0,0,0)
+            IPalTypeSystemFile effectiveSysFile = sysFile != null ? sysFile : getDefaultSystemFile();
+
+            System.out.println("[NdvClient] Calling downloadSource with ctx="
+                    + ctx.getClass().getSimpleName()
+                    + ", sysFile=dbid=" + effectiveSysFile.getDatabaseId()
+                    + "/fnr=" + effectiveSysFile.getFileNumber()
+                    + ", library=" + library
+                    + ", name=" + props.getName()
+                    + ", type=" + props.getType());
+
+            IDownloadResult result = pal.downloadSource(ctx, effectiveSysFile, library, props, options);
+
+            if (result != null) {
+                String[] lines = result.getSource();
+                System.out.println("[NdvClient] readSource: got " + (lines != null ? lines.length : 0) + " lines");
+                return joinLines(lines);
             }
-        } catch (Exception e) {
-            System.err.println("[NdvClient] Failed to log downloadSource signature: " + e);
+            return "";
+        } catch (PalResultException e) {
+            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + name + "' in '" + library + "': " + e.getMessage(), e);
+        } finally {
+            // Always release the transaction context
+            try {
+                pal.disposeTransactionContext(ctx);
+            } catch (Exception e) {
+                System.err.println("[NdvClient] Warning: disposeTransactionContext failed: " + e.getMessage());
+            }
         }
     }
 
-    /**
-     * Safely call downloadSource, creating a dynamic proxy for the monitor parameter if needed.
-     */
-    private IDownloadResult downloadSourceSafe(IPalTypeSystemFile sysFile, String library,
-                                                IFileProperties props) throws NdvException {
-        try {
-            // Find the downloadSource method
-            java.lang.reflect.Method downloadMethod = null;
-            for (java.lang.reflect.Method m : pal.getClass().getMethods()) {
-                if (m.getName().equals("downloadSource") || m.getName().equals("fileOperationDownloadSource")) {
-                    if (downloadMethod == null || m.getName().equals("downloadSource")) {
-                        downloadMethod = m;
-                    }
-                }
-            }
-            if (downloadMethod == null) {
-                throw new NdvException("downloadSource method not found on PAL object");
-            }
-
-            Class<?>[] paramTypes = downloadMethod.getParameterTypes();
-            System.out.println("[NdvClient] downloadSource has " + paramTypes.length + " parameters:");
-            for (int i = 0; i < paramTypes.length; i++) {
-                System.out.println("[NdvClient]   param[" + i + "]: " + paramTypes[i].getName());
-            }
-
-            // Build arguments in the expected order:
-            // downloadSource(IProgressMonitor, IPalTypeSystemFile, String library, IFileProperties, IDownloadOptions/Map)
-            Object[] args = new Object[paramTypes.length];
-            for (int i = 0; i < paramTypes.length; i++) {
-                Class<?> pt = paramTypes[i];
-
-                if (sysFile != null && IPalTypeSystemFile.class.isAssignableFrom(pt)) {
-                    args[i] = sysFile;
-                    System.out.println("[NdvClient]   arg[" + i + "] = sysFile (dbid=" + sysFile.getDatabaseId() + ", fnr=" + sysFile.getFileNumber() + ")");
-                } else if (sysFile == null && IPalTypeSystemFile.class.isAssignableFrom(pt)) {
-                    args[i] = null;
-                    System.out.println("[NdvClient]   arg[" + i + "] = null (sysFile)");
-                } else if (pt == String.class) {
-                    args[i] = library;
-                    System.out.println("[NdvClient]   arg[" + i + "] = library: " + library);
-                } else if (IFileProperties.class.isAssignableFrom(pt)) {
-                    args[i] = props;
-                    System.out.println("[NdvClient]   arg[" + i + "] = props: " + props.getName() + " type=" + props.getType());
-                } else if (pt.isInterface()) {
-                    // Create a no-op dynamic proxy (for IProgressMonitor, IDownloadOptions, etc.)
-                    System.out.println("[NdvClient]   arg[" + i + "] = no-op proxy for: " + pt.getName());
-                    final Class<?> proxyIface = pt;
-                    args[i] = java.lang.reflect.Proxy.newProxyInstance(
-                            pt.getClassLoader(),
-                            new Class<?>[]{ pt },
-                            new java.lang.reflect.InvocationHandler() {
-                                @Override
-                                public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] methodArgs) {
-                                    Class<?> rt = method.getReturnType();
-                                    if (rt == boolean.class) return false;
-                                    if (rt == int.class) return 0;
-                                    if (rt == long.class) return 0L;
-                                    if (rt == void.class) return null;
-                                    return null;
-                                }
-                            }
-                    );
-                } else if (java.util.Map.class.isAssignableFrom(pt)) {
-                    args[i] = null;
-                    System.out.println("[NdvClient]   arg[" + i + "] = null (Map)");
-                } else {
-                    args[i] = null;
-                    System.out.println("[NdvClient]   arg[" + i + "] = null (" + pt.getName() + ")");
-                }
-            }
-
-            System.out.println("[NdvClient] Calling downloadSource...");
-            Object result = downloadMethod.invoke(pal, args);
-            System.out.println("[NdvClient] downloadSource returned: " + (result != null ? result.getClass().getName() : "null"));
-            return (IDownloadResult) result;
-
-        } catch (java.lang.reflect.InvocationTargetException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof PalResultException) {
-                throw new NdvException("downloadSource failed: " + cause.getMessage(), (Exception) cause);
-            }
-            if (cause instanceof NullPointerException) {
-                System.err.println("[NdvClient] downloadSource NPE even with proxy:");
-                cause.printStackTrace();
-                throw new NdvException("downloadSource NPE: "
-                        + (cause.getStackTrace().length > 0 ? cause.getStackTrace()[0] : "unbekannt"), (Exception) cause);
-            }
-            String msg = cause != null ? cause.getMessage() : e.getMessage();
-            throw new NdvException("downloadSource Fehler: " + msg, cause instanceof Exception ? (Exception) cause : e);
-        } catch (Exception e) {
-            throw new NdvException("downloadSource reflection Fehler: " + e.getMessage(), e);
+    private String joinLines(String[] lines) {
+        if (lines == null || lines.length == 0) {
+            return "";
         }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(lines[i] != null ? lines[i] : "");
+        }
+        return sb.toString();
     }
 
     /**
