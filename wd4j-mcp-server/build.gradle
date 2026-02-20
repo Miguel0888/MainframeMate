@@ -38,3 +38,17 @@ tasks.named('build') {
     dependsOn shadowJar
 }
 
+// Copy fat JAR into the plugins folder (same convention as excelimport)
+task installPlugin(type: Copy) {
+    dependsOn shadowJar
+    def userHome = System.getProperty("user.home")
+    def pluginDir = new File(userHome, ".mainframemate/plugins")
+
+    from(shadowJar) {
+        rename { 'wd4j-mcp-server.jar' }
+    }
+    into pluginDir
+}
+
+build.finalizedBy installPlugin
+

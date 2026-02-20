@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew projects
 
       - name: Build project
-        run: ./gradlew clean :app:shadowJar
+        run: ./gradlew clean :app:shadowJar :wd4j-mcp-server:shadowJar
 
       - name: Determine version
         id: version
@@ -77,6 +77,12 @@ jobs:
           CORE_JAR=$(ls core/build/libs/*.jar | grep -v sources | head -n 1)
           echo "core_jar=$CORE_JAR" >> $GITHUB_ENV
 
+      - name: Find Websearch MCP Server JAR
+        id: find_websearch
+        run: |
+          WEBSEARCH_JAR=$(ls wd4j-mcp-server/build/libs/wd4j-mcp-server.jar 2>/dev/null || echo "")
+          echo "websearch_jar=$WEBSEARCH_JAR" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -89,5 +95,6 @@ jobs:
             ${{ env.jar_file }}
             ${{ env.plugin_jar }}
             ${{ env.core_jar }}
+            ${{ env.websearch_jar }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -89,15 +89,26 @@ public class McpServerManager {
 
     /**
      * Tries to locate the fat-JAR for a built-in MCP server.
-     * Looks in several common locations relative to the application.
+     * Primary location: {@code ~/.mainframemate/plugins/<baseName>.jar}
+     * (same directory used by the plugin system).
+     * Falls back to working-dir-relative paths for development.
      */
     private static String resolveBuiltInJarPath(String baseName) {
-        // Candidates (relative to working dir and relative to JAR location)
+        // 1. Plugin directory (production location)
+        java.io.File pluginDir = new java.io.File(
+                System.getProperty("user.home"), ".mainframemate/plugins");
+        java.io.File pluginJar = new java.io.File(pluginDir, baseName + ".jar");
+        if (pluginJar.isFile()) {
+            try { return pluginJar.getCanonicalPath(); }
+            catch (Exception e) { return pluginJar.getAbsolutePath(); }
+        }
+
+        // 2. Development / build output locations (relative to working dir)
         String[] candidates = {
                 baseName + "/build/libs/" + baseName + ".jar",
+                "../" + baseName + "/build/libs/" + baseName + ".jar",
                 "lib/" + baseName + ".jar",
                 baseName + ".jar",
-                "../" + baseName + "/build/libs/" + baseName + ".jar",
         };
 
         for (String candidate : candidates) {
@@ -111,7 +122,7 @@ public class McpServerManager {
             }
         }
 
-        // Try to find via classloader location (deployed alongside main jar)
+        // 3. Next to the application JAR itself
         try {
             java.security.CodeSource cs = McpServerManager.class.getProtectionDomain().getCodeSource();
             if (cs != null) {
@@ -169,7 +180,8 @@ public class McpServerManager {
         McpServerConfig resolved = resolveBuiltInArgs(config);
         if (resolved == null) {
             System.err.println("[McpServerManager] Cannot start '" + config.getName()
-                    + "': built-in JAR not found. Build it first with: gradlew :wd4j-mcp-server:shadowJar");
+                    + "': JAR not found in ~/.mainframemate/plugins/."
+                    + " Build & install with: gradlew :wd4j-mcp-server:build");
             fireStateChanged();
             return;
         }
