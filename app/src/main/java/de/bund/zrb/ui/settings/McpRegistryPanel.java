@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.settings;
 
+import de.bund.zrb.mcp.registry.McpMarketplaceSource;
 import de.bund.zrb.mcp.registry.McpRegistrySettings;
 import de.bund.zrb.mcp.registry.McpServerConfig;
 import de.bund.zrb.mcp.registry.McpServerManager;
@@ -45,39 +46,78 @@ public class McpRegistryPanel extends JPanel {
         topPanel.add(info);
         topPanel.add(Box.createVerticalStrut(6));
 
-        // Registry URL row
+        // Marketplace sources management
         McpRegistrySettings regSettings = McpRegistrySettings.load();
-        JPanel urlRow = new JPanel(new BorderLayout(4, 0));
-        urlRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        urlRow.add(new JLabel("Registry-URL: "), BorderLayout.WEST);
-        JTextField urlField = new JTextField(regSettings.getRegistryBaseUrl(), 30);
-        urlRow.add(urlField, BorderLayout.CENTER);
-        JButton saveUrlBtn = new JButton("Speichern");
-        saveUrlBtn.addActionListener(e -> {
-            String url = urlField.getText().trim();
-            if (!url.isEmpty()) {
-                regSettings.setRegistryBaseUrl(url);
+
+        JPanel sourcesRow = new JPanel(new BorderLayout(4, 0));
+        sourcesRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sourcesRow.add(new JLabel("Marketplace-Quellen: "), BorderLayout.WEST);
+
+        DefaultListModel<String> sourcesListModel = new DefaultListModel<>();
+        for (McpMarketplaceSource s : regSettings.getMarketplaceSources()) {
+            sourcesListModel.addElement((s.isEnabled() ? "\u2713 " : "\u2717 ")
+                    + s.getName() + "  [" + s.getType() + "]  " + s.getUrl());
+        }
+        JList<String> sourcesList = new JList<>(sourcesListModel);
+        sourcesList.setVisibleRowCount(3);
+        sourcesRow.add(new JScrollPane(sourcesList), BorderLayout.CENTER);
+
+        JPanel sourceBtns = new JPanel();
+        sourceBtns.setLayout(new BoxLayout(sourceBtns, BoxLayout.Y_AXIS));
+        JButton addSourceBtn = new JButton("+");
+        addSourceBtn.setToolTipText("Marketplace-Quelle hinzuf\u00FCgen");
+        JButton removeSourceBtn = new JButton("-");
+        removeSourceBtn.setToolTipText("Marketplace-Quelle entfernen");
+        sourceBtns.add(addSourceBtn);
+        sourceBtns.add(Box.createVerticalStrut(2));
+        sourceBtns.add(removeSourceBtn);
+        sourcesRow.add(sourceBtns, BorderLayout.EAST);
+        sourcesRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
+        topPanel.add(sourcesRow);
+        topPanel.add(Box.createVerticalStrut(4));
+
+        addSourceBtn.addActionListener(e -> {
+            JPanel form = new JPanel(new GridLayout(3, 2, 4, 4));
+            JTextField nameField = new JTextField("Mein Marketplace");
+            JComboBox<McpMarketplaceSource.Type> typeBox = new JComboBox<>(McpMarketplaceSource.Type.values());
+            JTextField urlField = new JTextField("https://");
+            form.add(new JLabel("Name:"));    form.add(nameField);
+            form.add(new JLabel("Typ:"));     form.add(typeBox);
+            form.add(new JLabel("URL:"));     form.add(urlField);
+            int r = JOptionPane.showConfirmDialog(this, form, "Marketplace hinzuf\u00FCgen",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (r == JOptionPane.OK_OPTION && !nameField.getText().trim().isEmpty()) {
+                McpMarketplaceSource src = new McpMarketplaceSource(
+                        nameField.getText().trim(),
+                        (McpMarketplaceSource.Type) typeBox.getSelectedItem(),
+                        urlField.getText().trim());
+                regSettings.getMarketplaceSources().add(src);
                 regSettings.save();
+                sourcesListModel.addElement("\u2713 " + src.getName()
+                        + "  [" + src.getType() + "]  " + src.getUrl());
             }
         });
-        JPanel urlBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        urlBtns.add(saveUrlBtn);
+
+        removeSourceBtn.addActionListener(e -> {
+            int idx = sourcesList.getSelectedIndex();
+            if (idx < 0) return;
+            regSettings.getMarketplaceSources().remove(idx);
+            regSettings.save();
+            sourcesListModel.remove(idx);
+        });
+
+        // Browse button
+        JPanel browseRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        browseRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         JButton browseBtn = new JButton("Registry durchsuchen...");
-        browseBtn.setToolTipText("MCP-Server aus der Registry suchen und installieren");
+        browseBtn.setToolTipText("MCP-Server aus konfigurierten Marketplaces suchen und installieren");
         browseBtn.addActionListener(e -> {
-            // Save URL before browsing
-            String url = urlField.getText().trim();
-            if (!url.isEmpty()) {
-                regSettings.setRegistryBaseUrl(url);
-                regSettings.save();
-            }
             McpRegistryBrowserDialog.show(SwingUtilities.getWindowAncestor(this));
             refreshConfigs();
         });
-        urlBtns.add(browseBtn);
-        urlRow.add(urlBtns, BorderLayout.EAST);
-        urlRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topPanel.add(urlRow);
+        browseRow.add(browseBtn);
+        browseRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topPanel.add(browseRow);
         topPanel.add(Box.createVerticalStrut(8));
         topPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
         add(topPanel, BorderLayout.NORTH);

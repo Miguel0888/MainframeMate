@@ -102,6 +102,20 @@ public class McpRegistryServerInfo {
     // ── Parsing ─────────────────────────────────────────────────────
 
     /**
+     * Create an entry from a GitHub repository (used by {@link GitHubOrgMarketplaceAdapter}).
+     */
+    public static McpRegistryServerInfo fromGitHubRepo(
+            String name, String title, String description, String status,
+            String version, String repositoryUrl, boolean official,
+            List<PackageInfo> packages) {
+        return new McpRegistryServerInfo(name, title, description, status, version,
+                repositoryUrl, official, packages,
+                Collections.<RemoteInfo>emptyList(),
+                Collections.<VariableInfo>emptyList(),
+                Collections.<HeaderInfo>emptyList());
+    }
+
+    /**
      * Parse a server entry from the registry list endpoint.
      * The official API wraps each entry as: {@code {"server": {...}, "_meta": {...}}}
      */

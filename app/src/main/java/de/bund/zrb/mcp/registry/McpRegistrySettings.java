@@ -6,6 +6,8 @@ import de.bund.zrb.helper.SettingsHelper;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Persisted settings for the MCP Registry browser.
@@ -19,6 +21,7 @@ public class McpRegistrySettings {
 
     private String registryBaseUrl = DEFAULT_REGISTRY_URL;
     private long cacheTtlMs = 3600_000L; // 1 hour
+    private List<McpMarketplaceSource> marketplaceSources;
 
     public McpRegistrySettings() {}
 
@@ -27,6 +30,21 @@ public class McpRegistrySettings {
 
     public long getCacheTtlMs() { return cacheTtlMs; }
     public void setCacheTtlMs(long ms) { this.cacheTtlMs = ms; }
+
+    /**
+     * Returns the list of configured marketplace sources.
+     * Initializes with defaults if null (first run or legacy config).
+     */
+    public List<McpMarketplaceSource> getMarketplaceSources() {
+        if (marketplaceSources == null) {
+            marketplaceSources = McpMarketplaceSource.defaults();
+        }
+        return marketplaceSources;
+    }
+
+    public void setMarketplaceSources(List<McpMarketplaceSource> sources) {
+        this.marketplaceSources = sources;
+    }
 
     // ── Persistence ─────────────────────────────────────────────────
 

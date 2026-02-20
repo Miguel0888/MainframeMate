@@ -11,18 +11,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * "App Store"-style dialog for browsing the MCP Registry,
+ * "App Store"-style dialog for browsing multiple MCP marketplaces,
  * viewing server details, and installing/enabling MCP servers.
  * <p>
- * Two tabs: <b>Marketplace</b> (full catalogue with search) and
- * <b>Installiert</b> (installed servers with start/stop/remove).
+ * Dynamic tabs per configured marketplace source, plus a fixed "Installiert" tab.
  * </p>
  */
 public class McpRegistryBrowserDialog {
 
     public static void show(Component parent) {
         McpRegistrySettings settings = McpRegistrySettings.load();
-        McpRegistryApiClient apiClient = new McpRegistryApiClient(settings);
         McpServerManager manager = McpServerManager.getInstance();
 
         JDialog dialog = new JDialog(
@@ -33,35 +31,50 @@ public class McpRegistryBrowserDialog {
 
         JTabbedPane tabs = new JTabbedPane();
 
-        // ════════════════════════════════════════════════════════════
-        //  Tab 1: Marketplace
-        // ════════════════════════════════════════════════════════════
-        JPanel marketplaceTab = buildMarketplaceTab(apiClient, manager, dialog);
-        tabs.addTab("Marketplace", marketplaceTab);
+        // ── Dynamic marketplace tabs from settings ──────────────────
+        List<McpMarketplaceSource> sources = settings.getMarketplaceSources();
+        for (McpMarketplaceSource source : sources) {
+            if (!source.isEnabled()) continue;
+            switch (source.getType()) {
+                case REGISTRY:
+                    McpRegistryApiClient apiClient = new McpRegistryApiClient(
+                            new McpRegistrySettings() {{
+                                setRegistryBaseUrl(source.getUrl());
+                                setCacheTtlMs(settings.getCacheTtlMs());
+                            }});
+                    tabs.addTab(source.getName(),
+                            buildRegistryMarketplaceTab(apiClient, manager, dialog));
+                    break;
+                case GITHUB_ORG:
+                    tabs.addTab(source.getName(),
+                            buildGitHubOrgTab(source, manager, dialog));
+                    break;
+            }
+        }
 
-        // ════════════════════════════════════════════════════════════
-        //  Tab 2: Installiert
-        // ════════════════════════════════════════════════════════════
-        InstalledTab installedTab = new InstalledTab(manager, dialog, apiClient);
+        // ── Fixed "Installiert" tab ─────────────────────────────────
+        McpRegistryApiClient defaultApiClient = new McpRegistryApiClient(settings);
+        InstalledTab installedTab = new InstalledTab(manager, dialog, defaultApiClient);
         tabs.addTab("Installiert", installedTab.panel);
 
         // Refresh installed list when switching to that tab
         tabs.addChangeListener(e -> {
-            if (tabs.getSelectedIndex() == 1) installedTab.refresh();
+            int idx = tabs.getSelectedIndex();
+            if (idx == tabs.getTabCount() - 1) installedTab.refresh();
         });
 
         dialog.add(tabs, BorderLayout.CENTER);
-        dialog.setSize(920, 580);
+        dialog.setSize(940, 600);
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  Marketplace tab
+    //  Registry marketplace tab (official API)
     // ════════════════════════════════════════════════════════════════
 
-    private static JPanel buildMarketplaceTab(McpRegistryApiClient apiClient,
-                                               McpServerManager manager, JDialog dialog) {
+    private static JPanel buildRegistryMarketplaceTab(McpRegistryApiClient apiClient,
+                                                       McpServerManager manager, JDialog dialog) {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
 
         // ── Top bar ─────────────────────────────────────────────────
@@ -84,85 +97,14 @@ public class McpRegistryBrowserDialog {
         List<McpRegistryServerInfo> allServers = new ArrayList<>();
         List<McpRegistryServerInfo> displayServers = new ArrayList<>();
 
-        String[] COLUMNS = {"Name", "Herausgeber", "Beschreibung", "Status"};
-        AbstractTableModel model = new AbstractTableModel() {
-            @Override public int getRowCount() { return displayServers.size(); }
-            @Override public int getColumnCount() { return COLUMNS.length; }
-            @Override public String getColumnName(int col) { return COLUMNS[col]; }
-
-            @Override
-            public Object getValueAt(int row, int col) {
-                McpRegistryServerInfo info = displayServers.get(row);
-                switch (col) {
-                    case 0: {
-                        String prefix = "";
-                        if (info.isOfficial() && info.isKnownPublisher()) prefix = "\u2605 ";
-                        else if (info.isKnownPublisher()) prefix = "\u2606 ";
-                        else if (info.isOfficial()) prefix = "\u2713 ";
-                        return prefix + McpRegistryApiClient.getShortName(info.getName());
-                    }
-                    case 1:
-                        return McpRegistryApiClient.getPublisher(info.getName());
-                    case 2: {
-                        String d = info.getDescription();
-                        return d.length() > 100 ? d.substring(0, 97) + "..." : d;
-                    }
-                    case 3: {
-                        if (isInstalled(info, manager)) return "\u2713 Installiert";
-                        String s = info.getStatus();
-                        if ("deprecated".equalsIgnoreCase(s)) return "\u26A0 deprecated";
-                        if ("deleted".equalsIgnoreCase(s)) return "\u274C deleted";
-                        return "active";
-                    }
-                    default: return "";
-                }
-            }
-        };
-
+        MarketplaceTableModel model = new MarketplaceTableModel(displayServers, manager);
         JTable table = new JTable(model);
-        table.setRowHeight(26);
-        table.getColumnModel().getColumn(0).setPreferredWidth(200);
-        table.getColumnModel().getColumn(1).setPreferredWidth(130);
-        table.getColumnModel().getColumn(2).setPreferredWidth(380);
-        table.getColumnModel().getColumn(3).setPreferredWidth(100);
-
-        // Status column coloring
-        table.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
-                                                           boolean focus, int row, int col) {
-                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
-                String v = String.valueOf(value);
-                if (v.contains("Installiert")) c.setForeground(new Color(0, 100, 200));
-                else if (v.contains("deprecated")) c.setForeground(new Color(180, 130, 0));
-                else if (v.contains("deleted")) c.setForeground(Color.RED);
-                else c.setForeground(new Color(0, 140, 0));
-                return c;
-            }
-        });
-
-        // Name column: bold for known publishers
-        table.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
-                                                           boolean focus, int row, int col) {
-                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
-                if (row < displayServers.size()) {
-                    McpRegistryServerInfo info = displayServers.get(row);
-                    if (info.isKnownPublisher() || info.isOfficial()) {
-                        c.setFont(c.getFont().deriveFont(Font.BOLD));
-                    }
-                }
-                return c;
-            }
-        });
-
+        configureMarketplaceTable(table, displayServers);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
 
         // ── Bottom bar ──────────────────────────────────────────────
         JPanel bottomBar = new JPanel(new BorderLayout(4, 4));
         bottomBar.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
-
         JLabel statusLabel = new JLabel("Lade Katalog...");
         bottomBar.add(statusLabel, BorderLayout.WEST);
 
@@ -185,14 +127,253 @@ public class McpRegistryBrowserDialog {
                 if (!s.isDeleted()) displayServers.add(s);
             }
             model.fireTableDataChanged();
-            if (query.isEmpty()) {
-                statusLabel.setText(displayServers.size() + " Server im Katalog");
-            } else {
-                statusLabel.setText(displayServers.size() + " Treffer f\u00FCr \"" + query + "\"");
-            }
+            statusLabel.setText(query.isEmpty()
+                    ? displayServers.size() + " Server im Katalog"
+                    : displayServers.size() + " Treffer f\u00FCr \"" + query + "\"");
         };
 
-        // Live search with debounce
+        addLiveSearch(searchField, applyFilter);
+        wireTableActions(table, displayServers, detailsBtn, installBtn, model, manager, dialog, apiClient);
+
+        // ── Load ────────────────────────────────────────────────────
+        Runnable loadAll = () -> {
+            allServers.clear();
+            displayServers.clear();
+            model.fireTableDataChanged();
+            statusLabel.setText("Lade Katalog...");
+            searchField.setEnabled(false);
+            refreshBtn.setEnabled(false);
+
+            new Thread(() -> {
+                try {
+                    List<McpRegistryServerInfo> loaded = apiClient.loadAllServers(
+                            (total, page) -> SwingUtilities.invokeLater(
+                                    () -> statusLabel.setText("Lade... " + total + " Server (Seite " + page + ")")
+                            ));
+                    SwingUtilities.invokeLater(() -> {
+                        allServers.addAll(loaded);
+                        searchField.setEnabled(true);
+                        refreshBtn.setEnabled(true);
+                        applyFilter.run();
+                        searchField.requestFocusInWindow();
+                    });
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("Fehler: " + ex.getMessage());
+                        searchField.setEnabled(true);
+                        refreshBtn.setEnabled(true);
+                    });
+                }
+            }, "mcp-registry-load").start();
+        };
+
+        refreshBtn.addActionListener(e -> { apiClient.invalidateCache(); loadAll.run(); });
+        loadAll.run();
+        return panel;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  GitHub Organization marketplace tab
+    // ════════════════════════════════════════════════════════════════
+
+    private static JPanel buildGitHubOrgTab(McpMarketplaceSource source,
+                                             McpServerManager manager, JDialog dialog) {
+        GitHubOrgMarketplaceAdapter adapter = new GitHubOrgMarketplaceAdapter(source.getUrl());
+        JPanel panel = new JPanel(new BorderLayout(4, 4));
+
+        // ── Top bar ─────────────────────────────────────────────────
+        JPanel topBar = new JPanel(new BorderLayout(4, 4));
+        topBar.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+
+        JTextField searchField = new JTextField(20);
+        searchField.setToolTipText("Repos durchsuchen...");
+        JButton refreshBtn = new JButton("\u21BB");
+        refreshBtn.setToolTipText("Cache leeren & neu laden");
+
+        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
+        searchPanel.add(new JLabel("Suche: "), BorderLayout.WEST);
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(refreshBtn, BorderLayout.EAST);
+        topBar.add(searchPanel, BorderLayout.CENTER);
+        panel.add(topBar, BorderLayout.NORTH);
+
+        // ── Table ───────────────────────────────────────────────────
+        List<McpRegistryServerInfo> allServers = new ArrayList<>();
+        List<McpRegistryServerInfo> displayServers = new ArrayList<>();
+
+        MarketplaceTableModel model = new MarketplaceTableModel(displayServers, manager);
+        JTable table = new JTable(model);
+        configureMarketplaceTable(table, displayServers);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        // ── Bottom bar ──────────────────────────────────────────────
+        JPanel bottomBar = new JPanel(new BorderLayout(4, 4));
+        bottomBar.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
+        JLabel statusLabel = new JLabel("Lade Repositories...");
+        bottomBar.add(statusLabel, BorderLayout.WEST);
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JButton detailsBtn = new JButton("Details...");
+        JButton installBtn = new JButton("Installieren");
+        detailsBtn.setEnabled(false);
+        installBtn.setEnabled(false);
+        actionPanel.add(detailsBtn);
+        actionPanel.add(installBtn);
+        bottomBar.add(actionPanel, BorderLayout.EAST);
+        panel.add(bottomBar, BorderLayout.SOUTH);
+
+        // ── Filter ──────────────────────────────────────────────────
+        Runnable applyFilter = () -> {
+            String query = searchField.getText().trim();
+            displayServers.clear();
+            List<McpRegistryServerInfo> filtered = McpRegistryApiClient.filterServers(allServers, query);
+            for (McpRegistryServerInfo s : filtered) {
+                if (!s.isDeleted()) displayServers.add(s);
+            }
+            model.fireTableDataChanged();
+            statusLabel.setText(query.isEmpty()
+                    ? displayServers.size() + " Repositories"
+                    : displayServers.size() + " Treffer f\u00FCr \"" + query + "\"");
+        };
+
+        addLiveSearch(searchField, applyFilter);
+
+        // Detail/Install use a lightweight fallback apiClient (details may not be available via GitHub)
+        McpRegistryApiClient fallbackApi = new McpRegistryApiClient(McpRegistrySettings.load());
+        wireTableActions(table, displayServers, detailsBtn, installBtn, model, manager, dialog, fallbackApi);
+
+        // ── Load ────────────────────────────────────────────────────
+        Runnable loadAll = () -> {
+            allServers.clear();
+            displayServers.clear();
+            model.fireTableDataChanged();
+            statusLabel.setText("Lade Repositories...");
+            searchField.setEnabled(false);
+            refreshBtn.setEnabled(false);
+
+            new Thread(() -> {
+                try {
+                    List<McpRegistryServerInfo> loaded = adapter.loadServers(
+                            (total, page) -> SwingUtilities.invokeLater(
+                                    () -> statusLabel.setText("Lade... " + total + " Repos (Seite " + page + ")")
+                            ));
+                    SwingUtilities.invokeLater(() -> {
+                        allServers.addAll(loaded);
+                        searchField.setEnabled(true);
+                        refreshBtn.setEnabled(true);
+                        applyFilter.run();
+                        searchField.requestFocusInWindow();
+                    });
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("Fehler: " + ex.getMessage());
+                        searchField.setEnabled(true);
+                        refreshBtn.setEnabled(true);
+                    });
+                }
+            }, "mcp-github-load").start();
+        };
+
+        refreshBtn.addActionListener(e -> { adapter.invalidateCache(); loadAll.run(); });
+        loadAll.run();
+        return panel;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Shared table model for marketplace tabs
+    // ════════════════════════════════════════════════════════════════
+
+    private static class MarketplaceTableModel extends AbstractTableModel {
+        private static final String[] COLUMNS = {"Name", "Herausgeber", "Beschreibung", "Status"};
+        private final List<McpRegistryServerInfo> servers;
+        private final McpServerManager manager;
+
+        MarketplaceTableModel(List<McpRegistryServerInfo> servers, McpServerManager manager) {
+            this.servers = servers;
+            this.manager = manager;
+        }
+
+        @Override public int getRowCount() { return servers.size(); }
+        @Override public int getColumnCount() { return COLUMNS.length; }
+        @Override public String getColumnName(int col) { return COLUMNS[col]; }
+
+        @Override
+        public Object getValueAt(int row, int col) {
+            McpRegistryServerInfo info = servers.get(row);
+            switch (col) {
+                case 0: {
+                    String prefix = "";
+                    if (info.isOfficial() && info.isKnownPublisher()) prefix = "\u2605 ";
+                    else if (info.isKnownPublisher()) prefix = "\u2606 ";
+                    else if (info.isOfficial()) prefix = "\u2713 ";
+                    return prefix + McpRegistryApiClient.getShortName(info.getName());
+                }
+                case 1:
+                    return McpRegistryApiClient.getPublisher(info.getName());
+                case 2: {
+                    String d = info.getDescription();
+                    return d.length() > 100 ? d.substring(0, 97) + "..." : d;
+                }
+                case 3: {
+                    if (isInstalled(info, manager)) return "\u2713 Installiert";
+                    String s = info.getStatus();
+                    if ("deprecated".equalsIgnoreCase(s)) return "\u26A0 deprecated";
+                    if ("deleted".equalsIgnoreCase(s)) return "\u274C deleted";
+                    return "active";
+                }
+                default: return "";
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Shared table configuration
+    // ════════════════════════════════════════════════════════════════
+
+    private static void configureMarketplaceTable(JTable table, List<McpRegistryServerInfo> displayServers) {
+        table.setRowHeight(26);
+        table.getColumnModel().getColumn(0).setPreferredWidth(200);
+        table.getColumnModel().getColumn(1).setPreferredWidth(130);
+        table.getColumnModel().getColumn(2).setPreferredWidth(380);
+        table.getColumnModel().getColumn(3).setPreferredWidth(100);
+
+        // Status coloring
+        table.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
+                                                           boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                String v = String.valueOf(value);
+                if (v.contains("Installiert")) c.setForeground(new Color(0, 100, 200));
+                else if (v.contains("deprecated")) c.setForeground(new Color(180, 130, 0));
+                else if (v.contains("deleted")) c.setForeground(Color.RED);
+                else c.setForeground(new Color(0, 140, 0));
+                return c;
+            }
+        });
+
+        // Name: bold for known publishers
+        table.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
+                                                           boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                if (row < displayServers.size()) {
+                    McpRegistryServerInfo info = displayServers.get(row);
+                    if (info.isKnownPublisher() || info.isOfficial()) {
+                        c.setFont(c.getFont().deriveFont(Font.BOLD));
+                    }
+                }
+                return c;
+            }
+        });
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Shared live search wiring
+    // ════════════════════════════════════════════════════════════════
+
+    private static void addLiveSearch(JTextField searchField, Runnable applyFilter) {
         javax.swing.Timer[] filterTimer = {null};
         searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             private void schedule() {
@@ -205,8 +386,16 @@ public class McpRegistryBrowserDialog {
             @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { schedule(); }
             @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { schedule(); }
         });
+    }
 
-        // ── Table selection ─────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════
+    //  Shared table action wiring (details, install, double-click)
+    // ════════════════════════════════════════════════════════════════
+
+    private static void wireTableActions(JTable table, List<McpRegistryServerInfo> displayServers,
+                                          JButton detailsBtn, JButton installBtn,
+                                          AbstractTableModel model, McpServerManager manager,
+                                          JDialog dialog, McpRegistryApiClient apiClient) {
         table.getSelectionModel().addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) return;
             int row = table.getSelectedRow();
@@ -248,78 +437,31 @@ public class McpRegistryBrowserDialog {
                 if (e.getClickCount() == 2) detailsBtn.doClick();
             }
         });
-
-        // ── Refresh ─────────────────────────────────────────────────
-        Runnable loadAll = () -> {
-            allServers.clear();
-            displayServers.clear();
-            model.fireTableDataChanged();
-            statusLabel.setText("Lade Katalog...");
-            searchField.setEnabled(false);
-            refreshBtn.setEnabled(false);
-
-            new Thread(() -> {
-                try {
-                    List<McpRegistryServerInfo> loaded = apiClient.loadAllServers(
-                            (total, page) -> SwingUtilities.invokeLater(
-                                    () -> statusLabel.setText("Lade... " + total + " Server (Seite " + page + ")")
-                            ));
-                    SwingUtilities.invokeLater(() -> {
-                        allServers.addAll(loaded);
-                        searchField.setEnabled(true);
-                        refreshBtn.setEnabled(true);
-                        applyFilter.run();
-                        searchField.requestFocusInWindow();
-                    });
-                } catch (Exception ex) {
-                    SwingUtilities.invokeLater(() -> {
-                        statusLabel.setText("Fehler: " + ex.getMessage());
-                        searchField.setEnabled(true);
-                        refreshBtn.setEnabled(true);
-                    });
-                }
-            }, "mcp-registry-load").start();
-        };
-
-        refreshBtn.addActionListener(e -> {
-            apiClient.invalidateCache();
-            loadAll.run();
-        });
-
-        // Initial load
-        loadAll.run();
-
-        return panel;
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  Installed tab (inner helper class)
+    //  Installed tab
     // ════════════════════════════════════════════════════════════════
 
     private static class InstalledTab {
         final JPanel panel;
         private final McpServerManager manager;
         private final JDialog dialog;
-        private final McpRegistryApiClient apiClient;
 
         private final List<McpServerConfig> configs = new ArrayList<>();
         private final AbstractTableModel model;
-        private final JTable table;
 
         InstalledTab(McpServerManager manager, JDialog dialog, McpRegistryApiClient apiClient) {
             this.manager = manager;
             this.dialog = dialog;
-            this.apiClient = apiClient;
 
             panel = new JPanel(new BorderLayout(4, 4));
 
-            // ── Info ────────────────────────────────────────────────
             JLabel info = new JLabel(
                     "<html><b>Installierte MCP-Server</b> \u2014 Starten, stoppen oder entfernen.</html>");
             info.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
             panel.add(info, BorderLayout.NORTH);
 
-            // ── Table ───────────────────────────────────────────────
             String[] COLS = {"Name", "Befehl", "Aktiv", "Status"};
             model = new AbstractTableModel() {
                 @Override public int getRowCount() { return configs.size(); }
@@ -333,20 +475,20 @@ public class McpRegistryBrowserDialog {
                         case 0: return McpRegistryApiClient.getShortName(c.getName());
                         case 1: return c.getCommand() + " " + String.join(" ", c.getArgs());
                         case 2: return c.isEnabled() ? "Ja" : "Nein";
-                        case 3: return manager.isRunning(c.getName()) ? "\u25CF L\u00E4uft" : "\u25CB Gestoppt";
+                        case 3: return manager.isRunning(c.getName())
+                                ? "\u25CF L\u00E4uft" : "\u25CB Gestoppt";
                         default: return "";
                     }
                 }
             };
 
-            table = new JTable(model);
+            JTable table = new JTable(model);
             table.setRowHeight(26);
             table.getColumnModel().getColumn(0).setPreferredWidth(200);
             table.getColumnModel().getColumn(1).setPreferredWidth(300);
             table.getColumnModel().getColumn(2).setPreferredWidth(60);
             table.getColumnModel().getColumn(3).setPreferredWidth(100);
 
-            // Status column coloring
             table.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
                 @Override
                 public Component getTableCellRendererComponent(JTable t, Object value, boolean sel,
@@ -360,7 +502,6 @@ public class McpRegistryBrowserDialog {
 
             panel.add(new JScrollPane(table), BorderLayout.CENTER);
 
-            // ── Buttons ─────────────────────────────────────────────
             JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
             btnPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
@@ -378,7 +519,6 @@ public class McpRegistryBrowserDialog {
             btnPanel.add(removeBtn);
             panel.add(btnPanel, BorderLayout.SOUTH);
 
-            // ── Selection ───────────────────────────────────────────
             table.getSelectionModel().addListSelectionListener(e -> {
                 if (e.getValueIsAdjusting()) return;
                 int row = table.getSelectedRow();
@@ -471,8 +611,8 @@ public class McpRegistryBrowserDialog {
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 
-        JLabel loading = new JLabel("Lade Details...");
-        content.add(loading);
+        // Start with listInfo data immediately, then try to load detail
+        buildDetailContent(content, listInfo);
         detail.add(new JScrollPane(content), BorderLayout.CENTER);
 
         JPanel buttonBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -484,9 +624,7 @@ public class McpRegistryBrowserDialog {
 
         closeBtn.addActionListener(e -> detail.dispose());
 
-        detail.setSize(620, 480);
-        detail.setLocationRelativeTo(parent);
-
+        // Try to load richer detail from registry API (may fail for GitHub-only entries)
         new Thread(() -> {
             try {
                 McpRegistryServerInfo info = apiClient.getServerDetails(listInfo.getName());
@@ -495,23 +633,25 @@ public class McpRegistryBrowserDialog {
                     buildDetailContent(content, info);
                     content.revalidate();
                     content.repaint();
-
-                    installBtn.addActionListener(e -> {
-                        if (info.isDeprecated()) {
-                            int confirm = JOptionPane.showConfirmDialog(detail,
-                                    "Dieser Server ist als 'deprecated' markiert.\nTrotzdem installieren?",
-                                    "Deprecated", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                            if (confirm != JOptionPane.YES_OPTION) return;
-                        }
-                        doInstall(detail, apiClient, info, manager);
-                        detail.dispose();
-                    });
                 });
-            } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> loading.setText("Fehler: " + ex.getMessage()));
+            } catch (Exception ignored) {
+                // Keep existing content from listInfo
             }
         }, "mcp-detail-load").start();
 
+        installBtn.addActionListener(e -> {
+            if (listInfo.isDeprecated()) {
+                int confirm = JOptionPane.showConfirmDialog(detail,
+                        "Dieser Server ist als 'deprecated' markiert.\nTrotzdem installieren?",
+                        "Deprecated", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (confirm != JOptionPane.YES_OPTION) return;
+            }
+            doInstall(detail, apiClient, listInfo, manager);
+            detail.dispose();
+        });
+
+        detail.setSize(620, 480);
+        detail.setLocationRelativeTo(parent);
         detail.setVisible(true);
     }
 
@@ -520,7 +660,6 @@ public class McpRegistryBrowserDialog {
         Font normalFont = new Font("Dialog", Font.PLAIN, 12);
         Font monoFont = new Font("Monospaced", Font.PLAIN, 12);
 
-        // Short name as title
         String shortName = McpRegistryApiClient.getShortName(info.getName());
         JLabel titleLabel = new JLabel(shortName);
         titleLabel.setFont(new Font("Dialog", Font.BOLD, 18));
@@ -528,7 +667,6 @@ public class McpRegistryBrowserDialog {
         content.add(titleLabel);
         content.add(Box.createVerticalStrut(2));
 
-        // Full name + publisher
         JLabel nameLabel = new JLabel(info.getName() + "  \u2022  "
                 + McpRegistryApiClient.getPublisher(info.getName()));
         nameLabel.setFont(monoFont);
@@ -537,7 +675,6 @@ public class McpRegistryBrowserDialog {
         content.add(nameLabel);
         content.add(Box.createVerticalStrut(6));
 
-        // Trust badges
         StringBuilder badges = new StringBuilder();
         if (info.isOfficial()) badges.append("\u2605 Offiziell gepr\u00FCft  ");
         if (info.isKnownPublisher()) badges.append("\u2606 Bekannter Herausgeber  ");
@@ -550,7 +687,6 @@ public class McpRegistryBrowserDialog {
             content.add(Box.createVerticalStrut(4));
         }
 
-        // Status + Version
         String statusText = info.getStatus();
         if (info.getLatestVersion() != null) statusText += "  |  v" + info.getLatestVersion();
         JLabel statusLabel = new JLabel(statusText);
@@ -561,7 +697,6 @@ public class McpRegistryBrowserDialog {
         content.add(statusLabel);
         content.add(Box.createVerticalStrut(4));
 
-        // Repository URL
         if (info.getRepositoryUrl() != null && !info.getRepositoryUrl().isEmpty()) {
             JLabel repoLabel = new JLabel("Repository: " + info.getRepositoryUrl());
             repoLabel.setFont(monoFont);
@@ -571,7 +706,6 @@ public class McpRegistryBrowserDialog {
         }
         content.add(Box.createVerticalStrut(10));
 
-        // Description
         if (!info.getDescription().isEmpty()) {
             JTextArea desc = new JTextArea(info.getDescription());
             desc.setLineWrap(true);
@@ -584,7 +718,6 @@ public class McpRegistryBrowserDialog {
             content.add(Box.createVerticalStrut(12));
         }
 
-        // Packages
         if (info.hasPackages()) {
             JLabel pkgTitle = new JLabel("Packages (stdio):");
             pkgTitle.setFont(boldFont);
@@ -599,7 +732,6 @@ public class McpRegistryBrowserDialog {
             content.add(Box.createVerticalStrut(8));
         }
 
-        // Remotes
         if (info.hasRemotes()) {
             JLabel remTitle = new JLabel("Remote Endpoints:");
             remTitle.setFont(boldFont);
@@ -614,7 +746,6 @@ public class McpRegistryBrowserDialog {
             content.add(Box.createVerticalStrut(8));
         }
 
-        // Variables
         if (!info.getVariables().isEmpty()) {
             JLabel varTitle = new JLabel("Variablen:");
             varTitle.setFont(boldFont);
@@ -633,7 +764,6 @@ public class McpRegistryBrowserDialog {
             content.add(Box.createVerticalStrut(8));
         }
 
-        // Headers
         if (!info.getHeaders().isEmpty()) {
             JLabel hdrTitle = new JLabel("Headers:");
             hdrTitle.setFont(boldFont);
@@ -659,22 +789,12 @@ public class McpRegistryBrowserDialog {
     private static void doInstall(Window parent, McpRegistryApiClient apiClient,
                                   McpRegistryServerInfo info, McpServerManager manager) {
         McpRegistryServerInfo detail = info;
-        if (info.getLatestVersion() == null) {
+        if (info.getLatestVersion() == null && info.hasPackages()) {
             try {
                 detail = apiClient.getServerDetails(info.getName());
-            } catch (Exception e) {
-                JOptionPane.showMessageDialog(parent,
-                        "Details konnten nicht geladen werden:\n" + e.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-                return;
+            } catch (Exception ignored) {
+                // Use info as-is
             }
-        }
-
-        if (detail.isDeprecated()) {
-            int confirm = JOptionPane.showConfirmDialog(parent,
-                    "Dieser Server ist als 'deprecated' markiert.\nTrotzdem installieren?",
-                    "Deprecated", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-            if (confirm != JOptionPane.YES_OPTION) return;
         }
 
         if (detail.isDeleted()) {
