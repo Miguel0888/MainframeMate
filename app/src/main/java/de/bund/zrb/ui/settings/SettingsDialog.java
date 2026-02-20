@@ -182,7 +182,6 @@ public class SettingsDialog {
         }
 
         settings = SettingsHelper.load();
-        clearPasswordRequested = false;
 
         createGeneralContent(generalContent, parent);
         createTransformContent(transformContent);
