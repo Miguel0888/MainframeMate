@@ -21,9 +21,7 @@ public class NdvClient implements Closeable {
     private String currentLibrary;
     private volatile boolean connected;
 
-    public NdvClient() throws NdvException {
-        // Ensure NDV libraries are loaded dynamically before using PAL classes
-        NdvLibLoader.ensureLoaded();
+    public NdvClient() {
         this.pal = PalTransactionsFactory.newInstance();
     }
 
