@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.preview;
 
+
 import de.bund.zrb.chat.attachment.AttachTabToChatUseCase;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
@@ -226,7 +227,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
         // For files without extension (common on Mainframe), check content
         if (rawContent != null && !rawContent.isEmpty()) {
-            return isJclContent(rawContent) || isCobolContent(rawContent);
+            return isJclContent(rawContent) || isCobolContent(rawContent) || isNaturalContent(rawContent);
         }
         return false;
     }
@@ -297,6 +298,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             return SyntaxConstants.SYNTAX_STYLE_NONE;
         }
 
+        // Check for Natural: DEFINE DATA, CALLNAT, END-DEFINE, etc.
+        if (isNaturalContent(rawContent)) {
+            return de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL;
+        }
+
         // Check for JCL: lines starting with // followed by JCL keywords
         if (isJclContent(rawContent)) {
             return SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE; // Best available approximation
@@ -354,6 +360,32 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                upper.contains("PROCEDURE DIVISION") ||
                upper.contains("DATA DIVISION") ||
                upper.contains("WORKING-STORAGE SECTION");
+    }
+
+    /**
+     * Detect if content is Natural (Software AG).
+     */
+    protected boolean isNaturalContent(String content) {
+        if (content == null) return false;
+        String[] lines = content.split("\\r?\\n", 40);
+        int naturalHits = 0;
+        for (String line : lines) {
+            String trimmed = line.trim().toUpperCase();
+            if (trimmed.startsWith("DEFINE DATA")
+                    || trimmed.startsWith("END-DEFINE")
+                    || trimmed.startsWith("DEFINE SUBROUTINE")
+                    || trimmed.startsWith("CALLNAT ")
+                    || trimmed.startsWith("END-SUBROUTINE")
+                    || trimmed.startsWith("LOCAL USING")
+                    || trimmed.startsWith("PARAMETER USING")
+                    || trimmed.startsWith("DECIDE ON")
+                    || trimmed.startsWith("DECIDE FOR")
+                    || trimmed.startsWith("INPUT USING MAP")
+                    || trimmed.startsWith("FETCH RETURN")) {
+                naturalHits++;
+            }
+        }
+        return naturalHits >= 2;
     }
 
     /**
