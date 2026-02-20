@@ -7,8 +7,6 @@ import java.io.File;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Dynamically loads NDV (Natural Development Server) JAR libraries at runtime.
@@ -52,8 +50,11 @@ public class NdvLibLoader {
     }
 
     /**
-     * Ensures NDV libraries are loaded into the system classloader.
+     * Ensures NDV libraries are loaded into the classloader.
      * Safe to call multiple times; only loads once.
+     * <p>
+     * Tries to add JARs to the application classloader (the one that loaded this class),
+     * falling back to the system classloader if needed.
      *
      * @throws NdvException if JARs cannot be found or loaded
      */
@@ -61,37 +62,53 @@ public class NdvLibLoader {
         if (loaded) return;
 
         File libDir = getLibDir();
-        if (!libDir.isDirectory()) {
-            loadError = "NDV-Lib-Verzeichnis nicht gefunden: " + libDir.getAbsolutePath()
-                    + "\n\nBitte die NDV-JARs dort ablegen oder den Pfad in den Einstellungen anpassen."
-                    + "\nErwartet werden: com.softwareag.naturalone.natural.ndvserveraccess*.jar"
-                    + "\n                 com.softwareag.naturalone.natural.auxiliary*.jar";
-            throw new NdvException(loadError);
-        }
 
-        File[] jars = findNdvJars(libDir);
+        // Fallback: if default dir doesn't exist or has no JARs, try project-local lib/ (for development)
+        File[] jars = libDir.isDirectory() ? findNdvJars(libDir) : new File[0];
         if (jars.length == 0) {
-            loadError = "Keine NDV-JARs gefunden in: " + libDir.getAbsolutePath()
-                    + "\n\nBitte folgende Dateien dort ablegen:"
+            File projectLib = new File("lib");
+            if (projectLib.isDirectory()) {
+                File[] devJars = findNdvJars(projectLib);
+                if (devJars.length > 0) {
+                    libDir = projectLib;
+                    jars = devJars;
+                    System.out.println("[NdvLibLoader] Using development lib/ directory: " + projectLib.getAbsolutePath());
+                }
+            }
+        }
+
+        if (!libDir.isDirectory() || jars.length == 0) {
+            loadError = "Keine NDV-JARs gefunden."
+                    + "\n\nBitte folgende Dateien ablegen in:"
+                    + "\n  " + getLibDir().getAbsolutePath()
+                    + "\n\nBenötigte JARs:"
                     + "\n• com.softwareag.naturalone.natural.ndvserveraccess_*.jar"
-                    + "\n• com.softwareag.naturalone.natural.auxiliary_*.jar";
+                    + "\n• com.softwareag.naturalone.natural.auxiliary_*.jar"
+                    + "\n\nAlternativ: Pfad in Einstellungen → NDV-Verbindung anpassen.";
             throw new NdvException(loadError);
         }
 
-        // Add JARs to system classloader (Java 8 hack via reflection on URLClassLoader)
+        // Find a URLClassLoader we can inject into.
+        // Priority: 1) this class's classloader, 2) thread context CL, 3) system CL
+        URLClassLoader targetCL = findTargetClassLoader();
+        if (targetCL == null) {
+            loadError = "Kein URLClassLoader gefunden – NDV-JARs können nicht dynamisch geladen werden.";
+            throw new NdvException(loadError);
+        }
+
         try {
-            URLClassLoader systemClassLoader = (URLClassLoader) ClassLoader.getSystemClassLoader();
             Method addUrl = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
             addUrl.setAccessible(true);
 
             for (File jar : jars) {
                 System.out.println("[NdvLibLoader] Loading: " + jar.getAbsolutePath());
-                addUrl.invoke(systemClassLoader, jar.toURI().toURL());
+                addUrl.invoke(targetCL, jar.toURI().toURL());
             }
 
             loaded = true;
             loadError = null;
-            System.out.println("[NdvLibLoader] NDV libraries loaded successfully (" + jars.length + " JARs)");
+            System.out.println("[NdvLibLoader] NDV libraries loaded successfully ("
+                    + jars.length + " JARs via " + targetCL.getClass().getSimpleName() + ")");
         } catch (Exception e) {
             loadError = "NDV-JARs konnten nicht geladen werden: " + e.getMessage();
             throw new NdvException(loadError, e);
@@ -99,14 +116,40 @@ public class NdvLibLoader {
     }
 
     /**
-     * Finds all NDV-related JARs in the given directory.
+     * Walks classloader hierarchy to find a URLClassLoader we can inject into.
+     */
+    private static URLClassLoader findTargetClassLoader() {
+        // 1) Try this class's own classloader (application CL in Gradle/Shadow)
+        ClassLoader cl = NdvLibLoader.class.getClassLoader();
+        if (cl instanceof URLClassLoader) {
+            return (URLClassLoader) cl;
+        }
+
+        // 2) Try thread context classloader
+        cl = Thread.currentThread().getContextClassLoader();
+        while (cl != null) {
+            if (cl instanceof URLClassLoader) {
+                return (URLClassLoader) cl;
+            }
+            cl = cl.getParent();
+        }
+
+        // 3) Try system classloader
+        cl = ClassLoader.getSystemClassLoader();
+        if (cl instanceof URLClassLoader) {
+            return (URLClassLoader) cl;
+        }
+
+        return null;
+    }
+
+    /**
+     * Finds all JAR files in the given directory.
+     * Loads ALL .jar files, not just NDV-specific ones, so transitive deps are included.
      */
     private static File[] findNdvJars(File dir) {
         File[] matched = dir.listFiles(file ->
                 file.isFile() && file.getName().endsWith(".jar")
-                        && (file.getName().contains("ndvserveraccess")
-                        || file.getName().contains("auxiliary")
-                        || file.getName().contains("naturalone"))
         );
         if (matched == null) return new File[0];
         return matched;
