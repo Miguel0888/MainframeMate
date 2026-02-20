@@ -327,8 +327,21 @@ public class NdvConnectionTab implements ConnectionTab {
      * Navigate to a specific library (public entry point for bookmarks).
      */
     public void navigateToLibrary(String library) {
+        pendingObjectName = null;
         openLibrary(library);
     }
+
+    /**
+     * Navigate to a library and then automatically open a specific object by name.
+     * Used by NDV bookmarks that reference a specific file.
+     */
+    public void navigateToLibraryAndOpen(String library, String objectName) {
+        pendingObjectName = objectName;
+        openLibrary(library);
+    }
+
+    /** Object to auto-open after library loading completes (set by navigateToLibraryAndOpen). */
+    private volatile String pendingObjectName;
 
     private void openLibrary(String library) {
         openLibraryInternal(library);
@@ -388,6 +401,8 @@ public class NdvConnectionTab implements ConnectionTab {
                     if (allItems.isEmpty()) {
                         showOverlayMessage("Keine Objekte in " + currentLibrary, new Color(200, 100, 0));
                     }
+                    // Auto-open pending object from bookmark
+                    autoOpenPendingObject();
                 } catch (Exception e) {
                     if (!allItems.isEmpty()) {
                         // Partial results available
@@ -405,7 +420,37 @@ public class NdvConnectionTab implements ConnectionTab {
         worker.execute();
     }
 
+    /**
+     * If a pending object name was set (e.g. from a bookmark), find it in loaded items and open it.
+     */
+    private void autoOpenPendingObject() {
+        String name = pendingObjectName;
+        pendingObjectName = null;
+        if (name == null || name.isEmpty()) return;
+
+        // Strip extension if present (bookmarks may store "NAME.NSP" or just "NAME")
+        String baseName = name;
+        int dot = name.lastIndexOf('.');
+        if (dot > 0) {
+            baseName = name.substring(0, dot);
+        }
+        final String searchName = baseName.toUpperCase();
+
+        for (Object item : allItems) {
+            if (item instanceof NdvObjectInfo) {
+                NdvObjectInfo obj = (NdvObjectInfo) item;
+                if (obj.getName().equalsIgnoreCase(searchName)) {
+                    System.out.println("[NdvConnectionTab] Auto-opening bookmarked object: " + obj.getName());
+                    openSource(obj);
+                    return;
+                }
+            }
+        }
+        System.err.println("[NdvConnectionTab] Bookmarked object not found: " + name);
+    }
+
     private void refresh() {
+        pendingObjectName = null; // clear on manual refresh
         if (currentLevel == BrowseLevel.LIBRARIES) {
             loadLibraries();
         } else if (currentLibrary != null) {

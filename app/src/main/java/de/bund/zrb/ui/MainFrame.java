@@ -394,7 +394,7 @@ public class MainFrame extends JFrame implements MainframeContext {
      * Open an NDV bookmark: connect (or reuse connection), navigate to library and open the object.
      */
     private void openNdvBookmark(String rawPath) {
-        // rawPath format: "LIBRARY/OBJECTNAME" or just "OBJECTNAME"
+        // rawPath format: "LIBRARY/OBJECTNAME" or just "LIBRARY"
         Settings settings = SettingsHelper.load();
         String host = settings.host;
         String user = settings.user;
@@ -412,44 +412,66 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Parse library and object name from rawPath
         String library = settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary.trim() : "";
-        String objectName = rawPath;
+        String objectName = null;
         if (rawPath.contains("/")) {
             int slash = rawPath.indexOf('/');
             library = rawPath.substring(0, slash);
             objectName = rawPath.substring(slash + 1);
+        } else {
+            // rawPath is just a library name or object name
+            library = rawPath;
         }
 
         final String fHost = host;
         final String fUser = user;
+        final int fPort = port;
         final String fPassword = password;
         final String fLibrary = library.toUpperCase();
+        final String fObjectName = objectName;
 
         setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
 
-        new javax.swing.SwingWorker<Void, Void>() {
+        // Only connect in background, create UI on EDT
+        new javax.swing.SwingWorker<de.bund.zrb.ndv.NdvClient, Void>() {
             @Override
-            protected Void doInBackground() throws Exception {
+            protected de.bund.zrb.ndv.NdvClient doInBackground() throws Exception {
                 de.bund.zrb.ndv.NdvClient client = new de.bund.zrb.ndv.NdvClient();
-                client.connect(fHost, port, fUser, fPassword);
+                client.connect(fHost, fPort, fUser, fPassword);
                 LoginManager.getInstance().onLoginSuccess(fHost, fUser);
 
-                NdvConnectionTab tab = new NdvConnectionTab(tabManager, client);
-                javax.swing.SwingUtilities.invokeLater(() -> {
-                    tabManager.addTab(tab);
-                    if (!fLibrary.isEmpty()) {
-                        tab.navigateToLibrary(fLibrary);
+                // Pre-logon to library in background (before UI creation)
+                if (!fLibrary.isEmpty()) {
+                    try {
+                        client.logon(fLibrary);
+                    } catch (Exception e) {
+                        System.err.println("[openNdvBookmark] Library logon warning: " + e.getMessage());
                     }
-                });
-                return null;
+                }
+                return client;
             }
 
             @Override
             protected void done() {
                 setCursor(java.awt.Cursor.getDefaultCursor());
                 try {
-                    get();
+                    de.bund.zrb.ndv.NdvClient client = get();
+                    // Create tab on EDT
+                    NdvConnectionTab tab = new NdvConnectionTab(tabManager, client);
+                    tabManager.addTab(tab);
+                    // Navigate to library (and optionally auto-open object)
+                    if (!fLibrary.isEmpty()) {
+                        if (fObjectName != null && !fObjectName.isEmpty()) {
+                            tab.navigateToLibraryAndOpen(fLibrary, fObjectName);
+                        } else {
+                            tab.navigateToLibrary(fLibrary);
+                        }
+                    }
                 } catch (Exception e) {
                     String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                    if (msg != null && (msg.contains("Login") || msg.contains("login")
+                            || msg.contains("NAT0873") || msg.contains("NAT7734"))) {
+                        LoginManager.getInstance().invalidatePassword(fHost, fUser);
+                    }
                     javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
                             "NDV-Verbindung fehlgeschlagen:\n" + msg,
                             "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
