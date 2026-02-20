@@ -5,17 +5,17 @@ import de.bund.zrb.mcp.registry.McpServerManager;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Settings panel for the MCP Registry – manage external MCP servers
- * (like GitHub MCP Server for Issues etc.).
- *
- * <p>External MCP servers are started as separate processes communicating
- * via stdio JSON-RPC. Their tools are dynamically discovered and registered
- * in the ToolRegistry.</p>
+ * Settings panel for the MCP Registry – manage external MCP servers.
+ * <p>
+ * Shows installed servers in a table and provides a "Browse Registry"
+ * button that opens the {@link McpRegistryBrowserDialog} (App-Store style).
+ * </p>
  */
 public class McpRegistryPanel extends JPanel {
 
@@ -23,38 +23,62 @@ public class McpRegistryPanel extends JPanel {
 
     private final McpServerManager manager = McpServerManager.getInstance();
     private final List<McpServerConfig> configs;
-    private final RegistryTableModel model;
+    private final InstalledModel model;
     private final JTable table;
 
     public McpRegistryPanel() {
         configs = new ArrayList<>(manager.loadConfigs());
-        model = new RegistryTableModel();
+        model = new InstalledModel();
         table = new JTable(model);
 
         setLayout(new BorderLayout(4, 4));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        // Info label
-        JLabel info = new JLabel(
-                "<html><b>MCP Registry</b> — Externe MCP-Server einbinden (z. B. GitHub MCP Server).<br>"
-                + "Die Tools der Server werden automatisch in der Tool-Registry registriert.</html>");
-        info.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
-        add(info, BorderLayout.NORTH);
+        // ── Top: info + browse button ───────────────────────────────
+        JPanel topPanel = new JPanel(new BorderLayout(8, 0));
 
-        // Table
+        JLabel info = new JLabel(
+                "<html><b>MCP Registry</b> \u2014 Externe MCP-Server einbinden und verwalten.<br>"
+                + "Durchsuchen Sie die Registry oder f\u00FCgen Sie Server manuell hinzu.</html>");
+        topPanel.add(info, BorderLayout.CENTER);
+
+        JButton browseBtn = new JButton("\uD83D\uDD0D Registry durchsuchen...");
+        browseBtn.setToolTipText("MCP-Server aus der offiziellen Registry suchen und installieren");
+        browseBtn.addActionListener(e -> {
+            McpRegistryBrowserDialog.show(SwingUtilities.getWindowAncestor(this));
+            refreshConfigs();
+        });
+        topPanel.add(browseBtn, BorderLayout.EAST);
+        topPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        add(topPanel, BorderLayout.NORTH);
+
+        // ── Table: installed servers ────────────────────────────────
         table.setRowHeight(24);
         table.getColumnModel().getColumn(0).setMaxWidth(50);
         table.getColumnModel().getColumn(3).setMaxWidth(100);
         table.getColumnModel().getColumn(4).setMaxWidth(60);
+
+        // Status column coloring
+        table.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object value, boolean sel, boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+                String v = String.valueOf(value);
+                if (v.contains("Aktiv")) c.setForeground(new Color(0, 140, 0));
+                else c.setForeground(Color.GRAY);
+                return c;
+            }
+        });
+
         add(new JScrollPane(table), BorderLayout.CENTER);
 
-        // Buttons
+        // ── Bottom: action buttons ──────────────────────────────────
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        JButton addBtn = new JButton("➕ Hinzufügen");
-        JButton editBtn = new JButton("✏️ Bearbeiten");
-        JButton removeBtn = new JButton("🗑️ Entfernen");
-        JButton startBtn = new JButton("▶ Starten");
-        JButton stopBtn = new JButton("⏹ Stoppen");
+        JButton addBtn = new JButton("Hinzuf\u00FCgen");
+        JButton editBtn = new JButton("Bearbeiten");
+        JButton removeBtn = new JButton("Entfernen");
+        JButton startBtn = new JButton("\u25B6 Starten");
+        JButton stopBtn = new JButton("\u23F9 Stoppen");
 
         buttonPanel.add(addBtn);
         buttonPanel.add(editBtn);
@@ -151,28 +175,20 @@ public class McpRegistryPanel extends JPanel {
         });
     }
 
+    private void refreshConfigs() {
+        configs.clear();
+        configs.addAll(manager.loadConfigs());
+        model.fireTableDataChanged();
+    }
+
     // ── Table model ─────────────────────────────────────────────────
 
-    private class RegistryTableModel extends AbstractTableModel {
-
-        @Override
-        public int getRowCount() { return configs.size(); }
-
-        @Override
-        public int getColumnCount() { return COLUMNS.length; }
-
-        @Override
-        public String getColumnName(int col) { return COLUMNS[col]; }
-
-        @Override
-        public Class<?> getColumnClass(int col) {
-            return col == 0 ? Boolean.class : String.class;
-        }
-
-        @Override
-        public boolean isCellEditable(int row, int col) {
-            return col == 0;
-        }
+    private class InstalledModel extends AbstractTableModel {
+        @Override public int getRowCount() { return configs.size(); }
+        @Override public int getColumnCount() { return COLUMNS.length; }
+        @Override public String getColumnName(int col) { return COLUMNS[col]; }
+        @Override public Class<?> getColumnClass(int col) { return col == 0 ? Boolean.class : String.class; }
+        @Override public boolean isCellEditable(int row, int col) { return col == 0; }
 
         @Override
         public Object getValueAt(int row, int col) {
@@ -187,7 +203,7 @@ public class McpRegistryPanel extends JPanel {
                     }
                     return cmd;
                 }
-                case 3: return manager.isRunning(cfg.getName()) ? "🟢 Aktiv" : "⚪ Inaktiv";
+                case 3: return manager.isRunning(cfg.getName()) ? "\u2705 Aktiv" : "\u26AA Inaktiv";
                 case 4: {
                     List<String> tools = manager.getToolNames(cfg.getName());
                     return tools.isEmpty() ? "-" : String.valueOf(tools.size());
@@ -209,7 +225,7 @@ public class McpRegistryPanel extends JPanel {
                 } else if (enabled && !manager.isRunning(cfg.getName())) {
                     new Thread(() -> {
                         manager.startServer(cfg);
-                        SwingUtilities.invokeLater(() -> fireTableDataChanged());
+                        SwingUtilities.invokeLater(this::fireTableDataChanged);
                     }, "mcp-toggle-" + cfg.getName()).start();
                 }
                 fireTableRowsUpdated(row, row);
@@ -217,4 +233,3 @@ public class McpRegistryPanel extends JPanel {
         }
     }
 }
-

@@ -4,7 +4,7 @@ import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.tools.ToolPolicy;
 import de.bund.zrb.tools.ToolPolicyRepository;
 import de.bund.zrb.ui.help.HelpContentProvider;
-import de.bund.zrb.ui.settings.McpServerDialog;
+import de.bund.zrb.ui.settings.McpRegistryBrowserDialog;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -136,8 +136,8 @@ public class Chat extends JPanel {
 
         popup.addSeparator();
 
-        JMenuItem manageItem = new JMenuItem("⚙ MCP Registry...");
-        manageItem.addActionListener(e -> McpServerDialog.show(this));
+        JMenuItem manageItem = new JMenuItem("\u2699 MCP Registry...");
+        manageItem.addActionListener(e -> McpRegistryBrowserDialog.show(this));
         popup.add(manageItem);
 
         popup.show(toolsMenuButton, 0, toolsMenuButton.getHeight());
