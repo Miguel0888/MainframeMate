@@ -438,11 +438,34 @@ public class NdvConnectionTab implements ConnectionTab {
                     tabbedPaneManager.addTab(previewTab);
                     statusLabel.setText("Geöffnet: " + objInfo.getName());
                 } catch (Exception e) {
+                    String msg = e.getMessage();
+                    if (msg == null || msg.isEmpty()) {
+                        msg = e.getClass().getSimpleName();
+                    }
+                    // For NPE, include stack trace info
+                    if (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null) {
+                        Throwable cause = e.getCause();
+                        msg = cause.getClass().getSimpleName();
+                        if (cause.getMessage() != null) {
+                            msg += ": " + cause.getMessage();
+                        }
+                        if (cause instanceof NullPointerException) {
+                            StackTraceElement[] st = cause.getStackTrace();
+                            if (st.length > 0) {
+                                msg += " at " + st[0].toString();
+                            }
+                        }
+                    }
                     JOptionPane.showMessageDialog(mainPanel,
-                            "Fehler beim Laden des Quellcodes:\n" + e.getMessage(),
+                            "Fehler beim Laden des Quellcodes:\n" + msg,
                             "Fehler", JOptionPane.ERROR_MESSAGE);
                     statusLabel.setText("Fehler beim Laden");
-                    System.err.println("[NdvConnectionTab] Error reading source: " + e.getMessage());
+                    System.err.println("[NdvConnectionTab] Error reading source: " + msg);
+                    if (e.getCause() != null) {
+                        e.getCause().printStackTrace();
+                    } else {
+                        e.printStackTrace();
+                    }
                 }
             }
         };

@@ -265,17 +265,55 @@ public class NdvClient implements Closeable {
     public String readSource(IPalTypeSystemFile sysFile, String library,
                              String name, int type) throws IOException, NdvException {
         checkConnected();
+        if (sysFile == null) {
+            throw new NdvException("readSource: sysFile is null");
+        }
+        if (library == null || library.isEmpty()) {
+            throw new NdvException("readSource: library is null or empty");
+        }
+        if (name == null || name.isEmpty()) {
+            throw new NdvException("readSource: name is null or empty");
+        }
+        System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name + ", type=" + type);
         try {
+            // Ensure we are logged on to the correct library
+            if (!library.equals(currentLibrary)) {
+                logon(library);
+            }
+
             IFileProperties props = new ObjectProperties.Builder(name, type).build();
-            IDownloadResult result = pal.downloadSource(null, sysFile, library, props, null);
-            if (result != null && result.getSource() != null) {
-                StringBuilder sb = new StringBuilder();
-                String[] lines = result.getSource();
-                for (int i = 0; i < lines.length; i++) {
-                    if (i > 0) sb.append('\n');
-                    sb.append(lines[i]);
+            System.out.println("[NdvClient] readSource: props created ok, calling downloadSource...");
+
+            IDownloadResult result;
+            try {
+                result = pal.downloadSource(null, sysFile, library, props, null);
+            } catch (NullPointerException npe) {
+                // Some versions of the PAL library throw NPE internally
+                System.err.println("[NdvClient] downloadSource threw NPE internally:");
+                npe.printStackTrace();
+                throw new NdvException("downloadSource interner Fehler (NPE) für '" + name + "'"
+                        + " – StackTrace: " + (npe.getStackTrace().length > 0 ? npe.getStackTrace()[0] : "unbekannt"), npe);
+            }
+
+            System.out.println("[NdvClient] readSource: downloadSource returned, result=" + (result != null ? "ok" : "null"));
+            if (result != null) {
+                String[] lines = null;
+                try {
+                    lines = result.getSource();
+                } catch (NullPointerException npe) {
+                    System.err.println("[NdvClient] result.getSource() threw NPE:");
+                    npe.printStackTrace();
+                    throw new NdvException("getSource() interner Fehler (NPE) für '" + name + "'", npe);
                 }
-                return sb.toString();
+                System.out.println("[NdvClient] readSource: getSource() returned " + (lines != null ? lines.length + " lines" : "null"));
+                if (lines != null) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < lines.length; i++) {
+                        if (i > 0) sb.append('\n');
+                        sb.append(lines[i] != null ? lines[i] : "");
+                    }
+                    return sb.toString();
+                }
             }
             return "";
         } catch (PalResultException e) {
