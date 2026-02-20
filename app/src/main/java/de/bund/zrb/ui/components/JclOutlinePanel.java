@@ -38,6 +38,7 @@ public class JclOutlinePanel extends JPanel {
     private final AntlrJclParser jclParser = new AntlrJclParser();
     private final CobolParser cobolParser = new CobolParser();
     private final NaturalParser naturalParser = new NaturalParser();
+    private boolean updatingFilter = false; // guard against re-entrant filter events
 
     // Filter options – dynamically switched per language
     private static final String FILTER_ALL = "Alle";
@@ -229,32 +230,37 @@ public class JclOutlinePanel extends JPanel {
     // ── Filter management ───────────────────────────────────────────
 
     private void updateFilterOptions() {
-        filterCombo.removeAllItems();
-        filterCombo.addItem(FILTER_ALL);
+        updatingFilter = true;
+        try {
+            filterCombo.removeAllItems();
+            filterCombo.addItem(FILTER_ALL);
 
-        if (currentModel != null) {
-            switch (currentModel.getLanguage()) {
-                case NATURAL:
-                    filterCombo.addItem(NAT_FILTER_DATA);
-                    filterCombo.addItem(NAT_FILTER_SUBROUTINES);
-                    filterCombo.addItem(NAT_FILTER_CALLS);
-                    filterCombo.addItem(NAT_FILTER_DB);
-                    filterCombo.addItem(NAT_FILTER_FLOW);
-                    break;
-                case COBOL:
-                    filterCombo.addItem(COB_FILTER_DIVISIONS);
-                    filterCombo.addItem(COB_FILTER_SECTIONS);
-                    filterCombo.addItem(COB_FILTER_PARAGRAPHS);
-                    filterCombo.addItem(COB_FILTER_DATA);
-                    filterCombo.addItem(COB_FILTER_CALLS);
-                    break;
-                default:
-                    filterCombo.addItem(JCL_FILTER_JOBS);
-                    filterCombo.addItem(JCL_FILTER_STEPS);
-                    filterCombo.addItem(JCL_FILTER_DD);
-                    filterCombo.addItem(JCL_FILTER_PROCS);
-                    break;
+            if (currentModel != null) {
+                switch (currentModel.getLanguage()) {
+                    case NATURAL:
+                        filterCombo.addItem(NAT_FILTER_DATA);
+                        filterCombo.addItem(NAT_FILTER_SUBROUTINES);
+                        filterCombo.addItem(NAT_FILTER_CALLS);
+                        filterCombo.addItem(NAT_FILTER_DB);
+                        filterCombo.addItem(NAT_FILTER_FLOW);
+                        break;
+                    case COBOL:
+                        filterCombo.addItem(COB_FILTER_DIVISIONS);
+                        filterCombo.addItem(COB_FILTER_SECTIONS);
+                        filterCombo.addItem(COB_FILTER_PARAGRAPHS);
+                        filterCombo.addItem(COB_FILTER_DATA);
+                        filterCombo.addItem(COB_FILTER_CALLS);
+                        break;
+                    default:
+                        filterCombo.addItem(JCL_FILTER_JOBS);
+                        filterCombo.addItem(JCL_FILTER_STEPS);
+                        filterCombo.addItem(JCL_FILTER_DD);
+                        filterCombo.addItem(JCL_FILTER_PROCS);
+                        break;
+                }
             }
+        } finally {
+            updatingFilter = false;
         }
     }
 
@@ -281,6 +287,9 @@ public class JclOutlinePanel extends JPanel {
         }
 
         String filter = (String) filterCombo.getSelectedItem();
+        if (filter == null) {
+            filter = FILTER_ALL;
+        }
         List<JclElement> elements = getFilteredElements(filter);
 
         if (FILTER_ALL.equals(filter)) {
@@ -525,6 +534,7 @@ public class JclOutlinePanel extends JPanel {
     }
 
     private void applyFilter() {
+        if (updatingFilter) return; // ignore events while combo is being rebuilt
         buildTree();
     }
 
