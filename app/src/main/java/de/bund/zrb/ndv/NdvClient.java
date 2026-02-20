@@ -253,12 +253,93 @@ public class NdvClient implements Closeable {
         }
     }
 
+    // Cached system file for downloads (resolved once, reused)
+    private volatile IPalTypeSystemFile cachedDownloadSysFile;
+
+    /**
+     * Resolve a system file with real DBID/FNR for download operations.
+     * Listing operations tolerate (0,0,0) but downloadSource does NOT.
+     * <p>
+     * Strategy:
+     * 1) Prefer FUSER (kind=2) from getSystemFiles()
+     * 2) Fall back to any system file with valid DBID/FNR > 0
+     * 3) Fall back to first system file at all
+     */
+    private IPalTypeSystemFile resolveDownloadSystemFile() throws IOException, NdvException {
+        if (cachedDownloadSysFile != null) {
+            return cachedDownloadSysFile;
+        }
+
+        IPalTypeSystemFile[] sysFiles;
+        try {
+            sysFiles = pal.getSystemFiles();
+        } catch (PalResultException e) {
+            throw new NdvException("getSystemFiles fehlgeschlagen: " + e.getMessage(), e);
+        }
+
+        if (sysFiles == null || sysFiles.length == 0) {
+            throw new NdvException("Server liefert keine SystemFiles – Download nicht möglich");
+        }
+
+        // Log all for diagnostics
+        IPalTypeSystemFile fuserFile = null;
+        IPalTypeSystemFile firstValid = null;
+
+        for (int i = 0; i < sysFiles.length; i++) {
+            IPalTypeSystemFile sf = sysFiles[i];
+            int dbid = sf.getDatabaseId();
+            int fnr = sf.getFileNumber();
+            int kind = sf.getKind();
+            System.out.println("[NdvClient] sysFile[" + i + "]: kind=" + kind
+                    + ", dbid=" + dbid + ", fnr=" + fnr
+                    + " (" + sysFileKindName(kind) + ")");
+
+            if (kind == IPalTypeSystemFile.FUSER && dbid > 0 && fnr > 0) {
+                fuserFile = sf;
+            }
+            if (firstValid == null && dbid > 0 && fnr > 0) {
+                firstValid = sf;
+            }
+        }
+
+        // Prefer FUSER, then any valid, then just first
+        IPalTypeSystemFile chosen;
+        if (fuserFile != null) {
+            chosen = fuserFile;
+            System.out.println("[NdvClient] Using FUSER system file: dbid=" + chosen.getDatabaseId()
+                    + ", fnr=" + chosen.getFileNumber());
+        } else if (firstValid != null) {
+            chosen = firstValid;
+            System.out.println("[NdvClient] No FUSER found, using first valid system file: dbid=" + chosen.getDatabaseId()
+                    + ", fnr=" + chosen.getFileNumber() + ", kind=" + chosen.getKind());
+        } else {
+            // Last resort: use sysFiles[0] even if DBID/FNR are 0 – let the server decide
+            chosen = sysFiles[0];
+            System.out.println("[NdvClient] WARNING: No system file with valid DBID/FNR found! Using sysFile[0]: dbid="
+                    + chosen.getDatabaseId() + ", fnr=" + chosen.getFileNumber());
+        }
+
+        cachedDownloadSysFile = chosen;
+        return chosen;
+    }
+
+    private static String sysFileKindName(int kind) {
+        switch (kind) {
+            case IPalTypeSystemFile.FNAT:     return "FNAT";
+            case IPalTypeSystemFile.FUSER:    return "FUSER";
+            case IPalTypeSystemFile.INACTIVE: return "INACTIVE";
+            case IPalTypeSystemFile.FSEC:     return "FSEC";
+            case IPalTypeSystemFile.FDIC:     return "FDIC";
+            case IPalTypeSystemFile.FDDM:     return "FDDM";
+            default:                          return "UNKNOWN(" + kind + ")";
+        }
+    }
+
     /**
      * Download source code of a Natural object.
      * <p>
-     * Uses {@code getObjectByName()} to resolve the actual DBID/FNR from the server,
-     * then creates a concrete {@code IPalTypeSystemFile} with those values.
-     * This is required because {@code downloadSource()} does NOT accept a default
+     * Uses the server's system files (resolved via {@code getSystemFiles()}) to obtain
+     * a real DBID/FNR for the download. {@code downloadSource()} does NOT accept a default
      * system file (0/0/0) – unlike listing operations which tolerate defaults.
      *
      * @param library    library name
@@ -281,37 +362,15 @@ public class NdvClient implements Closeable {
             logon(library);
         }
 
-        // ── Step 1: Resolve the object's actual DBID/FNR from the server ──
-        // A default system file (0/0/0) is acceptable for this lookup call.
-        IPalTypeSystemFile lookupFile = PalTypeSystemFileFactory.newInstance();
-
-        ISourceLookupResult lookup;
-        try {
-            lookup = pal.getObjectByName(lookupFile, library, name, objectType, false);
-        } catch (PalResultException e) {
-            throw new NdvException("Objekt '" + name + "' konnte nicht aufgelöst werden in '" + library + "': " + e.getMessage(), e);
-        }
-
-        if (lookup == null) {
-            throw new NdvException("Objekt nicht gefunden: " + name + " in " + library);
-        }
-
-        int dbid = lookup.getDatabaseId();
-        int fnr  = lookup.getFileNumber();
+        // ── Step 1: Get a system file with real DBID/FNR ──
+        IPalTypeSystemFile sysFile = resolveDownloadSystemFile();
 
         System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name
-                + ", type=" + objectType + ", resolved DBID=" + dbid + ", FNR=" + fnr);
+                + ", type=" + objectType
+                + ", sysFile=dbid=" + sysFile.getDatabaseId() + "/fnr=" + sysFile.getFileNumber()
+                + "/kind=" + sysFile.getKind());
 
-        if (dbid <= 0 || fnr <= 0) {
-            throw new NdvException("Ungültige DBID/FNR vom Server aufgelöst: " + dbid + "/" + fnr
-                    + " für '" + name + "' in '" + library + "'");
-        }
-
-        // ── Step 2: Create a REAL system file with resolved DBID/FNR ──
-        // FUSER (kind=2) is the standard user file where sources reside
-        IPalTypeSystemFile realSysFile = PalTypeSystemFileFactory.newInstance(dbid, fnr, IPalTypeSystemFile.FUSER);
-
-        // ── Step 3: Create download transaction context ──
+        // ── Step 2: Create download transaction context ──
         ITransactionContextDownload ctx =
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
@@ -319,12 +378,7 @@ public class NdvClient implements Closeable {
             IFileProperties props = new ObjectProperties.Builder(name, objectType).build();
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
 
-            System.out.println("[NdvClient] Calling downloadSource: sysFile=dbid=" + realSysFile.getDatabaseId()
-                    + "/fnr=" + realSysFile.getFileNumber()
-                    + "/kind=" + realSysFile.getKind()
-                    + ", library=" + library + ", name=" + name);
-
-            IDownloadResult result = pal.downloadSource(ctx, realSysFile, library, props, options);
+            IDownloadResult result = pal.downloadSource(ctx, sysFile, library, props, options);
 
             if (result != null) {
                 String[] lines = result.getSource();
@@ -334,7 +388,7 @@ public class NdvClient implements Closeable {
             return "";
         } catch (PalResultException e) {
             throw new NdvException("Quellcode-Download fehlgeschlagen für '" + name + "' in '" + library
-                    + "' (DBID=" + dbid + ", FNR=" + fnr + "): " + e.getMessage(), e);
+                    + "' (DBID=" + sysFile.getDatabaseId() + ", FNR=" + sysFile.getFileNumber() + "): " + e.getMessage(), e);
         } finally {
             try {
                 pal.disposeTransactionContext(ctx);
