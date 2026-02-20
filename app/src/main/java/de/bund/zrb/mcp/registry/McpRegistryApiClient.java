@@ -92,6 +92,15 @@ public class McpRegistryApiClient {
         }
 
         List<McpRegistryServerInfo> servers = new ArrayList<>(dedup.values());
+        // Sort: known/official publishers first, then by name
+        Collections.sort(servers, (a, b) -> {
+            int pa = a.getSortPriority();
+            int pb = b.getSortPriority();
+            if (pa != pb) return Integer.compare(pa, pb);
+            return String.CASE_INSENSITIVE_ORDER.compare(
+                    a.getName() != null ? a.getName() : "",
+                    b.getName() != null ? b.getName() : "");
+        });
         System.err.println("[McpRegistryApi] Parsed " + servers.size() + " unique servers, nextCursor=" + nextCursor);
         return new ListResult(servers, nextCursor);
     }

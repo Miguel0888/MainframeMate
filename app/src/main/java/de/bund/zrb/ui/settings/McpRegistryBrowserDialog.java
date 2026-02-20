@@ -61,7 +61,13 @@ public class McpRegistryBrowserDialog {
             public Object getValueAt(int row, int col) {
                 McpRegistryServerInfo info = servers.get(row);
                 switch (col) {
-                    case 0: return info.getTitle();
+                    case 0: {
+                        String prefix = "";
+                        if (info.isOfficial() && info.isKnownPublisher()) prefix = "\u2605 "; // ★
+                        else if (info.isKnownPublisher()) prefix = "\u2606 "; // ☆
+                        else if (info.isOfficial()) prefix = "\u2713 "; // ✓
+                        return prefix + info.getTitle();
+                    }
                     case 1: {
                         String d = info.getDescription();
                         return d.length() > 80 ? d.substring(0, 77) + "..." : d;
@@ -363,6 +369,29 @@ public class McpRegistryBrowserDialog {
         else if (info.isDeleted()) statusLabel.setForeground(Color.RED);
         statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         content.add(statusLabel);
+        content.add(Box.createVerticalStrut(4));
+
+        // Trust badges
+        StringBuilder badges = new StringBuilder();
+        if (info.isOfficial()) badges.append("\u2605 Offiziell gepr\u00FCft  ");
+        if (info.isKnownPublisher()) badges.append("\u2606 Bekannter Herausgeber  ");
+        if (badges.length() > 0) {
+            JLabel badgeLabel = new JLabel(badges.toString().trim());
+            badgeLabel.setFont(normalFont);
+            badgeLabel.setForeground(new Color(0, 120, 60));
+            badgeLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(badgeLabel);
+            content.add(Box.createVerticalStrut(4));
+        }
+
+        // Repository URL
+        if (info.getRepositoryUrl() != null && !info.getRepositoryUrl().isEmpty()) {
+            JLabel repoLabel = new JLabel("Repository: " + info.getRepositoryUrl());
+            repoLabel.setFont(monoFont);
+            repoLabel.setForeground(new Color(0, 100, 200));
+            repoLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(repoLabel);
+        }
         content.add(Box.createVerticalStrut(8));
 
         // Description

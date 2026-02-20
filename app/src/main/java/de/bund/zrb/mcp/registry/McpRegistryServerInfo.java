@@ -15,18 +15,29 @@ import java.util.List;
  */
 public class McpRegistryServerInfo {
 
+    private static final java.util.Set<String> KNOWN_PUBLISHERS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "modelcontextprotocol", "anthropic", "github", "microsoft", "google",
+            "aws", "cloudflare", "stripe", "linear", "sentry", "gitlab",
+            "jetbrains", "docker", "vercel", "supabase", "mongodb", "elastic",
+            "datadog", "grafana", "postman", "notion", "slack", "discord",
+            "openai", "browserbase", "chromiumdevtools", "chromedevtools"
+    ));
+
     private final String name;
     private final String title;
     private final String description;
     private final String status;
     private final String latestVersion;
+    private final String repositoryUrl;
+    private final boolean isOfficial;
     private final List<PackageInfo> packages;
     private final List<RemoteInfo> remotes;
     private final List<VariableInfo> variables;
     private final List<HeaderInfo> headers;
 
     private McpRegistryServerInfo(String name, String title, String description, String status,
-                                  String latestVersion, List<PackageInfo> packages,
+                                  String latestVersion, String repositoryUrl, boolean isOfficial,
+                                  List<PackageInfo> packages,
                                   List<RemoteInfo> remotes, List<VariableInfo> variables,
                                   List<HeaderInfo> headers) {
         this.name = name;
@@ -34,6 +45,8 @@ public class McpRegistryServerInfo {
         this.description = description;
         this.status = status;
         this.latestVersion = latestVersion;
+        this.repositoryUrl = repositoryUrl;
+        this.isOfficial = isOfficial;
         this.packages = packages;
         this.remotes = remotes;
         this.variables = variables;
@@ -47,6 +60,8 @@ public class McpRegistryServerInfo {
     public String getDescription() { return description != null ? description : ""; }
     public String getStatus() { return status != null ? status : "active"; }
     public String getLatestVersion() { return latestVersion; }
+    public String getRepositoryUrl() { return repositoryUrl; }
+    public boolean isOfficial() { return isOfficial; }
     public List<PackageInfo> getPackages() { return packages; }
     public List<RemoteInfo> getRemotes() { return remotes; }
     public List<VariableInfo> getVariables() { return variables; }
@@ -56,6 +71,33 @@ public class McpRegistryServerInfo {
     public boolean isDeleted() { return "deleted".equalsIgnoreCase(status); }
     public boolean hasRemotes() { return remotes != null && !remotes.isEmpty(); }
     public boolean hasPackages() { return packages != null && !packages.isEmpty(); }
+
+    /**
+     * Returns true if this server is from a well-known/trusted publisher.
+     */
+    public boolean isKnownPublisher() {
+        if (name == null) return false;
+        // Extract publisher from name like "io.github.modelcontextprotocol/fetch"
+        String lower = name.toLowerCase();
+        for (String known : KNOWN_PUBLISHERS) {
+            if (lower.contains(known)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Sort priority: lower = more prominent.
+     * 0 = official + known publisher, 1 = known publisher, 2 = official, 3 = normal, 9 = deprecated/deleted
+     */
+    public int getSortPriority() {
+        if (isDeleted()) return 9;
+        if (isDeprecated()) return 8;
+        boolean known = isKnownPublisher();
+        if (isOfficial && known) return 0;
+        if (known) return 1;
+        if (isOfficial) return 2;
+        return 3;
+    }
 
     // ── Parsing ─────────────────────────────────────────────────────
 
@@ -75,17 +117,24 @@ public class McpRegistryServerInfo {
         String status = getStr(obj, "status");
         String version = getStr(obj, "version");
 
-        // Read status from _meta if not set directly
-        if (status == null) {
+        // Read status + official flag from _meta
+        boolean official = false;
+        {
             JsonObject meta = getObj(envelope, "_meta");
             if (meta != null) {
-                JsonObject official = getObj(meta, "io.modelcontextprotocol.registry/official");
-                if (official != null) {
-                    String metaStatus = getStr(official, "status");
-                    if (metaStatus != null) status = metaStatus;
+                JsonObject offObj = getObj(meta, "io.modelcontextprotocol.registry/official");
+                if (offObj != null) {
+                    official = true;
+                    String metaStatus = getStr(offObj, "status");
+                    if (status == null && metaStatus != null) status = metaStatus;
                 }
             }
         }
+
+        // Extract repository URL
+        String repoUrl = null;
+        JsonObject repoObj = getObj(obj, "repository");
+        if (repoObj != null) repoUrl = getStr(repoObj, "url");
 
         List<PackageInfo> pkgs = new ArrayList<>();
         List<RemoteInfo> rems = new ArrayList<>();
@@ -105,6 +154,7 @@ public class McpRegistryServerInfo {
         rems.addAll(parseRemotes(obj));
 
         return new McpRegistryServerInfo(name, title, description, status, version,
+                repoUrl, official,
                 pkgs, rems, Collections.<VariableInfo>emptyList(), Collections.<HeaderInfo>emptyList());
     }
 
@@ -124,17 +174,24 @@ public class McpRegistryServerInfo {
         String status = getStr(obj, "status");
         String version = getStr(obj, "version");
 
-        // Try reading status from _meta (official registry uses _meta.io.modelcontextprotocol.registry/official.status)
-        if (status == null) {
+        // Try reading status + official flag from _meta
+        boolean officialFlag = false;
+        {
             JsonObject meta = getObj(envelope, "_meta");
             if (meta != null) {
-                JsonObject official = getObj(meta, "io.modelcontextprotocol.registry/official");
-                if (official != null) {
-                    String metaStatus = getStr(official, "status");
-                    if (metaStatus != null) status = metaStatus;
+                JsonObject offObj = getObj(meta, "io.modelcontextprotocol.registry/official");
+                if (offObj != null) {
+                    officialFlag = true;
+                    String metaStatus = getStr(offObj, "status");
+                    if (status == null && metaStatus != null) status = metaStatus;
                 }
             }
         }
+
+        // Extract repository URL
+        String repoUrl = null;
+        JsonObject repoObj = getObj(obj, "repository");
+        if (repoObj != null) repoUrl = getStr(repoObj, "url");
 
         // Try nested version_detail
         JsonObject vd = getObj(obj, "version_detail");
@@ -163,6 +220,7 @@ public class McpRegistryServerInfo {
         for (RemoteInfo rem : rems) hdrs.addAll(rem.getHeaders());
 
         return new McpRegistryServerInfo(name, title, description, status, version,
+                repoUrl, officialFlag,
                 pkgs, rems, vars, hdrs);
     }
 
