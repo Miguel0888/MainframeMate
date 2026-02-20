@@ -426,7 +426,7 @@ public class NdvConnectionTab implements ConnectionTab {
         SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() throws Exception {
-                return client.readSource(currentSysFile, currentLibrary, objInfo);
+                return client.readSource(currentLibrary, objInfo);
             }
 
             @Override

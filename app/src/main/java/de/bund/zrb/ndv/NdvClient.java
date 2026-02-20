@@ -255,17 +255,19 @@ public class NdvClient implements Closeable {
 
     /**
      * Download source code of a Natural object.
+     * <p>
+     * Uses {@code getObjectByName()} to resolve the actual DBID/FNR from the server,
+     * then creates a concrete {@code IPalTypeSystemFile} with those values.
+     * This is required because {@code downloadSource()} does NOT accept a default
+     * system file (0/0/0) – unlike listing operations which tolerate defaults.
      *
-     * @param sysFile  system file (with real DBID/FNR from getSystemFiles())
-     * @param library  library name
-     * @param name     object name
-     * @param type     object type (ObjectType.PROGRAM etc.)
-     * @param databaseId Adabas database ID of the object (from IPalTypeObject.getDatabaseId())
-     * @param fileNumber Adabas file number of the object (from IPalTypeObject.getFileNumber())
+     * @param library    library name
+     * @param name       object name
+     * @param objectType object type (ObjectType.PROGRAM etc.)
      * @return source code as string (lines joined with \n)
      */
-    public String readSource(IPalTypeSystemFile sysFile, String library,
-                             String name, int type, int databaseId, int fileNumber) throws IOException, NdvException {
+    public String readSource(String library, String name, int objectType)
+            throws IOException, NdvException {
         checkConnected();
         if (library == null || library.isEmpty()) {
             throw new NdvException("readSource: library is null or empty");
@@ -279,38 +281,50 @@ public class NdvClient implements Closeable {
             logon(library);
         }
 
-        System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name + ", type=" + type
-                + ", dbid=" + databaseId + ", fnr=" + fileNumber
-                + ", sysFile=" + (sysFile != null ? "dbid=" + sysFile.getDatabaseId() + ",fnr=" + sysFile.getFileNumber() : "null"));
+        // ── Step 1: Resolve the object's actual DBID/FNR from the server ──
+        // A default system file (0/0/0) is acceptable for this lookup call.
+        IPalTypeSystemFile lookupFile = PalTypeSystemFileFactory.newInstance();
 
-        // Create a proper transaction context for download (required by the API)
+        ISourceLookupResult lookup;
+        try {
+            lookup = pal.getObjectByName(lookupFile, library, name, objectType, false);
+        } catch (PalResultException e) {
+            throw new NdvException("Objekt '" + name + "' konnte nicht aufgelöst werden in '" + library + "': " + e.getMessage(), e);
+        }
+
+        if (lookup == null) {
+            throw new NdvException("Objekt nicht gefunden: " + name + " in " + library);
+        }
+
+        int dbid = lookup.getDatabaseId();
+        int fnr  = lookup.getFileNumber();
+
+        System.out.println("[NdvClient] readSource: library=" + library + ", name=" + name
+                + ", type=" + objectType + ", resolved DBID=" + dbid + ", FNR=" + fnr);
+
+        if (dbid <= 0 || fnr <= 0) {
+            throw new NdvException("Ungültige DBID/FNR vom Server aufgelöst: " + dbid + "/" + fnr
+                    + " für '" + name + "' in '" + library + "'");
+        }
+
+        // ── Step 2: Create a REAL system file with resolved DBID/FNR ──
+        // FUSER (kind=2) is the standard user file where sources reside
+        IPalTypeSystemFile realSysFile = PalTypeSystemFileFactory.newInstance(dbid, fnr, IPalTypeSystemFile.FUSER);
+
+        // ── Step 3: Create download transaction context ──
         ITransactionContextDownload ctx =
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
-            // Build ObjectProperties with the object's actual DBID/FNR (critical for Mainframe/Adabas!)
-            // Without these, the server gets DB/FNR 0/0 which causes NAT3017 "Invalid file number"
-            IFileProperties props = new ObjectProperties.Builder(name, type)
-                    .databaseId(databaseId)
-                    .fileNumber(fileNumber)
-                    .build();
-
-            // Use explicit option set (NONE = default download behavior)
+            IFileProperties props = new ObjectProperties.Builder(name, objectType).build();
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
 
-            // Use the provided sysFile; if null, use default (0,0,0)
-            IPalTypeSystemFile effectiveSysFile = sysFile != null ? sysFile : getDefaultSystemFile();
+            System.out.println("[NdvClient] Calling downloadSource: sysFile=dbid=" + realSysFile.getDatabaseId()
+                    + "/fnr=" + realSysFile.getFileNumber()
+                    + "/kind=" + realSysFile.getKind()
+                    + ", library=" + library + ", name=" + name);
 
-            System.out.println("[NdvClient] Calling downloadSource with ctx="
-                    + ctx.getClass().getSimpleName()
-                    + ", sysFile=dbid=" + effectiveSysFile.getDatabaseId()
-                    + "/fnr=" + effectiveSysFile.getFileNumber()
-                    + ", props.dbid=" + databaseId + "/fnr=" + fileNumber
-                    + ", library=" + library
-                    + ", name=" + props.getName()
-                    + ", type=" + props.getType());
-
-            IDownloadResult result = pal.downloadSource(ctx, effectiveSysFile, library, props, options);
+            IDownloadResult result = pal.downloadSource(ctx, realSysFile, library, props, options);
 
             if (result != null) {
                 String[] lines = result.getSource();
@@ -319,15 +333,23 @@ public class NdvClient implements Closeable {
             }
             return "";
         } catch (PalResultException e) {
-            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + name + "' in '" + library + "': " + e.getMessage(), e);
+            throw new NdvException("Quellcode-Download fehlgeschlagen für '" + name + "' in '" + library
+                    + "' (DBID=" + dbid + ", FNR=" + fnr + "): " + e.getMessage(), e);
         } finally {
-            // Always release the transaction context
             try {
                 pal.disposeTransactionContext(ctx);
             } catch (Exception e) {
                 System.err.println("[NdvClient] Warning: disposeTransactionContext failed: " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Read source using object info (convenience overload).
+     */
+    public String readSource(String library, NdvObjectInfo objInfo)
+            throws IOException, NdvException {
+        return readSource(library, objInfo.getName(), objInfo.getType());
     }
 
     private String joinLines(String[] lines) {
@@ -342,14 +364,6 @@ public class NdvClient implements Closeable {
         return sb.toString();
     }
 
-    /**
-     * Read source using object info.
-     */
-    public String readSource(IPalTypeSystemFile sysFile, String library, NdvObjectInfo objInfo)
-            throws IOException, NdvException {
-        return readSource(sysFile, library, objInfo.getName(), objInfo.getType(),
-                objInfo.getDatabaseId(), objInfo.getFileNumber());
-    }
 
     /**
      * Get the current logon library.
