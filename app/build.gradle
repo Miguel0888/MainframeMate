@@ -25,6 +25,9 @@ dependencies {
     // NDV (Natural Development Server) - NATSPOD protocol library
     implementation files('../lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar')
     implementation files('../lib/com.softwareag.naturalone.natural.auxiliary_8.4.1.0000-0251.jar')
+    // ICU4J - extracted from ndvserveraccess Bundle-ClassPath (required for charset conversion)
+    implementation files('../lib/icu4j-4_8_1.jar')
+    implementation files('../lib/icu4j-charset-4_8_1.jar')
 
     // JSON
     implementation 'com.google.code.gson:gson:2.10.1'
