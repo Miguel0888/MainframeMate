@@ -380,7 +380,11 @@ public class MainFrame extends JFrame implements MainframeContext {
                         .open("ftp:" + rawPath, null, null, null, isFile);
                 break;
             case "NDV":
-                openNdvBookmark(rawPath);
+                if ("DIRECTORY".equals(entry.resourceKind)) {
+                    openNdvDirectoryBookmark(rawPath);
+                } else {
+                    openNdvFileBookmark(entry);
+                }
                 break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
@@ -391,9 +395,9 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     /**
-     * Open an NDV bookmark: connect (or reuse connection), navigate to library and open the object.
+     * Open an NDV directory bookmark: connect, open NdvConnectionTab, navigate to library.
      */
-    private void openNdvBookmark(String rawPath) {
+    private void openNdvDirectoryBookmark(String rawPath) {
         // rawPath format: "LIBRARY/OBJECTNAME" or just "LIBRARY"
         Settings settings = SettingsHelper.load();
         String host = settings.host;
@@ -467,6 +471,101 @@ public class MainFrame extends JFrame implements MainframeContext {
                     }
                     javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
                             "NDV-Verbindung fehlgeschlagen:\n" + msg,
+                            "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Open an NDV FILE bookmark directly: connect, read source, open FileTab.
+     * Uses the NDV metadata stored in the bookmark entry (objectName, type, dbid, fnr)
+     * so no ConnectionTab is needed.
+     */
+    private void openNdvFileBookmark(de.bund.zrb.model.BookmarkEntry entry) {
+        Settings settings = SettingsHelper.load();
+        String host = settings.host;
+        String user = settings.user;
+        int port = settings.ndvPort;
+
+        if (host == null || host.isEmpty() || user == null || user.isEmpty()) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Bitte zuerst Server-Einstellungen konfigurieren.",
+                    "NDV-Verbindung", javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String password = LoginManager.getInstance().getPassword(host, user);
+        if (password == null || password.isEmpty()) return;
+
+        // Reconstruct NdvObjectInfo from stored bookmark metadata
+        final String library = entry.ndvLibrary != null ? entry.ndvLibrary : "";
+        final String objectName = entry.ndvObjectName != null ? entry.ndvObjectName : "";
+        if (library.isEmpty() || objectName.isEmpty()) {
+            // Fallback: no metadata stored (legacy bookmark) – fall back to directory flow
+            openNdvDirectoryBookmark(entry.getRawPath());
+            return;
+        }
+
+        final de.bund.zrb.ndv.NdvObjectInfo objInfo = new de.bund.zrb.ndv.NdvObjectInfo(
+                objectName, objectName,
+                com.softwareag.naturalone.natural.pal.external.ObjectKind.SOURCE,
+                entry.ndvObjectType,
+                "", // typeName will be derived
+                entry.ndvTypeExtension != null ? entry.ndvTypeExtension : "",
+                0, "", "",
+                entry.ndvDbid, entry.ndvFnr
+        );
+
+        final String fHost = host;
+        final String fUser = user;
+        final int fPort = port;
+        final String fPassword = password;
+        final String fLibrary = library.toUpperCase();
+        final String fullPath = fLibrary + "/" + objectName
+                + (objInfo.getTypeExtension().isEmpty() ? "" : "." + objInfo.getTypeExtension());
+
+        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+
+        new javax.swing.SwingWorker<String, Void>() {
+            de.bund.zrb.ndv.NdvService service;
+
+            @Override
+            protected String doInBackground() throws Exception {
+                service = new de.bund.zrb.ndv.NdvService();
+                service.connect(fHost, fPort, fUser, fPassword);
+                LoginManager.getInstance().onLoginSuccess(fHost, fUser);
+                return service.readSource(fLibrary, objInfo);
+            }
+
+            @Override
+            protected void done() {
+                setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    String source = get();
+                    if (source == null) source = "";
+
+                    NdvResourceState ndvState = new NdvResourceState(service, fLibrary, objInfo);
+                    VirtualResource resource = new VirtualResource(
+                            de.bund.zrb.files.path.VirtualResourceRef.of(fullPath),
+                            VirtualResourceKind.FILE,
+                            fullPath,
+                            VirtualBackendType.NDV,
+                            null, ndvState
+                    );
+
+                    FileTabImpl fileTab = new FileTabImpl(
+                            tabManager, resource, source, null, null, false
+                    );
+                    tabManager.addTab(fileTab);
+                } catch (Exception e) {
+                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                    if (msg != null && (msg.contains("Login") || msg.contains("login")
+                            || msg.contains("NAT0873") || msg.contains("NAT7734"))) {
+                        LoginManager.getInstance().invalidatePassword(fHost, fUser);
+                    }
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "NDV-Datei konnte nicht geöffnet werden:\n" + msg,
                             "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
                 }
             }
@@ -661,6 +760,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
     }
 }
+
+
 
 
 

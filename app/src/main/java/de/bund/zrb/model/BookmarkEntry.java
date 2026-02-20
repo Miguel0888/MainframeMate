@@ -12,6 +12,20 @@ public class BookmarkEntry {
     public String resourceKind; // "FILE" or "DIRECTORY" – null treated as FILE for leaf bookmarks
     public List<BookmarkEntry> children;
 
+    // ── NDV-specific metadata (only set for NDV FILE bookmarks) ──
+    /** Natural object name (e.g. "#BHOBICP") */
+    public String ndvObjectName;
+    /** Natural library (e.g. "ABAK-T") */
+    public String ndvLibrary;
+    /** Natural object type id (e.g. ObjectType.PROGRAM) */
+    public int ndvObjectType;
+    /** File extension (e.g. "NSP") */
+    public String ndvTypeExtension;
+    /** Adabas database id (from listing) – 0 or -1 means unresolved */
+    public int ndvDbid;
+    /** Adabas file number (from listing) – 0 or -1 means unresolved */
+    public int ndvFnr;
+
     // Known protocol prefixes
     public static final String PREFIX_LOCAL = "local://";
     public static final String PREFIX_FTP   = "ftp://";

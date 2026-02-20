@@ -196,7 +196,13 @@ public class TabbedPaneManager {
             String kind = getResourceKindForTab(tab);
             LeftDrawer d = getBookmarkDrawer();
             if (d != null && path != null && !path.isEmpty()) {
-                boolean added = d.toggleBookmark(path, backend, kind);
+                // For NDV FILE bookmarks, pass NDV metadata so we can reopen directly
+                NdvResourceState ndvState = null;
+                if ("NDV".equals(backend) && "FILE".equals(kind) && tab instanceof FileTabImpl) {
+                    VirtualResource res = ((FileTabImpl) tab).getResource();
+                    if (res != null) ndvState = res.getNdvState();
+                }
+                boolean added = d.toggleBookmark(path, backend, kind, ndvState);
                 starButton.setText(added ? STAR_FILLED : STAR_EMPTY);
                 starButton.setForeground(added ? new Color(255, 200, 0) : Color.GRAY);
                 starButton.setToolTipText(added ? "Lesezeichen entfernen" : "Als Lesezeichen merken");

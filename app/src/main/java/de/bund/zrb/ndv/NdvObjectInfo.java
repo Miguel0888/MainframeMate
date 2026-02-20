@@ -123,5 +123,36 @@ public class NdvObjectInfo {
     public String toString() {
         return getIcon() + " " + name + " [" + typeName + "]";
     }
+
+    /**
+     * Resolve Natural object type from file extension (e.g. "NSP" → PROGRAM).
+     * Used when reopening bookmarks where only the extension is known.
+     *
+     * @return the ObjectType id, or ObjectType.PROGRAM as fallback
+     */
+    @SuppressWarnings("unchecked")
+    public static int typeFromExtension(String ext) {
+        if (ext == null || ext.isEmpty()) return ObjectType.PROGRAM;
+        String upper = ext.toUpperCase();
+        Hashtable<Integer, String> idExts = ObjectType.getInstanceIdExtension();
+        for (java.util.Map.Entry<Integer, String> entry : idExts.entrySet()) {
+            if (upper.equals(String.valueOf(entry.getValue()).toUpperCase())) {
+                return entry.getKey();
+            }
+        }
+        return ObjectType.PROGRAM; // fallback
+    }
+
+    /**
+     * Create a minimal NdvObjectInfo for bookmark reopening (name + type from extension).
+     * DBID/FNR default to -1 (will trigger fallback resolution in NdvClient).
+     */
+    public static NdvObjectInfo forBookmark(String name, String extension) {
+        int type = typeFromExtension(extension);
+        Hashtable idNames = ObjectType.getInstanceIdName();
+        String typeName = idNames.containsKey(type) ? (String) idNames.get(type) : "Unknown";
+        return new NdvObjectInfo(name, name, ObjectKind.SOURCE, type, typeName, extension,
+                0, "", "", -1, -1);
+    }
 }
 

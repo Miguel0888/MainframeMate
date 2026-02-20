@@ -98,6 +98,14 @@ public class LeftDrawer extends JPanel {
      * Toggle bookmark with explicit resource kind (FILE or DIRECTORY).
      */
     public boolean toggleBookmark(String rawPath, String backendType, String resourceKind) {
+        return toggleBookmark(rawPath, backendType, resourceKind, null);
+    }
+
+    /**
+     * Toggle bookmark with optional NDV metadata for direct file reopening.
+     */
+    public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
+                                  de.bund.zrb.ui.NdvResourceState ndvState) {
         if (rawPath == null) return false;
         String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
         if (isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath)) {
@@ -105,7 +113,25 @@ public class LeftDrawer extends JPanel {
             refreshBookmarks();
             return false;
         } else {
-            setBookmarkForCurrentPath(null, rawPath, backendType, resourceKind);
+            String label = new java.io.File(rawPath).getName();
+            if (label.isEmpty()) label = rawPath;
+            ensureGeneralFolder();
+            BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
+            entry.resourceKind = resourceKind != null ? resourceKind : "FILE";
+            // Enrich NDV FILE bookmarks with object metadata for direct reopening
+            if (ndvState != null && "FILE".equals(resourceKind)) {
+                de.bund.zrb.ndv.NdvObjectInfo obj = ndvState.getObjectInfo();
+                if (obj != null) {
+                    entry.ndvLibrary = ndvState.getLibrary();
+                    entry.ndvObjectName = obj.getName();
+                    entry.ndvObjectType = obj.getType();
+                    entry.ndvTypeExtension = obj.getTypeExtension();
+                    entry.ndvDbid = obj.getDatabaseId();
+                    entry.ndvFnr = obj.getFileNumber();
+                }
+            }
+            BookmarkHelper.addBookmarkToFolder("Allgemein", entry);
+            refreshBookmarks();
             return true;
         }
     }
