@@ -54,8 +54,6 @@ public class SettingsDialog {
     private static JCheckBox ftpUseLoginAsHlqBox;
     private static JTextField ftpCustomHlqField;
     private static JButton openFolderButton;
-    private static JCheckBox autoConnectBox;
-    private static JCheckBox savePasswordBox;
     private static JCheckBox enableSound;
     private static JSpinner marginSpinner;
     private static JComboBox<String> paddingBox;
@@ -111,11 +109,6 @@ public class SettingsDialog {
     private static JCheckBox showHelpIconsBox;
     private static JComboBox<LockerStyle> lockStyleBox;
 
-    private static JTextField hostField;
-    private static JTextField userField;
-    private static JPasswordField passwordField;
-    private static JButton clearPasswordButton;
-    private static boolean clearPasswordRequested;
     private static JSpinner ndvPortSpinner;
     private static JTextField ndvDefaultLibraryField;
 
@@ -152,11 +145,14 @@ public class SettingsDialog {
         ragSettingsPanel = new RagSettingsPanel();
         JPanel proxyContent = new JPanel(new GridBagLayout());
         JScrollPane proxyPanel = new JScrollPane(proxyContent);
+        JPanel ndvContent = new JPanel(new GridBagLayout());
+        JScrollPane ndvPanel = new JScrollPane(ndvContent);
 
         tabs.addTab("Allgemein", generalPanel);
         tabs.addTab("Farbzuordnung", colorPanel);
         tabs.addTab("Datenumwandlung", transformPanel);
         tabs.addTab("FTP-Verbindung", connectPanel);
+        tabs.addTab("NDV-Verbindung", ndvPanel);
         tabs.addTab("KI", aiPanel);
         tabs.addTab("RAG", ragSettingsPanel);
         tabs.addTab("Proxy", proxyPanel);
@@ -171,9 +167,10 @@ public class SettingsDialog {
                 case 1: topic = HelpContentProvider.HelpTopic.SETTINGS_COLORS; break;
                 case 2: topic = HelpContentProvider.HelpTopic.SETTINGS_TRANSFORM; break;
                 case 3: topic = HelpContentProvider.HelpTopic.SETTINGS_FTP; break;
-                case 4: topic = HelpContentProvider.HelpTopic.SETTINGS_AI; break;
-                case 5: topic = HelpContentProvider.HelpTopic.SETTINGS_RAG; break;
-                case 6: topic = HelpContentProvider.HelpTopic.SETTINGS_PROXY; break;
+                case 4: topic = HelpContentProvider.HelpTopic.SETTINGS_FTP; break; // NDV (reuse FTP topic)
+                case 5: topic = HelpContentProvider.HelpTopic.SETTINGS_AI; break;
+                case 6: topic = HelpContentProvider.HelpTopic.SETTINGS_RAG; break;
+                case 7: topic = HelpContentProvider.HelpTopic.SETTINGS_PROXY; break;
                 default: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL;
             }
             HelpContentProvider.showHelpPopup((Component) e.getSource(), topic);
@@ -190,6 +187,7 @@ public class SettingsDialog {
         createGeneralContent(generalContent, parent);
         createTransformContent(transformContent);
         createConnectContent(connectContent);
+        createNdvContent(ndvContent);
         createColorContent(colorContent, parent);
         createAiContent(aiContent);
         createProxyContent(proxyContent, parent);
@@ -249,17 +247,6 @@ public class SettingsDialog {
         gbcGeneral.gridy++;
         gbcGeneral.gridwidth = 1;
 
-        // Login beim Start (new Session), falls Bookmarks nicht verwendet werden
-        autoConnectBox = new JCheckBox("Passwort nur einmal eingeben");
-        autoConnectBox.setSelected(settings.autoConnect);
-        generalContent.add(autoConnectBox, gbcGeneral);
-        gbcGeneral.gridy++;
-
-        // Login-Dialog unterdrücken
-        savePasswordBox = new JCheckBox("Passwort verschlüsselt speichern");
-        savePasswordBox.setSelected(settings.savePassword);
-        generalContent.add(savePasswordBox, gbcGeneral);
-        gbcGeneral.gridy++;
 
         // Sounds abspielen
         enableSound = new JCheckBox("Sounds abspielen");
@@ -448,51 +435,6 @@ public class SettingsDialog {
     private static void createConnectContent(JPanel expertContent) {
         GridBagConstraints gbcConnect = createDefaultGbc();
 
-        // ─── Server-Zugangsdaten (gemeinsam für FTP + NDV) ───
-        expertContent.add(new JLabel("─── Server-Zugangsdaten ───"), gbcConnect);
-        gbcConnect.gridy++;
-
-        expertContent.add(new JLabel("Server (Host):"), gbcConnect);
-        gbcConnect.gridy++;
-        hostField = new JTextField(settings.host == null ? "" : settings.host, 24);
-        expertContent.add(hostField, gbcConnect);
-        gbcConnect.gridy++;
-
-        expertContent.add(new JLabel("Benutzer:"), gbcConnect);
-        gbcConnect.gridy++;
-        userField = new JTextField(settings.user == null ? "" : settings.user, 24);
-        expertContent.add(userField, gbcConnect);
-        gbcConnect.gridy++;
-
-        JPanel passwordPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        JButton managePasswordButton = new JButton("Passwort verwalten...");
-        managePasswordButton.addActionListener(e -> showPasswordDialog(expertContent));
-        passwordPanel.add(managePasswordButton);
-        expertContent.add(passwordPanel, gbcConnect);
-        gbcConnect.gridy++;
-
-        // Hidden fields for password management (populated by dialog)
-        passwordField = new JPasswordField(24);
-        clearPasswordRequested = false;
-
-        // ─── NDV (Natural Development Server) ───
-        expertContent.add(new JLabel(" "), gbcConnect);
-        gbcConnect.gridy++;
-        expertContent.add(new JLabel("─── NDV (Natural Development Server) ───"), gbcConnect);
-        gbcConnect.gridy++;
-
-        addLabelWithInfoIcon(expertContent, gbcConnect, "NDV Port:",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT); // reuse topic for now
-        ndvPortSpinner = new JSpinner(new SpinnerNumberModel(settings.ndvPort, 1, 65535, 1));
-        expertContent.add(ndvPortSpinner, gbcConnect);
-        gbcConnect.gridy++;
-
-        expertContent.add(new JLabel("Default-Bibliothek (optional):"), gbcConnect);
-        gbcConnect.gridy++;
-        ndvDefaultLibraryField = new JTextField(settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary : "", 20);
-        ndvDefaultLibraryField.setToolTipText("z.B. ABAK-T – wird beim Verbinden automatisch geöffnet (leer = keine)");
-        expertContent.add(ndvDefaultLibraryField, gbcConnect);
-        gbcConnect.gridy++;
 
         // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE) mit Info-Icons
         addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Datei-Typ (TYPE):",
@@ -661,49 +603,30 @@ public class SettingsDialog {
         });
     }
 
-    /**
-     * Shows a separate dialog for managing the server password.
-     */
-    private static void showPasswordDialog(Component parent) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1; gbc.gridwidth = 2;
 
-        panel.add(new JLabel("Neues Passwort eingeben:"), gbc);
+    private static void createNdvContent(JPanel ndvContent) {
+        GridBagConstraints gbc = createDefaultGbc();
+
+        ndvContent.add(new JLabel("NDV Port:"), gbc);
         gbc.gridy++;
-        JPasswordField newPassField = new JPasswordField(24);
-        panel.add(newPassField, gbc);
+        ndvPortSpinner = new JSpinner(new SpinnerNumberModel(settings.ndvPort, 1, 65535, 1));
+        ndvPortSpinner.setToolTipText("TCP-Port des NDV-Servers (Standard: 8011)");
+        ndvContent.add(ndvPortSpinner, gbc);
         gbc.gridy++;
 
-        JCheckBox savePassBox = new JCheckBox("Passwort speichern (verschlüsselt)");
-        savePassBox.setSelected(settings.savePassword);
-        panel.add(savePassBox, gbc);
+        ndvContent.add(new JLabel("Default-Bibliothek (optional):"), gbc);
+        gbc.gridy++;
+        ndvDefaultLibraryField = new JTextField(settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary : "", 20);
+        ndvDefaultLibraryField.setToolTipText("z.B. ABAK-T – wird beim Verbinden automatisch geöffnet (leer = keine)");
+        ndvContent.add(ndvDefaultLibraryField, gbc);
         gbc.gridy++;
 
-        JButton clearBtn = new JButton("Gespeichertes Passwort löschen");
-        clearBtn.addActionListener(e -> {
-            passwordField.setText("");
-            clearPasswordRequested = true;
-            JOptionPane.showMessageDialog(panel,
-                    "Passwort wird beim Speichern der Einstellungen gelöscht.",
-                    "Info", JOptionPane.INFORMATION_MESSAGE);
-        });
-        panel.add(clearBtn, gbc);
-
-        int result = JOptionPane.showConfirmDialog(
-                parent, panel, "Passwort verwalten",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result == JOptionPane.OK_OPTION) {
-            char[] passChars = newPassField.getPassword();
-            if (passChars != null && passChars.length > 0) {
-                passwordField.setText(new String(passChars));
-                clearPasswordRequested = false;
-            }
-            settings.savePassword = savePassBox.isSelected();
-        }
+        // Info
+        gbc.gridy++;
+        JLabel infoLabel = new JLabel("<html><small>Server-Adresse und Benutzer werden unter Einstellungen → Server verwaltet.<br>"
+                + "NDV verwendet dieselben Zugangsdaten wie FTP.</small></html>");
+        infoLabel.setForeground(Color.GRAY);
+        ndvContent.add(infoLabel, gbc);
     }
 
     private static void createColorContent(JPanel colorContent, Component parent) {
@@ -1296,32 +1219,6 @@ public class SettingsDialog {
             settings.padding = PaddingOption.normalizeInput(paddingBox.getSelectedItem());
             settings.marginColumn = (Integer) marginSpinner.getValue();
             settings.soundEnabled = enableSound.isSelected();
-            settings.savePassword = savePasswordBox.isSelected();
-            settings.autoConnect = autoConnectBox.isSelected();
-
-            String hostInput = hostField != null ? hostField.getText().trim() : "";
-            String userInput = userField != null ? userField.getText().trim() : "";
-            if (!hostInput.isEmpty()) {
-                settings.host = hostInput;
-            }
-            if (!userInput.isEmpty()) {
-                settings.user = userInput;
-            }
-
-            if (passwordField != null) {
-                char[] passChars = passwordField.getPassword();
-                if (passChars != null && passChars.length > 0) {
-                    if (settings.savePassword) {
-                        settings.encryptedPassword = WindowsCryptoUtil.encrypt(new String(passChars));
-                    } else {
-                        settings.encryptedPassword = null;
-                    }
-                    clearPasswordRequested = false;
-                } else if (clearPasswordRequested) {
-                    settings.encryptedPassword = null;
-                    clearPasswordRequested = false;
-                }
-            }
 
             settings.ftpFileType = ComboBoxHelper.getSelectedEnumValue(typeBox, FtpFileType.class);
             settings.ftpTextFormat = ComboBoxHelper.getSelectedEnumValue(formatBox, FtpTextFormat.class);
