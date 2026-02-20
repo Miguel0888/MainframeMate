@@ -64,6 +64,14 @@ public class NdvConnectionTab implements ConnectionTab {
     private int historyIndex = -1;
 
     public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvClient client) {
+        this(tabbedPaneManager, client, true);
+    }
+
+    /**
+     * @param autoLoadLibraries if false, skips initial loadLibraries() call.
+     *        Use false when navigateToLibrary/navigateToLibraryAndOpen will be called immediately after.
+     */
+    public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvClient client, boolean autoLoadLibraries) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.client = client;
         this.host = client.getHost();
@@ -77,7 +85,9 @@ public class NdvConnectionTab implements ConnectionTab {
         fileList.setCellRenderer(new NdvCellRenderer());
 
         initUI();
-        loadLibraries();
+        if (autoLoadLibraries) {
+            loadLibraries();
+        }
     }
 
     /**

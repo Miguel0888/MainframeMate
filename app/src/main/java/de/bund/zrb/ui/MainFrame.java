@@ -439,14 +439,6 @@ public class MainFrame extends JFrame implements MainframeContext {
                 client.connect(fHost, fPort, fUser, fPassword);
                 LoginManager.getInstance().onLoginSuccess(fHost, fUser);
 
-                // Pre-logon to library in background (before UI creation)
-                if (!fLibrary.isEmpty()) {
-                    try {
-                        client.logon(fLibrary);
-                    } catch (Exception e) {
-                        System.err.println("[openNdvBookmark] Library logon warning: " + e.getMessage());
-                    }
-                }
                 return client;
             }
 
@@ -455,11 +447,12 @@ public class MainFrame extends JFrame implements MainframeContext {
                 setCursor(java.awt.Cursor.getDefaultCursor());
                 try {
                     de.bund.zrb.ndv.NdvClient client = get();
-                    // Create tab on EDT
-                    NdvConnectionTab tab = new NdvConnectionTab(tabManager, client);
+                    // Create tab on EDT - skip auto-load if we navigate to library immediately
+                    boolean hasLibrary = !fLibrary.isEmpty();
+                    NdvConnectionTab tab = new NdvConnectionTab(tabManager, client, !hasLibrary);
                     tabManager.addTab(tab);
                     // Navigate to library (and optionally auto-open object)
-                    if (!fLibrary.isEmpty()) {
+                    if (hasLibrary) {
                         if (fObjectName != null && !fObjectName.isEmpty()) {
                             tab.navigateToLibraryAndOpen(fLibrary, fObjectName);
                         } else {
