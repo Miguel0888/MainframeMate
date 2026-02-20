@@ -157,6 +157,7 @@ public class SettingsDialog {
         tabs.addTab("KI", aiPanel);
         tabs.addTab("RAG", ragSettingsPanel);
         tabs.addTab("Proxy", proxyPanel);
+        tabs.addTab("MCP Registry", new McpRegistryPanel());
 
         // Hilfe-Button mit kontextsensitiver Hilfe je nach ausgewähltem Tab
         HelpButton helpButton = new HelpButton("Hilfe zu Einstellungen");

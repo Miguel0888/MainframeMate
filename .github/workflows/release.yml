@@ -30,7 +30,7 @@ jobs:
         run: ./gradlew projects
 
       - name: Build project
-        run: ./gradlew clean :app:shadowJar
+        run: ./gradlew clean :app:shadowJar :plugins:excelimport:jar :plugins:webSearch:jar
 
       - name: Determine version
         id: version
@@ -65,11 +65,17 @@ jobs:
           JAR_FILE=$(ls app/build/libs/*-all.jar | grep -v 'sources' | head -n 1)
           echo "jar_file=$JAR_FILE" >> $GITHUB_ENV
 
-      - name: Find Plugin JAR
+      - name: Find ExcelImport Plugin JAR
         id: find_plugin
         run: |
           PLUGIN_JAR=$(ls plugins/excelimport/build/libs/*.jar | grep -v sources | head -n 1)
           echo "plugin_jar=$PLUGIN_JAR" >> $GITHUB_ENV
+
+      - name: Find WebSearch Plugin JAR
+        id: find_websearch_plugin
+        run: |
+          WEBSEARCH_PLUGIN_JAR=$(ls plugins/webSearch/build/libs/*.jar | grep -v sources | head -n 1)
+          echo "websearch_plugin_jar=$WEBSEARCH_PLUGIN_JAR" >> $GITHUB_ENV
 
       - name: Find Core JAR
         id: find_core
@@ -88,6 +94,7 @@ jobs:
           files: |
             ${{ env.jar_file }}
             ${{ env.plugin_jar }}
+            ${{ env.websearch_plugin_jar }}
             ${{ env.core_jar }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

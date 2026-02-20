@@ -54,6 +54,7 @@ dependencies {
 
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
+    runtimeOnly project(':plugins:webSearch')
 
     // VFS (local)
     implementation 'org.apache.commons:commons-vfs2:2.10.0'
@@ -113,8 +114,10 @@ sourceSets {
 
 compileJava.dependsOn generateGrammarSource
 
-tasks.named('build') {
-    dependsOn ':plugins:excelimport:copyToAppPlugins'
+// Ensure all plugins are built and installed when assembling the app
+tasks.named('assemble') {
+    dependsOn ':plugins:excelimport:installPlugin'
+    dependsOn ':plugins:webSearch:installPlugin'
 }
 
 //// Includes the AI driver and license files into the JAR

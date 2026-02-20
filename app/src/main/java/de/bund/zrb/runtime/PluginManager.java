@@ -17,6 +17,7 @@ import java.util.*;
 public class PluginManager {
 
     private static final List<MainframeMatePlugin> plugins = new ArrayList<>();
+    private static final Set<String> loadedPluginNames = new HashSet<>();
 
     public static void registerPlugin(MainframeMatePlugin plugin) {
         plugins.add(plugin);
@@ -32,12 +33,37 @@ public class PluginManager {
             registerToolsSafely(plugin, mainFrame);
         }
 
-        // 2. Dynamisch geladene Plugins aus JARs
+        // 2. Plugins vom Classpath laden (runtimeOnly-Dependencies)
+        loadClasspathPlugins(mainFrame);
+
+        // 3. Dynamisch geladene Plugins aus JARs im Plugin-Verzeichnis
         loadExternalPlugins(mainFrame);
     }
 
     public static List<MainframeMatePlugin> getPlugins() {
         return Collections.unmodifiableList(plugins);
+    }
+
+    /**
+     * Load plugins available on the application classpath (e.g. runtimeOnly Gradle dependencies).
+     * This ensures they are registered and deduplicated before scanning external JAR files.
+     */
+    private static void loadClasspathPlugins(MainFrame mainFrame) {
+        ServiceLoader<MainframeMatePlugin> serviceLoader =
+                ServiceLoader.load(MainframeMatePlugin.class, PluginManager.class.getClassLoader());
+
+        for (MainframeMatePlugin plugin : serviceLoader) {
+            String pluginName = plugin.getPluginName();
+            if (loadedPluginNames.contains(pluginName)) {
+                continue; // already loaded (e.g. statically registered)
+            }
+            loadedPluginNames.add(pluginName);
+            System.out.println("✅ Plugin geladen (classpath): " + pluginName);
+            plugin.initialize(mainFrame);
+            registerCommandsSafely(plugin, mainFrame);
+            registerToolsSafely(plugin, mainFrame);
+            plugins.add(plugin);
+        }
     }
 
     private static void loadExternalPlugins(MainFrame mainFrame) {
@@ -71,7 +97,13 @@ public class PluginManager {
                     ServiceLoader.load(MainframeMatePlugin.class, loader);
 
             for (MainframeMatePlugin plugin : serviceLoader) {
-                System.out.println("✅ Plugin geladen: " + plugin.getPluginName());
+                String pluginName = plugin.getPluginName();
+                if (loadedPluginNames.contains(pluginName)) {
+                    System.out.println("⏭️ Plugin bereits geladen, übersprungen: " + pluginName);
+                    continue;
+                }
+                loadedPluginNames.add(pluginName);
+                System.out.println("✅ Plugin geladen: " + pluginName);
                 plugin.initialize(mainFrame);
                 registerCommandsSafely(plugin, mainFrame);
                 registerToolsSafely(plugin, mainFrame);
@@ -111,6 +143,4 @@ public class PluginManager {
             }
         }
     }
-
-
 }

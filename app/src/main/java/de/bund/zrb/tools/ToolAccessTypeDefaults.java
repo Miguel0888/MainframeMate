@@ -12,7 +12,8 @@ public final class ToolAccessTypeDefaults {
         }
         String n = toolName.toLowerCase();
         if (n.contains("write") || n.contains("set") || n.contains("save") || n.contains("delete")
-                || n.contains("update") || n.contains("create") || n.contains("import") || n.contains("open")) {
+                || n.contains("update") || n.contains("create") || n.contains("import") || n.contains("open")
+                || n.contains("websearch")) {
             return ToolAccessType.WRITE;
         }
         return ToolAccessType.READ;

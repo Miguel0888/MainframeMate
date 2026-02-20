@@ -130,10 +130,12 @@ public class MainFrame extends JFrame implements MainframeContext {
         this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
         registerTools();
 
+
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                de.bund.zrb.mcp.registry.McpServerManager.getInstance().stopAll();
                 dispose(); // sauber beenden
                 System.exit(0); // oder dispatchEvent(new WindowEvent(..., WINDOW_CLOSING));
             }
@@ -151,6 +153,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         restoreWindowState();
         initUI();
+
+        // Start enabled MCP servers (after plugins have registered via initUI → PluginManager)
+        de.bund.zrb.mcp.registry.McpServerManager.getInstance().startEnabledServers();
     }
 
     private ChatManager getAiService() {

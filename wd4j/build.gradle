@@ -1,0 +1,28 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1' //um Fat-Jar mit allen Dependendies zu erzeugen
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+
+    // Generate a sources JAR alongside the main JAR
+    withSourcesJar()
+}
+
+test {
+    useJUnitPlatform()
+}
+
+dependencies {
+
+    implementation 'org.java-websocket:Java-WebSocket:1.5.2'
+    implementation 'com.google.code.gson:gson:2.8.9'
+
+    // Für JSON-Mapper: Finden der Wrapper-Implementierer (kann auch mit einer Klassenliste ersetzt werden)
+    implementation 'org.reflections:reflections:0.10.2'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}

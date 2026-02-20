@@ -1,0 +1,37 @@
+plugins {
+    id 'java'
+}
+
+dependencies {
+    implementation project(':core')
+    implementation project(':wd4j')
+    implementation project(':wd4j-mcp-server')
+    implementation 'com.google.code.gson:gson:2.8.9'
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': 'WebSearch',
+                'Implementation-Version': version
+        )
+    }
+}
+
+tasks.register('copyToAppPlugins', Copy) {
+    dependsOn jar
+    from(jar) {
+        rename { String fileName -> "websearch.jar" }
+    }
+    into "${rootProject.projectDir}/app/build/plugins"
+}
+
+task installPlugin(type: Copy) {
+    def userHome = System.getProperty("user.home")
+    def pluginDir = new File(userHome, ".mainframemate/plugins")
+
+    from jar
+    into pluginDir
+}
+
+build.finalizedBy installPlugin
