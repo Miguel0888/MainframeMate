@@ -197,6 +197,8 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         pathField.setText(targetPath);
         updateNavigationButtons();
         updateFileList();
+        // Update star button to reflect bookmark state for new directory
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateBack() {

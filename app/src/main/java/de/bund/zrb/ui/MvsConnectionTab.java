@@ -193,6 +193,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         String path = pathField.getText().trim();
         hideOverlay();
         controller.navigateTo(path);
+        // Update star button to reflect bookmark state for new directory
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateBack() {
@@ -204,6 +206,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         hideOverlay();
         controller.goBack();
         updateNavigationButtons();
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateForward() {
@@ -214,6 +217,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         hideOverlay();
         controller.goForward();
         updateNavigationButtons();
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void updateNavigationButtons() {

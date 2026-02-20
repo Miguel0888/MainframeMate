@@ -61,13 +61,18 @@ public class LeftDrawer extends JPanel {
     }
 
     public void setBookmarkForCurrentPath(Component parent, String path, String backendType) {
+        setBookmarkForCurrentPath(parent, path, backendType, "FILE");
+    }
+
+    public void setBookmarkForCurrentPath(Component parent, String path, String backendType, String resourceKind) {
         if (path == null || path.trim().isEmpty()) return;
         String prefixedPath = BookmarkEntry.buildPath(backendType, path);
         String label = new File(path).getName();
+        if (label.isEmpty()) label = path; // fallback for paths like "/"
         // Ensure "Allgemein" folder exists
         ensureGeneralFolder();
         BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
-        entry.resourceKind = "FILE"; // bookmarks from file tabs are always files
+        entry.resourceKind = resourceKind != null ? resourceKind : "FILE";
         BookmarkHelper.addBookmarkToFolder("Allgemein", entry);
         refreshBookmarks();
     }
@@ -86,6 +91,13 @@ public class LeftDrawer extends JPanel {
      * Returns true if bookmark was added, false if removed.
      */
     public boolean toggleBookmark(String rawPath, String backendType) {
+        return toggleBookmark(rawPath, backendType, "FILE");
+    }
+
+    /**
+     * Toggle bookmark with explicit resource kind (FILE or DIRECTORY).
+     */
+    public boolean toggleBookmark(String rawPath, String backendType, String resourceKind) {
         if (rawPath == null) return false;
         String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
         if (isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath)) {
@@ -93,7 +105,7 @@ public class LeftDrawer extends JPanel {
             refreshBookmarks();
             return false;
         } else {
-            setBookmarkForCurrentPath(null, rawPath, backendType);
+            setBookmarkForCurrentPath(null, rawPath, backendType, resourceKind);
             return true;
         }
     }

@@ -121,11 +121,9 @@ public class TabbedPaneManager {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         tabPanel.setOpaque(false);
 
-        // Favorite star button (only for file tabs)
-        JButton starButton = null;
-        if (tab instanceof FileTabImpl) {
-            FileTabImpl fileTab = (FileTabImpl) tab;
-            starButton = createStarButton(fileTab);
+        // Favorite star button for all tabs that have a path
+        if (tab instanceof Bookmarkable) {
+            JButton starButton = createStarButton(tab);
             tabPanel.add(starButton);
         }
 
@@ -143,13 +141,45 @@ public class TabbedPaneManager {
         tabbedPane.setTabComponentAt(index, tabPanel);
     }
 
-    private JButton createStarButton(FileTabImpl fileTab) {
-        VirtualResource res = fileTab.getResource();
-        String rawPath = res != null ? res.getResolvedPath() : null;
-        String backendType = res != null ? res.getBackendType().name() : "LOCAL";
+    /**
+     * Determine the backend type string for a tab.
+     */
+    private String getBackendTypeForTab(FtpTab tab) {
+        if (tab instanceof FileTabImpl) {
+            VirtualResource res = ((FileTabImpl) tab).getResource();
+            return res != null ? res.getBackendType().name() : "LOCAL";
+        }
+        if (tab instanceof ConnectionTabImpl) return "FTP";
+        if (tab instanceof MvsConnectionTab) return "FTP";
+        if (tab instanceof NdvConnectionTab) return "NDV";
+        if (tab instanceof LocalConnectionTabImpl) return "LOCAL";
+        return "LOCAL";
+    }
+
+    /**
+     * Determine the resource kind string for a tab.
+     */
+    private String getResourceKindForTab(FtpTab tab) {
+        if (tab instanceof FileTabImpl) return "FILE";
+        return "DIRECTORY";
+    }
+
+    /**
+     * Get the current path from any tab.
+     */
+    private String getPathForTab(FtpTab tab) {
+        if (tab instanceof Bookmarkable) {
+            return ((Bookmarkable) tab).getPath();
+        }
+        return null;
+    }
+
+    private JButton createStarButton(FtpTab tab) {
+        String rawPath = getPathForTab(tab);
+        String backendType = getBackendTypeForTab(tab);
 
         LeftDrawer drawer = getBookmarkDrawer();
-        boolean isBookmarked = drawer != null && drawer.isBookmarked(rawPath, backendType);
+        boolean isBookmarked = drawer != null && rawPath != null && drawer.isBookmarked(rawPath, backendType);
 
         JButton starButton = new JButton(isBookmarked ? STAR_FILLED : STAR_EMPTY);
         starButton.setMargin(new Insets(0, 0, 0, 2));
@@ -161,11 +191,12 @@ public class TabbedPaneManager {
         starButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         starButton.addActionListener(e -> {
-            String path = fileTab.getResource() != null ? fileTab.getResource().getResolvedPath() : null;
-            String backend = fileTab.getResource() != null ? fileTab.getResource().getBackendType().name() : "LOCAL";
+            String path = getPathForTab(tab);
+            String backend = getBackendTypeForTab(tab);
+            String kind = getResourceKindForTab(tab);
             LeftDrawer d = getBookmarkDrawer();
-            if (d != null && path != null) {
-                boolean added = d.toggleBookmark(path, backend);
+            if (d != null && path != null && !path.isEmpty()) {
+                boolean added = d.toggleBookmark(path, backend, kind);
                 starButton.setText(added ? STAR_FILLED : STAR_EMPTY);
                 starButton.setForeground(added ? new Color(255, 200, 0) : Color.GRAY);
                 starButton.setToolTipText(added ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
@@ -202,14 +233,12 @@ public class TabbedPaneManager {
 
             Component contentComp = tabbedPane.getComponentAt(i);
             FtpTab tab = tabMap.get(contentComp);
-            if (!(tab instanceof FileTabImpl)) continue;
+            if (tab == null) continue;
 
-            FileTabImpl fileTab = (FileTabImpl) tab;
-            VirtualResource res = fileTab.getResource();
-            if (res == null) continue;
+            String rawPath = getPathForTab(tab);
+            if (rawPath == null || rawPath.isEmpty()) continue;
 
-            String rawPath = res.getResolvedPath();
-            String backendType = res.getBackendType().name();
+            String backendType = getBackendTypeForTab(tab);
             boolean isBookmarked = drawer.isBookmarked(rawPath, backendType);
 
             JPanel panel = (JPanel) tabComp;
@@ -223,6 +252,42 @@ public class TabbedPaneManager {
                         btn.setToolTipText(isBookmarked ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
                         break;
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Refresh the star button for a specific tab (e.g. after directory navigation).
+     */
+    public void refreshStarForTab(FtpTab tab) {
+        if (tab == null) return;
+        LeftDrawer drawer = getBookmarkDrawer();
+        if (drawer == null) return;
+
+        Component comp = tab.getComponent();
+        int index = tabbedPane.indexOfComponent(comp);
+        if (index < 0) return;
+
+        Component tabComp = tabbedPane.getTabComponentAt(index);
+        if (!(tabComp instanceof JPanel)) return;
+
+        String rawPath = getPathForTab(tab);
+        if (rawPath == null || rawPath.isEmpty()) return;
+
+        String backendType = getBackendTypeForTab(tab);
+        boolean isBookmarked = drawer.isBookmarked(rawPath, backendType);
+
+        JPanel panel = (JPanel) tabComp;
+        for (Component c : panel.getComponents()) {
+            if (c instanceof JButton) {
+                JButton btn = (JButton) c;
+                String text = btn.getText();
+                if (STAR_EMPTY.equals(text) || STAR_FILLED.equals(text)) {
+                    btn.setText(isBookmarked ? STAR_FILLED : STAR_EMPTY);
+                    btn.setForeground(isBookmarked ? new Color(255, 200, 0) : Color.GRAY);
+                    btn.setToolTipText(isBookmarked ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
+                    break;
                 }
             }
         }

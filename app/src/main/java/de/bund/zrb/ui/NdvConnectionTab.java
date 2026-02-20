@@ -224,6 +224,7 @@ public class NdvConnectionTab implements ConnectionTab {
             openLibrary(path);
             addToHistory(path);
         }
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateBack() {
@@ -240,6 +241,7 @@ public class NdvConnectionTab implements ConnectionTab {
             loadLibraries();
             addToHistory("");
         }
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void navigateForward() {
@@ -253,6 +255,7 @@ public class NdvConnectionTab implements ConnectionTab {
             }
             updateNavigationButtons();
         }
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void addToHistory(String path) {

@@ -266,6 +266,8 @@ public class ConnectionTabImpl implements ConnectionTab {
         pathField.setText(browserState.getCurrentPath());
         updateNavigationButtons();
         updateFileList();
+        // Update star button to reflect bookmark state for new directory
+        tabbedPaneManager.refreshStarForTab(this);
     }
 
     private void updateNavigationButtons() {
@@ -314,7 +316,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         JMenuItem bookmarkItem = new JMenuItem("🕮 Bookmark setzen");
         bookmarkItem.addActionListener(e -> {
             MainFrame main = (MainFrame) SwingUtilities.getWindowAncestor(getComponent());
-            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), getPath());
+            main.getBookmarkDrawer().setBookmarkForCurrentPath(getComponent(), getPath(), "FTP", "DIRECTORY");
         });
 
         JMenuItem closeItem = new JMenuItem("❌ Tab schließen");
