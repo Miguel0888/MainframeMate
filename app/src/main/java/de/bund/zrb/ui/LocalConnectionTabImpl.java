@@ -254,6 +254,11 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         newFileButton.addActionListener(e -> createNewFile());
         leftPanel.add(newFileButton);
 
+        JButton newFolderButton = new JButton("📁+");
+        newFolderButton.setToolTipText("Neuen Ordner anlegen");
+        newFolderButton.addActionListener(e -> createNewFolder());
+        leftPanel.add(newFolderButton);
+
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton deleteButton = new JButton("🗑");
         deleteButton.setToolTipText("Ausgewählte Datei löschen");
@@ -348,6 +353,22 @@ public class LocalConnectionTabImpl implements ConnectionTab {
             updateFileList();
         } catch (Exception e) {
             JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void createNewFolder() {
+        String name = JOptionPane.showInputDialog(mainPanel, "Name des neuen Ordners:", "Neuer Ordner", JOptionPane.PLAIN_MESSAGE);
+        if (name == null || name.trim().isEmpty()) return;
+
+        try {
+            String target = joinPath(pathField.getText(), name.trim());
+            if (fileService.createDirectory(target)) {
+                updateFileList();
+            } else {
+                JOptionPane.showMessageDialog(mainPanel, "Ordner konnte nicht angelegt werden.", "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Anlegen des Ordners:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 
