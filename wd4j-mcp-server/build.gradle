@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+dependencies {
+    implementation project(':wd4j')
+    implementation 'com.google.code.gson:gson:2.8.9'
+
+    // jsoup is optional – available at compile time, user can add to classpath at runtime
+    compileOnly 'org.jsoup:jsoup:1.17.2'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+shadowJar {
+    archiveBaseName.set('wd4j-mcp-server')
+    archiveClassifier.set('')
+    mergeServiceFiles()
+
+    manifest {
+        attributes 'Main-Class': 'de.bund.zrb.mcpserver.McpServerMain'
+    }
+}
+
+// Make 'build' task produce the fat jar
+tasks.named('build') {
+    dependsOn shadowJar
+}
+
