@@ -506,15 +506,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         if (password == null || password.isEmpty()) return;
 
         // Use NdvService resolver to parse the path and reconstruct NdvObjectInfo
-        de.bund.zrb.ndv.NdvService tempResolver;
-        try {
-            tempResolver = new de.bund.zrb.ndv.NdvService();
-        } catch (de.bund.zrb.ndv.NdvException e) {
-            javax.swing.JOptionPane.showMessageDialog(this,
-                    "NDV-Bibliothek konnte nicht geladen werden:\n" + e.getMessage(),
-                    "NDV-Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        de.bund.zrb.ndv.NdvService tempResolver = new de.bund.zrb.ndv.NdvService();
         final de.bund.zrb.ndv.NdvService.ResolvedNdvPath resolved;
 
         if (entry.ndvLibrary != null && !entry.ndvLibrary.isEmpty()
