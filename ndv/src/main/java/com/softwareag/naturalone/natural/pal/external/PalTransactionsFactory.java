@@ -24,19 +24,30 @@ public class PalTransactionsFactory {
         NdvProxyBridge.ensureInitialized();
         try {
             Class<?> factoryClass = Class.forName(
-                    "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory");
+                    "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory",
+                    true,
+                    NdvProxyBridge.getClassLoader());
             Method m = factoryClass.getMethod("newInstance");
             Object real = m.invoke(null);
 
-            // Einfacher Proxy: delegiert alle IPalTransactions-Methoden an das echte Objekt.
-            // Kein mapArgs/mapResult nötig, weil alles im selben ClassLoader liegt.
+            if (real == null) {
+                throw new IllegalStateException(
+                        "Echte PalTransactionsFactory.newInstance() hat null zurückgegeben");
+            }
+
             return (IPalTransactions) Proxy.newProxyInstance(
                     PalTransactionsFactory.class.getClassLoader(),
                     new Class<?>[]{ IPalTransactions.class },
                     new DirectDelegateHandler(real)
             );
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            throw new RuntimeException("PalTransactionsFactory.newInstance() fehlgeschlagen: "
+                    + (cause != null ? cause.getClass().getName() + ": " + cause.getMessage() : "null"),
+                    cause != null ? cause : e);
         } catch (Exception e) {
-            throw new RuntimeException("PalTransactionsFactory.newInstance() fehlgeschlagen: " + e.getMessage(), e);
+            throw new RuntimeException("PalTransactionsFactory.newInstance() fehlgeschlagen: "
+                    + e.getClass().getName() + ": " + e.getMessage(), e);
         }
     }
 
