@@ -25,10 +25,11 @@ public class ObjectProperties {
         public IFileProperties build() {
             try {
                 ClassLoader cl = NdvProxyBridge.getClassLoader();
+                // Die ECHTE ObjectProperties liegt in paltransactions.external, nicht pal.external!
                 Class<?> opClass = cl.loadClass(
-                        "com.softwareag.naturalone.natural.pal.external.ObjectProperties");
+                        "com.softwareag.naturalone.natural.paltransactions.external.ObjectProperties");
                 Class<?> builderClass = cl.loadClass(
-                        "com.softwareag.naturalone.natural.pal.external.ObjectProperties$Builder");
+                        "com.softwareag.naturalone.natural.paltransactions.external.ObjectProperties$Builder");
                 Object realBuilder = builderClass.getConstructor(String.class, int.class)
                         .newInstance(name, type);
                 Method buildMethod = builderClass.getMethod("build");
