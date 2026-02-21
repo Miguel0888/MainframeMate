@@ -4,7 +4,6 @@ import com.softwareag.naturalone.natural.paltransactions.external.EDownLoadOptio
 import com.softwareag.naturalone.natural.paltransactions.external.EUploadOption;
 import com.softwareag.naturalone.natural.paltransactions.external.IDownloadResult;
 import com.softwareag.naturalone.natural.paltransactions.external.IFileProperties;
-import com.softwareag.naturalone.natural.paltransactions.external.ITransactionContext;
 
 import java.util.Map;
 import java.util.Set;
@@ -35,13 +34,18 @@ public interface IPalTransactions {
 
     IPalTypeObject[] getObjectsNext() throws PalResultException;
 
-    ITransactionContext createTransactionContext(Class<?> contextClass);
+    /**
+     * Erzeugt einen Transaction-Context.
+     * Rückgabetyp ist {@code Object}, weil das echte Objekt aus dem JAR-ClassLoader
+     * nicht auf den Stub-Typ gecastet werden kann.
+     */
+    Object createTransactionContext(Class<?> contextClass);
 
-    IDownloadResult downloadSource(ITransactionContext ctx, IPalTypeSystemFile sysFile,
+    IDownloadResult downloadSource(Object ctx, IPalTypeSystemFile sysFile,
                                    String library, IFileProperties props,
                                    Set<EDownLoadOption> options) throws PalResultException;
 
-    void disposeTransactionContext(ITransactionContext ctx);
+    void disposeTransactionContext(Object ctx);
 
     void uploadSource(IPalTypeSystemFile sysFile, String library,
                       IFileProperties props, Set<EUploadOption> options,
