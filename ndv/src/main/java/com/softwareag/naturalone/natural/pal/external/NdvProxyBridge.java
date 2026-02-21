@@ -25,6 +25,13 @@ import java.util.List;
  */
 public final class NdvProxyBridge {
 
+    /**
+     * System Property für den Pfad zum Verzeichnis mit den NDV-JARs.
+     * Wird von der App-Schicht aus den Settings gesetzt, bevor
+     * {@link #ensureInitialized()} aufgerufen wird.
+     */
+    public static final String PROPERTY_LIB_PATH = "mainframemate.ndv.libpath";
+
     private static volatile URLClassLoader classLoader;
 
     private NdvProxyBridge() {}
@@ -33,7 +40,7 @@ public final class NdvProxyBridge {
 
     /**
      * Initialisiert den ClassLoader mit den gegebenen JAR-Dateien.
-     * Mehrfachaufruf ist sicher (idempotent solange dieselben JARs übergeben werden).
+     * Mehrfachaufruf ist sicher (idempotent).
      */
     public static synchronized void init(File... jars) throws Exception {
         if (classLoader != null) return;
@@ -44,8 +51,40 @@ public final class NdvProxyBridge {
             }
             urls.add(jar.toURI().toURL());
         }
-        // Parent = null → isolierter ClassLoader, kein Delegation-Konflikt
         classLoader = new URLClassLoader(urls.toArray(new URL[0]), null);
+    }
+
+    /**
+     * Initialisiert den ClassLoader selbstständig aus der System Property
+     * {@value #PROPERTY_LIB_PATH}. Falls nicht gesetzt, wird
+     * {@code ~/.mainframemate/lib/} und dann {@code ./lib/} probiert.
+     *
+     * @throws IllegalStateException wenn kein Verzeichnis mit JARs gefunden wird
+     */
+    public static synchronized void ensureInitialized() {
+        if (classLoader != null) return;
+
+        File libDir = resolveLibDir();
+        if (libDir == null || !libDir.isDirectory()) {
+            throw new IllegalStateException(
+                    "Kein NDV-JAR-Verzeichnis gefunden. Bitte System Property '"
+                    + PROPERTY_LIB_PATH + "' setzen oder JARs in "
+                    + getDefaultLibDir().getAbsolutePath() + " ablegen.");
+        }
+
+        File[] jars = findJars(libDir);
+        if (jars.length == 0) {
+            throw new IllegalStateException(
+                    "Keine JAR-Dateien in " + libDir.getAbsolutePath() + " gefunden.");
+        }
+
+        try {
+            init(jars);
+            System.out.println("[NdvProxyBridge] Initialisiert mit " + jars.length
+                    + " JARs aus " + libDir.getAbsolutePath());
+        } catch (Exception e) {
+            throw new IllegalStateException("NdvProxyBridge-Init fehlgeschlagen: " + e.getMessage(), e);
+        }
     }
 
     /** Setzt den ClassLoader zurück (für Tests oder Reload). */
@@ -56,8 +95,8 @@ public final class NdvProxyBridge {
     /** Gibt den initialisierten ClassLoader zurück. */
     public static ClassLoader getClassLoader() {
         if (classLoader == null) {
-            throw new IllegalStateException(
-                    "NdvProxyBridge nicht initialisiert. Bitte zuerst NdvProxyBridge.init(jarFiles) aufrufen.");
+            // Auto-Init versuchen
+            ensureInitialized();
         }
         return classLoader;
     }
@@ -285,6 +324,48 @@ public final class NdvProxyBridge {
             return new PalResultException(msg, real);
         }
         return real;
+    }
+
+    // ── Pfad-Auflösung ──────────────────────────────────────────────────────
+
+    /**
+     * Ermittelt das lib-Verzeichnis: 1) System Property, 2) Default, 3) ./lib/.
+     */
+    private static File resolveLibDir() {
+        // 1) Explizit gesetzte Property (von der App-Schicht aus Settings befüllt)
+        String path = System.getProperty(PROPERTY_LIB_PATH);
+        if (path != null && !path.trim().isEmpty()) {
+            File dir = new File(path.trim());
+            if (dir.isDirectory() && findJars(dir).length > 0) {
+                return dir;
+            }
+        }
+
+        // 2) Standard-Verzeichnis
+        File defaultDir = getDefaultLibDir();
+        if (defaultDir.isDirectory() && findJars(defaultDir).length > 0) {
+            return defaultDir;
+        }
+
+        // 3) Entwicklungs-Fallback: ./lib/
+        File projectLib = new File("lib");
+        if (projectLib.isDirectory() && findJars(projectLib).length > 0) {
+            return projectLib;
+        }
+
+        return null;
+    }
+
+    /** Standard-Verzeichnis: {@code ~/.mainframemate/lib/}. */
+    private static File getDefaultLibDir() {
+        return new File(System.getProperty("user.home"),
+                ".mainframemate" + File.separator + "lib");
+    }
+
+    /** Alle {@code .jar}-Dateien im Verzeichnis. */
+    private static File[] findJars(File dir) {
+        File[] jars = dir.listFiles(f -> f.isFile() && f.getName().endsWith(".jar"));
+        return jars != null ? jars : new File[0];
     }
 }
 
