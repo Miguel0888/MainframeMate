@@ -1,17 +1,17 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-import com.softwareag.naturalone.natural.pal.external.PalConnectResultException;
-import com.softwareag.naturalone.natural.pal.external.PalResultException;
-import com.softwareag.naturalone.natural.pal.external.PalDate;
-
 import java.io.File;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.charset.Charset;
+import java.nio.charset.spi.CharsetProvider;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.ServiceLoader;
 
 /**
  * Zentraler Bridge zwischen den Stub-Interfaces im ndv-Modul und der
@@ -61,29 +61,66 @@ public final class NdvProxyBridge {
         ClassLoader parent = NdvProxyBridge.class.getClassLoader();
         classLoader = new ChildFirstURLClassLoader(urls.toArray(new URL[0]), parent);
 
-        // ICU4J CharsetProvider registrieren:
-        // java.nio.charset.Charset verwendet den Thread-Context-ClassLoader
-        // für den ServiceLoader-Lookup. Wir setzen ihn kurz auf unseren CL
-        // und erzwingen eine Charset-Suche, damit der Provider-Cache befüllt wird.
+        // ICU4J / CharsetProvider robust registrieren
         registerCharsetProviders();
     }
 
     /**
      * Erzwingt die Registrierung von CharsetProvidern (insbesondere ICU4J)
-     * aus den geladenen JARs im globalen Charset-Cache.
+     * aus den geladenen JARs.
+     *
+     * Hintergrund: Manche Codepfade in ndvserveraccess nutzen Charset-Lookups,
+     * die ohne korrekt gesetzten Context-ClassLoader bzw. ohne explizites
+     * ServiceLoader-Scanning den ICU-Provider nicht finden.
      */
     private static void registerCharsetProviders() {
+        if (classLoader == null) return;
+
         Thread t = Thread.currentThread();
         ClassLoader prev = t.getContextClassLoader();
         t.setContextClassLoader(classLoader);
         try {
-            // Einen typischen IBM-Charset anfragen → zwingt den ServiceLoader
-            // die Provider aus dem ICU4J-JAR zu laden und zu cachen.
-            java.nio.charset.Charset.forName("IBM01140");
-        } catch (Exception ignored) {
-            // Charset nicht gefunden → ICU4J nicht im JAR-Set, ignorieren
-            System.err.println("[NdvProxyBridge] ICU4J Charset-Provider nicht registrierbar. "
-                    + "Stellen Sie sicher, dass icu4j-charset-*.jar im lib-Verzeichnis liegt.");
+            // 1) Explizit alle CharsetProvider via ServiceLoader laden.
+            //    Das triggert das Lesen von META-INF/services und instanziiert Provider.
+            int providers = 0;
+            try {
+                ServiceLoader<CharsetProvider> sl = ServiceLoader.load(CharsetProvider.class, classLoader);
+                Iterator<CharsetProvider> it = sl.iterator();
+                while (it.hasNext()) {
+                    try {
+                        CharsetProvider p = it.next();
+                        providers++;
+                        // Optional: Zugriff auf charsets() triggert oft weitere Initialisierung.
+                        try {
+                            p.charsets();
+                        } catch (Throwable ignored) {
+                        }
+                    } catch (Throwable ignored) {
+                        // kaputter Provider → ignorieren
+                    }
+                }
+            } catch (Throwable ignored) {
+                // ServiceLoader kann in restriktiven Umgebungen fehlschlagen
+            }
+
+            // 2) Danach gezielte Charset-Lookups, um den globalen Cache zu füllen.
+            //    Wir probieren mehrere übliche IBM-Charsets, weil je nach ICU-Version
+            //    einzelne Aliase fehlen können.
+            String[] probeNames = {"IBM01140", "IBM01141", "IBM1140", "Cp1140"};
+            for (String name : probeNames) {
+                try {
+                    Charset.forName(name);
+                    break;
+                } catch (Throwable ignored) {
+                }
+            }
+
+            if (providers == 0) {
+                // Das ist kein harter Fehler – nur ein Diagnose-Hinweis.
+                // Der eigentliche Fehler wird später beim Connect/Download sichtbar.
+                System.err.println("[NdvProxyBridge] Hinweis: Keine CharsetProvider via ServiceLoader gefunden. "
+                        + "Wenn CharsetICU fehlt, prüfen Sie icu4j-charset-*.jar im lib-Verzeichnis.");
+            }
         } finally {
             t.setContextClassLoader(prev);
         }
@@ -301,11 +338,6 @@ public final class NdvProxyBridge {
             return wrapAsProxy(result, stubReturnType, cl);
         }
 
-        // PalDate (spezieller Fall: Wrapper-Klasse)
-        if (stubReturnType == PalDate.class) {
-            return new PalDate(result);
-        }
-
         return result;
     }
 
@@ -468,5 +500,3 @@ public final class NdvProxyBridge {
         }
     }
 }
-
-

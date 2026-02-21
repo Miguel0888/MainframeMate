@@ -84,6 +84,11 @@ dependencies {
     // ANTLR for JCL parsing (4.9.3 = last Java 8 compatible version)
     antlr 'org.antlr:antlr4:4.9.3'
     implementation 'org.antlr:antlr4-runtime:4.9.3'
+
+    // ICU4J Charset Provider (für IBM Codepages / CharsetICU). Muss im App-Classpath liegen,
+    // weil java.nio.charset.Charset die Provider über den (System/App-)ClassLoader cached.
+    runtimeOnly files("$rootDir/lib/icu4j-4_8_1.jar")
+    runtimeOnly files("$rootDir/lib/icu4j-charset-4_8_1.jar")
 }
 
 shadowJar {
