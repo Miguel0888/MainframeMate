@@ -1,4 +1,4 @@
-package com.softwareag.naturalone.natural.auxiliary.renumber.internal;
+package de.bund.zrb.ndv.renumber;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;

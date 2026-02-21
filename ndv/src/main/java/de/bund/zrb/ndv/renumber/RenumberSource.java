@@ -1,4 +1,4 @@
-package com.softwareag.naturalone.natural.auxiliary.renumber.internal;
+package de.bund.zrb.ndv.renumber;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,25 +9,25 @@ import java.util.regex.Pattern;
 
 /**
  * Werkzeugklasse zur Verwaltung von Zeilennummern in Natural-Quelltextzeilen.
- * Alle Methoden sind statisch; keine Instanziierung möglich.
+ * Alle Methoden sind statisch; keine Instanziierung moeglich.
  */
 public class RenumberSource {
 
-    /** Höchste darstellbare 4-stellige Zeilennummer. */
+    /** Hoechste darstellbare 4-stellige Zeilennummer. */
     private static final int MAX_LINE_NUMBER = 9999;
 
-    /** Zeichenlänge einer vollständigen Zeilenreferenz, z.B. {@code (0010)}. */
+    /** Zeichenlaenge einer vollstaendigen Zeilenreferenz, z.B. {@code (0010)}. */
     private static final int LINE_REFERENCE_LENGTH = 6;
 
     /**
-     * Syntaktisches Muster für eine Zeilenreferenz:
-     * öffnende Klammer + genau 4 ASCII-Ziffern + eines von ) / ,
+     * Syntaktisches Muster fuer eine Zeilenreferenz:
+     * oeffnende Klammer + genau 4 ASCII-Ziffern + eines von ) / ,
      */
     private static final Pattern LINE_REFERENCE_PATTERN =
             Pattern.compile("\\([0-9]{4}[)/,]");
 
     /**
-     * Muster für ein bestehendes Label am Zeilenanfang:
+     * Muster fuer ein bestehendes Label am Zeilenanfang:
      * beliebig viele Buchstaben, dann beliebig viele Ziffern, dann Punkt.
      */
     private static final Pattern EXISTING_LABEL_PATTERN =
@@ -37,14 +37,8 @@ public class RenumberSource {
         // nicht instanziierbar
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §4  isLineReference — syntaktische Prüfung
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- isLineReference --- syntaktische Pruefung ---
 
-    /**
-     * Prüft, ob an {@code pos} in {@code line} eine syntaktisch gültige
-     * Zeilenreferenz steht (Format {@code (NNNN)}, {@code (NNNN/} oder {@code (NNNN,}).
-     */
     public static boolean isLineReference(int pos, String line) {
         if (pos + LINE_REFERENCE_LENGTH > line.length()) {
             return false;
@@ -53,21 +47,8 @@ public class RenumberSource {
         return LINE_REFERENCE_PATTERN.matcher(candidate).matches();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §5  isLineNumberReference — semantische Prüfung
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- isLineNumberReference --- semantische Pruefung ---
 
-    /**
-     * Prüft, ob an {@code pos} eine semantisch gültige Zeilenreferenz steht,
-     * d.h. ob die Stelle weder in einem Kommentar noch (bei {@code renConst=false})
-     * in einem String-Literal liegt.
-     *
-     * @param pos                 Position der öffnenden Klammer
-     * @param line                die vollständige Quelltextzeile
-     * @param insertLabelsMode    {@code true} = Label-Modus aktiv
-     * @param hasLineNumberPrefix {@code true} = Zeile beginnt mit "NNNN "
-     * @param renConst            {@code true} = Referenzen in String-Literalen sind gültig
-     */
     public static boolean isLineNumberReference(int pos,
                                                 String line,
                                                 boolean insertLabelsMode,
@@ -80,7 +61,6 @@ public class RenumberSource {
             return false;
         }
 
-        // Natural-Kommentar-Erkennung (§5.4 Schritt 4)
         int commentOffset = hasLineNumberPrefix ? 5 : 0;
         if (line.length() >= commentOffset + 2) {
             String marker = line.substring(commentOffset, commentOffset + 2);
@@ -89,9 +69,6 @@ public class RenumberSource {
             }
         }
 
-        // Block-Kommentar und String-Literal vor pos durchsuchen (§5.4 Schritte 5+6)
-        // Beide Quote-Typen werden unabhängig voneinander getoggelt (kein gegenseitiger
-        // Ausschluss) – so verhält sich der Originalcode laut Test mixedQuotes.
         boolean inSingleQuote = false;
         boolean inDoubleQuote = false;
 
@@ -103,32 +80,19 @@ public class RenumberSource {
                 inDoubleQuote = !inDoubleQuote;
             } else if (ch == '/' && !inSingleQuote && !inDoubleQuote
                     && i + 1 < pos && line.charAt(i + 1) == '*') {
-                return !insertLabelsMode;  // Block-Kommentar erkannt
+                return !insertLabelsMode;
             }
         }
 
         if (inSingleQuote || inDoubleQuote) {
-            return renConst;  // innerhalb eines String-Literals
+            return renConst;
         }
 
         return true;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §6  addLineNumbers
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- addLineNumbers ---
 
-    /**
-     * Fügt jeder Quelltextzeile eine 4-stellige Zeilennummer als Präfix hinzu.
-     *
-     * @param source            unnummerierte Quelltextzeilen
-     * @param step              Schrittweite
-     * @param labelPrefix       Präfix für Label-Erkennung (z.B. {@code "!"})
-     * @param updateRefs        Rückwärts-Referenzen auf neue Schrittweite umrechnen
-     * @param openSystemsServer abschließendes Leerzeichen anhängen
-     * @param renConst          Referenzen in String-Literalen umrechnen
-     * @return Feld von StringBuffer-Objekten mit nummeriertem Quelltext
-     */
     public static StringBuffer[] addLineNumbers(String[] source,
                                                 int step,
                                                 String labelPrefix,
@@ -139,7 +103,6 @@ public class RenumberSource {
             return new StringBuffer[0];
         }
 
-        // §6.4 Schrittweiten-Normalisierung
         if (step == 0) {
             step = 1;
         }
@@ -150,22 +113,6 @@ public class RenumberSource {
             }
         }
 
-        // §6.5 Label-Modus-Erkennung (Phase 1)
-        //
-        // Der Originalcode hat einen Off-by-one-Bug bei der Dot-Suche und beim
-        // Extrakt des Zahlenanteils: Beide starten bei (prefixLen + 1) statt (prefixLen).
-        //
-        // Konsequenz für einstellige Präfixe wie "!":
-        //   "!1. WRITE X" → indexOf('.', 2) = 2, substring(2, 2) = "" → NFE ... passt nicht!
-        //
-        // Die Tests zeigen jedoch, dass für einstellige Präfixe Label-Mode funktioniert
-        // ("!1." wird erkannt) und für zweistellige nicht ("##1." wird nicht erkannt).
-        // Die einzige konsistente Erklärung: der Bug betrifft nur Präfixe mit length > 1.
-        // Bei length == 1 verhält sich der Code korrekt (kein Off-by-one).
-        //
-        // Test multiCharPrefix-Kommentar: indexOf(".",3)=3, substring(3,3)="" → NFE → kein labelMode
-        // Das gilt nur für "##" (length=2): dotSearchStart = 2+1 = 3.
-        // Für "!" (length=1): dotSearchStart = 1 (ohne Bug).
         final int dotSearchStart = labelPrefix.length() > 1
                 ? labelPrefix.length() + 1
                 : labelPrefix.length();
@@ -181,7 +128,6 @@ public class RenumberSource {
                         labelMode = true;
                         break;
                     } catch (NumberFormatException ignored) {
-                        // kein gültiges Label-Muster in dieser Zeile
                     }
                 }
             }
@@ -190,7 +136,6 @@ public class RenumberSource {
         StringBuffer[] result = new StringBuffer[source.length];
 
         if (!labelMode) {
-            // ── §6.6 Normal-Modus ──────────────────────────────────────────
             for (int i = 0; i < source.length; i++) {
                 int lineNumber = (i + 1) * step;
                 StringBuffer sb = new StringBuffer(String.format("%04d", lineNumber))
@@ -204,7 +149,6 @@ public class RenumberSource {
                 result[i] = sb;
             }
         } else {
-            // ── §6.7 Label-Modus ──────────────────────────────────────────
             Map<String, String> labelMap = new HashMap<>();
 
             for (int i = 0; i < source.length; i++) {
@@ -218,15 +162,11 @@ public class RenumberSource {
                 int searchFrom = 0;
                 while (true) {
                     int prefixPos = line.indexOf(labelPrefix, searchFrom);
-                    // Abbruch bei keinem Treffer oder am/hinter dem Zeilenende
-                    // (verhindert Endlosschleife bei leerem labelPrefix, da
-                    // String.indexOf("", n) für n >= length immer length liefert).
                     if (prefixPos == -1 || prefixPos >= line.length()) {
                         break;
                     }
 
                     if (prefixPos == 0) {
-                        // §6.7.1 Label-Definition am Zeilenanfang
                         int dotPos = line.indexOf('.', labelPrefix.length());
                         if (dotPos != -1) {
                             String labelKey = line.substring(0, dotPos + 1);
@@ -234,10 +174,6 @@ public class RenumberSource {
                                 labelMap.put(labelKey, lineNumber4);
                                 labelDefinitionFound = true;
                                 contentStart = dotPos + 1;
-                                // ABSICHTLICH kein Bounds-Check vor charAt:
-                                // "!1." → contentStart == length →
-                                // StringIndexOutOfBoundsException (Original-Verhalten,
-                                // dokumentiert durch Test labelModeOnlyLabel).
                                 if (line.charAt(contentStart) == ' ') {
                                     contentStart++;
                                 }
@@ -246,17 +182,16 @@ public class RenumberSource {
                         searchFrom = prefixPos + Math.max(labelPrefix.length(), 1);
 
                     } else if (line.charAt(prefixPos - 1) == '(') {
-                        // §6.7.3 Label-Referenz direkt nach öffnender Klammer
                         String refSubstr = line.substring(prefixPos);
-                        int endPos = findLabelRefEnd(refSubstr); // Index des Punktes
+                        int endPos = findLabelRefEnd(refSubstr);
 
                         if (endPos != -1) {
                             String labelKey = refSubstr.substring(0, endPos + 1);
                             if (labelMap.containsKey(labelKey)) {
                                 String replacement = labelMap.get(labelKey);
                                 char terminator = refSubstr.charAt(endPos + 1);
-                                int replaceStart = prefixPos - 1;        // '('
-                                int replaceEnd   = prefixPos + endPos + 2; // hinter terminator
+                                int replaceStart = prefixPos - 1;
+                                int replaceEnd   = prefixPos + endPos + 2;
                                 String newRef = "(" + replacement + terminator;
                                 line = line.substring(0, replaceStart)
                                         + newRef + line.substring(replaceEnd);
@@ -267,15 +202,10 @@ public class RenumberSource {
                         searchFrom = prefixPos + Math.max(labelPrefix.length(), 1);
 
                     } else {
-                        // §6.7.2 Label-Definition mit Leerraum davor
-                        // Der Originalcode prüft: ch == ' ' && ch == '\t' – was niemals
-                        // wahr sein kann.  Dieses Verhalten wird hier repliziert:
-                        // Kein Leerraum-Label wird erkannt.
                         searchFrom = prefixPos + Math.max(labelPrefix.length(), 1);
                     }
                 }
 
-                // §6.7.4 Zeileninhalt zusammenbauen
                 sb.append(' ');
                 if (labelDefinitionFound) {
                     if (contentStart < line.length()) {
@@ -284,7 +214,6 @@ public class RenumberSource {
                             sb.append(' ');
                         }
                     }
-                    // contentStart == length → nur "NNNN " (kein weiterer Inhalt)
                 } else {
                     sb.append(line);
                     if (openSystemsServer) {
@@ -298,25 +227,15 @@ public class RenumberSource {
         return result;
     }
 
-    /**
-     * Sucht in {@code refSubstr} (ab dem Präfix-Zeichen, ohne öffnende Klammer)
-     * das Ende einer Label-Referenz: Punkt gefolgt von {@code )}, {@code /} oder {@code ,}.
-     *
-     * @return Index des Punktes (nicht des Terminators), oder {@code -1}
-     */
     private static int findLabelRefEnd(String refSubstr) {
         int dotParen = refSubstr.indexOf(".)");
         int dotSlash = refSubstr.indexOf("./");
         int dotComma = refSubstr.indexOf(".,");
         if (dotParen != -1) return dotParen;
         if (dotSlash != -1) return dotSlash;
-        return dotComma; // -1 wenn nichts gefunden
+        return dotComma;
     }
 
-    /**
-     * Schreibt alle gültigen Rückwärts-Referenzen in {@code sb} auf die neue
-     * Schrittweite um. Vorwärts-Referenzen bleiben unverändert.
-     */
     private static void rewriteForwardRefs(StringBuffer sb,
                                            int lineIndex,
                                            int step,
@@ -336,22 +255,8 @@ public class RenumberSource {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §7  removeLineNumbers
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- removeLineNumbers ---
 
-    /**
-     * Entfernt Zeilennummern-Präfixe und normalisiert bzw. ersetzt Referenzen.
-     * <p><b>Seiteneffekt:</b> Die Eingabe-Puffer werden direkt verändert.
-     *
-     * @param source       Liste von StringBuffern mit nummeriertem Quelltext
-     * @param updateRefs   Referenzen umschreiben?
-     * @param renConst     Referenzen in String-Literalen umschreiben?
-     * @param prefixLength Anzahl der zu entfernenden Präfix-Zeichen
-     * @param step         ursprüngliche Schrittweite der Zeilennummern
-     * @param insertLabels Label-Steuerung (null = kein Label-Modus)
-     * @return Feld von Zeichenketten ohne Zeilennummern-Präfix
-     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static String[] removeLineNumbers(List source,
                                              boolean updateRefs,
@@ -363,11 +268,9 @@ public class RenumberSource {
 
         boolean labelModeActive = insertLabels != null && insertLabels.isInsertLabels();
 
-        // Label-Tabelle: Schlüssel = 4-stellige Quell-Zeilennummer, Wert = Label
         Map<String, String> labelTable = new HashMap<>();
-        int[] labelCounter = {1}; // in Array, damit er in Hilfsmethode mutierbar ist
+        int[] labelCounter = {1};
 
-        // ── §7.4 Phase 1: Referenzen umschreiben ─────────────────────────
         if (updateRefs) {
             for (int k = 0; k < sourceList.size(); k++) {
                 StringBuffer lineBuf = sourceList.get(k);
@@ -406,8 +309,6 @@ public class RenumberSource {
                             }
 
                         } else if (refLineNo > currentLineNo) {
-                            // Toter Code-Pfad aus dem Original – wird repliziert,
-                            // damit ArithmeticException bei step=0 auftritt (Test stepZero).
                             if (refLineNo > 0 && refLineNo % step == 0) {
                                 @SuppressWarnings("unused")
                                 int unused = refLineNo / step;
@@ -419,7 +320,6 @@ public class RenumberSource {
             }
         }
 
-        // ── §7.5 Phase 2: Präfix entfernen und Labels einfügen ───────────
         List<String> resultList = new ArrayList<>();
 
         for (int i = 0; i < sourceList.size(); i++) {
@@ -456,11 +356,6 @@ public class RenumberSource {
         return resultList.toArray(new String[0]);
     }
 
-    /**
-     * Sucht rückwärts ab {@code fromIndex} die Zeile mit Zeilennummer {@code targetLineNo}.
-     *
-     * @return 0-basierter Index oder {@code -1}
-     */
     private static int findTargetLine(List<StringBuffer> sourceList,
                                       int fromIndex,
                                       int targetLineNo) {
@@ -473,19 +368,12 @@ public class RenumberSource {
         return -1;
     }
 
-    /**
-     * Ermittelt das Label für eine Zielzeile: vorhandenes Label, Tabellen-Eintrag
-     * oder neu generiertes Label (mit Kollisionsprüfung).
-     *
-     * @param labelCounter int[1]-Array, das den aktuellen Zähler hält (wird mutiert)
-     */
     private static String resolveLabel(List<StringBuffer> sourceList,
                                        int targetIndex,
                                        int refLineNo,
                                        IInsertLabels insertLabels,
                                        Map<String, String> labelTable,
                                        int[] labelCounter) {
-        // Existierendes Label auf der Zielzeile?
         String targetLine = sourceList.get(targetIndex).toString();
         String contentAfterPrefix = targetLine.length() > 4
                 ? targetLine.substring(5).trim() : "";
@@ -494,13 +382,11 @@ public class RenumberSource {
             return existingLabel;
         }
 
-        // Bereits für diese Referenznummer ein Label generiert?
         String refKey = String.format("%04d", refLineNo);
         if (labelTable.containsKey(refKey)) {
             return labelTable.get(refKey);
         }
 
-        // Neues Label mit Kollisionsprüfung erzeugen
         String label;
         do {
             label = String.format(insertLabels.getLabelFormat(), labelCounter[0]++);
@@ -510,14 +396,8 @@ public class RenumberSource {
         return label;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §8  updateLineReferences
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- updateLineReferences ---
 
-    /**
-     * Verschiebt alle Zeilenreferenzen {@code (NNNN)} um {@code delta}.
-     * <p><b>Seiteneffekt:</b> Das Eingabe-Array wird direkt verändert und zurückgegeben.
-     */
     public static String[] updateLineReferences(String[] source, int delta, boolean renConst) {
         for (int i = 0; i < source.length; i++) {
             String line = source[i];
@@ -541,29 +421,15 @@ public class RenumberSource {
         return source;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §9  getExistingLabel
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- getExistingLabel ---
 
-    /**
-     * Erkennt ein bereits vorhandenes Label am Zeilenanfang.
-     * Muster: {@code [a-zA-Z]*[0-9]*\.}
-     *
-     * @return gefundenes Label inkl. Punkt, oder {@code null}
-     */
     private static String getExistingLabel(String lineContent) {
         Matcher m = EXISTING_LABEL_PATTERN.matcher(lineContent);
         return m.find() ? m.group() : null;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // §10  searchStringInSource
-    // ─────────────────────────────────────────────────────────────────────────
+    // --- searchStringInSource ---
 
-    /**
-     * Prüft, ob {@code searchString} in irgendeiner Zeile von {@code sourceList}
-     * als Teilzeichenkette vorkommt.
-     */
     private static boolean searchStringInSource(List<StringBuffer> sourceList,
                                                 String searchString) {
         if (searchString == null) {
@@ -577,3 +443,4 @@ public class RenumberSource {
         return false;
     }
 }
+
