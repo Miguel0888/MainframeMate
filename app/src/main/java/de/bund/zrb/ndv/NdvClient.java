@@ -5,7 +5,7 @@ import com.softwareag.naturalone.natural.pal.external.IPalTransactions;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeLibrary;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeObject;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
-import com.softwareag.naturalone.natural.pal.external.ObjectProperties;
+import com.softwareag.naturalone.natural.paltransactions.external.ObjectProperties;
 import com.softwareag.naturalone.natural.pal.external.PalConnectResultException;
 import com.softwareag.naturalone.natural.pal.external.PalResultException;
 import com.softwareag.naturalone.natural.pal.external.PalTransactionsFactory;
@@ -13,7 +13,7 @@ import com.softwareag.naturalone.natural.pal.external.PalTypeSystemFileFactory;
 import com.softwareag.naturalone.natural.paltransactions.external.EDownLoadOption;
 import com.softwareag.naturalone.natural.paltransactions.external.EUploadOption;
 import com.softwareag.naturalone.natural.paltransactions.external.IDownloadResult;
-import com.softwareag.naturalone.natural.paltransactions.external.IFileProperties;
+import com.softwareag.naturalone.natural.pal.external.IFileProperties;
 import com.softwareag.naturalone.natural.paltransactions.external.ITransactionContextDownload;
 
 import java.io.Closeable;
