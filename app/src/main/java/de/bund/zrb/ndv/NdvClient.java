@@ -392,7 +392,7 @@ public class NdvClient implements Closeable {
 
         try {
             IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
-            Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
+            Set<EDownLoadOption> options = EnumSet.noneOf(EDownLoadOption.class);
 
             IDownloadResult result = pal.downloadSource(ctx, sysFile, library, props, options);
 
