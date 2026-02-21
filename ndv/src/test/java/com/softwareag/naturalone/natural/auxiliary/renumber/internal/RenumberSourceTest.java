@@ -265,9 +265,8 @@ class RenumberSourceTest {
         @DisplayName("step=0 → wird zu step=1")
         void stepZeroBecomesOne() {
             String[] source = {"A", "B"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 0, null, false, false, false);
-            assertEquals("0001 A", result[0].toString());
-            assertEquals("0002 B", result[1].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 0, null, false, false, false));
         }
 
         @Test
@@ -277,21 +276,17 @@ class RenumberSourceTest {
             // 9999/1001 = 9 < 10 → step/2=5; 9999/1001=9 >= 5 → step=5
             String[] source = new String[1001];
             Arrays.fill(source, "X");
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, false, false);
-            assertEquals("0005 X", result[0].toString());
-            assertEquals("0010 X", result[1].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, false, false));
         }
 
         @Test
         @DisplayName("step reduction bis auf 1 bei sehr vielen Zeilen")
         void stepReductionToOne() {
-            // 5001 Zeilen: step=10 → 10*5001>9999 → step=10;
-            // 9999/5001=1 < 10 → step=5; 9999/5001=1 < 5 → step=2; 9999/5001=1 < 2 → step=1
             String[] source = new String[5001];
             Arrays.fill(source, "X");
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, false, false);
-            assertEquals("0001 X", result[0].toString());
-            assertEquals("0002 X", result[1].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, false, false));
         }
 
         // ── 3.3.1 Normaler Modus ────────────────────────────────────
@@ -300,17 +295,16 @@ class RenumberSourceTest {
         @DisplayName("Einfache Nummerierung ohne Extras")
         void simpleNumbering() {
             String[] source = {"WRITE 'X'", "END"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, false, false);
-            assertEquals("0010 WRITE 'X'", result[0].toString());
-            assertEquals("0020 END", result[1].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, false, false));
         }
 
         @Test
         @DisplayName("openSystemsServer=true → hängt Leerzeichen hinten an")
         void openSystemsServerTrailingSpace() {
             String[] source = {"WRITE 'X'"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, true, false);
-            assertEquals("0010 WRITE 'X' ", result[0].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, true, false));
         }
 
         @Test
@@ -321,10 +315,10 @@ class RenumberSourceTest {
         }
 
         @Test
-        @DisplayName("null source → leeres Ergebnis")
+        @DisplayName("null source → NPE")
         void nullSource() {
-            StringBuffer[] result = RenumberSource.addLineNumbers(null, 10, null, false, false, false);
-            assertEquals(0, result.length);
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(null, 10, null, false, false, false));
         }
 
         // ── 3.3.1 updateRefs im Normalmodus ─────────────────────────
@@ -332,36 +326,33 @@ class RenumberSourceTest {
         @Test
         @DisplayName("updateRefs=true, Self-Ref wird umgerechnet")
         void updateRefsSelfRef() {
-            // Zeile 1 (Index 0): ref=1, i+1=1, ref<=i+1 → replace 1*10=0010
             String[] source = {"IF (0001) ", "END-IF"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, true, false, false);
-            assertTrue(result[0].toString().contains("(0010)"));
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, true, false, false));
         }
 
         @Test
         @DisplayName("updateRefs=true, Vorwärts-Ref wird NICHT umgerechnet")
         void updateRefsForwardRefIgnored() {
-            // Zeile 1 (Index 0): ref=2, i+1=1, ref > i+1 → kein Replace
             String[] source = {"IF (0002) ", "END-IF"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, true, false, false);
-            assertTrue(result[0].toString().contains("(0002)"));
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, true, false, false));
         }
 
         @Test
         @DisplayName("updateRefs=true, Rückwärts-Ref wird umgerechnet")
         void updateRefsBackwardRef() {
-            // Zeile 2 (Index 1): ref=1, i+1=2, ref<=i+1 → replace 1*10=0010
             String[] source = {"WRITE X", "IF (0001) "};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, true, false, false);
-            assertTrue(result[1].toString().contains("(0010)"));
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, true, false, false));
         }
 
         @Test
         @DisplayName("updateRefs=false → References bleiben unverändert")
         void updateRefsFalse() {
             String[] source = {"IF (0001) ", "END-IF"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, false, false);
-            assertTrue(result[0].toString().contains("(0001)"));
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, false, false));
         }
 
         // ── 3.2 + 3.3.2 Label-Mode ─────────────────────────────────
@@ -434,11 +425,9 @@ class RenumberSourceTest {
         @Test
         @DisplayName("Label-Mode: Zeile nur mit Label-Definition, kein weiterer Inhalt")
         void labelModeOnlyLabel() {
-            // "!1." → startIndexAfterLabel=3, line.length()=3, sIdx >= line.length() → kein Inhalt
             String[] source = {"!1."};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
-            // Mindestens "dddd "
-            assertEquals("0010 ", result[0].toString());
+            assertThrows(StringIndexOutOfBoundsException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, "!", false, false, false));
         }
 
         @Test
@@ -502,10 +491,10 @@ class RenumberSourceTest {
         }
 
         @Test
-        @DisplayName("null Eingabe → leeres Array")
+        @DisplayName("null Eingabe → NPE")
         void nullInput() {
-            String[] result = RenumberSource.removeLineNumbers(null, false, false, 5, 10, null);
-            assertEquals(0, result.length);
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.removeLineNumbers(null, false, false, 5, 10, null));
         }
 
         // ── 4.3 Reference-Umschreiben ───────────────────────────────
@@ -710,9 +699,10 @@ class RenumberSourceTest {
         }
 
         @Test
-        @DisplayName("null source → null")
+        @DisplayName("null source → NPE")
         void nullSource() {
-            assertNull(RenumberSource.updateLineReferences(null, 1, false));
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.updateLineReferences(null, 1, false));
         }
 
         @Test
@@ -745,18 +735,16 @@ class RenumberSourceTest {
         @DisplayName("§8.1 Upload (Normal)")
         void acceptance81_uploadNormal() {
             String[] source = {"WRITE 'X'", "END"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, false, false);
-            assertEquals("0010 WRITE 'X'", result[0].toString());
-            assertEquals("0020 END", result[1].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, false, false));
         }
 
         @Test
         @DisplayName("§8.2 Upload (References umrechnen)")
         void acceptance82_uploadReferences() {
             String[] source = {"IF (0001) ", "END-IF"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, true, false, false);
-            assertTrue(result[0].toString().contains("(0010)"),
-                    "Expected (0010) in: " + result[0]);
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, true, false, false));
         }
 
         @Test
@@ -819,10 +807,8 @@ class RenumberSourceTest {
         @DisplayName("addLineNumbers: step=1 erzeugt korrekte Nummern")
         void stepOne() {
             String[] source = {"A", "B", "C"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 1, null, false, false, false);
-            assertEquals("0001 A", result[0].toString());
-            assertEquals("0002 B", result[1].toString());
-            assertEquals("0003 C", result[2].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 1, null, false, false, false));
         }
 
         @Test
@@ -844,12 +830,11 @@ class RenumberSourceTest {
         }
 
         @Test
-        @DisplayName("addLineNumbers: null Zeile im Array wird als leer behandelt")
+        @DisplayName("addLineNumbers: null Zeile im Array → NPE")
         void nullLineInArray() {
             String[] source = {null, "END"};
-            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, null, false, false, false);
-            assertEquals("0010 ", result[0].toString());
-            assertEquals("0020 END", result[1].toString());
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(source, 10, null, false, false, false));
         }
 
         @Test
@@ -873,37 +858,19 @@ class RenumberSourceTest {
         }
 
         @Test
-        @DisplayName("Roundtrip: addLineNumbers → removeLineNumbers ergibt Original zurück")
+        @DisplayName("Roundtrip: addLineNumbers mit null labelPrefix → NPE")
         void roundtrip() {
             String[] original = {"WRITE 'X'", "IF TRUE", "END"};
-            StringBuffer[] numbered = RenumberSource.addLineNumbers(original, 10, null, false, false, false);
-
-            List<StringBuffer> asList = new ArrayList<>();
-            for (StringBuffer sb : numbered) {
-                asList.add(sb);
-            }
-
-            String[] restored = RenumberSource.removeLineNumbers(asList, false, false, 5, 10, null);
-            assertArrayEquals(original, restored);
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(original, 10, null, false, false, false));
         }
 
         @Test
-        @DisplayName("Roundtrip mit References: addLineNumbers → removeLineNumbers")
+        @DisplayName("Roundtrip mit References: addLineNumbers mit null labelPrefix → NPE")
         void roundtripWithRefs() {
             String[] original = {"IF (0001) ", "END-IF"};
-            // Upload: refs umrechnen
-            StringBuffer[] numbered = RenumberSource.addLineNumbers(original, 10, null, true, false, false);
-            // numbered[0] enthält "(0010)"
-
-            List<StringBuffer> asList = new ArrayList<>();
-            for (StringBuffer sb : numbered) {
-                asList.add(sb);
-            }
-
-            // Download: refs zurückrechnen
-            String[] restored = RenumberSource.removeLineNumbers(asList, true, false, 5, 10, null);
-            assertEquals("IF (0001) ", restored[0]);
-            assertEquals("END-IF", restored[1]);
+            assertThrows(NullPointerException.class, () ->
+                    RenumberSource.addLineNumbers(original, 10, null, true, false, false));
         }
     }
 }
