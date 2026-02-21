@@ -33,7 +33,7 @@ public class NdvService implements Closeable {
     // Cached after first resolve
     private volatile IPalTypeSystemFile defaultSysFile;
 
-    public NdvService() {
+    public NdvService() throws NdvException {
         this.client = new NdvClient();
     }
 

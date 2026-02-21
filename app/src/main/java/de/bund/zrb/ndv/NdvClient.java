@@ -1,7 +1,20 @@
 package de.bund.zrb.ndv;
 
-import com.softwareag.naturalone.natural.pal.external.*;
-import com.softwareag.naturalone.natural.paltransactions.external.*;
+import com.softwareag.naturalone.natural.pal.external.ConnectKey;
+import com.softwareag.naturalone.natural.pal.external.IPalTransactions;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeLibrary;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeObject;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
+import com.softwareag.naturalone.natural.pal.external.ObjectProperties;
+import com.softwareag.naturalone.natural.pal.external.PalConnectResultException;
+import com.softwareag.naturalone.natural.pal.external.PalResultException;
+import com.softwareag.naturalone.natural.pal.external.PalTransactionsFactory;
+import com.softwareag.naturalone.natural.pal.external.PalTypeSystemFileFactory;
+import com.softwareag.naturalone.natural.paltransactions.external.EDownLoadOption;
+import com.softwareag.naturalone.natural.paltransactions.external.EUploadOption;
+import com.softwareag.naturalone.natural.paltransactions.external.IDownloadResult;
+import com.softwareag.naturalone.natural.paltransactions.external.IFileProperties;
+import com.softwareag.naturalone.natural.paltransactions.external.ITransactionContextDownload;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -9,8 +22,8 @@ import java.util.*;
 
 /**
  * Wrapper around the NDV (Natural Development Server) PAL Transactions API.
- * Provides a simple facade for connecting, browsing libraries/objects, and reading source code
- * via the NATSPOD protocol.
+ * Compiles against stubs in the ndv module; the real ndvserveraccess JAR is
+ * loaded at runtime via NdvProxyBridge.
  */
 public class NdvClient implements Closeable {
 
@@ -21,7 +34,8 @@ public class NdvClient implements Closeable {
     private String currentLibrary;
     private volatile boolean connected;
 
-    public NdvClient() {
+    public NdvClient() throws NdvException {
+        NdvLibLoader.ensureLoaded();
         this.pal = PalTransactionsFactory.newInstance();
     }
 
@@ -38,8 +52,6 @@ public class NdvClient implements Closeable {
         params.put(ConnectKey.PORT, String.valueOf(port));
         params.put(ConnectKey.USERID, this.user);
         params.put(ConnectKey.PASSWORD, password);
-        // Session parameters: CFICU=ON required by server (NAT7022),
-        // CP=IBM01141 = EBCDIC Germany/Austria (default from NaturalONE Eclipse plugin)
         params.put(ConnectKey.PARM, "CFICU=ON,CP=IBM01141");
 
         // The NDV library sends Charset.defaultCharset().name() as the client codepage.
@@ -60,20 +72,28 @@ public class NdvClient implements Closeable {
             pal.connect(params);
             connected = true;
             System.out.println("[NdvClient] Connected to " + host + ":" + port + " as " + this.user);
-        } catch (java.net.ConnectException e) {
-            throw new NdvException(
-                    "Verbindung abgelehnt: " + host + ":" + port
-                    + "\n\nMögliche Ursachen:"
-                    + "\n• NDV-Server läuft nicht oder ist nicht erreichbar"
-                    + "\n• Port " + port + " ist falsch (Standard: 2700)"
-                    + "\n• Firewall/Proxy blockiert die Verbindung"
-                    + "\n• VPN nicht verbunden", e);
-        } catch (java.net.UnknownHostException e) {
-            throw new NdvException(
-                    "Host nicht gefunden: " + host
-                    + "\n\nBitte Hostnamen oder IP-Adresse prüfen.", e);
-        } catch (PalConnectResultException e) {
-            throw new NdvException("NDV-Login fehlgeschlagen: " + e.getMessage(), e);
+        } catch (PalResultException e) {
+            // PalConnectResultException extends PalResultException – check first
+            if (e instanceof PalConnectResultException) {
+                throw new NdvException("NDV-Login fehlgeschlagen: " + e.getMessage(), e);
+            }
+            // Network errors are wrapped by the proxy – inspect cause
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof java.net.ConnectException) {
+                throw new NdvException(
+                        "Verbindung abgelehnt: " + host + ":" + port
+                        + "\n\nMögliche Ursachen:"
+                        + "\n• NDV-Server läuft nicht oder ist nicht erreichbar"
+                        + "\n• Port " + port + " ist falsch (Standard: 2700)"
+                        + "\n• Firewall/Proxy blockiert die Verbindung"
+                        + "\n• VPN nicht verbunden", cause);
+            }
+            if (cause instanceof java.net.UnknownHostException) {
+                throw new NdvException(
+                        "Host nicht gefunden: " + host
+                        + "\n\nBitte Hostnamen oder IP-Adresse prüfen.", cause);
+            }
+            throw new NdvException("Verbindungsfehler: " + e.getMessage(), e);
         } finally {
             // Restore original encoding and reset charset cache
             if (originalEncoding != null) {
