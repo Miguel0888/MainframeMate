@@ -60,6 +60,33 @@ public final class NdvProxyBridge {
         // Child-first: JARs zuerst, dann App-ClassLoader als Fallback
         ClassLoader parent = NdvProxyBridge.class.getClassLoader();
         classLoader = new ChildFirstURLClassLoader(urls.toArray(new URL[0]), parent);
+
+        // ICU4J CharsetProvider registrieren:
+        // java.nio.charset.Charset verwendet den Thread-Context-ClassLoader
+        // für den ServiceLoader-Lookup. Wir setzen ihn kurz auf unseren CL
+        // und erzwingen eine Charset-Suche, damit der Provider-Cache befüllt wird.
+        registerCharsetProviders();
+    }
+
+    /**
+     * Erzwingt die Registrierung von CharsetProvidern (insbesondere ICU4J)
+     * aus den geladenen JARs im globalen Charset-Cache.
+     */
+    private static void registerCharsetProviders() {
+        Thread t = Thread.currentThread();
+        ClassLoader prev = t.getContextClassLoader();
+        t.setContextClassLoader(classLoader);
+        try {
+            // Einen typischen IBM-Charset anfragen → zwingt den ServiceLoader
+            // die Provider aus dem ICU4J-JAR zu laden und zu cachen.
+            java.nio.charset.Charset.forName("IBM01140");
+        } catch (Exception ignored) {
+            // Charset nicht gefunden → ICU4J nicht im JAR-Set, ignorieren
+            System.err.println("[NdvProxyBridge] ICU4J Charset-Provider nicht registrierbar. "
+                    + "Stellen Sie sicher, dass icu4j-charset-*.jar im lib-Verzeichnis liegt.");
+        } finally {
+            t.setContextClassLoader(prev);
+        }
     }
 
     /**
