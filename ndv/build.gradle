@@ -7,26 +7,9 @@ version = '5.4.0'
 
 repositories {
     mavenCentral()
-    flatDir {
-        dirs "${rootProject.projectDir}/lib"
-    }
 }
 
 dependencies {
-    // ndvserveraccess + ICU4J: compileOnly (nicht im Runtime-Classpath)
-    compileOnly files(
-        "${rootProject.projectDir}/lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar",
-        "${rootProject.projectDir}/lib/icu4j-4_8_1.jar",
-        "${rootProject.projectDir}/lib/icu4j-charset-4_8_1.jar"
-    )
-
-    // Tests brauchen die JARs im Classpath
-    testImplementation files(
-        "${rootProject.projectDir}/lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar",
-        "${rootProject.projectDir}/lib/icu4j-4_8_1.jar",
-        "${rootProject.projectDir}/lib/icu4j-charset-4_8_1.jar"
-    )
-
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

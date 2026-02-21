@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv;
 
-import de.bund.zrb.ndv.bridge.NdvProxyBridge;
+import com.softwareag.naturalone.natural.pal.external.NdvProxyBridge;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 

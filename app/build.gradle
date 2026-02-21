@@ -23,11 +23,8 @@ dependencies {
     implementation 'commons-net:commons-net:3.9.0'
 
     // NDV (Natural Development Server) - nur noch Laufzeit-Abhängigkeit (wird per NdvProxyBridge geladen)
-    // Das JAR wird NICHT im Runtime-Classpath landen; NdvClient kompiliert gegen die echten Interfaces.
+    // Das JAR wird NICHT mehr in den Classpath gepackt; NdvClient kompiliert gegen Stubs im ndv-Modul.
     implementation project(':ndv')
-    compileOnly files("$rootDir/lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar")
-    compileOnly files("$rootDir/lib/icu4j-4_8_1.jar")
-    compileOnly files("$rootDir/lib/icu4j-charset-4_8_1.jar")
 
     // JSON
     implementation 'com.google.code.gson:gson:2.10.1'
