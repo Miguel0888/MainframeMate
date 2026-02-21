@@ -94,6 +94,10 @@ public class NdvClient implements Closeable {
                         + "\n\nBitte Hostnamen oder IP-Adresse prüfen.", cause);
             }
             throw new NdvException("Verbindungsfehler: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            System.err.println("[NdvClient] RuntimeException during connect: " + e);
+            e.printStackTrace();
+            throw new NdvException("Verbindungsfehler (intern): " + e.getMessage(), e);
         } finally {
             // Restore original encoding and reset charset cache
             if (originalEncoding != null) {

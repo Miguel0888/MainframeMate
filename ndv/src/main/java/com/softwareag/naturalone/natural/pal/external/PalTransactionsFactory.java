@@ -51,21 +51,29 @@ public class PalTransactionsFactory {
             Object real = getRealInstance();
             ClassLoader cl = NdvProxyBridge.getClassLoader();
 
+            System.out.println("[PalProxy] Invoking: " + method.getName()
+                    + " on " + real.getClass().getName());
+
             // Methode auf der echten Klasse suchen und aufrufen,
             // dabei Stub-Typen auf echte Typen mappen
             Method realMethod = NdvProxyBridge.findMethod(real.getClass(), method.getName(),
                     method.getParameterTypes());
+
+            System.out.println("[PalProxy] Found real method: " + realMethod);
+
             Object[] mappedArgs = NdvProxyBridge.mapArgs(args, realMethod.getParameterTypes(), cl);
 
             Object result;
             try {
                 result = realMethod.invoke(real, mappedArgs);
             } catch (java.lang.reflect.InvocationTargetException e) {
-                throw NdvProxyBridge.mapException(e.getCause());
+                Throwable cause = e.getCause();
+                System.err.println("[PalProxy] InvocationTargetException for " + method.getName()
+                        + ": " + (cause != null ? cause.getClass().getName() + ": " + cause.getMessage() : "null"));
+                throw NdvProxyBridge.mapException(cause);
             }
 
             return NdvProxyBridge.mapResult(result, method.getReturnType(), cl);
         }
     }
 }
-
