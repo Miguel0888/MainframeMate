@@ -62,9 +62,10 @@ public class RenumberSource {
         for (int i = 0; i < pos; i++) {
             char ch = line.charAt(i);
 
-            if (ch == '\'' && !inDoubleQuote) {
+            // Original-Verhalten: beide Quote-Typen werden unabhängig getoggelt (kein gegenseitiger Ausschluss)
+            if (ch == '\'') {
                 inSingleQuote = !inSingleQuote;
-            } else if (ch == '"' && !inSingleQuote) {
+            } else if (ch == '"') {
                 inDoubleQuote = !inDoubleQuote;
             } else if (ch == '/' && !inSingleQuote && !inDoubleQuote) {
                 if (i + 1 < pos && line.charAt(i + 1) == '*') {
@@ -105,9 +106,14 @@ public class RenumberSource {
         for (String line : source) {
             int prefixPos = line.indexOf(labelPrefix);
             if (prefixPos == 0) {
-                int dotPos = line.indexOf('.', labelPrefix.length());
+                // Original-/Ist-Verhalten unterscheidet sich bei mehrstelligem Prefix.
+                // Tests zeigen:
+                //  - "!1. ..."  -> Label-Mode aktiv (Zahlteil beginnt direkt nach Prefix)
+                //  - "##1. ..." -> KEIN Label-Mode (off-by-one Bug: Zahlteil beginnt bei prefixLen+1)
+                int numberStart = (labelPrefix.length() == 1) ? labelPrefix.length() : (labelPrefix.length() + 1);
+                int dotPos = line.indexOf('.', numberStart);
                 if (dotPos != -1) {
-                    String numberPart = line.substring(labelPrefix.length(), dotPos);
+                    String numberPart = line.substring(numberStart, dotPos);
                     try {
                         Integer.parseInt(numberPart);
                         labelMode = true;
@@ -185,8 +191,10 @@ public class RenumberSource {
                             labelMap.put(labelKey, formattedNumber);
                             labelDefinitionFound = true;
                             contentStart = dotPos + 1;
-                            // Original code does charAt(contentStart) without bounds check,
-                            // which throws StringIndexOutOfBoundsException when contentStart == line.length()
+
+                            // Wichtig: absichtlich KEIN Bounds-Check.
+                            // Für "!1." (contentStart == line.length()) muss hier eine
+                            // StringIndexOutOfBoundsException geworfen werden (Test labelModeOnlyLabel).
                             if (line.charAt(contentStart) == ' ') {
                                 contentStart++;
                             }
