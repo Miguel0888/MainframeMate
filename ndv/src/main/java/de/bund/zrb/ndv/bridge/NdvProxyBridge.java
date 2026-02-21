@@ -47,6 +47,18 @@ public final class NdvProxyBridge {
             System.out.println("[NdvProxyBridge] JAR geladen: " + jar.getName());
         }
 
+        // Verifikation: Probe-Klasse aus dem JAR laden
+        try {
+            Class<?> probe = appCl.loadClass(
+                    "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory");
+            System.out.println("[NdvProxyBridge] Verifikation OK: " + probe.getName()
+                    + " (loader=" + probe.getClassLoader() + ")");
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException(
+                    "[NdvProxyBridge] addURL fehlgeschlagen: Probe-Klasse nicht ladbar. "
+                    + "ClassLoader=" + appCl.getClass().getName(), e);
+        }
+
         initialized = true;
     }
 

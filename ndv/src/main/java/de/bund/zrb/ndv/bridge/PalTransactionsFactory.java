@@ -60,12 +60,21 @@ public class PalTransactionsFactory {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            // Context-ClassLoader setzen, damit SPI-Lookups (z.B. CharsetProvider) funktionieren
+            Thread currentThread = Thread.currentThread();
+            ClassLoader prevCL = currentThread.getContextClassLoader();
+            currentThread.setContextClassLoader(NdvProxyBridge.getClassLoader());
             try {
                 Method realMethod = findMethod(real.getClass(), method.getName(), method.getParameterTypes());
                 return realMethod.invoke(real, args);
             } catch (java.lang.reflect.InvocationTargetException e) {
                 Throwable cause = e.getCause();
+                System.err.println("[PalProxy] " + method.getName() + " -> "
+                        + (cause != null ? cause.getClass().getName() + ": " + cause.getMessage() : "null"));
+                if (cause != null) cause.printStackTrace(System.err);
                 throw cause != null ? cause : e;
+            } finally {
+                currentThread.setContextClassLoader(prevCL);
             }
         }
 
