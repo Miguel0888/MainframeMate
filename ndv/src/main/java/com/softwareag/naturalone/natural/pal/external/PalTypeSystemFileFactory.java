@@ -44,8 +44,11 @@ public class PalTypeSystemFileFactory {
         if (real instanceof IPalTypeSystemFile) return (IPalTypeSystemFile) real;
         return (IPalTypeSystemFile) Proxy.newProxyInstance(
                 PalTypeSystemFileFactory.class.getClassLoader(),
-                new Class<?>[]{ IPalTypeSystemFile.class },
+                new Class<?>[]{ IPalTypeSystemFile.class, NdvProxyBridge.RealObjectHolder.class },
                 (proxy, method, args) -> {
+                    if ("getRealObject".equals(method.getName()) && method.getParameterCount() == 0) {
+                        return real;
+                    }
                     Method realMethod = real.getClass().getMethod(method.getName(),
                             method.getParameterTypes());
                     return realMethod.invoke(real, args);

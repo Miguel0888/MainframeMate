@@ -26,8 +26,6 @@ public class ObjectProperties {
             try {
                 ClassLoader cl = NdvProxyBridge.getClassLoader();
                 // Die ECHTE ObjectProperties liegt in paltransactions.external, nicht pal.external!
-                Class<?> opClass = cl.loadClass(
-                        "com.softwareag.naturalone.natural.paltransactions.external.ObjectProperties");
                 Class<?> builderClass = cl.loadClass(
                         "com.softwareag.naturalone.natural.paltransactions.external.ObjectProperties$Builder");
                 Object realBuilder = builderClass.getConstructor(String.class, int.class)
@@ -35,11 +33,15 @@ public class ObjectProperties {
                 Method buildMethod = builderClass.getMethod("build");
                 Object realProps = buildMethod.invoke(realBuilder);
 
-                // Proxy zurück auf IFileProperties
+                // Proxy der IFileProperties implementiert UND RealObjectHolder,
+                // damit NdvProxyBridge.mapArg() das echte Objekt extrahieren kann.
                 return (IFileProperties) Proxy.newProxyInstance(
                         Builder.class.getClassLoader(),
-                        new Class<?>[]{ IFileProperties.class },
+                        new Class<?>[]{ IFileProperties.class, NdvProxyBridge.RealObjectHolder.class },
                         (proxy, method, args) -> {
+                            if ("getRealObject".equals(method.getName()) && method.getParameterCount() == 0) {
+                                return realProps;
+                            }
                             Method m = realProps.getClass().getMethod(method.getName(),
                                     method.getParameterTypes());
                             return m.invoke(realProps, args);

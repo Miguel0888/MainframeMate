@@ -186,7 +186,11 @@ public final class NdvProxyBridge {
 
         // Stub-Proxy → echtes Objekt dahinter holen
         if (Proxy.isProxyClass(arg.getClass())) {
-            // InvocationHandler enthält ggf. das echte Objekt
+            // Das Proxy-Objekt implementiert RealObjectHolder
+            if (arg instanceof RealObjectHolder) {
+                return ((RealObjectHolder) arg).getRealObject();
+            }
+            // Alternativ: der InvocationHandler selbst ist RealObjectHolder
             java.lang.reflect.InvocationHandler h = Proxy.getInvocationHandler(arg);
             if (h instanceof RealObjectHolder) {
                 return ((RealObjectHolder) h).getRealObject();
@@ -283,7 +287,7 @@ public final class NdvProxyBridge {
         if (stubInterface.isInstance(real)) return real;
         return Proxy.newProxyInstance(
                 NdvProxyBridge.class.getClassLoader(),
-                new Class<?>[]{ stubInterface },
+                new Class<?>[]{ stubInterface, RealObjectHolder.class },
                 new ReflectiveHandler(real, stubInterface, cl)
         );
     }
@@ -308,6 +312,10 @@ public final class NdvProxyBridge {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            // getRealObject() kommt vom RealObjectHolder-Interface, nicht vom echten Objekt
+            if ("getRealObject".equals(method.getName()) && method.getParameterCount() == 0) {
+                return real;
+            }
             Method realMethod = findMethod(real.getClass(), method.getName(), method.getParameterTypes());
             Object[] mappedArgs = mapArgs(args, realMethod.getParameterTypes(), cl);
             Object result;
