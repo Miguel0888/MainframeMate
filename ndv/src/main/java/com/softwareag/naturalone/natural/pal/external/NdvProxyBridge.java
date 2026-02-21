@@ -162,6 +162,25 @@ public final class NdvProxyBridge {
     private static Object mapArg(Object arg, Class<?> realType, ClassLoader cl) {
         if (arg == null) return null;
 
+        // Class-Objekte müssen IMMER auf die JAR-Version gemappt werden,
+        // auch wenn Class.class.isInstance(arg) trivialerweise true ist.
+        // Sonst bekommt createTransactionContext(Class) die Stub-Klasse
+        // statt der echten Klasse aus dem JAR.
+        if (arg instanceof Class) {
+            Class<?> stubClass = (Class<?>) arg;
+            try {
+                Class<?> realClass = cl.loadClass(stubClass.getName());
+                System.out.println("[NdvProxyBridge] mapArg Class: stub=" + stubClass.getName()
+                        + " loader=" + stubClass.getClassLoader()
+                        + " → real=" + realClass.getName()
+                        + " loader=" + realClass.getClassLoader());
+                return realClass;
+            } catch (ClassNotFoundException e) {
+                System.err.println("[NdvProxyBridge] mapArg Class NOT FOUND: " + stubClass.getName());
+                return arg; // fallback
+            }
+        }
+
         // Bereits der richtige Typ (z.B. String, Integer, Map, Set, Enum)
         if (realType.isInstance(arg)) return arg;
 
@@ -190,15 +209,6 @@ public final class NdvProxyBridge {
             return mapEnumSet((java.util.Set<?>) arg, realType, cl);
         }
 
-        // Class-Objekt (createTransactionContext(Class))
-        if (arg instanceof Class) {
-            Class<?> stubClass = (Class<?>) arg;
-            try {
-                return cl.loadClass(stubClass.getName());
-            } catch (ClassNotFoundException e) {
-                return arg; // fallback
-            }
-        }
 
         return arg;
     }
