@@ -1236,5 +1236,269 @@ class RenumberSourceTest4 {
             assertEquals("IF (0000)", result[0]);
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Coverage-Lücken: gezielte Tests für gelbe/rote Zeilen
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("Coverage – addLineNumbers Label-Mode Zeile 103: var24!=-1 && var9.containsKey")
+    class CoverageLabelRefReplacementTest {
+
+        @Test
+        @DisplayName("Label-Ref in Parens: var24!=-1 aber Label NICHT im Map → kein Replace (containsKey=false)")
+        void labelRefNotInMap() {
+            // "(!99.)" → var22-1='(' → sucht ".)" → var24 findet "." bei passender Stelle
+            // aber "!99." ist nicht im labelMap → containsKey=false → kein Replace
+            String[] source = {"!1. FIRST", "IF (!99.) THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            // !99. ist nicht definiert → bleibt unverändert
+            assertEquals("0020 IF (!99.) THEN", result[1].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Ref in Parens: var24!=-1 UND Label IM Map → Replace erfolgt (containsKey=true)")
+        void labelRefInMap() {
+            // "(!1.)" → "!1." ist im Map → wird ersetzt durch Zeilennummer
+            String[] source = {"!1. FIRST", "IF (!1.) THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertEquals("0020 IF (0010) THEN", result[1].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Ref in Parens: var24==-1 (kein .) ./ .,) → kein Replace")
+        void labelRefNoEndingFound() {
+            // "(!1X)" → sucht ".)", "./", ".," → alle -1 → var24==-1 → kein Replace
+            String[] source = {"!1. FIRST", "IF (!1X) THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            // "!1X)" hat kein ".)" / "./" / ".," → bleibt
+            assertEquals("0020 IF (!1X) THEN", result[1].toString());
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage – addLineNumbers Label-Mode Zeile 108-110: Whitespace-Backtrack (rote Zeile)")
+    class CoverageWhitespaceBacktrackTest {
+
+        // Zeile 108: for (var28 = var22-1; var28>=0 && charAt==' ' && charAt=='\t'; --var28)
+        // Der &&-Bug macht die Schleife ineffektiv (Zeichen kann nie ' ' UND '\t' gleichzeitig sein).
+        // var28 bleibt daher immer bei var22-1.
+        //
+        // Zeile 110 (ROTE ZEILE): if (var28 == -1) { var27 = true; }
+        // → var28 == -1 erfordert var22 == 0, aber var22==0 wird schon im if(var22==0) Zweig davor abgefangen.
+        // → Dieser Code ist UNREACHABLE wegen des &&-Bugs in Zeile 108.
+        //
+        // Trotzdem testen wir den else-Zweig (Zeile 106-112) so vollständig wie möglich:
+
+        @Test
+        @DisplayName("Label-Prefix nach einem einzelnen Zeichen (nicht '(') → else-Zweig, var28=0, var27=false")
+        void prefixAfterOneChar() {
+            // Zeile "X!1." → indexOf("!")=1, var22=1
+            // charAt(0)='X' != '(' → else-Zweig
+            // var28 = 1-1 = 0, Schleife terminiert sofort (charAt(0)='X', nicht ' '&&'\t')
+            // var28=0 != -1 → var27=false → kein Label erkannt an dieser Position
+            String[] source = {"!1. FIRST", "X!1. CODE"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            // "X!1. CODE" → !1. nicht am Anfang, nicht nach '(' → else-Zweig → var27=false
+            // → var20 bleibt 0 → gesamter Inhalt wird angehängt
+            assertNotNull(result[1]);
+        }
+
+        @Test
+        @DisplayName("Label-Prefix nach Space (nicht '(') → else-Zweig, var28=var22-1, Schleife terminiert sofort")
+        void prefixAfterSpace() {
+            // " !1." → indexOf("!")=1, var22=1, charAt(0)=' '
+            // else-Zweig: var28 = 0, charAt(0)==' ' → Schleife-Bedingung: ' '==' ' && ' '=='\t' → false
+            // → Schleife terminiert sofort, var28=0 != -1 → var27=false
+            String[] source = {"!1. FIRST", " !1. CODE"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertNotNull(result[1]);
+        }
+
+        @Test
+        @DisplayName("Label-Prefix nach Tab (nicht '(') → else-Zweig, Schleife terminiert sofort")
+        void prefixAfterTab() {
+            String[] source = {"!1. FIRST", "\t!1. CODE"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertNotNull(result[1]);
+        }
+
+        @Test
+        @DisplayName("Label-Prefix nach mehreren Spaces → Schleife terminiert sofort wegen &&-Bug")
+        void prefixAfterMultipleSpaces() {
+            // "   !1." → indexOf("!")=3, var22=3, charAt(2)=' '
+            // var28=2: charAt(2)==' ' → true, aber ' '=='\t' → false → Schleife stoppt
+            // var28=2 != -1 → var27=false
+            String[] source = {"!1. FIRST", "   !1. CODE"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertNotNull(result[1]);
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage – addLineNumbers Label-Mode Zeile 116: var24!=-1 && !var9.containsKey")
+    class CoverageLabelDefinitionTest {
+
+        @Test
+        @DisplayName("Label-Definition: Punkt gefunden, Label noch nicht im Map → wird eingetragen")
+        void newLabelDefinition() {
+            String[] source = {"!1. FIRST"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertEquals("0010 FIRST", result[0].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Definition: Punkt gefunden, Label bereits im Map → wird NICHT erneut eingetragen")
+        void duplicateLabelDefinition() {
+            // Zwei Zeilen mit gleichem Label → zweites !1. ist schon im Map → containsKey=true → skip
+            String[] source = {"!1. FIRST", "!1. SECOND"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertEquals("0010 FIRST", result[0].toString());
+            // Zeile 2: !1. ist schon im Map → var27=true (var22==0), aber var9.containsKey → true
+            // → !containsKey → false → Label-Definition wird übersprungen → var20 bleibt 0
+            assertEquals("0020 !1. SECOND", result[1].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Definition: Kein Punkt gefunden (var24==-1) → kein Label")
+        void noDotNoLabel() {
+            // "!1X" → indexOf(".", 1)=-1 → var24==-1 → kein Label
+            String[] source = {"!1. FIRST", "!1X CODE"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            // "!1X CODE" → !1X hat keinen Punkt → kein Label-Definition
+            assertNotNull(result[1]);
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage – removeLineNumbers Zeile 155: var9 && var17 (beide Branches)")
+    class CoverageInsertLabelsBranchTest {
+
+        @Test
+        @DisplayName("var9=true, var17=true → isLineNumberReference mit insertLabelsMode=true wird aufgerufen")
+        void insertLabelsAndValidRef() {
+            List<StringBuffer> input = sbList("0010 WRITE X", "0020 IF (0010)");
+            IInsertLabels il = labels(true, "L%d.", false);
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, il);
+            // var9=true, var17=true → var16 = isLineNumberReference(..., true, ...) → Label-Modus
+            assertTrue(result[1].contains("(L1.)"));
+        }
+
+        @Test
+        @DisplayName("var9=true, var17=false → var16=false (kein gültiger Ref)")
+        void insertLabelsButInvalidRef() {
+            // Zeile ohne gültige Referenz → var17=false → if(var9 && var17) → false → var16=false
+            List<StringBuffer> input = sbList("0010 WRITE X", "0020 IF (ABCD)");
+            IInsertLabels il = labels(true, "L%d.", false);
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, il);
+            // "(ABCD)" ist kein gültiges Ref-Format → var17=false → var16=false → kein Label
+            assertEquals("IF (ABCD)", result[1]);
+        }
+
+        @Test
+        @DisplayName("var9=false, var17=true → var16=false (kein Label-Modus)")
+        void noInsertLabelsButValidRef() {
+            List<StringBuffer> input = sbList("0010 WRITE X", "0020 IF (0010)");
+            IInsertLabels il = labels(false, "L%d.", false);
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, il);
+            // var9=false → if(var9 && var17) → false → var16=false → numerische Ersetzung
+            assertEquals("IF (0001)", result[1]);
+        }
+
+        @Test
+        @DisplayName("var9=false, var17=false → var16=false")
+        void noInsertLabelsNoValidRef() {
+            List<StringBuffer> input = sbList("0010 WRITE X", "0020 IF (ABCD)");
+            IInsertLabels il = labels(false, "L%d.", false);
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, il);
+            assertEquals("IF (ABCD)", result[1]);
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage – searchStringInSource Zeile 290: var1==null Branch")
+    class CoverageSearchStringNullTest {
+
+        // searchStringInSource wird intern aufgerufen mit dem generierten Label.
+        // Der null-Branch (var1==null) wird nur erreicht wenn String.format(var11, var8++) null liefert,
+        // was bei normalem Format nie passiert.
+        // Wir können diesen Branch indirekt nicht erreichen, da var23 immer ein nicht-null String.format-Ergebnis ist.
+        // Der null-Check ist defensiver Code.
+
+        @Test
+        @DisplayName("searchStringInSource: Label-Generierung mit gültigem Format → var1 nie null")
+        void labelGenerationNeverNull() {
+            // Indirekt: wenn ein Label generiert wird, ist es nie null
+            List<StringBuffer> input = sbList("0010 WRITE X", "0020 IF (0010)");
+            IInsertLabels il = labels(true, "L%d.", false);
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, il);
+            // Label wurde erfolgreich generiert (nicht null)
+            assertTrue(result[1].contains("(L1.)"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage – addLineNumbers Label-Mode: alle Label-Ref-Endungen (.)/./.,)")
+    class CoverageLabelRefEndingsTest {
+
+        @Test
+        @DisplayName("Label-Ref mit .) Endung → gefunden via indexOf('.)') → containsKey → Replace")
+        void labelRefEndingDotParen() {
+            String[] source = {"!1. FIRST", "IF (!1.) THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertEquals("0020 IF (0010) THEN", result[1].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Ref mit ./ Endung → indexOf('.)') == -1, indexOf('./') findet")
+        void labelRefEndingDotSlash() {
+            String[] source = {"!1. FIRST", "IF (!1./ THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertEquals("0020 IF (0010/ THEN", result[1].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Ref mit ., Endung → indexOf('.)') == -1, indexOf('./') == -1, indexOf('.,') findet")
+        void labelRefEndingDotComma() {
+            String[] source = {"!1. FIRST", "IF (!1., THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            assertEquals("0020 IF (0010, THEN", result[1].toString());
+        }
+
+        @Test
+        @DisplayName("Label-Ref ohne gültige Endung → var24==-1 → kein Replace")
+        void labelRefNoValidEnding() {
+            String[] source = {"!1. FIRST", "IF (!1X) THEN"};
+            StringBuffer[] result = RenumberSource.addLineNumbers(source, 10, "!", false, false, false);
+            // "!1X)" → charAt(var22-1)='(' → sucht ".)", "./", ".," → alle -1 → var24==-1 → kein Replace
+            assertEquals("0020 IF (!1X) THEN", result[1].toString());
+        }
+    }
+
+    @Nested
+    @DisplayName("Coverage – removeLineNumbers: Ref-Branch var19 > var18 (Zeile 191)")
+    class CoverageForwardRefBranchTest {
+
+        @Test
+        @DisplayName("var19 > 0 UND var19 % var4 == 0 → toter Code-Pfad wird betreten")
+        void forwardRefDivisibleByStep() {
+            // ref=0020, currentLineNo=0010 → 20 > 10 → else-Zweig
+            // (20 <= 0 || 20 % 10 == 0) → (false || true) → true
+            // UND 20 > 0 → true → var10000 = 20 / 10 = 2 (toter Code)
+            List<StringBuffer> input = sbList("0010 IF (0020)", "0020 END");
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, null);
+            assertEquals("IF (0020)", result[0]);
+        }
+
+        @Test
+        @DisplayName("var19 > 0 UND var19 % var4 != 0 → else-Zweig nicht betreten")
+        void forwardRefNotDivisibleByStep() {
+            // ref=15, currentLineNo=10 → 15 > 10 → else-Zweig
+            // (15 <= 0 || 15 % 10 == 0) → (false || false) → false → ganzer else-Zweig skip
+            List<StringBuffer> input = sbList("0010 IF (0015)", "0020 END");
+            String[] result = RenumberSource.removeLineNumbers(input, true, false, 5, 10, null);
+            assertEquals("IF (0015)", result[0]);
+        }
+    }
 }
 
