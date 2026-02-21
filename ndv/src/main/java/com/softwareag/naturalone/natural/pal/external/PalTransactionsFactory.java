@@ -7,80 +7,76 @@ import java.lang.reflect.Proxy;
 /**
  * Stub-Factory für IPalTransactions.
  *
- * Erzeugt einen Java-Proxy der zur Laufzeit alle Methoden per Reflection
- * an die echte Implementierung aus dem ndvserveraccess-JAR delegiert.
+ * Nach {@link NdvProxyBridge#ensureInitialized()} liegen die echten Klassen
+ * im App-ClassLoader. Die Factory ruft die echte Factory per Reflection auf
+ * und wrappet das Ergebnis in einen einfachen Proxy auf {@link IPalTransactions}.
+ *
+ * Da alle Klassen im selben ClassLoader sind, gibt es keine ClassCast-Probleme.
  */
 public class PalTransactionsFactory {
 
     private PalTransactionsFactory() {}
 
     /**
-     * Erzeugt eine neue IPalTransactions-Instanz als dynamischen Proxy.
-     * Das JAR muss vorher über {@link NdvProxyBridge#getClassLoader()} geladen worden sein.
+     * Erzeugt eine neue IPalTransactions-Instanz.
      */
     public static IPalTransactions newInstance() {
-        return (IPalTransactions) Proxy.newProxyInstance(
-                PalTransactionsFactory.class.getClassLoader(),
-                new Class<?>[]{ IPalTransactions.class },
-                new PalTransactionsHandler()
-        );
+        NdvProxyBridge.ensureInitialized();
+        try {
+            Class<?> factoryClass = Class.forName(
+                    "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory");
+            Method m = factoryClass.getMethod("newInstance");
+            Object real = m.invoke(null);
+
+            // Einfacher Proxy: delegiert alle IPalTransactions-Methoden an das echte Objekt.
+            // Kein mapArgs/mapResult nötig, weil alles im selben ClassLoader liegt.
+            return (IPalTransactions) Proxy.newProxyInstance(
+                    PalTransactionsFactory.class.getClassLoader(),
+                    new Class<?>[]{ IPalTransactions.class },
+                    new DirectDelegateHandler(real)
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("PalTransactionsFactory.newInstance() fehlgeschlagen: " + e.getMessage(), e);
+        }
     }
 
-    private static final class PalTransactionsHandler implements InvocationHandler {
+    /**
+     * Einfacher Handler: sucht die Methode auf dem echten Objekt per Name + Parameter-Typen
+     * und ruft sie direkt auf. Keine Typ-Konvertierung nötig.
+     */
+    private static final class DirectDelegateHandler implements InvocationHandler {
+        private final Object real;
 
-        // Die echte Instanz — lazy initialisiert beim ersten Aufruf
-        private volatile Object realInstance;
-
-        private Object getRealInstance() throws Exception {
-            if (realInstance == null) {
-                synchronized (this) {
-                    if (realInstance == null) {
-                        ClassLoader cl = NdvProxyBridge.getClassLoader();
-                        Thread currentThread = Thread.currentThread();
-                        ClassLoader previousCL = currentThread.getContextClassLoader();
-                        currentThread.setContextClassLoader(cl);
-                        try {
-                            Class<?> factoryClass = cl.loadClass(
-                                    "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory");
-                            Method m = factoryClass.getMethod("newInstance");
-                            realInstance = m.invoke(null);
-                        } finally {
-                            currentThread.setContextClassLoader(previousCL);
-                        }
-                    }
-                }
-            }
-            return realInstance;
+        DirectDelegateHandler(Object real) {
+            this.real = real;
         }
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-            Object real = getRealInstance();
-            ClassLoader cl = NdvProxyBridge.getClassLoader();
-
-            Method realMethod = NdvProxyBridge.findMethod(real.getClass(), method.getName(),
-                    method.getParameterTypes());
-            Object[] mappedArgs = NdvProxyBridge.mapArgs(args, realMethod.getParameterTypes(), cl);
-
-            // Thread-Context-ClassLoader setzen, damit SPI-Lookups
-            // (z.B. ICU4J CharsetProvider) die JARs finden.
-            Thread currentThread = Thread.currentThread();
-            ClassLoader previousCL = currentThread.getContextClassLoader();
-            currentThread.setContextClassLoader(cl);
-
-            Object result;
             try {
-                result = realMethod.invoke(real, mappedArgs);
+                // Methode auf der echten Klasse finden
+                Method realMethod = findMethod(real.getClass(), method.getName(), method.getParameterTypes());
+                return realMethod.invoke(real, args);
             } catch (java.lang.reflect.InvocationTargetException e) {
                 Throwable cause = e.getCause();
-                System.err.println("[PalProxy] InvocationTargetException for " + method.getName()
-                        + ": " + (cause != null ? cause.getClass().getName() + ": " + cause.getMessage() : "null"));
-                throw NdvProxyBridge.mapException(cause);
-            } finally {
-                currentThread.setContextClassLoader(previousCL);
+                // PAL-Exceptions direkt durchwerfen — sie sind jetzt im selben ClassLoader
+                throw cause != null ? cause : e;
             }
+        }
 
-            return NdvProxyBridge.mapResult(result, method.getReturnType(), cl);
+        private static Method findMethod(Class<?> clazz, String name, Class<?>[] paramTypes) throws NoSuchMethodException {
+            // Erst exakt suchen
+            try {
+                return clazz.getMethod(name, paramTypes);
+            } catch (NoSuchMethodException ignored) {}
+
+            // Fallback: Name + Anzahl (für Fälle wo Stub-Typ ≠ echter Typ, z.B. Object vs ITransactionContext)
+            for (Method m : clazz.getMethods()) {
+                if (m.getName().equals(name) && m.getParameterCount() == (paramTypes == null ? 0 : paramTypes.length)) {
+                    return m;
+                }
+            }
+            throw new NoSuchMethodException(clazz.getName() + "." + name);
         }
     }
 }

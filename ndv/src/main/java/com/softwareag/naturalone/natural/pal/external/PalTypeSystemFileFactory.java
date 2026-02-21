@@ -1,11 +1,12 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
 /**
  * Stub-Factory für IPalTypeSystemFile.
+ *
+ * Nach addURL-Injection liegen die echten Klassen im selben ClassLoader.
+ * Die Factory delegiert direkt per Reflection an die echte Factory.
  */
 public class PalTypeSystemFileFactory {
 
@@ -18,9 +19,9 @@ public class PalTypeSystemFileFactory {
 
     /** Erzeugt eine Instanz mit expliziten DBID/FNR/Kind-Werten. */
     public static IPalTypeSystemFile newInstance(int dbid, int fnr, int kind) {
+        NdvProxyBridge.ensureInitialized();
         try {
-            ClassLoader cl = NdvProxyBridge.getClassLoader();
-            Class<?> factoryClass = cl.loadClass(
+            Class<?> factoryClass = Class.forName(
                     "com.softwareag.naturalone.natural.pal.external.PalTypeSystemFileFactory");
 
             Object realSysFile;
@@ -32,28 +33,10 @@ public class PalTypeSystemFileFactory {
                 realSysFile = m.invoke(null, dbid, fnr, kind);
             }
 
-            return wrapSysFile(realSysFile, cl);
+            // Im selben ClassLoader → direkter Cast möglich
+            return (IPalTypeSystemFile) realSysFile;
         } catch (Exception e) {
             throw new RuntimeException("PalTypeSystemFileFactory.newInstance() fehlgeschlagen: " + e.getMessage(), e);
         }
     }
-
-    /** Wickelt ein echtes sysFile-Objekt in einen Stub-Proxy. */
-    static IPalTypeSystemFile wrapSysFile(final Object real, ClassLoader cl) {
-        if (real == null) return null;
-        if (real instanceof IPalTypeSystemFile) return (IPalTypeSystemFile) real;
-        return (IPalTypeSystemFile) Proxy.newProxyInstance(
-                PalTypeSystemFileFactory.class.getClassLoader(),
-                new Class<?>[]{ IPalTypeSystemFile.class, NdvProxyBridge.RealObjectHolder.class },
-                (proxy, method, args) -> {
-                    if ("getRealObject".equals(method.getName()) && method.getParameterCount() == 0) {
-                        return real;
-                    }
-                    Method realMethod = real.getClass().getMethod(method.getName(),
-                            method.getParameterTypes());
-                    return realMethod.invoke(real, args);
-                }
-        );
-    }
 }
-

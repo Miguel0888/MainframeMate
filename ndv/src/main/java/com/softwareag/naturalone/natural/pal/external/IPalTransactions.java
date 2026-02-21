@@ -4,14 +4,16 @@ import com.softwareag.naturalone.natural.paltransactions.external.EDownLoadOptio
 import com.softwareag.naturalone.natural.paltransactions.external.EUploadOption;
 import com.softwareag.naturalone.natural.paltransactions.external.IDownloadResult;
 import com.softwareag.naturalone.natural.paltransactions.external.IFileProperties;
+import com.softwareag.naturalone.natural.paltransactions.external.ITransactionContext;
+import com.softwareag.naturalone.natural.paltransactions.external.ITransactionContextDownload;
 
 import java.util.Map;
 import java.util.Set;
 
 /**
  * Stub-Interface für IPalTransactions aus ndvserveraccess.
- * Wird zur Compile-Zeit verwendet; zur Laufzeit durch einen dynamischen Proxy
- * gegen die echte Implementierung aus dem JAR gebunden.
+ * Wird zur Compile-Zeit verwendet; zur Laufzeit delegiert der Proxy
+ * an die echte Implementierung (die per addURL im selben ClassLoader liegt).
  */
 public interface IPalTransactions {
 
@@ -34,11 +36,6 @@ public interface IPalTransactions {
 
     IPalTypeObject[] getObjectsNext() throws PalResultException;
 
-    /**
-     * Erzeugt einen Transaction-Context.
-     * Rückgabetyp ist {@code Object}, weil das echte Objekt aus dem JAR-ClassLoader
-     * nicht auf den Stub-Typ gecastet werden kann.
-     */
     Object createTransactionContext(Class<?> contextClass);
 
     IDownloadResult downloadSource(Object ctx, IPalTypeSystemFile sysFile,
@@ -51,4 +48,3 @@ public interface IPalTransactions {
                       IFileProperties props, Set<EUploadOption> options,
                       String[] sourceLines) throws PalResultException;
 }
-
