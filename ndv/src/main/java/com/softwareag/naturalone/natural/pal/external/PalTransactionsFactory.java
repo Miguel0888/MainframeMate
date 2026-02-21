@@ -36,10 +36,17 @@ public class PalTransactionsFactory {
                 synchronized (this) {
                     if (realInstance == null) {
                         ClassLoader cl = NdvProxyBridge.getClassLoader();
-                        Class<?> factoryClass = cl.loadClass(
-                                "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory");
-                        Method m = factoryClass.getMethod("newInstance");
-                        realInstance = m.invoke(null);
+                        Thread currentThread = Thread.currentThread();
+                        ClassLoader previousCL = currentThread.getContextClassLoader();
+                        currentThread.setContextClassLoader(cl);
+                        try {
+                            Class<?> factoryClass = cl.loadClass(
+                                    "com.softwareag.naturalone.natural.paltransactions.external.PalTransactionsFactory");
+                            Method m = factoryClass.getMethod("newInstance");
+                            realInstance = m.invoke(null);
+                        } finally {
+                            currentThread.setContextClassLoader(previousCL);
+                        }
                     }
                 }
             }
@@ -51,17 +58,15 @@ public class PalTransactionsFactory {
             Object real = getRealInstance();
             ClassLoader cl = NdvProxyBridge.getClassLoader();
 
-            System.out.println("[PalProxy] Invoking: " + method.getName()
-                    + " on " + real.getClass().getName());
-
-            // Methode auf der echten Klasse suchen und aufrufen,
-            // dabei Stub-Typen auf echte Typen mappen
             Method realMethod = NdvProxyBridge.findMethod(real.getClass(), method.getName(),
                     method.getParameterTypes());
-
-            System.out.println("[PalProxy] Found real method: " + realMethod);
-
             Object[] mappedArgs = NdvProxyBridge.mapArgs(args, realMethod.getParameterTypes(), cl);
+
+            // Thread-Context-ClassLoader setzen, damit SPI-Lookups
+            // (z.B. ICU4J CharsetProvider) die JARs finden.
+            Thread currentThread = Thread.currentThread();
+            ClassLoader previousCL = currentThread.getContextClassLoader();
+            currentThread.setContextClassLoader(cl);
 
             Object result;
             try {
@@ -71,6 +76,8 @@ public class PalTransactionsFactory {
                 System.err.println("[PalProxy] InvocationTargetException for " + method.getName()
                         + ": " + (cause != null ? cause.getClass().getName() + ": " + cause.getMessage() : "null"));
                 throw NdvProxyBridge.mapException(cause);
+            } finally {
+                currentThread.setContextClassLoader(previousCL);
             }
 
             return NdvProxyBridge.mapResult(result, method.getReturnType(), cl);
