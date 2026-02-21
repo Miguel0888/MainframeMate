@@ -1,0 +1,149 @@
+import java.util.Locale
+
+plugins {
+    id 'java'
+    id 'jacoco'
+}
+
+group = 'de.bund.zrb'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation files('../lib/icu4j-4_8_1.jar')
+    implementation files('../lib/icu4j-charset-4_8_1.jar')
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+jacoco {
+    toolVersion = "0.8.12"
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        html.required = false
+        xml.required = true
+        csv.required = false
+    }
+}
+
+tasks.register("jacocoMarkdownSummary") {
+    group = "verification"
+    description = "Generate a Markdown coverage summary from the JaCoCo XML report."
+    dependsOn tasks.named("jacocoTestReport")
+    doLast {
+        def xmlFile = file("${buildDir}/reports/jacoco/test/jacocoTestReport.xml")
+        if (!xmlFile.exists()) {
+            throw new GradleException("JaCoCo XML report not found: ${xmlFile}")
+        }
+
+        def fmtPct = { int missed, int covered ->
+            int total = missed + covered
+            double pct = total == 0 ? 100.0d : (covered * 100.0d / total)
+            return String.format(Locale.US, "%.1f%%", pct)
+        }
+
+        def dbf = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+        dbf.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        def doc = dbf.newDocumentBuilder().parse(xmlFile)
+        def root = doc.getDocumentElement()
+
+        // Extract counter [missed, covered] from direct children of an element
+        def extractCounter = { parent, String type ->
+            def children = parent.getChildNodes()
+            int missed = 0
+            int covered = 0
+            for (int i = 0; i < children.getLength(); i++) {
+                def n = children.item(i)
+                if (n.getNodeType() == 1 && n.getNodeName() == "counter") {
+                    if (((org.w3c.dom.Element) n).getAttribute("type") == type) {
+                        missed = ((org.w3c.dom.Element) n).getAttribute("missed") as int
+                        covered = ((org.w3c.dom.Element) n).getAttribute("covered") as int
+                        break
+                    }
+                }
+            }
+            return [missed, covered]
+        }
+
+        def instrC  = extractCounter(root, "INSTRUCTION")
+        def branchC = extractCounter(root, "BRANCH")
+        def lineC   = extractCounter(root, "LINE")
+
+        def md = new StringBuilder()
+        md << "# JaCoCo Coverage Summary\n\n"
+        md << "| Counter | Covered | Missed | Coverage |\n"
+        md << "|---|---:|---:|---:|\n"
+        md << "| Instructions | ${instrC[1]} | ${instrC[0]} | ${fmtPct(instrC[0], instrC[1])} |\n"
+        md << "| Branches | ${branchC[1]} | ${branchC[0]} | ${fmtPct(branchC[0], branchC[1])} |\n"
+        md << "| Lines | ${lineC[1]} | ${lineC[0]} | ${fmtPct(lineC[0], lineC[1])} |\n"
+
+        md << "\n## Per-Class Coverage\n\n"
+        md << "| Class | Lines | Line% | Branches | Branch% | Methods |\n"
+        md << "|---|---:|---:|---:|---:|---:|\n"
+
+        def rows = []
+        def pkgNodes = root.getElementsByTagName("package")
+        for (int pi = 0; pi < pkgNodes.getLength(); pi++) {
+            def pkgEl = pkgNodes.item(pi)
+            def pkgChildren = pkgEl.getChildNodes()
+            for (int ci = 0; ci < pkgChildren.getLength(); ci++) {
+                def cn = pkgChildren.item(ci)
+                if (cn.getNodeType() != 1) continue
+                if (cn.getNodeName() != "class") continue
+                String clsName = ((org.w3c.dom.Element) cn).getAttribute("name")
+                if (clsName == null || clsName.isEmpty()) continue
+
+                String fqn = clsName.replace('/', '.')
+                def cL = extractCounter(cn, "LINE")
+                def cB = extractCounter(cn, "BRANCH")
+                def cM = extractCounter(cn, "METHOD")
+
+                int tL = cL[0] + cL[1]
+                int tM = cM[0] + cM[1]
+                if (tL == 0 && tM == 0) continue
+
+                rows << [fqn: fqn, lm: cL[0], lc: cL[1], bm: cB[0], bc: cB[1], mm: cM[0], mc: cM[1]]
+            }
+        }
+
+        rows.sort { a, b -> (a.fqn as String).compareTo(b.fqn as String) }
+        for (def r : rows) {
+            int tL = r.lm + r.lc
+            int tB = r.bm + r.bc
+            int tM = r.mm + r.mc
+            String lPct = fmtPct(r.lm, r.lc)
+            String bPct = tB == 0 ? "n/a" : fmtPct(r.bm, r.bc)
+            md << "| ${r.fqn} | ${r.lc}/${tL} | ${lPct} | ${r.bc}/${tB} | ${bPct} | ${r.mc}/${tM} |\n"
+        }
+
+        def out = file("${buildDir}/reports/jacoco/summary.md")
+        out.parentFile.mkdirs()
+        out.text = md.toString()
+        println("Wrote ${out}")
+    }
+}
+
+task coverage {
+    group = "verification"
+    description = "Run tests and generate JaCoCo report + Markdown summary."
+    dependsOn test, jacocoTestReport, jacocoMarkdownSummary
+}
+
