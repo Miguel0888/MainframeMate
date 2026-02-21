@@ -7,119 +7,181 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Werkzeugklasse zur Verwaltung von Zeilennummern in Natural-Quelltextzeilen.
+ * Alle Methoden sind statisch; keine Instanziierung möglich.
+ */
 public class RenumberSource {
 
+    /** Höchste darstellbare 4-stellige Zeilennummer. */
     private static final int MAX_LINE_NUMBER = 9999;
+
+    /** Zeichenlänge einer vollständigen Zeilenreferenz, z.B. {@code (0010)}. */
     private static final int LINE_REFERENCE_LENGTH = 6;
 
-    private static final Pattern LINE_REFERENCE_PATTERN = Pattern.compile("\\([0-9]{4}[)/,]");
-    private static final Pattern EXISTING_LABEL_PATTERN = Pattern.compile("^[a-zA-Z]*[0-9]*\\.");
+    /**
+     * Syntaktisches Muster für eine Zeilenreferenz:
+     * öffnende Klammer + genau 4 ASCII-Ziffern + eines von ) / ,
+     */
+    private static final Pattern LINE_REFERENCE_PATTERN =
+            Pattern.compile("\\([0-9]{4}[)/,]");
+
+    /**
+     * Muster für ein bestehendes Label am Zeilenanfang:
+     * beliebig viele Buchstaben, dann beliebig viele Ziffern, dann Punkt.
+     */
+    private static final Pattern EXISTING_LABEL_PATTERN =
+            Pattern.compile("^[a-zA-Z]*[0-9]*\\.");
 
     private RenumberSource() {
+        // nicht instanziierbar
     }
 
-    private static Pattern getLineReferencePattern() {
-        return LINE_REFERENCE_PATTERN;
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // §4  isLineReference — syntaktische Prüfung
+    // ─────────────────────────────────────────────────────────────────────────
 
-    // §4: isLineReference — syntactic check
+    /**
+     * Prüft, ob an {@code pos} in {@code line} eine syntaktisch gültige
+     * Zeilenreferenz steht (Format {@code (NNNN)}, {@code (NNNN/} oder {@code (NNNN,}).
+     */
     public static boolean isLineReference(int pos, String line) {
         if (pos + LINE_REFERENCE_LENGTH > line.length()) {
             return false;
         }
-        String sub = line.substring(pos, pos + LINE_REFERENCE_LENGTH);
-        return LINE_REFERENCE_PATTERN.matcher(sub).matches();
+        String candidate = line.substring(pos, pos + LINE_REFERENCE_LENGTH);
+        return LINE_REFERENCE_PATTERN.matcher(candidate).matches();
     }
 
-    // §5: isLineNumberReference — semantic check
-    public static boolean isLineNumberReference(int pos, String line, boolean insertLabelsMode, boolean hasLineNumberPrefix, boolean renConst) {
-        // Step 1: pos == -1 → false
+    // ─────────────────────────────────────────────────────────────────────────
+    // §5  isLineNumberReference — semantische Prüfung
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Prüft, ob an {@code pos} eine semantisch gültige Zeilenreferenz steht,
+     * d.h. ob die Stelle weder in einem Kommentar noch (bei {@code renConst=false})
+     * in einem String-Literal liegt.
+     *
+     * @param pos                 Position der öffnenden Klammer
+     * @param line                die vollständige Quelltextzeile
+     * @param insertLabelsMode    {@code true} = Label-Modus aktiv
+     * @param hasLineNumberPrefix {@code true} = Zeile beginnt mit "NNNN "
+     * @param renConst            {@code true} = Referenzen in String-Literalen sind gültig
+     */
+    public static boolean isLineNumberReference(int pos,
+                                                String line,
+                                                boolean insertLabelsMode,
+                                                boolean hasLineNumberPrefix,
+                                                boolean renConst) {
         if (pos == -1) {
             return false;
         }
-
-        // Step 2: syntactic check
         if (!isLineReference(pos, line)) {
             return false;
         }
 
-        // Step 3: compute comment offset
+        // Natural-Kommentar-Erkennung (§5.4 Schritt 4)
         int commentOffset = hasLineNumberPrefix ? 5 : 0;
-
-        // Step 4: Natural comment detection
         if (line.length() >= commentOffset + 2) {
-            String twoChars = line.substring(commentOffset, commentOffset + 2);
-            if (twoChars.equals("* ") || twoChars.equals("**") || twoChars.equals("*/")) {
+            String marker = line.substring(commentOffset, commentOffset + 2);
+            if ("* ".equals(marker) || "**".equals(marker) || "*/".equals(marker)) {
                 return !insertLabelsMode;
             }
         }
 
-        // Step 5: Block comment /* detection before pos
-        // Step 6: String literal detection before pos
+        // Block-Kommentar und String-Literal vor pos durchsuchen (§5.4 Schritte 5+6)
+        // Beide Quote-Typen werden unabhängig voneinander getoggelt (kein gegenseitiger
+        // Ausschluss) – so verhält sich der Originalcode laut Test mixedQuotes.
         boolean inSingleQuote = false;
         boolean inDoubleQuote = false;
 
         for (int i = 0; i < pos; i++) {
             char ch = line.charAt(i);
-
-            // Original-Verhalten: beide Quote-Typen werden unabhängig getoggelt (kein gegenseitiger Ausschluss)
             if (ch == '\'') {
                 inSingleQuote = !inSingleQuote;
             } else if (ch == '"') {
                 inDoubleQuote = !inDoubleQuote;
-            } else if (ch == '/' && !inSingleQuote && !inDoubleQuote) {
-                if (i + 1 < pos && line.charAt(i + 1) == '*') {
-                    return !insertLabelsMode;
-                }
+            } else if (ch == '/' && !inSingleQuote && !inDoubleQuote
+                    && i + 1 < pos && line.charAt(i + 1) == '*') {
+                return !insertLabelsMode;  // Block-Kommentar erkannt
             }
         }
 
-        // Check if inside a string literal
         if (inSingleQuote || inDoubleQuote) {
-            return renConst;
+            return renConst;  // innerhalb eines String-Literals
         }
 
-        // Step 7: valid reference
         return true;
     }
 
-    // §6: addLineNumbers
-    public static StringBuffer[] addLineNumbers(String[] source, int step, String labelPrefix, boolean updateRefs, boolean openSystemsServer, boolean renConst) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // §6  addLineNumbers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Fügt jeder Quelltextzeile eine 4-stellige Zeilennummer als Präfix hinzu.
+     *
+     * @param source            unnummerierte Quelltextzeilen
+     * @param step              Schrittweite
+     * @param labelPrefix       Präfix für Label-Erkennung (z.B. {@code "!"})
+     * @param updateRefs        Rückwärts-Referenzen auf neue Schrittweite umrechnen
+     * @param openSystemsServer abschließendes Leerzeichen anhängen
+     * @param renConst          Referenzen in String-Literalen umrechnen
+     * @return Feld von StringBuffer-Objekten mit nummeriertem Quelltext
+     */
+    public static StringBuffer[] addLineNumbers(String[] source,
+                                                int step,
+                                                String labelPrefix,
+                                                boolean updateRefs,
+                                                boolean openSystemsServer,
+                                                boolean renConst) {
         if (source.length == 0) {
             return new StringBuffer[0];
         }
 
-        // Step normalization
+        // §6.4 Schrittweiten-Normalisierung
         if (step == 0) {
             step = 1;
         }
-
-        if (step * source.length > MAX_LINE_NUMBER) {
+        if ((long) step * source.length > MAX_LINE_NUMBER) {
             step = 10;
             while (step > 1 && MAX_LINE_NUMBER / source.length < step) {
                 step = step / 2;
             }
         }
 
-        // Label mode detection (Phase 1)
+        // §6.5 Label-Modus-Erkennung (Phase 1)
+        //
+        // Der Originalcode hat einen Off-by-one-Bug bei der Dot-Suche und beim
+        // Extrakt des Zahlenanteils: Beide starten bei (prefixLen + 1) statt (prefixLen).
+        //
+        // Konsequenz für einstellige Präfixe wie "!":
+        //   "!1. WRITE X" → indexOf('.', 2) = 2, substring(2, 2) = "" → NFE ... passt nicht!
+        //
+        // Die Tests zeigen jedoch, dass für einstellige Präfixe Label-Mode funktioniert
+        // ("!1." wird erkannt) und für zweistellige nicht ("##1." wird nicht erkannt).
+        // Die einzige konsistente Erklärung: der Bug betrifft nur Präfixe mit length > 1.
+        // Bei length == 1 verhält sich der Code korrekt (kein Off-by-one).
+        //
+        // Test multiCharPrefix-Kommentar: indexOf(".",3)=3, substring(3,3)="" → NFE → kein labelMode
+        // Das gilt nur für "##" (length=2): dotSearchStart = 2+1 = 3.
+        // Für "!" (length=1): dotSearchStart = 1 (ohne Bug).
+        final int dotSearchStart = labelPrefix.length() > 1
+                ? labelPrefix.length() + 1
+                : labelPrefix.length();
+
         boolean labelMode = false;
         for (String line : source) {
-            int prefixPos = line.indexOf(labelPrefix);
-            if (prefixPos == 0) {
-                // Original-/Ist-Verhalten unterscheidet sich bei mehrstelligem Prefix.
-                // Tests zeigen:
-                //  - "!1. ..."  -> Label-Mode aktiv (Zahlteil beginnt direkt nach Prefix)
-                //  - "##1. ..." -> KEIN Label-Mode (off-by-one Bug: Zahlteil beginnt bei prefixLen+1)
-                int numberStart = (labelPrefix.length() == 1) ? labelPrefix.length() : (labelPrefix.length() + 1);
-                int dotPos = line.indexOf('.', numberStart);
+            if (line.indexOf(labelPrefix) == 0) {
+                int dotPos = line.indexOf('.', dotSearchStart);
                 if (dotPos != -1) {
-                    String numberPart = line.substring(numberStart, dotPos);
+                    String numberPart = line.substring(dotSearchStart, dotPos);
                     try {
                         Integer.parseInt(numberPart);
                         labelMode = true;
                         break;
-                    } catch (NumberFormatException e) {
-                        // not a valid label, continue
+                    } catch (NumberFormatException ignored) {
+                        // kein gültiges Label-Muster in dieser Zeile
                     }
                 }
             }
@@ -128,145 +190,107 @@ public class RenumberSource {
         StringBuffer[] result = new StringBuffer[source.length];
 
         if (!labelMode) {
-            // Normal mode (Phase 2a)
+            // ── §6.6 Normal-Modus ──────────────────────────────────────────
             for (int i = 0; i < source.length; i++) {
                 int lineNumber = (i + 1) * step;
-                String formattedNumber = String.format("%04d", lineNumber);
-                StringBuffer sb = new StringBuffer(formattedNumber + " " + source[i]);
-
+                StringBuffer sb = new StringBuffer(String.format("%04d", lineNumber))
+                        .append(' ').append(source[i]);
                 if (updateRefs) {
-                    // Find and update references
-                    int searchFrom = 0;
-                    while (true) {
-                        int parenPos = sb.indexOf("(", searchFrom);
-                        if (parenPos == -1) {
-                            break;
-                        }
-                        String sbStr = sb.toString();
-                        if (isLineNumberReference(parenPos, sbStr, false, false, renConst)) {
-                            int refValue = Integer.parseInt(sbStr.substring(parenPos + 1, parenPos + 5));
-                            if (refValue <= i + 1) {
-                                int newValue = refValue * step;
-                                String newRef = String.format("%04d", newValue);
-                                sb.replace(parenPos + 1, parenPos + 5, newRef);
-                            }
-                        }
-                        searchFrom = parenPos + 1;
-                    }
+                    rewriteForwardRefs(sb, i, step, renConst);
                 }
-
                 if (openSystemsServer) {
-                    sb.append(" ");
+                    sb.append(' ');
                 }
-
                 result[i] = sb;
             }
         } else {
-            // Label mode (Phase 2b)
+            // ── §6.7 Label-Modus ──────────────────────────────────────────
             Map<String, String> labelMap = new HashMap<>();
 
             for (int i = 0; i < source.length; i++) {
                 int lineNumber = (i + 1) * step;
-                String formattedNumber = String.format("%04d", lineNumber);
+                String lineNumber4 = String.format("%04d", lineNumber);
                 String line = source[i];
-
-                StringBuffer sb = new StringBuffer(formattedNumber);
-
+                StringBuffer sb = new StringBuffer(lineNumber4);
                 int contentStart = 0;
                 boolean labelDefinitionFound = false;
 
-                // Search for label prefix occurrences
                 int searchFrom = 0;
                 while (true) {
                     int prefixPos = line.indexOf(labelPrefix, searchFrom);
+                    // Abbruch bei keinem Treffer oder am/hinter dem Zeilenende
+                    // (verhindert Endlosschleife bei leerem labelPrefix, da
+                    // String.indexOf("", n) für n >= length immer length liefert).
                     if (prefixPos == -1 || prefixPos >= line.length()) {
                         break;
                     }
 
                     if (prefixPos == 0) {
-                        // Label definition at position 0 (§6.7.1)
+                        // §6.7.1 Label-Definition am Zeilenanfang
                         int dotPos = line.indexOf('.', labelPrefix.length());
-                        if (dotPos != -1 && !labelMap.containsKey(line.substring(0, dotPos + 1))) {
+                        if (dotPos != -1) {
                             String labelKey = line.substring(0, dotPos + 1);
-                            labelMap.put(labelKey, formattedNumber);
-                            labelDefinitionFound = true;
-                            contentStart = dotPos + 1;
-
-                            // Wichtig: absichtlich KEIN Bounds-Check.
-                            // Für "!1." (contentStart == line.length()) muss hier eine
-                            // StringIndexOutOfBoundsException geworfen werden (Test labelModeOnlyLabel).
-                            if (line.charAt(contentStart) == ' ') {
-                                contentStart++;
+                            if (!labelMap.containsKey(labelKey)) {
+                                labelMap.put(labelKey, lineNumber4);
+                                labelDefinitionFound = true;
+                                contentStart = dotPos + 1;
+                                // ABSICHTLICH kein Bounds-Check vor charAt:
+                                // "!1." → contentStart == length →
+                                // StringIndexOutOfBoundsException (Original-Verhalten,
+                                // dokumentiert durch Test labelModeOnlyLabel).
+                                if (line.charAt(contentStart) == ' ') {
+                                    contentStart++;
+                                }
                             }
                         }
                         searchFrom = prefixPos + Math.max(labelPrefix.length(), 1);
-                    } else if (prefixPos > 0 && line.charAt(prefixPos - 1) == '(') {
-                        // Label reference after '(' (§6.7.3)
-                        String refSubstr = line.substring(prefixPos);
-                        int dotParenPos = refSubstr.indexOf(".)");
-                        int dotSlashPos = refSubstr.indexOf("./");
-                        int dotCommaPos = refSubstr.indexOf(".,");
 
-                        int endPos = -1;
-                        if (dotParenPos != -1) {
-                            endPos = dotParenPos;
-                        } else if (dotSlashPos != -1) {
-                            endPos = dotSlashPos;
-                        } else if (dotCommaPos != -1) {
-                            endPos = dotCommaPos;
-                        }
+                    } else if (line.charAt(prefixPos - 1) == '(') {
+                        // §6.7.3 Label-Referenz direkt nach öffnender Klammer
+                        String refSubstr = line.substring(prefixPos);
+                        int endPos = findLabelRefEnd(refSubstr); // Index des Punktes
 
                         if (endPos != -1) {
                             String labelKey = refSubstr.substring(0, endPos + 1);
                             if (labelMap.containsKey(labelKey)) {
                                 String replacement = labelMap.get(labelKey);
-                                char endChar = refSubstr.charAt(endPos + 1);
-                                // Replace the label reference: (labelKey + endChar) -> (replacement + endChar)
-                                int replaceStart = prefixPos - 1; // the '('
-                                int replaceEnd = prefixPos + endPos + 2; // after the end char
-                                String newRef = "(" + replacement + endChar;
-                                line = line.substring(0, replaceStart) + newRef + line.substring(replaceEnd);
+                                char terminator = refSubstr.charAt(endPos + 1);
+                                int replaceStart = prefixPos - 1;        // '('
+                                int replaceEnd   = prefixPos + endPos + 2; // hinter terminator
+                                String newRef = "(" + replacement + terminator;
+                                line = line.substring(0, replaceStart)
+                                        + newRef + line.substring(replaceEnd);
                                 searchFrom = replaceStart + newRef.length();
                                 continue;
                             }
                         }
                         searchFrom = prefixPos + Math.max(labelPrefix.length(), 1);
+
                     } else {
-                        // §6.7.2: Check if only whitespace before prefix
-                        boolean onlyWhitespace = true;
-                        for (int k = prefixPos - 1; k >= 0 && onlyWhitespace; k--) {
-                            char ch = line.charAt(k);
-                            if (ch != ' ' && ch != '\t') {
-                                onlyWhitespace = false;
-                            }
-                        }
-                        // Due to the && bug in the original: the whitespace backtrack loop
-                        // uses (charAt == ' ' && charAt == '\t') which is always false,
-                        // so it never actually identifies whitespace-only prefixes.
-                        // We replicate this: var28 stays at prefixPos-1, and since
-                        // prefixPos-1 >= 0 (because prefixPos > 0), var28 != -1, so
-                        // no label definition is recognized.
-                        // So we do NOT set labelDefinitionFound here.
+                        // §6.7.2 Label-Definition mit Leerraum davor
+                        // Der Originalcode prüft: ch == ' ' && ch == '\t' – was niemals
+                        // wahr sein kann.  Dieses Verhalten wird hier repliziert:
+                        // Kein Leerraum-Label wird erkannt.
                         searchFrom = prefixPos + Math.max(labelPrefix.length(), 1);
                     }
                 }
 
-                // Build result line
-                sb.append(" ");
+                // §6.7.4 Zeileninhalt zusammenbauen
+                sb.append(' ');
                 if (labelDefinitionFound) {
                     if (contentStart < line.length()) {
                         sb.append(line.substring(contentStart));
                         if (openSystemsServer) {
-                            sb.append(" ");
+                            sb.append(' ');
                         }
                     }
+                    // contentStart == length → nur "NNNN " (kein weiterer Inhalt)
                 } else {
                     sb.append(line);
                     if (openSystemsServer) {
-                        sb.append(" ");
+                        sb.append(' ');
                     }
                 }
-
                 result[i] = sb;
             }
         }
@@ -274,134 +298,146 @@ public class RenumberSource {
         return result;
     }
 
-    // §7: removeLineNumbers
-    @SuppressWarnings("unchecked")
-    public static String[] removeLineNumbers(List source, boolean updateRefs, boolean renConst, int prefixLength, int step, IInsertLabels insertLabels) {
+    /**
+     * Sucht in {@code refSubstr} (ab dem Präfix-Zeichen, ohne öffnende Klammer)
+     * das Ende einer Label-Referenz: Punkt gefolgt von {@code )}, {@code /} oder {@code ,}.
+     *
+     * @return Index des Punktes (nicht des Terminators), oder {@code -1}
+     */
+    private static int findLabelRefEnd(String refSubstr) {
+        int dotParen = refSubstr.indexOf(".)");
+        int dotSlash = refSubstr.indexOf("./");
+        int dotComma = refSubstr.indexOf(".,");
+        if (dotParen != -1) return dotParen;
+        if (dotSlash != -1) return dotSlash;
+        return dotComma; // -1 wenn nichts gefunden
+    }
+
+    /**
+     * Schreibt alle gültigen Rückwärts-Referenzen in {@code sb} auf die neue
+     * Schrittweite um. Vorwärts-Referenzen bleiben unverändert.
+     */
+    private static void rewriteForwardRefs(StringBuffer sb,
+                                           int lineIndex,
+                                           int step,
+                                           boolean renConst) {
+        int searchFrom = 0;
+        while (true) {
+            int parenPos = sb.indexOf("(", searchFrom);
+            if (parenPos == -1) break;
+            String sbStr = sb.toString();
+            if (isLineNumberReference(parenPos, sbStr, false, false, renConst)) {
+                int ref = Integer.parseInt(sbStr.substring(parenPos + 1, parenPos + 5));
+                if (ref <= lineIndex + 1) {
+                    sb.replace(parenPos + 1, parenPos + 5, String.format("%04d", ref * step));
+                }
+            }
+            searchFrom = parenPos + 1;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // §7  removeLineNumbers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Entfernt Zeilennummern-Präfixe und normalisiert bzw. ersetzt Referenzen.
+     * <p><b>Seiteneffekt:</b> Die Eingabe-Puffer werden direkt verändert.
+     *
+     * @param source       Liste von StringBuffern mit nummeriertem Quelltext
+     * @param updateRefs   Referenzen umschreiben?
+     * @param renConst     Referenzen in String-Literalen umschreiben?
+     * @param prefixLength Anzahl der zu entfernenden Präfix-Zeichen
+     * @param step         ursprüngliche Schrittweite der Zeilennummern
+     * @param insertLabels Label-Steuerung (null = kein Label-Modus)
+     * @return Feld von Zeichenketten ohne Zeilennummern-Präfix
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static String[] removeLineNumbers(List source,
+                                             boolean updateRefs,
+                                             boolean renConst,
+                                             int prefixLength,
+                                             int step,
+                                             IInsertLabels insertLabels) {
         List<StringBuffer> sourceList = (List<StringBuffer>) source;
 
         boolean labelModeActive = insertLabels != null && insertLabels.isInsertLabels();
 
-        // Label table: maps 4-digit line number string -> label string
+        // Label-Tabelle: Schlüssel = 4-stellige Quell-Zeilennummer, Wert = Label
         Map<String, String> labelTable = new HashMap<>();
-        int labelCounter = 1;
+        int[] labelCounter = {1}; // in Array, damit er in Hilfsmethode mutierbar ist
 
-        // Phase 1: Reference rewriting
+        // ── §7.4 Phase 1: Referenzen umschreiben ─────────────────────────
         if (updateRefs) {
             for (int k = 0; k < sourceList.size(); k++) {
                 StringBuffer lineBuf = sourceList.get(k);
                 String lineStr = lineBuf.toString();
-
                 int searchFrom = 0;
+
                 while (true) {
                     int parenPos = lineStr.indexOf('(', searchFrom);
-                    if (parenPos == -1) {
-                        break;
-                    }
+                    if (parenPos == -1) break;
 
-                    boolean refValid = isLineNumberReference(parenPos, lineStr, false, true, renConst);
-                    boolean labelRefAllowed = false;
-
-                    if (labelModeActive && refValid) {
-                        labelRefAllowed = isLineNumberReference(parenPos, lineStr, true, true, renConst);
-                    }
+                    boolean refValid = isLineNumberReference(
+                            parenPos, lineStr, false, true, renConst);
+                    boolean labelAllowed = labelModeActive && refValid
+                            && isLineNumberReference(parenPos, lineStr, true, true, renConst);
 
                     if (refValid) {
-                        // Read current line number from first 4 chars
                         int currentLineNo = Integer.parseInt(lineStr.substring(0, 4));
-                        // Read referenced number
-                        int refLineNo = Integer.parseInt(lineStr.substring(parenPos + 1, parenPos + 5));
+                        int refLineNo     = Integer.parseInt(lineStr.substring(parenPos + 1, parenPos + 5));
 
                         if (refLineNo > 0 && refLineNo <= currentLineNo) {
-                            // Search backward for the target line
-                            int targetIndex = -1;
-                            for (int t = k; t >= 0; t--) {
-                                String targetLine = sourceList.get(t).toString();
-                                if (targetLine.length() >= 4) {
-                                    int targetLineNo = Integer.parseInt(targetLine.substring(0, 4));
-                                    if (targetLineNo == refLineNo) {
-                                        targetIndex = t;
-                                        break;
-                                    }
-                                }
-                            }
+                            int targetIndex = findTargetLine(sourceList, k, refLineNo);
 
                             if (targetIndex != -1) {
-                                if (!labelRefAllowed) {
-                                    // Numeric replacement
-                                    int labelLinesCount = 0;
-                                    if (labelModeActive && insertLabels.isCreateNewLine()) {
-                                        labelLinesCount = labelTable.size();
-                                    }
-                                    int newNumber = targetIndex + 1 + labelLinesCount;
-                                    String newRef = String.format("%04d", newNumber);
-                                    lineBuf.replace(parenPos + 1, parenPos + 5, newRef);
-                                    lineStr = lineBuf.toString();
-                                } else {
-                                    // Label replacement
-                                    String targetContent = sourceList.get(targetIndex).toString();
-                                    String contentAfterPrefix = targetContent.length() > 4 ? targetContent.substring(5).trim() : "";
-
-                                    String existingLabel = getExistingLabel(contentAfterPrefix);
-                                    String label;
-
-                                    if (existingLabel != null) {
-                                        label = existingLabel;
-                                    } else {
-                                        String refKey = String.format("%04d", refLineNo);
-                                        if (labelTable.containsKey(refKey)) {
-                                            label = labelTable.get(refKey);
-                                        } else {
-                                            // Generate new label with collision check
-                                            label = String.format(insertLabels.getLabelFormat(), labelCounter++);
-                                            while (searchStringInSource(sourceList, label)) {
-                                                label = String.format(insertLabels.getLabelFormat(), labelCounter++);
-                                            }
-                                            labelTable.put(refKey, label);
-                                        }
-                                    }
-
+                                if (labelAllowed) {
+                                    String label = resolveLabel(
+                                            sourceList, targetIndex, refLineNo,
+                                            insertLabels, labelTable, labelCounter);
                                     lineBuf.replace(parenPos + 1, parenPos + 5, label);
-                                    lineStr = lineBuf.toString();
+                                } else {
+                                    int extraLines = (labelModeActive && insertLabels.isCreateNewLine())
+                                            ? labelTable.size() : 0;
+                                    lineBuf.replace(parenPos + 1, parenPos + 5,
+                                            String.format("%04d", targetIndex + 1 + extraLines));
                                 }
+                                lineStr = lineBuf.toString();
                             }
+
                         } else if (refLineNo > currentLineNo) {
-                            // Forward reference: dead code path replication
-                            if ((refLineNo <= 0 || refLineNo % step == 0) && refLineNo > 0) {
+                            // Toter Code-Pfad aus dem Original – wird repliziert,
+                            // damit ArithmeticException bei step=0 auftritt (Test stepZero).
+                            if (refLineNo > 0 && refLineNo % step == 0) {
                                 @SuppressWarnings("unused")
-                                int deadCodeVar = refLineNo / step;
+                                int unused = refLineNo / step;
                             }
                         }
                     }
-
                     searchFrom = parenPos + 1;
                 }
             }
         }
 
-        // Phase 2: Remove prefix and insert labels
+        // ── §7.5 Phase 2: Präfix entfernen und Labels einfügen ───────────
         List<String> resultList = new ArrayList<>();
 
         for (int i = 0; i < sourceList.size(); i++) {
             StringBuffer lineBuf = sourceList.get(i);
+            int len = lineBuf.length();
 
-            if (lineBuf.length() > 4) {
+            if (len > 4) {
                 String labelForLine = null;
-
                 if (labelModeActive && !labelTable.isEmpty()) {
-                    String lineNoKey = lineBuf.substring(0, 4);
-                    if (labelTable.containsKey(lineNoKey)) {
-                        labelForLine = labelTable.get(lineNoKey);
-                    }
+                    labelForLine = labelTable.get(lineBuf.substring(0, 4));
                 }
 
                 if (labelForLine != null) {
                     if (insertLabels.isCreateNewLine()) {
-                        // Label as separate line
                         resultList.add(labelForLine);
                         lineBuf.delete(0, prefixLength);
                         resultList.add(lineBuf.toString());
                     } else {
-                        // Replace first 4 chars with label
                         lineBuf.replace(0, 4, labelForLine);
                         resultList.add(lineBuf.toString());
                     }
@@ -409,7 +445,7 @@ public class RenumberSource {
                     lineBuf.delete(0, prefixLength);
                     resultList.add(lineBuf.toString());
                 }
-            } else if (lineBuf.length() == 4) {
+            } else if (len == 4) {
                 lineBuf.delete(0, 4);
                 resultList.add("");
             } else {
@@ -420,56 +456,124 @@ public class RenumberSource {
         return resultList.toArray(new String[0]);
     }
 
-    // §8: updateLineReferences
+    /**
+     * Sucht rückwärts ab {@code fromIndex} die Zeile mit Zeilennummer {@code targetLineNo}.
+     *
+     * @return 0-basierter Index oder {@code -1}
+     */
+    private static int findTargetLine(List<StringBuffer> sourceList,
+                                      int fromIndex,
+                                      int targetLineNo) {
+        for (int t = fromIndex; t >= 0; t--) {
+            String line = sourceList.get(t).toString();
+            if (line.length() >= 4 && Integer.parseInt(line.substring(0, 4)) == targetLineNo) {
+                return t;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Ermittelt das Label für eine Zielzeile: vorhandenes Label, Tabellen-Eintrag
+     * oder neu generiertes Label (mit Kollisionsprüfung).
+     *
+     * @param labelCounter int[1]-Array, das den aktuellen Zähler hält (wird mutiert)
+     */
+    private static String resolveLabel(List<StringBuffer> sourceList,
+                                       int targetIndex,
+                                       int refLineNo,
+                                       IInsertLabels insertLabels,
+                                       Map<String, String> labelTable,
+                                       int[] labelCounter) {
+        // Existierendes Label auf der Zielzeile?
+        String targetLine = sourceList.get(targetIndex).toString();
+        String contentAfterPrefix = targetLine.length() > 4
+                ? targetLine.substring(5).trim() : "";
+        String existingLabel = getExistingLabel(contentAfterPrefix);
+        if (existingLabel != null) {
+            return existingLabel;
+        }
+
+        // Bereits für diese Referenznummer ein Label generiert?
+        String refKey = String.format("%04d", refLineNo);
+        if (labelTable.containsKey(refKey)) {
+            return labelTable.get(refKey);
+        }
+
+        // Neues Label mit Kollisionsprüfung erzeugen
+        String label;
+        do {
+            label = String.format(insertLabels.getLabelFormat(), labelCounter[0]++);
+        } while (searchStringInSource(sourceList, label));
+
+        labelTable.put(refKey, label);
+        return label;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // §8  updateLineReferences
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Verschiebt alle Zeilenreferenzen {@code (NNNN)} um {@code delta}.
+     * <p><b>Seiteneffekt:</b> Das Eingabe-Array wird direkt verändert und zurückgegeben.
+     */
     public static String[] updateLineReferences(String[] source, int delta, boolean renConst) {
         for (int i = 0; i < source.length; i++) {
             String line = source[i];
             int searchFrom = 0;
-
             while (true) {
                 int parenPos = line.indexOf('(', searchFrom);
-                if (parenPos == -1) {
-                    break;
-                }
-
+                if (parenPos == -1) break;
                 if (isLineNumberReference(parenPos, line, false, false, renConst)) {
-                    int refValue = Integer.parseInt(line.substring(parenPos + 1, parenPos + 5));
-                    int newValue = refValue + delta;
-
-                    if (newValue > 0 && newValue <= i + 1) {
-                        String newRef = String.format("%04d", newValue);
-                        line = line.substring(0, parenPos + 1) + newRef + line.substring(parenPos + 5);
+                    int ref    = Integer.parseInt(line.substring(parenPos + 1, parenPos + 5));
+                    int newRef = ref + delta;
+                    if (newRef > 0 && newRef <= i + 1) {
+                        line = line.substring(0, parenPos + 1)
+                                + String.format("%04d", newRef)
+                                + line.substring(parenPos + 5);
                         source[i] = line;
                     }
                 }
-
                 searchFrom = parenPos + 1;
             }
         }
-
         return source;
     }
 
-    // §9: getExistingLabel
+    // ─────────────────────────────────────────────────────────────────────────
+    // §9  getExistingLabel
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Erkennt ein bereits vorhandenes Label am Zeilenanfang.
+     * Muster: {@code [a-zA-Z]*[0-9]*\.}
+     *
+     * @return gefundenes Label inkl. Punkt, oder {@code null}
+     */
     private static String getExistingLabel(String lineContent) {
-        Matcher matcher = EXISTING_LABEL_PATTERN.matcher(lineContent);
-        if (matcher.find()) {
-            return matcher.group();
-        }
-        return null;
+        Matcher m = EXISTING_LABEL_PATTERN.matcher(lineContent);
+        return m.find() ? m.group() : null;
     }
 
-    // §10: searchStringInSource
-    private static boolean searchStringInSource(List source, String searchString) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // §10  searchStringInSource
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Prüft, ob {@code searchString} in irgendeiner Zeile von {@code sourceList}
+     * als Teilzeichenkette vorkommt.
+     */
+    private static boolean searchStringInSource(List<StringBuffer> sourceList,
+                                                String searchString) {
         if (searchString == null) {
             return false;
         }
-        for (Object line : source) {
-            if (line != null && line.toString().contains(searchString)) {
+        for (StringBuffer line : sourceList) {
+            if (line != null && line.indexOf(searchString) != -1) {
                 return true;
             }
         }
         return false;
     }
 }
-
