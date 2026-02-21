@@ -41,6 +41,12 @@ public final class NdvProxyBridge {
     /**
      * Initialisiert den ClassLoader mit den gegebenen JAR-Dateien.
      * Mehrfachaufruf ist sicher (idempotent).
+     *
+     * Verwendet einen Child-first ClassLoader: Klassen werden zuerst in den JARs
+     * gesucht, dann im Parent (App-ClassLoader). So haben die echten Klassen
+     * aus dem ndvserveraccess-JAR Vorrang vor gleichnamigen Stub-Klassen,
+     * aber Klassen die nur im ndv-Modul existieren (z.B. IInsertLabels,
+     * RenumberSource) werden über den Parent gefunden.
      */
     public static synchronized void init(File... jars) throws Exception {
         if (classLoader != null) return;
@@ -51,7 +57,9 @@ public final class NdvProxyBridge {
             }
             urls.add(jar.toURI().toURL());
         }
-        classLoader = new URLClassLoader(urls.toArray(new URL[0]), null);
+        // Child-first: JARs zuerst, dann App-ClassLoader als Fallback
+        ClassLoader parent = NdvProxyBridge.class.getClassLoader();
+        classLoader = new ChildFirstURLClassLoader(urls.toArray(new URL[0]), parent);
     }
 
     /**
@@ -366,6 +374,53 @@ public final class NdvProxyBridge {
     private static File[] findJars(File dir) {
         File[] jars = dir.listFiles(f -> f.isFile() && f.getName().endsWith(".jar"));
         return jars != null ? jars : new File[0];
+    }
+
+    // ── Child-first ClassLoader ──────────────────────────────────────────────
+
+    /**
+     * URLClassLoader der Klassen zuerst in den eigenen URLs sucht (Child-first),
+     * bevor er an den Parent delegiert.
+     *
+     * Das ist nötig, weil einige Stub-Klassen im ndv-Modul denselben FQCN haben
+     * wie die echten Klassen im ndvserveraccess-JAR (z.B. PalTypeSystemFileFactory).
+     * Die JAR-Version muss Vorrang haben, damit der Proxy korrekt funktioniert.
+     */
+    private static class ChildFirstURLClassLoader extends URLClassLoader {
+
+        ChildFirstURLClassLoader(URL[] urls, ClassLoader parent) {
+            super(urls, parent);
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            synchronized (getClassLoadingLock(name)) {
+                // Bereits geladen?
+                Class<?> c = findLoadedClass(name);
+                if (c != null) {
+                    if (resolve) resolveClass(c);
+                    return c;
+                }
+
+                // JDK-Klassen immer vom Parent (Bootstrap/Extension)
+                if (name.startsWith("java.") || name.startsWith("javax.")
+                        || name.startsWith("sun.") || name.startsWith("jdk.")) {
+                    return super.loadClass(name, resolve);
+                }
+
+                // Zuerst in unseren JARs suchen (child-first)
+                try {
+                    c = findClass(name);
+                    if (resolve) resolveClass(c);
+                    return c;
+                } catch (ClassNotFoundException ignored) {
+                    // Nicht in JARs → an Parent delegieren
+                }
+
+                // Fallback: Parent-ClassLoader (ndv-Modul, App-Klassen)
+                return super.loadClass(name, resolve);
+            }
+        }
     }
 }
 
