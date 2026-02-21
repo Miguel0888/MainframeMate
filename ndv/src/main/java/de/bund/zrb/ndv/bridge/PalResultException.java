@@ -1,8 +1,5 @@
-package com.softwareag.naturalone.natural.pal.external;
+package de.bund.zrb.ndv.bridge;
 
-/**
- * Stub-Exceptions.
- */
 public class PalResultException extends Exception {
     public PalResultException(String message) { super(message); }
     public PalResultException(String message, Throwable cause) { super(message, cause); }

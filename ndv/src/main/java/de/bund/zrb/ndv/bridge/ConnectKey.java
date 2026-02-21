@@ -1,7 +1,8 @@
-package com.softwareag.naturalone.natural.pal.external;
+package de.bund.zrb.ndv.bridge;
 
 /**
- * Stub für ConnectKey-Konstanten.
+ * Eigene ConnectKey-Konstanten. Die Werte muessen mit den echten
+ * ConnectKey-Konstanten aus dem ndvserveraccess-JAR uebereinstimmen.
  */
 public class ConnectKey {
     public static final String HOST     = "host";

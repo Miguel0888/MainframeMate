@@ -1,16 +1,15 @@
-package com.softwareag.naturalone.natural.pal.external;
+package de.bund.zrb.ndv.bridge;
 
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.Arrays;
 
 /**
  * Injiziert die NDV-JARs (ndvserveraccess + ICU4J) zur Laufzeit in den
  * App-ClassLoader via {@code URLClassLoader.addURL()}.
  *
- * <p>Damit landen alle Klassen im selben ClassLoader — keine Proxy-Wrapping-,
+ * <p>Damit landen alle Klassen im selben ClassLoader -- keine Proxy-Wrapping-,
  * mapArgs/mapResult- oder ClassCast-Probleme mehr.
  *
  * <p>Voraussetzung: Java 8 (App-ClassLoader ist ein {@code URLClassLoader}).
@@ -18,7 +17,7 @@ import java.util.Arrays;
 public final class NdvProxyBridge {
 
     /**
-     * System Property für den Pfad zum Verzeichnis mit den NDV-JARs.
+     * System Property fuer den Pfad zum Verzeichnis mit den NDV-JARs.
      * Wird von der App-Schicht aus den Settings gesetzt.
      */
     public static final String PROPERTY_LIB_PATH = "mainframemate.ndv.libpath";
@@ -27,10 +26,10 @@ public final class NdvProxyBridge {
 
     private NdvProxyBridge() {}
 
-    // ── Initialisierung ──────────────────────────────────────────────────────
+    // -- Initialisierung ------------------------------------------------------
 
     /**
-     * Fügt die angegebenen JARs dem App-ClassLoader hinzu.
+     * Fuegt die angegebenen JARs dem App-ClassLoader hinzu.
      * Mehrfachaufruf ist sicher (idempotent).
      */
     public static synchronized void init(File... jars) throws Exception {
@@ -80,20 +79,20 @@ public final class NdvProxyBridge {
         }
     }
 
-    /** Für Tests: Reset-Flag (JARs bleiben im ClassLoader). */
+    /** Fuer Tests: Reset-Flag (JARs bleiben im ClassLoader). */
     public static synchronized void reset() {
         initialized = false;
     }
 
-    /** Prüft ob bereits initialisiert. */
+    /** Prueft ob bereits initialisiert. */
     public static boolean isInitialized() {
         return initialized;
     }
 
-    // ── ClassLoader-Zugriff ──────────────────────────────────────────────────
+    // -- ClassLoader-Zugriff --------------------------------------------------
 
     /**
-     * Gibt den App-ClassLoader zurück (nach ensureInitialized enthält er die JARs).
+     * Gibt den App-ClassLoader zurueck (nach ensureInitialized enthaelt er die JARs).
      */
     public static ClassLoader getClassLoader() {
         if (!initialized) {
@@ -116,7 +115,7 @@ public final class NdvProxyBridge {
                 "App-ClassLoader ist kein URLClassLoader. Bitte Java 8 verwenden.");
     }
 
-    // ── Pfad-Auflösung ──────────────────────────────────────────────────────
+    // -- Pfad-Aufloesung -----------------------------------------------------
 
     private static File resolveLibDir() {
         // 1) Explizit gesetzte Property
@@ -153,3 +152,4 @@ public final class NdvProxyBridge {
         return jars != null ? jars : new File[0];
     }
 }
+

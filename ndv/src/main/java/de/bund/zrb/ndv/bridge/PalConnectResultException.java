@@ -1,4 +1,4 @@
-package com.softwareag.naturalone.natural.pal.external;
+package de.bund.zrb.ndv.bridge;
 
 public class PalConnectResultException extends PalResultException {
     public PalConnectResultException(String message) { super(message); }

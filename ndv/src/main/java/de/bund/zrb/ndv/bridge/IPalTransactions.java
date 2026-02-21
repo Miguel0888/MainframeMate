@@ -1,5 +1,9 @@
-package com.softwareag.naturalone.natural.pal.external;
+package de.bund.zrb.ndv.bridge;
 
+import com.softwareag.naturalone.natural.pal.external.IFileProperties;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeLibrary;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeObject;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
 import com.softwareag.naturalone.natural.paltransactions.external.EDownLoadOption;
 import com.softwareag.naturalone.natural.paltransactions.external.EUploadOption;
 import com.softwareag.naturalone.natural.paltransactions.external.IDownloadResult;
@@ -8,12 +12,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Unser eigenes Fassaden-Interface fuer IPalTransactions.
- * Liegt in pal.external (nicht in paltransactions.external), daher
- * KEIN Namenskonflikt mit dem echten Interface aus dem JAR.
+ * Eigenes Fassaden-Interface fuer IPalTransactions.
+ * Liegt in de.bund.zrb.ndv.bridge, daher KEIN Package-Konflikt
+ * mit dem signierten ndvserveraccess-JAR.
  *
  * NdvClient kompiliert gegen dieses Interface.
- * PalTransactionsFactory erzeugt einen Proxy der an die echte Implementierung delegiert.
+ * PalTransactionsFactory erzeugt einen Proxy, der an die echte
+ * Implementierung delegiert.
  */
 public interface IPalTransactions {
 
@@ -48,3 +53,4 @@ public interface IPalTransactions {
                       IFileProperties props, Set<EUploadOption> options,
                       String[] sourceLines) throws PalResultException;
 }
+

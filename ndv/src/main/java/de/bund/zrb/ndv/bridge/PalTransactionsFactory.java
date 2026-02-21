@@ -1,4 +1,4 @@
-package com.softwareag.naturalone.natural.pal.external;
+package de.bund.zrb.ndv.bridge;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -9,8 +9,9 @@ import java.lang.reflect.Proxy;
  *
  * Delegiert per Reflection an die echte PalTransactionsFactory aus dem
  * ndvserveraccess-JAR (das per {@link NdvProxyBridge} dynamisch geladen wird).
- * Der Proxy ist nötig, weil unser IPalTransactions (pal.external) und das
- * echte IPalTransactions (paltransactions.external) verschiedene Interfaces sind.
+ * Der Proxy ist noetig, weil unser IPalTransactions (de.bund.zrb.ndv.bridge)
+ * und das echte IPalTransactions (paltransactions.external) verschiedene
+ * Interfaces sind.
  */
 public class PalTransactionsFactory {
 
@@ -26,11 +27,9 @@ public class PalTransactionsFactory {
 
             if (real == null) {
                 throw new IllegalStateException(
-                        "Echte PalTransactionsFactory.newInstance() hat null zurückgegeben");
+                        "Echte PalTransactionsFactory.newInstance() hat null zurueckgegeben");
             }
 
-            // Proxy nötig: echtes Objekt implementiert paltransactions.external.IPalTransactions,
-            // NdvClient erwartet aber pal.external.IPalTransactions.
             return (IPalTransactions) Proxy.newProxyInstance(
                     PalTransactionsFactory.class.getClassLoader(),
                     new Class<?>[]{ IPalTransactions.class },
@@ -50,7 +49,7 @@ public class PalTransactionsFactory {
     /**
      * Delegiert Methodenaufrufe direkt an das echte Objekt.
      * Da alle Klassen im selben ClassLoader liegen (addURL), gibt es keine
-     * ClassCast-Probleme bei Parametern und Rückgabewerten.
+     * ClassCast-Probleme bei Parametern und Rueckgabewerten.
      */
     private static final class DirectDelegateHandler implements InvocationHandler {
         private final Object real;
@@ -85,3 +84,4 @@ public class PalTransactionsFactory {
         }
     }
 }
+
