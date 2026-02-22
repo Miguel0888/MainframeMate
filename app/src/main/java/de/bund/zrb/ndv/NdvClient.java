@@ -74,6 +74,10 @@ public class NdvClient implements Closeable {
                     + "\n\nBitte Hostnamen oder IP-Adresse prüfen.", e);
         } catch (PalConnectResultException e) {
             throw new NdvException("NDV-Login fehlgeschlagen: " + e.getMessage(), e);
+        } catch (Exception e) {
+            System.err.println("[NdvClient] Unerwarteter Fehler bei connect:");
+            e.printStackTrace(System.err);
+            throw new NdvException("NDV-Verbindung unerwartet fehlgeschlagen: " + e.getClass().getName() + ": " + e.getMessage(), e);
         } finally {
             // Restore original encoding and reset charset cache
             if (originalEncoding != null) {

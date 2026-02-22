@@ -458,7 +458,9 @@ public final class Pal {
             }
         }
 
-        return typArrayErzeugen(gesuchterTyp);
+        IPalType[] ergebnis = typArrayErzeugen(gesuchterTyp);
+        log("retrieve: gesuchterTyp=" + gesuchterTyp + " → ergebnis=" + (ergebnis == null ? "null" : ergebnis.length + " Elemente"));
+        return ergebnis;
     }
 
     // =================================================================
@@ -718,13 +720,20 @@ public final class Pal {
 
             IPalType instanz = datensatzInstanzErzeugen(this.aktuellerRecordTyp);
             if (instanz != null) {
-                instanz.setRecord(rohDaten);
-                instanz.setPalVers(this.protokollVersion);
-                instanz.setNdvType(this.serverTyp);
-                instanz.setServerCodePage(this.serverZeichensatz);
-                instanz.restore();
-                ablage.add(instanz);
+                try {
+                    instanz.setRecord(rohDaten);
+                    instanz.setPalVers(this.protokollVersion);
+                    instanz.setNdvType(this.serverTyp);
+                    instanz.setServerCodePage(this.serverZeichensatz);
+                    instanz.restore();
+                    ablage.add(instanz);
+                } catch (Exception e) {
+                    log("datensaetzeEinlesen: FEHLER bei restore() für Typ " + this.aktuellerRecordTyp + ": " + e);
+                    e.printStackTrace(System.err);
+                    ablage.add(rohDaten);
+                }
             } else {
+                log("datensaetzeEinlesen: kein Instanz-Mapping für Typ " + this.aktuellerRecordTyp);
                 ablage.add(rohDaten);
             }
         }
@@ -842,8 +851,11 @@ public final class Pal {
     private IPalType[] typArrayErzeugen(int typSchluessel) {
         ArrayList ablage = this.empfangsZwischenspeicher[typSchluessel];
         if (ablage == null) {
+            log("typArrayErzeugen: typSchluessel=" + typSchluessel + " → cache ist null");
             return null;
         }
+        log("typArrayErzeugen: typSchluessel=" + typSchluessel + " → " + ablage.size() + " Elemente, Typ[0]=" + (ablage.isEmpty() ? "leer" : ablage.get(0).getClass().getName()));
+        try {
 
         switch (typSchluessel) {
             case 0:  return (IPalType[]) ablage.toArray(new PalTypeEnviron[0]);
@@ -883,6 +895,11 @@ public final class Pal {
             case 54: return (IPalType[]) ablage.toArray(new PalTypeTimeStamp[0]);
             case 55: return (IPalType[]) ablage.toArray(new PalTypeDbgaRecord[0]);
             default: return null;
+        }
+        } catch (Exception e) {
+            log("typArrayErzeugen: FEHLER für Typ " + typSchluessel + ": " + e);
+            e.printStackTrace(System.err);
+            return null;
         }
     }
 
