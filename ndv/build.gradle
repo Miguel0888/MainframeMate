@@ -1,5 +1,5 @@
 plugins {
-    id 'java-library'
+    id 'java'
 }
 
 group = 'de.bund.zrb'
@@ -10,15 +10,6 @@ repositories {
 }
 
 dependencies {
-    // NDV Server Access – proprietäres JAR, wird transitiv an Konsumenten weitergereicht.
-    // Eigene Klassen im selben Package (z.B. Pal.java) überschreiben die JAR-Version,
-    // weil Gradle Projekt-Klassen VOR JAR-Klassen in den Classpath legt.
-    api files('../lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar')
-
-    // ICU4J – aus dem ndvserveraccess-Bundle extrahiert (Charset-Konvertierung)
-    api files('../lib/icu4j-4_8_1.jar')
-    api files('../lib/icu4j-charset-4_8_1.jar')
-
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
