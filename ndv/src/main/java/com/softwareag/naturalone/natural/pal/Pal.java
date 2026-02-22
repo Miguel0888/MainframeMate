@@ -438,15 +438,15 @@ public final class Pal {
         }
 
         if (this.aktuellerRecordTyp != TRANSAKTION_ENDE && this.empfangsZwischenspeicher[gesuchterTyp] == null) {
+            // Ersten Block laden und Kopf parsen (nur wenn nötig)
             if (this.naechsterBlockNoetig) {
                 empfangsKopfVerarbeiten();
             }
 
+            // Schleife: Typen überspringen bis zum gesuchten oder COMMIT
             while (this.aktuellerRecordTyp != gesuchterTyp && this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
                 datensaetzeEinlesen(gesuchterTyp);
-                if (this.empfangsThreadFehler != null) break;
-                if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
-                empfangsKopfVerarbeiten();
+                // datensaetzeEinlesen hat bereits den nächsten Typ + Anzahl gelesen
                 if (this.empfangsThreadFehler != null) break;
             }
 
@@ -647,9 +647,6 @@ public final class Pal {
                 while (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
                     datensaetzeEinlesen(TRANSAKTION_ENDE);
                     if (this.empfangsThreadFehler != null) break;
-                    if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
-                    empfangsKopfVerarbeiten();
-                    if (this.empfangsThreadFehler != null) break;
                 }
 
                 if (this.empfangsThreadFehler != null) {
@@ -732,7 +729,17 @@ public final class Pal {
             }
         }
 
-        this.naechsterBlockNoetig = true;
+        // Nach allen Records dieses Typs: nächsten Typ-Schlüssel direkt aus dem
+        // bestehenden empfangsPuffer lesen (KEIN neuer Block vom Server nötig!).
+        // Mehrere Typen kommen typischerweise in einem einzigen Block.
+        this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
+        log("datensaetzeEinlesen: nächster Typ=" + this.aktuellerRecordTyp + ", schreibPosition=" + this.schreibPosition);
+
+        if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
+            this.datensaetzeImBlock = ganzzahlAusPuffer(this.empfangsPuffer, this.schreibPosition);
+            this.schreibPosition += DATENSATZANZAHL_LAENGE;
+            log("datensaetzeEinlesen: nächste datensaetzeImBlock=" + this.datensaetzeImBlock);
+        }
     }
 
     /** Datensatz-Instanz für den gegebenen Typ-Schlüssel erzeugen. */
