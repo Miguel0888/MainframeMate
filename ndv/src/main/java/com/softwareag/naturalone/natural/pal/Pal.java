@@ -438,16 +438,16 @@ public final class Pal {
         }
 
         if (this.aktuellerRecordTyp != TRANSAKTION_ENDE && this.empfangsZwischenspeicher[gesuchterTyp] == null) {
-            // Ersten Block laden und Kopf parsen (nur wenn nötig)
-            if (this.naechsterBlockNoetig) {
-                empfangsKopfVerarbeiten();
-            }
-
-            // Schleife: Typen überspringen bis zum gesuchten oder COMMIT
-            while (this.aktuellerRecordTyp != gesuchterTyp && this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-                datensaetzeEinlesen(gesuchterTyp);
-                // datensaetzeEinlesen hat bereits den nächsten Typ + Anzahl gelesen
-                if (this.empfangsThreadFehler != null) break;
+            // position(gesuchterTyp): readHeader() + Schleife
+            empfangsKopfVerarbeiten();
+            if (this.empfangsThreadFehler == null) {
+                while (this.aktuellerRecordTyp != gesuchterTyp && this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
+                    datensaetzeEinlesen(gesuchterTyp);
+                    if (this.empfangsThreadFehler != null) return typArrayErzeugen(gesuchterTyp);
+                    if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
+                    empfangsKopfVerarbeiten();
+                    if (this.empfangsThreadFehler != null) return typArrayErzeugen(gesuchterTyp);
+                }
             }
 
             gespeichertenFehlerWerfen();
@@ -642,21 +642,19 @@ public final class Pal {
     private void empfangsphaseDrainieren() throws IOException {
         if (this.empfangsphaseAktiv) {
             if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-                if (this.naechsterBlockNoetig) {
-                    empfangsKopfVerarbeiten();
+                // position(TRANSAKTION_ENDE): readHeader() + Schleife
+                empfangsKopfVerarbeiten();
+                if (this.empfangsThreadFehler == null) {
+                    while (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
+                        datensaetzeEinlesen(TRANSAKTION_ENDE);
+                        if (this.empfangsThreadFehler != null) break;
+                        if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
+                        empfangsKopfVerarbeiten();
+                        if (this.empfangsThreadFehler != null) break;
+                    }
                 }
 
-                while (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-                    datensaetzeEinlesen(TRANSAKTION_ENDE);
-                    if (this.empfangsThreadFehler != null) break;
-                }
-
-                if (this.empfangsThreadFehler != null) {
-                    if (this.empfangsThreadFehler instanceof IOException)
-                        throw (IOException) this.empfangsThreadFehler;
-                    if (this.empfangsThreadFehler instanceof PalTimeoutException)
-                        throw (PalTimeoutException) this.empfangsThreadFehler;
-                }
+                gespeichertenFehlerWerfen();
             }
 
             Arrays.fill(this.empfangsZwischenspeicher, null);
@@ -670,7 +668,10 @@ public final class Pal {
         }
     }
 
-    /** Empfangene Kopfzeile inline verarbeiten — Typ-Schlüssel und Datensatz-Anzahl parsen. */
+    /** Empfangene Kopfzeile verarbeiten
+     *  Bei naechsterBlockNoetig==true: neuen Block laden + Typ parsen.
+     *  Bei naechsterBlockNoetig==false: Typ bleibt (bereits von datensaetzeEinlesen gesetzt).
+     *  In beiden Fällen: numberOfRecordsReceived lesen (wenn Typ != COMMIT). */
     private void empfangsKopfVerarbeiten() throws IOException {
         this.datensaetzeImBlock = 0;
         if (this.naechsterBlockNoetig) {
@@ -705,94 +706,72 @@ public final class Pal {
     //  Datensätze einlesen und deserialisieren
     // =================================================================
 
-    /** Datensätze des aktuellen Typs einlesen, deserialisieren und zwischenspeichern. */
+    /** Datensätze des aktuellen Typs einlesen, deserialisieren und zwischenspeichern.
+     *  Exakte Rekonstruktion aus dem Bytecode von readRecords(int).
+     *  Der Parameter zielTyp wird im Original NICHT verwendet. */
     private void datensaetzeEinlesen(int zielTyp) throws IOException {
         log("datensaetzeEinlesen: zielTyp=" + zielTyp + ", aktuellerRecordTyp=" + this.aktuellerRecordTyp + ", datensaetzeImBlock=" + this.datensaetzeImBlock);
-        if (this.empfangsZwischenspeicher[this.aktuellerRecordTyp] == null) {
-            this.empfangsZwischenspeicher[this.aktuellerRecordTyp] = new ArrayList();
-        }
-        ArrayList ablage = this.empfangsZwischenspeicher[this.aktuellerRecordTyp];
 
-        for (int i = 0; i < this.datensaetzeImBlock; i++) {
-            ArrayList rohDaten = new ArrayList();
-            einzelDatensatzLesen(rohDaten);
-            if (this.empfangsThreadFehler != null) return;
+        Class palTypKlasse = null;
+        ArrayList rohDaten = new ArrayList();
+        int momentanerTyp = this.aktuellerRecordTyp;
 
-            IPalType instanz = datensatzInstanzErzeugen(this.aktuellerRecordTyp);
-            if (instanz != null) {
-                try {
-                    instanz.setRecord(rohDaten);
-                    instanz.setPalVers(this.protokollVersion);
-                    instanz.setNdvType(this.serverTyp);
-                    instanz.setServerCodePage(this.serverZeichensatz);
-                    instanz.restore();
-                    ablage.add(instanz);
-                } catch (Exception e) {
-                    log("datensaetzeEinlesen: FEHLER bei restore() für Typ " + this.aktuellerRecordTyp + ": " + e);
-                    e.printStackTrace(System.err);
-                    ablage.add(rohDaten);
-                }
-            } else {
-                log("datensaetzeEinlesen: kein Instanz-Mapping für Typ " + this.aktuellerRecordTyp);
-                ablage.add(rohDaten);
+        // Phase 1: Klasse laden (nur wenn gültiger Typ-Index)
+        if (momentanerTyp < 57) {
+            try {
+                palTypKlasse = Class.forName(DATENSATZ_KLASSEN[momentanerTyp]);
+                PalTrace.type(DATENSATZ_KLASSEN[momentanerTyp], true);
+            } catch (ClassNotFoundException e) {
+                throw new IOException(String.format(
+                        "Internal error: Class '%s' not found",
+                        DATENSATZ_KLASSEN[momentanerTyp]));
             }
         }
 
-        // Nach allen Records dieses Typs: nächsten Typ-Schlüssel direkt aus dem
-        // bestehenden empfangsPuffer lesen (KEIN neuer Block vom Server nötig!).
-        // Mehrere Typen kommen typischerweise in einem einzigen Block.
+        // Phase 2: Records lesen und deserialisieren
+        for (; this.datensaetzeImBlock > 0; --this.datensaetzeImBlock) {
+            rohDaten.clear();
+            einzelDatensatzLesen(rohDaten);
+
+            if (this.empfangsThreadFehler != null) {
+                return;
+            }
+
+            if (palTypKlasse != null) {
+                final IPalType instanz;
+                try {
+                    instanz = (IPalType) palTypKlasse.newInstance();
+                } catch (InstantiationException e) {
+                    throw new IOException("Internal error: Class could not be ninstanciated");
+                } catch (IllegalAccessException e) {
+                    throw new IOException("Internal error");
+                }
+
+                instanz.setPalVers(this.protokollVersion);
+                instanz.setNdvType(this.serverTyp);
+                instanz.setServerCodePage(this.serverZeichensatz);
+                instanz.setRecord(rohDaten);
+                instanz.restore();
+
+                if (this.empfangsZwischenspeicher[momentanerTyp] == null) {
+                    this.empfangsZwischenspeicher[momentanerTyp] = new ArrayList();
+                }
+                this.empfangsZwischenspeicher[momentanerTyp].add(instanz);
+            }
+        }
+
+        // Phase 3: Nächsten Typ lesen
         this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
-        log("datensaetzeEinlesen: nächster Typ=" + this.aktuellerRecordTyp + ", schreibPosition=" + this.schreibPosition);
+        log("datensaetzeEinlesen: nächster Typ=" + this.aktuellerRecordTyp);
 
-        if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-            this.datensaetzeImBlock = ganzzahlAusPuffer(this.empfangsPuffer, this.schreibPosition);
-            this.schreibPosition += DATENSATZANZAHL_LAENGE;
-            log("datensaetzeEinlesen: nächste datensaetzeImBlock=" + this.datensaetzeImBlock);
+        // Phase 4: Falls Puffer-Fortsetzung (32001) → Server quittieren und neuen Block anfordern
+        if (this.aktuellerRecordTyp == PUFFER_VOLL_ZWISCHENSENDUNG && this.protokollVersion >= 17) {
+            this.sendeDatenStrom.write(QUITTUNG_NAECHSTES_SEGMENT);
+            PalTrace.buffer(QUITTUNG_NAECHSTES_SEGMENT, false, this.getSessionId());
+            this.naechsterBlockNoetig = true;
         }
     }
 
-    /** Datensatz-Instanz für den gegebenen Typ-Schlüssel erzeugen. */
-    private IPalType datensatzInstanzErzeugen(int typSchluessel) {
-        switch (typSchluessel) {
-            case 0:  return new PalTypeEnviron();
-            case 1:  return new PalTypeConnect(null, null, null);
-            case 3:  return new PalTypeSystemFile();
-            case 4:  return new PalTypeLibraryStatistics();
-            case 5:  return new PalTypeLibrary();
-            case 6:
-            case 30: return new PalTypeLibId();
-            case 8:  return new PalTypeObject();
-            case 10: return new PalTypeResult();
-            case 11: return new PalTypeResultEx();
-            case 12: return new PalTypeSourceCodePage();
-            case 13: return new PalTypeStream();
-            case 14: return new PalTypeUtility();
-            case 15: return new PalTypeSrcDesc();
-            case 19: return new PalTypeNotify();
-            case 20: return new PalTypeGeneric();
-            case 25: return new PalTypeNatParm();
-            case 26: return new PalTypeSQLAuthentification();
-            case 27: return new PalTypeCmdGuard();
-            case 28: return new PalTypeSysVar();
-            case 34: return new PalTypeDbgStackFrame();
-            case 35: return new PalTypeDbgStatus();
-            case 36: return new PalTypeDbgVarContainer();
-            case 37: return new PalTypeDbgSyt();
-            case 38: return new PalTypeDbgVarDesc();
-            case 39: return new PalTypeDbgVarValue();
-            case 40: return new PalTypeDbgSpy();
-            case 42: return new PalTypeSourceUnicode();
-            case 45: return new PalTypeCP();
-            case 48: return new PalTypeSourceCP();
-            case 49: return new PalTypeDbmsInfo();
-            case 50: return new PalTypeClientConfig();
-            case 52: return new PalTypeDevEnv();
-            case 53: return new PalTypeDbgNatStack();
-            case 54: return new PalTypeTimeStamp();
-            case 55: return new PalTypeDbgaRecord();
-            default: return null;
-        }
-    }
 
     /** Einzelnen Datensatz einlesen — ggf. über mehrere Segmente zusammensetzen. */
     private void einzelDatensatzLesen(ArrayList rohDaten) throws IOException {
