@@ -163,6 +163,7 @@ public final class Pal {
     //  connect(host, port)
     // =================================================================
     public void connect(String zielAdresse, String zielPort) throws IOException, UnknownHostException {
+        log("connect: " + zielAdresse + ":" + zielPort);
         init();
 
         int portNummer;
@@ -205,6 +206,7 @@ public final class Pal {
     //  disconnect()
     // =================================================================
     public void disconnect() throws IOException {
+        log("disconnect: tcpVerbindung=" + (this.tcpVerbindung != null) + ", protokollVersion=" + this.protokollVersion);
         if (this.tcpVerbindung == null) {
             return;
         }
@@ -232,6 +234,7 @@ public final class Pal {
     //  add(IPalType) - Einzelner Datensatz
     // =================================================================
     public void add(IPalType datensatz) throws IOException {
+        log("add(single): typ=" + datensatz.get());
         empfangsphaseDrainieren();
 
         if (datensatz instanceof IPalTypeOperation) {
@@ -394,6 +397,7 @@ public final class Pal {
     //  commit()
     // =================================================================
     public void commit() throws IOException {
+        log("commit: sende Transaktion, schreibPosition=" + this.schreibPosition);
         this.gepufferteTypSchluessel.clear();
         this.aktuellerRecordTyp = KEIN_AKTIVER_TYP;
         PalTrace.text("\r\n");
@@ -425,6 +429,7 @@ public final class Pal {
     //  retrieve(typSchluessel)
     // =================================================================
     public IPalType[] retrieve(int gesuchterTyp) throws IOException {
+        log("retrieve: gesuchterTyp=" + gesuchterTyp + ", aktuellerRecordTyp=" + this.aktuellerRecordTyp);
         this.empfangsphaseAktiv = true;
 
         if (gesuchterTyp < 0 || gesuchterTyp > 56) {
@@ -518,6 +523,11 @@ public final class Pal {
         System.arraycopy(b, 0, ziel, position, b.length);
         ziel[position + b.length] = 0;
         return b.length + 1;
+    }
+
+    /** Debug-Logging auf stderr. */
+    private static void log(String nachricht) {
+        System.err.println("[Pal] " + nachricht);
     }
 
     /** Nullterminierten Text als Ganzzahl aus dem Puffer lesen. */
@@ -663,20 +673,22 @@ public final class Pal {
 
     /** Empfangene Kopfzeile inline verarbeiten — Typ-Schlüssel und Datensatz-Anzahl parsen. */
     private void empfangsKopfVerarbeiten() throws IOException {
+        this.datensaetzeImBlock = 0;
         if (this.naechsterBlockNoetig) {
-            this.datensaetzeImBlock = 0;
             this.empfangsPuffer = this.uebergabeBereich.abholen();
             if (this.empfangsThreadFehler != null) return;
             PalTrace.buffer(this.empfangsPuffer, true, this.getSessionId());
             ganzzahlAusPuffer(this.empfangsPuffer, 0);
             this.schreibPosition = TRANSAKTIONSGROESSE_LAENGE;
             this.naechsterBlockNoetig = false;
+            this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
+            log("empfangsKopfVerarbeiten: neuer Block geladen, typ=" + this.aktuellerRecordTyp);
         }
-        this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
 
         if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
             this.datensaetzeImBlock = ganzzahlAusPuffer(this.empfangsPuffer, this.schreibPosition);
             this.schreibPosition += DATENSATZANZAHL_LAENGE;
+            log("empfangsKopfVerarbeiten: datensaetzeImBlock=" + this.datensaetzeImBlock);
         }
     }
 
@@ -696,6 +708,7 @@ public final class Pal {
 
     /** Datensätze des aktuellen Typs einlesen, deserialisieren und zwischenspeichern. */
     private void datensaetzeEinlesen(int zielTyp) throws IOException {
+        log("datensaetzeEinlesen: zielTyp=" + zielTyp + ", aktuellerRecordTyp=" + this.aktuellerRecordTyp + ", datensaetzeImBlock=" + this.datensaetzeImBlock);
         if (this.empfangsZwischenspeicher[this.aktuellerRecordTyp] == null) {
             this.empfangsZwischenspeicher[this.aktuellerRecordTyp] = new ArrayList();
         }
@@ -872,6 +885,7 @@ public final class Pal {
 
     /** Empfangsschleife — liest dauerhaft Pakete vom Socket. */
     private void empfangsSchleife() {
+        log("empfangsSchleife: Thread gestartet");
         byte[] kopfzeile = new byte[KOPFZEILEN_LAENGE];
 
         while (true) {
@@ -932,6 +946,7 @@ public final class Pal {
             } while (gesamtGelesen < empfangsNutzdatenLaenge);
 
             this.uebergabeBereich.einlegen(nutzdaten);
+            log("empfangsSchleife: Nutzdaten empfangen, Laenge=" + empfangsNutzdatenLaenge);
         }
     }
 
@@ -972,6 +987,7 @@ public final class Pal {
 
     /** Empfangs-Thread beenden — Fehler speichern und Haupt-Thread aufwecken. */
     private void empfangsThreadBeenden(Exception fehler) {
+        log("empfangsThreadBeenden: " + fehler);
         this.verbindungVerloren = true;
         this.empfangsThreadFehler = fehler;
         this.uebergabeBereich.einlegen(new byte[1]);
