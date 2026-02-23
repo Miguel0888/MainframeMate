@@ -28,12 +28,16 @@ public class IndexSource {
     private ScheduleMode scheduleMode = ScheduleMode.MANUAL;
     private int intervalMinutes = 60; // for INTERVAL mode
     private String cronExpression = ""; // for CRON mode (future)
+    private int startHour = 12;       // hour of day to start (0-23), for DAILY mode
+    private int startMinute = 0;      // minute of hour to start
+    private int maxDurationMinutes = 30; // max run time in minutes (0 = unlimited)
+    private IndexDirection indexDirection = IndexDirection.NEWEST_FIRST; // indexing order
 
     // ── Change detection ──
     private ChangeDetectionMode changeDetection = ChangeDetectionMode.MTIME_SIZE;
 
     // ── Processing options ──
-    private boolean embeddingEnabled = true;
+    private boolean embeddingEnabled = false;  // requires configured AI – off by default
     private boolean fulltextEnabled = true;
     private int chunkSize = 512;
     private int chunkOverlap = 64;
@@ -88,6 +92,18 @@ public class IndexSource {
 
     public String getCronExpression() { return cronExpression; }
     public void setCronExpression(String cronExpression) { this.cronExpression = cronExpression; }
+
+    public int getStartHour() { return startHour; }
+    public void setStartHour(int startHour) { this.startHour = startHour; }
+
+    public int getStartMinute() { return startMinute; }
+    public void setStartMinute(int startMinute) { this.startMinute = startMinute; }
+
+    public int getMaxDurationMinutes() { return maxDurationMinutes; }
+    public void setMaxDurationMinutes(int maxDurationMinutes) { this.maxDurationMinutes = maxDurationMinutes; }
+
+    public IndexDirection getIndexDirection() { return indexDirection; }
+    public void setIndexDirection(IndexDirection indexDirection) { this.indexDirection = indexDirection; }
 
     public ChangeDetectionMode getChangeDetection() { return changeDetection; }
     public void setChangeDetection(ChangeDetectionMode changeDetection) { this.changeDetection = changeDetection; }

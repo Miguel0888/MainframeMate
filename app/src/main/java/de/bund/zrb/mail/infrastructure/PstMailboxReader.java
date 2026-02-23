@@ -411,38 +411,52 @@ public class PstMailboxReader implements MailboxReader {
         MailMessageHeader header = new MailMessageHeader(
                 subject, from, to, date, folderPath, nodeId, hasAttachments, messageClass);
 
+        // Detect type – prefer instanceof but fall back to messageClass string
+        // (java-libpst doesn't always instantiate the correct subclass)
+        boolean isAppointment = message instanceof PSTAppointment
+                || (messageClass != null && messageClass.toUpperCase().startsWith("IPM.APPOINTMENT"));
+        boolean isContact = message instanceof PSTContact
+                || (messageClass != null && messageClass.toUpperCase().startsWith("IPM.CONTACT"));
+        boolean isTask = message instanceof PSTTask
+                || (messageClass != null && messageClass.toUpperCase().startsWith("IPM.TASK"));
+
         // ─── Appointment-specific fields ───
-        if (message instanceof PSTAppointment) {
+        if (isAppointment) {
             try {
-                PSTAppointment appt = (PSTAppointment) message;
-                java.util.Date startDate = appt.getStartTime();
-                java.util.Date endDate = appt.getEndTime();
-                String location = appt.getLocation();
-                boolean allDay = appt.getSubType(); // true = all-day event
-                header.withAppointmentInfo(startDate, endDate, location, allDay);
+                if (message instanceof PSTAppointment) {
+                    PSTAppointment appt = (PSTAppointment) message;
+                    header.withAppointmentInfo(appt.getStartTime(), appt.getEndTime(),
+                            appt.getLocation(), appt.getSubType());
+                } else {
+                    // java-libpst didn't instantiate as PSTAppointment – use creation date as fallback
+                    header.withAppointmentInfo(date, null, null, false);
+                }
             } catch (Exception e) {
                 System.out.println("[MAIL-DIAG] ⚠ Error reading appointment fields: " + e.getMessage());
             }
         }
 
         // ─── Contact-specific fields ───
-        if (message instanceof PSTContact) {
+        if (isContact) {
             try {
-                PSTContact contact = (PSTContact) message;
-                String company = contact.getCompanyName();
-                header.withContactInfo(company);
+                if (message instanceof PSTContact) {
+                    PSTContact contact = (PSTContact) message;
+                    header.withContactInfo(contact.getCompanyName());
+                }
+                // else: no fallback – just messageClass marker is enough for display
             } catch (Exception e) {
                 System.out.println("[MAIL-DIAG] ⚠ Error reading contact fields: " + e.getMessage());
             }
         }
 
         // ─── Task-specific fields ───
-        if (message instanceof PSTTask) {
+        if (isTask) {
             try {
-                PSTTask task = (PSTTask) message;
-                java.util.Date dueDate = task.getTaskDueDate();
-                int pctComplete = (int) (task.getPercentComplete() * 100);
-                header.withTaskInfo(dueDate, pctComplete);
+                if (message instanceof PSTTask) {
+                    PSTTask task = (PSTTask) message;
+                    header.withTaskInfo(task.getTaskDueDate(), (int) (task.getPercentComplete() * 100));
+                }
+                // else: no fallback – messageClass marker is enough
             } catch (Exception e) {
                 System.out.println("[MAIL-DIAG] ⚠ Error reading task fields: " + e.getMessage());
             }

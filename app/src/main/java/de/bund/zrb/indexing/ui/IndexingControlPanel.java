@@ -48,6 +48,10 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
     private JSpinner maxFileSizeSpinner;
     private JComboBox<ScheduleMode> scheduleModeCombo;
     private JSpinner intervalSpinner;
+    private JSpinner startHourSpinner;
+    private JSpinner startMinuteSpinner;
+    private JSpinner maxDurationSpinner;
+    private JComboBox<IndexDirection> indexDirectionCombo;
     private JComboBox<ChangeDetectionMode> changeDetectionCombo;
     private JCheckBox fulltextCheck;
     private JCheckBox embeddingCheck;
@@ -95,9 +99,19 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         addButton.addActionListener(e -> addSource());
         tableButtons.add(addButton);
 
+        JButton cloneButton = new JButton("📋 Klonen");
+        cloneButton.addActionListener(e -> cloneSelectedSource());
+        tableButtons.add(cloneButton);
+
         JButton removeButton = new JButton("➖ Entfernen");
         removeButton.addActionListener(e -> removeSource());
         tableButtons.add(removeButton);
+
+        tableButtons.add(Box.createHorizontalStrut(10));
+
+        JButton presetsButton = new JButton("📦 Vorlagen laden");
+        presetsButton.addActionListener(e -> loadPresets());
+        tableButtons.add(presetsButton);
 
         tableButtons.add(Box.createHorizontalStrut(20));
 
@@ -243,6 +257,26 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         schedPanel.add(intervalSpinner, gbc);
         gbc.gridy++; gbc.gridx = 0;
 
+        schedPanel.add(label("Startzeit (Stunde):"), gbc); gbc.gridx = 1;
+        startHourSpinner = new JSpinner(new SpinnerNumberModel(12, 0, 23, 1));
+        schedPanel.add(startHourSpinner, gbc);
+        gbc.gridy++; gbc.gridx = 0;
+
+        schedPanel.add(label("Startzeit (Minute):"), gbc); gbc.gridx = 1;
+        startMinuteSpinner = new JSpinner(new SpinnerNumberModel(0, 0, 59, 5));
+        schedPanel.add(startMinuteSpinner, gbc);
+        gbc.gridy++; gbc.gridx = 0;
+
+        schedPanel.add(label("Max. Dauer (Min., 0=∞):"), gbc); gbc.gridx = 1;
+        maxDurationSpinner = new JSpinner(new SpinnerNumberModel(30, 0, 480, 5));
+        schedPanel.add(maxDurationSpinner, gbc);
+        gbc.gridy++; gbc.gridx = 0;
+
+        schedPanel.add(label("Reihenfolge:"), gbc); gbc.gridx = 1;
+        indexDirectionCombo = new JComboBox<>(IndexDirection.values());
+        schedPanel.add(indexDirectionCombo, gbc);
+        gbc.gridy++; gbc.gridx = 0;
+
         schedPanel.add(label("Änderungserkennung:"), gbc); gbc.gridx = 1;
         changeDetectionCombo = new JComboBox<>(ChangeDetectionMode.values());
         schedPanel.add(changeDetectionCombo, gbc);
@@ -334,6 +368,46 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         loadSelectedSource();
     }
 
+    private void cloneSelectedSource() {
+        int row = sourceTable.getSelectedRow();
+        if (row < 0) {
+            statusLabel.setText("Bitte Quelle zum Klonen auswählen.");
+            return;
+        }
+        IndexSource original = tableModel.getSourceAt(row);
+
+        // Create a deep copy via JSON serialization
+        com.google.gson.Gson gson = new com.google.gson.Gson();
+        IndexSource clone = gson.fromJson(gson.toJson(original), IndexSource.class);
+        clone.setSourceId(java.util.UUID.randomUUID().toString());
+        clone.setName(original.getName() + " (Kopie)");
+
+        service.saveSource(clone);
+        refreshTable();
+        // Select the clone
+        int newRow = tableModel.getRowCount() - 1;
+        sourceTable.setRowSelectionInterval(newRow, newRow);
+        loadSelectedSource();
+        statusLabel.setText("Quelle geklont: " + clone.getName());
+    }
+
+    private void loadPresets() {
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Standard-Vorlagen hinzufügen?\n\n"
+                        + "• Eigene Dateien (PDF, DOCX, etc.)\n"
+                        + "• E-Mails (OST/PST)\n"
+                        + "• Kalender / Termine\n\n"
+                        + "Bestehende Quellen bleiben erhalten.",
+                "Vorlagen laden", JOptionPane.OK_CANCEL_OPTION);
+        if (confirm != JOptionPane.OK_OPTION) return;
+
+        for (IndexSource preset : IndexSourcePresets.allDefaults()) {
+            service.saveSource(preset);
+        }
+        refreshTable();
+        statusLabel.setText("3 Vorlagen hinzugefügt: Eigene Dateien, E-Mails, Kalender");
+    }
+
     private void removeSource() {
         int row = sourceTable.getSelectedRow();
         if (row < 0) return;
@@ -387,6 +461,10 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         maxFileSizeSpinner.setValue((int) (source.getMaxFileSizeBytes() / (1024 * 1024)));
         scheduleModeCombo.setSelectedItem(source.getScheduleMode());
         intervalSpinner.setValue(source.getIntervalMinutes());
+        startHourSpinner.setValue(source.getStartHour());
+        startMinuteSpinner.setValue(source.getStartMinute());
+        maxDurationSpinner.setValue(source.getMaxDurationMinutes());
+        indexDirectionCombo.setSelectedItem(source.getIndexDirection());
         changeDetectionCombo.setSelectedItem(source.getChangeDetection());
         fulltextCheck.setSelected(source.isFulltextEnabled());
         embeddingCheck.setSelected(source.isEmbeddingEnabled());
@@ -452,6 +530,10 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         source.setMaxFileSizeBytes(((Integer) maxFileSizeSpinner.getValue()) * 1024L * 1024L);
         source.setScheduleMode((ScheduleMode) scheduleModeCombo.getSelectedItem());
         source.setIntervalMinutes((Integer) intervalSpinner.getValue());
+        source.setStartHour((Integer) startHourSpinner.getValue());
+        source.setStartMinute((Integer) startMinuteSpinner.getValue());
+        source.setMaxDurationMinutes((Integer) maxDurationSpinner.getValue());
+        source.setIndexDirection((IndexDirection) indexDirectionCombo.getSelectedItem());
         source.setChangeDetection((ChangeDetectionMode) changeDetectionCombo.getSelectedItem());
         source.setFulltextEnabled(fulltextCheck.isSelected());
         source.setEmbeddingEnabled(embeddingCheck.isSelected());

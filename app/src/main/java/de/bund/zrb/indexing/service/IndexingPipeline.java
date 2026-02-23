@@ -96,11 +96,43 @@ public class IndexingPipeline {
             run.setItemsScanned(scannedItems.size());
             LOG.info("[Indexing] Scanned: " + scannedItems.size() + " items");
 
+            // ── 1b. Sort by index direction ──
+            IndexDirection direction = source.getIndexDirection();
+            if (direction == IndexDirection.NEWEST_FIRST) {
+                Collections.sort(scannedItems, new java.util.Comparator<ScannedItem>() {
+                    @Override public int compare(ScannedItem a, ScannedItem b) {
+                        return Long.compare(b.getLastModified(), a.getLastModified());
+                    }
+                });
+            } else if (direction == IndexDirection.OLDEST_FIRST) {
+                Collections.sort(scannedItems, new java.util.Comparator<ScannedItem>() {
+                    @Override public int compare(ScannedItem a, ScannedItem b) {
+                        return Long.compare(a.getLastModified(), b.getLastModified());
+                    }
+                });
+            }
+
+            // ── Max duration enforcement ──
+            long maxDurationMs = source.getMaxDurationMinutes() > 0
+                    ? source.getMaxDurationMinutes() * 60_000L : Long.MAX_VALUE;
+            long deadline = run.getStartedAt() + maxDurationMs;
+
             // ── 2. Delta detection ──
             Map<String, IndexItemStatus> existingStatuses = statusStore.loadItemStatuses(sourceId);
             Set<String> seenPaths = new HashSet<>();
+            boolean timedOut = false;
 
             for (ScannedItem item : scannedItems) {
+                // Check timeout before processing each item
+                if (System.currentTimeMillis() >= deadline) {
+                    LOG.info("[Indexing] Max duration reached (" + source.getMaxDurationMinutes()
+                            + " min). Stopping. Remaining items will be processed next run.");
+                    timedOut = true;
+                    // Still mark as seen for deletion detection below
+                    seenPaths.add(item.getPath());
+                    continue;
+                }
+
                 seenPaths.add(item.getPath());
                 IndexItemStatus existing = existingStatuses.get(item.getPath());
 
@@ -115,6 +147,13 @@ public class IndexingPipeline {
                 } else {
                     // Unchanged
                     run.incUnchanged();
+                }
+            }
+
+            // If timed out, add remaining unseen items to seenPaths to prevent false deletions
+            if (timedOut) {
+                for (ScannedItem item : scannedItems) {
+                    seenPaths.add(item.getPath());
                 }
             }
 

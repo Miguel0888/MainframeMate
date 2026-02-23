@@ -198,18 +198,32 @@ public class IndexingService {
             }
         }
 
-        // Schedule periodic check for INTERVAL sources (check every minute)
+        // Schedule periodic check for INTERVAL and DAILY sources (check every minute)
         scheduler.scheduleAtFixedRate(() -> {
             try {
+                java.util.Calendar now = java.util.Calendar.getInstance();
+                int currentHour = now.get(java.util.Calendar.HOUR_OF_DAY);
+                int currentMinute = now.get(java.util.Calendar.MINUTE);
+
                 for (IndexSource source : sourceRepo.getEnabled()) {
-                    if (source.getScheduleMode() == ScheduleMode.INTERVAL
-                            && !isRunning(source.getSourceId())) {
+                    if (isRunning(source.getSourceId())) continue;
+
+                    if (source.getScheduleMode() == ScheduleMode.INTERVAL) {
                         IndexRunStatus lastRun = statusStore.getLastSuccessfulRun(source.getSourceId());
                         long intervalMs = source.getIntervalMinutes() * 60_000L;
                         long lastRunTime = lastRun != null ? lastRun.getCompletedAt() : 0;
 
                         if (System.currentTimeMillis() - lastRunTime >= intervalMs) {
                             runNow(source.getSourceId());
+                        }
+                    } else if (source.getScheduleMode() == ScheduleMode.DAILY) {
+                        // Check if it's the right time and hasn't run today yet
+                        if (currentHour == source.getStartHour()
+                                && currentMinute == source.getStartMinute()) {
+                            IndexRunStatus lastRun = statusStore.getLastSuccessfulRun(source.getSourceId());
+                            if (lastRun == null || !isSameDay(lastRun.getStartedAt())) {
+                                runNow(source.getSourceId());
+                            }
                         }
                     }
                 }
@@ -238,5 +252,17 @@ public class IndexingService {
     public void shutdown() {
         stopScheduler();
         executor.shutdownNow();
+    }
+
+    /**
+     * Check if a timestamp is from today.
+     */
+    private static boolean isSameDay(long timestampMs) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        int todayDay = cal.get(java.util.Calendar.DAY_OF_YEAR);
+        int todayYear = cal.get(java.util.Calendar.YEAR);
+        cal.setTimeInMillis(timestampMs);
+        return cal.get(java.util.Calendar.DAY_OF_YEAR) == todayDay
+                && cal.get(java.util.Calendar.YEAR) == todayYear;
     }
 }

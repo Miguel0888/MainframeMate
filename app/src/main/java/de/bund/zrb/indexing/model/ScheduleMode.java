@@ -9,5 +9,7 @@ public enum ScheduleMode {
     /** Run once at application startup. */
     ON_STARTUP,
     /** Run at fixed interval (see IndexSource.intervalMinutes). */
-    INTERVAL
+    INTERVAL,
+    /** Run daily at a specific time (see IndexSource.startHour/startMinute). */
+    DAILY
 }
