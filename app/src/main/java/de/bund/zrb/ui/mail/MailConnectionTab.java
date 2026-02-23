@@ -474,10 +474,11 @@ public class MailConnectionTab implements ConnectionTab {
         this.currentMailboxPath = mailboxPath;
         this.currentFolderPath = folderPath;
         this.viewMode = ViewMode.MESSAGE_LIST;
-        pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " ▸ " + folderPath);
+        pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " \u25B8 " + folderPath);
         searchField.setText("");
-        statusLabel.setText("Lade…");
+        statusLabel.setText("Lade\u2026");
         resetPaging();
+        if (sidebarVisible) updateSidebarPath();
 
         SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             private List<MailFolderRef> folders = new ArrayList<>();
@@ -710,10 +711,27 @@ public class MailConnectionTab implements ConnectionTab {
         sidebarVisible = !sidebarVisible;
         indexingSidebar.setVisible(sidebarVisible);
         if (sidebarVisible) {
-            indexingSidebar.setCurrentPath(mailStorePath);
+            updateSidebarPath();
         }
         mainPanel.revalidate();
         mainPanel.repaint();
+    }
+
+    /**
+     * Update the sidebar path based on current navigation context.
+     * Format: "mailboxPath#folderPath" so the scanner can target exactly this folder.
+     */
+    private void updateSidebarPath() {
+        if (currentMailboxPath != null && currentFolderPath != null) {
+            // Specific folder in a mailbox
+            indexingSidebar.setCurrentPath(currentMailboxPath + "#" + currentFolderPath);
+        } else if (currentMailboxPath != null) {
+            // Mailbox level (all folders)
+            indexingSidebar.setCurrentPath(currentMailboxPath);
+        } else {
+            // Store level (all mailboxes)
+            indexingSidebar.setCurrentPath(mailStorePath);
+        }
     }
 
     private void installMouseNavigation(JComponent component) {
