@@ -56,6 +56,8 @@ public class IndexingService {
         // Register built-in scanners
         pipeline.registerScanner(SourceType.LOCAL, new LocalSourceScanner());
         pipeline.registerScanner(SourceType.MAIL, new de.bund.zrb.indexing.connector.MailSourceScanner());
+        // Register content processor (Tika extraction → RAG chunking → Lucene index)
+        pipeline.setContentProcessor(new RagContentProcessor());
         // FTP, NDV, WEB scanners will be registered as they are implemented
     }
 
