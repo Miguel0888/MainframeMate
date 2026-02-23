@@ -39,6 +39,11 @@ public class PstMailboxReader implements MailboxReader {
             "Reminders", "To-Do Search", "Quick Step Settings",
             "Conversation Action Settings", "ExternalContacts",
             "PersonMetadata", "Files", "Yammer Root",
+            // Sync problem folders (these are infrastructure, not user content)
+            "Synchronisierungsprobleme", "Sync Issues",
+            "Lokale Fehler", "Local Failures",
+            "Serverfehler", "Server Failures",
+            "Konflikte", "Conflicts",
             // Search / virtual folders (java-libpst can't read their tables)
             "SPAM Search Folder 2", "ItemProcSearch",
             "Nachverfolgte E-Mail-Verarbeitung",
@@ -226,41 +231,100 @@ public class PstMailboxReader implements MailboxReader {
 
     /**
      * Finds the IPM Subtree – the root of all user-visible content.
-     * In Outlook PST/OST, the hierarchy is typically:
-     *   Root → "Top of Personal Folders" (or similar) → actual folders
-     * The IPM Subtree is usually the first subfolder that contains user content.
+     *
+     * OST/PST structures vary. Common patterns:
+     *   (A) Root → "Top of Personal Folders" → Posteingang, Entwürfe, ...
+     *   (B) Root → "user@email.com" → Posteingang, Entwürfe, ...
+     *   (C) Root → Posteingang, Entwürfe, ... (flat)
+     *
+     * Strategy: Walk root's children. For each non-system child, check if
+     * IT or its children contain IPF.Note folders. The folder whose DIRECT
+     * children have the most known-class folders wins.
      */
     private PSTFolder findIpmSubtree(PSTFile pstFile) throws Exception {
         PSTFolder root = pstFile.getRootFolder();
-        Vector<PSTFolder> topLevel = root.getSubFolders();
+        Vector<PSTFolder> topLevel;
+        try {
+            topLevel = root.getSubFolders();
+        } catch (Exception e) {
+            LOG.warning("Cannot read root subfolders: " + e.getMessage());
+            return root;
+        }
 
-        // Strategy 1: Look for a folder with user-visible content folders
+        LOG.info("[IPM Discovery] Root has " + topLevel.size() + " top-level folders");
+
+        // Check if root itself has direct content folders (pattern C)
+        int rootScore = countKnownChildFolders(root);
+        LOG.info("[IPM Discovery] Root direct score: " + rootScore);
+
+        PSTFolder bestCandidate = null;
+        int bestScore = 0;
+
         for (PSTFolder folder : topLevel) {
             String name = folder.getDisplayName();
-            // Skip known non-content folders
-            if (isSystemFolderName(name)) continue;
+            if (isSystemFolderName(name) || isSearchFolderName(name)) {
+                LOG.fine("[IPM Discovery] Skipping system folder: " + name);
+                continue;
+            }
 
-            // Check if this folder has children with known container classes
-            try {
-                Vector<PSTFolder> children = folder.getSubFolders();
-                for (PSTFolder child : children) {
-                    String cc = child.getContainerClass();
-                    if (isKnownContainerClass(cc)) {
-                        return folder; // This is our IPM Subtree
-                    }
-                }
-            } catch (Exception e) {
-                LOG.log(Level.FINE, "Error checking subfolder: " + name, e);
+            int score = countKnownChildFolders(folder);
+            LOG.info("[IPM Discovery] Candidate '" + name + "' score: " + score
+                    + " (containerClass: " + folder.getContainerClass() + ")");
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestCandidate = folder;
             }
         }
 
-        // Strategy 2: If only one top-level folder, use it
-        if (topLevel.size() == 1) {
-            return topLevel.get(0);
+        if (bestCandidate != null && bestScore > 0) {
+            LOG.info("[IPM Discovery] Selected: '" + bestCandidate.getDisplayName()
+                    + "' with score " + bestScore);
+            return bestCandidate;
         }
 
-        // Fallback: return root
-        return null;
+        // If root itself scores well, use it
+        if (rootScore > 0) {
+            LOG.info("[IPM Discovery] Using root as IPM Subtree (score: " + rootScore + ")");
+            return root;
+        }
+
+        // Fallback: if only one top-level non-system folder, use it
+        List<PSTFolder> nonSystem = new ArrayList<>();
+        for (PSTFolder folder : topLevel) {
+            if (!isSystemFolderName(folder.getDisplayName()) && !isSearchFolderName(folder.getDisplayName())) {
+                nonSystem.add(folder);
+            }
+        }
+        if (nonSystem.size() == 1) {
+            LOG.info("[IPM Discovery] Fallback: single non-system folder '"
+                    + nonSystem.get(0).getDisplayName() + "'");
+            return nonSystem.get(0);
+        }
+
+        LOG.warning("[IPM Discovery] No IPM Subtree found, using root");
+        return root;
+    }
+
+    /**
+     * Counts how many direct children of a folder have a known container class.
+     */
+    private int countKnownChildFolders(PSTFolder folder) {
+        try {
+            Vector<PSTFolder> children = folder.getSubFolders();
+            int count = 0;
+            for (PSTFolder child : children) {
+                try {
+                    String cc = child.getContainerClass();
+                    if (isKnownContainerClass(cc)) {
+                        count++;
+                    }
+                } catch (Exception ignored) {}
+            }
+            return count;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     // ─── Folder Collection ───
@@ -327,7 +391,7 @@ public class PstMailboxReader implements MailboxReader {
         for (PSTFolder sub : subFolders) {
             String name = sub.getDisplayName();
             if (isSystemFolder(sub)) {
-                LOG.log(Level.FINE, "Skipping system/search folder: " + name);
+                LOG.log(Level.FINE, "[Category " + category + "] Skipping system folder: " + name);
                 continue;
             }
 
@@ -340,6 +404,9 @@ public class PstMailboxReader implements MailboxReader {
                 try { subCount = sub.getSubFolderCount(); } catch (Exception ignored) {}
 
                 MailboxCategory folderCat = MailboxCategory.fromContainerClass(containerClass);
+                LOG.fine("[Category " + category + "] Folder '" + name + "' containerClass="
+                        + containerClass + " → category=" + folderCat + " items=" + count);
+
                 if (folderCat == category) {
                     result.add(new MailFolderRef(mailboxPath, path, name, count, containerClass, subCount));
                 }

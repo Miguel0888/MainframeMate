@@ -77,6 +77,10 @@ public class MailConnectionTab implements ConnectionTab {
     private List<MailboxRef> currentMailboxes = new ArrayList<>();
     private List<MailFolderRef> currentFolders = new ArrayList<>();
     private List<MailMessageHeader> currentMessages = new ArrayList<>();
+    /** Maps display string → folder ref for click resolution (handles custom display strings). */
+    private final java.util.Map<String, MailFolderRef> displayToFolder = new java.util.LinkedHashMap<>();
+    /** Maps display string → message header for click resolution. */
+    private final java.util.Map<String, MailMessageHeader> displayToMessage = new java.util.LinkedHashMap<>();
 
     private enum ViewMode {
         MAILBOX_LIST,    // list of OST/PST files
@@ -171,7 +175,7 @@ public class MailConnectionTab implements ConnectionTab {
         if (selectedText == null) return;
 
         // "Load more" action
-        if (LOAD_MORE_MARKER.equals(selectedText)) {
+        if (selectedText.startsWith(LOAD_MORE_MARKER)) {
             loadMoreMessages();
             return;
         }
@@ -198,29 +202,26 @@ public class MailConnectionTab implements ConnectionTab {
                 break;
 
             case FOLDER_LIST:
-                for (MailFolderRef folder : currentFolders) {
-                    if (selectedText.equals(folder.toString())) {
-                        pushHistory();
-                        loadFolderContents(currentMailboxPath, folder.getFolderPath());
-                        return;
-                    }
+                if (displayToFolder.containsKey(selectedText)) {
+                    MailFolderRef folder = displayToFolder.get(selectedText);
+                    pushHistory();
+                    loadFolderContents(currentMailboxPath, folder.getFolderPath());
+                    return;
                 }
                 break;
 
             case MESSAGE_LIST:
                 // Check folders first, then messages
-                for (MailFolderRef folder : currentFolders) {
-                    if (selectedText.equals(folder.toString())) {
-                        pushHistory();
-                        loadFolderContents(currentMailboxPath, folder.getFolderPath());
-                        return;
-                    }
+                if (displayToFolder.containsKey(selectedText)) {
+                    MailFolderRef folder = displayToFolder.get(selectedText);
+                    pushHistory();
+                    loadFolderContents(currentMailboxPath, folder.getFolderPath());
+                    return;
                 }
-                for (MailMessageHeader msg : currentMessages) {
-                    if (selectedText.equals(msg.toString())) {
-                        openMailReadOnly(msg);
-                        return;
-                    }
+                if (displayToMessage.containsKey(selectedText)) {
+                    MailMessageHeader msg = displayToMessage.get(selectedText);
+                    openMailReadOnly(msg);
+                    return;
                 }
                 break;
         }
@@ -431,14 +432,11 @@ public class MailConnectionTab implements ConnectionTab {
                         statusLabel.setText("Keine Ordner in Kategorie " + category.getLabel());
                     } else {
                         for (MailFolderRef f : folders) {
-                            // Show with full path for flat category view
-                            String display = f.toString();
-                            if (f.getFolderPath().contains("/")) {
-                                // Show relative path for nested folders
-                                display = "📁 " + f.getFolderPath().substring(1) // remove leading /
-                                        + (f.getItemCount() > 0 ? " (" + f.getItemCount() + ")" : "");
-                            }
+                            // Show with path for clarity in flat category view
+                            String display = "📁 " + f.getFolderPath().substring(1) // remove leading /
+                                    + (f.getItemCount() > 0 ? " (" + f.getItemCount() + ")" : "");
                             currentDisplayNames.add(display);
+                            displayToFolder.put(display, f);
                             listModel.addElement(display);
                         }
                         statusLabel.setText(folders.size() + " Ordner");
@@ -503,11 +501,13 @@ public class MailConnectionTab implements ConnectionTab {
                 for (MailFolderRef f : folders) {
                     String display = f.toString();
                     currentDisplayNames.add(display);
+                    displayToFolder.put(display, f);
                     listModel.addElement(display);
                 }
                 for (MailMessageHeader m : messages) {
                     String display = m.toString();
                     currentDisplayNames.add(display);
+                    displayToMessage.put(display, m);
                     listModel.addElement(display);
                 }
                 if (hasMoreMessages) {
@@ -559,6 +559,7 @@ public class MailConnectionTab implements ConnectionTab {
                     for (MailMessageHeader m : newMessages) {
                         String display = m.toString();
                         currentDisplayNames.add(display);
+                        displayToMessage.put(display, m);
                         listModel.addElement(display);
                     }
 
@@ -586,6 +587,8 @@ public class MailConnectionTab implements ConnectionTab {
 
     private void rebuildDisplayList() {
         currentDisplayNames = new ArrayList<>();
+        displayToFolder.clear();
+        displayToMessage.clear();
         listModel.clear();
     }
 
