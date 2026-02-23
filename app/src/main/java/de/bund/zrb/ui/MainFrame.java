@@ -388,12 +388,69 @@ public class MainFrame extends JFrame implements MainframeContext {
                     openNdvFileBookmark(entry);
                 }
                 break;
+            case "MAIL":
+                openMailBookmark(rawPath);
+                break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
                 new VirtualResourceOpener(tabManager)
                         .open(rawPath, null, null, null, isFile);
                 break;
         }
+    }
+
+    /**
+     * Open a mail bookmark. rawPath format: "mailboxPath#folderPath#descriptorNodeId"
+     */
+    private void openMailBookmark(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) return;
+
+        // Parse: mailboxPath#folderPath#nodeId
+        String[] parts = rawPath.split("#", 3);
+        if (parts.length < 3) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Ungültiges Mail-Bookmark-Format:\n" + rawPath,
+                    "Mail-Bookmark", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String mailboxPath = parts[0];
+        String folderPath = parts[1];
+        long nodeId;
+        try {
+            nodeId = Long.parseLong(parts[2]);
+        } catch (NumberFormatException e) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Ungültige Nachrichten-ID im Bookmark:\n" + parts[2],
+                    "Mail-Bookmark", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Load message in background
+        javax.swing.SwingWorker<de.bund.zrb.mail.model.MailMessageContent, Void> worker =
+                new javax.swing.SwingWorker<de.bund.zrb.mail.model.MailMessageContent, Void>() {
+            @Override
+            protected de.bund.zrb.mail.model.MailMessageContent doInBackground() throws Exception {
+                de.bund.zrb.mail.infrastructure.PstMailboxReader reader =
+                        new de.bund.zrb.mail.infrastructure.PstMailboxReader();
+                return reader.readMessage(mailboxPath, folderPath, nodeId);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    de.bund.zrb.mail.model.MailMessageContent content = get();
+                    de.bund.zrb.ui.mail.MailPreviewTab tab =
+                            new de.bund.zrb.ui.mail.MailPreviewTab(content, mailboxPath);
+                    tabManager.addTab(tab);
+                } catch (Exception e) {
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "Fehler beim Öffnen der Mail aus Bookmark:\n" + e.getMessage(),
+                            "Mail-Bookmark", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
     }
 
     /**

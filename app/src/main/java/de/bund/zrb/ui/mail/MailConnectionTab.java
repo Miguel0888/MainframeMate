@@ -636,7 +636,7 @@ public class MailConnectionTab implements ConnectionTab {
                     String title = content.getHeader().getSubject();
                     if (title == null || title.isEmpty()) title = "(kein Betreff)";
 
-                    MailPreviewTab mailTab = new MailPreviewTab(content);
+                    MailPreviewTab mailTab = new MailPreviewTab(content, currentMailboxPath);
                     tabbedPaneManager.addTab(mailTab);
                     statusLabel.setText("Nachricht geöffnet: " + title);
                 } catch (Exception e) {

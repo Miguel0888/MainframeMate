@@ -43,6 +43,7 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
     private final MailMessageContent content;
     private final String tabTitle;
     private final String senderAddress; // normalized lowercase email
+    private final String mailboxPath; // OST/PST file path (for bookmark restoration)
     private boolean htmlMode;
     private boolean htmlRendered = false; // lazy: HTML only rendered on first switch
 
@@ -58,8 +59,9 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
     private static final String CARD_TEXT = "TEXT";
     private static final String CARD_HTML = "HTML";
 
-    public MailPreviewTab(MailMessageContent content) {
+    public MailPreviewTab(MailMessageContent content, String mailboxPath) {
         this.content = content;
+        this.mailboxPath = mailboxPath != null ? mailboxPath : "";
         MailMessageHeader header = content.getHeader();
         String subject = header.getSubject();
         if (subject == null || subject.trim().isEmpty()) subject = "(kein Betreff)";
@@ -460,7 +462,10 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
 
     @Override
     public String getPath() {
-        return "mail://" + safe(content.getHeader().getSubject());
+        MailMessageHeader h = content.getHeader();
+        // Format: mailboxPath#folderPath#descriptorNodeId
+        // This allows bookmark restoration via PstMailboxReader.readMessage()
+        return mailboxPath + "#" + safe(h.getFolderPath()) + "#" + h.getDescriptorNodeId();
     }
 
     @Override public Type getType() { return Type.PREVIEW; }

@@ -153,6 +153,8 @@ public class TabbedPaneManager {
         if (tab instanceof MvsConnectionTab) return "FTP";
         if (tab instanceof NdvConnectionTab) return "NDV";
         if (tab instanceof LocalConnectionTabImpl) return "LOCAL";
+        if (tab instanceof de.bund.zrb.ui.mail.MailConnectionTab) return "MAIL";
+        if (tab instanceof de.bund.zrb.ui.mail.MailPreviewTab) return "MAIL";
         return "LOCAL";
     }
 
