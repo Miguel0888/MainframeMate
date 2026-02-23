@@ -34,15 +34,34 @@ public enum MailboxCategory {
         return label;
     }
 
+    /** Additional container classes that map to MAIL (beyond IPF.Note). */
+    private static final String[] MAIL_CLASSES = {
+            "IPF.Note", "IPF.Imap"
+    };
+
     /**
      * Resolves a ContainerClass string to a category, or null if unknown/system.
+     *
+     * Known mappings:
+     *   IPF.Note, IPF.Imap → MAIL
+     *   IPF.Appointment    → CALENDAR
+     *   IPF.Contact        → CONTACTS
+     *   IPF.Task           → TASKS
+     *   IPF.StickyNote     → NOTES
      */
     public static MailboxCategory fromContainerClass(String containerClass) {
         if (containerClass == null || containerClass.isEmpty()) {
             return null;
         }
+        // Check MAIL aliases first (IPF.Note AND IPF.Imap)
+        for (String mailClass : MAIL_CLASSES) {
+            if (containerClass.startsWith(mailClass)) {
+                return MAIL;
+            }
+        }
+        // Check other categories
         for (MailboxCategory cat : values()) {
-            if (containerClass.startsWith(cat.containerClass)) {
+            if (cat != MAIL && containerClass.startsWith(cat.containerClass)) {
                 return cat;
             }
         }
