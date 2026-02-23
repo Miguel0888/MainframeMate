@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.mail.model.MailboxCategory;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.bund.zrb.ui.mail.MailConnectionTab;
@@ -37,6 +38,10 @@ public class ConnectMailMenuCommand extends ShortcutMenuCommand {
     @Override
     public void perform() {
         Settings settings = SettingsHelper.load();
+
+        // Apply mail container class configuration
+        MailboxCategory.setMailContainerClasses(settings.mailContainerClasses);
+
         String path = settings.mailStorePath;
 
         if (path == null || path.trim().isEmpty()) {

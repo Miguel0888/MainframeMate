@@ -90,6 +90,7 @@ public class Settings {
 
     // Mail (OST) Settings
     public String mailStorePath = "";                     // Pfad zum OST-Ordner
+    public String mailContainerClasses = "IPF.Note,IPF.Imap"; // ContainerClasses die als MAIL gelten (kommasepariert)
 
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert

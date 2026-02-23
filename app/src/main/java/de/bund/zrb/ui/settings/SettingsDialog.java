@@ -131,6 +131,7 @@ public class SettingsDialog {
     // Mail Settings
     public static final int TAB_INDEX_MAILS = 9;
     private static JTextField mailPathField;
+    private static JTextField mailContainerClassesField;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -782,13 +783,31 @@ public class SettingsDialog {
         mailContent.add(browseButton, gbc);
         gbc.gridy++;
 
+        // Container Classes
+        gbc.gridy++;
+        mailContent.add(new JLabel("Mail-ContainerClasses (kommasepariert):"), gbc);
+        gbc.gridy++;
+
+        String ccValue = settings.mailContainerClasses;
+        if (ccValue == null || ccValue.trim().isEmpty()) {
+            ccValue = de.bund.zrb.mail.model.MailboxCategory.getMailContainerClassesAsString();
+        }
+        mailContainerClassesField = new JTextField(ccValue, 30);
+        mailContainerClassesField.setToolTipText(
+                "Outlook-ContainerClasses, die als E-Mail-Ordner gelten (Standard: IPF.Note,IPF.Imap)");
+        mailContent.add(mailContainerClassesField, gbc);
+        gbc.gridy++;
+
         // Info
         gbc.gridy++;
         JLabel infoMailLabel = new JLabel("<html><small>"
                 + "Gib den Ordner an, in dem Outlook die Datendateien (.ost/.pst) speichert.<br><br>"
                 + "In Outlook findest du den Pfad unter:<br>"
                 + "Datei → Kontoeinstellungen → Kontoeinstellungen → Datendateien<br><br>"
-                + "Standard: " + defaultPath
+                + "Standard: " + defaultPath + "<br><br>"
+                + "<b>Mail-ContainerClasses:</b> Bestimmt, welche Ordnertypen als E-Mails erkannt werden.<br>"
+                + "IMAP-Konten verwenden <code>IPF.Imap</code>, Exchange/POP3 verwenden <code>IPF.Note</code>.<br>"
+                + "Standard: <code>IPF.Note,IPF.Imap</code>"
                 + "</small></html>");
         infoMailLabel.setForeground(Color.GRAY);
         mailContent.add(infoMailLabel, gbc);
@@ -1416,6 +1435,8 @@ public class SettingsDialog {
 
             // Mail Settings
             settings.mailStorePath = mailPathField.getText().trim();
+            settings.mailContainerClasses = mailContainerClassesField.getText().trim();
+            de.bund.zrb.mail.model.MailboxCategory.setMailContainerClasses(settings.mailContainerClasses);
 
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();

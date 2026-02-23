@@ -34,10 +34,43 @@ public enum MailboxCategory {
         return label;
     }
 
-    /** Additional container classes that map to MAIL (beyond IPF.Note). */
-    private static final String[] MAIL_CLASSES = {
-            "IPF.Note", "IPF.Imap"
-    };
+    /**
+     * Additional container classes that map to MAIL.
+     * Configurable via Settings.mailContainerClasses (comma-separated).
+     * Default: IPF.Note, IPF.Imap
+     */
+    private static volatile String[] mailClasses = {"IPF.Note", "IPF.Imap"};
+
+    /**
+     * Updates the MAIL container class mappings from a comma-separated string.
+     * Called from Settings initialization.
+     * Example: "IPF.Note,IPF.Imap" or "IPF.Note,IPF.Imap,IPF.Imap.Raw"
+     */
+    public static void setMailContainerClasses(String commaSeparated) {
+        if (commaSeparated == null || commaSeparated.trim().isEmpty()) {
+            mailClasses = new String[]{"IPF.Note", "IPF.Imap"};
+            return;
+        }
+        String[] parts = commaSeparated.split(",");
+        java.util.List<String> cleaned = new java.util.ArrayList<>();
+        for (String part : parts) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) cleaned.add(trimmed);
+        }
+        mailClasses = cleaned.toArray(new String[0]);
+    }
+
+    /**
+     * Returns the current MAIL container classes (for display in Settings).
+     */
+    public static String getMailContainerClassesAsString() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < mailClasses.length; i++) {
+            if (i > 0) sb.append(",");
+            sb.append(mailClasses[i]);
+        }
+        return sb.toString();
+    }
 
     /**
      * Resolves a ContainerClass string to a category, or null if unknown/system.
@@ -53,8 +86,8 @@ public enum MailboxCategory {
         if (containerClass == null || containerClass.isEmpty()) {
             return null;
         }
-        // Check MAIL aliases first (IPF.Note AND IPF.Imap)
-        for (String mailClass : MAIL_CLASSES) {
+        // Check MAIL aliases (configurable via Settings.mailContainerClasses)
+        for (String mailClass : mailClasses) {
             if (containerClass.startsWith(mailClass)) {
                 return MAIL;
             }
