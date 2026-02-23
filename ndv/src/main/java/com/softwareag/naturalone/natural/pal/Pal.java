@@ -1,6 +1,9 @@
 package com.softwareag.naturalone.natural.pal;
 
-import com.softwareag.naturalone.natural.pal.external.*;
+import com.softwareag.naturalone.natural.pal.external.IPalTimeoutHandler;
+import com.softwareag.naturalone.natural.pal.external.IPalTypeOperation;
+import com.softwareag.naturalone.natural.pal.external.PalTimeoutException;
+import com.softwareag.naturalone.natural.pal.external.PalTrace;
 
 import java.io.*;
 import java.net.InetAddress;
