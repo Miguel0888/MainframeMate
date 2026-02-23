@@ -86,30 +86,10 @@ public class IndexingPipeline {
         LOG.info("[Indexing] Starting run for: " + source.getName() + " (" + source.getSourceType() + ")");
 
         try {
-            // ── 1. Scan ──
+            // ── 1. Get scanner ──
             SourceScanner scanner = scanners.get(source.getSourceType());
             if (scanner == null) {
                 throw new IllegalStateException("No scanner registered for: " + source.getSourceType());
-            }
-
-            List<ScannedItem> scannedItems = scanner.scan(source);
-            run.setItemsScanned(scannedItems.size());
-            LOG.info("[Indexing] Scanned: " + scannedItems.size() + " items");
-
-            // ── 1b. Sort by index direction ──
-            IndexDirection direction = source.getIndexDirection();
-            if (direction == IndexDirection.NEWEST_FIRST) {
-                Collections.sort(scannedItems, new java.util.Comparator<ScannedItem>() {
-                    @Override public int compare(ScannedItem a, ScannedItem b) {
-                        return Long.compare(b.getLastModified(), a.getLastModified());
-                    }
-                });
-            } else if (direction == IndexDirection.OLDEST_FIRST) {
-                Collections.sort(scannedItems, new java.util.Comparator<ScannedItem>() {
-                    @Override public int compare(ScannedItem a, ScannedItem b) {
-                        return Long.compare(a.getLastModified(), b.getLastModified());
-                    }
-                });
             }
 
             // ── Max duration enforcement ──
@@ -117,68 +97,80 @@ public class IndexingPipeline {
                     ? source.getMaxDurationMinutes() * 60_000L : Long.MAX_VALUE;
             long deadline = run.getStartedAt() + maxDurationMs;
 
-            // ── 2. Delta detection ──
+            // ── 2. Load existing statuses for delta detection ──
             Map<String, IndexItemStatus> existingStatuses = statusStore.loadItemStatuses(sourceId);
             Set<String> seenPaths = new HashSet<>();
             boolean timedOut = false;
 
-            for (ScannedItem item : scannedItems) {
-                // Check timeout before processing each item
+            // ── 3. Stream items: scan + process on-demand ──
+            // Items are processed as they arrive – no need to collect all first.
+            Iterator<ScannedItem> itemIterator = scanner.scanStreaming(source);
+            int scannedCount = 0;
+
+            while (itemIterator.hasNext()) {
+                ScannedItem item = itemIterator.next();
+                scannedCount++;
+                seenPaths.add(item.getPath());
+
+                // Check timeout
                 if (System.currentTimeMillis() >= deadline) {
-                    LOG.info("[Indexing] Max duration reached (" + source.getMaxDurationMinutes()
-                            + " min). Stopping. Remaining items will be processed next run.");
-                    timedOut = true;
-                    // Still mark as seen for deletion detection below
-                    seenPaths.add(item.getPath());
-                    continue;
+                    if (!timedOut) {
+                        LOG.info("[Indexing] Max duration reached (" + source.getMaxDurationMinutes()
+                                + " min). Stopping processing. Remaining items will be picked up next run.");
+                        timedOut = true;
+                    }
+                    // After timeout: still consume iterator to track seen paths (for deletion detection)
+                    // but don't process. Break after a reasonable additional count to avoid infinite iteration.
+                    // For streaming scanners, we can't know the total – just stop.
+                    break;
                 }
 
-                seenPaths.add(item.getPath());
+                // Delta detection
                 IndexItemStatus existing = existingStatuses.get(item.getPath());
 
                 if (existing == null) {
-                    // New item
                     run.incNew();
                     processItem(source, scanner, item, existingStatuses, sourceId);
                 } else if (existing.needsReindex(item.getLastModified(), item.getSize())) {
-                    // Changed item
                     run.incChanged();
                     processItem(source, scanner, item, existingStatuses, sourceId);
                 } else {
-                    // Unchanged
                     run.incUnchanged();
                 }
-            }
 
-            // If timed out, add remaining unseen items to seenPaths to prevent false deletions
-            if (timedOut) {
-                for (ScannedItem item : scannedItems) {
-                    seenPaths.add(item.getPath());
+                // Log progress periodically
+                if (scannedCount % 500 == 0) {
+                    LOG.info("[Indexing] Progress: " + scannedCount + " items processed"
+                            + " (new=" + run.getItemsNew() + " changed=" + run.getItemsChanged()
+                            + " unchanged=" + run.getItemsUnchanged() + ")");
                 }
             }
 
-            // ── 3. Handle deletions ──
-            for (Map.Entry<String, IndexItemStatus> entry : existingStatuses.entrySet()) {
-                if (!seenPaths.contains(entry.getKey())
-                        && entry.getValue().getState() != IndexItemState.DELETED) {
-                    // Item no longer in source → tombstone
-                    IndexItemStatus status = entry.getValue();
-                    status.setState(IndexItemState.DELETED);
-                    status.setDeletedAt(System.currentTimeMillis());
+            run.setItemsScanned(scannedCount);
 
-                    if (contentProcessor != null) {
-                        try {
-                            contentProcessor.removeFromIndex(entry.getKey());
-                        } catch (Exception e) {
-                            LOG.log(Level.WARNING, "[Indexing] Error removing deleted item: " + entry.getKey(), e);
+            // If timed out, do NOT delete anything – we didn't see all items
+            if (!timedOut) {
+                // ── 4. Handle deletions ──
+                for (Map.Entry<String, IndexItemStatus> entry : existingStatuses.entrySet()) {
+                    if (!seenPaths.contains(entry.getKey())
+                            && entry.getValue().getState() != IndexItemState.DELETED) {
+                        IndexItemStatus status = entry.getValue();
+                        status.setState(IndexItemState.DELETED);
+                        status.setDeletedAt(System.currentTimeMillis());
+
+                        if (contentProcessor != null) {
+                            try {
+                                contentProcessor.removeFromIndex(entry.getKey());
+                            } catch (Exception e) {
+                                LOG.log(Level.WARNING, "[Indexing] Error removing deleted item: " + entry.getKey(), e);
+                            }
                         }
+                        run.incDeleted();
                     }
-
-                    run.incDeleted();
                 }
             }
 
-            // ── 4. Persist all statuses ──
+            // ── 5. Persist all statuses ──
             statusStore.saveItemStatuses(sourceId, existingStatuses);
 
             run.setRunState(IndexRunStatus.RunState.COMPLETED);

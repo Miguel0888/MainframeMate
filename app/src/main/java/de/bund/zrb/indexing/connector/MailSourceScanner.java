@@ -8,7 +8,10 @@ import de.bund.zrb.indexing.port.SourceScanner;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -33,71 +36,96 @@ public class MailSourceScanner implements SourceScanner {
     /** Max total items across all folders/mailboxes per scan run. */
     private static final int MAX_TOTAL_ITEMS = 50000;
 
+    /** Sentinel value to signal end of streaming. */
+    private static final ScannedItem END_MARKER = new ScannedItem("__END__", 0, 0);
+
     @Override
     public List<ScannedItem> scan(IndexSource source) throws Exception {
+        // Batch mode: collect all items (used by LocalSourceScanner-style pipeline fallback)
         List<ScannedItem> items = new ArrayList<>();
+        Iterator<ScannedItem> it = scanStreaming(source);
+        while (it.hasNext()) {
+            items.add(it.next());
+        }
+        return items;
+    }
 
-        boolean isManual = "MANUAL".equals(source.getScheduleMode() != null
-                ? source.getScheduleMode().name() : "");
+    @Override
+    public Iterator<ScannedItem> scanStreaming(IndexSource source) throws Exception {
+        final LinkedBlockingQueue<ScannedItem> queue = new LinkedBlockingQueue<>(100);
 
-        for (String scopePath : source.getScopePaths()) {
-            // Check if scope targets a specific mailbox or mailbox+folder
-            // Format: "mailboxPath#folderPath" or "mailboxPath" or "directoryPath"
-            if (scopePath.contains("#")) {
-                // Specific mailbox + folder
-                String[] parts = scopePath.split("#", 2);
-                String mailboxPath = parts[0];
-                String folderPath = parts[1];
-                File mailFile = new File(mailboxPath);
-                if (mailFile.isFile()) {
-                    try {
-                        scanMailFileFolder(mailFile, folderPath, items, isManual);
-                    } catch (Exception e) {
-                        LOG.log(Level.WARNING, "[Indexing-Mail] Error scanning " + mailFile.getName()
-                                + " folder " + folderPath + ": " + e.getMessage(), e);
-                    }
-                } else {
-                    LOG.warning("[Indexing-Mail] Mailbox file not found: " + mailboxPath);
-                }
-            } else {
-                File target = new File(scopePath);
-                if (target.isFile() && (scopePath.toLowerCase().endsWith(".ost")
-                        || scopePath.toLowerCase().endsWith(".pst"))) {
-                    // Specific mailbox file (all folders)
-                    try {
-                        scanMailFile(target, items, isManual);
-                    } catch (Exception e) {
-                        LOG.log(Level.WARNING, "[Indexing-Mail] Error scanning " + target.getName()
-                                + ": " + e.getMessage(), e);
-                    }
-                } else if (target.isDirectory()) {
-                    // Directory containing mailbox files
-                    File[] mailFiles = target.listFiles((d, name) -> {
-                        String lower = name.toLowerCase();
-                        return lower.endsWith(".ost") || lower.endsWith(".pst");
-                    });
+        boolean isManual = source.getScheduleMode() != null
+                && "MANUAL".equals(source.getScheduleMode().name());
 
-                    if (mailFiles == null || mailFiles.length == 0) {
-                        LOG.info("[Indexing-Mail] No OST/PST files in: " + scopePath);
-                        continue;
-                    }
-
-                    for (File mailFile : mailFiles) {
-                        try {
-                            scanMailFile(mailFile, items, isManual);
-                        } catch (Exception e) {
-                            LOG.log(Level.WARNING, "[Indexing-Mail] Error scanning " + mailFile.getName()
-                                    + ": " + e.getMessage(), e);
+        // Producer thread: scans in background and puts items into queue
+        Thread producer = new Thread(() -> {
+            try {
+                for (String scopePath : source.getScopePaths()) {
+                    if (scopePath.contains("#")) {
+                        String[] parts = scopePath.split("#", 2);
+                        File mailFile = new File(parts[0]);
+                        if (mailFile.isFile()) {
+                            scanMailFileStreaming(mailFile, parts[1], queue, isManual);
+                        }
+                    } else {
+                        File target = new File(scopePath);
+                        if (target.isFile() && (scopePath.toLowerCase().endsWith(".ost")
+                                || scopePath.toLowerCase().endsWith(".pst"))) {
+                            scanMailFileStreaming(target, null, queue, isManual);
+                        } else if (target.isDirectory()) {
+                            File[] mailFiles = target.listFiles((d, name) -> {
+                                String lower = name.toLowerCase();
+                                return lower.endsWith(".ost") || lower.endsWith(".pst");
+                            });
+                            if (mailFiles != null) {
+                                for (File mf : mailFiles) {
+                                    scanMailFileStreaming(mf, null, queue, isManual);
+                                }
+                            }
                         }
                     }
-                } else {
-                    LOG.warning("[Indexing-Mail] Scope path not found: " + scopePath);
+                }
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[Indexing-Mail] Streaming scan error", e);
+            } finally {
+                try { queue.put(END_MARKER); } catch (InterruptedException ignored) {}
+            }
+        }, "MailScanner-Producer");
+        producer.setDaemon(true);
+        producer.start();
+
+        // Return a consuming iterator
+        return new Iterator<ScannedItem>() {
+            private ScannedItem next = null;
+            private boolean done = false;
+
+            @Override
+            public boolean hasNext() {
+                if (done) return false;
+                if (next != null) return true;
+                try {
+                    next = queue.take(); // blocks until item available
+                    if (next == END_MARKER) {
+                        done = true;
+                        next = null;
+                        return false;
+                    }
+                    return true;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    done = true;
+                    return false;
                 }
             }
-        }
 
-        LOG.info("[Indexing-Mail] Scan complete: " + items.size() + " messages found");
-        return items;
+            @Override
+            public ScannedItem next() {
+                if (!hasNext()) throw new NoSuchElementException();
+                ScannedItem result = next;
+                next = null;
+                return result;
+            }
+        };
     }
 
     @Override
@@ -137,59 +165,136 @@ public class MailSourceScanner implements SourceScanner {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Internal scanning
+    //  Streaming scan – items pushed to queue on demand
     // ═══════════════════════════════════════════════════════════════
 
-    private void scanMailFile(File mailFile, List<ScannedItem> items, boolean isManual) throws Exception {
-        LOG.info("[Indexing-Mail] Scanning: " + mailFile.getName());
-        int maxPerFolder = isManual ? Integer.MAX_VALUE : MAX_ITEMS_PER_FOLDER;
-        int maxTotal = isManual ? Integer.MAX_VALUE : MAX_TOTAL_ITEMS;
+    /**
+     * Scans a mailbox file and pushes items directly into the queue.
+     * @param folderFilter if non-null, only scan this specific folder
+     */
+    private void scanMailFileStreaming(File mailFile, String folderFilter,
+                                       LinkedBlockingQueue<ScannedItem> queue,
+                                       boolean isManual) {
+        LOG.info("[Indexing-Mail] Streaming scan: " + mailFile.getName()
+                + (folderFilter != null ? " folder=" + folderFilter : ""));
 
-        // Suppress java-libpst "Unknown message type" warnings during scan
         java.io.PrintStream originalErr = System.err;
         System.setErr(createFilteredErrStream(originalErr));
+
+        int[] totalCount = {0};
+        int maxPerFolder = isManual ? Integer.MAX_VALUE : MAX_ITEMS_PER_FOLDER;
 
         try {
             PSTFile pstFile = new PSTFile(mailFile);
             try {
-                PSTFolder root = pstFile.getRootFolder();
-                scanFolder(root, "", mailFile.getAbsolutePath(), items, 0, maxPerFolder, maxTotal);
+                PSTFolder scanRoot;
+                String basePath;
+
+                if (folderFilter != null) {
+                    scanRoot = navigateToFolder(pstFile, folderFilter);
+                    if (scanRoot == null) {
+                        LOG.warning("[Indexing-Mail] Folder not found: " + folderFilter);
+                        return;
+                    }
+                    basePath = folderFilter;
+                } else {
+                    scanRoot = pstFile.getRootFolder();
+                    basePath = "";
+                }
+
+                scanFolderStreaming(scanRoot, basePath, mailFile.getAbsolutePath(),
+                        queue, 0, maxPerFolder, totalCount);
             } finally {
                 pstFile.close();
             }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Indexing-Mail] Error in streaming scan of "
+                    + mailFile.getName(), e);
         } finally {
             System.setErr(originalErr);
         }
+
+        LOG.info("[Indexing-Mail] Streaming scan of " + mailFile.getName()
+                + " complete: " + totalCount[0] + " items emitted");
     }
 
-    /**
-     * Scan a specific folder (and its subfolders) within a mailbox file.
-     * Used when the scope targets a specific folder via "mailboxPath#folderPath".
-     * No item limits applied (user explicitly chose this folder).
-     */
-    private void scanMailFileFolder(File mailFile, String folderPath, List<ScannedItem> items,
-                                     boolean isManual) throws Exception {
-        LOG.info("[Indexing-Mail] Scanning folder '" + folderPath + "' in: " + mailFile.getName());
+    private void scanFolderStreaming(PSTFolder folder, String path, String mailboxPath,
+                                     LinkedBlockingQueue<ScannedItem> queue, int depth,
+                                     int maxPerFolder, int[] totalCount) {
+        if (depth > 15) return;
 
-        java.io.PrintStream originalErr = System.err;
-        System.setErr(createFilteredErrStream(originalErr));
-
+        // Scan messages
         try {
-            PSTFile pstFile = new PSTFile(mailFile);
-            try {
-                PSTFolder folder = navigateToFolder(pstFile, folderPath);
-                if (folder == null) {
-                    LOG.warning("[Indexing-Mail] Folder not found: " + folderPath + " in " + mailFile.getName());
-                    return;
+            int contentCount = folder.getContentCount();
+            if (contentCount > 0) {
+                int scanned = 0;
+                int skipped = 0;
+                PSTObject child = folder.getNextChild();
+                while (child != null) {
+                    if (scanned >= maxPerFolder) {
+                        LOG.info("[Indexing-Mail] Folder limit in " + path
+                                + " (" + scanned + "/" + contentCount + ")");
+                        break;
+                    }
+
+                    if (child instanceof PSTMessage) {
+                        PSTMessage msg = (PSTMessage) child;
+                        try {
+                            String msgClass = msg.getMessageClass();
+                            if (shouldSkipMessageClass(msgClass)) {
+                                skipped++;
+                            } else {
+                                long nodeId = msg.getDescriptorNodeId();
+                                String itemPath = mailboxPath + "#" + path + "#" + nodeId;
+
+                                long lastModified = 0;
+                                if (msg.getMessageDeliveryTime() != null) {
+                                    lastModified = msg.getMessageDeliveryTime().getTime();
+                                } else if (msg.getLastModificationTime() != null) {
+                                    lastModified = msg.getLastModificationTime().getTime();
+                                }
+
+                                long size = msg.getMessageSize();
+
+                                ScannedItem item = new ScannedItem(itemPath, lastModified, size,
+                                        false, "message/rfc822");
+                                queue.put(item); // blocks if queue full (backpressure)
+                                scanned++;
+                                totalCount[0]++;
+                            }
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        } catch (Exception e) {
+                            skipped++;
+                        }
+                    }
+                    try {
+                        child = folder.getNextChild();
+                    } catch (Exception e) {
+                        break;
+                    }
                 }
-                // No limits for specific folder scans – user explicitly chose this
-                scanFolder(folder, folderPath, mailFile.getAbsolutePath(), items, 0,
-                        Integer.MAX_VALUE, Integer.MAX_VALUE);
-            } finally {
-                pstFile.close();
+                if (scanned > 0 || skipped > 0) {
+                    LOG.fine("[Indexing-Mail] " + path + ": emitted=" + scanned + " skipped=" + skipped);
+                }
             }
-        } finally {
-            System.setErr(originalErr);
+        } catch (Exception e) {
+            LOG.warning("[Indexing-Mail] Error reading " + path + ": " + e.getMessage());
+        }
+
+        // Recurse
+        try {
+            List<PSTFolder> subFolders = folder.getSubFolders();
+            for (PSTFolder sub : subFolders) {
+                String subPath = path.isEmpty()
+                        ? "/" + sub.getDisplayName()
+                        : path + "/" + sub.getDisplayName();
+                scanFolderStreaming(sub, subPath, mailboxPath, queue, depth + 1,
+                        maxPerFolder, totalCount);
+            }
+        } catch (Exception e) {
+            LOG.fine("[Indexing-Mail] Cannot get subfolders of " + path + ": " + e.getMessage());
         }
     }
 
@@ -211,99 +316,6 @@ public class MailSourceScanner implements SourceScanner {
                 }
             }
         });
-    }
-
-    private void scanFolder(PSTFolder folder, String path, String mailboxPath,
-                            List<ScannedItem> items, int depth,
-                            int maxPerFolder, int maxTotal) {
-        if (depth > 15) return; // Safety limit
-        if (items.size() >= maxTotal) return; // Total limit reached
-
-        // Scan messages in this folder
-        try {
-            int contentCount = folder.getContentCount();
-            if (contentCount > 0) {
-                if (contentCount > maxPerFolder && maxPerFolder < Integer.MAX_VALUE) {
-                    LOG.info("[Indexing-Mail] Large folder (capped at " + maxPerFolder + "): "
-                            + path + " (" + contentCount + " items)");
-                }
-                int scanned = 0;
-                int skipped = 0;
-                PSTObject child = folder.getNextChild();
-                while (child != null) {
-                    // Check per-folder limit
-                    if (scanned >= maxPerFolder) {
-                        LOG.info("[Indexing-Mail] Folder limit reached in " + path
-                                + " (" + scanned + "/" + contentCount + "), continuing with next folder");
-                        break;
-                    }
-                    // Check total limit
-                    if (items.size() >= maxTotal) {
-                        LOG.info("[Indexing-Mail] Total scan limit reached (" + maxTotal + ")");
-                        break;
-                    }
-
-                    if (child instanceof PSTMessage) {
-                        PSTMessage msg = (PSTMessage) child;
-                        try {
-                            // Skip non-indexable message types
-                            String msgClass = msg.getMessageClass();
-                            if (shouldSkipMessageClass(msgClass)) {
-                                skipped++;
-                            } else {
-                                long nodeId = msg.getDescriptorNodeId();
-                                String itemPath = mailboxPath + "#" + path + "#" + nodeId;
-
-                                long lastModified = 0;
-                                if (msg.getMessageDeliveryTime() != null) {
-                                    lastModified = msg.getMessageDeliveryTime().getTime();
-                                } else if (msg.getLastModificationTime() != null) {
-                                    lastModified = msg.getLastModificationTime().getTime();
-                                }
-
-                                // Use message size hint (don't read body during scan – too slow)
-                                long size = msg.getMessageSize();
-
-                                items.add(new ScannedItem(itemPath, lastModified, size,
-                                        false, "message/rfc822"));
-                                scanned++;
-                            }
-                        } catch (Exception e) {
-                            // Skip problematic messages
-                            skipped++;
-                        }
-                    }
-                    try {
-                        child = folder.getNextChild();
-                    } catch (Exception e) {
-                        LOG.fine("[Indexing-Mail] Error iterating in " + path + ": " + e.getMessage());
-                        break;
-                    }
-                }
-                if (scanned > 0 || skipped > 0) {
-                    LOG.info("[Indexing-Mail] " + path + ": scanned=" + scanned + " skipped=" + skipped
-                            + (contentCount > scanned + skipped ? " (truncated, total=" + contentCount + ")" : ""));
-                }
-            }
-        } catch (Exception e) {
-            LOG.warning("[Indexing-Mail] Error reading messages in " + path + ": " + e.getMessage());
-        }
-
-        // Recurse into subfolders
-        try {
-            List<PSTFolder> subFolders = folder.getSubFolders();
-            for (PSTFolder sub : subFolders) {
-                String subPath = path.isEmpty()
-                        ? "/" + sub.getDisplayName()
-                        : path + "/" + sub.getDisplayName();
-                scanFolder(sub, subPath, mailboxPath, items, depth + 1, maxPerFolder, maxTotal);
-            }
-        } catch (PSTException e) {
-            // Some folders (search folders, system folders) can't be traversed
-            LOG.fine("[Indexing-Mail] Cannot get subfolders of " + path + ": " + e.getMessage());
-        } catch (Exception e) {
-            LOG.fine("[Indexing-Mail] Error getting subfolders of " + path + ": " + e.getMessage());
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════
