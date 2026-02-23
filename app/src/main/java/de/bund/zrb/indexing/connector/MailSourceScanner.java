@@ -105,12 +105,44 @@ public class MailSourceScanner implements SourceScanner {
 
     private void scanMailFile(File mailFile, List<ScannedItem> items, IndexSource source) throws Exception {
         LOG.info("[Indexing-Mail] Scanning: " + mailFile.getName());
-        PSTFile pstFile = new PSTFile(mailFile);
+
+        // Suppress java-libpst "Unknown message type" warnings during scan
+        java.util.logging.Logger pffLogger = java.util.logging.Logger.getLogger("com.pff");
+        java.util.logging.Level previousLevel = pffLogger.getLevel();
+        pffLogger.setLevel(java.util.logging.Level.SEVERE);
+
+        // Also suppress System.err output from PSTObject (it prints directly)
+        java.io.PrintStream originalErr = System.err;
+        System.setErr(new java.io.PrintStream(new java.io.OutputStream() {
+            private final StringBuilder line = new StringBuilder();
+            @Override
+            public void write(int b) {
+                if (b == '\n') {
+                    String msg = line.toString().trim();
+                    // Only suppress known PSTObject warnings
+                    if (!msg.startsWith("Unknown message type:")
+                            && !msg.startsWith("---")
+                            && !msg.isEmpty()) {
+                        originalErr.println(msg);
+                    }
+                    line.setLength(0);
+                } else {
+                    line.append((char) b);
+                }
+            }
+        }));
+
         try {
-            PSTFolder root = pstFile.getRootFolder();
-            scanFolder(root, "", mailFile.getAbsolutePath(), items, 0);
+            PSTFile pstFile = new PSTFile(mailFile);
+            try {
+                PSTFolder root = pstFile.getRootFolder();
+                scanFolder(root, "", mailFile.getAbsolutePath(), items, 0);
+            } finally {
+                pstFile.close();
+            }
         } finally {
-            pstFile.close();
+            System.setErr(originalErr);
+            pffLogger.setLevel(previousLevel);
         }
     }
 
@@ -122,43 +154,56 @@ public class MailSourceScanner implements SourceScanner {
         try {
             int contentCount = folder.getContentCount();
             if (contentCount > 0) {
+                if (contentCount > 10000) {
+                    LOG.info("[Indexing-Mail] Large folder: " + path + " (" + contentCount + " items)");
+                }
+                int scanned = 0;
+                int skipped = 0;
                 PSTObject child = folder.getNextChild();
                 while (child != null) {
                     if (child instanceof PSTMessage) {
                         PSTMessage msg = (PSTMessage) child;
                         try {
-                            long nodeId = msg.getDescriptorNodeId();
-                            String itemPath = mailboxPath + "#" + path + "#" + nodeId;
+                            // Skip non-indexable message types
+                            String msgClass = msg.getMessageClass();
+                            if (shouldSkipMessageClass(msgClass)) {
+                                skipped++;
+                            } else {
+                                long nodeId = msg.getDescriptorNodeId();
+                                String itemPath = mailboxPath + "#" + path + "#" + nodeId;
 
-                            long lastModified = 0;
-                            if (msg.getMessageDeliveryTime() != null) {
-                                lastModified = msg.getMessageDeliveryTime().getTime();
-                            } else if (msg.getLastModificationTime() != null) {
-                                lastModified = msg.getLastModificationTime().getTime();
+                                long lastModified = 0;
+                                if (msg.getMessageDeliveryTime() != null) {
+                                    lastModified = msg.getMessageDeliveryTime().getTime();
+                                } else if (msg.getLastModificationTime() != null) {
+                                    lastModified = msg.getLastModificationTime().getTime();
+                                }
+
+                                // Use message size hint (don't read body during scan – too slow)
+                                long size = msg.getMessageSize();
+
+                                items.add(new ScannedItem(itemPath, lastModified, size,
+                                        false, "message/rfc822"));
+                                scanned++;
                             }
-
-                            // Approximate size from subject + body length
-                            long size = 0;
-                            try {
-                                String body = msg.getBody();
-                                if (body != null) size = body.length();
-                            } catch (Exception ignored) {}
-
-                            items.add(new ScannedItem(itemPath, lastModified, size,
-                                    false, "message/rfc822"));
                         } catch (Exception e) {
                             // Skip problematic messages
+                            skipped++;
                         }
                     }
                     try {
                         child = folder.getNextChild();
                     } catch (Exception e) {
+                        LOG.fine("[Indexing-Mail] Error iterating in " + path + ": " + e.getMessage());
                         break;
                     }
                 }
+                if (scanned > 0 || skipped > 0) {
+                    LOG.fine("[Indexing-Mail] " + path + ": scanned=" + scanned + " skipped=" + skipped);
+                }
             }
         } catch (Exception e) {
-            LOG.fine("[Indexing-Mail] Error reading messages in " + path + ": " + e.getMessage());
+            LOG.warning("[Indexing-Mail] Error reading messages in " + path + ": " + e.getMessage());
         }
 
         // Recurse into subfolders
@@ -221,6 +266,28 @@ public class MailSourceScanner implements SourceScanner {
 
     private String safe(String s) {
         return s != null ? s : "";
+    }
+
+    /**
+     * Skip non-indexable message types.
+     * - Reports/receipts (REPORT.IPM.*)
+     * - Contacts (IPM.AbchPerson, IPM.Contact) – not useful for fulltext search
+     * - Configuration/system items
+     */
+    private boolean shouldSkipMessageClass(String msgClass) {
+        if (msgClass == null || msgClass.isEmpty()) return false;
+        String upper = msgClass.toUpperCase();
+        // Read receipts, delivery reports
+        if (upper.startsWith("REPORT.")) return true;
+        // Contacts (Outlook address book entries)
+        if (upper.startsWith("IPM.ABCHPERSON")) return true;
+        if (upper.equals("IPM.CONTACT")) return true;
+        // Configuration items
+        if (upper.startsWith("IPM.CONFIGURATION")) return true;
+        if (upper.startsWith("IPM.MICROSOFT.")) return true;
+        // Infopaths / forms
+        if (upper.startsWith("IPM.INFOPATH")) return true;
+        return false;
     }
 
     // ═══════════════════════════════════════════════════════════════
