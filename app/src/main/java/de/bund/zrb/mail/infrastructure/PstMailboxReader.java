@@ -181,7 +181,24 @@ public class PstMailboxReader implements MailboxReader {
             if (contentRoot == null) return result;
 
             System.out.println("[MAIL-DIAG] listFoldersByCategory(" + category + ") from content root...");
-            collectFoldersByCategory(contentRoot, "", mailboxPath, category, result, 0);
+            collectFoldersByCategory(contentRoot, "", mailboxPath, category, result, 0, null);
+
+            // For non-MAIL categories: if nothing found in content root, also search
+            // directly under the mailbox root (outside IPM_SUBTREE).
+            // This is common for IMAP accounts where Calendar/Contacts/Tasks are stored
+            // as local-only folders outside the IMAP folder tree.
+            if (result.isEmpty() && category != MailboxCategory.MAIL) {
+                System.out.println("[MAIL-DIAG] No " + category + " folders in content root, searching full mailbox tree...");
+                PSTFolder root = pstFile.getRootFolder();
+                for (PSTFolder l1 : safeGetSubFolders(root)) {
+                    String l1Name = l1.getDisplayName();
+                    // Search inside all "Stamm - ..." nodes but skip IPM_SUBTREE itself
+                    // (we already searched there)
+                    collectFoldersByCategory(l1, "", mailboxPath, category, result, 0, contentRoot);
+                }
+                System.out.println("[MAIL-DIAG] Full search found " + result.size() + " " + category + " folders");
+            }
+
             System.out.println("[MAIL-DIAG] listFoldersByCategory(" + category + ") → " + result.size() + " folders found");
             for (MailFolderRef f : result) {
                 System.out.println("[MAIL-DIAG]   → '" + f.getFolderPath() + "' (" + f.getItemCount() + " items)");
@@ -296,12 +313,17 @@ public class PstMailboxReader implements MailboxReader {
 
     /**
      * Recursively collects folders matching the target category.
-     * Uses MailboxCategory.fromContainerClass() which now handles IPF.Imap → MAIL.
+     * @param skipFolder folder to skip (already searched), may be null
      */
     private void collectFoldersByCategory(PSTFolder parent, String parentPath, String mailboxPath,
                                            MailboxCategory targetCategory, List<MailFolderRef> result,
-                                           int depth) {
+                                           int depth, PSTFolder skipFolder) {
         for (PSTFolder sub : safeGetSubFolders(parent)) {
+            // Skip the folder we already searched (to avoid duplicates)
+            if (skipFolder != null && sub.getDescriptorNodeId() == skipFolder.getDescriptorNodeId()) {
+                continue;
+            }
+
             String name = sub.getDisplayName();
             String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
             String cc = safeGetContainerClass(sub);
@@ -311,9 +333,14 @@ public class PstMailboxReader implements MailboxReader {
 
             MailboxCategory resolved = MailboxCategory.fromContainerClass(cc);
 
+            // Fallback: match by well-known folder names if containerClass doesn't resolve
+            if (resolved == null && name != null) {
+                resolved = categoryFromFolderName(name);
+            }
+
             System.out.println("[MAIL-DIAG] collect[" + targetCategory + "] d=" + depth
                     + " '" + name + "' cc='" + (cc != null ? cc : "") + "'"
-                    + " → " + resolved + " items=" + count);
+                    + " \u2192 " + resolved + " items=" + count);
 
             if (resolved == targetCategory) {
                 result.add(new MailFolderRef(mailboxPath, path, name, count, cc, subCount));
@@ -321,9 +348,36 @@ public class PstMailboxReader implements MailboxReader {
 
             // Recurse (depth limit for safety)
             if (depth < 10) {
-                collectFoldersByCategory(sub, path, mailboxPath, targetCategory, result, depth + 1);
+                collectFoldersByCategory(sub, path, mailboxPath, targetCategory, result, depth + 1, null);
             }
         }
+    }
+
+    /**
+     * Fallback: resolve category from well-known folder names.
+     * Used when containerClass is empty/unknown (common for IMAP local folders).
+     */
+    private static MailboxCategory categoryFromFolderName(String name) {
+        String lower = name.toLowerCase().trim();
+
+        // Calendar
+        if (lower.equals("kalender") || lower.equals("calendar") || lower.equals("termine")) {
+            return MailboxCategory.CALENDAR;
+        }
+        // Contacts
+        if (lower.equals("kontakte") || lower.equals("contacts") || lower.startsWith("adressbuch")) {
+            return MailboxCategory.CONTACTS;
+        }
+        // Tasks
+        if (lower.equals("aufgaben") || lower.equals("tasks") || lower.equals("to-do")
+                || lower.equals("todo") || lower.equals("vorg\u00E4nge")) {
+            return MailboxCategory.TASKS;
+        }
+        // Notes
+        if (lower.equals("notizen") || lower.equals("notes") || lower.equals("journal")) {
+            return MailboxCategory.NOTES;
+        }
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -332,9 +386,10 @@ public class PstMailboxReader implements MailboxReader {
 
     /**
      * Navigates to a folder by path. Paths are relative to the content root (IPM_SUBTREE).
-     * Example: "/Posteingang/bolt" → content_root → Posteingang → bolt
+     * If not found in content root, falls back to searching the full mailbox tree
+     * (needed for Calendar/Contacts/Tasks that may live outside IPM_SUBTREE in IMAP accounts).
      */
-    private PSTFolder navigateToFolder(PSTFile pstFile, String folderPath) throws Exception {
+    private PSTFolder navigateToFolder(PSTFile pstFile, String folderPath) {
         PSTFolder base = findContentRoot(pstFile);
         if (base == null) return null;
 
@@ -342,6 +397,30 @@ public class PstMailboxReader implements MailboxReader {
             return base;
         }
 
+        // Try content root first
+        PSTFolder result = navigateFromBase(base, folderPath);
+        if (result != null) return result;
+
+        // Fallback: search from full mailbox root (for folders outside IPM_SUBTREE)
+        System.out.println("[MAIL-DIAG] navigateToFolder: not found in content root, trying full tree...");
+        try {
+            PSTFolder root = pstFile.getRootFolder();
+            for (PSTFolder l1 : safeGetSubFolders(root)) {
+                PSTFolder found = navigateFromBase(l1, folderPath);
+                if (found != null) {
+                    System.out.println("[MAIL-DIAG] navigateToFolder: found under '" + l1.getDisplayName() + "'");
+                    return found;
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("[MAIL-DIAG] navigateToFolder: fallback search failed: " + e.getMessage());
+        }
+
+        System.out.println("[MAIL-DIAG] navigateToFolder: NOT FOUND anywhere: " + folderPath);
+        return null;
+    }
+
+    private PSTFolder navigateFromBase(PSTFolder base, String folderPath) {
         String[] parts = folderPath.split("/");
         PSTFolder current = base;
 
@@ -355,11 +434,6 @@ public class PstMailboxReader implements MailboxReader {
                 }
             }
             if (found == null) {
-                System.out.println("[MAIL-DIAG] navigateToFolder: NOT FOUND '" + part + "' in path '" + folderPath + "'");
-                System.out.println("[MAIL-DIAG]   available: ");
-                for (PSTFolder sub : safeGetSubFolders(current)) {
-                    System.out.println("[MAIL-DIAG]     - '" + sub.getDisplayName() + "'");
-                }
                 return null;
             }
             current = found;
