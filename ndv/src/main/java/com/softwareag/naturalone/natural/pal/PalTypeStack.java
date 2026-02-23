@@ -2,11 +2,13 @@ package com.softwareag.naturalone.natural.pal;
 
 /** Stub — Stack-Feature nicht implementiert. */
 public final class PalTypeStack extends PalType {
+    public PalTypeStack() {}
+    public PalTypeStack(String command) {}
+
     @Override
     public void serialize() { throw new UnsupportedOperationException("Not implemented yet"); }
     @Override
     public void restore()   { throw new UnsupportedOperationException("Not implemented yet"); }
     @Override
-    public int get()         { return 9; }
+    public int get()        { return 9; }
 }
-
