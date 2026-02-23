@@ -9,8 +9,6 @@ import de.bund.zrb.mail.usecase.ListMailboxItemsUseCase;
 import de.bund.zrb.mail.usecase.ListMailboxesUseCase;
 import de.bund.zrb.mail.usecase.OpenMailMessageUseCase;
 import de.bund.zrb.ui.TabbedPaneManager;
-import de.bund.zrb.ui.preview.SplitPreviewTab;
-import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -167,25 +165,32 @@ public class MailConnectionTab implements ConnectionTab {
     // ─── Navigation ───
 
     private void handleDoubleClick(int selectedIndex) {
+        String selectedText = fileList.getSelectedValue();
+        if (selectedText == null) return;
+
         switch (viewMode) {
             case MAILBOX_LIST:
-                if (selectedIndex < currentMailboxes.size()) {
-                    MailboxRef ref = currentMailboxes.get(selectedIndex);
-                    navigateTo(ref.getPath(), null);
+                for (MailboxRef ref : currentMailboxes) {
+                    if (selectedText.equals("📬 " + ref.getDisplayName())) {
+                        navigateTo(ref.getPath(), null);
+                        return;
+                    }
                 }
                 break;
             case FOLDER_LIST:
             case MESSAGE_LIST:
-                // Could be a folder or a message
-                if (selectedIndex < currentFolders.size()) {
-                    // It's a folder
-                    MailFolderRef folder = currentFolders.get(selectedIndex);
-                    navigateTo(currentMailboxPath, folder.getFolderPath());
-                } else {
-                    // It's a message
-                    int msgIndex = selectedIndex - currentFolders.size();
-                    if (msgIndex >= 0 && msgIndex < currentMessages.size()) {
-                        openMailReadOnly(currentMessages.get(msgIndex));
+                // Check folders first
+                for (MailFolderRef folder : currentFolders) {
+                    if (selectedText.equals(folder.toString())) {
+                        navigateTo(currentMailboxPath, folder.getFolderPath());
+                        return;
+                    }
+                }
+                // Then check messages
+                for (MailMessageHeader msg : currentMessages) {
+                    if (selectedText.equals(msg.toString())) {
+                        openMailReadOnly(msg);
+                        return;
                     }
                 }
                 break;
@@ -370,19 +375,25 @@ public class MailConnectionTab implements ConnectionTab {
             protected Void doInBackground() {
                 try {
                     if (folderPath == null) {
-                        // Top-level folders
+                        // Top-level folders only (root level of PST has no messages)
                         folders = listMailboxItemsUseCase.listTopFolders(mailboxPath);
                     } else {
-                        // Sub-folders + messages
+                        // Sub-folders + messages in this folder
                         folders = listMailboxItemsUseCase.listSubFolders(mailboxPath, folderPath);
                         messages = listMailboxItemsUseCase.listMessages(mailboxPath, folderPath);
                     }
                 } catch (Exception e) {
                     LOG.log(Level.SEVERE, "Error loading mailbox contents", e);
                     error = e.getMessage();
+                    if (e.getCause() != null && e.getCause().getMessage() != null) {
+                        error = e.getCause().getMessage();
+                    }
                     // Check for common lock issues
-                    if (error != null && (error.contains("locked") || error.contains("access")
-                            || error.contains("being used"))) {
+                    if (error != null && (error.toLowerCase().contains("lock")
+                            || error.toLowerCase().contains("access denied")
+                            || error.toLowerCase().contains("being used")
+                            || error.toLowerCase().contains("zugriff")
+                            || error.toLowerCase().contains("nicht lesen"))) {
                         error = "OST kann nicht gelesen werden. Bitte Outlook schließen oder Postfach als PST exportieren.\n\n"
                                 + error;
                     }
@@ -453,30 +464,22 @@ public class MailConnectionTab implements ConnectionTab {
                 mainPanel.setCursor(Cursor.getDefaultCursor());
                 try {
                     MailMessageContent content = get();
-                    String markdown = content.toMarkdown();
                     String title = content.getHeader().getSubject();
                     if (title == null || title.isEmpty()) {
                         title = "(kein Betreff)";
                     }
 
-                    DocumentMetadata metadata = DocumentMetadata.builder()
-                            .sourceName(title)
-                            .build();
-
-                    // Open as read-only preview (no save/edit possible)
-                    SplitPreviewTab previewTab = new SplitPreviewTab(
-                            "✉ " + title,
-                            markdown,
-                            metadata,
-                            Collections.<String>emptyList(),
-                            null,   // no Document model needed
-                            false   // not remote
-                    );
-                    tabbedPaneManager.addTab(previewTab);
+                    // Open dedicated read-only mail preview tab
+                    MailPreviewTab mailTab = new MailPreviewTab(content);
+                    tabbedPaneManager.addTab(mailTab);
                     statusLabel.setText("Nachricht geöffnet: " + title);
                 } catch (Exception e) {
                     LOG.log(Level.SEVERE, "Error opening mail", e);
-                    showError("Fehler beim Öffnen der Nachricht:\n" + e.getMessage());
+                    String msg = e.getMessage();
+                    if (e.getCause() != null) {
+                        msg = e.getCause().getMessage();
+                    }
+                    showError("Fehler beim Öffnen der Nachricht:\n" + msg);
                     statusLabel.setText("Fehler beim Öffnen");
                 }
             }

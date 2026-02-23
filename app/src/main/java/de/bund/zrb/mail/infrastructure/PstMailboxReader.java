@@ -69,25 +69,30 @@ public class PstMailboxReader implements MailboxReader {
                 return result;
             }
 
-            PSTMessage message = (PSTMessage) folder.getNextChild();
-            while (message != null) {
-                try {
-                    String subject = message.getSubject();
-                    String from = message.getSenderName();
-                    String senderEmail = message.getSenderEmailAddress();
-                    if (senderEmail != null && !senderEmail.isEmpty() && !senderEmail.equals(from)) {
-                        from = from + " <" + senderEmail + ">";
-                    }
-                    String to = message.getDisplayTo();
-                    java.util.Date date = message.getMessageDeliveryTime();
-                    boolean hasAttachments = message.hasAttachments();
-                    long nodeId = message.getDescriptorNodeId();
+            PSTObject child = folder.getNextChild();
+            while (child != null) {
+                if (child instanceof PSTMessage) {
+                    PSTMessage message = (PSTMessage) child;
+                    try {
+                        String subject = message.getSubject();
+                        String from = message.getSenderName();
+                        String senderEmail = message.getSenderEmailAddress();
+                        if (senderEmail != null && !senderEmail.isEmpty() && !senderEmail.equals(from)) {
+                            from = from + " <" + senderEmail + ">";
+                        }
+                        String to = message.getDisplayTo();
+                        java.util.Date date = message.getMessageDeliveryTime();
+                        boolean hasAttachments = message.hasAttachments();
+                        long nodeId = message.getDescriptorNodeId();
 
-                    result.add(new MailMessageHeader(subject, from, to, date, folderPath, nodeId, hasAttachments));
-                } catch (Exception e) {
-                    LOG.log(Level.WARNING, "Error reading message in " + folderPath, e);
+                        result.add(new MailMessageHeader(subject, from, to, date, folderPath, nodeId, hasAttachments));
+                    } catch (Exception e) {
+                        LOG.log(Level.WARNING, "Error reading message in " + folderPath, e);
+                    }
+                } else {
+                    LOG.fine("Skipping non-message object in " + folderPath + ": " + child.getClass().getSimpleName());
                 }
-                message = (PSTMessage) folder.getNextChild();
+                child = folder.getNextChild();
             }
         } finally {
             closeSilently(pstFile);
@@ -105,12 +110,12 @@ public class PstMailboxReader implements MailboxReader {
             }
 
             // Iterate to find message by descriptor node ID
-            PSTMessage message = (PSTMessage) folder.getNextChild();
-            while (message != null) {
-                if (message.getDescriptorNodeId() == descriptorNodeId) {
-                    return buildContent(message, folderPath);
+            PSTObject child = folder.getNextChild();
+            while (child != null) {
+                if (child instanceof PSTMessage && child.getDescriptorNodeId() == descriptorNodeId) {
+                    return buildContent((PSTMessage) child, folderPath);
                 }
-                message = (PSTMessage) folder.getNextChild();
+                child = folder.getNextChild();
             }
 
             throw new Exception("Nachricht nicht gefunden (NodeId: " + descriptorNodeId + ")");
