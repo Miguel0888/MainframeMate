@@ -55,7 +55,7 @@ public final class Pal {
             PAKET_PRAEFIX + "PalTypeLibId",              // 6
             PAKET_PRAEFIX + "PalTypeObjDesc",            // 7
             PAKET_PRAEFIX + "PalTypeObject",             // 8
-            PAKET_PRAEFIX + "PalTypeStackCmd",           // 9
+            PAKET_PRAEFIX + "PalTypeStack",           // 9
             PAKET_PRAEFIX + "PalTypeResult",             // 10
             PAKET_PRAEFIX + "PalTypeResultEx",           // 11
             PAKET_PRAEFIX + "PalTypeSourceCodePage",     // 12
@@ -163,7 +163,6 @@ public final class Pal {
     //  connect(host, port)
     // =================================================================
     public void connect(String zielAdresse, String zielPort) throws IOException, UnknownHostException {
-        log("connect: " + zielAdresse + ":" + zielPort);
         init();
 
         int portNummer;
@@ -173,7 +172,7 @@ public final class Pal {
             throw new IllegalArgumentException("port is invalid", e);
         }
 
-        byte[] ipBytes = PalTools.getIPBytes(zielAdresse);
+        byte[] ipBytes = parseIPv4Bytes(zielAdresse);
         if (ipBytes != null) {
             this.tcpVerbindung = new Socket(InetAddress.getByAddress(ipBytes), portNummer);
         } else {
@@ -206,7 +205,6 @@ public final class Pal {
     //  disconnect()
     // =================================================================
     public void disconnect() throws IOException {
-        log("disconnect: tcpVerbindung=" + (this.tcpVerbindung != null) + ", protokollVersion=" + this.protokollVersion);
         if (this.tcpVerbindung == null) {
             return;
         }
@@ -234,7 +232,6 @@ public final class Pal {
     //  add(IPalType) - Einzelner Datensatz
     // =================================================================
     public void add(IPalType datensatz) throws IOException {
-        log("add(single): typ=" + datensatz.get());
         empfangsphaseDrainieren();
 
         if (datensatz instanceof IPalTypeOperation) {
@@ -397,7 +394,6 @@ public final class Pal {
     //  commit()
     // =================================================================
     public void commit() throws IOException {
-        log("commit: sende Transaktion, schreibPosition=" + this.schreibPosition);
         this.gepufferteTypSchluessel.clear();
         this.aktuellerRecordTyp = KEIN_AKTIVER_TYP;
         PalTrace.text("\r\n");
@@ -429,7 +425,6 @@ public final class Pal {
     //  retrieve(typSchluessel)
     // =================================================================
     public IPalType[] retrieve(int gesuchterTyp) throws IOException {
-        log("retrieve: gesuchterTyp=" + gesuchterTyp + ", aktuellerRecordTyp=" + this.aktuellerRecordTyp);
         this.empfangsphaseAktiv = true;
 
         if (gesuchterTyp < 0 || gesuchterTyp > 56) {
@@ -439,13 +434,13 @@ public final class Pal {
 
         if (this.aktuellerRecordTyp != TRANSAKTION_ENDE && this.empfangsZwischenspeicher[gesuchterTyp] == null) {
             // position(gesuchterTyp): readHeader() + Schleife
-            empfangsKopfVerarbeiten();
+                empfangsKopfVerarbeiten();
             if (this.empfangsThreadFehler == null) {
-                while (this.aktuellerRecordTyp != gesuchterTyp && this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-                    datensaetzeEinlesen(gesuchterTyp);
+            while (this.aktuellerRecordTyp != gesuchterTyp && this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
+                datensaetzeEinlesen(gesuchterTyp);
                     if (this.empfangsThreadFehler != null) return typArrayErzeugen(gesuchterTyp);
-                    if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
-                    empfangsKopfVerarbeiten();
+                if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
+                empfangsKopfVerarbeiten();
                     if (this.empfangsThreadFehler != null) return typArrayErzeugen(gesuchterTyp);
                 }
             }
@@ -459,7 +454,6 @@ public final class Pal {
         }
 
         IPalType[] ergebnis = typArrayErzeugen(gesuchterTyp);
-        log("retrieve: gesuchterTyp=" + gesuchterTyp + " → ergebnis=" + (ergebnis == null ? "null" : ergebnis.length + " Elemente"));
         return ergebnis;
     }
 
@@ -525,11 +519,6 @@ public final class Pal {
         System.arraycopy(b, 0, ziel, position, b.length);
         ziel[position + b.length] = 0;
         return b.length + 1;
-    }
-
-    /** Debug-Logging auf stderr. */
-    private static void log(String nachricht) {
-        System.err.println("[Pal] " + nachricht);
     }
 
     /** Nullterminierten Text als Ganzzahl aus dem Puffer lesen. */
@@ -643,15 +632,15 @@ public final class Pal {
         if (this.empfangsphaseAktiv) {
             if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
                 // position(TRANSAKTION_ENDE): readHeader() + Schleife
-                empfangsKopfVerarbeiten();
+                    empfangsKopfVerarbeiten();
                 if (this.empfangsThreadFehler == null) {
-                    while (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-                        datensaetzeEinlesen(TRANSAKTION_ENDE);
-                        if (this.empfangsThreadFehler != null) break;
-                        if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
-                        empfangsKopfVerarbeiten();
-                        if (this.empfangsThreadFehler != null) break;
-                    }
+                while (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
+                    datensaetzeEinlesen(TRANSAKTION_ENDE);
+                    if (this.empfangsThreadFehler != null) break;
+                    if (this.aktuellerRecordTyp == TRANSAKTION_ENDE) break;
+                    empfangsKopfVerarbeiten();
+                    if (this.empfangsThreadFehler != null) break;
+                }
                 }
 
                 gespeichertenFehlerWerfen();
@@ -681,14 +670,12 @@ public final class Pal {
             ganzzahlAusPuffer(this.empfangsPuffer, 0);
             this.schreibPosition = TRANSAKTIONSGROESSE_LAENGE;
             this.naechsterBlockNoetig = false;
-            this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
-            log("empfangsKopfVerarbeiten: neuer Block geladen, typ=" + this.aktuellerRecordTyp);
+        this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
         }
 
         if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
             this.datensaetzeImBlock = ganzzahlAusPuffer(this.empfangsPuffer, this.schreibPosition);
             this.schreibPosition += DATENSATZANZAHL_LAENGE;
-            log("empfangsKopfVerarbeiten: datensaetzeImBlock=" + this.datensaetzeImBlock);
         }
     }
 
@@ -710,10 +697,9 @@ public final class Pal {
      *  Exakte Rekonstruktion aus dem Bytecode von readRecords(int).
      *  Der Parameter zielTyp wird im Original NICHT verwendet. */
     private void datensaetzeEinlesen(int zielTyp) throws IOException {
-        log("datensaetzeEinlesen: zielTyp=" + zielTyp + ", aktuellerRecordTyp=" + this.aktuellerRecordTyp + ", datensaetzeImBlock=" + this.datensaetzeImBlock);
 
         Class palTypKlasse = null;
-        ArrayList rohDaten = new ArrayList();
+            ArrayList rohDaten = new ArrayList();
         int momentanerTyp = this.aktuellerRecordTyp;
 
         // Phase 1: Klasse laden (nur wenn gültiger Typ-Index)
@@ -762,15 +748,13 @@ public final class Pal {
 
         // Phase 3: Nächsten Typ lesen
         this.aktuellerRecordTyp = ganzzahlLesenUndWeiter();
-        log("datensaetzeEinlesen: nächster Typ=" + this.aktuellerRecordTyp);
-
         // Phase 4: Falls Puffer-Fortsetzung (32001) → Server quittieren und neuen Block anfordern
         if (this.aktuellerRecordTyp == PUFFER_VOLL_ZWISCHENSENDUNG && this.protokollVersion >= 17) {
             this.sendeDatenStrom.write(QUITTUNG_NAECHSTES_SEGMENT);
             PalTrace.buffer(QUITTUNG_NAECHSTES_SEGMENT, false, this.getSessionId());
-            this.naechsterBlockNoetig = true;
-        }
+        this.naechsterBlockNoetig = true;
     }
+        }
 
 
     /** Einzelnen Datensatz einlesen — ggf. über mehrere Segmente zusammensetzen. */
@@ -830,10 +814,8 @@ public final class Pal {
     private IPalType[] typArrayErzeugen(int typSchluessel) {
         ArrayList ablage = this.empfangsZwischenspeicher[typSchluessel];
         if (ablage == null) {
-            log("typArrayErzeugen: typSchluessel=" + typSchluessel + " → cache ist null");
             return null;
         }
-        log("typArrayErzeugen: typSchluessel=" + typSchluessel + " → " + ablage.size() + " Elemente, Typ[0]=" + (ablage.isEmpty() ? "leer" : ablage.get(0).getClass().getName()));
         try {
 
         switch (typSchluessel) {
@@ -876,7 +858,6 @@ public final class Pal {
             default: return null;
         }
         } catch (Exception e) {
-            log("typArrayErzeugen: FEHLER für Typ " + typSchluessel + ": " + e);
             e.printStackTrace(System.err);
             return null;
         }
@@ -888,7 +869,6 @@ public final class Pal {
 
     /** Empfangsschleife — liest dauerhaft Pakete vom Socket. */
     private void empfangsSchleife() {
-        log("empfangsSchleife: Thread gestartet");
         byte[] kopfzeile = new byte[KOPFZEILEN_LAENGE];
 
         while (true) {
@@ -949,7 +929,6 @@ public final class Pal {
             } while (gesamtGelesen < empfangsNutzdatenLaenge);
 
             this.uebergabeBereich.einlegen(nutzdaten);
-            log("empfangsSchleife: Nutzdaten empfangen, Laenge=" + empfangsNutzdatenLaenge);
         }
     }
 
@@ -990,7 +969,6 @@ public final class Pal {
 
     /** Empfangs-Thread beenden — Fehler speichern und Haupt-Thread aufwecken. */
     private void empfangsThreadBeenden(Exception fehler) {
-        log("empfangsThreadBeenden: " + fehler);
         this.verbindungVerloren = true;
         this.empfangsThreadFehler = fehler;
         this.uebergabeBereich.einlegen(new byte[1]);
@@ -1026,5 +1004,28 @@ public final class Pal {
             this.bereit = true;
             notifyAll();
         }
+    }
+
+    // =================================================================
+    //  IPv4-Adress-Parsing (ehemals PalTools.getIPBytes)
+    // =================================================================
+
+    /** Parst eine IPv4-Adresse (z.B. "192.168.1.1") in ein 4-Byte-Array.
+     *  Gibt null zurück wenn es kein gültiges IPv4-Format ist (z.B. Hostname). */
+    private static byte[] parseIPv4Bytes(String adresse) {
+        String[] teile = adresse.split("\\.");
+        byte[] ergebnis = new byte[4];
+        if (teile.length > 1) {
+            try {
+                for (int i = 0; i < teile.length; ++i) {
+                    ergebnis[i] = Integer.valueOf(teile[i]).byteValue();
+                }
+            } catch (NumberFormatException e) {
+                ergebnis = null;
+            }
+        } else {
+            ergebnis = null;
+        }
+        return ergebnis;
     }
 }
