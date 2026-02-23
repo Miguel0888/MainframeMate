@@ -510,7 +510,7 @@ public class MailConnectionTab implements ConnectionTab {
                     displayToMessage.put(display, m);
                     listModel.addElement(display);
                 }
-                if (hasMoreMessages) {
+                if (hasMoreMessages && !messages.isEmpty()) {
                     String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
                     currentDisplayNames.add(marker);
                     listModel.addElement(marker);
@@ -563,7 +563,7 @@ public class MailConnectionTab implements ConnectionTab {
                         listModel.addElement(display);
                     }
 
-                    if (hasMoreMessages) {
+                    if (hasMoreMessages && !newMessages.isEmpty()) {
                         String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
                         currentDisplayNames.add(marker);
                         listModel.addElement(marker);
