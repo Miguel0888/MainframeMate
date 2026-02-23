@@ -8,6 +8,8 @@ import de.bund.zrb.mail.port.MailboxReader;
 import de.bund.zrb.mail.usecase.ListMailboxItemsUseCase;
 import de.bund.zrb.mail.usecase.ListMailboxesUseCase;
 import de.bund.zrb.mail.usecase.OpenMailMessageUseCase;
+import de.bund.zrb.indexing.model.SourceType;
+import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
@@ -61,6 +63,8 @@ public class MailConnectionTab implements ConnectionTab {
     private final List<String> forwardHistory = new ArrayList<>();
     private JButton backButton;
     private JButton forwardButton;
+    private IndexingSidebar indexingSidebar;
+    private boolean sidebarVisible = false;
 
     // Current view state
     private String currentMailboxPath = null;
@@ -134,10 +138,17 @@ public class MailConnectionTab implements ConnectionTab {
         upButton.setFont(upButton.getFont().deriveFont(Font.PLAIN, 20f));
         upButton.addActionListener(e -> navigateUp());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(upButton);
+
+        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton.setToolTipText("Indexierungs-Details anzeigen");
+        detailsButton.setMargin(new Insets(0, 0, 0, 0));
+        detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.addActionListener(e -> toggleSidebar());
+        rightButtons.add(detailsButton);
 
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathField.setEditable(false);
@@ -147,6 +158,11 @@ public class MailConnectionTab implements ConnectionTab {
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
+
+        // Indexing sidebar (initially hidden)
+        indexingSidebar = new IndexingSidebar(SourceType.MAIL);
+        indexingSidebar.setVisible(false);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.add(createFilterPanel(), BorderLayout.CENTER);
@@ -689,6 +705,16 @@ public class MailConnectionTab implements ConnectionTab {
     }
 
     // ─── Helpers ───
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(mailStorePath);
+        }
+        mainPanel.revalidate();
+        mainPanel.repaint();
+    }
 
     private void installMouseNavigation(JComponent component) {
         component.addMouseListener(new MouseAdapter() {

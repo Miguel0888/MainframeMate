@@ -1,6 +1,8 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.files.impl.vfs.mvs.*;
+import de.bund.zrb.indexing.model.SourceType;
+import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -41,6 +43,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
     private JButton forwardButton;
+    private IndexingSidebar indexingSidebar;
+    private boolean sidebarVisible = false;
 
     // Connection info for reopening
     private final String host;
@@ -102,10 +106,17 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
         pathField.addActionListener(e -> navigateToPath());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
+
+        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton.setToolTipText("Indexierungs-Details anzeigen");
+        detailsButton.setMargin(new Insets(0, 0, 0, 0));
+        detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.addActionListener(e -> toggleSidebar());
+        rightButtons.add(detailsButton);
 
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
@@ -146,8 +157,11 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         JPanel statusBar = createStatusBar();
 
         // Main layout
+        indexingSidebar = new IndexingSidebar(SourceType.FTP);
+        indexingSidebar.setVisible(false);
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
 
         // Show initial hint
@@ -227,6 +241,16 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         if (forwardButton != null) {
             forwardButton.setEnabled(controller.canGoForward());
         }
+    }
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(pathField.getText());
+        }
+        mainPanel.revalidate();
+        mainPanel.repaint();
     }
 
     private void installMouseNavigation(JComponent component) {

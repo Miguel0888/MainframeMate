@@ -4,6 +4,8 @@ import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ndv.NdvObjectInfo;
 import de.bund.zrb.files.path.VirtualResourceRef;
+import de.bund.zrb.indexing.model.SourceType;
+import de.bund.zrb.indexing.ui.IndexingSidebar;
 import com.softwareag.naturalone.natural.pal.external.ObjectKind;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -48,6 +50,8 @@ public class NdvConnectionTab implements ConnectionTab {
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
     private JButton forwardButton;
+    private IndexingSidebar indexingSidebar;
+    private boolean sidebarVisible = false;
 
     // Navigation state
     private enum BrowseLevel { LIBRARIES, OBJECTS }
@@ -113,10 +117,17 @@ public class NdvConnectionTab implements ConnectionTab {
 
         pathField.addActionListener(e -> navigateToPath());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
+
+        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton.setToolTipText("Indexierungs-Details anzeigen");
+        detailsButton.setMargin(new Insets(0, 0, 0, 0));
+        detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.addActionListener(e -> toggleSidebar());
+        rightButtons.add(detailsButton);
 
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
@@ -152,8 +163,11 @@ public class NdvConnectionTab implements ConnectionTab {
         JPanel statusBar = createStatusBar();
 
         // Main layout
+        indexingSidebar = new IndexingSidebar(SourceType.NDV);
+        indexingSidebar.setVisible(false);
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
 
         updateNavigationButtons();
@@ -242,6 +256,16 @@ public class NdvConnectionTab implements ConnectionTab {
     private void updateNavigationButtons() {
         backButton.setEnabled(historyIndex > 0 || currentLevel == BrowseLevel.OBJECTS);
         forwardButton.setEnabled(historyIndex < history.size() - 1);
+    }
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(pathField.getText());
+        }
+        mainPanel.revalidate();
+        mainPanel.repaint();
     }
 
     private void installMouseNavigation(JComponent component) {

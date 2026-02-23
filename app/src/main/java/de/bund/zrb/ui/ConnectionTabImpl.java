@@ -3,6 +3,8 @@ package de.bund.zrb.ui;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.indexing.model.SourceType;
+import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -36,6 +38,8 @@ public class ConnectionTabImpl implements ConnectionTab {
     private final TabbedPaneManager tabbedPaneManager;
     private JButton backButton;
     private JButton forwardButton;
+    private final IndexingSidebar indexingSidebar = new IndexingSidebar(SourceType.FTP);
+    private boolean sidebarVisible = false;
 
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
@@ -92,11 +96,18 @@ public class ConnectionTabImpl implements ConnectionTab {
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // Rechte Buttongruppe (⏴ ⏵ Öffnen)
-        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        // Rechte Buttongruppe (⏴ ⏵ Öffnen 📊)
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
+
+        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton.setToolTipText("Indexierungs-Details anzeigen");
+        detailsButton.setMargin(new Insets(0, 0, 0, 0));
+        detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.addActionListener(e -> toggleSidebar());
+        rightButtons.add(detailsButton);
 
         // Panelaufbau
         pathPanel.add(refreshButton, BorderLayout.WEST);
@@ -116,6 +127,8 @@ public class ConnectionTabImpl implements ConnectionTab {
 
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
+        indexingSidebar.setVisible(false);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -281,6 +294,16 @@ public class ConnectionTabImpl implements ConnectionTab {
         if (forwardButton != null) {
             forwardButton.setEnabled(browserState.canGoForward());
         }
+    }
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(pathField.getText());
+        }
+        mainPanel.revalidate();
+        mainPanel.repaint();
     }
 
     private void installMouseNavigation(JComponent component) {
