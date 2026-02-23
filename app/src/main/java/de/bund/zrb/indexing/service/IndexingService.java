@@ -55,7 +55,8 @@ public class IndexingService {
         pipeline = new IndexingPipeline(statusStore);
         // Register built-in scanners
         pipeline.registerScanner(SourceType.LOCAL, new LocalSourceScanner());
-        // FTP, NDV, MAIL, WEB scanners will be registered as they are implemented
+        pipeline.registerScanner(SourceType.MAIL, new de.bund.zrb.indexing.connector.MailSourceScanner());
+        // FTP, NDV, WEB scanners will be registered as they are implemented
     }
 
     public static synchronized IndexingService getInstance() {
