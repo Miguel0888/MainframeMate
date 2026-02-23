@@ -91,6 +91,7 @@ public class Settings {
     // Mail (OST) Settings
     public String mailStorePath = "";                     // Pfad zum OST-Ordner
     public String mailContainerClasses = "IPF.Note,IPF.Imap"; // ContainerClasses die als MAIL gelten (kommasepariert)
+    public java.util.Set<String> mailHtmlWhitelistedSenders = new java.util.HashSet<>(); // Absender, die immer in HTML geöffnet werden
 
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert

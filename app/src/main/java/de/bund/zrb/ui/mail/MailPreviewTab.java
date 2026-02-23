@@ -1,9 +1,9 @@
 package de.bund.zrb.ui.mail;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.mail.model.MailMessageContent;
 import de.bund.zrb.mail.model.MailMessageHeader;
-import de.bund.zrb.ingestion.model.document.DocumentMetadata;
-import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
+import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -12,24 +12,29 @@ import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.StyleSheet;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.text.SimpleDateFormat;
-import java.util.Collections;
-import java.util.List;
 
 /**
- * Read-only tab for displaying a single e-mail message.
- * No save/edit functionality – pure preview.
+ * Read-only mail preview tab with Text/HTML toggle.
+ *
+ * Security:
+ * - Default mode is TEXT (plain text only, no HTML processing)
+ * - HTML is only processed when user explicitly switches to HTML mode
+ * - Whitelisted senders automatically open in HTML mode
+ * - HTML is sanitized via {@link MailHtmlSanitizer} before rendering
  *
  * Layout:
- *  ┌──────────────────────────────────────┐
- *  │ Toolbar: ✉ Subject  |  📋 Copy      │
- *  ├──────────────────────────────────────┤
- *  │ Header panel (Von, An, Datum, …)     │
- *  ├──────────────────────────────────────┤
- *  │ Body (rendered HTML or plain text)   │
- *  ├──────────────────────────────────────┤
- *  │ Attachments (if any)                 │
- *  └──────────────────────────────────────┘
+ *  ┌──────────────────────────────────────────────────┐
+ *  │ Toolbar: [📄 Text | 🌐 HTML] ✉ Subject  📋 Copy │
+ *  ├──────────────────────────────────────────────────┤
+ *  │ Header panel (Von, An, Datum, Betreff, Anhänge)  │
+ *  ├──────────────────────────────────────────────────┤
+ *  │ Body (Text or HTML, switchable)                  │
+ *  ├──────────────────────────────────────────────────┤
+ *  │ Attachments (if any)                             │
+ *  └──────────────────────────────────────────────────┘
  */
 public class MailPreviewTab extends JPanel implements ConnectionTab {
 
@@ -37,79 +42,293 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
 
     private final MailMessageContent content;
     private final String tabTitle;
-    private final String markdown;
+    private final String senderAddress; // normalized lowercase email
+    private boolean htmlMode;
+    private boolean htmlRendered = false; // lazy: HTML only rendered on first switch
+
+    // UI
+    private final CardLayout bodyCardLayout = new CardLayout();
+    private final JPanel bodyPanel;
+    private final JTextArea textPane;
+    private JEditorPane htmlPane; // lazy-created
+    private final JButton textButton;
+    private final JButton htmlButton;
+    private final JButton whitelistButton;
+
+    private static final String CARD_TEXT = "TEXT";
+    private static final String CARD_HTML = "HTML";
 
     public MailPreviewTab(MailMessageContent content) {
         this.content = content;
         MailMessageHeader header = content.getHeader();
         String subject = header.getSubject();
-        if (subject == null || subject.trim().isEmpty()) {
-            subject = "(kein Betreff)";
-        }
+        if (subject == null || subject.trim().isEmpty()) subject = "(kein Betreff)";
         this.tabTitle = "✉ " + subject;
-        this.markdown = content.toMarkdown();
+        this.senderAddress = MailHtmlSanitizer.extractEmailAddress(header.getFrom());
+
+        // Determine initial mode: whitelisted sender → HTML, otherwise TEXT
+        boolean hasHtml = content.getBodyHtml() != null && !content.getBodyHtml().trim().isEmpty();
+        boolean whitelisted = isSenderWhitelisted();
+        this.htmlMode = hasHtml && whitelisted;
 
         setLayout(new BorderLayout());
         setBorder(new EmptyBorder(0, 0, 0, 0));
 
-        // Toolbar
-        add(createToolbar(subject), BorderLayout.NORTH);
+        // ─── Text body pane (always created) ───
+        textPane = new JTextArea();
+        textPane.setEditable(false);
+        textPane.setLineWrap(true);
+        textPane.setWrapStyleWord(true);
+        textPane.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        textPane.setMargin(new Insets(12, 12, 12, 12));
+        String bodyText = content.getBodyText();
+        textPane.setText(bodyText != null && !bodyText.trim().isEmpty()
+                ? bodyText
+                : (hasHtml ? "(Nur HTML-Inhalt verfügbar – wechsle zur HTML-Ansicht)" : "(kein Inhalt)"));
+        textPane.setCaretPosition(0);
+        addContextMenu(textPane);
 
-        // Main content: header panel + body
+        // ─── Body panel with CardLayout ───
+        bodyPanel = new JPanel(bodyCardLayout);
+        bodyPanel.add(new JScrollPane(textPane), CARD_TEXT);
+        // HTML pane placeholder – will be created lazily
+        bodyPanel.add(new JPanel(), CARD_HTML);
+
+        // ─── Toolbar ───
+        textButton = new JButton("📄 Text");
+        htmlButton = new JButton("🌐 HTML");
+        whitelistButton = new JButton();
+        updateWhitelistButton();
+        JToolBar toolbar = createToolbar(subject, hasHtml);
+
+        // ─── Assembly ───
         JPanel centerPanel = new JPanel(new BorderLayout());
         centerPanel.add(createHeaderPanel(header), BorderLayout.NORTH);
-        centerPanel.add(createBodyPanel(), BorderLayout.CENTER);
-
-        // Attachments at bottom (if any)
+        centerPanel.add(bodyPanel, BorderLayout.CENTER);
         if (!content.getAttachmentNames().isEmpty()) {
             centerPanel.add(createAttachmentPanel(), BorderLayout.SOUTH);
         }
 
+        add(toolbar, BorderLayout.NORTH);
         add(centerPanel, BorderLayout.CENTER);
+
+        // Apply initial mode
+        if (htmlMode) {
+            switchToHtml();
+        } else {
+            bodyCardLayout.show(bodyPanel, CARD_TEXT);
+            highlightActiveButton(false);
+        }
     }
 
-    // ─── UI Building ───
+    // ═══════════════════════════════════════════════════════════════
+    //  Mode switching
+    // ═══════════════════════════════════════════════════════════════
 
-    private JToolBar createToolbar(String subject) {
+    private void switchToText() {
+        htmlMode = false;
+        bodyCardLayout.show(bodyPanel, CARD_TEXT);
+        highlightActiveButton(false);
+    }
+
+    private void switchToHtml() {
+        htmlMode = true;
+        if (!htmlRendered) {
+            renderHtmlLazily();
+        }
+        bodyCardLayout.show(bodyPanel, CARD_HTML);
+        highlightActiveButton(true);
+    }
+
+    private void renderHtmlLazily() {
+        String rawHtml = content.getBodyHtml();
+        if (rawHtml == null || rawHtml.trim().isEmpty()) {
+            // No HTML – show info
+            JLabel noHtml = new JLabel("(Kein HTML-Inhalt verfügbar)", JLabel.CENTER);
+            noHtml.setForeground(Color.GRAY);
+            JPanel wrapper = new JPanel(new BorderLayout());
+            wrapper.add(noHtml, BorderLayout.CENTER);
+            replaceHtmlCard(new JScrollPane(wrapper));
+            htmlRendered = true;
+            return;
+        }
+
+        // Sanitize HTML
+        String sanitized = MailHtmlSanitizer.sanitize(rawHtml);
+
+        htmlPane = new JEditorPane();
+        htmlPane.setEditable(false);
+        htmlPane.setContentType("text/html");
+
+        HTMLEditorKit kit = new HTMLEditorKit();
+        StyleSheet styleSheet = kit.getStyleSheet();
+        styleSheet.addRule("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; "
+                + "margin: 12px; line-height: 1.5; font-size: 13px; }");
+        styleSheet.addRule("p { margin: 0 0 8px 0; }");
+        styleSheet.addRule("table { border-collapse: collapse; }");
+        styleSheet.addRule("td, th { padding: 4px 8px; }");
+        styleSheet.addRule("blockquote { border-left: 3px solid #ccc; margin: 4px 0; padding-left: 12px; color: #555; }");
+        styleSheet.addRule("a { color: #0066cc; }");
+        styleSheet.addRule("img { max-width: 600px; }");
+        htmlPane.setEditorKit(kit);
+
+        htmlPane.setText(sanitized);
+        SwingUtilities.invokeLater(() -> htmlPane.setCaretPosition(0));
+        addContextMenu(htmlPane);
+
+        replaceHtmlCard(new JScrollPane(htmlPane));
+        htmlRendered = true;
+    }
+
+    private void replaceHtmlCard(JScrollPane scrollPane) {
+        // Remove old HTML card and add new one
+        Component[] comps = bodyPanel.getComponents();
+        if (comps.length > 1) {
+            bodyPanel.remove(1);
+        }
+        bodyPanel.add(scrollPane, CARD_HTML);
+        bodyPanel.revalidate();
+        bodyPanel.repaint();
+    }
+
+    private void highlightActiveButton(boolean htmlActive) {
+        textButton.setFont(textButton.getFont().deriveFont(htmlActive ? Font.PLAIN : Font.BOLD));
+        htmlButton.setFont(htmlButton.getFont().deriveFont(htmlActive ? Font.BOLD : Font.PLAIN));
+        textButton.setBackground(htmlActive ? null : new Color(220, 230, 245));
+        htmlButton.setBackground(htmlActive ? new Color(220, 230, 245) : null);
+        textButton.setOpaque(!htmlActive);
+        htmlButton.setOpaque(htmlActive);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Whitelist
+    // ═══════════════════════════════════════════════════════════════
+
+    private boolean isSenderWhitelisted() {
+        if (senderAddress == null || senderAddress.isEmpty()) return false;
+        Settings settings = SettingsHelper.load();
+        return settings.mailHtmlWhitelistedSenders != null
+                && settings.mailHtmlWhitelistedSenders.contains(senderAddress);
+    }
+
+    private void toggleWhitelist() {
+        Settings settings = SettingsHelper.load();
+        if (settings.mailHtmlWhitelistedSenders == null) {
+            settings.mailHtmlWhitelistedSenders = new java.util.HashSet<>();
+        }
+        if (settings.mailHtmlWhitelistedSenders.contains(senderAddress)) {
+            settings.mailHtmlWhitelistedSenders.remove(senderAddress);
+        } else {
+            settings.mailHtmlWhitelistedSenders.add(senderAddress);
+            // Auto-switch to HTML when whitelisting
+            if (!htmlMode) switchToHtml();
+        }
+        SettingsHelper.save(settings);
+        updateWhitelistButton();
+    }
+
+    private void updateWhitelistButton() {
+        boolean wl = isSenderWhitelisted();
+        whitelistButton.setText(wl ? "⭐ HTML-Whitelist ✓" : "☆ HTML-Whitelist");
+        whitelistButton.setToolTipText(wl
+                ? "Absender '" + senderAddress + "' von HTML-Whitelist entfernen"
+                : "Absender '" + senderAddress + "' immer in HTML anzeigen");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Context menu (right-click on body/tab)
+    // ═══════════════════════════════════════════════════════════════
+
+    private void addContextMenu(JComponent component) {
+        JPopupMenu popup = new JPopupMenu();
+
+        // Whitelist toggle
+        JMenuItem whitelistItem = new JMenuItem();
+        popup.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                boolean wl = isSenderWhitelisted();
+                whitelistItem.setText(wl
+                        ? "HTML-Whitelist entfernen: " + senderAddress
+                        : "Immer HTML anzeigen für: " + senderAddress);
+            }
+            @Override public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            @Override public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+        });
+        whitelistItem.addActionListener(e -> toggleWhitelist());
+        popup.add(whitelistItem);
+
+        popup.addSeparator();
+
+        // Copy
+        JMenuItem copyText = new JMenuItem("📋 Text kopieren");
+        copyText.addActionListener(e -> copyToClipboard(content.getBodyText()));
+        popup.add(copyText);
+
+        JMenuItem copyMarkdown = new JMenuItem("📋 Markdown kopieren");
+        copyMarkdown.addActionListener(e -> copyToClipboard(content.toMarkdown()));
+        popup.add(copyMarkdown);
+
+        component.setComponentPopupMenu(popup);
+    }
+
+    private void copyToClipboard(String text) {
+        if (text == null) text = "";
+        StringSelection sel = new StringSelection(text);
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  UI Building
+    // ═══════════════════════════════════════════════════════════════
+
+    private JToolBar createToolbar(String subject, boolean hasHtml) {
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
         toolbar.setBorder(new EmptyBorder(4, 8, 4, 8));
 
-        JLabel titleLabel = new JLabel("✉ " + truncate(subject, 60));
-        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 14f));
+        // View mode buttons
+        textButton.setFocusable(false);
+        textButton.addActionListener(e -> switchToText());
+        toolbar.add(textButton);
+
+        htmlButton.setFocusable(false);
+        htmlButton.setEnabled(hasHtml);
+        htmlButton.addActionListener(e -> {
+            if (hasHtml) switchToHtml();
+        });
+        toolbar.add(htmlButton);
+
+        toolbar.addSeparator();
+
+        // Whitelist button
+        if (hasHtml && senderAddress != null && !senderAddress.isEmpty()) {
+            whitelistButton.setFocusable(false);
+            whitelistButton.addActionListener(e -> toggleWhitelist());
+            toolbar.add(whitelistButton);
+            toolbar.addSeparator();
+        }
+
+        // Title
+        JLabel titleLabel = new JLabel("✉ " + truncate(subject, 50));
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 13f));
         titleLabel.setToolTipText(subject);
         toolbar.add(titleLabel);
 
         toolbar.add(Box.createHorizontalGlue());
 
-        // Copy as Markdown
+        // Copy buttons
         JButton copyMdButton = new JButton("📋 Markdown");
-        copyMdButton.setToolTipText("Mail-Inhalt als Markdown kopieren");
+        copyMdButton.setFocusable(false);
+        copyMdButton.setToolTipText("Mail als Markdown kopieren");
         copyMdButton.addActionListener(e -> {
-            StringSelection sel = new StringSelection(markdown);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
+            copyToClipboard(content.toMarkdown());
             copyMdButton.setText("✓ Kopiert!");
             Timer timer = new Timer(1500, evt -> copyMdButton.setText("📋 Markdown"));
             timer.setRepeats(false);
             timer.start();
         });
         toolbar.add(copyMdButton);
-
-        // Copy as plain text
-        JButton copyTxtButton = new JButton("📋 Text");
-        copyTxtButton.setToolTipText("Mail-Body als reinen Text kopieren");
-        copyTxtButton.addActionListener(e -> {
-            String text = content.getBodyText();
-            if (text == null || text.trim().isEmpty()) text = content.getBodyHtml();
-            if (text == null) text = "";
-            StringSelection sel = new StringSelection(text);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
-            copyTxtButton.setText("✓ Kopiert!");
-            Timer timer = new Timer(1500, evt -> copyTxtButton.setText("📋 Text"));
-            timer.setRepeats(false);
-            timer.start();
-        });
-        toolbar.add(copyTxtButton);
 
         return toolbar;
     }
@@ -137,130 +356,41 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
         int row = 0;
 
         // Von
-        labelGbc.gridy = row;
-        valueGbc.gridy = row;
-        panel.add(createBoldLabel("Von:"), labelGbc);
-        panel.add(createValueLabel(safe(header.getFrom())), valueGbc);
+        labelGbc.gridy = row; valueGbc.gridy = row;
+        panel.add(boldLabel("Von:"), labelGbc);
+        panel.add(valueLabel(safe(header.getFrom())), valueGbc);
         row++;
 
         // An
-        labelGbc.gridy = row;
-        valueGbc.gridy = row;
-        panel.add(createBoldLabel("An:"), labelGbc);
-        panel.add(createValueLabel(safe(header.getTo())), valueGbc);
+        labelGbc.gridy = row; valueGbc.gridy = row;
+        panel.add(boldLabel("An:"), labelGbc);
+        panel.add(valueLabel(safe(header.getTo())), valueGbc);
         row++;
 
         // Datum
         if (header.getDate() != null) {
-            labelGbc.gridy = row;
-            valueGbc.gridy = row;
-            panel.add(createBoldLabel("Datum:"), labelGbc);
-            panel.add(createValueLabel(DATE_FORMAT.format(header.getDate())), valueGbc);
+            labelGbc.gridy = row; valueGbc.gridy = row;
+            panel.add(boldLabel("Datum:"), labelGbc);
+            panel.add(valueLabel(DATE_FORMAT.format(header.getDate())), valueGbc);
             row++;
         }
 
         // Betreff
-        labelGbc.gridy = row;
-        valueGbc.gridy = row;
-        panel.add(createBoldLabel("Betreff:"), labelGbc);
-        JLabel subjectLabel = createValueLabel(safe(header.getSubject()));
+        labelGbc.gridy = row; valueGbc.gridy = row;
+        panel.add(boldLabel("Betreff:"), labelGbc);
+        JLabel subjectLabel = valueLabel(safe(header.getSubject()));
         subjectLabel.setFont(subjectLabel.getFont().deriveFont(Font.BOLD));
         panel.add(subjectLabel, valueGbc);
         row++;
 
-        // Ordner
-        if (header.getFolderPath() != null && !header.getFolderPath().isEmpty()) {
-            labelGbc.gridy = row;
-            valueGbc.gridy = row;
-            panel.add(createBoldLabel("Ordner:"), labelGbc);
-            panel.add(createValueLabel(header.getFolderPath()), valueGbc);
-            row++;
-        }
-
-        // Anhänge-Info
+        // Anhänge
         if (header.hasAttachments()) {
-            labelGbc.gridy = row;
-            valueGbc.gridy = row;
-            panel.add(createBoldLabel("Anhänge:"), labelGbc);
-            panel.add(createValueLabel("📎 " + content.getAttachmentNames().size() + " Anhang/Anhänge"), valueGbc);
+            labelGbc.gridy = row; valueGbc.gridy = row;
+            panel.add(boldLabel("Anhänge:"), labelGbc);
+            panel.add(valueLabel("📎 " + content.getAttachmentNames().size()), valueGbc);
         }
 
         return panel;
-    }
-
-    private JComponent createBodyPanel() {
-        // Try HTML body first, fall back to plain text
-        String bodyHtml = content.getBodyHtml();
-        String bodyText = content.getBodyText();
-
-        if (bodyHtml != null && !bodyHtml.trim().isEmpty()) {
-            return createHtmlBodyPane(bodyHtml);
-        } else if (bodyText != null && !bodyText.trim().isEmpty()) {
-            // Render plain text as Markdown via the existing formatter
-            return createMarkdownBodyPane(bodyText);
-        } else {
-            JLabel emptyLabel = new JLabel("(kein Inhalt)", JLabel.CENTER);
-            emptyLabel.setForeground(Color.GRAY);
-            emptyLabel.setFont(emptyLabel.getFont().deriveFont(Font.ITALIC, 14f));
-            JPanel wrapper = new JPanel(new BorderLayout());
-            wrapper.add(emptyLabel, BorderLayout.CENTER);
-            return new JScrollPane(wrapper);
-        }
-    }
-
-    private JScrollPane createHtmlBodyPane(String html) {
-        JEditorPane pane = new JEditorPane();
-        pane.setEditable(false);
-        pane.setContentType("text/html");
-
-        HTMLEditorKit kit = new HTMLEditorKit();
-        StyleSheet styleSheet = kit.getStyleSheet();
-        styleSheet.addRule("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; "
-                + "margin: 12px; line-height: 1.5; font-size: 13px; }");
-        styleSheet.addRule("p { margin: 0 0 8px 0; }");
-        styleSheet.addRule("table { border-collapse: collapse; }");
-        styleSheet.addRule("td, th { padding: 4px 8px; }");
-        styleSheet.addRule("blockquote { border-left: 3px solid #ccc; margin: 4px 0; padding-left: 12px; color: #555; }");
-        styleSheet.addRule("a { color: #0066cc; }");
-        styleSheet.addRule("img { max-width: 100%; }");
-        pane.setEditorKit(kit);
-
-        // Sanitize: wrap in html/body if needed
-        String wrapped = html.trim();
-        if (!wrapped.toLowerCase().startsWith("<html")) {
-            wrapped = "<html><body>" + wrapped + "</body></html>";
-        }
-        pane.setText(wrapped);
-        SwingUtilities.invokeLater(() -> pane.setCaretPosition(0));
-
-        return new JScrollPane(pane);
-    }
-
-    private JScrollPane createMarkdownBodyPane(String text) {
-        JEditorPane pane = new JEditorPane();
-        pane.setEditable(false);
-        pane.setContentType("text/html");
-
-        HTMLEditorKit kit = new HTMLEditorKit();
-        StyleSheet styleSheet = kit.getStyleSheet();
-        styleSheet.addRule("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; "
-                + "margin: 12px; line-height: 1.5; font-size: 13px; }");
-        styleSheet.addRule("pre { background-color: #f5f5f5; padding: 8px; font-family: Consolas, monospace; "
-                + "white-space: pre-wrap; }");
-        pane.setEditorKit(kit);
-
-        try {
-            // Try to render as Markdown
-            ChatMarkdownFormatter formatter = ChatMarkdownFormatter.getInstance();
-            String html = formatter.renderToHtml(text);
-            pane.setText("<html><body>" + html + "</body></html>");
-        } catch (Exception e) {
-            // Fallback: plain text as <pre>
-            pane.setText("<html><body><pre>" + escapeHtml(text) + "</pre></body></html>");
-        }
-        SwingUtilities.invokeLater(() -> pane.setCaretPosition(0));
-
-        return new JScrollPane(pane);
     }
 
     private JPanel createAttachmentPanel() {
@@ -278,53 +408,42 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
         JPanel listPanel = new JPanel();
         listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
         listPanel.setOpaque(false);
-
         for (String name : content.getAttachmentNames()) {
             JLabel item = new JLabel("    • " + name);
-            item.setFont(item.getFont().deriveFont(Font.PLAIN));
             item.setBorder(new EmptyBorder(1, 0, 1, 0));
             listPanel.add(item);
         }
-
         panel.add(listPanel, BorderLayout.CENTER);
         return panel;
     }
 
     // ─── Helpers ───
 
-    private static JLabel createBoldLabel(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(label.getFont().deriveFont(Font.BOLD));
-        label.setForeground(new Color(80, 80, 80));
-        return label;
+    private static JLabel boldLabel(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(l.getFont().deriveFont(Font.BOLD));
+        l.setForeground(new Color(80, 80, 80));
+        return l;
     }
 
-    private static JLabel createValueLabel(String text) {
-        JLabel label = new JLabel(text);
-        label.setFont(label.getFont().deriveFont(Font.PLAIN));
-        return label;
+    private static JLabel valueLabel(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(l.getFont().deriveFont(Font.PLAIN));
+        return l;
     }
 
-    private static String safe(String s) {
-        return s != null ? s : "";
-    }
+    private static String safe(String s) { return s != null ? s : ""; }
 
-    private static String truncate(String text, int maxLen) {
+    private static String truncate(String text, int max) {
         if (text == null) return "";
-        return text.length() > maxLen ? text.substring(0, maxLen - 3) + "…" : text;
+        return text.length() > max ? text.substring(0, max - 1) + "…" : text;
     }
 
-    private static String escapeHtml(String text) {
-        if (text == null) return "";
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
+    // ═══════════════════════════════════════════════════════════════
+    //  ConnectionTab interface (read-only)
+    // ═══════════════════════════════════════════════════════════════
 
-    // ─── ConnectionTab Interface (read-only) ───
-
-    @Override
-    public String getTitle() {
-        return tabTitle;
-    }
+    @Override public String getTitle() { return tabTitle; }
 
     @Override
     public String getTooltip() {
@@ -333,48 +452,18 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
         return safe(h.getSubject()) + " – " + safe(h.getFrom()) + " – " + date;
     }
 
-    @Override
-    public JComponent getComponent() {
-        return this;
-    }
-
-    @Override
-    public void onClose() {
-        // nothing – read-only
-    }
-
-    @Override
-    public void saveIfApplicable() {
-        // read-only – no save
-    }
-
-    @Override
-    public String getContent() {
-        return markdown;
-    }
-
-    @Override
-    public void markAsChanged() {
-        // not applicable
-    }
+    @Override public JComponent getComponent() { return this; }
+    @Override public void onClose() { /* read-only */ }
+    @Override public void saveIfApplicable() { /* read-only */ }
+    @Override public String getContent() { return content.toMarkdown(); }
+    @Override public void markAsChanged() { /* n/a */ }
 
     @Override
     public String getPath() {
         return "mail://" + safe(content.getHeader().getSubject());
     }
 
-    @Override
-    public Type getType() {
-        return Type.PREVIEW;
-    }
-
-    @Override
-    public void focusSearchField() {
-        // no search
-    }
-
-    @Override
-    public void searchFor(String searchPattern) {
-        // no search
-    }
+    @Override public Type getType() { return Type.PREVIEW; }
+    @Override public void focusSearchField() { /* no search */ }
+    @Override public void searchFor(String searchPattern) { /* no search */ }
 }

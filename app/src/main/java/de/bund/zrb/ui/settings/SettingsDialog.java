@@ -132,6 +132,7 @@ public class SettingsDialog {
     public static final int TAB_INDEX_MAILS = 9;
     private static JTextField mailPathField;
     private static JTextField mailContainerClassesField;
+    private static JList<String> mailWhitelistJList;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -798,6 +799,39 @@ public class SettingsDialog {
         mailContent.add(mailContainerClassesField, gbc);
         gbc.gridy++;
 
+        // ─── HTML-Whitelist ───
+        gbc.gridy++;
+        mailContent.add(new JLabel("─── HTML-Whitelist ───"), gbc);
+        gbc.gridy++;
+
+        mailContent.add(new JLabel("Absender, deren Mails immer in HTML geöffnet werden:"), gbc);
+        gbc.gridy++;
+
+        DefaultListModel<String> whitelistModel = new DefaultListModel<>();
+        if (settings.mailHtmlWhitelistedSenders != null) {
+            for (String sender : settings.mailHtmlWhitelistedSenders) {
+                whitelistModel.addElement(sender);
+            }
+        }
+        mailWhitelistJList = new JList<>(whitelistModel);
+        mailWhitelistJList.setVisibleRowCount(5);
+        JScrollPane whitelistScroll = new JScrollPane(mailWhitelistJList);
+        mailContent.add(whitelistScroll, gbc);
+        gbc.gridy++;
+
+        JPanel wlButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton wlRemoveButton = new JButton("➖ Entfernen");
+        wlRemoveButton.addActionListener(e -> {
+            int idx = mailWhitelistJList.getSelectedIndex();
+            if (idx >= 0) whitelistModel.removeElementAt(idx);
+        });
+        wlButtonPanel.add(wlRemoveButton);
+        JButton wlClearButton = new JButton("🗑 Alle entfernen");
+        wlClearButton.addActionListener(e -> whitelistModel.clear());
+        wlButtonPanel.add(wlClearButton);
+        mailContent.add(wlButtonPanel, gbc);
+        gbc.gridy++;
+
         // Info
         gbc.gridy++;
         JLabel infoMailLabel = new JLabel("<html><small>"
@@ -807,7 +841,9 @@ public class SettingsDialog {
                 + "Standard: " + defaultPath + "<br><br>"
                 + "<b>Mail-ContainerClasses:</b> Bestimmt, welche Ordnertypen als E-Mails erkannt werden.<br>"
                 + "IMAP-Konten verwenden <code>IPF.Imap</code>, Exchange/POP3 verwenden <code>IPF.Note</code>.<br>"
-                + "Standard: <code>IPF.Note,IPF.Imap</code>"
+                + "Standard: <code>IPF.Note,IPF.Imap</code><br><br>"
+                + "<b>HTML-Whitelist:</b> Mails von diesen Absendern werden automatisch in HTML angezeigt.<br>"
+                + "Neue Einträge per Rechtsklick auf eine geöffnete Mail hinzufügen."
                 + "</small></html>");
         infoMailLabel.setForeground(Color.GRAY);
         mailContent.add(infoMailLabel, gbc);
@@ -1437,6 +1473,15 @@ public class SettingsDialog {
             settings.mailStorePath = mailPathField.getText().trim();
             settings.mailContainerClasses = mailContainerClassesField.getText().trim();
             de.bund.zrb.mail.model.MailboxCategory.setMailContainerClasses(settings.mailContainerClasses);
+
+            // HTML Whitelist
+            settings.mailHtmlWhitelistedSenders = new java.util.HashSet<>();
+            if (mailWhitelistJList != null) {
+                DefaultListModel<String> wlModel = (DefaultListModel<String>) mailWhitelistJList.getModel();
+                for (int i = 0; i < wlModel.size(); i++) {
+                    settings.mailHtmlWhitelistedSenders.add(wlModel.getElementAt(i));
+                }
+            }
 
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();
