@@ -357,19 +357,88 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
 
         int row = 0;
 
-        // Von
-        labelGbc.gridy = row; valueGbc.gridy = row;
-        panel.add(boldLabel("Von:"), labelGbc);
-        panel.add(valueLabel(safe(header.getFrom())), valueGbc);
-        row++;
+        // ── Type-specific header ──
 
-        // An
-        labelGbc.gridy = row; valueGbc.gridy = row;
-        panel.add(boldLabel("An:"), labelGbc);
-        panel.add(valueLabel(safe(header.getTo())), valueGbc);
-        row++;
+        if (header.isAppointment()) {
+            // Appointment: Start, End, Location, Organizer, Participants
+            if (header.getStartDate() != null) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Beginn:"), labelGbc);
+                panel.add(valueLabel(formatDate(header.getStartDate(), header.isAllDay())), valueGbc);
+                row++;
+            }
+            if (header.getEndDate() != null) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Ende:"), labelGbc);
+                panel.add(valueLabel(formatDate(header.getEndDate(), header.isAllDay())), valueGbc);
+                row++;
+            }
+            if (header.getLocation() != null && !header.getLocation().trim().isEmpty()) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Ort:"), labelGbc);
+                panel.add(valueLabel("📍 " + header.getLocation()), valueGbc);
+                row++;
+            }
+            if (header.getFrom() != null && !header.getFrom().isEmpty()) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Organisator:"), labelGbc);
+                panel.add(valueLabel(safe(header.getFrom())), valueGbc);
+                row++;
+            }
+            if (header.getTo() != null && !header.getTo().isEmpty()) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Teilnehmer:"), labelGbc);
+                panel.add(valueLabel(safe(header.getTo())), valueGbc);
+                row++;
+            }
+        } else if (header.isContact()) {
+            // Contact: Name, Company, Email
+            labelGbc.gridy = row; valueGbc.gridy = row;
+            panel.add(boldLabel("Name:"), labelGbc);
+            panel.add(valueLabel(safe(header.getSubject())), valueGbc);
+            row++;
+            if (header.getLocation() != null && !header.getLocation().trim().isEmpty()) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Firma:"), labelGbc);
+                panel.add(valueLabel("🏢 " + header.getLocation()), valueGbc);
+                row++;
+            }
+            if (header.getFrom() != null && !header.getFrom().isEmpty()) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("E-Mail:"), labelGbc);
+                panel.add(valueLabel(safe(header.getFrom())), valueGbc);
+                row++;
+            }
+        } else if (header.isTask()) {
+            // Task: Due date, Progress
+            if (header.getStartDate() != null) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Fällig:"), labelGbc);
+                panel.add(valueLabel(formatDate(header.getStartDate(), false)), valueGbc);
+                row++;
+            }
+            if (header.getPercentComplete() > 0) {
+                labelGbc.gridy = row; valueGbc.gridy = row;
+                panel.add(boldLabel("Fortschritt:"), labelGbc);
+                panel.add(valueLabel(header.getPercentComplete() + "%"), valueGbc);
+                row++;
+            }
+        } else {
+            // Regular email: Von, An
+            labelGbc.gridy = row; valueGbc.gridy = row;
+            panel.add(boldLabel("Von:"), labelGbc);
+            panel.add(valueLabel(safe(header.getFrom())), valueGbc);
+            row++;
 
-        // Datum
+            labelGbc.gridy = row; valueGbc.gridy = row;
+            panel.add(boldLabel("An:"), labelGbc);
+            panel.add(valueLabel(safe(header.getTo())), valueGbc);
+            row++;
+        }
+
+        // ── Common fields ──
+
+        // Datum (delivery/creation)
         if (header.getDate() != null) {
             labelGbc.gridy = row; valueGbc.gridy = row;
             panel.add(boldLabel("Datum:"), labelGbc);
@@ -377,13 +446,15 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
             row++;
         }
 
-        // Betreff
-        labelGbc.gridy = row; valueGbc.gridy = row;
-        panel.add(boldLabel("Betreff:"), labelGbc);
-        JLabel subjectLabel = valueLabel(safe(header.getSubject()));
-        subjectLabel.setFont(subjectLabel.getFont().deriveFont(Font.BOLD));
-        panel.add(subjectLabel, valueGbc);
-        row++;
+        // Betreff (only for non-contacts, contacts show it as "Name" above)
+        if (!header.isContact()) {
+            labelGbc.gridy = row; valueGbc.gridy = row;
+            panel.add(boldLabel("Betreff:"), labelGbc);
+            JLabel subjectLabel = valueLabel(safe(header.getSubject()));
+            subjectLabel.setFont(subjectLabel.getFont().deriveFont(Font.BOLD));
+            panel.add(subjectLabel, valueGbc);
+            row++;
+        }
 
         // Anhänge
         if (header.hasAttachments()) {
@@ -393,6 +464,14 @@ public class MailPreviewTab extends JPanel implements ConnectionTab {
         }
 
         return panel;
+    }
+
+    private static String formatDate(java.util.Date date, boolean dateOnly) {
+        if (date == null) return "";
+        if (dateOnly) {
+            return String.format("%1$td.%1$tm.%1$tY", date);
+        }
+        return DATE_FORMAT.format(date);
     }
 
     private JPanel createAttachmentPanel() {

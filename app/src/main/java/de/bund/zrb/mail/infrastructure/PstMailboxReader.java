@@ -407,7 +407,48 @@ public class PstMailboxReader implements MailboxReader {
         boolean hasAttachments = message.hasAttachments();
         long nodeId = message.getDescriptorNodeId();
         String messageClass = message.getMessageClass();
-        return new MailMessageHeader(subject, from, to, date, folderPath, nodeId, hasAttachments, messageClass);
+
+        MailMessageHeader header = new MailMessageHeader(
+                subject, from, to, date, folderPath, nodeId, hasAttachments, messageClass);
+
+        // ─── Appointment-specific fields ───
+        if (message instanceof PSTAppointment) {
+            try {
+                PSTAppointment appt = (PSTAppointment) message;
+                java.util.Date startDate = appt.getStartTime();
+                java.util.Date endDate = appt.getEndTime();
+                String location = appt.getLocation();
+                boolean allDay = appt.getSubType(); // true = all-day event
+                header.withAppointmentInfo(startDate, endDate, location, allDay);
+            } catch (Exception e) {
+                System.out.println("[MAIL-DIAG] ⚠ Error reading appointment fields: " + e.getMessage());
+            }
+        }
+
+        // ─── Contact-specific fields ───
+        if (message instanceof PSTContact) {
+            try {
+                PSTContact contact = (PSTContact) message;
+                String company = contact.getCompanyName();
+                header.withContactInfo(company);
+            } catch (Exception e) {
+                System.out.println("[MAIL-DIAG] ⚠ Error reading contact fields: " + e.getMessage());
+            }
+        }
+
+        // ─── Task-specific fields ───
+        if (message instanceof PSTTask) {
+            try {
+                PSTTask task = (PSTTask) message;
+                java.util.Date dueDate = task.getTaskDueDate();
+                int pctComplete = (int) (task.getPercentComplete() * 100);
+                header.withTaskInfo(dueDate, pctComplete);
+            } catch (Exception e) {
+                System.out.println("[MAIL-DIAG] ⚠ Error reading task fields: " + e.getMessage());
+            }
+        }
+
+        return header;
     }
 
     private MailMessageContent buildContent(PSTMessage message, String folderPath) throws Exception {
