@@ -81,6 +81,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistryImpl.register(new ShowFeatureDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowAboutDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowShortcutConfigMenuCommand(this));
+        CommandRegistryImpl.register(new ShowIndexingControlPanelMenuCommand(this));
 
         // Advanced
         CommandRegistryImpl.register(new BookmarkMenuCommand(this));

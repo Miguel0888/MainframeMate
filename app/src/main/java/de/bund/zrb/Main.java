@@ -1,6 +1,7 @@
 package de.bund.zrb;
 
 import de.bund.zrb.history.LocalHistoryService;
+import de.bund.zrb.indexing.service.IndexingService;
 import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.bund.zrb.ui.util.UnicodeFontFix;
@@ -14,6 +15,9 @@ public class Main {
 
         // Start local history auto-pruning in background
         LocalHistoryService.getInstance().autoPruneAsync();
+
+        // Start indexing scheduler (runs ON_STARTUP sources, schedules INTERVAL sources)
+        IndexingService.getInstance().startScheduler();
 
         SwingUtilities.invokeLater(() -> {
             MainFrame gui = new MainFrame();

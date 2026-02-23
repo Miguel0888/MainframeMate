@@ -29,7 +29,7 @@ public class MenuTreeBuilder {
         ));
         // Einstellungen-Menü Reihenfolge
         SUBMENU_ORDER.put("settings", Arrays.asList(
-                "general", "server", "---1", "sentences", "expressions", "tools", "---2", "shortcuts", "mails", "plugins"
+                "general", "server", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "plugins"
         ));
         // Hilfe-Menü Reihenfolge
         SUBMENU_ORDER.put("help", Arrays.asList(
