@@ -38,7 +38,16 @@ public class PstMailboxReader implements MailboxReader {
             "Finder", "Views", "Common Views", "Shortcuts", "Schedule",
             "Reminders", "To-Do Search", "Quick Step Settings",
             "Conversation Action Settings", "ExternalContacts",
-            "PersonMetadata", "Files", "Yammer Root"
+            "PersonMetadata", "Files", "Yammer Root",
+            // Search / virtual folders (java-libpst can't read their tables)
+            "SPAM Search Folder 2", "ItemProcSearch",
+            "Nachverfolgte E-Mail-Verarbeitung",
+            "Tracked Mail Processing"
+    };
+
+    /** Substrings in folder names that indicate virtual/search folders. */
+    private static final String[] SEARCH_FOLDER_INDICATORS = {
+            "Search", "Suche", "search"
     };
 
     // ─── Interface: listFolders ───
@@ -72,16 +81,29 @@ public class PstMailboxReader implements MailboxReader {
             if (folder == null) {
                 return result;
             }
-            Vector<PSTFolder> subFolders = folder.getSubFolders();
+
+            Vector<PSTFolder> subFolders;
+            try {
+                subFolders = folder.getSubFolders();
+            } catch (PSTException e) {
+                LOG.log(Level.WARNING, "Cannot list subfolders of " + folderPath
+                        + " (possibly a search/virtual folder): " + e.getMessage());
+                return result;
+            }
+
             for (PSTFolder sub : subFolders) {
                 if (isSystemFolder(sub)) continue;
-                String subPath = folderPath + "/" + sub.getDisplayName();
-                int count = sub.getContentCount();
-                String containerClass = sub.getContainerClass();
-                int subCount = 0;
-                try { subCount = sub.getSubFolderCount(); } catch (Exception ignored) {}
-                result.add(new MailFolderRef(mailboxPath, subPath, sub.getDisplayName(),
-                        count, containerClass, subCount));
+                try {
+                    String subPath = folderPath + "/" + sub.getDisplayName();
+                    int count = sub.getContentCount();
+                    String containerClass = sub.getContainerClass();
+                    int subCount = 0;
+                    try { subCount = sub.getSubFolderCount(); } catch (Exception ignored) {}
+                    result.add(new MailFolderRef(mailboxPath, subPath, sub.getDisplayName(),
+                            count, containerClass, subCount));
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "Error reading subfolder metadata in " + folderPath, e);
+                }
             }
         } finally {
             closeSilently(pstFile);
@@ -248,13 +270,21 @@ public class PstMailboxReader implements MailboxReader {
      */
     private void collectRelevantFolders(PSTFolder parent, String parentPath, String mailboxPath,
                                          List<MailFolderRef> result, boolean recursive) {
+        Vector<PSTFolder> subFolders;
         try {
-            Vector<PSTFolder> subFolders = parent.getSubFolders();
-            for (PSTFolder sub : subFolders) {
-                if (isSystemFolder(sub)) continue;
+            subFolders = parent.getSubFolders();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Cannot list subfolders of " + parentPath + ": " + e.getMessage());
+            return;
+        }
 
-                String name = sub.getDisplayName();
-                String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
+        for (PSTFolder sub : subFolders) {
+            if (isSystemFolder(sub)) continue;
+
+            String name = sub.getDisplayName();
+            String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
+
+            try {
                 int count = sub.getContentCount();
                 String containerClass = sub.getContainerClass();
                 int subCount = 0;
@@ -265,28 +295,45 @@ public class PstMailboxReader implements MailboxReader {
                         || containerClass == null || containerClass.isEmpty()) {
                     result.add(new MailFolderRef(mailboxPath, path, name, count, containerClass, subCount));
                 }
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Error reading folder metadata: " + path + ": " + e.getMessage());
+            }
 
-                if (recursive) {
+            if (recursive) {
+                try {
                     collectRelevantFolders(sub, path, mailboxPath, result, true);
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "Error recursing into folder: " + path + ": " + e.getMessage());
                 }
             }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "Error collecting folders from " + parentPath, e);
         }
     }
 
     /**
      * Collects all folders recursively that match the given category.
+     * Each subfolder access is individually protected against PSTExceptions
+     * from corrupt/virtual folder tables.
      */
     private void collectFoldersByCategory(PSTFolder parent, String parentPath, String mailboxPath,
                                            MailboxCategory category, List<MailFolderRef> result) {
+        Vector<PSTFolder> subFolders;
         try {
-            Vector<PSTFolder> subFolders = parent.getSubFolders();
-            for (PSTFolder sub : subFolders) {
-                if (isSystemFolder(sub)) continue;
+            subFolders = parent.getSubFolders();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Cannot list subfolders of " + parentPath + ": " + e.getMessage());
+            return;
+        }
 
-                String name = sub.getDisplayName();
-                String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
+        for (PSTFolder sub : subFolders) {
+            String name = sub.getDisplayName();
+            if (isSystemFolder(sub)) {
+                LOG.log(Level.FINE, "Skipping system/search folder: " + name);
+                continue;
+            }
+
+            String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
+
+            try {
                 String containerClass = sub.getContainerClass();
                 int count = sub.getContentCount();
                 int subCount = 0;
@@ -296,12 +343,16 @@ public class PstMailboxReader implements MailboxReader {
                 if (folderCat == category) {
                     result.add(new MailFolderRef(mailboxPath, path, name, count, containerClass, subCount));
                 }
-
-                // Always recurse – child folders might belong to the category
-                collectFoldersByCategory(sub, path, mailboxPath, category, result);
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Error reading folder metadata: " + path + ": " + e.getMessage());
             }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "Error collecting category folders from " + parentPath, e);
+
+            // Recurse into child – individually protected
+            try {
+                collectFoldersByCategory(sub, path, mailboxPath, category, result);
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Error recursing into folder: " + path + ": " + e.getMessage());
+            }
         }
     }
 
@@ -387,7 +438,14 @@ public class PstMailboxReader implements MailboxReader {
         for (String part : parts) {
             if (part.isEmpty()) continue;
             PSTFolder found = null;
-            Vector<PSTFolder> subFolders = current.getSubFolders();
+            Vector<PSTFolder> subFolders;
+            try {
+                subFolders = current.getSubFolders();
+            } catch (PSTException e) {
+                LOG.warning("Cannot access subfolders while navigating to '" + part
+                        + "' in path '" + folderPath + "': " + e.getMessage());
+                return null;
+            }
             for (PSTFolder sub : subFolders) {
                 if (part.equals(sub.getDisplayName())) {
                     found = sub;
@@ -409,7 +467,10 @@ public class PstMailboxReader implements MailboxReader {
         String name = folder.getDisplayName();
         if (isSystemFolderName(name)) return true;
 
-        // Skip search folders (they are virtual)
+        // Skip search folders (they are virtual – java-libpst can't read their tables)
+        if (isSearchFolderName(name)) return true;
+
+        // Skip folders with known-problematic container classes
         String containerClass = folder.getContainerClass();
         if (containerClass != null && containerClass.contains("Outlook.Reminder")) return true;
 
@@ -420,6 +481,18 @@ public class PstMailboxReader implements MailboxReader {
         if (name == null || name.isEmpty()) return true;
         for (String sysName : SYSTEM_FOLDER_NAMES) {
             if (sysName.equalsIgnoreCase(name)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Detects search/virtual folders by name patterns.
+     * These folders have internal tables that java-libpst often can't parse.
+     */
+    private boolean isSearchFolderName(String name) {
+        if (name == null) return false;
+        for (String indicator : SEARCH_FOLDER_INDICATORS) {
+            if (name.contains(indicator)) return true;
         }
         return false;
     }
