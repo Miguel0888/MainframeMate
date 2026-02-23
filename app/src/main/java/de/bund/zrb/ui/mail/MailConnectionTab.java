@@ -27,12 +27,18 @@ import java.util.regex.Pattern;
 /**
  * ConnectionTab for browsing local Outlook mail stores (OST/PST files).
  * Read-only: no write operations allowed.
+ *
+ * Navigation hierarchy:
+ *   Mailbox list → Category page (Mail/Kalender/…) → Folder list → Messages (paged)
  */
 public class MailConnectionTab implements ConnectionTab {
 
     private static final Logger LOG = Logger.getLogger(MailConnectionTab.class.getName());
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
+    private static final int PAGE_SIZE = 200;
+
+    private static final String LOAD_MORE_MARKER = "⏬ Weitere Nachrichten laden…";
 
     private final TabbedPaneManager tabbedPaneManager;
     private final String mailStorePath;
@@ -57,8 +63,14 @@ public class MailConnectionTab implements ConnectionTab {
     private JButton forwardButton;
 
     // Current view state
-    private String currentMailboxPath = null;  // null = showing mailbox list
-    private String currentFolderPath = null;   // null = showing top folders of a mailbox
+    private String currentMailboxPath = null;
+    private String currentFolderPath = null;
+    private MailboxCategory currentCategory = null;
+
+    // Paging state
+    private int currentOffset = 0;
+    private int totalMessageCount = 0;
+    private boolean hasMoreMessages = false;
 
     // Current items (for search & click resolution)
     private List<String> currentDisplayNames = new ArrayList<>();
@@ -66,13 +78,11 @@ public class MailConnectionTab implements ConnectionTab {
     private List<MailFolderRef> currentFolders = new ArrayList<>();
     private List<MailMessageHeader> currentMessages = new ArrayList<>();
 
-    /**
-     * Describes what kind of view is currently shown.
-     */
     private enum ViewMode {
-        MAILBOX_LIST,    // showing list of OST/PST files
-        FOLDER_LIST,     // showing folders (+ messages) of a mailbox
-        MESSAGE_LIST     // showing messages in a folder (+ sub-folders)
+        MAILBOX_LIST,    // list of OST/PST files
+        CATEGORY_LIST,   // category page of a mailbox (Mail, Kalender, …)
+        FOLDER_LIST,     // folders of a category
+        MESSAGE_LIST     // messages in a folder (+ sub-folders, paged)
     }
     private ViewMode viewMode = ViewMode.MAILBOX_LIST;
 
@@ -80,21 +90,18 @@ public class MailConnectionTab implements ConnectionTab {
         this.tabbedPaneManager = tabbedPaneManager;
         this.mailStorePath = mailStorePath;
 
-        // Wire up clean architecture
         MailStore mailStore = new FileSystemMailStore();
         MailboxReader mailboxReader = new PstMailboxReader();
         this.listMailboxesUseCase = new ListMailboxesUseCase(mailStore);
         this.listMailboxItemsUseCase = new ListMailboxItemsUseCase(mailboxReader);
         this.openMailMessageUseCase = new OpenMailMessageUseCase(mailboxReader);
 
-        // Build UI
         this.mainPanel = new JPanel(new BorderLayout());
         buildUI();
         loadMailboxList();
     }
 
     private void buildUI() {
-        // --- Top: path bar ---
         JPanel pathPanel = new JPanel(new BorderLayout());
 
         JButton refreshButton = new JButton("🔄");
@@ -132,21 +139,17 @@ public class MailConnectionTab implements ConnectionTab {
         pathField.setEditable(false);
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
-
         mainPanel.add(pathPanel, BorderLayout.NORTH);
 
-        // --- Center: list ---
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
 
-        // --- Bottom: search + status ---
         JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.add(createFilterPanel(), BorderLayout.CENTER);
         statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         bottomPanel.add(statusLabel, BorderLayout.SOUTH);
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
-        // Mouse listeners
         installMouseNavigation(pathField);
         installMouseNavigation(fileList);
         installMouseNavigation(mainPanel);
@@ -155,38 +158,64 @@ public class MailConnectionTab implements ConnectionTab {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() != 2) return;
-                int index = fileList.getSelectedIndex();
-                if (index < 0) return;
-                handleDoubleClick(index);
+                if (fileList.getSelectedIndex() < 0) return;
+                handleDoubleClick();
             }
         });
     }
 
     // ─── Navigation ───
 
-    private void handleDoubleClick(int selectedIndex) {
+    private void handleDoubleClick() {
         String selectedText = fileList.getSelectedValue();
         if (selectedText == null) return;
+
+        // "Load more" action
+        if (LOAD_MORE_MARKER.equals(selectedText)) {
+            loadMoreMessages();
+            return;
+        }
 
         switch (viewMode) {
             case MAILBOX_LIST:
                 for (MailboxRef ref : currentMailboxes) {
                     if (selectedText.equals("📬 " + ref.getDisplayName())) {
-                        navigateTo(ref.getPath(), null);
+                        pushHistory();
+                        loadCategoryPage(ref.getPath());
                         return;
                     }
                 }
                 break;
-            case FOLDER_LIST:
-            case MESSAGE_LIST:
-                // Check folders first
-                for (MailFolderRef folder : currentFolders) {
-                    if (selectedText.equals(folder.toString())) {
-                        navigateTo(currentMailboxPath, folder.getFolderPath());
+
+            case CATEGORY_LIST:
+                for (MailboxCategory cat : MailboxCategory.values()) {
+                    if (selectedText.equals(cat.getDisplayName())) {
+                        pushHistory();
+                        loadCategoryFolders(currentMailboxPath, cat);
                         return;
                     }
                 }
-                // Then check messages
+                break;
+
+            case FOLDER_LIST:
+                for (MailFolderRef folder : currentFolders) {
+                    if (selectedText.equals(folder.toString())) {
+                        pushHistory();
+                        loadFolderContents(currentMailboxPath, folder.getFolderPath());
+                        return;
+                    }
+                }
+                break;
+
+            case MESSAGE_LIST:
+                // Check folders first, then messages
+                for (MailFolderRef folder : currentFolders) {
+                    if (selectedText.equals(folder.toString())) {
+                        pushHistory();
+                        loadFolderContents(currentMailboxPath, folder.getFolderPath());
+                        return;
+                    }
+                }
                 for (MailMessageHeader msg : currentMessages) {
                     if (selectedText.equals(msg.toString())) {
                         openMailReadOnly(msg);
@@ -197,109 +226,93 @@ public class MailConnectionTab implements ConnectionTab {
         }
     }
 
-    private void navigateTo(String mailboxPath, String folderPath) {
-        // Save current state to history
-        String currentState = encodeState();
-        if (!currentState.isEmpty()) {
-            backHistory.add(currentState);
+    private void pushHistory() {
+        String state = encodeState();
+        if (!state.isEmpty()) {
+            backHistory.add(state);
             forwardHistory.clear();
         }
         updateNavigationButtons();
-
-        if (mailboxPath == null) {
-            loadMailboxList();
-        } else {
-            loadMailboxContents(mailboxPath, folderPath);
-        }
     }
 
     private void navigateUp() {
-        String currentState = encodeState();
-
-        if (viewMode == ViewMode.MAILBOX_LIST) {
-            return; // already at top
-        }
-
-        if (currentFolderPath != null) {
-            // Go up one folder level
-            int lastSlash = currentFolderPath.lastIndexOf('/');
-            if (lastSlash > 0) {
-                String parentFolder = currentFolderPath.substring(0, lastSlash);
-                backHistory.add(currentState);
-                forwardHistory.clear();
-                loadMailboxContents(currentMailboxPath, parentFolder);
-            } else {
-                // At top folder level -> show folder list of mailbox
-                backHistory.add(currentState);
-                forwardHistory.clear();
-                loadMailboxContents(currentMailboxPath, null);
-            }
-        } else {
-            // Currently showing top folders of a mailbox -> go to mailbox list
-            backHistory.add(currentState);
-            forwardHistory.clear();
-            loadMailboxList();
+        switch (viewMode) {
+            case MAILBOX_LIST:
+                return;
+            case CATEGORY_LIST:
+                pushHistory();
+                loadMailboxList();
+                break;
+            case FOLDER_LIST:
+                pushHistory();
+                loadCategoryPage(currentMailboxPath);
+                break;
+            case MESSAGE_LIST:
+                pushHistory();
+                if (currentFolderPath != null) {
+                    int lastSlash = currentFolderPath.lastIndexOf('/');
+                    if (lastSlash > 0) {
+                        loadFolderContents(currentMailboxPath, currentFolderPath.substring(0, lastSlash));
+                    } else if (currentCategory != null) {
+                        loadCategoryFolders(currentMailboxPath, currentCategory);
+                    } else {
+                        loadCategoryPage(currentMailboxPath);
+                    }
+                } else {
+                    loadCategoryPage(currentMailboxPath);
+                }
+                break;
         }
         updateNavigationButtons();
     }
 
     private void navigateBack() {
         if (backHistory.isEmpty()) return;
-        String currentState = encodeState();
-        forwardHistory.add(currentState);
-        String prev = backHistory.remove(backHistory.size() - 1);
-        restoreState(prev);
+        forwardHistory.add(encodeState());
+        restoreState(backHistory.remove(backHistory.size() - 1));
         updateNavigationButtons();
     }
 
     private void navigateForward() {
         if (forwardHistory.isEmpty()) return;
-        String currentState = encodeState();
-        backHistory.add(currentState);
-        String next = forwardHistory.remove(forwardHistory.size() - 1);
-        restoreState(next);
+        backHistory.add(encodeState());
+        restoreState(forwardHistory.remove(forwardHistory.size() - 1));
         updateNavigationButtons();
     }
 
     private void refresh() {
-        switch (viewMode) {
-            case MAILBOX_LIST:
-                loadMailboxList();
-                break;
-            case FOLDER_LIST:
-            case MESSAGE_LIST:
-                loadMailboxContents(currentMailboxPath, currentFolderPath);
-                break;
-        }
+        restoreState(encodeState());
     }
 
     private String encodeState() {
-        if (currentMailboxPath == null) {
-            return "mailstore:" + mailStorePath;
+        if (currentMailboxPath == null) return "store";
+        if (viewMode == ViewMode.CATEGORY_LIST) return "cats:" + currentMailboxPath;
+        if (viewMode == ViewMode.FOLDER_LIST && currentCategory != null) {
+            return "catfold:" + currentMailboxPath + "#" + currentCategory.name();
         }
-        if (currentFolderPath == null) {
-            return "mailbox:" + currentMailboxPath;
-        }
-        return "mailbox:" + currentMailboxPath + "#" + currentFolderPath;
+        if (currentFolderPath != null) return "folder:" + currentMailboxPath + "#" + currentFolderPath;
+        return "cats:" + currentMailboxPath;
     }
 
     private void restoreState(String state) {
-        if (state == null || state.isEmpty()) {
+        if (state == null || "store".equals(state)) {
             loadMailboxList();
-            return;
-        }
-        if (state.startsWith("mailstore:")) {
+        } else if (state.startsWith("cats:")) {
+            loadCategoryPage(state.substring(5));
+        } else if (state.startsWith("catfold:")) {
+            String rest = state.substring(8);
+            int hash = rest.indexOf('#');
+            String mbPath = rest.substring(0, hash);
+            String catName = rest.substring(hash + 1);
+            loadCategoryFolders(mbPath, MailboxCategory.valueOf(catName));
+        } else if (state.startsWith("folder:")) {
+            String rest = state.substring(7);
+            int hash = rest.indexOf('#');
+            String mbPath = rest.substring(0, hash);
+            String folderPath = rest.substring(hash + 1);
+            loadFolderContents(mbPath, folderPath);
+        } else {
             loadMailboxList();
-        } else if (state.startsWith("mailbox:")) {
-            String rest = state.substring("mailbox:".length());
-            int hashIndex = rest.indexOf('#');
-            if (hashIndex >= 0) {
-                String mbPath = rest.substring(0, hashIndex);
-                String folderPath = rest.substring(hashIndex + 1);
-                loadMailboxContents(mbPath, folderPath);
-            } else {
-                loadMailboxContents(rest, null);
-            }
         }
     }
 
@@ -313,9 +326,11 @@ public class MailConnectionTab implements ConnectionTab {
     private void loadMailboxList() {
         this.currentMailboxPath = null;
         this.currentFolderPath = null;
+        this.currentCategory = null;
         this.viewMode = ViewMode.MAILBOX_LIST;
         pathField.setText("mailstore: " + mailStorePath);
         searchField.setText("");
+        resetPaging();
 
         SwingWorker<List<MailboxRef>, Void> worker = new SwingWorker<List<MailboxRef>, Void>() {
             @Override
@@ -330,8 +345,7 @@ public class MailConnectionTab implements ConnectionTab {
                     currentMailboxes = mailboxes;
                     currentFolders = Collections.emptyList();
                     currentMessages = Collections.emptyList();
-                    currentDisplayNames = new ArrayList<>();
-                    listModel.clear();
+                    rebuildDisplayList();
 
                     if (mailboxes.isEmpty()) {
                         statusLabel.setText("Keine OST/PST-Dateien gefunden in: " + mailStorePath);
@@ -353,50 +367,119 @@ public class MailConnectionTab implements ConnectionTab {
         worker.execute();
     }
 
-    private void loadMailboxContents(String mailboxPath, String folderPath) {
+    /**
+     * Shows the category start page for a mailbox:
+     *   📧 E-Mails
+     *   📅 Kalender
+     *   👥 Kontakte
+     *   ✅ Aufgaben
+     *   📝 Notizen
+     */
+    private void loadCategoryPage(String mailboxPath) {
+        this.currentMailboxPath = mailboxPath;
+        this.currentFolderPath = null;
+        this.currentCategory = null;
+        this.viewMode = ViewMode.CATEGORY_LIST;
+        pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName());
+        searchField.setText("");
+        resetPaging();
+
+        currentMailboxes = Collections.emptyList();
+        currentFolders = Collections.emptyList();
+        currentMessages = Collections.emptyList();
+        rebuildDisplayList();
+
+        for (MailboxCategory cat : MailboxCategory.values()) {
+            String display = cat.getDisplayName();
+            currentDisplayNames.add(display);
+            listModel.addElement(display);
+        }
+
+        statusLabel.setText("Kategorie wählen");
+        tabbedPaneManager.refreshStarForTab(this);
+    }
+
+    /**
+     * Shows all folders of a given category (flat list).
+     */
+    private void loadCategoryFolders(String mailboxPath, MailboxCategory category) {
+        this.currentMailboxPath = mailboxPath;
+        this.currentFolderPath = null;
+        this.currentCategory = category;
+        this.viewMode = ViewMode.FOLDER_LIST;
+        pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " ▸ " + category.getLabel());
+        searchField.setText("");
+        statusLabel.setText("Lade Ordner…");
+        resetPaging();
+
+        SwingWorker<List<MailFolderRef>, Void> worker = new SwingWorker<List<MailFolderRef>, Void>() {
+            @Override
+            protected List<MailFolderRef> doInBackground() throws Exception {
+                return listMailboxItemsUseCase.listFoldersByCategory(mailboxPath, category);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<MailFolderRef> folders = get();
+                    currentMailboxes = Collections.emptyList();
+                    currentFolders = folders;
+                    currentMessages = Collections.emptyList();
+                    rebuildDisplayList();
+
+                    if (folders.isEmpty()) {
+                        statusLabel.setText("Keine Ordner in Kategorie " + category.getLabel());
+                    } else {
+                        for (MailFolderRef f : folders) {
+                            // Show with full path for flat category view
+                            String display = f.toString();
+                            if (f.getFolderPath().contains("/")) {
+                                // Show relative path for nested folders
+                                display = "📁 " + f.getFolderPath().substring(1) // remove leading /
+                                        + (f.getItemCount() > 0 ? " (" + f.getItemCount() + ")" : "");
+                            }
+                            currentDisplayNames.add(display);
+                            listModel.addElement(display);
+                        }
+                        statusLabel.setText(folders.size() + " Ordner");
+                    }
+                    tabbedPaneManager.refreshStarForTab(MailConnectionTab.this);
+                } catch (Exception e) {
+                    LOG.log(Level.SEVERE, "Error loading category folders", e);
+                    handleLoadError(e);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * Shows sub-folders + messages (paged) of a folder.
+     */
+    private void loadFolderContents(String mailboxPath, String folderPath) {
         this.currentMailboxPath = mailboxPath;
         this.currentFolderPath = folderPath;
-        this.viewMode = (folderPath == null) ? ViewMode.FOLDER_LIST : ViewMode.MESSAGE_LIST;
-
-        String displayPath = "mailbox: " + new java.io.File(mailboxPath).getName();
-        if (folderPath != null) {
-            displayPath += " ▸ " + folderPath;
-        }
-        pathField.setText(displayPath);
+        this.viewMode = ViewMode.MESSAGE_LIST;
+        pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " ▸ " + folderPath);
         searchField.setText("");
         statusLabel.setText("Lade…");
+        resetPaging();
 
         SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             private List<MailFolderRef> folders = new ArrayList<>();
             private List<MailMessageHeader> messages = new ArrayList<>();
+            private int msgCount = 0;
             private String error = null;
 
             @Override
             protected Void doInBackground() {
                 try {
-                    if (folderPath == null) {
-                        // Top-level folders only (root level of PST has no messages)
-                        folders = listMailboxItemsUseCase.listTopFolders(mailboxPath);
-                    } else {
-                        // Sub-folders + messages in this folder
-                        folders = listMailboxItemsUseCase.listSubFolders(mailboxPath, folderPath);
-                        messages = listMailboxItemsUseCase.listMessages(mailboxPath, folderPath);
-                    }
+                    folders = listMailboxItemsUseCase.listSubFolders(mailboxPath, folderPath);
+                    msgCount = listMailboxItemsUseCase.getMessageCount(mailboxPath, folderPath);
+                    messages = listMailboxItemsUseCase.listMessages(mailboxPath, folderPath, 0, PAGE_SIZE);
                 } catch (Exception e) {
-                    LOG.log(Level.SEVERE, "Error loading mailbox contents", e);
-                    error = e.getMessage();
-                    if (e.getCause() != null && e.getCause().getMessage() != null) {
-                        error = e.getCause().getMessage();
-                    }
-                    // Check for common lock issues
-                    if (error != null && (error.toLowerCase().contains("lock")
-                            || error.toLowerCase().contains("access denied")
-                            || error.toLowerCase().contains("being used")
-                            || error.toLowerCase().contains("zugriff")
-                            || error.toLowerCase().contains("nicht lesen"))) {
-                        error = "OST kann nicht gelesen werden. Bitte Outlook schließen oder Postfach als PST exportieren.\n\n"
-                                + error;
-                    }
+                    LOG.log(Level.SEVERE, "Error loading folder contents", e);
+                    error = extractErrorMessage(e);
                 }
                 return null;
             }
@@ -412,10 +495,11 @@ public class MailConnectionTab implements ConnectionTab {
                 currentFolders = folders;
                 currentMessages = messages;
                 currentMailboxes = Collections.emptyList();
-                currentDisplayNames = new ArrayList<>();
-                listModel.clear();
+                totalMessageCount = msgCount;
+                currentOffset = messages.size();
+                hasMoreMessages = currentOffset < totalMessageCount;
+                rebuildDisplayList();
 
-                // First folders, then messages
                 for (MailFolderRef f : folders) {
                     String display = f.toString();
                     currentDisplayNames.add(display);
@@ -426,24 +510,106 @@ public class MailConnectionTab implements ConnectionTab {
                     currentDisplayNames.add(display);
                     listModel.addElement(display);
                 }
+                if (hasMoreMessages) {
+                    String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
+                    currentDisplayNames.add(marker);
+                    listModel.addElement(marker);
+                }
 
-                int total = folders.size() + messages.size();
-                String status = "";
-                if (!folders.isEmpty()) {
-                    status += folders.size() + " Ordner";
-                }
-                if (!messages.isEmpty()) {
-                    if (!status.isEmpty()) status += ", ";
-                    status += messages.size() + " Nachrichten";
-                }
-                if (status.isEmpty()) {
-                    status = "Leer";
-                }
-                statusLabel.setText(status);
+                updateStatusText();
                 tabbedPaneManager.refreshStarForTab(MailConnectionTab.this);
             }
         };
         worker.execute();
+    }
+
+    /**
+     * Loads the next page of messages and appends to current list.
+     */
+    private void loadMoreMessages() {
+        if (!hasMoreMessages || currentMailboxPath == null || currentFolderPath == null) return;
+
+        statusLabel.setText("Lade weitere Nachrichten…");
+
+        // Remove the "load more" marker
+        if (!currentDisplayNames.isEmpty()) {
+            String last = currentDisplayNames.get(currentDisplayNames.size() - 1);
+            if (last.startsWith(LOAD_MORE_MARKER)) {
+                currentDisplayNames.remove(currentDisplayNames.size() - 1);
+                listModel.removeElement(last);
+            }
+        }
+
+        final int offset = currentOffset;
+        SwingWorker<List<MailMessageHeader>, Void> worker = new SwingWorker<List<MailMessageHeader>, Void>() {
+            @Override
+            protected List<MailMessageHeader> doInBackground() throws Exception {
+                return listMailboxItemsUseCase.listMessages(currentMailboxPath, currentFolderPath,
+                        offset, PAGE_SIZE);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<MailMessageHeader> newMessages = get();
+                    currentMessages.addAll(newMessages);
+                    currentOffset += newMessages.size();
+                    hasMoreMessages = currentOffset < totalMessageCount && !newMessages.isEmpty();
+
+                    for (MailMessageHeader m : newMessages) {
+                        String display = m.toString();
+                        currentDisplayNames.add(display);
+                        listModel.addElement(display);
+                    }
+
+                    if (hasMoreMessages) {
+                        String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
+                        currentDisplayNames.add(marker);
+                        listModel.addElement(marker);
+                    }
+
+                    updateStatusText();
+                } catch (Exception e) {
+                    LOG.log(Level.SEVERE, "Error loading more messages", e);
+                    showError("Fehler beim Laden:\n" + extractErrorMessage(e));
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void resetPaging() {
+        currentOffset = 0;
+        totalMessageCount = 0;
+        hasMoreMessages = false;
+    }
+
+    private void rebuildDisplayList() {
+        currentDisplayNames = new ArrayList<>();
+        listModel.clear();
+    }
+
+    private void updateStatusText() {
+        List<String> parts = new ArrayList<>();
+        if (!currentFolders.isEmpty()) {
+            parts.add(currentFolders.size() + " Ordner");
+        }
+        if (totalMessageCount > 0) {
+            String msgPart = currentMessages.size() + " von " + totalMessageCount + " Nachrichten";
+            parts.add(msgPart);
+        } else if (!currentMessages.isEmpty()) {
+            parts.add(currentMessages.size() + " Nachrichten");
+        }
+        if (parts.isEmpty()) {
+            statusLabel.setText("Leer");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < parts.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(parts.get(i));
+            }
+            statusLabel.setText(sb.toString());
+        }
     }
 
     // ─── Mail Preview ───
@@ -465,21 +631,14 @@ public class MailConnectionTab implements ConnectionTab {
                 try {
                     MailMessageContent content = get();
                     String title = content.getHeader().getSubject();
-                    if (title == null || title.isEmpty()) {
-                        title = "(kein Betreff)";
-                    }
+                    if (title == null || title.isEmpty()) title = "(kein Betreff)";
 
-                    // Open dedicated read-only mail preview tab
                     MailPreviewTab mailTab = new MailPreviewTab(content);
                     tabbedPaneManager.addTab(mailTab);
                     statusLabel.setText("Nachricht geöffnet: " + title);
                 } catch (Exception e) {
                     LOG.log(Level.SEVERE, "Error opening mail", e);
-                    String msg = e.getMessage();
-                    if (e.getCause() != null) {
-                        msg = e.getCause().getMessage();
-                    }
-                    showError("Fehler beim Öffnen der Nachricht:\n" + msg);
+                    showError("Fehler beim Öffnen der Nachricht:\n" + extractErrorMessage(e));
                     statusLabel.setText("Fehler beim Öffnen");
                 }
             }
@@ -526,15 +685,14 @@ public class MailConnectionTab implements ConnectionTab {
                 : new Color(255, 200, 200));
     }
 
+    // ─── Helpers ───
+
     private void installMouseNavigation(JComponent component) {
         component.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
-                }
+                if (e.getButton() == MOUSE_BACK_BUTTON) navigateBack();
+                else if (e.getButton() == MOUSE_FORWARD_BUTTON) navigateForward();
             }
         });
     }
@@ -543,7 +701,27 @@ public class MailConnectionTab implements ConnectionTab {
         JOptionPane.showMessageDialog(mainPanel, message, "Fehler", JOptionPane.ERROR_MESSAGE);
     }
 
-    // ─── ConnectionTab / FtpTab Interface ───
+    private String extractErrorMessage(Exception e) {
+        String msg = e.getMessage();
+        if (e.getCause() != null && e.getCause().getMessage() != null) {
+            msg = e.getCause().getMessage();
+        }
+        if (msg != null && (msg.toLowerCase().contains("lock")
+                || msg.toLowerCase().contains("access denied")
+                || msg.toLowerCase().contains("being used")
+                || msg.toLowerCase().contains("zugriff"))) {
+            msg = "OST kann nicht gelesen werden. Bitte Outlook schließen oder Postfach als PST exportieren.\n\n" + msg;
+        }
+        return msg;
+    }
+
+    private void handleLoadError(Exception e) {
+        String msg = extractErrorMessage(e);
+        showError(msg != null ? msg : "Unbekannter Fehler");
+        statusLabel.setText("Fehler");
+    }
+
+    // ─── ConnectionTab Interface ───
 
     @Override
     public String getTitle() {
@@ -561,14 +739,10 @@ public class MailConnectionTab implements ConnectionTab {
     }
 
     @Override
-    public void onClose() {
-        // nothing to close (read-only, no persistent connection)
-    }
+    public void onClose() { }
 
     @Override
-    public void saveIfApplicable() {
-        // read-only – nothing to save
-    }
+    public void saveIfApplicable() { }
 
     @Override
     public String getContent() {
@@ -580,9 +754,7 @@ public class MailConnectionTab implements ConnectionTab {
     }
 
     @Override
-    public void markAsChanged() {
-        // not used
-    }
+    public void markAsChanged() { }
 
     @Override
     public String getPath() {

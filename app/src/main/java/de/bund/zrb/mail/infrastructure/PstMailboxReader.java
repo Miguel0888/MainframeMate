@@ -4,6 +4,7 @@ import com.pff.*;
 import de.bund.zrb.mail.model.MailFolderRef;
 import de.bund.zrb.mail.model.MailMessageContent;
 import de.bund.zrb.mail.model.MailMessageHeader;
+import de.bund.zrb.mail.model.MailboxCategory;
 import de.bund.zrb.mail.port.MailboxReader;
 
 import java.io.File;
@@ -15,28 +16,52 @@ import java.util.logging.Logger;
 
 /**
  * Reads PST/OST mailbox files using java-libpst (com.pff).
+ *
+ * Key design decisions:
+ * - Uses IPM Subtree as content root (skips system/config folders)
+ * - Filters folders by ContainerClass (IPF.Note, IPF.Appointment, etc.)
+ * - Skips Search folders (they are virtual and can't be read)
+ * - Supports paging for large folders (offset/limit)
+ * - Handles Report messages (read receipts etc.) gracefully
  */
 public class PstMailboxReader implements MailboxReader {
 
     private static final Logger LOG = Logger.getLogger(PstMailboxReader.class.getName());
+
+    /** Known container classes for user-visible content folders. */
+    private static final String[] KNOWN_CONTAINER_CLASSES = {
+            "IPF.Note", "IPF.Appointment", "IPF.Contact", "IPF.Task", "IPF.StickyNote"
+    };
+
+    /** Folder names that are known system/internal folders to skip. */
+    private static final String[] SYSTEM_FOLDER_NAMES = {
+            "Finder", "Views", "Common Views", "Shortcuts", "Schedule",
+            "Reminders", "To-Do Search", "Quick Step Settings",
+            "Conversation Action Settings", "ExternalContacts",
+            "PersonMetadata", "Files", "Yammer Root"
+    };
+
+    // ─── Interface: listFolders ───
 
     @Override
     public List<MailFolderRef> listFolders(String mailboxPath) throws Exception {
         List<MailFolderRef> result = new ArrayList<>();
         PSTFile pstFile = new PSTFile(new File(mailboxPath));
         try {
-            PSTFolder rootFolder = pstFile.getRootFolder();
-            Vector<PSTFolder> subFolders = rootFolder.getSubFolders();
-            for (PSTFolder folder : subFolders) {
-                String folderPath = "/" + folder.getDisplayName();
-                int count = folder.getContentCount();
-                result.add(new MailFolderRef(mailboxPath, folderPath, folder.getDisplayName(), count));
+            PSTFolder ipmSubtree = findIpmSubtree(pstFile);
+            if (ipmSubtree == null) {
+                LOG.warning("IPM Subtree not found, falling back to root folder");
+                ipmSubtree = pstFile.getRootFolder();
             }
+
+            collectRelevantFolders(ipmSubtree, "", mailboxPath, result, false);
         } finally {
             closeSilently(pstFile);
         }
         return result;
     }
+
+    // ─── Interface: listSubFolders ───
 
     @Override
     public List<MailFolderRef> listSubFolders(String mailboxPath, String folderPath) throws Exception {
@@ -49,9 +74,14 @@ public class PstMailboxReader implements MailboxReader {
             }
             Vector<PSTFolder> subFolders = folder.getSubFolders();
             for (PSTFolder sub : subFolders) {
+                if (isSystemFolder(sub)) continue;
                 String subPath = folderPath + "/" + sub.getDisplayName();
                 int count = sub.getContentCount();
-                result.add(new MailFolderRef(mailboxPath, subPath, sub.getDisplayName(), count));
+                String containerClass = sub.getContainerClass();
+                int subCount = 0;
+                try { subCount = sub.getSubFolderCount(); } catch (Exception ignored) {}
+                result.add(new MailFolderRef(mailboxPath, subPath, sub.getDisplayName(),
+                        count, containerClass, subCount));
             }
         } finally {
             closeSilently(pstFile);
@@ -59,8 +89,29 @@ public class PstMailboxReader implements MailboxReader {
         return result;
     }
 
+    // ─── Interface: listFoldersByCategory ───
+
     @Override
-    public List<MailMessageHeader> listMessages(String mailboxPath, String folderPath) throws Exception {
+    public List<MailFolderRef> listFoldersByCategory(String mailboxPath, MailboxCategory category) throws Exception {
+        List<MailFolderRef> result = new ArrayList<>();
+        PSTFile pstFile = new PSTFile(new File(mailboxPath));
+        try {
+            PSTFolder ipmSubtree = findIpmSubtree(pstFile);
+            if (ipmSubtree == null) {
+                ipmSubtree = pstFile.getRootFolder();
+            }
+            collectFoldersByCategory(ipmSubtree, "", mailboxPath, category, result);
+        } finally {
+            closeSilently(pstFile);
+        }
+        return result;
+    }
+
+    // ─── Interface: listMessages (with paging) ───
+
+    @Override
+    public List<MailMessageHeader> listMessages(String mailboxPath, String folderPath,
+                                                 int offset, int limit) throws Exception {
         List<MailMessageHeader> result = new ArrayList<>();
         PSTFile pstFile = new PSTFile(new File(mailboxPath));
         try {
@@ -69,36 +120,62 @@ public class PstMailboxReader implements MailboxReader {
                 return result;
             }
 
-            PSTObject child = folder.getNextChild();
-            while (child != null) {
-                if (child instanceof PSTMessage) {
-                    PSTMessage message = (PSTMessage) child;
-                    try {
-                        String subject = message.getSubject();
-                        String from = message.getSenderName();
-                        String senderEmail = message.getSenderEmailAddress();
-                        if (senderEmail != null && !senderEmail.isEmpty() && !senderEmail.equals(from)) {
-                            from = from + " <" + senderEmail + ">";
-                        }
-                        String to = message.getDisplayTo();
-                        java.util.Date date = message.getMessageDeliveryTime();
-                        boolean hasAttachments = message.hasAttachments();
-                        long nodeId = message.getDescriptorNodeId();
+            int skipped = 0;
+            int collected = 0;
 
-                        result.add(new MailMessageHeader(subject, from, to, date, folderPath, nodeId, hasAttachments));
-                    } catch (Exception e) {
-                        LOG.log(Level.WARNING, "Error reading message in " + folderPath, e);
-                    }
-                } else {
-                    LOG.fine("Skipping non-message object in " + folderPath + ": " + child.getClass().getSimpleName());
-                }
+            PSTObject child;
+            try {
                 child = folder.getNextChild();
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Error starting child iteration in " + folderPath
+                        + " (possibly corrupt table): " + e.getMessage());
+                return result;
+            }
+
+            while (child != null && collected < limit) {
+                if (child instanceof PSTMessage) {
+                    if (skipped < offset) {
+                        skipped++;
+                    } else {
+                        PSTMessage message = (PSTMessage) child;
+                        try {
+                            MailMessageHeader header = extractHeader(message, folderPath);
+                            result.add(header);
+                            collected++;
+                        } catch (Exception e) {
+                            LOG.log(Level.WARNING, "Error reading message in " + folderPath, e);
+                        }
+                    }
+                }
+                try {
+                    child = folder.getNextChild();
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "Error iterating children in " + folderPath
+                            + " after " + collected + " messages: " + e.getMessage());
+                    break;
+                }
             }
         } finally {
             closeSilently(pstFile);
         }
         return result;
     }
+
+    // ─── Interface: getMessageCount ───
+
+    @Override
+    public int getMessageCount(String mailboxPath, String folderPath) throws Exception {
+        PSTFile pstFile = new PSTFile(new File(mailboxPath));
+        try {
+            PSTFolder folder = navigateToFolder(pstFile, folderPath);
+            if (folder == null) return 0;
+            return folder.getContentCount();
+        } finally {
+            closeSilently(pstFile);
+        }
+    }
+
+    // ─── Interface: readMessage ───
 
     @Override
     public MailMessageContent readMessage(String mailboxPath, String folderPath, long descriptorNodeId) throws Exception {
@@ -109,7 +186,6 @@ public class PstMailboxReader implements MailboxReader {
                 throw new Exception("Ordner nicht gefunden: " + folderPath);
             }
 
-            // Iterate to find message by descriptor node ID
             PSTObject child = folder.getNextChild();
             while (child != null) {
                 if (child instanceof PSTMessage && child.getDescriptorNodeId() == descriptorNodeId) {
@@ -124,7 +200,114 @@ public class PstMailboxReader implements MailboxReader {
         }
     }
 
-    private MailMessageContent buildContent(PSTMessage message, String folderPath) throws Exception {
+    // ─── IPM Subtree Discovery ───
+
+    /**
+     * Finds the IPM Subtree – the root of all user-visible content.
+     * In Outlook PST/OST, the hierarchy is typically:
+     *   Root → "Top of Personal Folders" (or similar) → actual folders
+     * The IPM Subtree is usually the first subfolder that contains user content.
+     */
+    private PSTFolder findIpmSubtree(PSTFile pstFile) throws Exception {
+        PSTFolder root = pstFile.getRootFolder();
+        Vector<PSTFolder> topLevel = root.getSubFolders();
+
+        // Strategy 1: Look for a folder with user-visible content folders
+        for (PSTFolder folder : topLevel) {
+            String name = folder.getDisplayName();
+            // Skip known non-content folders
+            if (isSystemFolderName(name)) continue;
+
+            // Check if this folder has children with known container classes
+            try {
+                Vector<PSTFolder> children = folder.getSubFolders();
+                for (PSTFolder child : children) {
+                    String cc = child.getContainerClass();
+                    if (isKnownContainerClass(cc)) {
+                        return folder; // This is our IPM Subtree
+                    }
+                }
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "Error checking subfolder: " + name, e);
+            }
+        }
+
+        // Strategy 2: If only one top-level folder, use it
+        if (topLevel.size() == 1) {
+            return topLevel.get(0);
+        }
+
+        // Fallback: return root
+        return null;
+    }
+
+    // ─── Folder Collection ───
+
+    /**
+     * Collects relevant (non-system, non-search) folders from a parent.
+     */
+    private void collectRelevantFolders(PSTFolder parent, String parentPath, String mailboxPath,
+                                         List<MailFolderRef> result, boolean recursive) {
+        try {
+            Vector<PSTFolder> subFolders = parent.getSubFolders();
+            for (PSTFolder sub : subFolders) {
+                if (isSystemFolder(sub)) continue;
+
+                String name = sub.getDisplayName();
+                String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
+                int count = sub.getContentCount();
+                String containerClass = sub.getContainerClass();
+                int subCount = 0;
+                try { subCount = sub.getSubFolderCount(); } catch (Exception ignored) {}
+
+                // Only add folders with known container classes (or no class but with content)
+                if (isKnownContainerClass(containerClass) || (containerClass == null && count > 0)
+                        || containerClass == null || containerClass.isEmpty()) {
+                    result.add(new MailFolderRef(mailboxPath, path, name, count, containerClass, subCount));
+                }
+
+                if (recursive) {
+                    collectRelevantFolders(sub, path, mailboxPath, result, true);
+                }
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Error collecting folders from " + parentPath, e);
+        }
+    }
+
+    /**
+     * Collects all folders recursively that match the given category.
+     */
+    private void collectFoldersByCategory(PSTFolder parent, String parentPath, String mailboxPath,
+                                           MailboxCategory category, List<MailFolderRef> result) {
+        try {
+            Vector<PSTFolder> subFolders = parent.getSubFolders();
+            for (PSTFolder sub : subFolders) {
+                if (isSystemFolder(sub)) continue;
+
+                String name = sub.getDisplayName();
+                String path = parentPath.isEmpty() ? "/" + name : parentPath + "/" + name;
+                String containerClass = sub.getContainerClass();
+                int count = sub.getContentCount();
+                int subCount = 0;
+                try { subCount = sub.getSubFolderCount(); } catch (Exception ignored) {}
+
+                MailboxCategory folderCat = MailboxCategory.fromContainerClass(containerClass);
+                if (folderCat == category) {
+                    result.add(new MailFolderRef(mailboxPath, path, name, count, containerClass, subCount));
+                }
+
+                // Always recurse – child folders might belong to the category
+                collectFoldersByCategory(sub, path, mailboxPath, category, result);
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Error collecting category folders from " + parentPath, e);
+        }
+    }
+
+    // ─── Message Extraction ───
+
+    private MailMessageHeader extractHeader(PSTMessage message, String folderPath) {
         String subject = message.getSubject();
         String from = message.getSenderName();
         String senderEmail = message.getSenderEmailAddress();
@@ -135,44 +318,71 @@ public class PstMailboxReader implements MailboxReader {
         java.util.Date date = message.getMessageDeliveryTime();
         boolean hasAttachments = message.hasAttachments();
         long nodeId = message.getDescriptorNodeId();
+        String messageClass = message.getMessageClass();
 
-        MailMessageHeader header = new MailMessageHeader(subject, from, to, date, folderPath, nodeId, hasAttachments);
+        return new MailMessageHeader(subject, from, to, date, folderPath, nodeId, hasAttachments, messageClass);
+    }
 
-        String bodyText = message.getBody();
-        String bodyHtml = message.getBodyHTML();
+    private MailMessageContent buildContent(PSTMessage message, String folderPath) throws Exception {
+        MailMessageHeader header = extractHeader(message, folderPath);
+
+        String bodyText = null;
+        String bodyHtml = null;
+        try {
+            bodyText = message.getBody();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Could not read body text", e);
+        }
+        try {
+            bodyHtml = message.getBodyHTML();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Could not read body HTML", e);
+        }
 
         // Attachment names
         List<String> attachmentNames = new ArrayList<>();
-        int numAttachments = message.getNumberOfAttachments();
-        for (int i = 0; i < numAttachments; i++) {
-            try {
-                PSTAttachment attachment = message.getAttachment(i);
-                String name = attachment.getLongFilename();
-                if (name == null || name.isEmpty()) {
-                    name = attachment.getFilename();
+        try {
+            int numAttachments = message.getNumberOfAttachments();
+            for (int i = 0; i < numAttachments; i++) {
+                try {
+                    PSTAttachment attachment = message.getAttachment(i);
+                    String name = attachment.getLongFilename();
+                    if (name == null || name.isEmpty()) {
+                        name = attachment.getFilename();
+                    }
+                    if (name == null || name.isEmpty()) {
+                        name = "Anhang " + (i + 1);
+                    }
+                    attachmentNames.add(name);
+                } catch (Exception e) {
+                    attachmentNames.add("(Anhang " + (i + 1) + " nicht lesbar)");
                 }
-                if (name == null || name.isEmpty()) {
-                    name = "Anhang " + (i + 1);
-                }
-                attachmentNames.add(name);
-            } catch (Exception e) {
-                attachmentNames.add("(Anhang " + (i + 1) + " nicht lesbar)");
             }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Could not read attachments", e);
         }
 
         return new MailMessageContent(header, bodyText, bodyHtml, attachmentNames);
     }
 
+    // ─── Folder Navigation ───
+
     /**
      * Navigate to a folder by path like "/Inbox/Subfolder".
+     * Uses the IPM Subtree as base.
      */
     private PSTFolder navigateToFolder(PSTFile pstFile, String folderPath) throws Exception {
+        PSTFolder base = findIpmSubtree(pstFile);
+        if (base == null) {
+            base = pstFile.getRootFolder();
+        }
+
         if (folderPath == null || folderPath.isEmpty() || "/".equals(folderPath)) {
-            return pstFile.getRootFolder();
+            return base;
         }
 
         String[] parts = folderPath.split("/");
-        PSTFolder current = pstFile.getRootFolder();
+        PSTFolder current = base;
 
         for (String part : parts) {
             if (part.isEmpty()) continue;
@@ -185,12 +395,41 @@ public class PstMailboxReader implements MailboxReader {
                 }
             }
             if (found == null) {
-                LOG.warning("Folder not found: " + part + " in path " + folderPath);
+                LOG.warning("Folder not found: '" + part + "' in path '" + folderPath + "'");
                 return null;
             }
             current = found;
         }
         return current;
+    }
+
+    // ─── Filtering Helpers ───
+
+    private boolean isSystemFolder(PSTFolder folder) {
+        String name = folder.getDisplayName();
+        if (isSystemFolderName(name)) return true;
+
+        // Skip search folders (they are virtual)
+        String containerClass = folder.getContainerClass();
+        if (containerClass != null && containerClass.contains("Outlook.Reminder")) return true;
+
+        return false;
+    }
+
+    private boolean isSystemFolderName(String name) {
+        if (name == null || name.isEmpty()) return true;
+        for (String sysName : SYSTEM_FOLDER_NAMES) {
+            if (sysName.equalsIgnoreCase(name)) return true;
+        }
+        return false;
+    }
+
+    private boolean isKnownContainerClass(String containerClass) {
+        if (containerClass == null || containerClass.isEmpty()) return false;
+        for (String known : KNOWN_CONTAINER_CLASSES) {
+            if (containerClass.startsWith(known)) return true;
+        }
+        return false;
     }
 
     private void closeSilently(PSTFile pstFile) {
