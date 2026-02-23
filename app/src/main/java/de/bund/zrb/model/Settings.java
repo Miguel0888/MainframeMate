@@ -88,6 +88,9 @@ public class Settings {
     public String proxyPacScript = de.bund.zrb.net.ProxyDefaults.DEFAULT_PAC_SCRIPT;
     public String proxyTestUrl = de.bund.zrb.net.ProxyDefaults.DEFAULT_TEST_URL;
 
+    // Mail (OST) Settings
+    public String mailStorePath = "";                     // Pfad zum OST-Ordner
+
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert
     public int historyMaxVersionsPerFile = 100;           // Max Versionen pro Datei

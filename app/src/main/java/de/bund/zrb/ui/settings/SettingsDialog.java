@@ -128,6 +128,10 @@ public class SettingsDialog {
     private static JButton proxyTestButton;
     private static RagSettingsPanel ragSettingsPanel;
 
+    // Mail Settings
+    public static final int TAB_INDEX_MAILS = 9;
+    private static JTextField mailPathField;
+
     public static void show(Component parent) {
         show(parent, 0);
     }
@@ -153,6 +157,8 @@ public class SettingsDialog {
         JScrollPane proxyPanel = new JScrollPane(proxyContent);
         JPanel ndvContent = new JPanel(new GridBagLayout());
         JScrollPane ndvPanel = new JScrollPane(ndvContent);
+        JPanel mailContent = new JPanel(new GridBagLayout());
+        JScrollPane mailPanel = new JScrollPane(mailContent);
 
         tabs.addTab("Allgemein", generalPanel);
         tabs.addTab("Farbzuordnung", colorPanel);
@@ -163,6 +169,7 @@ public class SettingsDialog {
         tabs.addTab("RAG", ragSettingsPanel);
         tabs.addTab("Proxy", proxyPanel);
         tabs.addTab("MCP Registry", new McpRegistryPanel());
+        tabs.addTab("Mails", mailPanel);
 
         // Hilfe-Button mit kontextsensitiver Hilfe je nach ausgewähltem Tab
         HelpButton helpButton = new HelpButton("Hilfe zu Einstellungen");
@@ -178,6 +185,7 @@ public class SettingsDialog {
                 case 5: topic = HelpContentProvider.HelpTopic.SETTINGS_AI; break;
                 case 6: topic = HelpContentProvider.HelpTopic.SETTINGS_RAG; break;
                 case 7: topic = HelpContentProvider.HelpTopic.SETTINGS_PROXY; break;
+                case 9: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL; break; // Mails (reuse general)
                 default: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL;
             }
             HelpContentProvider.showHelpPopup((Component) e.getSource(), topic);
@@ -197,6 +205,7 @@ public class SettingsDialog {
         createColorContent(colorContent, parent);
         createAiContent(aiContent);
         createProxyContent(proxyContent, parent);
+        createMailContent(mailContent);
 
         showAndApply(parent, tabs);
     }
@@ -741,6 +750,48 @@ public class SettingsDialog {
                 + "• com.softwareag.naturalone.natural.auxiliary_*.jar</small></html>");
         infoLabel.setForeground(Color.GRAY);
         ndvContent.add(infoLabel, gbc);
+    }
+
+    private static void createMailContent(JPanel mailContent) {
+        GridBagConstraints gbc = createDefaultGbc();
+
+        mailContent.add(new JLabel("Mail-Speicherort (OST-Ordner):"), gbc);
+        gbc.gridy++;
+
+        // Calculate default path
+        String defaultPath = de.bund.zrb.ui.commands.ConnectMailMenuCommand.getDefaultOutlookPath();
+        String currentValue = settings.mailStorePath;
+        if (currentValue == null || currentValue.trim().isEmpty()) {
+            currentValue = defaultPath;
+        }
+
+        mailPathField = new JTextField(currentValue, 30);
+        mailPathField.setToolTipText("Pfad zum Ordner mit Outlook-Datendateien (OST/PST)");
+        mailContent.add(mailPathField, gbc);
+        gbc.gridy++;
+
+        JButton browseButton = new JButton("📂 Ordner auswählen…");
+        browseButton.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(mailPathField.getText());
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            chooser.setDialogTitle("Mail-Speicherort auswählen");
+            if (chooser.showOpenDialog(mailContent) == JFileChooser.APPROVE_OPTION) {
+                mailPathField.setText(chooser.getSelectedFile().getAbsolutePath());
+            }
+        });
+        mailContent.add(browseButton, gbc);
+        gbc.gridy++;
+
+        // Info
+        gbc.gridy++;
+        JLabel infoMailLabel = new JLabel("<html><small>"
+                + "Gib den Ordner an, in dem Outlook die Datendateien (.ost/.pst) speichert.<br><br>"
+                + "In Outlook findest du den Pfad unter:<br>"
+                + "Datei → Kontoeinstellungen → Kontoeinstellungen → Datendateien<br><br>"
+                + "Standard: " + defaultPath
+                + "</small></html>");
+        infoMailLabel.setForeground(Color.GRAY);
+        mailContent.add(infoMailLabel, gbc);
     }
 
     private static void createColorContent(JPanel colorContent, Component parent) {
@@ -1362,6 +1413,9 @@ public class SettingsDialog {
             settings.ndvPort = ((Number) ndvPortSpinner.getValue()).intValue();
             settings.ndvDefaultLibrary = ndvDefaultLibraryField.getText().trim();
             settings.ndvLibPath = ndvLibPathField.getText().trim();
+
+            // Mail Settings
+            settings.mailStorePath = mailPathField.getText().trim();
 
             settings.defaultWorkflow = defaultWorkflow.getText();
             settings.workflowTimeout = ((Number) workflowTimeoutSpinner.getValue()).longValue();
