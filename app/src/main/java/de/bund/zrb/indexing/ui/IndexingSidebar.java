@@ -41,9 +41,35 @@ public class IndexingSidebar extends JPanel {
     private final JCheckBox includeChildrenCheck;
     private final JSpinner depthSpinner;
 
+    // Track which source we're currently indexing (for listener updates)
+    private volatile String activeSourceId = null;
+
     public IndexingSidebar(SourceType sourceType) {
         this.indexingService = IndexingService.getInstance();
         this.sourceType = sourceType;
+
+        // Register as listener for run completion updates
+        indexingService.addListener(new IndexingService.IndexingListener() {
+            @Override
+            public void onRunStarted(String sourceId) {}
+
+            @Override
+            public void onRunCompleted(String sourceId, IndexRunStatus result) {
+                if (sourceId.equals(activeSourceId) || activeSourceId == null) {
+                    javax.swing.SwingUtilities.invokeLater(() -> refreshStatus());
+                }
+            }
+
+            @Override
+            public void onRunFailed(String sourceId, String error) {
+                if (sourceId.equals(activeSourceId) || activeSourceId == null) {
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("❌ Fehler: " + truncate(error, 25));
+                        statusLabel.setForeground(new Color(244, 67, 54));
+                    });
+                }
+            }
+        });
 
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBorder(new EmptyBorder(12, 12, 12, 12));
@@ -244,8 +270,9 @@ public class IndexingSidebar extends JPanel {
         // Check if there's already a matching source
         IndexSource matchingSource = findMatchingSource();
         if (matchingSource != null) {
+            activeSourceId = matchingSource.getSourceId();
             indexingService.runNow(matchingSource.getSourceId());
-            statusLabel.setText("⏳ Wird indexiert...");
+            statusLabel.setText("\u23F3 Wird indexiert...");
             statusLabel.setForeground(new Color(255, 152, 0));
             return;
         }
@@ -279,9 +306,10 @@ public class IndexingSidebar extends JPanel {
         }
 
         indexingService.saveSource(source);
+        activeSourceId = source.getSourceId();
         indexingService.runNow(source.getSourceId());
 
-        statusLabel.setText("⏳ Wird indexiert...");
+        statusLabel.setText("\u23F3 Wird indexiert...");
         statusLabel.setForeground(new Color(255, 152, 0));
     }
 

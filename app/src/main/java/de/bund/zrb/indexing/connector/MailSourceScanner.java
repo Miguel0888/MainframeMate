@@ -28,6 +28,11 @@ public class MailSourceScanner implements SourceScanner {
 
     private static final Logger LOG = Logger.getLogger(MailSourceScanner.class.getName());
 
+    /** Max items to scan per folder to prevent hangs on huge folders (alternate child tree). */
+    private static final int MAX_ITEMS_PER_FOLDER = 5000;
+    /** Max total items across all folders/mailboxes per scan run. */
+    private static final int MAX_TOTAL_ITEMS = 50000;
+
     @Override
     public List<ScannedItem> scan(IndexSource source) throws Exception {
         List<ScannedItem> items = new ArrayList<>();
@@ -149,18 +154,32 @@ public class MailSourceScanner implements SourceScanner {
     private void scanFolder(PSTFolder folder, String path, String mailboxPath,
                             List<ScannedItem> items, int depth) {
         if (depth > 15) return; // Safety limit
+        if (items.size() >= MAX_TOTAL_ITEMS) return; // Total limit reached
 
         // Scan messages in this folder
         try {
             int contentCount = folder.getContentCount();
             if (contentCount > 0) {
-                if (contentCount > 10000) {
-                    LOG.info("[Indexing-Mail] Large folder: " + path + " (" + contentCount + " items)");
+                if (contentCount > MAX_ITEMS_PER_FOLDER) {
+                    LOG.info("[Indexing-Mail] Large folder (capped at " + MAX_ITEMS_PER_FOLDER + "): "
+                            + path + " (" + contentCount + " items)");
                 }
                 int scanned = 0;
                 int skipped = 0;
                 PSTObject child = folder.getNextChild();
                 while (child != null) {
+                    // Check per-folder limit
+                    if (scanned >= MAX_ITEMS_PER_FOLDER) {
+                        LOG.info("[Indexing-Mail] Folder limit reached in " + path
+                                + " (" + scanned + "/" + contentCount + "), continuing with next folder");
+                        break;
+                    }
+                    // Check total limit
+                    if (items.size() >= MAX_TOTAL_ITEMS) {
+                        LOG.info("[Indexing-Mail] Total scan limit reached (" + MAX_TOTAL_ITEMS + ")");
+                        break;
+                    }
+
                     if (child instanceof PSTMessage) {
                         PSTMessage msg = (PSTMessage) child;
                         try {
@@ -199,7 +218,8 @@ public class MailSourceScanner implements SourceScanner {
                     }
                 }
                 if (scanned > 0 || skipped > 0) {
-                    LOG.fine("[Indexing-Mail] " + path + ": scanned=" + scanned + " skipped=" + skipped);
+                    LOG.info("[Indexing-Mail] " + path + ": scanned=" + scanned + " skipped=" + skipped
+                            + (contentCount > scanned + skipped ? " (truncated, total=" + contentCount + ")" : ""));
                 }
             }
         } catch (Exception e) {
