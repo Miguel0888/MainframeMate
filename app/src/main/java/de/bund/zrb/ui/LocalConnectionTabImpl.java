@@ -109,26 +109,17 @@ public class LocalConnectionTabImpl implements ConnectionTab {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (e.getClickCount() != 2) return;
-                String selected = fileList.getSelectedValue();
-                if (selected == null) return;
-
-                FileNode node = findNodeByName(selected);
-                if (node != null && node.isDirectory()) {
-                    loadDirectory(node.getPath());
-                    return;
-                }
-
-                if (node != null) {
-                    // Normaler Doppelklick = Datei im Editor öffnen (mit Compare, Suche, etc.)
-                    // CTRL+Doppelklick = Document Preview (gerendertes Markdown, z.B. für PDFs)
-                    if (e.isControlDown()) {
-                        openDocumentPreview(node.getPath(), node.getName());
-                    } else {
-                        openLocalFile(node.getPath());
-                    }
-                }
+                handleItemActivation(e.isControlDown());
             }
         });
+
+        // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
+        de.bund.zrb.ui.util.ListKeyboardNavigation.install(
+                fileList, searchField,
+                () -> handleItemActivation(false),
+                this::navigateBack,
+                this::navigateForward
+        );
 
         loadDirectory(defaultRootPath(), false);
     }
@@ -218,6 +209,25 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         // Update indexing sidebar
         if (sidebarVisible) {
             indexingSidebar.setCurrentPath(targetPath);
+        }
+    }
+
+    private void handleItemActivation(boolean ctrlDown) {
+        String selected = fileList.getSelectedValue();
+        if (selected == null) return;
+
+        FileNode node = findNodeByName(selected);
+        if (node != null && node.isDirectory()) {
+            loadDirectory(node.getPath());
+            return;
+        }
+
+        if (node != null) {
+            if (ctrlDown) {
+                openDocumentPreview(node.getPath(), node.getName());
+            } else {
+                openLocalFile(node.getPath());
+            }
         }
     }
 

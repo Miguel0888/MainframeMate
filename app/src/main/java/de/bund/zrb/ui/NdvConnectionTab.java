@@ -159,6 +159,14 @@ public class NdvConnectionTab implements ConnectionTab {
             }
         });
 
+        // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
+        de.bund.zrb.ui.util.ListKeyboardNavigation.install(
+                fileList, searchField,
+                this::handleDoubleClick,
+                this::navigateBack,
+                this::navigateForward
+        );
+
         // Status bar
         JPanel statusBar = createStatusBar();
 

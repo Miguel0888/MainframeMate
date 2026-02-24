@@ -182,6 +182,14 @@ public class MailConnectionTab implements ConnectionTab {
                 handleDoubleClick();
             }
         });
+
+        // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
+        de.bund.zrb.ui.util.ListKeyboardNavigation.install(
+                fileList, searchField,
+                this::handleDoubleClick,
+                this::navigateBack,
+                this::navigateForward
+        );
     }
 
     // ─── Navigation ───
