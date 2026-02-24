@@ -54,10 +54,24 @@ public class BrowserLauncher {
         }
 
         System.err.println("[BrowserLauncher] Starting: " + command);
+        System.err.println("[BrowserLauncher] headless=" + headless);
 
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         Process process = pb.start();
+
+        // Check if process is still alive after a short delay
+        try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+        if (!process.isAlive()) {
+            BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder errOutput = new StringBuilder();
+            String errLine;
+            while ((errLine = errReader.readLine()) != null) {
+                errOutput.append(errLine).append("\n");
+            }
+            throw new RuntimeException("Browser process died immediately (exit=" + process.exitValue()
+                    + "):\n" + errOutput.toString());
+        }
 
         // Read stdout/stderr looking for the WebSocket URL
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));

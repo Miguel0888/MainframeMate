@@ -49,10 +49,6 @@ public class BrowserSession {
      */
     public void launchAndConnect(String browserPath, List<String> args, boolean headless, long timeoutMs)
             throws Exception {
-        String wsUrl = BrowserLauncher.launch(browserPath, args, headless, timeoutMs);
-        // Keep a reference to the process so we can kill it later
-        // BrowserLauncher manages the process internally; we re-launch here
-        // For a cleaner design we store the process from the launcher:
         BrowserLauncher.LaunchResult launchResult = BrowserLauncher.launchWithProcess(browserPath, args, headless, timeoutMs);
         this.browserProcess = launchResult.process;
         connect(launchResult.wsUrl, "firefox", true);

@@ -54,6 +54,18 @@ public class BrowserToolAdapter implements McpTool {
     @Override
     public McpToolResponse execute(JsonObject input, String resultVar) {
         try {
+            // Auto-inject plugin settings for browser_launch
+            if ("browser_launch".equals(delegate.name())) {
+                if (!input.has("browserExecutablePath") || input.get("browserExecutablePath").getAsString().isEmpty()) {
+                    String path = browserManager.getBrowserPath();
+                    if (path != null && !path.isEmpty()) {
+                        input.addProperty("browserExecutablePath", path);
+                    }
+                }
+                // Force headless from plugin settings (overrides bot param)
+                input.addProperty("headless", browserManager.isHeadless());
+            }
+
             BrowserSession session = browserManager.getSession();
             ToolResult result = delegate.execute(input, session);
             JsonObject response = new JsonObject();

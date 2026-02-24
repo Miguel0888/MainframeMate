@@ -48,7 +48,9 @@ public class WebSearchBrowserManager {
     }
 
     public boolean isHeadless() {
-        return !"false".equals(loadSettings().getOrDefault("headless", "true"));
+        // TODO: vorübergehend deaktiviert zum Debuggen – später wieder aktivieren
+        return false;
+        // return !"false".equals(loadSettings().getOrDefault("headless", "true"));
     }
 
     public String getBrowserPath() {
