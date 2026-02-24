@@ -42,7 +42,17 @@ public class BrowseClickTool implements McpServerTool {
 
     @Override
     public ToolResult execute(JsonObject params, BrowserSession session) {
-        String ref = params.get("ref").getAsString();
+        // Accept both 'ref' and common aliases like 'nodeId', 'nodeRef', 'id'
+        String ref = null;
+        for (String key : new String[]{"ref", "nodeId", "nodeRef", "id", "element"}) {
+            if (params.has(key) && !params.get(key).isJsonNull()) {
+                ref = params.get(key).getAsString();
+                break;
+            }
+        }
+        if (ref == null || ref.isEmpty()) {
+            return ToolResult.error("Missing required parameter 'ref' (NodeRef ID, e.g. 'n1').");
+        }
         try {
             session.clickNodeRef(ref);
 

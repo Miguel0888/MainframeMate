@@ -385,38 +385,45 @@ public class BrowserSession {
 
     /**
      * Enrich NodeRefs with visible text, tag name, and aria-label via a single JS call per ref.
+     * Replaces NodeRef objects in the list with enriched versions.
      */
     public void enrichNodeRefsViaJs(List<NodeRef> refs, String ctx) {
         if (refs.isEmpty()) return;
-        // Build a JS that for each SharedRef returns tag, text, aria info
-        // We do this by iterating via callFunction on each ref
-        for (NodeRef ref : refs) {
+        for (int ri = 0; ri < refs.size(); ri++) {
+            NodeRef ref = refs.get(ri);
             try {
                 NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(ref.getId());
                 WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
                 List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
                 WDEvaluateResult result = driver.script().callFunction(
                         "function(el){"
-                      + "return el.tagName.toLowerCase()+'|'+"
-                      + "(el.getAttribute('aria-label')||'')+'|'+"
-                      + "(el.innerText||el.textContent||'').trim().substring(0,60)+'|'+"
-                      + "(el.getAttribute('type')||'')+'|'+"
-                      + "(el.getAttribute('name')||'')+'|'+"
-                      + "(el.getAttribute('href')||'')+'|'+"
-                      + "(el.value||'')"
+                      + "var tag=el.tagName.toLowerCase();"
+                      + "var al=el.getAttribute('aria-label')||'';"
+                      + "var ph=el.getAttribute('placeholder')||'';"
+                      + "var tt=el.getAttribute('title')||'';"
+                      + "var tp=el.getAttribute('type')||'';"
+                      + "var nm=el.getAttribute('name')||'';"
+                      + "var hr=el.getAttribute('href')||'';"
+                      + "var vl=(el.value||'').substring(0,20);"
+                      + "var tx=(el.innerText||el.textContent||'').trim().substring(0,50).replace(/\\n/g,' ');"
+                      + "var d=tp?tag+'['+tp+']':tag;"
+                      + "if(nm)d+='[name='+nm+']';"
+                      + "if(al)d+=' \"'+al+'\"';"
+                      + "else if(ph)d+=' \"'+ph+'\"';"
+                      + "else if(tt)d+=' \"'+tt+'\"';"
+                      + "else if(tx.length>0)d+=' \"'+tx.substring(0,40)+'\"';"
+                      + "if(hr&&hr.length<80&&hr.indexOf('javascript:')<0)d+=' ->'+hr;"
+                      + "if(vl&&(tag==='input'||tag==='textarea'))d+=' val=\"'+vl+'\"';"
+                      + "return d;"
                       + ";}",
                         true, target, args);
                 if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
-                    String info = ((WDEvaluateResult.WDEvaluateResultSuccess) result).getResult().asString();
-                    String[] parts = info.split("\\|", -1);
-                    if (parts.length >= 3) {
-                        // Re-register with enriched info (overwrite existing)
-                        String tag = parts[0];
-                        String ariaLabel = parts[1];
-                        String text = parts[2];
-                        String displayName = !ariaLabel.isEmpty() ? ariaLabel : text;
-                        // Update the existing NodeRef in registry
-                        nodeRefRegistry.updateInfo(ref.getId(), tag, text, null, displayName);
+                    String desc = ((WDEvaluateResult.WDEvaluateResultSuccess) result).getResult().asString();
+                    if (desc != null && !desc.isEmpty() && !desc.startsWith("[Object:")) {
+                        String tag = desc.contains("[") ? desc.substring(0, desc.indexOf('[')) : desc.split(" ")[0];
+                        nodeRefRegistry.updateInfo(ref.getId(), tag, desc, null, desc);
+                        // Replace in list so caller sees the updated version
+                        refs.set(ri, nodeRefRegistry.resolve(ref.getId()).nodeRef);
                     }
                 }
             } catch (Exception ignored) {

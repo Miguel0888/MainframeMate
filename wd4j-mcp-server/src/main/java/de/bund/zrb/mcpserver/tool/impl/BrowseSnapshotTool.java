@@ -16,6 +16,9 @@ import java.util.List;
  * Uses a two-phase approach:
  * 1) Single JS call to describe all interactive elements and tag them with data-mm-ref
  * 2) CSS locateNodes to get SharedReferences for the tagged elements
+ *
+ * The JS descriptions (text, aria-label, href, placeholder etc.) are used directly
+ * in the output – the CSS locate phase only registers handles for click/type actions.
  */
 public class BrowseSnapshotTool implements McpServerTool {
 
@@ -66,7 +69,7 @@ public class BrowseSnapshotTool implements McpServerTool {
             String describeScript = buildDescribeScript(scope);
             String described = evalString(session, describeScript);
 
-            // Parse the element descriptions
+            // Parse the JS output
             String[] lines = described.split("\n");
             List<String[]> elementInfos = new ArrayList<String[]>();
             String title = "";
@@ -88,45 +91,43 @@ public class BrowseSnapshotTool implements McpServerTool {
                 }
             }
 
-            // Phase 2: CSS locate to get SharedReferences for tagged elements
-            List<NodeRef> refs = new ArrayList<NodeRef>();
+            // Phase 2: CSS locate to get SharedReferences for tagged elements (for click/type actions)
+            List<NodeRef> registeredRefs = new ArrayList<NodeRef>();
             if (!elementInfos.isEmpty()) {
                 try {
-                    List<NodeRef> locateResult = session.locateAndRegister(
+                    registeredRefs = session.locateAndRegister(
                             new WDLocator.CssLocator("[data-mm-ref]"), elementInfos.size());
-
-                    // Update each NodeRef with the description from our JS
-                    for (int i = 0; i < Math.min(locateResult.size(), elementInfos.size()); i++) {
-                        NodeRef ref = locateResult.get(i);
-                        String[] info = elementInfos.get(i);
-                        String tag = info[2];
-                        String desc = info[3];
-                        session.getNodeRefRegistry().updateInfo(ref.getId(), tag, desc, null, desc);
-                        refs.add(ref);
-                    }
                 } catch (Exception e) {
-                    // Fallback: no NodeRefs, just text
+                    // Fallback: no NodeRefs for actions, but descriptions still shown
                 }
             }
 
-            // Phase 3: Build output text
+            // Phase 3: Build output using JS descriptions (always reliable) + NodeRef IDs (for actions)
             StringBuilder sb = new StringBuilder();
             sb.append("Page: ").append(title).append("\n");
             sb.append("URL: ").append(url).append("\n");
-            sb.append("Snapshot: v").append(version).append(" (").append(refs.size()).append(" elements)\n\n");
+
+            int refCount = Math.max(registeredRefs.size(), elementInfos.size());
+            sb.append("Snapshot: v").append(version).append(" (").append(refCount).append(" elements)\n\n");
 
             sb.append("Interactive elements:\n");
-            if (refs.isEmpty() && !elementInfos.isEmpty()) {
-                // Fallback without NodeRefs
-                for (String[] info : elementInfos) {
-                    sb.append("  <").append(info[2]).append("> ").append(info[3]).append("\n");
-                }
-            } else {
-                for (NodeRef ref : refs) {
-                    sb.append("  ").append(ref.toCompactString()).append("\n");
+            for (int i = 0; i < elementInfos.size(); i++) {
+                String[] info = elementInfos.get(i);
+                String desc = info[3]; // full description from JS (tag[type][name] "label" ->href val="...")
+
+                if (i < registeredRefs.size()) {
+                    // Has a NodeRef → bot can click/type it
+                    NodeRef ref = registeredRefs.get(i);
+                    sb.append("  [").append(ref.getId()).append("] ").append(desc).append("\n");
+                    // Also update the registry so the ref has a meaningful name for error messages
+                    session.getNodeRefRegistry().updateInfo(ref.getId(), info[2], desc, null, desc);
+                } else {
+                    // No NodeRef (locate returned fewer), show description without ref
+                    sb.append("  ").append(desc).append("\n");
                 }
             }
 
+            // If full mode, add page text
             if ("full".equals(mode) && !pageText.isEmpty()) {
                 sb.append("\nPage text:\n").append(pageText);
             }
@@ -146,11 +147,21 @@ public class BrowseSnapshotTool implements McpServerTool {
              + "var root=" + scopeExpr + "||document;"
              + "var r='TITLE|'+document.title+'\\n'+'URL|'+window.location.href+'\\n';"
              + "var sel='a,button,input,select,textarea,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=radio],[onclick],[contenteditable=true]';"
-             + "var nodes=root.querySelectorAll(sel);"
+             + "var allNodes=[];"
+             // Collect from main document
+             + "var mainNodes=root.querySelectorAll(sel);"
+             + "for(var m=0;m<mainNodes.length;m++)allNodes.push(mainNodes[m]);"
+             // Also collect from iframes (same-origin only)
+             + "try{var iframes=root.querySelectorAll('iframe');"
+             + "for(var f=0;f<iframes.length;f++){"
+             + "  try{var fd=iframes[f].contentDocument;"
+             + "  if(fd){var fn=fd.querySelectorAll(sel);for(var fi=0;fi<fn.length;fi++)allNodes.push(fn[fi]);}}"
+             + "  catch(e){}"
+             + "}}catch(e){}"
              + "var idx=0;"
-             + "for(var i=0;i<nodes.length&&idx<150;i++){"
-             + "  var n=nodes[i];"
-             + "  if(!n.offsetParent&&n.tagName!=='BODY'&&n.tagName!=='HTML')continue;"
+             + "for(var i=0;i<allNodes.length&&idx<150;i++){"
+             + "  var n=allNodes[i];"
+             + "  try{if(!n.offsetParent&&n.tagName!=='BODY'&&n.tagName!=='HTML')continue;}catch(e){continue;}"
              + "  var tag=n.tagName.toLowerCase();"
              + "  var desc='';"
              + "  var al=n.getAttribute('aria-label')||'';"
@@ -159,8 +170,8 @@ public class BrowseSnapshotTool implements McpServerTool {
              + "  var tp=n.getAttribute('type')||'';"
              + "  var nm=n.getAttribute('name')||'';"
              + "  var hr=n.getAttribute('href')||'';"
-             + "  var vl=(n.value||'').substring(0,20);"
-             + "  var tx=(n.innerText||n.textContent||'').trim().substring(0,50).replace(/\\n/g,' ');"
+             + "  var vl='';try{vl=(n.value||'').substring(0,20);}catch(e){}"
+             + "  var tx='';try{tx=(n.innerText||n.textContent||'').trim().substring(0,50).replace(/\\n/g,' ');}catch(e){}"
              + "  if(tp)desc+=tag+'['+tp+']';else desc+=tag;"
              + "  if(nm)desc+='[name='+nm+']';"
              + "  if(al)desc+=' \"'+al+'\"';"
@@ -173,7 +184,7 @@ public class BrowseSnapshotTool implements McpServerTool {
              + "  r+='EL|'+idx+'|'+tag+'|'+desc+'\\n';"
              + "  idx++;"
              + "}"
-             + "var bodyText=(document.body?document.body.innerText:'').substring(0,3000).replace(/\\n{3,}/g,'\\n\\n');"
+             + "var bodyText='';try{bodyText=(document.body?document.body.innerText:'').substring(0,3000).replace(/\\n{3,}/g,'\\n\\n');}catch(e){}"
              + "r+='TEXT|'+bodyText;"
              + "return r;"
              + "})()";
@@ -182,8 +193,17 @@ public class BrowseSnapshotTool implements McpServerTool {
     private void cleanupMarkers(BrowserSession session) {
         try {
             session.evaluate(
-                    "(function(){var els=document.querySelectorAll('[data-mm-ref]');"
-                  + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-ref');})()",
+                    "(function(){"
+                  + "var els=document.querySelectorAll('[data-mm-ref]');"
+                  + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-ref');"
+                  + "try{var ifs=document.querySelectorAll('iframe');"
+                  + "for(var f=0;f<ifs.length;f++){"
+                  + "  try{var fd=ifs[f].contentDocument;if(fd){"
+                  + "    var fe=fd.querySelectorAll('[data-mm-ref]');"
+                  + "    for(var j=0;j<fe.length;j++)fe[j].removeAttribute('data-mm-ref');"
+                  + "  }}catch(e){}"
+                  + "}}catch(e){}"
+                  + "})()",
                     true);
         } catch (Exception ignored) {}
     }

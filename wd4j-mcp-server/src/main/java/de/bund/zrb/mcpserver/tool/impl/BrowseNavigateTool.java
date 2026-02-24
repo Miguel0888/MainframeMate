@@ -52,18 +52,28 @@ public class BrowseNavigateTool implements McpServerTool {
             WDBrowsingContextResult.NavigateResult nav = session.navigate(url);
             String finalUrl = nav.getUrl();
 
-            // Wait briefly for page to stabilize
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-
-            // Use snapshot tool to get interactive elements with NodeRefs
-            JsonObject snapshotParams = new JsonObject();
+            // Wait for page to stabilize, then take snapshot
+            // Retry up to 3 times if no elements found (page may still be loading)
             BrowseSnapshotTool snapshotTool = new BrowseSnapshotTool();
-            ToolResult snapshotResult = snapshotTool.execute(snapshotParams, session);
+            JsonObject snapshotParams = new JsonObject();
+            ToolResult snapshotResult = null;
+
+            for (int attempt = 0; attempt < 3; attempt++) {
+                try { Thread.sleep(attempt == 0 ? 500 : 1000); } catch (InterruptedException ignored) {}
+
+                snapshotResult = snapshotTool.execute(snapshotParams, session);
+                if (snapshotResult != null && !snapshotResult.isError()) {
+                    String text = snapshotResult.getText();
+                    // Check if we found at least some elements
+                    if (text.contains("[n")) {
+                        break;
+                    }
+                }
+            }
 
             StringBuilder sb = new StringBuilder();
             sb.append("Navigated to: ").append(finalUrl != null ? finalUrl : url).append("\n\n");
             if (snapshotResult != null && !snapshotResult.isError()) {
-                // Append the snapshot content (which includes NodeRefs)
                 sb.append(snapshotResult.getText());
             }
 
