@@ -426,7 +426,7 @@ public class BrowserSession {
                       + "var tt=el.getAttribute('title')||'';"
                       + "var tp=el.getAttribute('type')||'';"
                       + "var nm=el.getAttribute('name')||'';"
-                      + "var hr=el.getAttribute('href')||'';"
+                      + "var hr=(tag==='a'&&el.href)?el.href:(el.getAttribute('href')||'');"
                       + "var vl=(el.value||'').substring(0,20);"
                       + "var tx=(el.innerText||el.textContent||'').trim().substring(0,50).replace(/\\n/g,' ');"
                       + "var d=tp?tag+'['+tp+']':tag;"

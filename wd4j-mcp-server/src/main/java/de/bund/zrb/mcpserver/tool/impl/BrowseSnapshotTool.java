@@ -173,7 +173,7 @@ public class BrowseSnapshotTool implements McpServerTool {
              + "  var tt=n.getAttribute('title')||'';"
              + "  var tp=n.getAttribute('type')||'';"
              + "  var nm=n.getAttribute('name')||'';"
-             + "  var hr=n.getAttribute('href')||'';"
+             + "  var hr=(tag==='a'&&n.href)?n.href:(n.getAttribute('href')||'');"
              + "  var at=n.getAttribute('alt')||'';"
              + "  var vl='';try{vl=(n.value||'').substring(0,20);}catch(e){}"
              + "  var tx='';try{tx=(n.innerText||n.textContent||'').trim().substring(0,50).replace(/\\n/g,' ');}catch(e){}"
