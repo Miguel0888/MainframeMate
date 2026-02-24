@@ -7,9 +7,7 @@ import de.bund.zrb.files.ftpconfig.FtpTransferMode;
 import de.bund.zrb.model.*;
 import de.bund.zrb.ui.components.ChatMode;
 import de.bund.zrb.ui.components.ComboBoxHelper;
-import de.bund.zrb.ui.components.HelpButton;
-import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
-import de.bund.zrb.ui.help.HelpContentProvider;
+
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.util.ExecutableLauncher;
@@ -158,26 +156,16 @@ public class SettingsDialog {
     public static void show(Component parent, int initialTabIndex) {
         settings = SettingsHelper.load();
 
-        JPanel generalContent = new JPanel(new GridBagLayout());
-        JPanel colorContent = new JPanel(new BorderLayout());
-        JPanel transformContent = new JPanel(new GridBagLayout());
-        JPanel connectContent = new JPanel(new GridBagLayout());
-        JPanel aiContent = new JPanel(new GridBagLayout());
+        JPanel generalContent = createGeneralContent(parent);
+        JPanel colorContent = createColorContent(parent);
+        JPanel transformContent = createTransformContent();
+        JPanel connectContent = createConnectContent();
+        JPanel ndvContent = createNdvContent();
+        JPanel aiContent = createAiContent();
         ragSettingsPanel = new RagSettingsPanel();
-        JPanel proxyContent = new JPanel(new GridBagLayout());
-        JPanel ndvContent = new JPanel(new GridBagLayout());
-        JPanel mailContent = new JPanel(new GridBagLayout());
-        JPanel debugContent = new JPanel(new GridBagLayout());
-
-        createGeneralContent(generalContent, parent);
-        createTransformContent(transformContent);
-        createConnectContent(connectContent);
-        createNdvContent(ndvContent);
-        createColorContent(colorContent, parent);
-        createAiContent(aiContent);
-        createProxyContent(proxyContent, parent);
-        createMailContent(mailContent);
-        createDebugContent(debugContent);
+        JPanel proxyContent = createProxyContent(parent);
+        JPanel mailContent = createMailContent();
+        JPanel debugContent = createDebugContent();
 
         List<SettingsCategory> categories = new ArrayList<>();
         categories.add(simpleCategory("general",   "Allgemein",        generalContent));
@@ -226,713 +214,323 @@ public class SettingsDialog {
     }
 
 
-    private static void createGeneralContent(JPanel generalContent, Component parent) {
-        GridBagConstraints gbcGeneral = createDefaultGbc();
 
-        // Schriftart-Auswahl
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Editor-Schriftart:"), gbcGeneral);
-        gbcGeneral.gridy++;
+    private static JPanel createGeneralContent(Component parent) {
+        FormBuilder fb = new FormBuilder();
 
-        fontCombo = new JComboBox<>(new String[] {
-                "Monospaced", "Consolas", "Courier New", "Menlo", "Dialog"
-        });
+        fontCombo = new JComboBox<>(new String[]{"Monospaced", "Consolas", "Courier New", "Menlo", "Dialog"});
         fontCombo.setSelectedItem(settings.editorFont);
-        generalContent.add(fontCombo, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addRow("Editor-Schriftart:", fontCombo);
 
-        // Schriftgröße
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Editor-Schriftgröße:"), gbcGeneral);
-        gbcGeneral.gridy++;
-        fontSizeCombo = new JComboBox<>(new Integer[] {
-                10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72
-        });
+        fontSizeCombo = new JComboBox<>(new Integer[]{10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72});
         fontSizeCombo.setEditable(true);
         fontSizeCombo.setSelectedItem(settings.editorFontSize);
-        generalContent.add(fontSizeCombo, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addRow("Editor-Schriftgröße:", fontSizeCombo);
 
-        // JSON-Formatierungsoptionen
+        marginSpinner = new JSpinner(new SpinnerNumberModel(Math.max(0, settings.marginColumn), 0, 200, 1));
+        fb.addRow("Markierung bei Spalte (0=aus):", marginSpinner);
+
+        fb.addSeparator();
+
         compareByDefaultBox = new JCheckBox("Vergleich automatisch einblenden");
         compareByDefaultBox.setSelected(settings.compareByDefault);
-        generalContent.add(compareByDefaultBox, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addWide(compareByDefaultBox);
 
-        // Hilfe-Icons anzeigen
         showHelpIconsBox = new JCheckBox("Hilfe-Icons anzeigen");
         showHelpIconsBox.setSelected(settings.showHelpIcons);
         showHelpIconsBox.setToolTipText("Deaktivieren für erfahrene Benutzer");
-        generalContent.add(showHelpIconsBox, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addWide(showHelpIconsBox);
 
-        // Marker-Linie (z. B. bei Spalte 80)
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Vertikale Markierung bei Spalte (0 = aus):"), gbcGeneral);
-        gbcGeneral.gridy++;
-        marginSpinner = new JSpinner(new SpinnerNumberModel(
-                Math.max(0, settings.marginColumn),  // sicherstellen, dass 0 erlaubt ist
-                0, 200, 1
-        ));
-        generalContent.add(marginSpinner, gbcGeneral);
-        gbcGeneral.gridy++;
-        gbcGeneral.gridwidth = 1;
-
-
-        // Sounds abspielen
         enableSound = new JCheckBox("Sounds abspielen");
         enableSound.setSelected(settings.soundEnabled);
-        generalContent.add(enableSound, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addWide(enableSound);
 
-        // Default Worklow
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Default Workflow:"), gbcGeneral);
-        gbcGeneral.gridy++;
-        defaultWorkflow = new JTextField("Standard Workflow:");
-        defaultWorkflow.setText(settings.defaultWorkflow);
-        generalContent.add(defaultWorkflow, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addSection("Workflow");
 
-        // Workflow-Timeout
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Workflow Timeout (in ms):"), gbcGeneral);
-        gbcGeneral.gridy++;
+        defaultWorkflow = new JTextField(settings.defaultWorkflow);
+        fb.addRow("Default Workflow:", defaultWorkflow);
+
         workflowTimeoutSpinner = new JSpinner(new SpinnerNumberModel(settings.workflowTimeout, 100, 300_000, 500));
-        generalContent.add(workflowTimeoutSpinner, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addRow("Workflow Timeout (ms):", workflowTimeoutSpinner);
 
-        // Import-Verzögerung
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Import-Verzögerung (in Sekunden):"), gbcGeneral);
-        gbcGeneral.gridy++;
         importDelaySpinner = new JSpinner(new SpinnerNumberModel(settings.importDelay, 0, 60, 1));
-        generalContent.add(importDelaySpinner, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addRow("Import-Verzögerung (s):", importDelaySpinner);
 
-        // Unterstützte Dateiendungen
-        generalContent.add(new JLabel("Unterstützte Dateiendungen:"), gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addSection("Dateiendungen");
+
         DefaultListModel<String> fileListModel = new DefaultListModel<>();
         for (String ext : settings.supportedFiles) fileListModel.addElement(ext);
         supportedFileList = new JList<>(fileListModel);
         supportedFileList.setVisibleRowCount(4);
-        JScrollPane fileScrollPane = new JScrollPane(supportedFileList);
-        generalContent.add(fileScrollPane, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addWide(new JScrollPane(supportedFileList));
 
-        // Buttons zum Bearbeiten der Liste
-        JPanel fileButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton addExtButton = new JButton("➕");
-        JButton removeExtButton = new JButton("➖");
-
+        JButton addExtButton = new JButton("➕ Hinzufügen");
         addExtButton.addActionListener(e -> {
             String ext = JOptionPane.showInputDialog(parent, "Neue Dateiendung eingeben (mit Punkt):", ".xyz");
-            if (ext != null && !ext.trim().isEmpty()) {
-                fileListModel.addElement(ext.trim());
-            }
+            if (ext != null && !ext.trim().isEmpty()) fileListModel.addElement(ext.trim());
         });
-
+        JButton removeExtButton = new JButton("➖ Entfernen");
         removeExtButton.addActionListener(e -> {
             int index = supportedFileList.getSelectedIndex();
-            if (index >= 0) {
-                fileListModel.remove(index);
-            }
+            if (index >= 0) fileListModel.remove(index);
         });
+        fb.addButtons(addExtButton, removeExtButton);
 
-        fileButtonPanel.add(addExtButton);
-        fileButtonPanel.add(removeExtButton);
-        generalContent.add(fileButtonPanel, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addSection("Bildschirmsperre");
 
-        // Screen Lock
-        // Delay
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Bildschirmsperre nach (ms):"), gbcGeneral);
-        gbcGeneral.gridy++;
-        lockDelay = new JSpinner(new SpinnerNumberModel(settings.lockDelay, 0, Integer.MAX_VALUE, 100));
-        generalContent.add(lockDelay, gbcGeneral);
-        gbcGeneral.gridy++;
-
-        // Pre-Notification
-        gbcGeneral.gridwidth = 2;
-        generalContent.add(new JLabel("Sperrankündigung (in ms):"), gbcGeneral);
-        gbcGeneral.gridy++;
-        lockPre = new JSpinner(new SpinnerNumberModel(settings.lockPrenotification, 0, Integer.MAX_VALUE, 100));
-        generalContent.add(lockPre, gbcGeneral);
-        gbcGeneral.gridy++;
-
-        // Lock Disabled
         enableLock = new JCheckBox("Bildschirmsperre aktivieren");
         enableLock.setSelected(settings.lockEnabled);
-        generalContent.add(enableLock, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addWide(enableLock);
 
-        // Lock Style
-        generalContent.add(new JLabel("Design der Bildschirmsperre:"), gbcGeneral);
-        gbcGeneral.gridy++;
+        lockDelay = new JSpinner(new SpinnerNumberModel(settings.lockDelay, 0, Integer.MAX_VALUE, 100));
+        fb.addRow("Sperre nach (ms):", lockDelay);
+
+        lockPre = new JSpinner(new SpinnerNumberModel(settings.lockPrenotification, 0, Integer.MAX_VALUE, 100));
+        fb.addRow("Ankündigung (ms):", lockPre);
 
         lockStyleBox = new JComboBox<>(LockerStyle.values());
         lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
-        generalContent.add(lockStyleBox, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addRow("Design:", lockStyleBox);
 
-        // ===== Local History =====
-        generalContent.add(new JLabel("── Lokale Historie ──"), gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addSection("Lokale Historie");
 
         historyEnabledBox = new JCheckBox("Lokale Historie aktivieren");
         historyEnabledBox.setSelected(settings.historyEnabled);
-        generalContent.add(historyEnabledBox, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addWide(historyEnabledBox);
 
-        generalContent.add(new JLabel("Max. Versionen pro Datei:"), gbcGeneral);
-        gbcGeneral.gridy++;
-        historyMaxVersionsSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.historyMaxVersionsPerFile, 1, 10000, 10));
-        generalContent.add(historyMaxVersionsSpinner, gbcGeneral);
-        gbcGeneral.gridy++;
+        historyMaxVersionsSpinner = new JSpinner(new SpinnerNumberModel(settings.historyMaxVersionsPerFile, 1, 10000, 10));
+        fb.addRow("Max. Versionen pro Datei:", historyMaxVersionsSpinner);
 
-        generalContent.add(new JLabel("Max. Alter (Tage):"), gbcGeneral);
-        gbcGeneral.gridy++;
-        historyMaxAgeDaysSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.historyMaxAgeDays, 1, 3650, 10));
-        generalContent.add(historyMaxAgeDaysSpinner, gbcGeneral);
-        gbcGeneral.gridy++;
+        historyMaxAgeDaysSpinner = new JSpinner(new SpinnerNumberModel(settings.historyMaxAgeDays, 1, 3650, 10));
+        fb.addRow("Max. Alter (Tage):", historyMaxAgeDaysSpinner);
 
-        JButton pruneNowButton = new JButton("🧹 Historie jetzt bereinigen");
+        JButton pruneNowButton = new JButton("🧹 Bereinigen");
         pruneNowButton.addActionListener(e -> {
-            int maxVer = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
-            int maxAge = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();
-            de.bund.zrb.history.LocalHistoryService.getInstance().prune(maxVer, maxAge);
-            JOptionPane.showMessageDialog(parent, "Bereinigung abgeschlossen.",
-                    "Lokale Historie", JOptionPane.INFORMATION_MESSAGE);
+            de.bund.zrb.history.LocalHistoryService.getInstance().prune(
+                    ((Number) historyMaxVersionsSpinner.getValue()).intValue(),
+                    ((Number) historyMaxAgeDaysSpinner.getValue()).intValue());
+            JOptionPane.showMessageDialog(parent, "Bereinigung abgeschlossen.", "Lokale Historie", JOptionPane.INFORMATION_MESSAGE);
         });
-        generalContent.add(pruneNowButton, gbcGeneral);
-        gbcGeneral.gridy++;
-
-        JButton clearAllHistoryButton = new JButton("🗑️ Gesamte Historie löschen");
+        JButton clearAllHistoryButton = new JButton("🗑️ Alles löschen");
         clearAllHistoryButton.addActionListener(e -> {
-            int confirm = JOptionPane.showConfirmDialog(parent,
-                    "Wirklich die gesamte lokale Historie für alle Backends löschen?",
-                    "Historie löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-            if (confirm == JOptionPane.YES_OPTION) {
+            if (JOptionPane.showConfirmDialog(parent, "Gesamte lokale Historie löschen?",
+                    "Historie löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION) {
                 de.bund.zrb.history.LocalHistoryService svc = de.bund.zrb.history.LocalHistoryService.getInstance();
                 svc.clearBackend(de.bund.zrb.ui.VirtualBackendType.LOCAL);
                 svc.clearBackend(de.bund.zrb.ui.VirtualBackendType.FTP);
                 svc.clearBackend(de.bund.zrb.ui.VirtualBackendType.NDV);
-                JOptionPane.showMessageDialog(parent, "Gesamte Historie gelöscht.",
-                        "Lokale Historie", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(parent, "Gesamte Historie gelöscht.", "Lokale Historie", JOptionPane.INFORMATION_MESSAGE);
             }
         });
-        generalContent.add(clearAllHistoryButton, gbcGeneral);
-        gbcGeneral.gridy++;
+        fb.addButtons(pruneNowButton, clearAllHistoryButton);
 
-        // User Profile Folder
-        openFolderButton = new JButton("\uD83D\uDCC1");
-        openFolderButton.setToolTipText("Einstellungsordner öffnen");
-        openFolderButton.setMargin(new Insets(0, 5, 0, 5));
-        openFolderButton.setFocusable(false);
-        openFolderButton.addActionListener(e -> {
-            try {
-                Desktop.getDesktop().open(SettingsHelper.getSettingsFolder());
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(parent, "Ordner konnte nicht geöffnet werden:\n" + ex.getMessage());
-            }
-        });
-        generalContent.add(openFolderButton, gbcGeneral);
-        gbcGeneral.gridy++;
+        return fb.getPanel();
     }
 
-    private static void createTransformContent(JPanel expertContent) {
-        GridBagConstraints gbcTransform = createDefaultGbc();
+    private static JPanel createTransformContent() {
+        FormBuilder fb = new FormBuilder();
 
-        // Zeichensatz-Auswahl mit Info-Icon
         encodingCombo = new JComboBox<>();
-        List<String> encodings = SettingsHelper.SUPPORTED_ENCODINGS;
-        encodings.forEach(encodingCombo::addItem);
-        String currentEncoding = settings.encoding != null ? settings.encoding : "windows-1252";
-        encodingCombo.setSelectedItem(currentEncoding);
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Zeichenkodierung:",
-                HelpContentProvider.HelpTopic.TRANSFORM_ENCODING);
-        expertContent.add(encodingCombo, gbcTransform);
-        gbcTransform.gridy++;
+        SettingsHelper.SUPPORTED_ENCODINGS.forEach(encodingCombo::addItem);
+        encodingCombo.setSelectedItem(settings.encoding != null ? settings.encoding : "windows-1252");
+        fb.addRow("Zeichenkodierung:", encodingCombo);
 
-        // Zeilenumbruch mit Info-Icon
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Zeilenumbruch des Servers:",
-                HelpContentProvider.HelpTopic.TRANSFORM_LINE_ENDING);
         lineEndingBox = LineEndingOption.createLineEndingComboBox(settings.lineEnding);
-        expertContent.add(lineEndingBox, gbcTransform);
-        gbcTransform.gridy++;
+        fb.addRow("Zeilenumbruch des Servers:", lineEndingBox);
 
-        // Checkbox mit Info-Icon
-        JPanel stripNewlinePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         stripFinalNewlineBox = new JCheckBox("Letzten Zeilenumbruch ausblenden");
         stripFinalNewlineBox.setSelected(settings.removeFinalNewline);
-        stripNewlinePanel.add(stripFinalNewlineBox);
-        HelpButton stripNewlineInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.TRANSFORM_STRIP_NEWLINE);
-        stripNewlinePanel.add(stripNewlineInfoBtn);
-        expertContent.add(stripNewlinePanel, gbcTransform);
-        gbcTransform.gridy++;
+        fb.addWide(stripFinalNewlineBox);
 
-        // Dateiende mit Info-Icon
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Datei-Ende-Kennung (z. B. FF02, leer = aus):",
-                HelpContentProvider.HelpTopic.TRANSFORM_EOF_MARKER);
         endMarkerBox = FileEndingOption.createEndMarkerComboBox(settings.fileEndMarker);
-        expertContent.add(endMarkerBox, gbcTransform);
-        gbcTransform.gridy++;
+        fb.addRow("Datei-Ende-Kennung:", endMarkerBox);
 
-        // Padding mit Info-Icon
-        addLabelWithInfoIcon(expertContent, gbcTransform, "Padding Byte (z. B. 00, leer = aus):",
-                HelpContentProvider.HelpTopic.TRANSFORM_PADDING);
         paddingBox = PaddingOption.createPaddingComboBox(settings.padding);
-        expertContent.add(paddingBox, gbcTransform);
-        gbcTransform.gridy++;
+        fb.addRow("Padding Byte:", paddingBox);
+
+        return fb.getPanel();
     }
 
-    /**
-     * Erstellt ein Label mit Info-Icon für technische Hilfe.
-     */
-    private static void addLabelWithInfoIcon(JPanel panel, GridBagConstraints gbc,
-                                              String labelText, HelpContentProvider.HelpTopic helpTopic) {
-        JPanel labelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        labelPanel.add(new JLabel(labelText));
-        labelPanel.add(Box.createHorizontalStrut(5));
-        HelpButton infoBtn = createInfoHelpButton(helpTopic);
-        labelPanel.add(infoBtn);
-        panel.add(labelPanel, gbc);
-        gbc.gridy++;
-    }
+    private static JPanel createConnectContent() {
+        FormBuilder fb = new FormBuilder();
 
-    /**
-     * Erstellt einen blauen Fragezeichen-HelpButton für technische Hilfe.
-     */
-    private static HelpButton createInfoHelpButton(HelpContentProvider.HelpTopic helpTopic) {
-        HelpButton helpBtn = new HelpButton("Technische Details anzeigen");
-        helpBtn.setVisible(settings.showHelpIcons);
-        helpBtn.addActionListener(e -> HelpContentProvider.showHelpPopup((Component) e.getSource(), helpTopic));
-        return helpBtn;
-    }
+        typeBox = ComboBoxHelper.createComboBoxWithNullOption(FtpFileType.class, settings.ftpFileType, "Standard");
+        fb.addRow("FTP Datei-Typ (TYPE):", typeBox);
 
-    private static void createConnectContent(JPanel expertContent) {
-        GridBagConstraints gbcConnect = createDefaultGbc();
+        formatBox = ComboBoxHelper.createComboBoxWithNullOption(FtpTextFormat.class, settings.ftpTextFormat, "Standard");
+        fb.addRow("FTP Text-Format:", formatBox);
 
+        structureBox = ComboBoxHelper.createComboBoxWithNullOption(FtpFileStructure.class, settings.ftpFileStructure, "Automatisch");
+        fb.addRow("FTP Dateistruktur:", structureBox);
 
-        // FTP-Transferoptionen (TYPE, FORMAT, STRUCTURE, MODE) mit Info-Icons
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Datei-Typ (TYPE):",
-                HelpContentProvider.HelpTopic.FTP_FILE_TYPE);
-        typeBox = ComboBoxHelper.createComboBoxWithNullOption(
-                FtpFileType.class, settings.ftpFileType, "Standard"
-        );
-        expertContent.add(typeBox, gbcConnect);
-        gbcConnect.gridy++;
+        modeBox = ComboBoxHelper.createComboBoxWithNullOption(FtpTransferMode.class, settings.ftpTransferMode, "Standard");
+        fb.addRow("FTP Übertragungsmodus:", modeBox);
 
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Text-Format (FORMAT):",
-                HelpContentProvider.HelpTopic.FTP_TEXT_FORMAT);
-        formatBox = ComboBoxHelper.createComboBoxWithNullOption(
-                FtpTextFormat.class, settings.ftpTextFormat, "Standard"
-        );
-        expertContent.add(formatBox, gbcConnect);
-        gbcConnect.gridy++;
-
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Dateistruktur (STRUCTURE):",
-                HelpContentProvider.HelpTopic.FTP_FILE_STRUCTURE);
-        structureBox = ComboBoxHelper.createComboBoxWithNullOption(
-                FtpFileStructure.class, settings.ftpFileStructure, "Automatisch"
-        );
-        expertContent.add(structureBox, gbcConnect);
-        gbcConnect.gridy++;
-
-        addLabelWithInfoIcon(expertContent, gbcConnect, "FTP Übertragungsmodus (MODE):",
-                HelpContentProvider.HelpTopic.FTP_TRANSFER_MODE);
-        modeBox = ComboBoxHelper.createComboBoxWithNullOption(
-                FtpTransferMode.class, settings.ftpTransferMode, "Standard"
-        );
-        expertContent.add(modeBox, gbcConnect);
-        gbcConnect.gridy++;
-
-        // Hexdump Checkbox mit Info-Icon
-        JPanel hexDumpPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         hexDumpBox = new JCheckBox("Hexdump in Konsole anzeigen");
         hexDumpBox.setSelected(settings.enableHexDump);
-        hexDumpPanel.add(hexDumpBox);
-        HelpButton hexDumpInfoBtn = createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_HEX_DUMP);
-        hexDumpPanel.add(hexDumpInfoBtn);
-        expertContent.add(hexDumpPanel, gbcConnect);
-        gbcConnect.gridy++;
+        fb.addWide(hexDumpBox);
 
-        // Trennlinie für Timeouts
-        expertContent.add(new JLabel(" "), gbcConnect);
-        gbcConnect.gridy++;
-        expertContent.add(new JLabel("─── FTP Timeouts (0 = deaktiviert) ───"), gbcConnect);
-        gbcConnect.gridy++;
+        fb.addSection("FTP Timeouts (0 = deaktiviert)");
 
-        // Connect Timeout
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Connect Timeout (ms):",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONNECT);
-        ftpConnectTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.ftpConnectTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(ftpConnectTimeoutSpinner, gbcConnect);
-        gbcConnect.gridy++;
+        ftpConnectTimeoutSpinner = new JSpinner(new SpinnerNumberModel(settings.ftpConnectTimeoutMs, 0, 300_000, 1000));
+        fb.addRow("Connect Timeout (ms):", ftpConnectTimeoutSpinner);
 
-        // Control Timeout
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Control Timeout (ms):",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_CONTROL);
-        ftpControlTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.ftpControlTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(ftpControlTimeoutSpinner, gbcConnect);
-        gbcConnect.gridy++;
+        ftpControlTimeoutSpinner = new JSpinner(new SpinnerNumberModel(settings.ftpControlTimeoutMs, 0, 300_000, 1000));
+        fb.addRow("Control Timeout (ms):", ftpControlTimeoutSpinner);
 
-        // Data Timeout
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Data Timeout (ms):",
-                HelpContentProvider.HelpTopic.FTP_TIMEOUT_DATA);
-        ftpDataTimeoutSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.ftpDataTimeoutMs, 0, 300_000, 1000));
-        expertContent.add(ftpDataTimeoutSpinner, gbcConnect);
-        gbcConnect.gridy++;
+        ftpDataTimeoutSpinner = new JSpinner(new SpinnerNumberModel(settings.ftpDataTimeoutMs, 0, 300_000, 1000));
+        fb.addRow("Data Timeout (ms):", ftpDataTimeoutSpinner);
 
-        // Trennlinie für Retries
-        expertContent.add(new JLabel(" "), gbcConnect);
-        gbcConnect.gridy++;
-        expertContent.add(new JLabel("─── FTP Retries ───"), gbcConnect);
-        gbcConnect.gridy++;
+        fb.addSection("FTP Retries");
 
-        // Max Attempts
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Maximale Versuche:",
-                HelpContentProvider.HelpTopic.FTP_RETRY_MAX_ATTEMPTS);
-        ftpRetryMaxAttemptsSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.ftpRetryMaxAttempts, 1, 10, 1));
-        expertContent.add(ftpRetryMaxAttemptsSpinner, gbcConnect);
-        gbcConnect.gridy++;
+        ftpRetryMaxAttemptsSpinner = new JSpinner(new SpinnerNumberModel(settings.ftpRetryMaxAttempts, 1, 10, 1));
+        fb.addRow("Maximale Versuche:", ftpRetryMaxAttemptsSpinner);
 
-        // Backoff
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Wartezeit zwischen Versuchen (ms):",
-                HelpContentProvider.HelpTopic.FTP_RETRY_BACKOFF);
-        ftpRetryBackoffSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.ftpRetryBackoffMs, 0, 60_000, 500));
-        expertContent.add(ftpRetryBackoffSpinner, gbcConnect);
-        gbcConnect.gridy++;
+        ftpRetryBackoffSpinner = new JSpinner(new SpinnerNumberModel(settings.ftpRetryBackoffMs, 0, 60_000, 500));
+        fb.addRow("Wartezeit (ms):", ftpRetryBackoffSpinner);
 
-        // Backoff Strategy
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Backoff-Strategie:",
-                HelpContentProvider.HelpTopic.FTP_RETRY_STRATEGY);
         ftpRetryStrategyCombo = new JComboBox<>(new String[]{"FIXED", "EXPONENTIAL"});
         ftpRetryStrategyCombo.setSelectedItem(settings.ftpRetryBackoffStrategy);
-        expertContent.add(ftpRetryStrategyCombo, gbcConnect);
-        gbcConnect.gridy++;
+        fb.addRow("Backoff-Strategie:", ftpRetryStrategyCombo);
 
-        // Max Backoff (nur bei EXPONENTIAL relevant)
-        expertContent.add(new JLabel("Max Backoff bei EXPONENTIAL (ms, 0=unbegrenzt):"), gbcConnect);
-        gbcConnect.gridy++;
-        ftpRetryMaxBackoffSpinner = new JSpinner(new SpinnerNumberModel(
-                settings.ftpRetryMaxBackoffMs, 0, 300_000, 1000));
-        expertContent.add(ftpRetryMaxBackoffSpinner, gbcConnect);
-        gbcConnect.gridy++;
+        ftpRetryMaxBackoffSpinner = new JSpinner(new SpinnerNumberModel(settings.ftpRetryMaxBackoffMs, 0, 300_000, 1000));
+        fb.addRow("Max Backoff (ms):", ftpRetryMaxBackoffSpinner);
 
-        // Retry on Timeout Checkbox mit Info-Icon
-        JPanel retryOnTimeoutPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         ftpRetryOnTimeoutBox = new JCheckBox("Retry bei Timeout-Fehlern");
         ftpRetryOnTimeoutBox.setSelected(settings.ftpRetryOnTimeout);
-        retryOnTimeoutPanel.add(ftpRetryOnTimeoutBox);
-        retryOnTimeoutPanel.add(Box.createHorizontalStrut(5));
-        retryOnTimeoutPanel.add(createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_RETRY_ON_TIMEOUT));
-        expertContent.add(retryOnTimeoutPanel, gbcConnect);
-        gbcConnect.gridy++;
+        fb.addWide(ftpRetryOnTimeoutBox);
 
-        // Retry on Transient IO Checkbox mit Info-Icon
-        JPanel retryOnIoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         ftpRetryOnTransientIoBox = new JCheckBox("Retry bei IO-Fehlern (Connection Reset etc.)");
         ftpRetryOnTransientIoBox.setSelected(settings.ftpRetryOnTransientIo);
-        retryOnIoPanel.add(ftpRetryOnTransientIoBox);
-        retryOnIoPanel.add(Box.createHorizontalStrut(5));
-        retryOnIoPanel.add(createInfoHelpButton(HelpContentProvider.HelpTopic.FTP_RETRY_ON_IO));
-        expertContent.add(retryOnIoPanel, gbcConnect);
-        gbcConnect.gridy++;
+        fb.addWide(ftpRetryOnTransientIoBox);
 
-        // Retry on Reply Codes
-        addLabelWithInfoIcon(expertContent, gbcConnect, "Retry bei FTP Reply Codes (kommasepariert):",
-                HelpContentProvider.HelpTopic.FTP_RETRY_ON_CODES);
         ftpRetryOnReplyCodesField = new JTextField(settings.ftpRetryOnReplyCodes, 20);
         ftpRetryOnReplyCodesField.setToolTipText("z.B. 421,425,426");
-        expertContent.add(ftpRetryOnReplyCodesField, gbcConnect);
-        gbcConnect.gridy++;
+        fb.addRow("Reply Codes (kommasep.):", ftpRetryOnReplyCodesField);
 
-        // Trennlinie für Initial HLQ
-        expertContent.add(new JLabel(" "), gbcConnect);
-        gbcConnect.gridy++;
-        expertContent.add(new JLabel("─── Initial HLQ (Startverzeichnis) ───"), gbcConnect);
-        gbcConnect.gridy++;
+        fb.addSection("Initial HLQ (Startverzeichnis)");
 
-        // Checkbox: Login-Name als HLQ verwenden
         ftpUseLoginAsHlqBox = new JCheckBox("Login-Namen als HLQ verwenden");
         ftpUseLoginAsHlqBox.setSelected(settings.ftpUseLoginAsHlq);
-        ftpUseLoginAsHlqBox.setToolTipText("Wenn aktiviert, wird der Benutzername als initialer HLQ verwendet (wie IBM-Client)");
-        expertContent.add(ftpUseLoginAsHlqBox, gbcConnect);
-        gbcConnect.gridy++;
+        fb.addWide(ftpUseLoginAsHlqBox);
 
-        // Custom HLQ Textfeld
-        expertContent.add(new JLabel("Benutzerdefinierter HLQ (falls Checkbox aus):"), gbcConnect);
-        gbcConnect.gridy++;
         ftpCustomHlqField = new JTextField(settings.ftpCustomHlq != null ? settings.ftpCustomHlq : "", 20);
-        ftpCustomHlqField.setToolTipText("z.B. USERID oder PROD.DATA - wird nur verwendet, wenn Checkbox deaktiviert");
-        expertContent.add(ftpCustomHlqField, gbcConnect);
-        gbcConnect.gridy++;
-
-        // Enable/Disable Logik für das Textfeld
+        ftpCustomHlqField.setToolTipText("z.B. USERID oder PROD.DATA");
         ftpCustomHlqField.setEnabled(!settings.ftpUseLoginAsHlq);
-        ftpUseLoginAsHlqBox.addActionListener(e -> {
-            ftpCustomHlqField.setEnabled(!ftpUseLoginAsHlqBox.isSelected());
-        });
+        fb.addRow("Benutzerdefinierter HLQ:", ftpCustomHlqField);
+
+        ftpUseLoginAsHlqBox.addActionListener(e -> ftpCustomHlqField.setEnabled(!ftpUseLoginAsHlqBox.isSelected()));
+
+        return fb.getPanel();
     }
 
+    private static JPanel createNdvContent() {
+        FormBuilder fb = new FormBuilder();
 
-    private static void createNdvContent(JPanel ndvContent) {
-        GridBagConstraints gbc = createDefaultGbc();
-
-        ndvContent.add(new JLabel("NDV Port:"), gbc);
-        gbc.gridy++;
         ndvPortSpinner = new JSpinner(new SpinnerNumberModel(settings.ndvPort, 1, 65535, 1));
-        ndvPortSpinner.setToolTipText("TCP-Port des NDV-Servers (Standard: 8011)");
-        ndvContent.add(ndvPortSpinner, gbc);
-        gbc.gridy++;
+        ndvPortSpinner.setToolTipText("Standard: 8011");
+        fb.addRow("NDV Port:", ndvPortSpinner);
 
-        ndvContent.add(new JLabel("Default-Bibliothek (optional):"), gbc);
-        gbc.gridy++;
         ndvDefaultLibraryField = new JTextField(settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary : "", 20);
-        ndvDefaultLibraryField.setToolTipText("z.B. ABAK-T – wird beim Verbinden automatisch geöffnet (leer = keine)");
-        ndvContent.add(ndvDefaultLibraryField, gbc);
-        gbc.gridy++;
+        ndvDefaultLibraryField.setToolTipText("z.B. ABAK-T");
+        fb.addRow("Default-Bibliothek:", ndvDefaultLibraryField);
 
-        // ─── NDV Bibliotheken (JARs) ───
-        ndvContent.add(new JLabel(" "), gbc);
-        gbc.gridy++;
-        ndvContent.add(new JLabel("─── NDV-Bibliotheken (JARs) ───"), gbc);
-        gbc.gridy++;
-
-        ndvContent.add(new JLabel("Pfad zu NDV-JARs (leer = Standard):"), gbc);
-        gbc.gridy++;
+        fb.addSection("NDV-Bibliotheken (JARs)");
 
         String defaultLibDir = de.bund.zrb.ndv.NdvLibLoader.getLibDir().getAbsolutePath();
-        ndvLibPathField = new JTextField(settings.ndvLibPath != null && !settings.ndvLibPath.isEmpty()
-                ? settings.ndvLibPath : "", 24);
+        ndvLibPathField = new JTextField(settings.ndvLibPath != null && !settings.ndvLibPath.isEmpty() ? settings.ndvLibPath : "", 24);
         ndvLibPathField.setToolTipText("Standard: " + defaultLibDir);
-        ndvContent.add(ndvLibPathField, gbc);
-        gbc.gridy++;
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        JButton openLibFolderButton = new JButton("📂 Lib-Ordner öffnen");
-        openLibFolderButton.setToolTipText("Öffnet den Ordner, in dem die NDV-JARs erwartet werden");
+        JButton openLibFolderButton = new JButton("📂 Öffnen");
         openLibFolderButton.addActionListener(e -> {
             String customPath = ndvLibPathField.getText().trim();
-            java.io.File libDir;
-            if (!customPath.isEmpty()) {
-                libDir = new java.io.File(customPath);
-            } else {
-                libDir = de.bund.zrb.ndv.NdvLibLoader.getLibDir();
-            }
-            // Create directory if it doesn't exist
-            if (!libDir.exists()) {
-                libDir.mkdirs();
-            }
-            try {
-                java.awt.Desktop.getDesktop().open(libDir);
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(ndvContent,
-                        "Ordner konnte nicht geöffnet werden:\n" + libDir.getAbsolutePath()
-                                + "\n\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
+            java.io.File libDir = !customPath.isEmpty() ? new java.io.File(customPath) : de.bund.zrb.ndv.NdvLibLoader.getLibDir();
+            if (!libDir.exists()) libDir.mkdirs();
+            try { java.awt.Desktop.getDesktop().open(libDir); }
+            catch (Exception ex) { JOptionPane.showMessageDialog(null, "Fehler: " + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE); }
         });
-        buttonPanel.add(openLibFolderButton);
-        ndvContent.add(buttonPanel, gbc);
-        gbc.gridy++;
+        fb.addRowWithButton("Pfad zu NDV-JARs:", ndvLibPathField, openLibFolderButton);
 
-        // Status info
-        gbc.gridy++;
         boolean available = de.bund.zrb.ndv.NdvLibLoader.isAvailable();
-        JLabel statusLabel = new JLabel(available
-                ? "✅ NDV-Bibliotheken gefunden"
-                : "⚠ NDV-JARs nicht gefunden in: " + defaultLibDir);
+        JLabel statusLabel = new JLabel(available ? "✅ NDV-Bibliotheken gefunden" : "⚠ Nicht gefunden in: " + defaultLibDir);
         statusLabel.setForeground(available ? new Color(0, 128, 0) : new Color(200, 100, 0));
-        ndvContent.add(statusLabel, gbc);
-        gbc.gridy++;
+        fb.addWide(statusLabel);
 
-        // Info
-        gbc.gridy++;
-        JLabel infoLabel = new JLabel("<html><small>Server-Adresse und Benutzer werden unter Einstellungen → Server verwaltet.<br>"
-                + "NDV verwendet dieselben Zugangsdaten wie FTP.<br><br>"
-                + "Benötigte JARs (von NaturalONE/Software AG):<br>"
-                + "• com.softwareag.naturalone.natural.ndvserveraccess_*.jar<br>"
-                + "• com.softwareag.naturalone.natural.auxiliary_*.jar</small></html>");
-        infoLabel.setForeground(Color.GRAY);
-        ndvContent.add(infoLabel, gbc);
+        fb.addInfo("Benötigte JARs: ndvserveraccess_*.jar, auxiliary_*.jar (NaturalONE)");
+
+        return fb.getPanel();
     }
 
-    private static void createMailContent(JPanel mailContent) {
-        GridBagConstraints gbc = createDefaultGbc();
+    private static JPanel createMailContent() {
+        FormBuilder fb = new FormBuilder();
 
-        mailContent.add(new JLabel("Mail-Speicherort (OST-Ordner):"), gbc);
-        gbc.gridy++;
-
-        // Calculate default path
         String defaultPath = de.bund.zrb.ui.commands.ConnectMailMenuCommand.getDefaultOutlookPath();
         String currentValue = settings.mailStorePath;
-        if (currentValue == null || currentValue.trim().isEmpty()) {
-            currentValue = defaultPath;
-        }
-
+        if (currentValue == null || currentValue.trim().isEmpty()) currentValue = defaultPath;
         mailPathField = new JTextField(currentValue, 30);
-        mailPathField.setToolTipText("Pfad zum Ordner mit Outlook-Datendateien (OST/PST)");
-        mailContent.add(mailPathField, gbc);
-        gbc.gridy++;
-
-        JButton browseButton = new JButton("📂 Ordner auswählen…");
+        JButton browseButton = new JButton("📂");
         browseButton.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser(mailPathField.getText());
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            chooser.setDialogTitle("Mail-Speicherort auswählen");
-            if (chooser.showOpenDialog(mailContent) == JFileChooser.APPROVE_OPTION) {
+            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION)
                 mailPathField.setText(chooser.getSelectedFile().getAbsolutePath());
-            }
         });
-        mailContent.add(browseButton, gbc);
-        gbc.gridy++;
-
-        // Container Classes
-        gbc.gridy++;
-        mailContent.add(new JLabel("Mail-ContainerClasses (kommasepariert):"), gbc);
-        gbc.gridy++;
+        fb.addRowWithButton("Mail-Speicherort:", mailPathField, browseButton);
 
         String ccValue = settings.mailContainerClasses;
-        if (ccValue == null || ccValue.trim().isEmpty()) {
+        if (ccValue == null || ccValue.trim().isEmpty())
             ccValue = de.bund.zrb.mail.model.MailboxCategory.getMailContainerClassesAsString();
-        }
         mailContainerClassesField = new JTextField(ccValue, 30);
-        mailContainerClassesField.setToolTipText(
-                "Outlook-ContainerClasses, die als E-Mail-Ordner gelten (Standard: IPF.Note,IPF.Imap)");
-        mailContent.add(mailContainerClassesField, gbc);
-        gbc.gridy++;
+        mailContainerClassesField.setToolTipText("Standard: IPF.Note,IPF.Imap");
+        fb.addRow("ContainerClasses:", mailContainerClassesField);
 
-        // ─── HTML-Whitelist ───
-        gbc.gridy++;
-        mailContent.add(new JLabel("─── HTML-Whitelist ───"), gbc);
-        gbc.gridy++;
-
-        mailContent.add(new JLabel("Absender, deren Mails immer in HTML geöffnet werden:"), gbc);
-        gbc.gridy++;
+        fb.addSection("HTML-Whitelist");
+        fb.addInfo("Absender, deren Mails immer in HTML geöffnet werden.");
 
         DefaultListModel<String> whitelistModel = new DefaultListModel<>();
-        if (settings.mailHtmlWhitelistedSenders != null) {
-            for (String sender : settings.mailHtmlWhitelistedSenders) {
-                whitelistModel.addElement(sender);
-            }
-        }
+        if (settings.mailHtmlWhitelistedSenders != null)
+            for (String sender : settings.mailHtmlWhitelistedSenders) whitelistModel.addElement(sender);
         mailWhitelistJList = new JList<>(whitelistModel);
         mailWhitelistJList.setVisibleRowCount(5);
-        JScrollPane whitelistScroll = new JScrollPane(mailWhitelistJList);
-        mailContent.add(whitelistScroll, gbc);
-        gbc.gridy++;
+        fb.addWide(new JScrollPane(mailWhitelistJList));
 
-        JPanel wlButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton wlRemoveButton = new JButton("➖ Entfernen");
-        wlRemoveButton.addActionListener(e -> {
-            int idx = mailWhitelistJList.getSelectedIndex();
-            if (idx >= 0) whitelistModel.removeElementAt(idx);
-        });
-        wlButtonPanel.add(wlRemoveButton);
+        wlRemoveButton.addActionListener(e -> { int idx = mailWhitelistJList.getSelectedIndex(); if (idx >= 0) whitelistModel.removeElementAt(idx); });
         JButton wlClearButton = new JButton("🗑 Alle entfernen");
         wlClearButton.addActionListener(e -> whitelistModel.clear());
-        wlButtonPanel.add(wlClearButton);
-        mailContent.add(wlButtonPanel, gbc);
-        gbc.gridy++;
+        fb.addButtons(wlRemoveButton, wlClearButton);
 
-        // Info
-        gbc.gridy++;
-        JLabel infoMailLabel = new JLabel("<html><small>"
-                + "Gib den Ordner an, in dem Outlook die Datendateien (.ost/.pst) speichert.<br><br>"
-                + "In Outlook findest du den Pfad unter:<br>"
-                + "Datei → Kontoeinstellungen → Kontoeinstellungen → Datendateien<br><br>"
-                + "Standard: " + defaultPath + "<br><br>"
-                + "<b>Mail-ContainerClasses:</b> Bestimmt, welche Ordnertypen als E-Mails erkannt werden.<br>"
-                + "IMAP-Konten verwenden <code>IPF.Imap</code>, Exchange/POP3 verwenden <code>IPF.Note</code>.<br>"
-                + "Standard: <code>IPF.Note,IPF.Imap</code><br><br>"
-                + "<b>HTML-Whitelist:</b> Mails von diesen Absendern werden automatisch in HTML angezeigt.<br>"
-                + "Neue Einträge per Rechtsklick auf eine geöffnete Mail hinzufügen."
-                + "</small></html>");
-        infoMailLabel.setForeground(Color.GRAY);
-        mailContent.add(infoMailLabel, gbc);
+        return fb.getPanel();
     }
 
-    private static void createDebugContent(JPanel debugContent) {
-        GridBagConstraints gbc = createDefaultGbc();
-
-        // ── Global log level ──
-        debugContent.add(new JLabel("Globales Log-Level:"), gbc);
-        gbc.gridy++;
+    private static JPanel createDebugContent() {
+        FormBuilder fb = new FormBuilder();
 
         globalLogLevelCombo = new JComboBox<>(LOG_LEVELS);
         globalLogLevelCombo.setSelectedItem(settings.logLevel != null ? settings.logLevel : "INFO");
-        globalLogLevelCombo.setToolTipText(
-                "Bestimmt die Mindest-Stufe für alle Log-Ausgaben. "
-                + "INFO = normal, FINE = Debug, FINEST = alles.");
-        debugContent.add(globalLogLevelCombo, gbc);
-        gbc.gridy++;
+        globalLogLevelCombo.setToolTipText("INFO = normal, FINE = Debug, FINEST = alles");
+        fb.addRow("Globales Log-Level:", globalLogLevelCombo);
 
-        debugContent.add(Box.createVerticalStrut(10), gbc);
-        gbc.gridy++;
-
-        // ── Per-category overrides ──
-        debugContent.add(new JLabel("<html><b>Kategorie-Log-Level</b> (überschreibt global):</html>"), gbc);
-        gbc.gridy++;
-
-        debugContent.add(new JLabel("<html><small>Leerlassen = globales Level verwenden</small></html>"), gbc);
-        gbc.gridy++;
+        fb.addSection("Kategorie-Log-Level");
+        fb.addInfo("Überschreibt das globale Level für einzelne Kategorien.");
 
         String[] catLevelsWithDefault = {"(global)", "OFF", "SEVERE", "WARNING", "INFO", "FINE", "FINER", "FINEST", "ALL"};
         categoryLevelCombos.clear();
-
         for (String cat : LOG_CATEGORIES) {
-            JPanel row = new JPanel(new java.awt.BorderLayout(8, 0));
-            row.add(new JLabel(cat + ":"), java.awt.BorderLayout.WEST);
             JComboBox<String> combo = new JComboBox<>(catLevelsWithDefault);
-            // Load current value
-            String current = settings.logCategoryLevels != null
-                    ? settings.logCategoryLevels.get(cat) : null;
+            String current = settings.logCategoryLevels != null ? settings.logCategoryLevels.get(cat) : null;
             combo.setSelectedItem(current != null && !current.isEmpty() ? current : "(global)");
-            row.add(combo, java.awt.BorderLayout.CENTER);
             categoryLevelCombos.put(cat, combo);
-            debugContent.add(row, gbc);
-            gbc.gridy++;
+            fb.addRow(cat + ":", combo);
         }
 
-        debugContent.add(Box.createVerticalStrut(10), gbc);
-        gbc.gridy++;
-
-        // Info text
-        JLabel infoLabel = new JLabel("<html><small>"
-                + "<b>Log-Level-Stufen (aufsteigend detailliert):</b><br>"
-                + "OFF → keine Ausgabe<br>"
-                + "SEVERE → nur schwere Fehler<br>"
-                + "WARNING → Warnungen + Fehler<br>"
-                + "INFO → normale Meldungen (Standard)<br>"
-                + "FINE → Debug-Ausgaben (z.B. Tool-Aufrufe, Ordnernavigation)<br>"
-                + "FINER → detailliertes Debug<br>"
-                + "FINEST → maximale Ausgabe (z.B. jede einzelne Mail)<br>"
-                + "ALL → alles<br><br>"
-                + "Änderungen werden sofort nach Speichern wirksam."
-                + "</small></html>");
-        infoLabel.setForeground(Color.GRAY);
-        debugContent.add(infoLabel, gbc);
+        return fb.getPanel();
     }
 
-    private static void createColorContent(JPanel colorContent, Component parent) {
-        // Farbüberschreibungen für Feldnamen
-        colorContent.add(new JLabel("Farbüberschreibungen für Feldnamen:"), BorderLayout.NORTH);
+    private static JPanel createColorContent(Component parent) {
+        FormBuilder fb = new FormBuilder();
 
         colorModel = new ColorOverrideTableModel(settings.fieldColorOverrides);
         colorTable = new JTable(colorModel);
-//        colorTable.setPreferredScrollableViewportSize(new Dimension(400, 150));
-//        colorTable.setRowHeight(22);
         colorTable.getColumnModel().getColumn(1).setCellEditor(new ColorCellEditor());
         colorTable.getColumnModel().getColumn(1).setCellRenderer((table, value, isSelected, hasFocus, row, col) -> {
             JLabel label = new JLabel(value != null ? value.toString() : "");
@@ -941,97 +539,57 @@ public class SettingsDialog {
             return label;
         });
         colorTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    // open color chooser does not work cause of missing double click event
-                }
-                else {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() != 2) {
                     int row = colorTable.rowAtPoint(e.getPoint());
                     int column = colorTable.columnAtPoint(e.getPoint());
-                    if (column == 1) {
-                        colorTable.editCellAt(row, column);
-                    }
+                    if (column == 1) colorTable.editCellAt(row, column);
                 }
             }
         });
-
         colorTable.setFillsViewportHeight(true);
-        colorTable.setPreferredScrollableViewportSize(new Dimension(300, 100));
+        colorTable.setPreferredScrollableViewportSize(new Dimension(300, 150));
+        fb.addWideGrow(new JScrollPane(colorTable));
 
-        colorButtons = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        addRowButton = new JButton("➕");
+        addRowButton = new JButton("➕ Hinzufügen");
         addRowButton.addActionListener(e -> {
             String key = JOptionPane.showInputDialog(parent, "Feldname eingeben:");
-            if (key != null && !key.trim().isEmpty()) {
-                colorModel.addEntry(key.trim().toUpperCase(), "#00AA00");
-            }
+            if (key != null && !key.trim().isEmpty()) colorModel.addEntry(key.trim().toUpperCase(), "#00AA00");
         });
-        removeRowButton = new JButton("➖");
-        removeRowButton.addActionListener(e -> {
-            int selected = colorTable.getSelectedRow();
-            if (selected >= 0) {
-                colorModel.removeEntry(selected);
-            }
-        });
+        removeRowButton = new JButton("➖ Entfernen");
+        removeRowButton.addActionListener(e -> { int s = colorTable.getSelectedRow(); if (s >= 0) colorModel.removeEntry(s); });
+        fb.addButtons(addRowButton, removeRowButton);
 
-        colorButtons.add(addRowButton);
-        colorButtons.add(removeRowButton);
-
-        JPanel innerColorPanel = new JPanel(new BorderLayout());
-        innerColorPanel.add(new JScrollPane(colorTable), BorderLayout.CENTER);
-        innerColorPanel.add(colorButtons, BorderLayout.SOUTH);
-
-        colorContent.add(innerColorPanel, BorderLayout.CENTER);
-        colorContent.add(colorButtons, BorderLayout.SOUTH);
+        return fb.getPanel();
     }
 
-    private static void createAiContent(JPanel aiContent) {
-        GridBagConstraints gbc = createDefaultGbc();
+    private static JPanel createAiContent() {
+        FormBuilder fb = new FormBuilder();
 
-        aiContent.add(new JLabel("Mode für Tool-Contract:"), gbc);
-        gbc.gridy++;
         aiModeCombo = new JComboBox<>(ChatMode.values());
         aiModeCombo.setSelectedItem(ChatMode.AGENT);
-        aiContent.add(aiModeCombo, gbc);
-        gbc.gridy++;
+        fb.addRow("Mode für Tool-Contract:", aiModeCombo);
 
-        aiResetToolContractButton = new JButton("Tool-Contract auf Mode-Default zurücksetzen");
-        aiResetToolContractButton.addActionListener(e -> resetModeToolContractToDefault((ChatMode) aiModeCombo.getSelectedItem()));
-        aiContent.add(aiResetToolContractButton, gbc);
-        gbc.gridy++;
-
-        aiContent.add(new JLabel("KI-Anweisung vor Tool-Calls (Prefix):"), gbc);
-        gbc.gridy++;
         aiToolPrefix = new JTextArea(3, 30);
-        aiToolPrefix.setLineWrap(true);
-        aiToolPrefix.setWrapStyleWord(true);
-        aiContent.add(new JScrollPane(aiToolPrefix), gbc);
-        gbc.gridy++;
+        aiToolPrefix.setLineWrap(true); aiToolPrefix.setWrapStyleWord(true);
+        fb.addRow("KI-Prefix:", new JScrollPane(aiToolPrefix));
 
-        aiContent.add(new JLabel("KI-Anweisung nach Tool-Calls (Postfix):"), gbc);
-        gbc.gridy++;
         aiToolPostfix = new JTextArea(2, 30);
-        aiToolPostfix.setLineWrap(true);
-        aiToolPostfix.setWrapStyleWord(true);
-        aiContent.add(new JScrollPane(aiToolPostfix), gbc);
-        gbc.gridy++;
+        aiToolPostfix.setLineWrap(true); aiToolPostfix.setWrapStyleWord(true);
+        fb.addRow("KI-Postfix:", new JScrollPane(aiToolPostfix));
 
-        aiContent.add(new JLabel("Antwortsprache (optional):"), gbc);
-        gbc.gridy++;
-        aiLanguageCombo = new JComboBox<>(new String[] {"Deutsch (Standard)", "Keine Vorgabe", "Englisch"});
+        aiResetToolContractButton = new JButton("Auf Default zurücksetzen");
+        aiResetToolContractButton.addActionListener(e -> resetModeToolContractToDefault((ChatMode) aiModeCombo.getSelectedItem()));
+        fb.addButtons(aiResetToolContractButton);
+
+        aiLanguageCombo = new JComboBox<>(new String[]{"Deutsch (Standard)", "Keine Vorgabe", "Englisch"});
         String languageSetting = settings.aiConfig.getOrDefault("assistant.language", "de").trim().toLowerCase();
-        if ("".equals(languageSetting) || "none".equals(languageSetting)) {
-            aiLanguageCombo.setSelectedItem("Keine Vorgabe");
-        } else if ("en".equals(languageSetting) || "english".equals(languageSetting)) {
-            aiLanguageCombo.setSelectedItem("Englisch");
-        } else {
-            aiLanguageCombo.setSelectedItem("Deutsch (Standard)");
-        }
-        aiContent.add(aiLanguageCombo, gbc);
-        gbc.gridy++;
+        if ("".equals(languageSetting) || "none".equals(languageSetting)) aiLanguageCombo.setSelectedItem("Keine Vorgabe");
+        else if ("en".equals(languageSetting) || "english".equals(languageSetting)) aiLanguageCombo.setSelectedItem("Englisch");
+        else aiLanguageCombo.setSelectedItem("Deutsch (Standard)");
+        fb.addRow("Antwortsprache:", aiLanguageCombo);
 
-        final ChatMode[] previousMode = new ChatMode[] {(ChatMode) aiModeCombo.getSelectedItem()};
+        final ChatMode[] previousMode = {(ChatMode) aiModeCombo.getSelectedItem()};
         loadModeToolContract(previousMode[0]);
         aiModeCombo.addActionListener(e -> {
             ChatMode newMode = (ChatMode) aiModeCombo.getSelectedItem();
@@ -1043,284 +601,104 @@ public class SettingsDialog {
             previousMode[0] = newMode;
         });
 
-        // Editor-Schriftart
-        aiContent.add(new JLabel("KI-Editor Schriftart:"), gbc);
-        gbc.gridy++;
-        aiEditorFontCombo = new JComboBox<>(new String[] {
-                "Monospaced", "Consolas", "Courier New", "Dialog", "Menlo"
-        });
-        aiEditorFontCombo.setSelectedItem(settings.aiConfig.getOrDefault("editor.font", "Monospaced"));
-        aiContent.add(aiEditorFontCombo, gbc);
-        gbc.gridy++;
+        fb.addSection("KI-Editor");
 
-        // Schriftgröße
-        aiContent.add(new JLabel("KI-Editor Schriftgröße:"), gbc);
-        gbc.gridy++;
-        aiEditorFontSizeCombo = new JComboBox<>(new String[] {
-                "10", "11", "12", "13", "14", "16", "18", "20", "24", "28", "32"
-        });
+        aiEditorFontCombo = new JComboBox<>(new String[]{"Monospaced", "Consolas", "Courier New", "Dialog", "Menlo"});
+        aiEditorFontCombo.setSelectedItem(settings.aiConfig.getOrDefault("editor.font", "Monospaced"));
+        fb.addRow("Schriftart:", aiEditorFontCombo);
+
+        aiEditorFontSizeCombo = new JComboBox<>(new String[]{"10","11","12","13","14","16","18","20","24","28","32"});
         aiEditorFontSizeCombo.setEditable(true);
         aiEditorFontSizeCombo.setSelectedItem(settings.aiConfig.getOrDefault("editor.fontSize", "12"));
-        aiContent.add(aiEditorFontSizeCombo, gbc);
-        gbc.gridy++;
+        fb.addRow("Schriftgröße:", aiEditorFontSizeCombo);
 
-        // Editorhöhe
-        aiContent.add(new JLabel("Editor-Höhe (in Zeilen):"), gbc);
-        gbc.gridy++;
-        aiEditorHeightSpinner = new JSpinner(new SpinnerNumberModel(
-                Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3")), 1, 1000, 1
-        ));
-        aiContent.add(aiEditorHeightSpinner, gbc);
-        gbc.gridy++;
+        aiEditorHeightSpinner = new JSpinner(new SpinnerNumberModel(Integer.parseInt(settings.aiConfig.getOrDefault("editor.lines", "3")), 1, 1000, 1));
+        fb.addRow("Editor-Höhe (Zeilen):", aiEditorHeightSpinner);
 
-        // JSON-Formatierungsoptionen
         wrapJsonBox = new JCheckBox("JSON als Markdown-Codeblock einrahmen");
         wrapJsonBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("wrapjson", "true")));
-        aiContent.add(wrapJsonBox, gbc);
-        gbc.gridy++;
+        fb.addWide(wrapJsonBox);
 
         prettyJsonBox = new JCheckBox("JSON schön formatieren (Pretty-Print)");
         prettyJsonBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("prettyjson", "true")));
-        aiContent.add(prettyJsonBox, gbc);
-        gbc.gridy++;
+        fb.addWide(prettyJsonBox);
+
+        fb.addSection("KI-Provider");
 
         providerCombo = new JComboBox<>();
-        providerCombo.addItem(AiProvider.DISABLED);
-        providerCombo.addItem(AiProvider.OLLAMA);
-        providerCombo.addItem(AiProvider.CLOUD);
-        providerCombo.addItem(AiProvider.LOCAL_AI);
+        providerCombo.addItem(AiProvider.DISABLED); providerCombo.addItem(AiProvider.OLLAMA);
+        providerCombo.addItem(AiProvider.CLOUD); providerCombo.addItem(AiProvider.LOCAL_AI);
         providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER);
-        aiContent.add(new JLabel("KI-Provider:"), gbc);
-        gbc.gridy++;
-        aiContent.add(providerCombo, gbc);
-        gbc.gridy++;
+        fb.addRow("Provider:", providerCombo);
 
         JPanel providerOptionsPanel = new JPanel(new CardLayout());
-        aiContent.add(providerOptionsPanel, gbc);
-        gbc.gridy++;
+        providerOptionsPanel.add(new JPanel(), AiProvider.DISABLED.name());
 
-        // Panels für Provider
-        JPanel disabledPanel = new JPanel();
-        JPanel ollamaPanel = new JPanel(new GridBagLayout());
-        JPanel cloudPanel = new JPanel(new GridBagLayout());
-        JPanel localAiPanel = new JPanel(new GridBagLayout());
+        FormBuilder fbOllama = new FormBuilder();
+        ollamaUrlField = new JTextField(30); fbOllama.addRow("URL:", ollamaUrlField);
+        ollamaModelField = new JTextField(20); fbOllama.addRow("Modellname:", ollamaModelField);
+        ollamaKeepAliveField = new JTextField(20); fbOllama.addRow("Beibehalten für:", ollamaKeepAliveField);
+        providerOptionsPanel.add(fbOllama.getPanel(), AiProvider.OLLAMA.name());
 
-        providerOptionsPanel.add(disabledPanel, AiProvider.DISABLED.name());
-        providerOptionsPanel.add(ollamaPanel, AiProvider.OLLAMA.name());
-        providerOptionsPanel.add(cloudPanel, AiProvider.CLOUD.name());
-        providerOptionsPanel.add(localAiPanel, AiProvider.LOCAL_AI.name());
-
-        // OLLAMA-Felder
-        GridBagConstraints gbcOllama = createDefaultGbc();
-        ollamaPanel.add(new JLabel("OLLAMA URL:"), gbcOllama);
-        gbcOllama.gridy++;
-        ollamaUrlField = new JTextField(30);
-        ollamaPanel.add(ollamaUrlField, gbcOllama);
-        gbcOllama.gridy++;
-        ollamaPanel.add(new JLabel("Modellname:"), gbcOllama);
-        gbcOllama.gridy++;
-        ollamaModelField = new JTextField(20);
-        ollamaPanel.add(ollamaModelField, gbcOllama);
-        gbcOllama.gridy++;
-        ollamaPanel.add(new JLabel("Modell beibehalten für (z. B. 30m, 0, -1):"), gbcOllama);
-        gbcOllama.gridy++;
-        ollamaKeepAliveField = new JTextField(20);
-        ollamaPanel.add(ollamaKeepAliveField, gbcOllama);
-        gbcOllama.gridy++;
-
-        // CLOUD-Felder
-        GridBagConstraints gbcCloud = createDefaultGbc();
-        cloudPanel.add(new JLabel("Cloud-Anbieter:"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudProviderField = new JComboBox<>(new String[]{"OPENAI", "CLAUDE", "PERPLEXITY", "GROK", "GEMINI"});
-        cloudPanel.add(cloudProviderField, gbcCloud);
-        gbcCloud.gridy++;
-
-        cloudPanel.add(new JLabel("API Key:"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudApiKeyField = new JTextField(30);
-        cloudPanel.add(cloudApiKeyField, gbcCloud);
-        gbcCloud.gridy++;
-
-        cloudPanel.add(new JLabel("API URL:"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudApiUrlField = new JTextField(30);
-        cloudPanel.add(cloudApiUrlField, gbcCloud);
-        gbcCloud.gridy++;
-
-        cloudPanel.add(new JLabel("Modell:"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudModelField = new JTextField(30);
-        cloudPanel.add(cloudModelField, gbcCloud);
-        gbcCloud.gridy++;
-
-        cloudPanel.add(new JLabel("Auth Header:"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudAuthHeaderField = new JTextField(30);
-        cloudPanel.add(cloudAuthHeaderField, gbcCloud);
-        gbcCloud.gridy++;
-
-        cloudPanel.add(new JLabel("Auth Prefix (z. B. Bearer):"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudAuthPrefixField = new JTextField(30);
-        cloudPanel.add(cloudAuthPrefixField, gbcCloud);
-        gbcCloud.gridy++;
-        cloudPanel.add(new JLabel("Anthropic-Version (nur Claude):"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudApiVersionField = new JTextField(30);
-        cloudPanel.add(cloudApiVersionField, gbcCloud);
-        gbcCloud.gridy++;
-
-
-        cloudPanel.add(new JLabel("OpenAI Organisation (optional):"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudOrgField = new JTextField(30);
-        cloudPanel.add(cloudOrgField, gbcCloud);
-        gbcCloud.gridy++;
-
-        cloudPanel.add(new JLabel("OpenAI Projekt (optional):"), gbcCloud);
-        gbcCloud.gridy++;
-        cloudProjectField = new JTextField(30);
-        cloudPanel.add(cloudProjectField, gbcCloud);
-        gbcCloud.gridy++;
-
+        FormBuilder fbCloud = new FormBuilder();
+        cloudProviderField = new JComboBox<>(new String[]{"OPENAI","CLAUDE","PERPLEXITY","GROK","GEMINI"});
+        fbCloud.addRow("Cloud-Anbieter:", cloudProviderField);
+        cloudApiKeyField = new JTextField(30); fbCloud.addRow("API Key:", cloudApiKeyField);
+        cloudApiUrlField = new JTextField(30); fbCloud.addRow("API URL:", cloudApiUrlField);
+        cloudModelField = new JTextField(30); fbCloud.addRow("Modell:", cloudModelField);
+        cloudAuthHeaderField = new JTextField(30); fbCloud.addRow("Auth Header:", cloudAuthHeaderField);
+        cloudAuthPrefixField = new JTextField(30); fbCloud.addRow("Auth Prefix:", cloudAuthPrefixField);
+        cloudApiVersionField = new JTextField(30); fbCloud.addRow("Anthropic-Version:", cloudApiVersionField);
+        cloudOrgField = new JTextField(30); fbCloud.addRow("Organisation:", cloudOrgField);
+        cloudProjectField = new JTextField(30); fbCloud.addRow("Projekt:", cloudProjectField);
         JButton cloudResetButton = new JButton("Defaults zurücksetzen");
-        cloudPanel.add(cloudResetButton, gbcCloud);
-        gbcCloud.gridy++;
+        fbCloud.addButtons(cloudResetButton);
+        providerOptionsPanel.add(fbCloud.getPanel(), AiProvider.CLOUD.name());
 
-        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        FormBuilder fbLocal = new FormBuilder();
+        fbLocal.addInfo("Konfiguration für LocalAI folgt.");
+        providerOptionsPanel.add(fbLocal.getPanel(), AiProvider.LOCAL_AI.name());
 
-        // LOCAL_AI-Felder (optional, hier nur ein Hinweistext)
-        GridBagConstraints gbcLocal = createDefaultGbc();
-        localAiPanel.add(new JLabel("Konfiguration für LocalAI folgt."), gbcLocal);
-
-        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-        // LLAMA_CPP_SERVER-Felder
-        JPanel llamaCppServerPanel = new JPanel(new GridBagLayout());
-        providerOptionsPanel.add(llamaCppServerPanel, AiProvider.LLAMA_CPP_SERVER.name());
-        GridBagConstraints gbcLlama = createDefaultGbc();
-
+        FormBuilder fbLlama = new FormBuilder();
         llamaStreamingBox = new JCheckBox("Streaming aktiviert");
         llamaStreamingBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.streaming", "true")));
-        llamaCppServerPanel.add(llamaStreamingBox, gbcLlama);
-        gbcLlama.gridx = 0;
-        gbcLlama.gridy++;
-
+        fbLlama.addWide(llamaStreamingBox);
         llamaEnabledBox = new JCheckBox("llama.cpp Server beim Start starten");
         llamaEnabledBox.setSelected(Boolean.parseBoolean(settings.aiConfig.getOrDefault("llama.enabled", "false")));
-        llamaCppServerPanel.add(llamaEnabledBox, gbcLlama);
-        gbcLlama.gridy++;
-
-        llamaCppServerPanel.add(new JLabel("Pfad zur llama-server Binary:"), gbcLlama);
-        gbcLlama.gridy++;
+        fbLlama.addWide(llamaEnabledBox);
         llamaBinaryField = new JTextField(settings.aiConfig.getOrDefault("llama.binary", "C:/llamacpp/llama-server"), 30);
-        llamaCppServerPanel.add(llamaBinaryField, gbcLlama);
-        gbcLlama.gridy++;
-
-        JButton extractDriverButton = new JButton("🔄 Entpacken, falls fehlt");
-        llamaCppServerPanel.add(extractDriverButton, gbcLlama);
-        gbcLlama.gridy++;
-
+        JButton extractDriverButton = new JButton("🔄 Entpacken");
         extractDriverButton.addActionListener(e -> {
             String path = llamaBinaryField.getText().trim();
-            if (path.isEmpty()) {
-                JOptionPane.showMessageDialog(aiContent, "Bitte gib den Zielpfad an.", "Pfad fehlt", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-
-            // Vorschlagswert für den Hash (aus Launcher-Klasse oder config)
-            final String defaultHash = ExecutableLauncher.getHash();
-
-            String inputHash = (String) JOptionPane.showInputDialog(
-                    aiContent,
-                    "Gib den erwarteten SHA-256-Hash der Binary an:",
-                    "Hashprüfung vor Entpacken",
-                    JOptionPane.PLAIN_MESSAGE,
-                    null,
-                    null,
-                    defaultHash
-            );
-
-            if (inputHash == null || inputHash.trim().isEmpty()) {
-                JOptionPane.showMessageDialog(aiContent, "Hashprüfung abgebrochen – keine Datei entpackt.", "Abbruch", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-
-            File target = new File(path);
-            ExecutableLauncher launcher = new ExecutableLauncher();
-            try {
-                launcher.extractTo(target, inputHash.trim());
-                JOptionPane.showMessageDialog(aiContent, "Binary wurde erfolgreich extrahiert und verifiziert:\n" + path, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
-            } catch (SecurityException se) {
-                JOptionPane.showMessageDialog(aiContent, "Hash stimmt nicht:\n" + se.getMessage(), "Sicherheitswarnung", JOptionPane.ERROR_MESSAGE);
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(aiContent, "Fehler beim Extrahieren:\n" + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
+            if (path.isEmpty()) { JOptionPane.showMessageDialog(null, "Bitte Zielpfad angeben.", "Pfad fehlt", JOptionPane.WARNING_MESSAGE); return; }
+            String inputHash = (String) JOptionPane.showInputDialog(null, "SHA-256-Hash:", "Hashprüfung", JOptionPane.PLAIN_MESSAGE, null, null, ExecutableLauncher.getHash());
+            if (inputHash == null || inputHash.trim().isEmpty()) return;
+            try { new ExecutableLauncher().extractTo(new File(path), inputHash.trim());
+                JOptionPane.showMessageDialog(null, "Binary extrahiert:\n" + path, "Erfolg", JOptionPane.INFORMATION_MESSAGE);
+            } catch (Exception ex) { JOptionPane.showMessageDialog(null, "Fehler:\n" + ex.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE); }
         });
-
-
-
-        llamaCppServerPanel.add(new JLabel("Modellpfad (.gguf):"), gbcLlama);
-        gbcLlama.gridy++;
+        fbLlama.addRowWithButton("Binary-Pfad:", llamaBinaryField, extractDriverButton);
         llamaModelField = new JTextField(settings.aiConfig.getOrDefault("llama.model", "models/mistral.gguf"), 30);
-        llamaCppServerPanel.add(llamaModelField, gbcLlama);
-        gbcLlama.gridy++;
-
-        llamaCppServerPanel.add(new JLabel("Port (z. B. 8080):"), gbcLlama);
-        gbcLlama.gridy++;
-        llamaPortSpinner = new JSpinner(new SpinnerNumberModel(
-                Integer.parseInt(settings.aiConfig.getOrDefault("llama.port", "8080")),
-                1024, 65535, 1));
-        llamaCppServerPanel.add(llamaPortSpinner, gbcLlama);
-        gbcLlama.gridy++;
-
-        llamaCppServerPanel.add(new JLabel("Threads (z. B. 6):"), gbcLlama);
-        gbcLlama.gridy++;
-        llamaThreadsSpinner = new JSpinner(new SpinnerNumberModel(
-                Integer.parseInt(settings.aiConfig.getOrDefault("llama.threads", "4")),
-                1, 64, 1));
-        llamaCppServerPanel.add(llamaThreadsSpinner, gbcLlama);
-        gbcLlama.gridy++;
-
-        llamaCppServerPanel.add(new JLabel("Kontextgröße (Tokens):"), gbcLlama);
-        gbcLlama.gridy++;
-        llamaContextSpinner = new JSpinner(new SpinnerNumberModel(
-                Integer.parseInt(settings.aiConfig.getOrDefault("llama.context", "2048")),
-                512, 8192, 64));
-        llamaCppServerPanel.add(llamaContextSpinner, gbcLlama);
-        gbcLlama.gridy++;
-
-        llamaCppServerPanel.add(new JLabel("Temperatur (z. B. 0.7):"), gbcLlama);
-        gbcLlama.gridy++;
+        fbLlama.addRow("Modellpfad (.gguf):", llamaModelField);
+        llamaPortSpinner = new JSpinner(new SpinnerNumberModel(Integer.parseInt(settings.aiConfig.getOrDefault("llama.port", "8080")), 1024, 65535, 1));
+        fbLlama.addRow("Port:", llamaPortSpinner);
+        llamaThreadsSpinner = new JSpinner(new SpinnerNumberModel(Integer.parseInt(settings.aiConfig.getOrDefault("llama.threads", "4")), 1, 64, 1));
+        fbLlama.addRow("Threads:", llamaThreadsSpinner);
+        llamaContextSpinner = new JSpinner(new SpinnerNumberModel(Integer.parseInt(settings.aiConfig.getOrDefault("llama.context", "2048")), 512, 8192, 64));
+        fbLlama.addRow("Kontextgröße:", llamaContextSpinner);
         llamaTempField = new JTextField(settings.aiConfig.getOrDefault("llama.temp", "0.7"), 5);
-        llamaCppServerPanel.add(llamaTempField, gbcLlama);
-        gbcLlama.gridy++;
+        fbLlama.addRow("Temperatur:", llamaTempField);
+        providerOptionsPanel.add(fbLlama.getPanel(), AiProvider.LLAMA_CPP_SERVER.name());
 
-        // Dynamisches Deaktivieren bei "Server starten"
-        List<Component> llamaConfigFields = Arrays.asList(
-                llamaBinaryField, llamaModelField, llamaPortSpinner,
-                llamaThreadsSpinner, llamaContextSpinner, llamaTempField
-        );
-        llamaEnabledBox.addActionListener(e -> {
-            boolean enabled = llamaEnabledBox.isSelected();
-            for (Component comp : llamaConfigFields) {
-                comp.setEnabled(enabled);
-            }
-        });
-        boolean initiallyEnabled = llamaEnabledBox.isSelected();
-        for (Component comp : llamaConfigFields) {
-            comp.setEnabled(initiallyEnabled);
-        }
+        List<Component> llamaConfigFields = Arrays.asList(llamaBinaryField, llamaModelField, llamaPortSpinner, llamaThreadsSpinner, llamaContextSpinner, llamaTempField);
+        llamaEnabledBox.addActionListener(e -> { boolean en = llamaEnabledBox.isSelected(); for (Component c : llamaConfigFields) c.setEnabled(en); });
+        for (Component c : llamaConfigFields) c.setEnabled(llamaEnabledBox.isSelected());
 
-        // Initiale Werte aus Settings
+        fb.addWide(providerOptionsPanel);
+
         String providerName = settings.aiConfig.getOrDefault("provider", "DISABLED");
         AiProvider selectedProvider;
-        try {
-            selectedProvider = AiProvider.valueOf(providerName);
-        } catch (IllegalArgumentException ex) {
-            selectedProvider = AiProvider.DISABLED;
-        }
+        try { selectedProvider = AiProvider.valueOf(providerName); } catch (IllegalArgumentException ex) { selectedProvider = AiProvider.DISABLED; }
         providerCombo.setSelectedItem(selectedProvider);
 
         ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/chat"));
@@ -1328,9 +706,7 @@ public class SettingsDialog {
         ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
 
         String initialCloudVendor = settings.aiConfig.getOrDefault("cloud.vendor", "OPENAI");
-        if ("CLOUD".equalsIgnoreCase(initialCloudVendor)) {
-            initialCloudVendor = "CLAUDE";
-        }
+        if ("CLOUD".equalsIgnoreCase(initialCloudVendor)) initialCloudVendor = "CLAUDE";
         cloudProviderField.setSelectedItem(initialCloudVendor);
         applyCloudVendorDefaults(false);
         cloudApiKeyField.setText(settings.aiConfig.getOrDefault("cloud.apikey", ""));
@@ -1344,24 +720,59 @@ public class SettingsDialog {
 
         cloudProviderField.addActionListener(e -> applyCloudVendorDefaults(true));
         cloudResetButton.addActionListener(e -> {
-            String selectedVendor = (String) cloudProviderField.getSelectedItem();
-            applyCloudVendorDefaults(true);
-            cloudApiKeyField.setText("");
-            if (!"OPENAI".equals(selectedVendor)) {
-                cloudOrgField.setText("");
-                cloudProjectField.setText("");
-            }
+            applyCloudVendorDefaults(true); cloudApiKeyField.setText("");
+            if (!"OPENAI".equals(cloudProviderField.getSelectedItem())) { cloudOrgField.setText(""); cloudProjectField.setText(""); }
         });
 
-        // Umschalten je nach Provider
-        providerCombo.addActionListener(e -> {
-            AiProvider selected = (AiProvider) providerCombo.getSelectedItem();
-            CardLayout cl = (CardLayout) providerOptionsPanel.getLayout();
-            cl.show(providerOptionsPanel, selected.name());
-        });
-
+        providerCombo.addActionListener(e -> ((CardLayout) providerOptionsPanel.getLayout()).show(providerOptionsPanel, ((AiProvider) providerCombo.getSelectedItem()).name()));
         ((CardLayout) providerOptionsPanel.getLayout()).show(providerOptionsPanel, selectedProvider.name());
+
+        return fb.getPanel();
     }
+
+    private static JPanel createProxyContent(Component parent) {
+        FormBuilder fb = new FormBuilder();
+
+        proxyEnabledBox = new JCheckBox("Proxy aktivieren");
+        proxyEnabledBox.setSelected(settings.proxyEnabled);
+        fb.addWide(proxyEnabledBox);
+
+        proxyModeBox = new JComboBox<>(new String[]{"WINDOWS_PAC", "MANUAL"});
+        proxyModeBox.setSelectedItem(settings.proxyMode == null ? "WINDOWS_PAC" : settings.proxyMode);
+        fb.addRow("Proxy-Modus:", proxyModeBox);
+
+        proxyHostField = new JTextField(settings.proxyHost == null ? "" : settings.proxyHost, 24);
+        fb.addRow("Proxy Host:", proxyHostField);
+
+        proxyPortSpinner = new JSpinner(new SpinnerNumberModel(settings.proxyPort, 0, 65535, 1));
+        fb.addRow("Proxy Port:", proxyPortSpinner);
+
+        proxyNoProxyLocalBox = new JCheckBox("Lokale Ziele niemals über Proxy");
+        proxyNoProxyLocalBox.setSelected(settings.proxyNoProxyLocal);
+        fb.addWide(proxyNoProxyLocalBox);
+
+        fb.addSection("PAC/WPAD Script");
+
+        proxyPacScriptArea = new RSyntaxTextArea(12, 60);
+        proxyPacScriptArea.setSyntaxEditingStyle("text/powershell");
+        proxyPacScriptArea.setCodeFoldingEnabled(true);
+        proxyPacScriptArea.setText(settings.proxyPacScript == null ? ProxyDefaults.DEFAULT_PAC_SCRIPT : settings.proxyPacScript);
+        fb.addWideGrow(new RTextScrollPane(proxyPacScriptArea));
+
+        proxyTestUrlField = new JTextField(settings.proxyTestUrl == null ? ProxyDefaults.DEFAULT_TEST_URL : settings.proxyTestUrl, 30);
+        proxyTestButton = new JButton("Testen");
+        proxyTestButton.addActionListener(e -> {
+            String testUrl = proxyTestUrlField.getText().trim();
+            if (testUrl.isEmpty()) { JOptionPane.showMessageDialog(parent, "Bitte Test-URL eingeben.", "Proxy Test", JOptionPane.WARNING_MESSAGE); return; }
+            ProxyResolver.ProxyResolution result = ProxyResolver.testPacScript(testUrl, proxyPacScriptArea.getText());
+            String msg = result.isDirect() ? "DIRECT (" + result.getReason() + ")" : result.getProxy().address() + " (" + result.getReason() + ")";
+            JOptionPane.showMessageDialog(parent, msg, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
+        });
+        fb.addRowWithButton("Test-URL:", proxyTestUrlField, proxyTestButton);
+
+        return fb.getPanel();
+    }
+
 
     private static void applyCloudVendorDefaults(boolean clearOptionalFields) {
         String vendor = Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI");
@@ -1370,32 +781,19 @@ public class SettingsDialog {
         cloudAuthHeaderField.setText(cloudDefaultForVendor(vendor, "authHeader"));
         cloudAuthPrefixField.setText(cloudDefaultForVendor(vendor, "authPrefix"));
         cloudApiVersionField.setText(cloudDefaultForVendor(vendor, "anthropicVersion"));
-
         boolean isOpenAi = "OPENAI".equals(vendor);
         boolean isClaude = "CLAUDE".equals(vendor);
         cloudOrgField.setEnabled(isOpenAi);
         cloudProjectField.setEnabled(isOpenAi);
         cloudApiVersionField.setEnabled(isClaude);
-        if (clearOptionalFields && !isOpenAi) {
-            cloudOrgField.setText("");
-            cloudProjectField.setText("");
-        }
+        if (clearOptionalFields && !isOpenAi) { cloudOrgField.setText(""); cloudProjectField.setText(""); }
     }
 
     private static String cloudDefaultForVendor(String vendor, String key) {
         switch (vendor) {
-            case "PERPLEXITY":
-                if ("url".equals(key)) return "https://api.perplexity.ai/chat/completions";
-                if ("model".equals(key)) return "sonar";
-                break;
-            case "GROK":
-                if ("url".equals(key)) return "https://api.x.ai/v1/chat/completions";
-                if ("model".equals(key)) return "grok-2-latest";
-                break;
-            case "GEMINI":
-                if ("url".equals(key)) return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-                if ("model".equals(key)) return "gemini-2.0-flash";
-                break;
+            case "PERPLEXITY": if ("url".equals(key)) return "https://api.perplexity.ai/chat/completions"; if ("model".equals(key)) return "sonar"; break;
+            case "GROK": if ("url".equals(key)) return "https://api.x.ai/v1/chat/completions"; if ("model".equals(key)) return "grok-2-latest"; break;
+            case "GEMINI": if ("url".equals(key)) return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"; if ("model".equals(key)) return "gemini-2.0-flash"; break;
             case "CLAUDE":
                 if ("url".equals(key)) return "https://api.anthropic.com/v1/messages";
                 if ("model".equals(key)) return "claude-3-5-sonnet-latest";
@@ -1403,84 +801,15 @@ public class SettingsDialog {
                 if ("authPrefix".equals(key)) return "";
                 if ("anthropicVersion".equals(key)) return "2023-06-01";
                 break;
-            case "OPENAI":
-            default:
+            case "OPENAI": default:
                 if ("url".equals(key)) return "https://api.openai.com/v1/chat/completions";
                 if ("model".equals(key)) return "gpt-4o-mini";
                 break;
         }
-
         if ("authHeader".equals(key)) return "Authorization";
         if ("authPrefix".equals(key)) return "Bearer";
         if ("anthropicVersion".equals(key)) return "2023-06-01";
         return "";
-    }
-
-    private static void createProxyContent(JPanel proxyContent, Component parent) {
-        GridBagConstraints gbc = createDefaultGbc();
-
-        proxyEnabledBox = new JCheckBox("Proxy aktivieren");
-        proxyEnabledBox.setSelected(settings.proxyEnabled);
-        proxyContent.add(proxyEnabledBox, gbc);
-        gbc.gridy++;
-
-        proxyContent.add(new JLabel("Proxy-Modus:"), gbc);
-        gbc.gridy++;
-        proxyModeBox = new JComboBox<>(new String[] { "WINDOWS_PAC", "MANUAL" });
-        proxyModeBox.setSelectedItem(settings.proxyMode == null ? "WINDOWS_PAC" : settings.proxyMode);
-        proxyContent.add(proxyModeBox, gbc);
-        gbc.gridy++;
-
-        proxyContent.add(new JLabel("Hinweis: PAC/WPAD wird nicht geparst. Der effektive Proxy wird per PowerShell ermittelt."), gbc);
-        gbc.gridy++;
-
-        proxyContent.add(new JLabel("Proxy Host (manuell):"), gbc);
-        gbc.gridy++;
-        proxyHostField = new JTextField(settings.proxyHost == null ? "" : settings.proxyHost, 24);
-        proxyContent.add(proxyHostField, gbc);
-        gbc.gridy++;
-
-        proxyContent.add(new JLabel("Proxy Port (manuell):"), gbc);
-        gbc.gridy++;
-        proxyPortSpinner = new JSpinner(new SpinnerNumberModel(settings.proxyPort, 0, 65535, 1));
-        proxyContent.add(proxyPortSpinner, gbc);
-        gbc.gridy++;
-
-        proxyNoProxyLocalBox = new JCheckBox("Lokale Ziele niemals über Proxy");
-        proxyNoProxyLocalBox.setSelected(settings.proxyNoProxyLocal);
-        proxyContent.add(proxyNoProxyLocalBox, gbc);
-        gbc.gridy++;
-
-        proxyContent.add(new JLabel("PAC/WPAD Script (PowerShell):"), gbc);
-        gbc.gridy++;
-        proxyPacScriptArea = new RSyntaxTextArea(12, 60);
-        proxyPacScriptArea.setSyntaxEditingStyle("text/powershell");
-        proxyPacScriptArea.setCodeFoldingEnabled(true);
-        proxyPacScriptArea.setText(settings.proxyPacScript == null ? ProxyDefaults.DEFAULT_PAC_SCRIPT : settings.proxyPacScript);
-        proxyContent.add(new RTextScrollPane(proxyPacScriptArea), gbc);
-        gbc.gridy++;
-
-        proxyContent.add(new JLabel("Test-URL:"), gbc);
-        gbc.gridy++;
-        proxyTestUrlField = new JTextField(settings.proxyTestUrl == null ? ProxyDefaults.DEFAULT_TEST_URL : settings.proxyTestUrl, 30);
-        proxyContent.add(proxyTestUrlField, gbc);
-        gbc.gridy++;
-
-        proxyTestButton = new JButton("Proxy testen");
-        proxyTestButton.addActionListener(e -> {
-            String testUrl = proxyTestUrlField.getText().trim();
-            if (testUrl.isEmpty()) {
-                JOptionPane.showMessageDialog(parent, "Bitte eine Test-URL eingeben.", "Proxy Test", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            String script = proxyPacScriptArea.getText();
-            ProxyResolver.ProxyResolution result = ProxyResolver.testPacScript(testUrl, script);
-            String msg = result.isDirect()
-                    ? "DIRECT (" + result.getReason() + ")"
-                    : result.getProxy().address().toString() + " (" + result.getReason() + ")";
-            JOptionPane.showMessageDialog(parent, msg, "Proxy Test", JOptionPane.INFORMATION_MESSAGE);
-        });
-        proxyContent.add(proxyTestButton, gbc);
     }
 
     /** Collect all values from the static UI fields and persist. */
@@ -1651,25 +980,6 @@ public class SettingsDialog {
 
         aiToolPrefix.setText(prefix);
         aiToolPostfix.setText(postfix);
-    }
-
-    private static GridBagConstraints createDefaultGbc() {
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        return gbc;
-    }
-
-    private static void addEncodingSelector(JPanel panel, GridBagConstraints gbc, JComboBox<String> encodingCombo) {
-        gbc.gridwidth = 2;
-        panel.add(new JLabel("Zeichenkodierung:"), gbc);
-        gbc.gridy++;
-        panel.add(encodingCombo, gbc);
-        gbc.gridy++;
-        gbc.gridwidth = 1;
     }
 
     private static Color parseHexColor(String hex, Color fallback) {
