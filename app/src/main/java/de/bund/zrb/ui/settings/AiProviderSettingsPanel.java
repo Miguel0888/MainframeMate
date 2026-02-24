@@ -444,11 +444,11 @@ public class AiProviderSettingsPanel extends JPanel {
             customUrlField.setText("http://localhost:11434/api/embeddings");
             customModelField.setText("nomic-embed-text");
         } else {
-            ollamaUrlField.setText("http://localhost:11434/api/generate");
+            ollamaUrlField.setText("http://localhost:11434/api/chat");
             ollamaModelField.setText("llama3.2");
             ollamaKeepAliveField.setText("10m");
             cloudModelField.setText("gpt-4o-mini");
-            customUrlField.setText("http://localhost:11434/api/generate");
+            customUrlField.setText("http://localhost:11434/api/chat");
             customModelField.setText("llama3.2");
         }
         llamaStreamingBox.setSelected(true);
@@ -684,7 +684,7 @@ public class AiProviderSettingsPanel extends JPanel {
 
         // Ollama
         ollamaUrlField.setText(config.getOrDefault("ollama.url",
-                configType == ConfigType.EMBEDDING ? "http://localhost:11434" : "http://localhost:11434/api/generate"));
+                configType == ConfigType.EMBEDDING ? "http://localhost:11434" : "http://localhost:11434/api/chat"));
         ollamaModelField.setText(config.getOrDefault("ollama.model",
                 configType == ConfigType.EMBEDDING ? "nomic-embed-text" : "llama3.2"));
         ollamaKeepAliveField.setText(config.getOrDefault("ollama.keepalive", "10m"));
@@ -719,7 +719,7 @@ public class AiProviderSettingsPanel extends JPanel {
 
         // Custom
         customUrlField.setText(config.getOrDefault("custom.url",
-                configType == ConfigType.EMBEDDING ? "http://localhost:11434/api/embeddings" : "http://localhost:11434/api/generate"));
+                configType == ConfigType.EMBEDDING ? "http://localhost:11434/api/embeddings" : "http://localhost:11434/api/chat"));
         customModelField.setText(config.getOrDefault("custom.model",
                 configType == ConfigType.EMBEDDING ? "nomic-embed-text" : "llama3.2"));
         customApiKeyField.setText(config.getOrDefault("custom.apiKey", ""));

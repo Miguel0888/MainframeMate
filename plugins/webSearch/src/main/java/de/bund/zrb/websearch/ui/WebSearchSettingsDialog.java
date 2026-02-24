@@ -49,8 +49,9 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(new JLabel("Browser-Pfad:"), gbc);
 
         JPanel pathPanel = new JPanel(new BorderLayout(5, 0));
-        browserPathField = new JTextField(settings.getOrDefault("browserPath", ""), 25);
-        browserPathField.setToolTipText("Leer = automatische Erkennung");
+        String defaultBrowserPath = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
+        browserPathField = new JTextField(settings.getOrDefault("browserPath", defaultBrowserPath), 25);
+        browserPathField.setToolTipText("Standard: " + defaultBrowserPath);
         pathPanel.add(browserPathField, BorderLayout.CENTER);
 
         JButton browseBtn = new JButton("...");

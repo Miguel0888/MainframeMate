@@ -1330,7 +1330,7 @@ public class SettingsDialog {
         }
         providerCombo.setSelectedItem(selectedProvider);
 
-        ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/generate"));
+        ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/chat"));
         ollamaModelField.setText(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
         ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
 

@@ -26,7 +26,7 @@ public class OllamaChatManager implements ChatManager {
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
 
     public static final String DEBUG_MODEL = "custom-modell";
-    public static final String DEBUG_URL = "http://localhost:11434/api/generate";
+    public static final String DEBUG_URL = "http://localhost:11434/api/chat";
 
     private final String apiUrlDefault;
     private final String modelDefault;
@@ -124,18 +124,34 @@ public class OllamaChatManager implements ChatManager {
                 ? sessionHistories.computeIfAbsent(sessionId, ChatHistory::new)
                 : null;
 
-        // Extract system prompt separately for Ollama's 'system' field
-        // This ensures the system prompt is always processed, even on first message
-        String systemPrompt = null;
-        if (history != null && history.getSystemPrompt() != null && !history.getSystemPrompt().trim().isEmpty()) {
-            systemPrompt = history.getSystemPrompt().trim();
+        // Determine API format based on URL
+        boolean useChatApi = url.contains("/api/chat");
+
+        String jsonPayload;
+        if (useChatApi) {
+            // /api/chat format: uses messages array
+            List<Map<String, String>> messages;
+            if (history != null) {
+                messages = history.toMessages(userInput);
+            } else {
+                messages = new java.util.ArrayList<>();
+                Map<String, String> userMsg = new java.util.LinkedHashMap<>();
+                userMsg.put("role", "user");
+                userMsg.put("content", userInput);
+                messages.add(userMsg);
+            }
+            jsonPayload = gson.toJson(new OllamaChatRequest(model, messages, keepAlive));
+        } else {
+            // /api/generate format: legacy support
+            String systemPrompt = null;
+            if (history != null && history.getSystemPrompt() != null && !history.getSystemPrompt().trim().isEmpty()) {
+                systemPrompt = history.getSystemPrompt().trim();
+            }
+            String prompt = (history != null)
+                    ? buildPrompt(history, userInput)
+                    : userInput;
+            jsonPayload = gson.toJson(new OllamaRequest(model, prompt, systemPrompt, keepAlive));
         }
-
-        String prompt = (history != null)
-                ? buildPrompt(history, userInput)
-                : userInput;
-
-        String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, systemPrompt, keepAlive));
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
@@ -353,6 +369,24 @@ public class OllamaChatManager implements ChatManager {
             this.model = model;
             this.prompt = prompt;
             this.system = system;
+            String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
+            this.keep_alive = keepAlive ? keepAliveValue : "0m";
+        }
+    }
+
+    /**
+     * Request format for /api/chat endpoint.
+     * Uses a messages array instead of a single prompt string.
+     */
+    private static class OllamaChatRequest {
+        String model;
+        List<Map<String, String>> messages;
+        boolean stream = true;
+        String keep_alive;
+
+        OllamaChatRequest(String model, List<Map<String, String>> messages, boolean keepAlive) {
+            this.model = model;
+            this.messages = messages;
             String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
             this.keep_alive = keepAlive ? keepAliveValue : "0m";
         }

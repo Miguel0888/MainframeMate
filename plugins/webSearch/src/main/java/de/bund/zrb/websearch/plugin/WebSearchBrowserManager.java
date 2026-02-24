@@ -84,8 +84,11 @@ public class WebSearchBrowserManager {
         // return !"false".equals(loadSettings().getOrDefault("headless", "true"));
     }
 
+    private static final String DEFAULT_FIREFOX_PATH = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
+
     public String getBrowserPath() {
-        return loadSettings().getOrDefault("browserPath", "");
+        String path = loadSettings().getOrDefault("browserPath", "");
+        return (path == null || path.trim().isEmpty()) ? DEFAULT_FIREFOX_PATH : path;
     }
 
     private Map<String, String> loadSettings() {
