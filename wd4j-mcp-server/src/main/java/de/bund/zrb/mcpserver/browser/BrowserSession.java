@@ -9,6 +9,7 @@ import de.bund.zrb.type.browsingContext.WDLocator;
 import de.bund.zrb.type.script.*;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -23,7 +24,9 @@ public class BrowserSession {
     private WebDriver driver;
     private String contextId;
     private String sessionId;
-    private Process browserProcess; // non-null if we launched the browser ourselves
+    private Process browserProcess;
+    private final NodeRefRegistry nodeRefRegistry = new NodeRefRegistry();
+    private final List<String> consoleLogs = new ArrayList<String>();
 
     // ── Connection ──────────────────────────────────────────────────
 
@@ -197,6 +200,123 @@ public class BrowserSession {
 
     public WebDriver getDriver() {
         return driver;
+    }
+
+    // ── NodeRef & Snapshot ──────────────────────────────────────────
+
+    public NodeRefRegistry getNodeRefRegistry() {
+        return nodeRefRegistry;
+    }
+
+    public List<String> getConsoleLogs() {
+        return new ArrayList<String>(consoleLogs);
+    }
+
+    public void clearConsoleLogs() {
+        consoleLogs.clear();
+    }
+
+    public void addConsoleLog(String log) {
+        if (consoleLogs.size() > 1000) {
+            consoleLogs.remove(0);
+        }
+        consoleLogs.add(log);
+    }
+
+    /**
+     * Locate nodes using WD4J locateNodes and register them as NodeRefs.
+     */
+    public List<NodeRef> locateAndRegister(WDLocator locator, int maxCount) {
+        String ctx = resolveContext(null);
+        WDBrowsingContextResult.LocateNodesResult result =
+                driver.browsingContext().locateNodes(ctx, locator, maxCount);
+
+        List<NodeRef> refs = new ArrayList<NodeRef>();
+        if (result.getNodes() != null) {
+            for (WDRemoteValue.NodeRemoteValue node : result.getNodes()) {
+                WDRemoteReference.SharedReference sharedRef = node.getSharedIdReference();
+                String tag = "?";
+                String text = "";
+                if (node.getValue() != null) {
+                    if (node.getValue().getLocalName() != null) tag = node.getValue().getLocalName();
+                    if (node.getValue().getNodeValue() != null) text = node.getValue().getNodeValue();
+                }
+                // Get accessible info via JS later if needed
+                NodeRef ref = nodeRefRegistry.register(tag, text, null, null, true, sharedRef);
+                refs.add(ref);
+            }
+        }
+        return refs;
+    }
+
+    /**
+     * Click a node by its NodeRef ID.
+     */
+    public void clickNodeRef(String nodeRefId) {
+        NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
+        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
+        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
+        driver.script().callFunction(
+                "function(el) { el.scrollIntoView({block:'center'}); el.click(); }",
+                true, target, args);
+    }
+
+    /**
+     * Type text into a node by its NodeRef ID.
+     */
+    public void typeNodeRef(String nodeRefId, String text, boolean clearFirst) {
+        NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
+        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
+        List<WDLocalValue> args = new ArrayList<WDLocalValue>();
+        args.add(entry.sharedRef);
+        args.add(new WDPrimitiveProtocolValue.StringValue(text));
+        args.add(new WDPrimitiveProtocolValue.BooleanValue(clearFirst));
+        driver.script().callFunction(
+                "function(el,text,clear){el.focus();if(clear){el.value='';}el.value+=text;"
+              + "el.dispatchEvent(new Event('input',{bubbles:true}));"
+              + "el.dispatchEvent(new Event('change',{bubbles:true}));}",
+                true, target, args);
+    }
+
+    /**
+     * Hover over a node by its NodeRef ID.
+     */
+    public void hoverNodeRef(String nodeRefId) {
+        NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
+        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
+        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
+        driver.script().callFunction(
+                "function(el){el.scrollIntoView({block:'center'});"
+              + "el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));"
+              + "el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true}));}",
+                true, target, args);
+    }
+
+    /**
+     * Select an option in a <select> by its NodeRef ID.
+     */
+    public void selectOptionNodeRef(String nodeRefId, String value, String label, Integer index) {
+        NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
+        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
+        String criteria;
+        if (value != null) {
+            criteria = "'value','" + value.replace("'", "\\'") + "'";
+        } else if (label != null) {
+            criteria = "'label','" + label.replace("'", "\\'") + "'";
+        } else if (index != null) {
+            criteria = "'index'," + index;
+        } else {
+            throw new IllegalArgumentException("Provide value, label, or index for select");
+        }
+        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
+        driver.script().callFunction(
+                "function(el){var m=" + criteria + ";"
+              + "var opts=el.options;for(var i=0;i<opts.length;i++){"
+              + "if((m==='value'&&opts[i].value===arguments[1])"
+              + "||(m==='label'&&opts[i].text===arguments[1])"
+              + "||(m==='index'&&i===arguments[1])){el.selectedIndex=i;break;}}"
+              + "el.dispatchEvent(new Event('change',{bubbles:true}));}",
+                true, target, args);
     }
 
     // ── Internal ────────────────────────────────────────────────────

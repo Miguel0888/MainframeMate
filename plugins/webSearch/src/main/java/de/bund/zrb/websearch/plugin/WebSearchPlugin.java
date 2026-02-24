@@ -52,17 +52,19 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
     private List<McpTool> createTools() {
         List<McpTool> list = new ArrayList<>();
-        // browser_launch / browser_open are NOT exposed as tools –
-        // the browser is started automatically by WebSearchBrowserManager on first use.
-        list.add(new BrowserToolAdapter(new BrowserNavigateTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowserClickCssTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowserTypeCssTool(), browserManager));
+        // New text-based browsing tools with NodeRef system
+        list.add(new BrowserToolAdapter(new BrowseNavigateTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseSnapshotTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseLocateTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseClickTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseTypeTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseSelectTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseScrollTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseWaitTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseBackForwardTool(), browserManager));
+        // Keep eval and screenshot as utility tools
         list.add(new BrowserToolAdapter(new BrowserEvalTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowserScreenshotTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowserCloseTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowserWaitForTool(), browserManager));
-        list.add(new BrowserToolAdapter(new PageDomSnapshotTool(), browserManager));
-        list.add(new BrowserToolAdapter(new PageExtractTool(), browserManager));
         return list;
     }
 }
