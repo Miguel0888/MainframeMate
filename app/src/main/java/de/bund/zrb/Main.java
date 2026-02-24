@@ -13,6 +13,9 @@ public class Main {
 //        UnicodeFontFix.apply(); // for windows 11 required to display emojis correctly
         MainframeSyntaxSupport.register(); // Register Natural/JCL/COBOL syntax highlighting
 
+        // Apply log settings from preferences (before any logging happens)
+        de.bund.zrb.util.AppLogger.applySettings();
+
         // Start local history auto-pruning in background
         LocalHistoryService.getInstance().autoPruneAsync();
 

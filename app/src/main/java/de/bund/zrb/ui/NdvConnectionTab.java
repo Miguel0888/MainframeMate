@@ -444,7 +444,7 @@ public class NdvConnectionTab implements ConnectionTab {
             if (item instanceof NdvObjectInfo) {
                 NdvObjectInfo obj = (NdvObjectInfo) item;
                 if (obj.getName().equalsIgnoreCase(searchName)) {
-                    System.out.println("[NdvConnectionTab] Auto-opening bookmarked object: " + obj.getName());
+                    de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.NDV).fine("[NdvConnectionTab] Auto-opening bookmarked object: " + obj.getName());
                     openSource(obj);
                     return;
                 }

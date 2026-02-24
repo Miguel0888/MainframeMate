@@ -431,7 +431,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         new Thread(() -> {
             try {
                 String currentPath = browserState.getCurrentPath();
-                System.out.println("[ConnectionTab] Loading directory: " + currentPath);
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[ConnectionTab] Loading directory: " + currentPath);
 
                 List<FileNode> nodes = fileService.list(currentPath);
 

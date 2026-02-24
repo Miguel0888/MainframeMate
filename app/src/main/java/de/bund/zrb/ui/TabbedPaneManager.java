@@ -6,6 +6,7 @@ import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.preview.SplitPreviewTab;
+import de.bund.zrb.util.AppLogger;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.FileTab;
@@ -182,7 +183,7 @@ public class TabbedPaneManager {
 
         LeftDrawer drawer = getBookmarkDrawer();
         boolean isBookmarked = drawer != null && rawPath != null && drawer.isBookmarked(rawPath, backendType);
-        System.out.println("[Star] createStarButton: rawPath=" + rawPath + " backend=" + backendType + " isBookmarked=" + isBookmarked);
+        AppLogger.get(AppLogger.STAR).fine("createStarButton: rawPath=" + rawPath + " backend=" + backendType + " isBookmarked=" + isBookmarked);
 
         JButton starButton = new JButton(isBookmarked ? STAR_FILLED : STAR_EMPTY);
         starButton.setMargin(new Insets(0, 0, 0, 2));
@@ -289,7 +290,7 @@ public class TabbedPaneManager {
 
         String backendType = getBackendTypeForTab(tab);
         boolean isBookmarked = drawer.isBookmarked(rawPath, backendType);
-        System.out.println("[Star] refreshStarForTab: rawPath=" + rawPath + " backend=" + backendType + " isBookmarked=" + isBookmarked);
+        AppLogger.get(AppLogger.STAR).fine("refreshStarForTab: rawPath=" + rawPath + " backend=" + backendType + " isBookmarked=" + isBookmarked);
 
         JPanel panel = (JPanel) tabComp;
         for (Component c : panel.getComponents()) {

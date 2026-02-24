@@ -134,6 +134,23 @@ public class SettingsDialog {
     private static JTextField mailContainerClassesField;
     private static JList<String> mailWhitelistJList;
 
+    // Debug Settings
+    public static final int TAB_INDEX_DEBUG = 10;
+    private static JComboBox<String> globalLogLevelCombo;
+    private static final String[] LOG_LEVELS = {"OFF", "SEVERE", "WARNING", "INFO", "FINE", "FINER", "FINEST", "ALL"};
+    private static final String[] LOG_CATEGORIES = {
+            de.bund.zrb.util.AppLogger.MAIL,
+            de.bund.zrb.util.AppLogger.STAR,
+            de.bund.zrb.util.AppLogger.FTP,
+            de.bund.zrb.util.AppLogger.NDV,
+            de.bund.zrb.util.AppLogger.TOOL,
+            de.bund.zrb.util.AppLogger.INDEX,
+            de.bund.zrb.util.AppLogger.SEARCH,
+            de.bund.zrb.util.AppLogger.RAG,
+            de.bund.zrb.util.AppLogger.UI
+    };
+    private static final java.util.Map<String, JComboBox<String>> categoryLevelCombos = new java.util.LinkedHashMap<>();
+
     public static void show(Component parent) {
         show(parent, 0);
     }
@@ -161,6 +178,8 @@ public class SettingsDialog {
         JScrollPane ndvPanel = new JScrollPane(ndvContent);
         JPanel mailContent = new JPanel(new GridBagLayout());
         JScrollPane mailPanel = new JScrollPane(mailContent);
+        JPanel debugContent = new JPanel(new GridBagLayout());
+        JScrollPane debugPanel = new JScrollPane(debugContent);
 
         tabs.addTab("Allgemein", generalPanel);
         tabs.addTab("Farbzuordnung", colorPanel);
@@ -172,6 +191,7 @@ public class SettingsDialog {
         tabs.addTab("Proxy", proxyPanel);
         tabs.addTab("MCP Registry", new McpRegistryPanel());
         tabs.addTab("Mails", mailPanel);
+        tabs.addTab("Debug", debugPanel);
 
         // Hilfe-Button mit kontextsensitiver Hilfe je nach ausgewähltem Tab
         HelpButton helpButton = new HelpButton("Hilfe zu Einstellungen");
@@ -208,6 +228,7 @@ public class SettingsDialog {
         createAiContent(aiContent);
         createProxyContent(proxyContent, parent);
         createMailContent(mailContent);
+        createDebugContent(debugContent);
 
         showAndApply(parent, tabs);
     }
@@ -847,6 +868,68 @@ public class SettingsDialog {
                 + "</small></html>");
         infoMailLabel.setForeground(Color.GRAY);
         mailContent.add(infoMailLabel, gbc);
+    }
+
+    private static void createDebugContent(JPanel debugContent) {
+        GridBagConstraints gbc = createDefaultGbc();
+
+        // ── Global log level ──
+        debugContent.add(new JLabel("Globales Log-Level:"), gbc);
+        gbc.gridy++;
+
+        globalLogLevelCombo = new JComboBox<>(LOG_LEVELS);
+        globalLogLevelCombo.setSelectedItem(settings.logLevel != null ? settings.logLevel : "INFO");
+        globalLogLevelCombo.setToolTipText(
+                "Bestimmt die Mindest-Stufe für alle Log-Ausgaben. "
+                + "INFO = normal, FINE = Debug, FINEST = alles.");
+        debugContent.add(globalLogLevelCombo, gbc);
+        gbc.gridy++;
+
+        debugContent.add(Box.createVerticalStrut(10), gbc);
+        gbc.gridy++;
+
+        // ── Per-category overrides ──
+        debugContent.add(new JLabel("<html><b>Kategorie-Log-Level</b> (überschreibt global):</html>"), gbc);
+        gbc.gridy++;
+
+        debugContent.add(new JLabel("<html><small>Leerlassen = globales Level verwenden</small></html>"), gbc);
+        gbc.gridy++;
+
+        String[] catLevelsWithDefault = {"(global)", "OFF", "SEVERE", "WARNING", "INFO", "FINE", "FINER", "FINEST", "ALL"};
+        categoryLevelCombos.clear();
+
+        for (String cat : LOG_CATEGORIES) {
+            JPanel row = new JPanel(new java.awt.BorderLayout(8, 0));
+            row.add(new JLabel(cat + ":"), java.awt.BorderLayout.WEST);
+            JComboBox<String> combo = new JComboBox<>(catLevelsWithDefault);
+            // Load current value
+            String current = settings.logCategoryLevels != null
+                    ? settings.logCategoryLevels.get(cat) : null;
+            combo.setSelectedItem(current != null && !current.isEmpty() ? current : "(global)");
+            row.add(combo, java.awt.BorderLayout.CENTER);
+            categoryLevelCombos.put(cat, combo);
+            debugContent.add(row, gbc);
+            gbc.gridy++;
+        }
+
+        debugContent.add(Box.createVerticalStrut(10), gbc);
+        gbc.gridy++;
+
+        // Info text
+        JLabel infoLabel = new JLabel("<html><small>"
+                + "<b>Log-Level-Stufen (aufsteigend detailliert):</b><br>"
+                + "OFF → keine Ausgabe<br>"
+                + "SEVERE → nur schwere Fehler<br>"
+                + "WARNING → Warnungen + Fehler<br>"
+                + "INFO → normale Meldungen (Standard)<br>"
+                + "FINE → Debug-Ausgaben (z.B. Tool-Aufrufe, Ordnernavigation)<br>"
+                + "FINER → detailliertes Debug<br>"
+                + "FINEST → maximale Ausgabe (z.B. jede einzelne Mail)<br>"
+                + "ALL → alles<br><br>"
+                + "Änderungen werden sofort nach Speichern wirksam."
+                + "</small></html>");
+        infoLabel.setForeground(Color.GRAY);
+        debugContent.add(infoLabel, gbc);
     }
 
     private static void createColorContent(JPanel colorContent, Component parent) {
@@ -1558,7 +1641,20 @@ public class SettingsDialog {
                 ragSettingsPanel.saveToSettings(settings);
             }
 
+            // Debug / Logging
+            settings.logLevel = (String) globalLogLevelCombo.getSelectedItem();
+            settings.logCategoryLevels.clear();
+            for (java.util.Map.Entry<String, JComboBox<String>> entry : categoryLevelCombos.entrySet()) {
+                String selected = (String) entry.getValue().getSelectedItem();
+                if (selected != null && !"(global)".equals(selected)) {
+                    settings.logCategoryLevels.put(entry.getKey(), selected);
+                }
+            }
+
             SettingsHelper.save(settings);
+
+            // Apply log levels immediately
+            de.bund.zrb.util.AppLogger.applySettings();
 
 
 //            JOptionPane.showMessageDialog(parent,

@@ -290,7 +290,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
     private void openMember(MvsVirtualResource resource) {
         String path = resource.getOpenPath();
-        System.out.println("[MvsConnectionTab] Opening resource async: " + path);
+        de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.FTP).fine("[MvsConnectionTab] Opening resource async: " + path);
 
         rawFileOpener.openAsync(path,
                 new Runnable() {

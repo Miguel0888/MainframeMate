@@ -14,6 +14,9 @@ import java.util.Vector;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.FINER;
+
 /**
  * Reads PST/OST mailbox files using java-libpst (com.pff).
  *
@@ -46,11 +49,11 @@ public class PstMailboxReader implements MailboxReader {
         PSTFolder root;
         try { root = pstFile.getRootFolder(); }
         catch (Exception e) {
-            System.out.println("[MAIL-DIAG] ERROR getting root folder: " + e.getMessage());
+            LOG.fine("[MAIL-DIAG] ERROR getting root folder: " + e.getMessage());
             return null;
         }
 
-        System.out.println("[MAIL-DIAG] === Content Root Discovery ===");
+        LOG.fine("[MAIL-DIAG] === Content Root Discovery ===");
 
         // Search for IPM_SUBTREE with content
         PSTFolder best = null;
@@ -58,11 +61,11 @@ public class PstMailboxReader implements MailboxReader {
 
         for (PSTFolder level1 : safeGetSubFolders(root)) {
             String name1 = level1.getDisplayName();
-            System.out.println("[MAIL-DIAG]   L1: '" + name1 + "'");
+            LOG.fine("[MAIL-DIAG]   L1: '" + name1 + "'");
 
             if ("IPM_SUBTREE".equalsIgnoreCase(name1)) {
                 int cc = countContentChildren(level1);
-                System.out.println("[MAIL-DIAG]   → IPM_SUBTREE found at L1, content children: " + cc);
+                LOG.fine("[MAIL-DIAG]   → IPM_SUBTREE found at L1, content children: " + cc);
                 if (cc > bestChildCount) { best = level1; bestChildCount = cc; }
             }
 
@@ -70,14 +73,14 @@ public class PstMailboxReader implements MailboxReader {
                 String name2 = level2.getDisplayName();
                 if ("IPM_SUBTREE".equalsIgnoreCase(name2)) {
                     int cc = countContentChildren(level2);
-                    System.out.println("[MAIL-DIAG]   → IPM_SUBTREE found at L2 under '" + name1 + "', content children: " + cc);
+                    LOG.fine("[MAIL-DIAG]   → IPM_SUBTREE found at L2 under '" + name1 + "', content children: " + cc);
                     if (cc > bestChildCount) { best = level2; bestChildCount = cc; }
                 }
 
                 for (PSTFolder level3 : safeGetSubFolders(level2)) {
                     if ("IPM_SUBTREE".equalsIgnoreCase(level3.getDisplayName())) {
                         int cc = countContentChildren(level3);
-                        System.out.println("[MAIL-DIAG]   → IPM_SUBTREE found at L3 under '" + name1 + "/" + name2 + "', content children: " + cc);
+                        LOG.fine("[MAIL-DIAG]   → IPM_SUBTREE found at L3 under '" + name1 + "/" + name2 + "', content children: " + cc);
                         if (cc > bestChildCount) { best = level3; bestChildCount = cc; }
                     }
                 }
@@ -85,11 +88,11 @@ public class PstMailboxReader implements MailboxReader {
         }
 
         if (best != null) {
-            System.out.println("[MAIL-DIAG] ✅ Content Root = IPM_SUBTREE with " + bestChildCount + " content children");
+            LOG.fine("[MAIL-DIAG] ✅ Content Root = IPM_SUBTREE with " + bestChildCount + " content children");
             return best;
         }
 
-        System.out.println("[MAIL-DIAG] ⚠ No IPM_SUBTREE with content found, falling back to root");
+        LOG.fine("[MAIL-DIAG] ⚠ No IPM_SUBTREE with content found, falling back to root");
         return root;
     }
 
@@ -115,11 +118,11 @@ public class PstMailboxReader implements MailboxReader {
             if (contentRoot == null) return result;
 
             // First: dump full tree for diagnosis
-            System.out.println("═══════════════════════════════════════════════════════════════");
-            System.out.println("[MAIL-DIAG] *** FULL TREE DUMP for: " + mailboxPath);
-            System.out.println("═══════════════════════════════════════════════════════════════");
+            LOG.fine("═══════════════════════════════════════════════════════════════");
+            LOG.fine("[MAIL-DIAG] *** FULL TREE DUMP for: " + mailboxPath);
+            LOG.fine("═══════════════════════════════════════════════════════════════");
             dumpFolderTree(pstFile.getRootFolder(), "", 0);
-            System.out.println("═══════════════════════════════════════════════════════════════");
+            LOG.fine("═══════════════════════════════════════════════════════════════");
 
             // Return direct children of content root
             for (PSTFolder folder : safeGetSubFolders(contentRoot)) {
@@ -146,12 +149,12 @@ public class PstMailboxReader implements MailboxReader {
         try {
             PSTFolder folder = navigateToFolder(pstFile, folderPath);
             if (folder == null) {
-                System.out.println("[MAIL-DIAG] listSubFolders: folder not found: " + folderPath);
+                LOG.fine("[MAIL-DIAG] listSubFolders: folder not found: " + folderPath);
                 return result;
             }
 
             List<PSTFolder> subFolders = safeGetSubFolders(folder);
-            System.out.println("[MAIL-DIAG] listSubFolders('" + folderPath + "'): " + subFolders.size() + " children");
+            LOG.fine("[MAIL-DIAG] listSubFolders('" + folderPath + "'): " + subFolders.size() + " children");
 
             for (PSTFolder sub : subFolders) {
                 String name = sub.getDisplayName();
@@ -160,7 +163,7 @@ public class PstMailboxReader implements MailboxReader {
                 try { count = sub.getContentCount(); } catch (Exception ignored) {}
                 String cc = safeGetContainerClass(sub);
                 int subCount = safeGetSubFolderCount(sub);
-                System.out.println("[MAIL-DIAG]   📁 '" + name + "' cc=" + cc
+                LOG.fine("[MAIL-DIAG]   📁 '" + name + "' cc=" + cc
                         + " items=" + count + " subfolders=" + subCount);
                 result.add(new MailFolderRef(mailboxPath, subPath, name, count, cc, subCount));
             }
@@ -180,11 +183,11 @@ public class PstMailboxReader implements MailboxReader {
             PSTFolder contentRoot = findContentRoot(pstFile);
             if (contentRoot == null) return result;
 
-            System.out.println("[MAIL-DIAG] listFoldersByCategory(" + category + ") from content root...");
+            LOG.fine("[MAIL-DIAG] listFoldersByCategory(" + category + ") from content root...");
             collectFoldersByCategory(contentRoot, "", mailboxPath, category, result, 0);
-            System.out.println("[MAIL-DIAG] listFoldersByCategory(" + category + ") → " + result.size() + " folders found");
+            LOG.fine("[MAIL-DIAG] listFoldersByCategory(" + category + ") → " + result.size() + " folders found");
             for (MailFolderRef f : result) {
-                System.out.println("[MAIL-DIAG]   → '" + f.getFolderPath() + "' (" + f.getItemCount() + " items)");
+                LOG.fine("[MAIL-DIAG]   → '" + f.getFolderPath() + "' (" + f.getItemCount() + " items)");
             }
         } finally {
             closeSilently(pstFile);
@@ -202,12 +205,12 @@ public class PstMailboxReader implements MailboxReader {
         try {
             PSTFolder folder = navigateToFolder(pstFile, folderPath);
             if (folder == null) {
-                System.out.println("[MAIL-DIAG] listMessages: folder not found: " + folderPath);
+                LOG.fine("[MAIL-DIAG] listMessages: folder not found: " + folderPath);
                 return result;
             }
 
             int contentCount = folder.getContentCount();
-            System.out.println("[MAIL-DIAG] listMessages('" + folderPath + "', offset=" + offset
+            LOG.fine("[MAIL-DIAG] listMessages('" + folderPath + "', offset=" + offset
                     + ", limit=" + limit + ") contentCount=" + contentCount);
 
             int skipped = 0;
@@ -226,16 +229,16 @@ public class PstMailboxReader implements MailboxReader {
                             collected++;
 
                             if (collected <= 3) {
-                                System.out.println("[MAIL-DIAG]   ✉ msgClass='" + message.getMessageClass()
+                                LOG.fine("[MAIL-DIAG]   ✉ msgClass='" + message.getMessageClass()
                                         + "' subject='" + safeSubstring(message.getSubject(), 50) + "'");
                             }
                         } catch (Exception e) {
-                            System.out.println("[MAIL-DIAG]   ⚠ ERROR reading message: " + e.getMessage());
+                            LOG.fine("[MAIL-DIAG]   ⚠ ERROR reading message: " + e.getMessage());
                         }
                     }
                 } else {
                     if (collected == 0) {
-                        System.out.println("[MAIL-DIAG]   ⚠ non-PSTMessage: " + child.getClass().getSimpleName());
+                        LOG.fine("[MAIL-DIAG]   ⚠ non-PSTMessage: " + child.getClass().getSimpleName());
                     }
                 }
 
@@ -243,7 +246,7 @@ public class PstMailboxReader implements MailboxReader {
             }
 
             if (collected > 3) {
-                System.out.println("[MAIL-DIAG]   ... (" + collected + " total in page)");
+                LOG.fine("[MAIL-DIAG]   ... (" + collected + " total in page)");
             }
 
         } finally {
@@ -261,7 +264,7 @@ public class PstMailboxReader implements MailboxReader {
             PSTFolder folder = navigateToFolder(pstFile, folderPath);
             if (folder == null) return 0;
             int count = folder.getContentCount();
-            System.out.println("[MAIL-DIAG] getMessageCount('" + folderPath + "') = " + count);
+            LOG.fine("[MAIL-DIAG] getMessageCount('" + folderPath + "') = " + count);
             return count;
         } finally {
             closeSilently(pstFile);
@@ -311,7 +314,7 @@ public class PstMailboxReader implements MailboxReader {
 
             MailboxCategory resolved = MailboxCategory.fromContainerClass(cc);
 
-            System.out.println("[MAIL-DIAG] collect[" + targetCategory + "] d=" + depth
+            LOG.fine("[MAIL-DIAG] collect[" + targetCategory + "] d=" + depth
                     + " '" + name + "' cc='" + (cc != null ? cc : "") + "'"
                     + " → " + resolved + " items=" + count);
 
@@ -355,10 +358,10 @@ public class PstMailboxReader implements MailboxReader {
                 }
             }
             if (found == null) {
-                System.out.println("[MAIL-DIAG] navigateToFolder: NOT FOUND '" + part + "' in path '" + folderPath + "'");
-                System.out.println("[MAIL-DIAG]   available: ");
+                LOG.fine("[MAIL-DIAG] navigateToFolder: NOT FOUND '" + part + "' in path '" + folderPath + "'");
+                LOG.fine("[MAIL-DIAG]   available: ");
                 for (PSTFolder sub : safeGetSubFolders(current)) {
-                    System.out.println("[MAIL-DIAG]     - '" + sub.getDisplayName() + "'");
+                    LOG.fine("[MAIL-DIAG]     - '" + sub.getDisplayName() + "'");
                 }
                 return null;
             }
@@ -378,7 +381,7 @@ public class PstMailboxReader implements MailboxReader {
         try { contentCount = folder.getContentCount(); } catch (Exception ignored) {}
         int subFolderCount = safeGetSubFolderCount(folder);
 
-        System.out.println("[MAIL-DIAG] " + indent + "📁 '" + name + "'"
+        LOG.fine("[MAIL-DIAG] " + indent + "📁 '" + name + "'"
                 + " | cc='" + (cc != null ? cc : "") + "'"
                 + " | items=" + contentCount
                 + " | subs=" + subFolderCount
@@ -432,7 +435,7 @@ public class PstMailboxReader implements MailboxReader {
                     header.withAppointmentInfo(date, null, null, false);
                 }
             } catch (Exception e) {
-                System.out.println("[MAIL-DIAG] ⚠ Error reading appointment fields: " + e.getMessage());
+                LOG.fine("[MAIL-DIAG] ⚠ Error reading appointment fields: " + e.getMessage());
             }
         }
 
@@ -445,7 +448,7 @@ public class PstMailboxReader implements MailboxReader {
                 }
                 // else: no fallback – just messageClass marker is enough for display
             } catch (Exception e) {
-                System.out.println("[MAIL-DIAG] ⚠ Error reading contact fields: " + e.getMessage());
+                LOG.fine("[MAIL-DIAG] ⚠ Error reading contact fields: " + e.getMessage());
             }
         }
 
@@ -458,7 +461,7 @@ public class PstMailboxReader implements MailboxReader {
                 }
                 // else: no fallback – messageClass marker is enough
             } catch (Exception e) {
-                System.out.println("[MAIL-DIAG] ⚠ Error reading task fields: " + e.getMessage());
+                LOG.fine("[MAIL-DIAG] ⚠ Error reading task fields: " + e.getMessage());
             }
         }
 
@@ -501,7 +504,7 @@ public class PstMailboxReader implements MailboxReader {
             Vector<PSTFolder> v = folder.getSubFolders();
             return v != null ? v : new ArrayList<>();
         } catch (Exception e) {
-            System.out.println("[MAIL-DIAG] ⛔ getSubFolders('" + folder.getDisplayName() + "'): " + e.getMessage());
+            LOG.fine("[MAIL-DIAG] ⛔ getSubFolders('" + folder.getDisplayName() + "'): " + e.getMessage());
             return new ArrayList<>();
         }
     }
@@ -509,7 +512,7 @@ public class PstMailboxReader implements MailboxReader {
     private PSTObject safeGetNextChild(PSTFolder folder) {
         try { return folder.getNextChild(); }
         catch (Exception e) {
-            System.out.println("[MAIL-DIAG] ⛔ getNextChild(): " + e.getMessage());
+            LOG.fine("[MAIL-DIAG] ⛔ getNextChild(): " + e.getMessage());
             return null;
         }
     }

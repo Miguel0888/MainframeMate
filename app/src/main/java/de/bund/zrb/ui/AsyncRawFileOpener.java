@@ -82,14 +82,14 @@ public class AsyncRawFileOpener {
         executor.submit(() -> {
             long started = System.currentTimeMillis();
             try {
-                System.out.println("[AsyncRawFileOpener] start open path=" + path);
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[AsyncRawFileOpener] start open path=" + path);
 
                 FilePayload payload = readWithRetry(path);
                 // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
                 String content = payload.getEditorText();
 
                 long duration = System.currentTimeMillis() - started;
-                System.out.println("[AsyncRawFileOpener] read finished bytes=" + payload.getBytes().length +
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[AsyncRawFileOpener] read finished bytes=" + payload.getBytes().length +
                         " elapsedMs=" + duration + " path=" + path);
 
                 VirtualResource virtualResource = new VirtualResource(
@@ -105,10 +105,10 @@ public class AsyncRawFileOpener {
 
                 SwingUtilities.invokeLater(() -> tabbedPaneManager.openFileTab(virtualResource, content, null, null, false));
             } catch (InterruptedException ie) {
-                System.out.println("[AsyncRawFileOpener] cancelled path=" + path);
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[AsyncRawFileOpener] cancelled path=" + path);
             } catch (Exception e) {
                 long duration = System.currentTimeMillis() - started;
-                System.err.println("[AsyncRawFileOpener] open failed after " + duration + "ms path=" + path +
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).warning("[AsyncRawFileOpener] open failed after " + duration + "ms path=" + path +
                         " error=" + e.getMessage());
                 if (!cancelled.get()) {
                     SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
@@ -137,7 +137,7 @@ public class AsyncRawFileOpener {
         FtpRetryPolicy policy = FtpRetryPolicy.fromSettings(settings);
 
         // Log active policy
-        System.out.println("[AsyncRawFileOpener] RetryPolicy: " + policy);
+        de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.FTP).fine("[AsyncRawFileOpener] RetryPolicy: " + policy);
 
         // Create executor with logging listener
         RetryExecutor retryExecutor = new RetryExecutor(policy,
@@ -161,7 +161,7 @@ public class AsyncRawFileOpener {
             if (openFileService == null) {
                 long t0 = System.currentTimeMillis();
                 openFileService = new FileServiceFactory().createFtp(host, user, password);
-                System.out.println("[AsyncRawFileOpener] created openFileService elapsedMs=" +
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.FTP).fine("[AsyncRawFileOpener] created openFileService elapsedMs=" +
                         (System.currentTimeMillis() - t0));
             }
             return openFileService;

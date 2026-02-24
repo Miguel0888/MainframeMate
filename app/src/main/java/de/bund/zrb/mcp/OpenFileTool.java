@@ -76,7 +76,7 @@ public class OpenFileTool implements McpTool {
             VirtualResourceResolver resolver = new VirtualResourceResolver();
             VirtualResource resource = resolver.resolve(file);
 
-            System.out.println("[TOOL open_file] resolved: " + resource.getResolvedPath() + " kind=" + resource.getKind());
+            de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.TOOL).fine("[open_file] resolved: " + resource.getResolvedPath() + " kind=" + resource.getKind());
 
             // Open the tab via MainframeContext (handles EDT internally or delegates correctly)
             AtomicReference<FtpTab> openedTab = new AtomicReference<>();

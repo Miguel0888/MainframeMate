@@ -98,4 +98,8 @@ public class Settings {
     public int historyMaxVersionsPerFile = 100;           // Max Versionen pro Datei
     public int historyMaxAgeDays = 90;                    // Max Alter in Tagen
 
+    // Debug / Logging
+    public String logLevel = "INFO";                      // Global log level: OFF, SEVERE, WARNING, INFO, FINE, FINER, FINEST, ALL
+    public Map<String, String> logCategoryLevels = new LinkedHashMap<>(); // Per-category overrides e.g. "MAIL" -> "FINE"
+
 }
