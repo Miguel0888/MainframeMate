@@ -51,12 +51,22 @@ public class IndexingSidebar extends JPanel {
         // Register as listener for run completion updates
         indexingService.addListener(new IndexingService.IndexingListener() {
             @Override
-            public void onRunStarted(String sourceId) {}
+            public void onRunStarted(String sourceId) {
+                if (sourceId.equals(activeSourceId) || activeSourceId == null) {
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("⏳ Wird indexiert...");
+                        statusLabel.setForeground(new Color(255, 152, 0));
+                    });
+                }
+            }
 
             @Override
             public void onRunCompleted(String sourceId, IndexRunStatus result) {
                 if (sourceId.equals(activeSourceId) || activeSourceId == null) {
-                    javax.swing.SwingUtilities.invokeLater(() -> refreshStatus());
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        activeSourceId = null; // reset so next refresh picks up any source
+                        refreshStatus();
+                    });
                 }
             }
 

@@ -112,7 +112,9 @@ public class RagContentProcessor implements IndexingPipeline.ContentProcessor {
                 String folderName = folder.contains("/")
                         ? folder.substring(folder.lastIndexOf('/') + 1)
                         : folder;
-                return folderName + "_" + nodeId + ".eml";
+                // Use .txt extension because fetchContent already extracts plain text,
+                // not raw RFC822 – Tika would fail parsing pre-extracted text as email
+                return folderName + "_" + nodeId + ".txt";
             }
         }
 
