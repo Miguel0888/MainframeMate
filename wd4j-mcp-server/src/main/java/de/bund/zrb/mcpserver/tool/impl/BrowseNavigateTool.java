@@ -96,8 +96,43 @@ public class BrowseNavigateTool implements McpServerTool {
 
             return ToolResult.text(sb.toString());
         } catch (Exception e) {
-            return ToolResult.error("Navigation failed: " + e.getMessage());
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+
+            // Check for timeout – encourage retry
+            if (isTimeoutError(msg, e)) {
+                return ToolResult.error(
+                        "Navigation failed: Timeout while waiting for response. "
+                      + "The page may be loading slowly or the browser may be temporarily unresponsive. "
+                      + "Please try again by calling web_navigate with the same URL. "
+                      + "URL: " + url);
+            }
+
+            // Check for connection/session errors that might be fixable by retrying
+            if (msg.contains("WebSocket connection is closed") || msg.contains("not connected")) {
+                return ToolResult.error(
+                        "Navigation failed: The browser session has been lost. "
+                      + "Please try again – the browser will be reconnected automatically. "
+                      + "URL: " + url);
+            }
+
+            return ToolResult.error("Navigation failed: " + msg);
         }
+    }
+
+    /**
+     * Checks if the exception represents a timeout error by examining
+     * the message and cause chain.
+     */
+    private boolean isTimeoutError(String msg, Exception e) {
+        if (msg.toLowerCase().contains("timeout")) return true;
+        Throwable cause = e.getCause();
+        while (cause != null) {
+            if (cause instanceof java.util.concurrent.TimeoutException) return true;
+            String causeMsg = cause.getMessage();
+            if (causeMsg != null && causeMsg.toLowerCase().contains("timeout")) return true;
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     /**

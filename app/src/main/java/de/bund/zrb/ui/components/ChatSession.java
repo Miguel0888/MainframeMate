@@ -159,12 +159,15 @@ public class ChatSession extends JPanel {
 
         // Chat-Mode Dropdown (Ask/Edit/Plan/Agent)
         modeComboBox = new JComboBox<>(ChatMode.values());
-        modeComboBox.setSelectedItem(ChatMode.AGENT);
+        // Restore last used mode from settings
+        ChatMode savedMode = loadLastChatMode();
+        modeComboBox.setSelectedItem(savedMode);
         modeComboBox.setToolTipText(((ChatMode) modeComboBox.getSelectedItem()).getTooltip());
         modeComboBox.addActionListener(e -> {
             ChatMode m = (ChatMode) modeComboBox.getSelectedItem();
             if (m != null) {
                 modeComboBox.setToolTipText(m.getTooltip());
+                saveLastChatMode(m);
             }
         });
         modeComboBox.setPreferredSize(new Dimension(120, 24));
@@ -539,6 +542,29 @@ public class ChatSession extends JPanel {
             sb.append("\n\n").append(contractPostfix);
         }
         return sb.toString();
+    }
+
+    private ChatMode loadLastChatMode() {
+        try {
+            Settings settings = SettingsHelper.load();
+            String modeName = settings.aiConfig.getOrDefault("lastChatMode", "");
+            if (!modeName.isEmpty()) {
+                return ChatMode.valueOf(modeName);
+            }
+        } catch (Exception ignored) {
+            // Invalid or missing mode name – fall back to default
+        }
+        return ChatMode.AGENT;
+    }
+
+    private void saveLastChatMode(ChatMode mode) {
+        try {
+            Settings settings = SettingsHelper.load();
+            settings.aiConfig.put("lastChatMode", mode.name());
+            SettingsHelper.save(settings);
+        } catch (Exception ignored) {
+            // Non-critical – don't break UI
+        }
     }
 
     private String buildLanguageInstruction() {
