@@ -54,6 +54,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         List<McpTool> list = new ArrayList<>();
         // New text-based browsing tools with NodeRef system
         list.add(new BrowserToolAdapter(new BrowseNavigateTool(), browserManager));
+        list.add(new BrowserToolAdapter(new BrowseReadPageTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseSnapshotTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseLocateTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseClickTool(), browserManager));

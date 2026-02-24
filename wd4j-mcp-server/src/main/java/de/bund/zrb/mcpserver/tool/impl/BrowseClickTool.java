@@ -71,7 +71,7 @@ public class BrowseClickTool implements McpServerTool {
             } catch (Exception ignored) {}
 
             return ToolResult.text("Clicked " + ref + ". Current URL: " + url
-                    + "\nUse web_snapshot to see the updated page.");
+                    + "\nUse web_read_page to read the page content, or web_snapshot to see interactive elements.");
         } catch (Exception e) {
             return ToolResult.error("Click failed: " + e.getMessage());
         }

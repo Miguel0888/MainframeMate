@@ -70,7 +70,7 @@ public class BrowseBackForwardTool implements McpServerTool {
             } catch (Exception ignored) {}
 
             return ToolResult.text(action + " done. Current URL: " + url
-                    + "\nUse web_snapshot to see the page.");
+                    + "\nUse web_read_page to read content, or web_snapshot to see interactive elements.");
         } catch (Exception e) {
             return ToolResult.error("History action failed: " + e.getMessage());
         }
