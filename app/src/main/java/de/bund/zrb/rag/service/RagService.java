@@ -229,6 +229,13 @@ public class RagService {
     }
 
     /**
+     * Get the number of chunks in the lexical (Lucene) index.
+     */
+    public int getLexicalIndexSize() {
+        return lexicalIndex != null ? lexicalIndex.size() : 0;
+    }
+
+    /**
      * Retrieve relevant chunks for a query.
      */
     public List<ScoredChunk> retrieve(String query) {

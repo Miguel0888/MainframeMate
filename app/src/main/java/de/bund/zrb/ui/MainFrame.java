@@ -108,6 +108,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         toolRegistry.registerTool(new de.bund.zrb.mcp.SearchAttachmentsTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadChunksTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadDocumentWindowTool(this));
+
+        // Global Search Tool (searches Lucene index across all sources)
+        toolRegistry.registerTool(new de.bund.zrb.mcp.SearchIndexTool(this));
     }
 
     @Override
