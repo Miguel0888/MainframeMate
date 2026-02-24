@@ -8,6 +8,8 @@ import de.bund.zrb.mcpserver.tool.McpServerTool;
 import de.bund.zrb.mcpserver.tool.ToolResult;
 import de.bund.zrb.type.script.WDEvaluateResult;
 
+import java.util.concurrent.*;
+
 /**
  * Navigate to a URL and return a compact page snapshot with page text excerpt.
  * Invalidates all existing NodeRefs.
@@ -52,6 +54,62 @@ public class BrowseNavigateTool implements McpServerTool {
             return ToolResult.error("Missing required parameter 'url'. Example: {\"name\":\"web_navigate\",\"input\":{\"url\":\"https://example.com\"}}");
         }
 
+        // Configurable timeout via system property (default 30s)
+        long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<ToolResult> future = executor.submit(new Callable<ToolResult>() {
+            @Override
+            public ToolResult call() throws Exception {
+                return doNavigate(url, session);
+            }
+        });
+
+        try {
+            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            // Kill the browser process – it's hanging
+            System.err.println("[web_navigate] Timeout after " + timeoutSeconds + "s navigating to: " + url + " – killing browser process");
+            session.killBrowserProcess();
+            return ToolResult.error(
+                    "Navigation failed: Timeout after " + timeoutSeconds + " seconds. "
+                  + "The browser was unresponsive and has been terminated. "
+                  + "It will be automatically restarted on the next request. "
+                  + "Please try again by calling web_navigate with the same URL. "
+                  + "URL: " + url);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            String msg = cause != null && cause.getMessage() != null ? cause.getMessage() : e.getMessage();
+            if (isTimeoutError(msg, e)) {
+                System.err.println("[web_navigate] Inner timeout navigating to: " + url + " – killing browser process");
+                session.killBrowserProcess();
+                return ToolResult.error(
+                        "Navigation failed: Timeout while waiting for response. "
+                      + "The browser was unresponsive and has been terminated. "
+                      + "It will be automatically restarted on the next request. "
+                      + "Please try again by calling web_navigate with the same URL. "
+                      + "URL: " + url);
+            }
+            if (msg != null && (msg.contains("WebSocket connection is closed") || msg.contains("not connected"))) {
+                return ToolResult.error(
+                        "Navigation failed: The browser session has been lost. "
+                      + "Please try again – the browser will be reconnected automatically. "
+                      + "URL: " + url);
+            }
+            return ToolResult.error("Navigation failed: " + msg);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ToolResult.error("Navigation was interrupted. URL: " + url);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * Performs the actual navigation + snapshot + page excerpt extraction.
+     */
+    private ToolResult doNavigate(String url, BrowserSession session) {
         try {
             // Invalidate old refs
             session.getNodeRefRegistry().invalidateAll();
@@ -65,7 +123,10 @@ public class BrowseNavigateTool implements McpServerTool {
             ToolResult snapshotResult = null;
 
             for (int attempt = 0; attempt < 3; attempt++) {
-                try { Thread.sleep(attempt == 0 ? 1000 : 1500); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(attempt == 0 ? 1000 : 1500); } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                    return ToolResult.error("Navigation interrupted during page load. URL: " + url);
+                }
 
                 snapshotResult = snapshotTool.execute(snapshotParams, session);
                 if (snapshotResult != null && !snapshotResult.isError()) {

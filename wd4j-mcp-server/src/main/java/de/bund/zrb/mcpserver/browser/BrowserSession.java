@@ -184,6 +184,29 @@ public class BrowserSession {
         }
     }
 
+    /**
+     * Forcefully kill the browser process and reset all session state.
+     * After calling this, the next getSession() call in WebSearchBrowserManager
+     * will detect isConnected()==false and re-launch the browser.
+     */
+    public void killBrowserProcess() {
+        System.err.println("[BrowserSession] Killing browser process due to timeout/hang");
+        try {
+            if (webSocket != null) {
+                try { webSocket.close(); } catch (Exception ignored) {}
+            }
+        } finally {
+            if (browserProcess != null) {
+                browserProcess.destroyForcibly();
+                browserProcess = null;
+            }
+            driver = null;
+            webSocket = null;
+            contextId = null;
+            nodeRefRegistry.invalidateAll();
+        }
+    }
+
     // ── State queries ───────────────────────────────────────────────
 
     public boolean isConnected() {

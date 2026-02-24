@@ -107,7 +107,8 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
         send(command);
 
         try {
-            WDCommandResponse<?> response = future.get(30, TimeUnit.SECONDS);
+            long timeoutSeconds = Long.getLong("wd4j.command.timeout.seconds", 30);
+            WDCommandResponse<?> response = future.get(timeoutSeconds, TimeUnit.SECONDS);
 
             // Fehler: hier prüfen und ggf. Exception werfen
             if (response instanceof WDErrorResponse) {

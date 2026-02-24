@@ -49,6 +49,10 @@ public class WebSearchBrowserManager {
         boolean headless = isHeadless();
         LOG.info("[WebSearch] Launching browser: " + browserPath + " (headless=" + headless + ")");
 
+        // Apply saved timeout to system property
+        String savedTimeout = loadSettings().getOrDefault("navigateTimeoutSeconds", "30");
+        System.setProperty("websearch.navigate.timeout.seconds", savedTimeout);
+
         session = new BrowserSession();
         try {
             session.launchAndConnect(browserPath, new ArrayList<String>(), headless, 30000L);
