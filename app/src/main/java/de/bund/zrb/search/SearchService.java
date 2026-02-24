@@ -109,13 +109,14 @@ public class SearchService {
 
     private List<SearchResult> searchLucene(String query, int maxResults) {
         RagService rag = RagService.getInstance();
-        // Use retrieve with explicit topK to respect maxResults
-        List<ScoredChunk> chunks = rag.retrieve(query, maxResults * 3); // fetch extra for grouping
+        // Direct Lucene search – no semantic/embedding involvement
+        List<ScoredChunk> chunks = rag.searchLexicalOnly(query, maxResults * 3);
         return convertChunks(chunks, maxResults, query);
     }
 
     private List<SearchResult> searchRag(String query, int maxResults) {
         RagService rag = RagService.getInstance();
+        // Hybrid search via HybridRetriever (BM25 + Embeddings)
         List<ScoredChunk> chunks = rag.retrieve(query, maxResults * 3);
         return convertChunks(chunks, maxResults, query);
     }

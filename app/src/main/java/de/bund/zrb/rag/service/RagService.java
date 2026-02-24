@@ -199,6 +199,18 @@ public class RagService {
     }
 
     /**
+     * Search ONLY the Lucene lexical index (BM25).
+     * Does NOT use semantic/embedding search.
+     * Use this for the global search when RAG checkbox is off.
+     */
+    public List<ScoredChunk> searchLexicalOnly(String query, int topN) {
+        if (lexicalIndex == null || !lexicalIndex.isAvailable()) {
+            return Collections.emptyList();
+        }
+        return lexicalIndex.search(query, topN);
+    }
+
+    /**
      * Retrieve relevant chunks for a query.
      */
     public List<ScoredChunk> retrieve(String query) {
