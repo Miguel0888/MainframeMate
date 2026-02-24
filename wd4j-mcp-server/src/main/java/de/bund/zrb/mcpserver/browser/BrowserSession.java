@@ -204,7 +204,7 @@ public class BrowserSession {
     private String resolveContext(String ctxId) {
         String ctx = ctxId != null ? ctxId : this.contextId;
         if (ctx == null || ctx.isEmpty()) {
-            throw new IllegalStateException("No active browsing context. Call browser_open or browser_launch first.");
+            throw new IllegalStateException("No active browsing context. The browser may not have started correctly. Check the Websearch plugin settings.");
         }
         return ctx;
     }

@@ -52,8 +52,8 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
     private List<McpTool> createTools() {
         List<McpTool> list = new ArrayList<>();
-        list.add(new BrowserToolAdapter(new BrowserOpenTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowserLaunchTool(), browserManager));
+        // browser_launch / browser_open are NOT exposed as tools –
+        // the browser is started automatically by WebSearchBrowserManager on first use.
         list.add(new BrowserToolAdapter(new BrowserNavigateTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowserClickCssTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowserTypeCssTool(), browserManager));

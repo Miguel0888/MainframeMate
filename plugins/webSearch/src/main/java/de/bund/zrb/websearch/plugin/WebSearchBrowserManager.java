@@ -3,14 +3,18 @@ package de.bund.zrb.websearch.plugin;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.zrb.bund.api.MainframeContext;
 
+import java.util.ArrayList;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
  * Manages the shared BrowserSession lifecycle for the WebSearch plugin.
- * Lazily initializes the browser on first tool call.
+ * The browser is launched and connected lazily on first tool call.
+ * All chat sessions share the same browser connection.
  */
 public class WebSearchBrowserManager {
 
+    private static final Logger LOG = Logger.getLogger(WebSearchBrowserManager.class.getName());
     private static final String PLUGIN_KEY = "webSearch";
 
     private final MainframeContext context;
@@ -21,14 +25,41 @@ public class WebSearchBrowserManager {
     }
 
     /**
-     * Get the shared browser session, creating it if necessary.
-     * The session is NOT automatically connected — tools like browser_open
-     * or browser_launch handle that.
+     * Get the shared browser session. If the browser is not yet running,
+     * it is launched and connected automatically using the plugin settings.
      */
     public synchronized BrowserSession getSession() {
-        if (session == null) {
-            session = new BrowserSession();
+        if (session != null && session.isConnected()) {
+            return session;
         }
+
+        // Close stale session if any
+        if (session != null) {
+            try { session.close(); } catch (Exception ignored) {}
+            session = null;
+        }
+
+        String browserPath = getBrowserPath();
+        if (browserPath == null || browserPath.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "Browser-Pfad ist nicht konfiguriert. "
+                  + "Bitte unter Einstellungen \u2192 Plugin-Einstellungen \u2192 Websearch setzen.");
+        }
+
+        boolean headless = isHeadless();
+        LOG.info("[WebSearch] Launching browser: " + browserPath + " (headless=" + headless + ")");
+
+        session = new BrowserSession();
+        try {
+            session.launchAndConnect(browserPath, new ArrayList<String>(), headless, 30000L);
+            LOG.info("[WebSearch] Browser connected, contextId=" + session.getContextId());
+        } catch (Exception e) {
+            LOG.severe("[WebSearch] Failed to launch browser: " + e.getMessage());
+            try { session.close(); } catch (Exception ignored) {}
+            session = null;
+            throw new RuntimeException("Browser konnte nicht gestartet werden: " + e.getMessage(), e);
+        }
+
         return session;
     }
 
@@ -37,7 +68,7 @@ public class WebSearchBrowserManager {
             try {
                 session.close();
             } catch (Exception e) {
-                System.err.println("[WebSearch] Error closing browser session: " + e.getMessage());
+                LOG.warning("[WebSearch] Error closing browser session: " + e.getMessage());
             }
             session = null;
         }
