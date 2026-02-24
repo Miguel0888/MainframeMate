@@ -4,16 +4,19 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
+import de.bund.zrb.ui.components.HelpButton;
+import de.bund.zrb.ui.help.HelpContentProvider;
+
 /**
  * Helper for building two-column form panels (label left, control right)
  * with consistent alignment and spacing, used in the Outlook-style settings dialog.
  */
-final class FormBuilder {
+final public class FormBuilder {
 
     private final JPanel panel;
     private final GridBagConstraints gbc;
 
-    FormBuilder() {
+    public FormBuilder() {
         panel = new JPanel(new GridBagLayout());
         panel.setBorder(new EmptyBorder(8, 12, 8, 12));
         gbc = new GridBagConstraints();
@@ -23,7 +26,7 @@ final class FormBuilder {
     }
 
     /** The built panel. */
-    JPanel getPanel() {
+    public JPanel getPanel() {
         // Filler to push everything to the top
         gbc.gridx = 0;
         gbc.weighty = 1.0;
@@ -37,12 +40,12 @@ final class FormBuilder {
     // ---- Row types ----
 
     /** Label (col 0) + component (col 1) on the same row. */
-    FormBuilder addRow(String label, JComponent component) {
+    public FormBuilder addRow(String label, JComponent component) {
         return addRow(new JLabel(label), component);
     }
 
     /** Custom label component (col 0) + component (col 1) on the same row. */
-    FormBuilder addRow(JComponent labelComp, JComponent component) {
+    public FormBuilder addRow(JComponent labelComp, JComponent component) {
         gbc.gridx = 0;
         gbc.gridwidth = 1;
         gbc.fill = GridBagConstraints.NONE;
@@ -59,8 +62,30 @@ final class FormBuilder {
         return this;
     }
 
+    /** Label (col 0) with blue help icon + component (col 1) on the same row. */
+    public FormBuilder addRowHelp(String label, JComponent component, HelpContentProvider.HelpTopic topic) {
+        JPanel labelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        labelPanel.setOpaque(false);
+        labelPanel.add(new JLabel(label));
+        HelpButton helpBtn = new HelpButton("Hilfe");
+        helpBtn.addActionListener(e -> HelpContentProvider.showHelpPopup((Component) e.getSource(), topic));
+        labelPanel.add(helpBtn);
+        return addRow(labelPanel, component);
+    }
+
+    /** Full-width checkbox with blue help icon on the right. */
+    public FormBuilder addWideHelp(JComponent component, HelpContentProvider.HelpTopic topic) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        row.setOpaque(false);
+        row.add(component);
+        HelpButton helpBtn = new HelpButton("Hilfe");
+        helpBtn.addActionListener(e -> HelpContentProvider.showHelpPopup((Component) e.getSource(), topic));
+        row.add(helpBtn);
+        return addWide(row);
+    }
+
     /** Full-width component (spans both columns). */
-    FormBuilder addWide(JComponent component) {
+    public FormBuilder addWide(JComponent component) {
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -73,7 +98,7 @@ final class FormBuilder {
     }
 
     /** Full-width component that also expands vertically (e.g. tables, text areas). */
-    FormBuilder addWideGrow(JComponent component) {
+    public FormBuilder addWideGrow(JComponent component) {
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.BOTH;
@@ -89,7 +114,7 @@ final class FormBuilder {
     }
 
     /** Section header – bold label spanning both columns. */
-    FormBuilder addSection(String title) {
+    public FormBuilder addSection(String title) {
         addSeparator();
         JLabel lbl = new JLabel(title);
         lbl.setFont(lbl.getFont().deriveFont(Font.BOLD, lbl.getFont().getSize2D() + 1f));
@@ -105,7 +130,7 @@ final class FormBuilder {
     }
 
     /** Thin separator line. */
-    FormBuilder addSeparator() {
+    public FormBuilder addSeparator() {
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -118,7 +143,7 @@ final class FormBuilder {
     }
 
     /** Vertical gap. */
-    FormBuilder addGap(int height) {
+    public FormBuilder addGap(int height) {
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         panel.add(Box.createVerticalStrut(height), gbc);
@@ -128,7 +153,7 @@ final class FormBuilder {
     }
 
     /** Info text (gray, small, spanning both columns). */
-    FormBuilder addInfo(String htmlText) {
+    public FormBuilder addInfo(String htmlText) {
         JLabel info = new JLabel("<html><small>" + htmlText + "</small></html>");
         info.setForeground(Color.GRAY);
         gbc.gridx = 0;
@@ -141,7 +166,7 @@ final class FormBuilder {
     }
 
     /** Label (col 0) + component + extra button on the right, all on one row. */
-    FormBuilder addRowWithButton(String label, JComponent component, JButton button) {
+    public FormBuilder addRowWithButton(String label, JComponent component, JButton button) {
         gbc.gridx = 0;
         gbc.gridwidth = 1;
         gbc.fill = GridBagConstraints.NONE;
@@ -163,7 +188,7 @@ final class FormBuilder {
     }
 
     /** Buttons panel (right-aligned, spanning both columns). */
-    FormBuilder addButtons(JButton... buttons) {
+    public FormBuilder addButtons(JButton... buttons) {
         JPanel bp = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         for (JButton b : buttons) bp.add(b);
         gbc.gridx = 0;
