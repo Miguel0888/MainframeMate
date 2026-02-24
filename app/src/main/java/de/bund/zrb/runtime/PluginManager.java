@@ -38,6 +38,10 @@ public class PluginManager {
 
         // 3. Dynamisch geladene Plugins aus JARs im Plugin-Verzeichnis
         loadExternalPlugins(mainFrame);
+
+        // 4. Gespeicherte Tool-Definitionen bereinigen (entfernt verwaiste Einträge aus tools.json)
+        ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
+        registry.cleanupStoredTools();
     }
 
     public static List<MainframeMatePlugin> getPlugins() {
