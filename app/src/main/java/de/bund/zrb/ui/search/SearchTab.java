@@ -549,21 +549,26 @@ public class SearchTab extends JPanel implements FtpTab {
         if (modelRow < 0 || modelRow >= currentResults.size()) return;
 
         SearchResult result = currentResults.get(modelRow);
-        String path = result.getDocumentId(); // documentId is the full path used during indexing
+        String rawPath = result.getDocumentId(); // documentId is the full path used during indexing
 
         if (tabManager == null) {
             // Fallback: show info dialog if no tabManager available
             JOptionPane.showMessageDialog(this,
                     "Dokument: " + result.getDocumentName()
-                            + "\nPfad: " + path,
+                            + "\nPfad: " + rawPath,
                     "Suchergebnis", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
         try {
-            // Open via VirtualResourceOpener (handles LOCAL, FTP, etc.)
-            new de.bund.zrb.ui.VirtualResourceOpener(tabManager)
-                    .open(path, null, lastQuery, null, true);
+            // Build prefixed path based on source type so the routing in
+            // MainFrame.openFileOrDirectory() can dispatch to the correct backend
+            String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.buildPrefixedPath(
+                    sourceTypeToBackend(result.getSource()), rawPath);
+
+            // Route through MainframeContext which handles mail://, ndv://, local://, ftp:
+            tabManager.getMainframeContext()
+                    .openFileOrDirectory(prefixedPath, null, lastQuery, null);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                     "Fehler beim \u00d6ffnen:\n" + e.getMessage(),

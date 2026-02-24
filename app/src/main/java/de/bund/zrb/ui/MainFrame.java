@@ -366,6 +366,27 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
+        if (path == null || path.isEmpty()) return null;
+
+        // Route mail:// paths to the mail-opening logic (same as bookmarks)
+        if (path.startsWith(de.bund.zrb.files.path.VirtualResourceRef.MAIL_PREFIX)) {
+            String mailPath = path.substring(de.bund.zrb.files.path.VirtualResourceRef.MAIL_PREFIX.length());
+            openMailBookmark(mailPath);
+            return null; // opened async via SwingWorker
+        }
+
+        // Route ndv:// paths to the NDV-opening logic (same as bookmarks)
+        if (path.startsWith(de.bund.zrb.files.path.VirtualResourceRef.NDV_PREFIX)) {
+            String ndvPath = path.substring(de.bund.zrb.files.path.VirtualResourceRef.NDV_PREFIX.length());
+            // Create a minimal BookmarkEntry with the raw path – openNdvFileBookmark
+            // handles the fallback (no NDV metadata) via resolvePath(rawPath)
+            de.bund.zrb.model.BookmarkEntry ndvEntry = new de.bund.zrb.model.BookmarkEntry();
+            ndvEntry.path = de.bund.zrb.model.BookmarkEntry.PREFIX_NDV + ndvPath;
+            ndvEntry.resourceKind = "FILE";
+            openNdvFileBookmark(ndvEntry);
+            return null; // opened async
+        }
+
         return new VirtualResourceOpener(tabManager)
                 .open(path, sentenceType, searchPattern, toCompare);
     }
