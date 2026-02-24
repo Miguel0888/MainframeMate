@@ -30,8 +30,15 @@ public class ToolPolicyRepository {
     public List<ToolPolicy> loadAll() {
         List<ToolPolicy> existing = readFile();
         Map<String, ToolPolicy> merged = new LinkedHashMap<>();
+
+        // Collect names of currently registered tools
+        java.util.Set<String> registeredNames = new java.util.HashSet<>();
+        ToolRegistryImpl.getInstance().getAllTools().forEach(tool ->
+                registeredNames.add(tool.getSpec().getName()));
+
+        // Keep only policies for tools that are still registered
         for (ToolPolicy p : existing) {
-            if (p != null && p.getToolName() != null) {
+            if (p != null && p.getToolName() != null && registeredNames.contains(p.getToolName())) {
                 if (p.getAccessType() == null) {
                     p.setAccessType(ToolAccessTypeDefaults.resolveDefault(p.getToolName()));
                 }
@@ -39,14 +46,14 @@ public class ToolPolicyRepository {
             }
         }
 
-        ToolRegistryImpl.getInstance().getAllTools().forEach(tool -> {
-            String name = tool.getSpec().getName();
+        // Add new tools that have no policy yet
+        for (String name : registeredNames) {
             if (!merged.containsKey(name)) {
                 ToolAccessType access = ToolAccessTypeDefaults.resolveDefault(name);
                 boolean ask = access.isWrite();
                 merged.put(name, new ToolPolicy(name, true, ask, access));
             }
-        });
+        }
 
         List<ToolPolicy> list = new ArrayList<>(merged.values());
         saveAll(list);
