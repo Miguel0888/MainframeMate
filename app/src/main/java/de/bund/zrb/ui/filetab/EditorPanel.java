@@ -107,6 +107,18 @@ public class EditorPanel extends JPanel {
         }
     }
 
+    /** Re-apply font and margin settings from the current (fresh) settings. */
+    public void applySettings(Settings settings) {
+        Font font = new Font(settings.editorFont, Font.PLAIN, settings.editorFontSize);
+        textArea.setFont(font);
+        if (settings.marginColumn > 0) {
+            textArea.setMarginLineEnabled(true);
+            textArea.setMarginLinePosition(settings.marginColumn);
+        } else {
+            textArea.setMarginLineEnabled(false);
+        }
+    }
+
     public RSyntaxTextArea getTextArea() {
         return textArea;
     }
