@@ -33,8 +33,15 @@ public class BrowserToolAdapter implements McpTool {
         Map<String, ToolSpec.Property> props = new LinkedHashMap<>();
         List<String> required = new ArrayList<>();
 
+        // For browser_launch: hide settings-managed params from the bot
+        Set<String> hiddenParams = Collections.emptySet();
+        if ("browser_launch".equals(delegate.name())) {
+            hiddenParams = new HashSet<>(Arrays.asList("browserExecutablePath", "headless"));
+        }
+
         if (schema.has("properties")) {
             for (Map.Entry<String, JsonElement> entry : schema.getAsJsonObject("properties").entrySet()) {
+                if (hiddenParams.contains(entry.getKey())) continue;
                 JsonObject propObj = entry.getValue().getAsJsonObject();
                 String type = propObj.has("type") ? propObj.get("type").getAsString() : "string";
                 String desc = propObj.has("description") ? propObj.get("description").getAsString() : "";
@@ -43,7 +50,10 @@ public class BrowserToolAdapter implements McpTool {
         }
         if (schema.has("required") && schema.get("required").isJsonArray()) {
             for (JsonElement el : schema.getAsJsonArray("required")) {
-                required.add(el.getAsString());
+                String name = el.getAsString();
+                if (!hiddenParams.contains(name)) {
+                    required.add(name);
+                }
             }
         }
 
