@@ -6,6 +6,7 @@ import de.bund.zrb.command.response.WDBrowsingContextResult;
 import de.bund.zrb.manager.*;
 import de.bund.zrb.type.browsingContext.WDBrowsingContext;
 import de.bund.zrb.type.browsingContext.WDLocator;
+import de.bund.zrb.type.browsingContext.WDReadinessState;
 import de.bund.zrb.type.script.*;
 
 import java.net.URI;
@@ -65,7 +66,9 @@ public class BrowserSession {
 
     public WDBrowsingContextResult.NavigateResult navigate(String url, String ctxId) {
         String ctx = resolveContext(ctxId);
-        return driver.browsingContext().navigate(url, ctx);
+        // Use INTERACTIVE readiness state to avoid timeouts on heavy pages
+        // (e.g. news sites with many ads/trackers that never reach "complete").
+        return driver.browsingContext().navigate(url, ctx, WDReadinessState.INTERACTIVE);
     }
 
     // ── Screenshot ──────────────────────────────────────────────────

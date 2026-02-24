@@ -61,8 +61,10 @@ public class BrowseNavigateTool implements McpServerTool {
 
         LOG.info("[web_navigate] Navigating to: " + url);
 
-        // Configurable timeout via system property (default 30s)
-        long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
+        // Configurable timeout via system property (default 60s).
+        // The navigation itself now waits only for "interactive" readiness,
+        // but the snapshot + excerpt extraction afterwards can also take time.
+        long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 60);
         LOG.fine("[web_navigate] Timeout: " + timeoutSeconds + "s");
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
