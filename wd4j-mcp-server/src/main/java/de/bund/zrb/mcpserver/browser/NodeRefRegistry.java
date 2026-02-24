@@ -57,6 +57,16 @@ public class NodeRefRegistry {
     }
 
     /**
+     * Update the display info of an existing NodeRef (after enrichment via JS).
+     */
+    public void updateInfo(String nodeRefId, String tag, String text, String role, String name) {
+        Entry entry = refs.get(nodeRefId);
+        if (entry == null) return;
+        NodeRef updated = new NodeRef(nodeRefId, tag, text, role, name, entry.nodeRef.isInteractive());
+        refs.put(nodeRefId, new Entry(updated, entry.sharedRef, entry.snapshotVersion));
+    }
+
+    /**
      * Get all registered NodeRefs (for listing).
      */
     public List<NodeRef> getAll() {
@@ -90,4 +100,3 @@ public class NodeRefRegistry {
         return refs.size();
     }
 }
-

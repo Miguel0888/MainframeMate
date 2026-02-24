@@ -69,8 +69,8 @@ public class BrowseSnapshotTool implements McpServerTool {
             List<NodeRef> refs = session.locateAndRegister(
                     new WDLocator.CssLocator(interactiveSelector), 200);
 
-            // Enrich NodeRefs with accessible info via JS
-            enrichNodeRefs(session, refs);
+            // Enrich NodeRefs with tag, text, aria-label via JS
+            session.enrichNodeRefsViaJs(refs);
 
             // Build text output
             StringBuilder sb = new StringBuilder();
@@ -104,11 +104,6 @@ public class BrowseSnapshotTool implements McpServerTool {
         }
     }
 
-    private void enrichNodeRefs(BrowserSession session, List<NodeRef> refs) {
-        // Batch-enrich via JS: get tag, text, aria-label for each node
-        // This is done during locateAndRegister via node properties
-        // Additional enrichment can be added here if needed
-    }
 
     private String evalString(BrowserSession session, String script) {
         try {

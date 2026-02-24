@@ -250,6 +250,184 @@ public class BrowserSession {
     }
 
     /**
+     * Locate elements by visible text content via JS, then register as NodeRefs.
+     * Workaround for Firefox not supporting innerText locator in BiDi yet.
+     */
+    public List<NodeRef> locateByTextAndRegister(String searchText, int maxCount) {
+        String ctx = resolveContext(null);
+        String escaped = searchText.replace("\\", "\\\\").replace("'", "\\'");
+
+        // Step 1: Find matching elements via JS and tag them with a unique data attribute
+        String markerId = "mm-locate-" + System.currentTimeMillis();
+        String findScript =
+                "(function(){"
+              + "var q='" + escaped + "'.toLowerCase();"
+              + "var all=document.querySelectorAll('*');"
+              + "var found=0;"
+              + "for(var i=0;i<all.length&&found<" + maxCount + ";i++){"
+              + "  var el=all[i];"
+              + "  if(el.children.length>3)continue;"  // skip containers, prefer leaf nodes
+              + "  var t=(el.innerText||el.textContent||'').trim();"
+              + "  if(t.toLowerCase().indexOf(q)>=0){"
+              + "    el.setAttribute('data-mm-locate','" + markerId + "');"
+              + "    found++;"
+              + "  }"
+              + "}"
+              + "return found;"
+              + "})()";
+
+        try {
+            WDEvaluateResult evalResult = evaluate(findScript, true, ctx);
+            int count = 0;
+            if (evalResult instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
+                try {
+                    count = Integer.parseInt(
+                            ((WDEvaluateResult.WDEvaluateResultSuccess) evalResult).getResult().asString());
+                } catch (NumberFormatException ignored) {}
+            }
+
+            if (count == 0) {
+                return new ArrayList<NodeRef>();
+            }
+
+            // Step 2: Use CSS locator to find the tagged elements (gets us SharedReferences)
+            WDLocator cssLocator = new WDLocator.CssLocator("[data-mm-locate='" + markerId + "']");
+            List<NodeRef> refs = locateAndRegister(cssLocator, maxCount);
+
+            // Step 3: Clean up the marker attributes
+            String cleanupScript =
+                    "(function(){"
+                  + "var els=document.querySelectorAll('[data-mm-locate=\"" + markerId + "\"]');"
+                  + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-locate');"
+                  + "})()";
+            evaluate(cleanupScript, true, ctx);
+
+            // Step 4: Enrich NodeRefs with text/tag info via JS
+            enrichNodeRefsViaJs(refs, ctx);
+
+            return refs;
+        } catch (Exception e) {
+            // Cleanup on error
+            try {
+                evaluate("(function(){var els=document.querySelectorAll('[data-mm-locate]');"
+                       + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-locate');})()", true, ctx);
+            } catch (Exception ignored) {}
+            throw new RuntimeException("Text locate failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Locate elements by accessible name/role via JS, then register as NodeRefs.
+     * Workaround for browsers that don't fully support accessibility locator.
+     */
+    public List<NodeRef> locateByAriaAndRegister(String name, String role, int maxCount) {
+        // Try the native accessibility locator first
+        try {
+            WDLocator.AccessibilityLocator.Value val = new WDLocator.AccessibilityLocator.Value(name, role);
+            WDLocator locator = new WDLocator.AccessibilityLocator(val);
+            List<NodeRef> refs = locateAndRegister(locator, maxCount);
+            if (!refs.isEmpty()) {
+                enrichNodeRefsViaJs(refs, resolveContext(null));
+                return refs;
+            }
+        } catch (Exception ignored) {
+            // Browser doesn't support it, fall back to JS
+        }
+
+        // Fallback: search by aria-label, role attribute, and button/link text
+        String escaped = name.replace("\\", "\\\\").replace("'", "\\'");
+        String markerId = "mm-aria-" + System.currentTimeMillis();
+        String roleFilter = role != null ? "&&(el.getAttribute('role')=='" + role.replace("'", "\\'") + "'||el.tagName.toLowerCase()=='" + role.replace("'", "\\'") + "')" : "";
+
+        String findScript =
+                "(function(){"
+              + "var q='" + escaped + "'.toLowerCase();"
+              + "var all=document.querySelectorAll('*');"
+              + "var found=0;"
+              + "for(var i=0;i<all.length&&found<" + maxCount + ";i++){"
+              + "  var el=all[i];"
+              + "  var al=(el.getAttribute('aria-label')||'').toLowerCase();"
+              + "  var txt=(el.textContent||'').trim().toLowerCase();"
+              + "  var title=(el.getAttribute('title')||'').toLowerCase();"
+              + "  if((al.indexOf(q)>=0||txt.indexOf(q)>=0||title.indexOf(q)>=0)" + roleFilter + "){"
+              + "    el.setAttribute('data-mm-locate','" + markerId + "');"
+              + "    found++;"
+              + "  }"
+              + "}"
+              + "return found;"
+              + "})()";
+
+        String ctx = resolveContext(null);
+        try {
+            evaluate(findScript, true, ctx);
+            WDLocator cssLocator = new WDLocator.CssLocator("[data-mm-locate='" + markerId + "']");
+            List<NodeRef> refs = locateAndRegister(cssLocator, maxCount);
+            evaluate("(function(){var els=document.querySelectorAll('[data-mm-locate=\"" + markerId + "\"]');"
+                   + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-locate');})()", true, ctx);
+            enrichNodeRefsViaJs(refs, ctx);
+            return refs;
+        } catch (Exception e) {
+            try {
+                evaluate("(function(){var els=document.querySelectorAll('[data-mm-locate]');"
+                       + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-locate');})()", true, ctx);
+            } catch (Exception ignored) {}
+            throw new RuntimeException("ARIA locate failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Enrich NodeRefs with visible text, tag name, and aria-label via JS calls.
+     * Convenience method using the default context.
+     */
+    public void enrichNodeRefsViaJs(List<NodeRef> refs) {
+        enrichNodeRefsViaJs(refs, resolveContext(null));
+    }
+
+    /**
+     * Enrich NodeRefs with visible text, tag name, and aria-label via a single JS call per ref.
+     */
+    public void enrichNodeRefsViaJs(List<NodeRef> refs, String ctx) {
+        if (refs.isEmpty()) return;
+        // Build a JS that for each SharedRef returns tag, text, aria info
+        // We do this by iterating via callFunction on each ref
+        for (NodeRef ref : refs) {
+            try {
+                NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(ref.getId());
+                WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
+                List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
+                WDEvaluateResult result = driver.script().callFunction(
+                        "function(el){"
+                      + "return el.tagName.toLowerCase()+'|'+"
+                      + "(el.getAttribute('aria-label')||'')+'|'+"
+                      + "(el.innerText||el.textContent||'').trim().substring(0,60)+'|'+"
+                      + "(el.getAttribute('type')||'')+'|'+"
+                      + "(el.getAttribute('name')||'')+'|'+"
+                      + "(el.getAttribute('href')||'')+'|'+"
+                      + "(el.value||'')"
+                      + ";}",
+                        true, target, args);
+                if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
+                    String info = ((WDEvaluateResult.WDEvaluateResultSuccess) result).getResult().asString();
+                    String[] parts = info.split("\\|", -1);
+                    if (parts.length >= 3) {
+                        // Re-register with enriched info (overwrite existing)
+                        String tag = parts[0];
+                        String ariaLabel = parts[1];
+                        String text = parts[2];
+                        String displayName = !ariaLabel.isEmpty() ? ariaLabel : text;
+                        // Update the existing NodeRef in registry
+                        nodeRefRegistry.updateInfo(ref.getId(), tag, text, null, displayName);
+                    }
+                }
+            } catch (Exception ignored) {
+                // Skip enrichment for this ref
+            }
+        }
+    }
+
+    // ── NodeRef-based Actions ────────────────────────────────────────
+
+    /**
      * Click a node by its NodeRef ID.
      */
     public void clickNodeRef(String nodeRefId) {
@@ -279,43 +457,42 @@ public class BrowserSession {
     }
 
     /**
-     * Hover over a node by its NodeRef ID.
-     */
-    public void hoverNodeRef(String nodeRefId) {
-        NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
-        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
-        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
-        driver.script().callFunction(
-                "function(el){el.scrollIntoView({block:'center'});"
-              + "el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));"
-              + "el.dispatchEvent(new MouseEvent('mouseenter',{bubbles:true}));}",
-                true, target, args);
-    }
-
-    /**
      * Select an option in a <select> by its NodeRef ID.
      */
     public void selectOptionNodeRef(String nodeRefId, String value, String label, Integer index) {
         NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
         WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
-        String criteria;
+
+        String jsValue;
         if (value != null) {
-            criteria = "'value','" + value.replace("'", "\\'") + "'";
+            jsValue = "'" + value.replace("'", "\\'") + "'";
         } else if (label != null) {
-            criteria = "'label','" + label.replace("'", "\\'") + "'";
+            jsValue = "'" + label.replace("'", "\\'") + "'";
         } else if (index != null) {
-            criteria = "'index'," + index;
+            jsValue = String.valueOf(index);
         } else {
             throw new IllegalArgumentException("Provide value, label, or index for select");
         }
-        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
+
+        String mode = value != null ? "value" : label != null ? "label" : "index";
+
+        List<WDLocalValue> args = new ArrayList<WDLocalValue>();
+        args.add(entry.sharedRef);
+        args.add(new WDPrimitiveProtocolValue.StringValue(mode));
+        args.add(new WDPrimitiveProtocolValue.StringValue(jsValue));
+
         driver.script().callFunction(
-                "function(el){var m=" + criteria + ";"
-              + "var opts=el.options;for(var i=0;i<opts.length;i++){"
-              + "if((m==='value'&&opts[i].value===arguments[1])"
-              + "||(m==='label'&&opts[i].text===arguments[1])"
-              + "||(m==='index'&&i===arguments[1])){el.selectedIndex=i;break;}}"
-              + "el.dispatchEvent(new Event('change',{bubbles:true}));}",
+                "function(el,mode,val){"
+              + "var opts=el.options;"
+              + "for(var i=0;i<opts.length;i++){"
+              + "  if((mode==='value'&&opts[i].value===val)"
+              + "  ||(mode==='label'&&opts[i].text===val)"
+              + "  ||(mode==='index'&&i===parseInt(val))){"
+              + "    el.selectedIndex=i;break;"
+              + "  }"
+              + "}"
+              + "el.dispatchEvent(new Event('change',{bubbles:true}));"
+              + "}",
                 true, target, args);
     }
 

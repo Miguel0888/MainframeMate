@@ -62,23 +62,23 @@ public class BrowseLocateTool implements McpServerTool {
         int maxResults = params.has("maxResults") ? params.get("maxResults").getAsInt() : 10;
 
         try {
-            WDLocator locator;
+            List<NodeRef> refs;
             switch (strategy.toLowerCase()) {
                 case "text":
-                    locator = new WDLocator.InnerTextLocator(query);
+                    // Firefox doesn't support innerText locator in BiDi yet,
+                    // so we use JS-based text search + CSS locateNodes for SharedRefs
+                    refs = session.locateByTextAndRegister(query, maxResults);
                     break;
                 case "aria":
-                    // Use query as accessible name
-                    locator = new WDLocator.AccessibilityLocator(
-                            new WDLocator.AccessibilityLocator.Value(query, null));
+                    // Try native accessibility locator, fallback to JS
+                    refs = session.locateByAriaAndRegister(query, null, maxResults);
                     break;
                 case "css":
                 default:
-                    locator = new WDLocator.CssLocator(query);
+                    refs = session.locateAndRegister(new WDLocator.CssLocator(query), maxResults);
                     break;
             }
 
-            List<NodeRef> refs = session.locateAndRegister(locator, maxResults);
 
             if (refs.isEmpty()) {
                 return ToolResult.text("No elements found for " + strategy + ":'" + query + "'.\n"
