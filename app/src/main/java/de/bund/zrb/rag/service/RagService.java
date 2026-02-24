@@ -211,6 +211,14 @@ public class RagService {
     }
 
     /**
+     * Get the number of chunks in the semantic (embedding) index.
+     * Returns 0 if no embeddings have been generated.
+     */
+    public int getSemanticIndexSize() {
+        return semanticIndex != null ? semanticIndex.size() : 0;
+    }
+
+    /**
      * Retrieve relevant chunks for a query.
      */
     public List<ScoredChunk> retrieve(String query) {

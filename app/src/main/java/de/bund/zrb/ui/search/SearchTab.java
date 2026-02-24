@@ -41,7 +41,7 @@ public class SearchTab extends JPanel implements FtpTab {
     private final JCheckBox cbFtp;
     private final JCheckBox cbNdv;
     private final JCheckBox cbMail;
-    private final JCheckBox cbRag;
+    private final JLabel ragStatusLabel;
 
     // Max results spinner
     private final JSpinner maxResultsSpinner;
@@ -80,16 +80,24 @@ public class SearchTab extends JPanel implements FtpTab {
         cbFtp = new JCheckBox("🌐 FTP", true);
         cbNdv = new JCheckBox("🔗 NDV", true);
         cbMail = new JCheckBox("📧 Mail", true);
-        cbRag = new JCheckBox("🤖 RAG (Hybrid)", false);
 
-        cbRag.setToolTipText("Kombiniert BM25 + Embedding-Suche (nur wenn Embeddings in der Indexierungs-Regel aktiviert sind)");
+        // RAG status – automatic, not a toggle
+        int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
+        if (semSize > 0) {
+            ragStatusLabel = new JLabel("🤖 Hybrid (" + semSize + " Embeddings)");
+            ragStatusLabel.setToolTipText("Semantic-Suche ist aktiv: " + semSize + " Chunks mit Embeddings gefunden. Dokumente mit Embeddings werden automatisch besser gerankt.");
+        } else {
+            ragStatusLabel = new JLabel("📝 BM25");
+            ragStatusLabel.setToolTipText("Nur Volltextsuche aktiv. Aktiviere Embeddings in den Indexierungs-Regeln für Hybrid-Suche.");
+        }
+        ragStatusLabel.setForeground(semSize > 0 ? new Color(76, 175, 80) : Color.GRAY);
 
         filterPanel.add(cbLocal);
         filterPanel.add(cbFtp);
         filterPanel.add(cbNdv);
         filterPanel.add(cbMail);
         filterPanel.add(Box.createHorizontalStrut(16));
-        filterPanel.add(cbRag);
+        filterPanel.add(ragStatusLabel);
         filterPanel.add(Box.createHorizontalStrut(16));
         filterPanel.add(new JLabel("Max:"));
         maxResultsSpinner = new JSpinner(new SpinnerNumberModel(50, 10, 500, 10));
@@ -194,7 +202,7 @@ public class SearchTab extends JPanel implements FtpTab {
 
         Set<SearchResult.SourceType> sources = getSelectedSources();
         int maxResults = (Integer) maxResultsSpinner.getValue();
-        boolean useRag = cbRag.isSelected();
+        boolean useRag = false; // Hybrid search runs automatically when embeddings available
 
         long startTime = System.currentTimeMillis();
 
@@ -224,8 +232,9 @@ public class SearchTab extends JPanel implements FtpTab {
                     }
 
                     long elapsed = System.currentTimeMillis() - startTime;
-                    statusLabel.setText("✅ " + results.size() + " Ergebnis(se) in " + elapsed + " ms"
-                            + (useRag ? " (RAG Hybrid)" : " (BM25)"));
+                    int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
+                    String mode = semSize > 0 ? "Hybrid (BM25 + " + semSize + " Embeddings)" : "BM25";
+                    statusLabel.setText("✅ " + results.size() + " Ergebnis(se) in " + elapsed + " ms (" + mode + ")");
                     statusLabel.setForeground(new Color(76, 175, 80));
 
                     if (results.isEmpty()) {
@@ -254,7 +263,6 @@ public class SearchTab extends JPanel implements FtpTab {
         if (cbFtp.isSelected()) sources.add(SearchResult.SourceType.FTP);
         if (cbNdv.isSelected()) sources.add(SearchResult.SourceType.NDV);
         if (cbMail.isSelected()) sources.add(SearchResult.SourceType.MAIL);
-        if (cbRag.isSelected()) sources.add(SearchResult.SourceType.RAG);
         return sources;
     }
 

@@ -59,35 +59,43 @@ public class SearchService {
         return executor.submit(() -> {
             List<SearchResult> allResults = new ArrayList<>();
 
-            if (useRag) {
-                // RAG hybrid search (BM25 + semantic)
-                try {
-                    List<SearchResult> ragResults = searchRag(query, maxResults);
-                    if (!ragResults.isEmpty()) {
-                        // Tag results with their source based on documentId
-                        List<SearchResult> tagged = tagBySource(ragResults, sources);
-                        allResults.addAll(tagged);
-                        if (onResult != null) onResult.accept(tagged);
-                    }
-                } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[Search] RAG search failed", e);
+            // Always start with Lucene BM25 (finds ALL indexed documents)
+            try {
+                List<SearchResult> lexResults = searchLucene(query, maxResults);
+                if (!lexResults.isEmpty()) {
+                    List<SearchResult> tagged = tagBySource(lexResults, sources);
+                    allResults.addAll(tagged);
+                    if (onResult != null) onResult.accept(tagged);
                 }
-            } else {
-                // Lucene-only BM25 search
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[Search] Lucene search failed", e);
+            }
+
+            // Additionally run semantic search if embeddings are available
+            // Semantic results boost documents that have embeddings;
+            // documents without embeddings are simply not in the semantic index
+            // and keep their lexical-only score.
+            if (isSemanticAvailable()) {
                 try {
-                    List<SearchResult> lexResults = searchLucene(query, maxResults);
-                    if (!lexResults.isEmpty()) {
-                        List<SearchResult> tagged = tagBySource(lexResults, sources);
-                        allResults.addAll(tagged);
-                        if (onResult != null) onResult.accept(tagged);
+                    List<SearchResult> semResults = searchRag(query, maxResults);
+                    if (!semResults.isEmpty()) {
+                        List<SearchResult> tagged = tagBySource(semResults, sources);
+                        // Merge: boost scores for docs found in both
+                        mergeSemanticInto(allResults, tagged);
                     }
                 } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[Search] Lucene search failed", e);
+                    LOG.log(Level.WARNING, "[Search] Semantic search failed", e);
                 }
             }
 
             // Sort all results by score
             Collections.sort(allResults);
+
+            // Trim to maxResults
+            if (allResults.size() > maxResults) {
+                allResults = new ArrayList<>(allResults.subList(0, maxResults));
+            }
+
             return allResults;
         });
     }
@@ -119,6 +127,52 @@ public class SearchService {
         // Hybrid search via HybridRetriever (BM25 + Embeddings)
         List<ScoredChunk> chunks = rag.retrieve(query, maxResults * 3);
         return convertChunks(chunks, maxResults, query);
+    }
+
+    /**
+     * Check if the semantic index has any embeddings worth searching.
+     */
+    private boolean isSemanticAvailable() {
+        try {
+            RagService rag = RagService.getInstance();
+            // The HybridRetriever checks embeddingClient.isAvailable() internally,
+            // but we also need actual data in the semantic index
+            return rag.getSemanticIndexSize() > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Merge semantic results into the existing result list.
+     * If a document appears in both, boost its score.
+     * If it only appears in semantic, add it.
+     */
+    private void mergeSemanticInto(List<SearchResult> existing, List<SearchResult> semantic) {
+        // Build lookup by chunkId for existing results
+        Map<String, SearchResult> existingByChunk = new LinkedHashMap<>();
+        for (SearchResult r : existing) {
+            existingByChunk.put(r.getChunkId(), r);
+        }
+
+        for (SearchResult sem : semantic) {
+            SearchResult lex = existingByChunk.get(sem.getChunkId());
+            if (lex != null) {
+                // Found in both – boost: replace with higher score
+                float boosted = Math.max(lex.getScore(), sem.getScore()) * 1.2f;
+                int idx = existing.indexOf(lex);
+                if (idx >= 0) {
+                    existing.set(idx, new SearchResult(
+                            lex.getSource(), lex.getDocumentId(), lex.getDocumentName(),
+                            lex.getPath(), lex.getSnippet(), boosted,
+                            lex.getChunkId(), lex.getHeading()
+                    ));
+                }
+            } else {
+                // Only in semantic – add it
+                existing.add(sem);
+            }
+        }
     }
 
     private List<SearchResult> convertChunks(List<ScoredChunk> chunks, int maxResults, String query) {
