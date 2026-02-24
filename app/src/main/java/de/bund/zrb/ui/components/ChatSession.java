@@ -712,9 +712,24 @@ public class ChatSession extends JPanel {
         // Recognize aliases for "input": parameters, params, toolInput, tool_input
         if (!obj.has("input") && !obj.has("arguments")) {
             for (String alias : new String[]{"parameters", "params", "toolInput", "tool_input"}) {
-                if (obj.has(alias) && obj.get(alias).isJsonObject()) {
+                if (!obj.has(alias) || obj.get(alias).isJsonNull()) {
+                    continue;
+                }
+                if (obj.get(alias).isJsonObject()) {
                     obj.add("input", obj.get(alias).getAsJsonObject());
                     break;
+                }
+                // Handle string-encoded JSON (e.g. toolInput: "{\"id\":\"n33\"}")
+                if (obj.get(alias).isJsonPrimitive()) {
+                    try {
+                        JsonElement parsed = JsonParser.parseString(obj.get(alias).getAsString());
+                        if (parsed.isJsonObject()) {
+                            obj.add("input", parsed.getAsJsonObject());
+                            break;
+                        }
+                    } catch (Exception ignore) {
+                        // not valid JSON string, skip
+                    }
                 }
             }
         }
@@ -751,25 +766,54 @@ public class ChatSession extends JPanel {
             obj.addProperty("name", argsObj.get("name").getAsString());
         }
 
-        if (obj.has("input") && obj.get("input").isJsonObject()) {
-            JsonObject input = obj.getAsJsonObject("input");
-            if (input.has("arguments") && input.get("arguments").isJsonPrimitive()) {
+        if (obj.has("input") && !obj.get("input").isJsonNull()) {
+            // Handle input as string-encoded JSON
+            if (obj.get("input").isJsonPrimitive()) {
                 try {
-                    JsonElement parsedNested = JsonParser.parseString(input.get("arguments").getAsString());
-                    if (parsedNested.isJsonObject()) {
-                        JsonObject nested = parsedNested.getAsJsonObject();
-                        for (java.util.Map.Entry<String, JsonElement> e : nested.entrySet()) {
-                            if (!input.has(e.getKey())) {
-                                input.add(e.getKey(), e.getValue());
-                            }
-                        }
-                        input.remove("arguments");
+                    JsonElement parsedInput = JsonParser.parseString(obj.get("input").getAsString());
+                    if (parsedInput.isJsonObject()) {
+                        obj.add("input", parsedInput.getAsJsonObject());
                     }
                 } catch (Exception ignore) {
-                    // ignore
+                    // not valid JSON string
+                }
+            }
+            if (obj.get("input").isJsonObject()) {
+                JsonObject input = obj.getAsJsonObject("input");
+                if (input.has("arguments") && input.get("arguments").isJsonPrimitive()) {
+                    try {
+                        JsonElement parsedNested = JsonParser.parseString(input.get("arguments").getAsString());
+                        if (parsedNested.isJsonObject()) {
+                            JsonObject nested = parsedNested.getAsJsonObject();
+                            for (java.util.Map.Entry<String, JsonElement> e : nested.entrySet()) {
+                                if (!input.has(e.getKey())) {
+                                    input.add(e.getKey(), e.getValue());
+                                }
+                            }
+                            input.remove("arguments");
+                        }
+                    } catch (Exception ignore) {
+                        // ignore
+                    }
                 }
             }
             obj.remove("arguments");
+        }
+
+        // Also handle tool_input as string-encoded JSON
+        if (!obj.has("input") && obj.has("tool_input") && !obj.get("tool_input").isJsonNull()) {
+            if (obj.get("tool_input").isJsonObject()) {
+                obj.add("input", obj.getAsJsonObject("tool_input"));
+            } else if (obj.get("tool_input").isJsonPrimitive()) {
+                try {
+                    JsonElement parsedToolInput = JsonParser.parseString(obj.get("tool_input").getAsString());
+                    if (parsedToolInput.isJsonObject()) {
+                        obj.add("input", parsedToolInput.getAsJsonObject());
+                    }
+                } catch (Exception ignore) {
+                    // not valid JSON string
+                }
+            }
         }
 
         if (!obj.has("input") && !obj.has("tool_input") && argsObj != null) {
