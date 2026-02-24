@@ -1173,7 +1173,7 @@ public class ChatSession extends JPanel {
         result.add("capabilities", capabilities);
 
         JsonObject constraints = new JsonObject();
-        if ("read_file".equalsIgnoreCase(resolvedName)) {
+        if ("read_resource".equalsIgnoreCase(resolvedName)) {
             constraints.addProperty("directoryListing", "non_recursive");
         }
         if (constraints.size() > 0) {
@@ -1218,10 +1218,10 @@ public class ChatSession extends JPanel {
         String n = toolName == null ? "" : toolName.toLowerCase();
         String d = description == null ? "" : description.toLowerCase();
 
-        if ("read_file".equals(n) || d.contains("liest") || d.contains("read")) {
+        if ("read_resource".equals(n) || d.contains("liest") || d.contains("read")) {
             capabilities.add("read_file_content");
         }
-        if ("read_file".equals(n) || d.contains("verzeichnis") || d.contains("directory")) {
+        if ("read_resource".equals(n) || d.contains("verzeichnis") || d.contains("directory")) {
             capabilities.add("list_directory");
         }
         if (n.contains("open")) {

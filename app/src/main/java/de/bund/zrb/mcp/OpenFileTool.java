@@ -27,26 +27,27 @@ public class OpenFileTool implements McpTool {
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("file", new ToolSpec.Property("string",
-                "Pfad zur Datei oder Verzeichnis. "
+                "Pfad zur Ressource (Datei, Verzeichnis, Mail, NDV-Quelle). "
                 + "Akzeptiert: lokale Pfade (C:\\...), FTP-Pfade (ftp:/...), "
-                + "oder URIs mit Prefix (local://..., ftp://...) wie sie von search_index zur\u00fcckgegeben werden."));
-        properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschlüssel"));
+                + "oder URIs mit Prefix (local://..., ftp://..., mail://..., ndv://...) "
+                + "wie sie von search_index zur\u00fcckgegeben werden."));
+        properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschl\u00fcssel"));
         properties.put("search", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
-        properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus geöffnet werden soll"));
+        properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus ge\u00f6ffnet werden soll"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("file"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("file", "C:\\TEST\\datei.txt");
+        example.put("file", "local://C:\\TEST\\datei.txt");
         example.put("satzart", "100");
         example.put("search", "BEGIN");
         example.put("toCompare", true);
 
         return new ToolSpec(
-                "open_file",
-                "\u00d6ffnet eine Datei oder ein Verzeichnis als neuen Tab im Editor. " +
-                "Akzeptiert lokale Pfade, FTP-Pfade und Pfade mit Prefix (local://, ftp:) " +
-                "wie sie von search_index zur\u00fcckgegeben werden.",
+                "open_resource",
+                "\u00d6ffnet eine Ressource (Datei, Verzeichnis, Mail, NDV-Quelle) als neuen Tab. " +
+                "Akzeptiert Pfade mit Prefix (local://, ftp:, mail://, ndv://) " +
+                "wie sie von search_index zur\u00fcckgegeben werden, sowie direkte lokale/FTP-Pfade.",
                 inputSchema,
                 example
         );

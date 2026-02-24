@@ -40,23 +40,24 @@ public class ReadFileTool implements McpTool {
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("path", new ToolSpec.Property("string",
-                "Pfad zur Datei oder Verzeichnis. "
+                "Pfad zur Ressource (Datei, Verzeichnis, Mail etc.). "
                 + "Akzeptiert: lokale Pfade (C:\\...), FTP-Pfade (ftp:/...), "
-                + "oder URIs mit Prefix (local://..., ftp://...) wie sie von search_index zur\u00fcckgegeben werden."));
-        properties.put("maxLines", new ToolSpec.Property("integer", "Maximale Anzahl Zeilen bei Dateien (optional, default: unbegrenzt)"));
+                + "oder URIs mit Prefix (local://..., ftp://..., mail://..., ndv://...) "
+                + "wie sie von search_index zur\u00fcckgegeben werden."));
+        properties.put("maxLines", new ToolSpec.Property("integer", "Maximale Anzahl Zeilen (optional, default: unbegrenzt)"));
         properties.put("encoding", new ToolSpec.Property("string", "Zeichenkodierung (optional, default: System-Default)"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("path"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("path", "C:\\TEST\\datei.txt");
+        example.put("path", "local://C:\\TEST\\datei.txt");
         example.put("maxLines", 100);
 
         return new ToolSpec(
-                "read_file",
-                "Liest den Inhalt einer Datei oder listet ein Verzeichnis auf, ohne einen Tab zu \u00f6ffnen. " +
-                "Akzeptiert lokale Pfade, FTP-Pfade und Pfade mit Prefix (local://, ftp:) " +
-                "wie sie von search_index zur\u00fcckgegeben werden. " +
+                "read_resource",
+                "Liest den Inhalt einer Ressource (Datei, Verzeichnis, Mail, NDV-Quelle) ohne einen Tab zu \u00f6ffnen. " +
+                "Akzeptiert Pfade mit Prefix (local://, ftp:, mail://, ndv://) " +
+                "wie sie von search_index zur\u00fcckgegeben werden, sowie direkte lokale/FTP-Pfade. " +
                 "Bei Dateien wird der Textinhalt zur\u00fcckgegeben, bei Verzeichnissen eine Liste der Eintr\u00e4ge.",
                 inputSchema,
                 example

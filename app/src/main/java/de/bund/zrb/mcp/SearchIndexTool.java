@@ -64,7 +64,7 @@ public class SearchIndexTool implements McpTool {
                         + "Nutze dieses Tool wenn der Nutzer nach Dokumenten, Mails, Dateien oder Inhalten sucht. "
                         + "Gibt Treffer mit Pfad (als URI mit Prefix wie local://, ftp:, ndv://, mail://), "
                         + "Score und Text-Snippet zur\u00fcck. "
-                        + "Der zur\u00fcckgegebene 'path' kann direkt an open_file oder read_file \u00fcbergeben werden.",
+                        + "Der zur\u00fcckgegebene 'path' kann direkt an open_resource oder read_resource \u00fcbergeben werden.",
                 inputSchema,
                 example
         );
@@ -121,7 +121,7 @@ public class SearchIndexTool implements McpTool {
                 JsonObject hit = new JsonObject();
                 hit.addProperty("documentName", r.getDocumentName());
 
-                // Build prefixed path so open_file/read_file can use it directly
+                // Build prefixed path so open_resource/read_resource can use it directly
                 String prefixedPath = VirtualResourceRef.buildPrefixedPath(
                         r.getSource().name(), r.getDocumentId());
                 hit.addProperty("path", prefixedPath);
