@@ -142,6 +142,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                de.bund.zrb.runtime.PluginManager.shutdownAll();
                 de.bund.zrb.mcp.registry.McpServerManager.getInstance().stopAll();
                 dispose(); // sauber beenden
                 System.exit(0); // oder dispatchEvent(new WindowEvent(..., WINDOW_CLOSING));

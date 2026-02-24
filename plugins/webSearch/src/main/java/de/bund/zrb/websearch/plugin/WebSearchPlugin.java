@@ -50,6 +50,13 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         return tools != null ? tools : Collections.<McpTool>emptyList();
     }
 
+    @Override
+    public void shutdown() {
+        if (browserManager != null) {
+            browserManager.closeSession();
+        }
+    }
+
     private List<McpTool> createTools() {
         List<McpTool> list = new ArrayList<>();
         // New text-based browsing tools with NodeRef system
