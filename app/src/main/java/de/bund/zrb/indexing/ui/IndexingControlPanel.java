@@ -126,12 +126,6 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         });
         tableButtons.add(runAllButton);
 
-        tableButtons.add(Box.createHorizontalStrut(20));
-
-        JButton showIndexedButton = new JButton("📋 Index anzeigen");
-        showIndexedButton.setToolTipText("Zeigt alle im Lucene-Index gespeicherten Dokumente");
-        showIndexedButton.addActionListener(e -> showIndexedDocuments());
-        tableButtons.add(showIndexedButton);
 
         JPanel topPanel = new JPanel(new BorderLayout());
         topPanel.add(tableScroll, BorderLayout.CENTER);
@@ -346,10 +340,30 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(new TitledBorder("Status & History"));
 
-        // Item counts
+        // Top: Item counts + action buttons
+        JPanel topPanel = new JPanel(new BorderLayout());
+
         itemCountLabel = new JLabel("<html>Wähle eine Quelle aus.</html>");
         itemCountLabel.setBorder(new EmptyBorder(8, 8, 8, 8));
-        panel.add(itemCountLabel, BorderLayout.NORTH);
+        topPanel.add(itemCountLabel, BorderLayout.CENTER);
+
+        // Small icon buttons (no margin/padding)
+        JPanel actionButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        actionButtons.setBorder(new EmptyBorder(4, 0, 4, 4));
+
+        JButton showIndexBtn = new JButton("📋");
+        showIndexBtn.setToolTipText("Alle indexierten Dokumente anzeigen");
+        showIndexBtn.setMargin(new Insets(0, 0, 0, 0));
+        showIndexBtn.setFont(showIndexBtn.getFont().deriveFont(14f));
+        showIndexBtn.setBorderPainted(false);
+        showIndexBtn.setContentAreaFilled(false);
+        showIndexBtn.setFocusable(false);
+        showIndexBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        showIndexBtn.addActionListener(e -> showIndexedDocuments());
+        actionButtons.add(showIndexBtn);
+
+        topPanel.add(actionButtons, BorderLayout.EAST);
+        panel.add(topPanel, BorderLayout.NORTH);
 
         // Run history
         historyArea = new JTextArea();
