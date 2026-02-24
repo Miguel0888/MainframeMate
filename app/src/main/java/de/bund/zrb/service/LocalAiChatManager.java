@@ -25,7 +25,7 @@ public class LocalAiChatManager implements ChatManager {
 
     @Override
     public ChatHistory getHistory(UUID sessionId) {
-        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
+        return sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
     }
 
     @Override

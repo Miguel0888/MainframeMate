@@ -94,12 +94,12 @@ public class LlamaCppChatManager implements ChatManager {
 
     @Override
     public ChatHistory getHistory(UUID sessionId) {
-        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
+        return sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
     }
 
     @Override
     public List<String> getFormattedHistory(UUID sessionId) {
-        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId)).getFormattedHistory();
+        return sessionHistories.computeIfAbsent(sessionId, ChatHistory::new).getFormattedHistory();
     }
 
     @Override
