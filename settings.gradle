@@ -8,3 +8,4 @@ include 'plugins:excelimport'
 include 'plugins:webSearch'
 
 include 'ndv'
+include 'toolbar-kit'

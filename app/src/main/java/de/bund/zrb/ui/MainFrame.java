@@ -20,6 +20,7 @@ import de.bund.zrb.ui.commands.config.MenuTreeBuilder;
 import de.bund.zrb.ui.commands.config.ShowShortcutConfigMenuCommand;
 import de.bund.zrb.ui.commands.sub.FocusSearchFieldCommand;
 import de.bund.zrb.ui.commands.sub.ShowComparePanelCommand;
+import de.bund.zrb.ui.toolbar.MainframeMateToolbarCommandRegistry;
 import de.bund.zrb.ui.lock.ApplicationLocker;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
@@ -33,6 +34,11 @@ import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
+import com.example.toolbarkit.command.ToolbarCommandRegistry;
+import com.example.toolbarkit.config.JsonToolbarConfigRepository;
+import com.example.toolbarkit.config.ToolbarConfigRepository;
+import com.example.toolbarkit.toolbar.ConfigurableCommandToolbar;
+
 import javax.annotation.Nullable;
 import javax.swing.*;
 import javax.swing.plaf.FontUIResource;
@@ -41,6 +47,8 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
 import java.nio.charset.Charset;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -50,7 +58,7 @@ import static de.bund.zrb.util.StringUtil.tryParseInt;
 public class MainFrame extends JFrame implements MainframeContext {
     private final ApplicationLocker locker;
     private TabbedPaneManager tabManager;
-    private ActionToolbar actionToolbar;
+    private ConfigurableCommandToolbar actionToolbar;
     private LeftDrawer leftDrawer;
     private RightDrawer rightDrawer;
     private volatile ChatManager chatManager;
@@ -249,8 +257,11 @@ public class MainFrame extends JFrame implements MainframeContext {
         // 4. Layout
         setLayout(new BorderLayout());
 
-        // Toolbar ganz oben
-        actionToolbar = new ActionToolbar(this);
+        // Toolbar ganz oben (nach Plugin-Init, damit Plugin-Commands verfügbar sind)
+        ToolbarCommandRegistry toolbarRegistry = new MainframeMateToolbarCommandRegistry();
+        Path toolbarConfigFile = Paths.get(SettingsHelper.getSettingsFolder().getAbsolutePath(), "toolbar.json");
+        ToolbarConfigRepository toolbarRepo = new JsonToolbarConfigRepository(toolbarConfigFile);
+        actionToolbar = new ConfigurableCommandToolbar(toolbarRegistry, toolbarRepo);
         add(actionToolbar, BorderLayout.NORTH);
 
         // Initialisiere die mittlere Komponente

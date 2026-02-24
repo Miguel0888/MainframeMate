@@ -19,6 +19,9 @@ if (!javaToolsJar.exists()) {
 dependencies {
     implementation project(':core')
 
+    // Toolbar Kit (configurable toolbar with DnD, config dialog, etc.)
+    implementation project(':toolbar-kit')
+
     // FTP
     implementation 'commons-net:commons-net:3.9.0'
 
