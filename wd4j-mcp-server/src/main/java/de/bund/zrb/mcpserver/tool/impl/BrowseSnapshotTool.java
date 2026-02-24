@@ -10,6 +10,8 @@ import de.bund.zrb.type.script.WDEvaluateResult;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Takes a snapshot of the page and registers interactive elements as NodeRefs.
@@ -21,6 +23,8 @@ import java.util.List;
  * in the output – the CSS locate phase only registers handles for click/type actions.
  */
 public class BrowseSnapshotTool implements McpServerTool {
+
+    private static final Logger LOG = Logger.getLogger(BrowseSnapshotTool.class.getName());
 
     @Override
     public String name() {
@@ -60,6 +64,8 @@ public class BrowseSnapshotTool implements McpServerTool {
         String mode = params.has("mode") ? params.get("mode").getAsString() : "interactive";
         String selector = params.has("selector") ? params.get("selector").getAsString() : null;
 
+        LOG.fine("[web_snapshot] Taking snapshot, mode=" + mode + ", selector=" + selector);
+
         try {
             // Clear previous refs
             session.getNodeRefRegistry().invalidateAll();
@@ -92,13 +98,20 @@ public class BrowseSnapshotTool implements McpServerTool {
                 }
             }
 
+            LOG.info("[web_snapshot] Page: " + title + " | URL: " + url
+                    + " | Elements found: " + elementInfos.size()
+                    + " | JS output length: " + described.length());
+
             // Phase 2: CSS locate to get SharedReferences for tagged elements (for click/type actions)
             List<NodeRef> registeredRefs = new ArrayList<NodeRef>();
             if (!elementInfos.isEmpty()) {
                 try {
                     registeredRefs = session.locateAndRegister(
                             new WDLocator.CssLocator("[data-mm-ref]"), elementInfos.size());
+                    LOG.fine("[web_snapshot] Located " + registeredRefs.size()
+                            + " NodeRefs (requested " + elementInfos.size() + ")");
                 } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[web_snapshot] CSS locate failed, no NodeRefs for actions", e);
                     // Fallback: no NodeRefs for actions, but descriptions still shown
                 }
             }
@@ -136,8 +149,11 @@ public class BrowseSnapshotTool implements McpServerTool {
             // Cleanup marker attributes
             cleanupMarkers(session);
 
+            LOG.info("[web_snapshot] Snapshot v" + version + " completed: " + refCount + " elements, "
+                    + registeredRefs.size() + " with NodeRefs");
             return ToolResult.text(sb.toString());
         } catch (Exception e) {
+            LOG.log(Level.WARNING, "[web_snapshot] Snapshot failed", e);
             cleanupMarkers(session);
             return ToolResult.error("Snapshot failed: " + e.getMessage());
         }

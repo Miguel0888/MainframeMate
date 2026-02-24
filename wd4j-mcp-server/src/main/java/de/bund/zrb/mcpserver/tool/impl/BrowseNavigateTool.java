@@ -9,12 +9,16 @@ import de.bund.zrb.mcpserver.tool.ToolResult;
 import de.bund.zrb.type.script.WDEvaluateResult;
 
 import java.util.concurrent.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Navigate to a URL and return a compact page snapshot with page text excerpt.
  * Invalidates all existing NodeRefs.
  */
 public class BrowseNavigateTool implements McpServerTool {
+
+    private static final Logger LOG = Logger.getLogger(BrowseNavigateTool.class.getName());
 
     @Override
     public String name() {
@@ -51,11 +55,15 @@ public class BrowseNavigateTool implements McpServerTool {
         // Tolerant URL extraction: accept "url", or nested "arguments.url", or "action.url"
         String url = extractUrl(params);
         if (url == null || url.isEmpty()) {
+            LOG.warning("[web_navigate] Missing 'url' parameter. Params: " + params);
             return ToolResult.error("Missing required parameter 'url'. Example: {\"name\":\"web_navigate\",\"input\":{\"url\":\"https://example.com\"}}");
         }
 
+        LOG.info("[web_navigate] Navigating to: " + url);
+
         // Configurable timeout via system property (default 30s)
         long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
+        LOG.fine("[web_navigate] Timeout: " + timeoutSeconds + "s");
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<ToolResult> future = executor.submit(new Callable<ToolResult>() {
@@ -66,10 +74,14 @@ public class BrowseNavigateTool implements McpServerTool {
         });
 
         try {
-            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+            ToolResult result = future.get(timeoutSeconds, TimeUnit.SECONDS);
+            LOG.info("[web_navigate] Navigation completed successfully for: " + url
+                    + " (error=" + result.isError() + ")");
+            return result;
         } catch (TimeoutException e) {
             future.cancel(true);
             // Kill the browser process – it's hanging
+            LOG.severe("[web_navigate] Timeout after " + timeoutSeconds + "s navigating to: " + url + " – killing browser process");
             System.err.println("[web_navigate] Timeout after " + timeoutSeconds + "s navigating to: " + url + " – killing browser process");
             session.killBrowserProcess();
             return ToolResult.error(
@@ -82,6 +94,7 @@ public class BrowseNavigateTool implements McpServerTool {
             Throwable cause = e.getCause();
             String msg = cause != null && cause.getMessage() != null ? cause.getMessage() : e.getMessage();
             if (isTimeoutError(msg, e)) {
+                LOG.severe("[web_navigate] Inner timeout navigating to: " + url + " – killing browser process");
                 System.err.println("[web_navigate] Inner timeout navigating to: " + url + " – killing browser process");
                 session.killBrowserProcess();
                 return ToolResult.error(
@@ -92,14 +105,17 @@ public class BrowseNavigateTool implements McpServerTool {
                       + "URL: " + url);
             }
             if (msg != null && (msg.contains("WebSocket connection is closed") || msg.contains("not connected"))) {
+                LOG.warning("[web_navigate] Browser session lost. URL: " + url + " Error: " + msg);
                 return ToolResult.error(
                         "Navigation failed: The browser session has been lost. "
                       + "Please try again – the browser will be reconnected automatically. "
                       + "URL: " + url);
             }
+            LOG.warning("[web_navigate] Navigation failed. URL: " + url + " Error: " + msg);
             return ToolResult.error("Navigation failed: " + msg);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            LOG.warning("[web_navigate] Navigation interrupted. URL: " + url);
             return ToolResult.error("Navigation was interrupted. URL: " + url);
         } finally {
             executor.shutdownNow();
@@ -113,9 +129,11 @@ public class BrowseNavigateTool implements McpServerTool {
         try {
             // Invalidate old refs
             session.getNodeRefRegistry().invalidateAll();
+            LOG.fine("[web_navigate] Old refs invalidated. Starting navigation to: " + url);
 
             WDBrowsingContextResult.NavigateResult nav = session.navigate(url);
             String finalUrl = nav.getUrl();
+            LOG.info("[web_navigate] Navigation response received. Final URL: " + finalUrl);
 
             // Wait for page to stabilize, then take snapshot
             BrowseSnapshotTool snapshotTool = new BrowseSnapshotTool();
@@ -128,12 +146,21 @@ public class BrowseNavigateTool implements McpServerTool {
                     return ToolResult.error("Navigation interrupted during page load. URL: " + url);
                 }
 
+                LOG.fine("[web_navigate] Snapshot attempt " + (attempt + 1) + " for: " + finalUrl);
                 snapshotResult = snapshotTool.execute(snapshotParams, session);
                 if (snapshotResult != null && !snapshotResult.isError()) {
                     String text = snapshotResult.getText();
                     if (text.contains("[n")) {
+                        LOG.fine("[web_navigate] Snapshot successful on attempt " + (attempt + 1)
+                                + " with interactive elements found");
                         break;
+                    } else {
+                        LOG.fine("[web_navigate] Snapshot attempt " + (attempt + 1)
+                                + " found no interactive elements yet");
                     }
+                } else {
+                    LOG.warning("[web_navigate] Snapshot attempt " + (attempt + 1) + " failed: "
+                            + (snapshotResult != null ? snapshotResult.getText() : "null"));
                 }
             }
 
@@ -158,6 +185,7 @@ public class BrowseNavigateTool implements McpServerTool {
             return ToolResult.text(sb.toString());
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            LOG.log(Level.WARNING, "[web_navigate] doNavigate failed for URL: " + url, e);
 
             // Check for timeout – encourage retry
             if (isTimeoutError(msg, e)) {
