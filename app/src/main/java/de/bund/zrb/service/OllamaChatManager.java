@@ -5,12 +5,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import de.bund.zrb.mcp.ToolManifestBuilder;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
+import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.mcp.ToolSpec;
 import de.bund.zrb.net.ProxyResolver;
 import okhttp3.*;
 
@@ -140,7 +144,11 @@ public class OllamaChatManager implements ChatManager {
                 userMsg.put("content", userInput);
                 messages.add(userMsg);
             }
-            jsonPayload = gson.toJson(new OllamaChatRequest(model, messages, keepAlive));
+
+            // Build native tool definitions from ToolRegistry
+            List<Map<String, Object>> nativeTools = buildNativeToolDefinitions();
+
+            jsonPayload = gson.toJson(new OllamaChatRequest(model, messages, nativeTools, keepAlive));
         } else {
             // /api/generate format: legacy support
             String systemPrompt = null;
@@ -351,6 +359,29 @@ public class OllamaChatManager implements ChatManager {
         return out.length() == 0 ? null : out.toString();
     }
 
+    /**
+     * Builds native tool definitions from the ToolRegistry for Ollama /api/chat.
+     * Returns an empty list if no tools are registered.
+     */
+    private List<Map<String, Object>> buildNativeToolDefinitions() {
+        try {
+            List<McpTool> allTools = ToolRegistryImpl.getInstance().getAllTools();
+            if (allTools == null || allTools.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<ToolSpec> specs = new java.util.ArrayList<>();
+            for (McpTool tool : allTools) {
+                if (tool.getSpec() != null) {
+                    specs.add(tool.getSpec());
+                }
+            }
+            return ToolManifestBuilder.buildOllamaTools(specs);
+        } catch (Exception e) {
+            // If ToolRegistry is not yet initialized, return empty
+            return Collections.emptyList();
+        }
+    }
+
     private OkHttpClient buildClient(String url, Settings settings) {
         ProxyResolver.ProxyResolution resolution = ProxyResolver.resolveForUrl(url, settings);
         return baseClient.newBuilder()
@@ -377,18 +408,22 @@ public class OllamaChatManager implements ChatManager {
     /**
      * Request format for /api/chat endpoint.
      * Uses a messages array instead of a single prompt string.
+     * Supports native tool definitions via the tools field.
      */
     private static class OllamaChatRequest {
         String model;
         List<Map<String, String>> messages;
         boolean stream = true;
         String keep_alive;
+        List<Map<String, Object>> tools;
 
-        OllamaChatRequest(String model, List<Map<String, String>> messages, boolean keepAlive) {
+        OllamaChatRequest(String model, List<Map<String, String>> messages, List<Map<String, Object>> tools, boolean keepAlive) {
             this.model = model;
             this.messages = messages;
             String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
             this.keep_alive = keepAlive ? keepAliveValue : "0m";
+            // Only include tools if non-empty (null will be omitted by Gson)
+            this.tools = (tools != null && !tools.isEmpty()) ? tools : null;
         }
     }
 }

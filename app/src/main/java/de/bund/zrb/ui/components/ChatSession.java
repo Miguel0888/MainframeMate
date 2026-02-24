@@ -570,8 +570,19 @@ public class ChatSession extends JPanel {
             return "";
         }
 
+        // Check if native tool calling is active (Ollama /api/chat)
+        // In that case, tool schemas are sent natively in the request body,
+        // so we only provide a minimal summary in the system prompt.
+        boolean nativeToolCalling = isNativeToolCallingActive();
+
         java.util.List<ToolPolicy> policies = toolPolicyRepository.loadAll();
-        StringBuilder sb = new StringBuilder("Aktivierte Tools (mit wichtigsten Parametern):\n");
+        StringBuilder sb = new StringBuilder();
+        if (nativeToolCalling) {
+            sb.append("Dir stehen Tools zur Verfügung (die Schemas werden nativ übergeben).\n");
+            sb.append("Nutze die Tools direkt über native tool_calls.\n");
+        } else {
+            sb.append("Aktivierte Tools (mit wichtigsten Parametern):\n");
+        }
         boolean found = false;
         for (ToolPolicy policy : policies) {
             if (policy == null || !policy.isEnabled() || policy.getToolName() == null) {
@@ -595,8 +606,8 @@ public class ChatSession extends JPanel {
                     .append(description == null || description.trim().isEmpty() ? "" : ": " + trimDescription(description))
                     .append("\n");
 
-            // Add required parameters inline so LLM knows the call shape from the start
-            if (tool != null) {
+            // Only add detailed parameters when NOT using native tool calling
+            if (!nativeToolCalling && tool != null) {
                 String paramInfo = extractRequiredParams(tool);
                 if (!paramInfo.isEmpty()) {
                     sb.append("  Parameters: ").append(paramInfo).append("\n");
@@ -606,12 +617,32 @@ public class ChatSession extends JPanel {
             found = true;
         }
         sb.append("- describe_tool [READ]: Liefert Details/Schema für ein Tool nur bei Bedarf.\n");
-        sb.append("  Parameters: tool (string, required)\n");
+        if (!nativeToolCalling) {
+            sb.append("  Parameters: tool (string, required)\n");
+        }
         if (!found) {
             sb.append("- (keine aktivierten Tools in diesem Modus)\n");
         }
-        sb.append("Nutze describe_tool, wenn du Tool-Details/Parameter brauchst.");
+        if (!nativeToolCalling) {
+            sb.append("Nutze describe_tool, wenn du Tool-Details/Parameter brauchst.");
+        }
         return sb.toString();
+    }
+
+    /**
+     * Checks if the current AI provider supports native tool calling
+     * (Ollama with /api/chat endpoint).
+     */
+    private boolean isNativeToolCallingActive() {
+        try {
+            Settings settings = SettingsHelper.load();
+            String provider = settings.aiConfig.getOrDefault("provider", "DISABLED");
+            if ("OLLAMA".equals(provider)) {
+                String url = settings.aiConfig.getOrDefault("ollama.url", "");
+                return url.contains("/api/chat");
+            }
+        } catch (Exception ignored) {}
+        return false;
     }
 
     /**

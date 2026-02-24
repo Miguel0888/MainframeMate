@@ -2,7 +2,10 @@ package de.bund.zrb.mcp;
 
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -43,5 +46,70 @@ public class ToolManifestBuilder {
         return tools.stream()
                 .map(ToolSpec::toJson)
                 .collect(Collectors.joining(",\n", "[\n", "\n]"));
+    }
+
+    /**
+     * Konvertiert Tool-Spezifikationen ins native Ollama/OpenAI Tool-Format für /api/chat.
+     * <pre>
+     * {
+     *   "type": "function",
+     *   "function": {
+     *     "name": "...",
+     *     "description": "...",
+     *     "parameters": {
+     *       "type": "object",
+     *       "properties": { ... },
+     *       "required": [ ... ]
+     *     }
+     *   }
+     * }
+     * </pre>
+     *
+     * @param tools Liste der Tool-Spezifikationen
+     * @return Liste von Maps im Ollama-nativen Format, serialisierbar via Gson
+     */
+    public static List<Map<String, Object>> buildOllamaTools(List<ToolSpec> tools) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (tools == null) return result;
+
+        for (ToolSpec tool : tools) {
+            Map<String, Object> toolDef = new LinkedHashMap<>();
+            toolDef.put("type", "function");
+
+            Map<String, Object> function = new LinkedHashMap<>();
+            function.put("name", tool.getName());
+            function.put("description", tool.getDescription() != null ? tool.getDescription() : "");
+
+            Map<String, Object> parameters = new LinkedHashMap<>();
+            parameters.put("type", "object");
+
+            ToolSpec.InputSchema schema = tool.getInputSchema();
+            if (schema != null) {
+                Map<String, Object> properties = new LinkedHashMap<>();
+                if (schema.getProperties() != null) {
+                    for (Map.Entry<String, ToolSpec.Property> entry : schema.getProperties().entrySet()) {
+                        Map<String, String> propDef = new LinkedHashMap<>();
+                        propDef.put("type", entry.getValue().getType() != null ? entry.getValue().getType() : "string");
+                        if (entry.getValue().getDescription() != null && !entry.getValue().getDescription().isEmpty()) {
+                            propDef.put("description", entry.getValue().getDescription());
+                        }
+                        properties.put(entry.getKey(), propDef);
+                    }
+                }
+                parameters.put("properties", properties);
+
+                if (schema.getRequired() != null && !schema.getRequired().isEmpty()) {
+                    parameters.put("required", schema.getRequired());
+                }
+            } else {
+                parameters.put("properties", new LinkedHashMap<>());
+            }
+
+            function.put("parameters", parameters);
+            toolDef.put("function", function);
+            result.add(toolDef);
+        }
+
+        return result;
     }
 }
