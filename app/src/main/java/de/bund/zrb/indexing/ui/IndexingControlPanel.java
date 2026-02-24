@@ -362,6 +362,17 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         showIndexBtn.addActionListener(e -> showIndexedDocuments());
         actionButtons.add(showIndexBtn);
 
+        JButton reindexBtn = new JButton("🔄");
+        reindexBtn.setToolTipText("Index komplett neu aufbauen (löscht alle Status-Daten und indexiert alles neu)");
+        reindexBtn.setMargin(new Insets(0, 0, 0, 0));
+        reindexBtn.setFont(reindexBtn.getFont().deriveFont(14f));
+        reindexBtn.setBorderPainted(false);
+        reindexBtn.setContentAreaFilled(false);
+        reindexBtn.setFocusable(false);
+        reindexBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        reindexBtn.addActionListener(e -> forceReindexSelected());
+        actionButtons.add(reindexBtn);
+
         topPanel.add(actionButtons, BorderLayout.EAST);
         panel.add(topPanel, BorderLayout.NORTH);
 
@@ -451,6 +462,31 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         IndexSource source = tableModel.getSourceAt(row);
         service.runNow(source.getSourceId());
         statusLabel.setText("Indexierung gestartet: " + source.getName());
+    }
+
+    /**
+     * Force a complete re-index of the selected source.
+     * Clears all item statuses + Lucene index and runs from scratch.
+     */
+    private void forceReindexSelected() {
+        int row = sourceTable.getSelectedRow();
+        if (row < 0) {
+            statusLabel.setText("Bitte Quelle zum Reindexieren auswählen.");
+            return;
+        }
+        IndexSource source = tableModel.getSourceAt(row);
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Index für '" + source.getName() + "' komplett neu aufbauen?\n\n"
+                        + "• Alle bisherigen Status-Daten werden gelöscht\n"
+                        + "• Der Lucene-Index wird geleert\n"
+                        + "• Alle Dateien werden neu indexiert\n\n"
+                        + "Dies kann bei vielen Dateien einige Zeit dauern.",
+                "Reindex bestätigen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        service.forceReindex(source.getSourceId());
+        statusLabel.setText("🔄 Reindex gestartet: " + source.getName());
     }
 
     /**

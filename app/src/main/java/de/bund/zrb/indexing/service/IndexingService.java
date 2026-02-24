@@ -161,6 +161,52 @@ public class IndexingService {
         return runningJobs.containsKey(sourceId);
     }
 
+    /**
+     * Force a complete re-index: clears all item statuses and the Lucene index,
+     * then runs the indexing pipeline from scratch.
+     */
+    public void forceReindex(String sourceId) {
+        if (runningJobs.containsKey(sourceId)) {
+            LOG.info("[Indexing] Run already in progress for: " + sourceId);
+            return;
+        }
+
+        IndexSource source = sourceRepo.findById(sourceId);
+        if (source == null) {
+            LOG.warning("[Indexing] Source not found for reindex: " + sourceId);
+            return;
+        }
+
+        Future<?> future = executor.submit(() -> {
+            LOG.info("[Indexing] FORCE REINDEX: Clearing all statuses for " + source.getName());
+
+            // 1. Clear all item statuses for this source
+            statusStore.clearItemStatuses(sourceId);
+            LOG.info("[Indexing] Cleared item statuses for: " + sourceId);
+
+            // 2. Clear the Lucene index
+            try {
+                de.bund.zrb.rag.service.RagService.getInstance().clear();
+                LOG.info("[Indexing] Cleared Lucene index");
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[Indexing] Error clearing Lucene index", e);
+            }
+
+            // 3. Run the pipeline
+            for (IndexingListener l : listeners) l.onRunStarted(sourceId);
+            try {
+                IndexRunStatus result = pipeline.runForSource(source);
+                for (IndexingListener l : listeners) l.onRunCompleted(sourceId, result);
+            } catch (Exception e) {
+                LOG.log(Level.SEVERE, "[Indexing] Reindex run failed", e);
+                for (IndexingListener l : listeners) l.onRunFailed(sourceId, e.getMessage());
+            } finally {
+                runningJobs.remove(sourceId);
+            }
+        });
+        runningJobs.put(sourceId, future);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Status queries
     // ═══════════════════════════════════════════════════════════════

@@ -92,7 +92,10 @@ public class IndexItemStatus {
      * Returns true if this item needs (re-)indexing based on a new content version.
      */
     public boolean needsReindex(long newModifiedAt, long newSize) {
+        // Always reindex if not successfully indexed (PENDING, SKIPPED, ERROR, DELETED)
         if (state != IndexItemState.INDEXED) return true;
+        // Also reindex if marked as indexed but has 0 chunks (extraction failed silently)
+        if (chunkCount <= 0) return true;
         return newModifiedAt != lastModifiedAt || newSize != fileSize;
     }
 

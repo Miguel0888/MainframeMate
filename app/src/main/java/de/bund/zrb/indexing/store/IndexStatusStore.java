@@ -100,6 +100,14 @@ public class IndexStatusStore {
         return counts;
     }
 
+    /**
+     * Clear all item statuses for a source (force full re-index on next run).
+     */
+    public synchronized void clearItemStatuses(String sourceId) {
+        saveItemStatuses(sourceId, new LinkedHashMap<String, IndexItemStatus>());
+        LOG.info("[IndexStatusStore] Cleared all item statuses for: " + sourceId);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Run Status (history of indexing runs)
     // ═══════════════════════════════════════════════════════════════

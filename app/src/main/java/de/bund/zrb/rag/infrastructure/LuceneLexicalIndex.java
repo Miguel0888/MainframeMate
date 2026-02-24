@@ -104,20 +104,9 @@ public class LuceneLexicalIndex implements LexicalIndex {
             for (int i = 0; i < searcher.getIndexReader().maxDoc(); i++) {
                 try {
                     Document doc = searcher.doc(i);
-                    String chunkId = doc.get(FIELD_CHUNK_ID);
-                    String docId = doc.get(FIELD_DOCUMENT_ID);
-                    String sourceName = doc.get(FIELD_SOURCE_NAME);
-                    String text = doc.get(FIELD_TEXT);
-                    String heading = doc.get(FIELD_HEADING);
-
-                    if (chunkId != null && docId != null) {
-                        Chunk.Builder builder = Chunk.builder()
-                                .chunkId(chunkId)
-                                .documentId(docId);
-                        if (sourceName != null) builder.sourceName(sourceName);
-                        if (text != null) builder.text(text);
-                        if (heading != null) builder.heading(heading);
-                        chunkCache.put(chunkId, builder.build());
+                    Chunk chunk = chunkFromDocument(doc);
+                    if (chunk != null) {
+                        chunkCache.put(chunk.getChunkId(), chunk);
                     }
                 } catch (Exception e) {
                     // skip deleted or problematic docs
@@ -174,25 +163,63 @@ public class LuceneLexicalIndex implements LexicalIndex {
             }
 
             Query luceneQuery = buildSmartQuery(query.trim());
+            LOG.info("[Search] Query: " + luceneQuery + " (index size: " + searcher.getIndexReader().numDocs() + ", cache: " + chunkCache.size() + ")");
 
             TopDocs topDocs = searcher.search(luceneQuery, topN);
+            LOG.info("[Search] Hits: " + topDocs.totalHits);
             List<ScoredChunk> results = new ArrayList<>();
 
             for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
                 Document doc = searcher.doc(scoreDoc.doc);
                 String chunkId = doc.get(FIELD_CHUNK_ID);
+
+                // Try cache first, then reconstruct from Lucene document
                 Chunk chunk = chunkCache.get(chunkId);
+                if (chunk == null) {
+                    chunk = chunkFromDocument(doc);
+                    if (chunk != null) {
+                        chunkCache.put(chunkId, chunk); // warm the cache
+                        LOG.info("[Search] Cache miss for chunk " + chunkId + " – reconstructed from index");
+                    }
+                }
 
                 if (chunk != null) {
                     results.add(new ScoredChunk(chunk, scoreDoc.score, ScoredChunk.ScoreSource.LEXICAL));
+                } else {
+                    LOG.warning("[Search] Failed to reconstruct chunk: " + chunkId);
                 }
             }
 
+            LOG.info("[Search] Returning " + results.size() + " results");
             return results;
         } catch (Exception e) {
             LOG.log(Level.WARNING, "Search failed for query: " + query, e);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Reconstruct a Chunk from a Lucene Document (all fields are stored).
+     */
+    private Chunk chunkFromDocument(Document doc) {
+        String chunkId = doc.get(FIELD_CHUNK_ID);
+        String docId = doc.get(FIELD_DOCUMENT_ID);
+        if (chunkId == null || docId == null) return null;
+
+        Chunk.Builder builder = Chunk.builder()
+                .chunkId(chunkId)
+                .documentId(docId);
+
+        String sourceName = doc.get(FIELD_SOURCE_NAME);
+        if (sourceName != null) builder.sourceName(sourceName);
+
+        String text = doc.get(FIELD_TEXT);
+        if (text != null) builder.text(text);
+
+        String heading = doc.get(FIELD_HEADING);
+        if (heading != null) builder.heading(heading);
+
+        return builder.build();
     }
 
     /**
@@ -291,6 +318,16 @@ public class LuceneLexicalIndex implements LexicalIndex {
 
     @Override
     public int size() {
+        // Return the actual index size, not just the cache.
+        // The cache may be empty after restart until rebuilt,
+        // but the persistent Lucene index still has all documents.
+        try {
+            refreshReader();
+            if (searcher != null) {
+                int indexSize = searcher.getIndexReader().numDocs();
+                if (indexSize > 0) return indexSize;
+            }
+        } catch (Exception ignored) {}
         return chunkCache.size();
     }
 

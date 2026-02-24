@@ -36,33 +36,33 @@ public class RagContentProcessor implements IndexingPipeline.ContentProcessor {
     @Override
     public int process(IndexSource source, String itemPath, byte[] content, String mimeType) throws Exception {
         if (content == null || content.length == 0) {
-            LOG.fine("[IndexProcessor] Skipping empty content: " + itemPath);
+            LOG.info("[IndexProcessor] SKIP empty content: " + itemPath);
             return 0;
         }
 
         // Derive a filename hint from the item path
         String filenameHint = extractFilename(itemPath);
+        LOG.info("[IndexProcessor] Processing: " + filenameHint + " (" + content.length + " bytes, mime=" + mimeType + ")");
 
         // Step 1: Extract text via Tika pipeline
         DocumentSource docSource = DocumentSource.fromBytes(content, filenameHint);
         ExtractionResult extraction = extractionUseCase.executeSync(docSource);
 
         if (!extraction.isSuccess()) {
-            LOG.fine("[IndexProcessor] Extraction failed for " + filenameHint
+            LOG.warning("[IndexProcessor] EXTRACTION FAILED for " + filenameHint
                     + ": " + extraction.getErrorMessage());
             return 0;
         }
 
         String plainText = extraction.getPlainText();
         if (plainText == null || plainText.trim().isEmpty()) {
-            LOG.fine("[IndexProcessor] No text extracted from: " + filenameHint);
+            LOG.warning("[IndexProcessor] NO TEXT extracted from: " + filenameHint);
             return 0;
         }
 
-        // Step 2: Build a Document for RAG indexing
-        String documentId = itemPath;
-        String documentName = filenameHint;
+        LOG.info("[IndexProcessor] Extracted " + plainText.length() + " chars from: " + filenameHint);
 
+        // Step 2: Build a Document for RAG indexing
         DocumentMetadata metadata = DocumentMetadata.builder()
                 .sourceName(filenameHint)
                 .mimeType(mimeType != null ? mimeType : "text/plain")
@@ -76,15 +76,17 @@ public class RagContentProcessor implements IndexingPipeline.ContentProcessor {
 
         // Step 3: Index via RagService (chunks + Lucene + optional embeddings)
         try {
-            ragService.indexDocument(documentId, documentName, document);
+            ragService.indexDocument(itemPath, filenameHint, document);
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[IndexProcessor] RAG indexing failed for: " + itemPath, e);
+            LOG.log(Level.WARNING, "[IndexProcessor] RAG indexing FAILED for: " + itemPath, e);
             throw e;
         }
 
         // Return chunk count
-        RagService.IndexedDocument indexed = ragService.getIndexedDocument(documentId);
-        return indexed != null ? indexed.chunkCount : 1;
+        RagService.IndexedDocument indexed = ragService.getIndexedDocument(itemPath);
+        int chunks = indexed != null ? indexed.chunkCount : 1;
+        LOG.info("[IndexProcessor] INDEXED: " + filenameHint + " → " + chunks + " chunks");
+        return chunks;
     }
 
     @Override

@@ -214,12 +214,19 @@ public class IndexingPipeline {
                 // Process (extract → chunk → embed → index)
                 int chunkCount = contentProcessor.process(source, item.getPath(), content, item.getMimeType());
 
-                status.setState(IndexItemState.INDEXED);
-                status.setIndexedAt(System.currentTimeMillis());
-                status.setChunkCount(chunkCount);
-                status.setIndexSchemaVersion(INDEX_SCHEMA_VERSION);
-                status.setErrorMessage(null);
-                status.setErrorCount(0);
+                if (chunkCount > 0) {
+                    status.setState(IndexItemState.INDEXED);
+                    status.setIndexedAt(System.currentTimeMillis());
+                    status.setChunkCount(chunkCount);
+                    status.setIndexSchemaVersion(INDEX_SCHEMA_VERSION);
+                    status.setErrorMessage(null);
+                    status.setErrorCount(0);
+                } else {
+                    // Extraction returned no text/chunks – mark as skipped so it gets retried
+                    status.setState(IndexItemState.SKIPPED);
+                    status.setSkipReason("No text extracted (0 chunks)");
+                    status.setChunkCount(0);
+                }
             }
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Indexing] Error processing: " + item.getPath(), e);
