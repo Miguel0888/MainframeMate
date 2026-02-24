@@ -124,11 +124,18 @@ public class OllamaChatManager implements ChatManager {
                 ? sessionHistories.computeIfAbsent(sessionId, ChatHistory::new)
                 : null;
 
+        // Extract system prompt separately for Ollama's 'system' field
+        // This ensures the system prompt is always processed, even on first message
+        String systemPrompt = null;
+        if (history != null && history.getSystemPrompt() != null && !history.getSystemPrompt().trim().isEmpty()) {
+            systemPrompt = history.getSystemPrompt().trim();
+        }
+
         String prompt = (history != null)
                 ? buildPrompt(history, userInput)
                 : userInput;
 
-        String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, keepAlive));
+        String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, systemPrompt, keepAlive));
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
@@ -338,12 +345,14 @@ public class OllamaChatManager implements ChatManager {
     private static class OllamaRequest {
         String model;
         String prompt;
+        String system;
         boolean stream = true;
         String keep_alive;
 
-        OllamaRequest(String model, String prompt, boolean keepAlive) {
+        OllamaRequest(String model, String prompt, String system, boolean keepAlive) {
             this.model = model;
             this.prompt = prompt;
+            this.system = system;
             String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
             this.keep_alive = keepAlive ? keepAliveValue : "0m";
         }

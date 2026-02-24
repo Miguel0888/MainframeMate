@@ -65,7 +65,7 @@ public class BrowseNavigateTool implements McpServerTool {
             ToolResult snapshotResult = null;
 
             for (int attempt = 0; attempt < 3; attempt++) {
-                try { Thread.sleep(attempt == 0 ? 500 : 1000); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(attempt == 0 ? 1000 : 1500); } catch (InterruptedException ignored) {}
 
                 snapshotResult = snapshotTool.execute(snapshotParams, session);
                 if (snapshotResult != null && !snapshotResult.isError()) {
@@ -136,9 +136,16 @@ public class BrowseNavigateTool implements McpServerTool {
         String script = "(function(){"
                 + "var el=document.querySelector('article')||document.querySelector('[role=main]')"
                 + "||document.querySelector('main')||document.querySelector('#article-container')"
-                + "||document.querySelector('.caas-body')||document.body;"
+                + "||document.querySelector('.caas-body')||document.querySelector('.caas-content-wrapper')"
+                + "||document.querySelector('#Main')||document.querySelector('[data-content-area]')"
+                + "||document.querySelector('.ntk-lead')||document.querySelector('#content')"
+                + "||document.querySelector('.content')||document.body;"
                 + "if(!el)return '';"
-                + "var t=el.innerText||el.textContent||'';"
+                // Clone and remove noise elements
+                + "var clone=el.cloneNode(true);"
+                + "var remove=clone.querySelectorAll('script,style,nav,footer,header,noscript,[aria-hidden=true],.ad,.ads');"
+                + "for(var i=0;i<remove.length;i++){try{remove[i].parentNode.removeChild(remove[i]);}catch(e){}}"
+                + "var t=clone.innerText||clone.textContent||'';"
                 + "return t.replace(/\\t/g,' ').replace(/ {3,}/g,' ').replace(/\\n{3,}/g,'\\n\\n').trim().substring(0," + maxLen + ");"
                 + "})()";
         try {

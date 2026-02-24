@@ -60,7 +60,10 @@ public enum ChatMode {
                     "   Du darfst NIEMALS den Nutzer fragen was als nächstes zu tun ist. Handle autonom.\n" +
                     "8. Wenn du eine Webseite navigiert hast und den Text brauchst, rufe IMMER web_read_page auf.\n" +
                     "9. Antworte auf Deutsch.\n" +
-                    "10. WICHTIG: Schreibe KEINEN erklärenden Text wenn du einen Tool-Call machen willst. NUR das JSON.",
+                    "10. WICHTIG: Schreibe KEINEN erklärenden Text wenn du einen Tool-Call machen willst. NUR das JSON.\n" +
+                    "11. Wenn du 'laut denkst' oder dein Vorgehen beschreiben willst, tu es NICHT. " +
+                    "Mache stattdessen direkt den Tool-Call.\n" +
+                    "12. Du hast volle Autonomie. Der Nutzer erwartet, dass du SELBSTÄNDIG arbeitest.",
             true,
             EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
             defaultToolPrefix(),
@@ -125,7 +128,10 @@ public enum ChatMode {
                 "- KEIN Text, KEINE Erklärung, KEIN Markdown vor oder nach dem JSON.\n" +
                 "- Format: {\"name\":\"tool_name\",\"input\":{...}}\n" +
                 "- Wenn du kein Tool brauchst, antworte normal mit Text.\n" +
-                "- Mische NIEMALS Text und Tool-Call in einer Antwort.";
+                "- Mische NIEMALS Text und Tool-Call in einer Antwort.\n" +
+                "- Schreibe KEINE JSON-Fragmente wie {\"ref\":\"n1\"} oder {\"url\":\"...\"} als Text.\n" +
+                "  Solche Fragmente sind KEIN gültiger Tool-Call.\n" +
+                "- Denke NICHT laut nach über Tool-Calls. Mache den Tool-Call einfach direkt.";
     }
 
     @Override

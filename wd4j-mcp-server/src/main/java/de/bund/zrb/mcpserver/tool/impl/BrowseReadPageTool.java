@@ -55,6 +55,9 @@ public class BrowseReadPageTool implements McpServerTool {
         if (maxLen < 100) maxLen = 100;
 
         try {
+            // Brief wait to allow dynamic content to render (SPAs, React, Next.js)
+            try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+
             // Get page title and URL
             String titleScript = "document.title";
             String urlScript = "window.location.href";
@@ -67,16 +70,25 @@ public class BrowseReadPageTool implements McpServerTool {
                 targetExpr = "document.querySelector('" + escapeJs(selector) + "')";
             } else {
                 // Try common article containers first, fall back to body
+                // Include Yahoo-specific containers and other common patterns
                 targetExpr = "document.querySelector('article') || document.querySelector('[role=main]') "
                            + "|| document.querySelector('main') || document.querySelector('#article-container') "
                            + "|| document.querySelector('.article-body') || document.querySelector('.caas-body') "
+                           + "|| document.querySelector('.caas-content-wrapper') || document.querySelector('#Main') "
+                           + "|| document.querySelector('[data-content-area]') || document.querySelector('.ntk-lead') "
+                           + "|| document.querySelector('#content') || document.querySelector('.content') "
                            + "|| document.body";
             }
 
             String readScript = "(function(){"
                     + "var el=" + targetExpr + ";"
                     + "if(!el) el=document.body;"
-                    + "var text=el.innerText||el.textContent||'';"
+                    + "if(!el) return '';"
+                    // Clone and remove script/style/nav/footer/header to get cleaner text
+                    + "var clone=el.cloneNode(true);"
+                    + "var remove=clone.querySelectorAll('script,style,nav,footer,header,noscript,[aria-hidden=true],.ad,.ads,.advertisement');"
+                    + "for(var i=0;i<remove.length;i++){try{remove[i].parentNode.removeChild(remove[i]);}catch(e){}}"
+                    + "var text=clone.innerText||clone.textContent||'';"
                     // Clean up excessive whitespace
                     + "text=text.replace(/\\t/g,' ').replace(/ {3,}/g,' ').replace(/\\n{3,}/g,'\\n\\n').trim();"
                     + "return text.substring(0," + maxLen + ");"

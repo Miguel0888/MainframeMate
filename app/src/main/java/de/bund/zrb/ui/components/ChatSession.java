@@ -713,14 +713,37 @@ public class ChatSession extends JPanel {
             }
         }
 
-        // Case C: JSON is embedded within other text
-        int firstBrace = trimmed.indexOf('{');
-        int lastBrace = trimmed.lastIndexOf('}');
-        if (firstBrace >= 0 && lastBrace > firstBrace) {
-            String inside = trimmed.substring(firstBrace, lastBrace + 1).trim();
-            obj = tryParseToolCallJson(inside);
-            if (obj != null) {
-                return obj;
+        // Case C: JSON is embedded within other text – find the FIRST valid tool-call JSON
+        // (skip small JSON fragments like {"ref":"n1"} that aren't tool calls)
+        int searchFrom = 0;
+        while (searchFrom < trimmed.length()) {
+            int firstBrace = trimmed.indexOf('{', searchFrom);
+            if (firstBrace < 0) break;
+
+            // Find matching closing brace
+            int depth = 0;
+            int matchEnd = -1;
+            for (int j = firstBrace; j < trimmed.length(); j++) {
+                if (trimmed.charAt(j) == '{') depth++;
+                else if (trimmed.charAt(j) == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        matchEnd = j;
+                        break;
+                    }
+                }
+            }
+
+            if (matchEnd > firstBrace) {
+                String candidate = trimmed.substring(firstBrace, matchEnd + 1).trim();
+                obj = tryParseToolCallJson(candidate);
+                if (obj != null) {
+                    return obj;
+                }
+                // Not a valid tool call – skip past this JSON object and keep looking
+                searchFrom = matchEnd + 1;
+            } else {
+                break; // unmatched braces
             }
         }
 
@@ -933,7 +956,7 @@ public class ChatSession extends JPanel {
     }
 
     private volatile int agentFollowUpRetries = 0;
-    private static final int MAX_AGENT_RETRIES = 3;
+    private static final int MAX_AGENT_RETRIES = 8;
 
     private void streamAssistantFollowUp(String followUpUserText) {
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
@@ -1020,11 +1043,13 @@ public class ChatSession extends JPanel {
                                     Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                     formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
 
-                                    String retryPrompt = "Du hast gerade Text geantwortet statt einen Tool-Call zu machen. " +
-                                            "Im Agent-Modus musst du IMMER einen Tool-Call als reines JSON machen, " +
-                                            "solange die Aufgabe nicht erledigt ist. " +
-                                            "Antworte JETZT NUR mit dem JSON-Tool-Call. Kein Text. " +
-                                            "Falls die Aufgabe bereits erledigt ist, fasse die Ergebnisse zusammen.";
+                                    String retryPrompt = "FEHLER: Du hast Text statt eines Tool-Calls geantwortet. " +
+                                            "Die Aufgabe des Nutzers war: \"" + lastUserRequestText + "\"\n" +
+                                            "Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
+                                            "NEIN → Antworte NUR mit einem JSON-Tool-Call. Beispiel:\n" +
+                                            "{\"name\":\"web_navigate\",\"input\":{\"url\":\"https://example.com\"}}\n" +
+                                            "JA → Fasse die gesammelten Ergebnisse zusammen und antworte dem Nutzer.\n" +
+                                            "WICHTIG: Kein Text VOR dem JSON. Kein Erklärtext. NUR das JSON-Objekt.";
                                     streamAssistantFollowUp(retryPrompt);
                                     return;
                                 }
@@ -1357,15 +1382,16 @@ public class ChatSession extends JPanel {
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
                 if (currentMode == ChatMode.AGENT) {
-                    followUp = "Du hast Tool-Ergebnisse erhalten. " +
-                            "Prüfe: Ist die Aufgabe des Nutzers VOLLSTÄNDIG erledigt? " +
+                    followUp = "Du hast Tool-Ergebnisse erhalten. Ursprüngliche Nutzeranfrage: \"" + lastUserRequestText + "\"\n\n" +
+                            "Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
                             "Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. " +
                             "Frage NICHT den Nutzer. Handle autonom. " +
                             "Beispiele für nächste Schritte: weitere Seiten navigieren, Artikel-Links anklicken, web_read_page aufrufen, Daten sammeln. " +
                             "Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. " +
                             "WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. " +
                             "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
-                            "ERINNERUNG: Du bist ein Agent. Du darfst NICHT stoppen und den Nutzer fragen. Mache einfach weiter.";
+                            "ERINNERUNG: Du bist ein Agent. Du darfst NICHT stoppen und den Nutzer fragen. " +
+                            "Mache einfach weiter bis die Aufgabe erledigt ist.";
                 } else {
                     followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }
