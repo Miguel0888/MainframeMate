@@ -53,10 +53,14 @@ public enum ChatMode {
                     "klicke auf Artikel-Links, lies deren Inhalt, und fasse erst am Ende alles zusammen.\n" +
                     "4. Der Nutzer kann dich jederzeit unterbrechen. Bis dahin: arbeite weiter.\n" +
                     "5. Antworte dem Nutzer erst, wenn du ALLE nötigen Informationen gesammelt hast.\n" +
-                    "6. Pro Antwort genau EINEN Tool-Call als reines JSON. KEIN Text vor oder nach dem JSON.\n" +
+                    "6. Pro Antwort genau EINEN Tool-Call als reines JSON-Objekt. KEIN Text vor oder nach dem JSON.\n" +
+                    "   Korrektes Format: {\"name\":\"tool_name\",\"input\":{\"param\":\"value\"}}\n" +
+                    "   FALSCH: Text gefolgt von JSON, oder JSON mit toolName/toolInput statt name/input.\n" +
                     "7. Wenn ein Tool-Ergebnis zurückkommt, mache sofort den nächsten Tool-Call – frage NICHT den Nutzer.\n" +
+                    "   Du darfst NIEMALS den Nutzer fragen was als nächstes zu tun ist. Handle autonom.\n" +
                     "8. Wenn du eine Webseite navigiert hast und den Text brauchst, rufe IMMER web_read_page auf.\n" +
-                    "9. Antworte auf Deutsch.",
+                    "9. Antworte auf Deutsch.\n" +
+                    "10. WICHTIG: Schreibe KEINEN erklärenden Text wenn du einen Tool-Call machen willst. NUR das JSON.",
             true,
             EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
             defaultToolPrefix(),
