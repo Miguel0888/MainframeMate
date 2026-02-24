@@ -90,6 +90,25 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
             if (!e.getValueIsAdjusting()) loadSelectedSource();
         });
 
+        // Click on "Cache" column opens WebCacheDialog
+        sourceTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int col = sourceTable.columnAtPoint(e.getPoint());
+                int row = sourceTable.rowAtPoint(e.getPoint());
+                if (col == 6 && row >= 0) { // Cache column
+                    IndexSource src = tableModel.getSourceAt(row);
+                    if (src.getSourceType() == SourceType.WEB) {
+                        new de.bund.zrb.archive.ui.WebCacheDialog(
+                                (java.awt.Frame) SwingUtilities.getWindowAncestor(IndexingControlPanel.this),
+                                src.getSourceId(), src.getName()
+                        ).setVisible(true);
+                        tableModel.fireTableDataChanged();
+                    }
+                }
+            }
+        });
+
         JScrollPane tableScroll = new JScrollPane(sourceTable);
         tableScroll.setPreferredSize(new Dimension(0, 200));
 
@@ -723,7 +742,7 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     private class SourceTableModel extends AbstractTableModel {
         private List<IndexSource> sources = new ArrayList<>();
-        private final String[] COLUMNS = {"Name", "Typ", "Aktiv", "Zeitplan", "Letzter Lauf", "Status"};
+        private final String[] COLUMNS = {"Name", "Typ", "Aktiv", "Zeitplan", "Letzter Lauf", "Status", "Cache"};
 
         void setSources(List<IndexSource> sources) {
             this.sources = sources;
@@ -753,6 +772,13 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
                     if (service.isRunning(s.getSourceId())) return "⏳";
                     IndexRunStatus lastRun = service.getLastSuccessfulRun(s.getSourceId());
                     return lastRun != null ? "✅" : "–";
+                case 6:
+                    if (s.getSourceType() == SourceType.WEB) {
+                        int count = de.bund.zrb.archive.store.ArchiveRepository.getInstance()
+                                .countBySourceId(s.getSourceId());
+                        return "🔗 " + count;
+                    }
+                    return "";
                 default: return "";
             }
         }

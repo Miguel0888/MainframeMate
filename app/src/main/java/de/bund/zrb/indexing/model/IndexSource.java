@@ -55,6 +55,14 @@ public class IndexSource {
     private String connectionHost = "";
     private int connectionPort = 0;
 
+    // ── Web/Recherche-specific fields ──
+    private List<String> domainIncludePatterns = new ArrayList<>();  // e.g. "*.yahoo.com"
+    private List<String> domainExcludePatterns = new ArrayList<>();  // e.g. "*.ad.yahoo.com"
+    private int maxCrawlDepth = 3;
+    private int maxUrlsPerSession = 100;
+    private boolean respectRobotsTxt = true;
+    private String topicFilter = "";
+
     // ── Getters & Setters ──
 
     public String getSourceId() { return sourceId; }
@@ -131,6 +139,24 @@ public class IndexSource {
 
     public int getConnectionPort() { return connectionPort; }
     public void setConnectionPort(int connectionPort) { this.connectionPort = connectionPort; }
+
+    public List<String> getDomainIncludePatterns() { return domainIncludePatterns; }
+    public void setDomainIncludePatterns(List<String> domainIncludePatterns) { this.domainIncludePatterns = domainIncludePatterns; }
+
+    public List<String> getDomainExcludePatterns() { return domainExcludePatterns; }
+    public void setDomainExcludePatterns(List<String> domainExcludePatterns) { this.domainExcludePatterns = domainExcludePatterns; }
+
+    public int getMaxCrawlDepth() { return maxCrawlDepth; }
+    public void setMaxCrawlDepth(int maxCrawlDepth) { this.maxCrawlDepth = maxCrawlDepth; }
+
+    public int getMaxUrlsPerSession() { return maxUrlsPerSession; }
+    public void setMaxUrlsPerSession(int maxUrlsPerSession) { this.maxUrlsPerSession = maxUrlsPerSession; }
+
+    public boolean isRespectRobotsTxt() { return respectRobotsTxt; }
+    public void setRespectRobotsTxt(boolean respectRobotsTxt) { this.respectRobotsTxt = respectRobotsTxt; }
+
+    public String getTopicFilter() { return topicFilter; }
+    public void setTopicFilter(String topicFilter) { this.topicFilter = topicFilter; }
 
     @Override
     public String toString() {

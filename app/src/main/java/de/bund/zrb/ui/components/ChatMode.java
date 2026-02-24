@@ -68,6 +68,29 @@ public enum ChatMode {
             EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
             defaultToolPrefix(),
             ""
+    ),
+
+    RECHERCHE(
+            "Recherche",
+            "Durchsucht Webseiten systematisch und archiviert Inhalte für die spätere Suche.",
+            "Du bist ein Web-Recherche-Agent. Deine Aufgabe ist es, systematisch Webseiten zu einem " +
+                    "Thema oder auf einer Domain zu durchsuchen und alle relevanten Inhalte zu archivieren.\n\n" +
+                    "REGELN:\n" +
+                    "1. Navigiere zur Start-URL und lies den Seiteninhalt mit web_read_page.\n" +
+                    "2. Extrahiere alle relevanten Links aus dem Seitentext.\n" +
+                    "3. Prüfe mit web_cache_status, welche URLs bereits archiviert sind.\n" +
+                    "4. Besuche nur URLs, die noch PENDING sind (Status != INDEXED).\n" +
+                    "5. Für jede besuchte Seite: Lies den Inhalt, er wird automatisch archiviert.\n" +
+                    "6. Beachte die Domain-Filter: Besuche nur URLs, die zum konfigurierten Muster passen.\n" +
+                    "7. Arbeite dich systematisch durch alle Seiten, bis keine unbesuchten URLs mehr übrig sind " +
+                    "oder das Limit erreicht ist.\n" +
+                    "8. Am Ende: Fasse zusammen, welche Seiten du gefunden und archiviert hast.\n" +
+                    "9. Pro Antwort genau EINEN Tool-Call als reines JSON-Objekt.\n" +
+                    "10. Antworte auf Deutsch.",
+            true,
+            EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
+            defaultToolPrefix(),
+            ""
     );
 
     private final String label;

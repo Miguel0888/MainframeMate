@@ -83,6 +83,9 @@ dependencies {
     implementation 'org.apache.lucene:lucene-queryparser:8.11.3'
     implementation 'org.apache.lucene:lucene-analyzers-common:8.11.3'
 
+    // H2 Embedded Database for Archive system
+    implementation 'com.h2database:h2:2.2.224'
+
     // ANTLR for JCL parsing (4.9.3 = last Java 8 compatible version)
     antlr 'org.antlr:antlr4:4.9.3'
     implementation 'org.antlr:antlr4-runtime:4.9.3'

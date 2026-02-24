@@ -22,6 +22,7 @@ public class Main {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
                 PluginManager.shutdownAll();
+                de.bund.zrb.archive.service.ArchiveService.getInstance().shutdown();
             } catch (Exception e) {
                 System.err.println("[Shutdown] Error during plugin shutdown: " + e.getMessage());
             }
@@ -32,6 +33,9 @@ public class Main {
 
         // Start indexing scheduler (runs ON_STARTUP sources, schedules INTERVAL sources)
         IndexingService.getInstance().startScheduler();
+
+        // Initialize Archive system (H2 database + register archive tools)
+        de.bund.zrb.archive.service.ArchiveService.getInstance().registerTools();
 
         SwingUtilities.invokeLater(() -> {
             MainFrame gui = new MainFrame();

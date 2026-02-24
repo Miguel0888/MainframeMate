@@ -461,15 +461,14 @@ public class ChatSession extends JPanel {
                                 formatter.removeCurrentBotMessage();
                                 // In AGENT mode, retry on empty response (model hiccup)
                                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
-                                if (currentMode == ChatMode.AGENT && emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+                                if ((currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) && emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
                                     emptyResponseRetries++;
                                     formatter.appendToolEvent(
                                             "⚠️ Leere Modellantwort (Retry " + emptyResponseRetries + "/" + MAX_EMPTY_RESPONSE_RETRIES + ")",
                                             "Das Modell hat keine Antwort geliefert. Automatischer Retry...",
                                             true
                                     );
-                                    String retryPrompt = "Du hast eine leere Antwort geliefert. " +
-                                            "Bitte beantworte die Nutzeranfrage: \"" + lastUserRequestText + "\"";
+                                    String retryPrompt = buildEmptyResponseRetryPrompt(emptyResponseRetries);
                                     streamAssistantFollowUp(retryPrompt);
                                     return;
                                 }
@@ -1005,7 +1004,7 @@ public class ChatSession extends JPanel {
 
     private volatile int agentFollowUpRetries = 0;
     private static final int MAX_AGENT_RETRIES = 8;
-    private static final int MAX_EMPTY_RESPONSE_RETRIES = 3;
+    private static final int MAX_EMPTY_RESPONSE_RETRIES = 5;
     private volatile int emptyResponseRetries = 0;
 
     private void streamAssistantFollowUp(String followUpUserText) {
@@ -1015,7 +1014,7 @@ public class ChatSession extends JPanel {
         String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
         String userText;
-        if (resolvedMode == ChatMode.AGENT) {
+        if (resolvedMode == ChatMode.AGENT || resolvedMode == ChatMode.RECHERCHE) {
             userText = baseFollowUp
                     + "\n\nUrsprüngliche Nutzeranfrage: "
                     + (lastUserRequestText == null ? "" : lastUserRequestText);
@@ -1085,8 +1084,9 @@ public class ChatSession extends JPanel {
                                             "Das Modell hat keine Antwort geliefert. Automatischer Retry...",
                                             true
                                     );
-                                    String retryPrompt = "Du hast eine leere Antwort geliefert. " +
-                                            "Bitte beantworte die Nutzeranfrage: \"" + lastUserRequestText + "\"";
+                                    String retryPrompt = buildEmptyResponseRetryPrompt(emptyResponseRetries);
+                                    // Exponential backoff
+                                    try { Thread.sleep(Math.min(500L * (1L << (emptyResponseRetries - 1)), 4000L)); } catch (InterruptedException ignored) {}
                                     streamAssistantFollowUp(retryPrompt);
                                     return;
                                 }
@@ -1102,7 +1102,7 @@ public class ChatSession extends JPanel {
                                 // call, it might have "thought out loud" instead of acting.
                                 // Retry with a more explicit instruction.
                                 ChatMode currentMode2 = (ChatMode) modeComboBox.getSelectedItem();
-                                if (currentMode2 == ChatMode.AGENT && agentFollowUpRetries < MAX_AGENT_RETRIES) {
+                                if ((currentMode2 == ChatMode.AGENT || currentMode2 == ChatMode.RECHERCHE) && agentFollowUpRetries < MAX_AGENT_RETRIES) {
                                     agentFollowUpRetries++;
                                     // Save what the bot said as context
                                     Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
@@ -1412,6 +1412,29 @@ public class ChatSession extends JPanel {
                     toolsUsedInThisChat.add(requestedTool);
                 }
 
+                // ── RECHERCHE-Modus: Auto-Archivierung bei web_read_page ──
+                ChatMode rechercheCheck = (ChatMode) modeComboBox.getSelectedItem();
+                if (rechercheCheck == ChatMode.RECHERCHE
+                        && "web_read_page".equalsIgnoreCase(requestedTool)
+                        && isSuccessResult(result)) {
+                    try {
+                        de.bund.zrb.archive.service.ArchiveService archiveService =
+                                de.bund.zrb.archive.service.ArchiveService.getInstance();
+                        // Extract URL and content from result
+                        String pageUrl = extractFieldFromResult(result, "url");
+                        String pageTitle = extractFieldFromResult(result, "title");
+                        String pageContent = extractFieldFromResult(result, "result");
+                        if (pageUrl == null || pageUrl.isEmpty()) {
+                            pageUrl = extractFieldFromResult(result, "URL");
+                        }
+                        if (pageUrl != null && !pageUrl.isEmpty()) {
+                            archiveService.getSnapshotPipeline().processSnapshot(pageUrl, pageContent, pageTitle);
+                        }
+                    } catch (Exception archiveEx) {
+                        System.err.println("[Archive] Auto-archive failed: " + archiveEx.getMessage());
+                    }
+                }
+
                 results.add(result);
 
                 boolean isError = result != null && result.has("status")
@@ -1447,7 +1470,7 @@ public class ChatSession extends JPanel {
 
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
-                if (currentMode == ChatMode.AGENT) {
+                if (currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) {
                     followUp = "Du hast Tool-Ergebnisse erhalten. Ursprüngliche Nutzeranfrage: \"" + lastUserRequestText + "\"\n\n" +
                             "Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
                             "Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. " +
@@ -1771,6 +1794,59 @@ public class ChatSession extends JPanel {
                 "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\TEST\"}}."
         );
         return error;
+    }
+
+    /**
+     * Builds an adaptive retry prompt based on how many times we've retried.
+     */
+    private String buildEmptyResponseRetryPrompt(int retryCount) {
+        if (retryCount <= 2) {
+            return "Du hast eine leere Antwort geliefert. "
+                    + "Bitte beantworte die Nutzeranfrage: \"" + lastUserRequestText + "\"";
+        } else if (retryCount <= 4) {
+            return "WICHTIG: Deine letzte Antwort war leer. "
+                    + "Du MUSST jetzt entweder einen Tool-Call machen ODER eine Textantwort geben. "
+                    + "Aufgabe: \"" + lastUserRequestText + "\"\n"
+                    + "Wenn du nicht weiter weißt, sage dem Nutzer was du bisher herausgefunden hast.";
+        } else {
+            return "Letzte Chance: Antworte mit Text oder gib auf. Aufgabe: \"" + lastUserRequestText + "\"";
+        }
+    }
+
+    /**
+     * Extracts a string field from a tool result JSON object.
+     * Searches both top-level and nested "raw.content[0].text" for the field.
+     */
+    private String extractFieldFromResult(JsonObject result, String fieldName) {
+        if (result == null) return null;
+        if (result.has(fieldName) && !result.get(fieldName).isJsonNull()) {
+            return result.get(fieldName).getAsString();
+        }
+        // Try to find in the result text via simple string matching
+        if (result.has("result") && !result.get("result").isJsonNull()) {
+            String text = result.get("result").getAsString();
+            // For "url" or "URL", try to extract from "URL: <url>" pattern
+            if ("url".equalsIgnoreCase(fieldName) || "URL".equals(fieldName)) {
+                int idx = text.indexOf("URL: ");
+                if (idx >= 0) {
+                    int start = idx + 5;
+                    int end = text.indexOf('\n', start);
+                    if (end < 0) end = text.length();
+                    return text.substring(start, end).trim();
+                }
+            }
+            // For "title", try "Page: <title>" pattern
+            if ("title".equalsIgnoreCase(fieldName)) {
+                int idx = text.indexOf("Page: ");
+                if (idx >= 0) {
+                    int start = idx + 6;
+                    int end = text.indexOf('\n', start);
+                    if (end < 0) end = text.length();
+                    return text.substring(start, end).trim();
+                }
+            }
+        }
+        return null;
     }
 
     /**
