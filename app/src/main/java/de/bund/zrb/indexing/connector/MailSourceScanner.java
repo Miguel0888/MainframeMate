@@ -198,7 +198,9 @@ public class MailSourceScanner implements SourceScanner {
                     }
                     basePath = folderFilter;
                 } else {
-                    scanRoot = pstFile.getRootFolder();
+                    // Use content root (IPM_SUBTREE) instead of file root
+                    // to skip technical wrapper folders
+                    scanRoot = findContentRoot(pstFile);
                     basePath = "";
                 }
 
@@ -396,17 +398,82 @@ public class MailSourceScanner implements SourceScanner {
                 return root;
             }
 
-            // Search through all top-level containers
+            // First find the content root (IPM_SUBTREE) – same logic as PstMailboxReader
+            PSTFolder contentRoot = findContentRoot(pstFile);
+
+            // Try navigating from content root first (this is where user folders live)
+            PSTFolder result = navigateFromBase(contentRoot, folderPath);
+            if (result != null) return result;
+
+            // Fallback: search through all top-level containers
             for (PSTFolder l1 : root.getSubFolders()) {
-                PSTFolder result = navigateFromBase(l1, folderPath);
+                result = navigateFromBase(l1, folderPath);
                 if (result != null) return result;
             }
 
-            // Direct navigation from root
+            // Last resort: direct navigation from root
             return navigateFromBase(root, folderPath);
         } catch (Exception e) {
             LOG.warning("[Indexing-Mail] Navigation failed: " + e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Finds the IPM_SUBTREE content root within a PST/OST file.
+     * Mirrors the logic in PstMailboxReader.findContentRoot().
+     */
+    private PSTFolder findContentRoot(PSTFile pstFile) throws Exception {
+        PSTFolder root = pstFile.getRootFolder();
+        PSTFolder best = null;
+        int bestChildCount = -1;
+
+        for (PSTFolder l1 : root.getSubFolders()) {
+            // Check L1
+            if ("IPM_SUBTREE".equalsIgnoreCase(l1.getDisplayName())) {
+                int cc = countContentChildren(l1);
+                if (cc > bestChildCount) { best = l1; bestChildCount = cc; }
+            }
+            // Check L2
+            try {
+                for (PSTFolder l2 : l1.getSubFolders()) {
+                    if ("IPM_SUBTREE".equalsIgnoreCase(l2.getDisplayName())) {
+                        int cc = countContentChildren(l2);
+                        if (cc > bestChildCount) { best = l2; bestChildCount = cc; }
+                    }
+                    // Check L3
+                    try {
+                        for (PSTFolder l3 : l2.getSubFolders()) {
+                            if ("IPM_SUBTREE".equalsIgnoreCase(l3.getDisplayName())) {
+                                int cc = countContentChildren(l3);
+                                if (cc > bestChildCount) { best = l3; bestChildCount = cc; }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {}
+        }
+
+        return best != null ? best : root;
+    }
+
+    private int countContentChildren(PSTFolder folder) {
+        try {
+            int count = 0;
+            for (PSTFolder sub : folder.getSubFolders()) {
+                if (sub.getContentCount() > 0 || hasSubFolders(sub)) count++;
+            }
+            return count;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private boolean hasSubFolders(PSTFolder folder) {
+        try {
+            return !folder.getSubFolders().isEmpty();
+        } catch (Exception e) {
+            return false;
         }
     }
 
