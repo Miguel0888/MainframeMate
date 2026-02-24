@@ -369,6 +369,7 @@ public class ChatSession extends JPanel {
         if (message.isEmpty()) return;
         lastUserRequestText = message;
         agentFollowUpRetries = 0; // Reset retries for new conversation turn
+        emptyResponseRetries = 0;
 
         // Prefix with system prompt based on selected mode
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
@@ -458,12 +459,28 @@ public class ChatSession extends JPanel {
                                 executeToolCallsSequentially(toolCalls);
                             } else if (botText == null || botText.trim().isEmpty()) {
                                 formatter.removeCurrentBotMessage();
+                                // In AGENT mode, retry on empty response (model hiccup)
+                                ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
+                                if (currentMode == ChatMode.AGENT && emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+                                    emptyResponseRetries++;
+                                    formatter.appendToolEvent(
+                                            "⚠️ Leere Modellantwort (Retry " + emptyResponseRetries + "/" + MAX_EMPTY_RESPONSE_RETRIES + ")",
+                                            "Das Modell hat keine Antwort geliefert. Automatischer Retry...",
+                                            true
+                                    );
+                                    String retryPrompt = "Du hast eine leere Antwort geliefert. " +
+                                            "Bitte beantworte die Nutzeranfrage: \"" + lastUserRequestText + "\"";
+                                    streamAssistantFollowUp(retryPrompt);
+                                    return;
+                                }
+                                emptyResponseRetries = 0;
                                 formatter.appendToolEvent(
                                         "⚠️ Leere Modellantwort",
                                         "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
                                         true
                                 );
                             } else {
+                                emptyResponseRetries = 0; // Reset on successful response
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
                             }
@@ -988,6 +1005,8 @@ public class ChatSession extends JPanel {
 
     private volatile int agentFollowUpRetries = 0;
     private static final int MAX_AGENT_RETRIES = 8;
+    private static final int MAX_EMPTY_RESPONSE_RETRIES = 3;
+    private volatile int emptyResponseRetries = 0;
 
     private void streamAssistantFollowUp(String followUpUserText) {
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
@@ -1037,6 +1056,7 @@ public class ChatSession extends JPanel {
                             java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
                             if (!toolCalls.isEmpty()) {
                                 agentFollowUpRetries = 0; // Reset retry counter on successful tool call
+                                emptyResponseRetries = 0;
                                 formatter.removeCurrentBotMessage();
 
                                 // Preserve any text the bot wrote before the first tool call JSON
@@ -1057,9 +1077,23 @@ public class ChatSession extends JPanel {
                                 executeToolCallsSequentially(toolCalls);
                             } else if (botText == null || botText.trim().isEmpty()) {
                                 formatter.removeCurrentBotMessage();
+                                // Retry on empty response (model hiccup) – use dedicated counter
+                                if (emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+                                    emptyResponseRetries++;
+                                    formatter.appendToolEvent(
+                                            "⚠️ Leere Modellantwort (Retry " + emptyResponseRetries + "/" + MAX_EMPTY_RESPONSE_RETRIES + ")",
+                                            "Das Modell hat keine Antwort geliefert. Automatischer Retry...",
+                                            true
+                                    );
+                                    String retryPrompt = "Du hast eine leere Antwort geliefert. " +
+                                            "Bitte beantworte die Nutzeranfrage: \"" + lastUserRequestText + "\"";
+                                    streamAssistantFollowUp(retryPrompt);
+                                    return;
+                                }
+                                emptyResponseRetries = 0;
                                 formatter.appendToolEvent(
                                         "⚠️ Leere Modellantwort",
-                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
+                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert (nach " + MAX_EMPTY_RESPONSE_RETRIES + " Versuchen).",
                                         true
                                 );
                                 agentFollowUpRetries = 0;
@@ -1086,6 +1120,7 @@ public class ChatSession extends JPanel {
                                 }
 
                                 agentFollowUpRetries = 0;
+                                emptyResponseRetries = 0;
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
                             }
