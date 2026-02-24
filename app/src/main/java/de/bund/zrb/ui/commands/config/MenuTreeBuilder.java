@@ -25,7 +25,7 @@ public class MenuTreeBuilder {
         ));
         // Bearbeiten-Menü Reihenfolge
         SUBMENU_ORDER.put("edit", Arrays.asList(
-                "search", "compare", "---1", "bookmark"
+                "globalSearch", "---1", "search", "compare", "---2", "bookmark"
         ));
         // Einstellungen-Menü Reihenfolge
         SUBMENU_ORDER.put("settings", Arrays.asList(

@@ -89,6 +89,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         // Sub Commands
         CommandRegistryImpl.register(new ShowComparePanelCommand(this));
         CommandRegistryImpl.register(new FocusSearchFieldCommand(this));
+        CommandRegistryImpl.register(new SearchMenuCommand(this, tabManager));
     }
 
     // MCP Tools
