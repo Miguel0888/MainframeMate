@@ -49,11 +49,14 @@ public enum ChatMode {
                     "REGELN:\n" +
                     "1. Nutze so viele Tool-Calls wie nötig, bis die Aufgabe erledigt ist. Höre NICHT nach einem Schritt auf.\n" +
                     "2. Erfinde NIEMALS Daten, Links oder Fakten. Nutze IMMER Tools, um echte Informationen zu bekommen.\n" +
-                    "3. Wenn der Nutzer Informationen aus dem Web will: Navigiere zu Seiten, lies den Text mit web_read_page, " +
+                    "3. Web-Recherche: Navigiere zu Seiten, lies den Text mit web_read_page, " +
                     "klicke auf Artikel-Links, lies deren Inhalt, und fasse erst am Ende alles zusammen.\n" +
                     "4. Der Nutzer kann dich jederzeit unterbrechen. Bis dahin: arbeite weiter.\n" +
                     "5. Antworte dem Nutzer erst, wenn du ALLE nötigen Informationen gesammelt hast.\n" +
-                    "6. Pro Antwort genau EINEN Tool-Call. Nach dem Ergebnis sofort den nächsten Tool-Call, bis fertig.",
+                    "6. Pro Antwort genau EINEN Tool-Call als reines JSON. KEIN Text vor oder nach dem JSON.\n" +
+                    "7. Wenn ein Tool-Ergebnis zurückkommt, mache sofort den nächsten Tool-Call – frage NICHT den Nutzer.\n" +
+                    "8. Wenn du eine Webseite navigiert hast und den Text brauchst, rufe IMMER web_read_page auf.\n" +
+                    "9. Antworte auf Deutsch.",
             true,
             EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
             defaultToolPrefix(),
@@ -113,8 +116,12 @@ public enum ChatMode {
     }
 
     private static String defaultToolPrefix() {
-        return "Wenn du ein Tool benutzen willst, antworte NUR mit dem JSON-Tool-Call (kein weiterer Text). " +
-                "Format: {\"name\":\"tool_name\",\"input\":{...}}. Wenn du kein Tool brauchst, antworte normal.";
+        return "TOOL-CALL-REGELN:\n" +
+                "- Wenn du ein Tool benutzen willst, antworte AUSSCHLIESSLICH mit dem JSON-Tool-Call.\n" +
+                "- KEIN Text, KEINE Erklärung, KEIN Markdown vor oder nach dem JSON.\n" +
+                "- Format: {\"name\":\"tool_name\",\"input\":{...}}\n" +
+                "- Wenn du kein Tool brauchst, antworte normal mit Text.\n" +
+                "- Mische NIEMALS Text und Tool-Call in einer Antwort.";
     }
 
     @Override

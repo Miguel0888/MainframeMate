@@ -709,9 +709,9 @@ public class ChatSession extends JPanel {
             }
         }
 
-        // Recognize aliases for "input": parameters, params
+        // Recognize aliases for "input": parameters, params, toolInput, tool_input
         if (!obj.has("input") && !obj.has("arguments")) {
-            for (String alias : new String[]{"parameters", "params"}) {
+            for (String alias : new String[]{"parameters", "params", "toolInput", "tool_input"}) {
                 if (obj.has(alias) && obj.get(alias).isJsonObject()) {
                     obj.add("input", obj.get(alias).getAsJsonObject());
                     break;
@@ -835,6 +835,17 @@ public class ChatSession extends JPanel {
                             java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
                             if (!toolCalls.isEmpty()) {
                                 formatter.removeCurrentBotMessage();
+
+                                // Preserve any text the bot wrote before the first tool call JSON
+                                String prefixText = extractTextBeforeToolCall(botText);
+                                if (prefixText != null && !prefixText.trim().isEmpty()) {
+                                    String cleanPrefix = prefixText.trim();
+                                    Timestamp prefixId = chatManager.getHistory(sessionId).addBotMessage(cleanPrefix);
+                                    formatter.startBotMessage();
+                                    formatter.appendBotMessageChunk(cleanPrefix);
+                                    formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(prefixId));
+                                }
+
                                 for (JsonObject call : toolCalls) {
                                     String toolName = call.has("name") && !call.get("name").isJsonNull()
                                             ? call.get("name").getAsString() : "unbekannt";
