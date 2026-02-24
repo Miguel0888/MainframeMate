@@ -156,69 +156,18 @@ public class SettingsDialog {
     }
 
     public static void show(Component parent, int initialTabIndex) {
-        // Allow calling settings without an active FTP manager.
-        // Any actions requiring a live connection must be disabled/guarded.
-
-        TabbedPaneWithHelpOverlay tabs = new TabbedPaneWithHelpOverlay();
+        settings = SettingsHelper.load();
 
         JPanel generalContent = new JPanel(new GridBagLayout());
-        JScrollPane generalPanel = new JScrollPane(generalContent);
         JPanel colorContent = new JPanel(new BorderLayout());
-        JScrollPane colorPanel = new JScrollPane(colorContent);
         JPanel transformContent = new JPanel(new GridBagLayout());
-        JScrollPane transformPanel = new JScrollPane(transformContent);
         JPanel connectContent = new JPanel(new GridBagLayout());
-        JScrollPane connectPanel = new JScrollPane(connectContent);
         JPanel aiContent = new JPanel(new GridBagLayout());
-        JScrollPane aiPanel = new JScrollPane(aiContent);
         ragSettingsPanel = new RagSettingsPanel();
         JPanel proxyContent = new JPanel(new GridBagLayout());
-        JScrollPane proxyPanel = new JScrollPane(proxyContent);
         JPanel ndvContent = new JPanel(new GridBagLayout());
-        JScrollPane ndvPanel = new JScrollPane(ndvContent);
         JPanel mailContent = new JPanel(new GridBagLayout());
-        JScrollPane mailPanel = new JScrollPane(mailContent);
         JPanel debugContent = new JPanel(new GridBagLayout());
-        JScrollPane debugPanel = new JScrollPane(debugContent);
-
-        tabs.addTab("Allgemein", generalPanel);
-        tabs.addTab("Farbzuordnung", colorPanel);
-        tabs.addTab("Datenumwandlung", transformPanel);
-        tabs.addTab("FTP-Verbindung", connectPanel);
-        tabs.addTab("NDV-Verbindung", ndvPanel);
-        tabs.addTab("KI", aiPanel);
-        tabs.addTab("RAG", ragSettingsPanel);
-        tabs.addTab("Proxy", proxyPanel);
-        tabs.addTab("MCP Registry", new McpRegistryPanel());
-        tabs.addTab("Mails", mailPanel);
-        tabs.addTab("Debug", debugPanel);
-
-        // Hilfe-Button mit kontextsensitiver Hilfe je nach ausgewähltem Tab
-        HelpButton helpButton = new HelpButton("Hilfe zu Einstellungen");
-        helpButton.addActionListener(e -> {
-            int selectedTab = tabs.getSelectedIndex();
-            HelpContentProvider.HelpTopic topic;
-            switch (selectedTab) {
-                case 0: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL; break;
-                case 1: topic = HelpContentProvider.HelpTopic.SETTINGS_COLORS; break;
-                case 2: topic = HelpContentProvider.HelpTopic.SETTINGS_TRANSFORM; break;
-                case 3: topic = HelpContentProvider.HelpTopic.SETTINGS_FTP; break;
-                case 4: topic = HelpContentProvider.HelpTopic.SETTINGS_FTP; break; // NDV (reuse FTP topic)
-                case 5: topic = HelpContentProvider.HelpTopic.SETTINGS_AI; break;
-                case 6: topic = HelpContentProvider.HelpTopic.SETTINGS_RAG; break;
-                case 7: topic = HelpContentProvider.HelpTopic.SETTINGS_PROXY; break;
-                case 9: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL; break; // Mails (reuse general)
-                default: topic = HelpContentProvider.HelpTopic.SETTINGS_GENERAL;
-            }
-            HelpContentProvider.showHelpPopup((Component) e.getSource(), topic);
-        });
-        tabs.setHelpComponent(helpButton);
-
-        if (initialTabIndex >= 0 && initialTabIndex < tabs.getTabCount()) {
-            tabs.setSelectedIndex(initialTabIndex);
-        }
-
-        settings = SettingsHelper.load();
 
         createGeneralContent(generalContent, parent);
         createTransformContent(transformContent);
@@ -230,8 +179,52 @@ public class SettingsDialog {
         createMailContent(mailContent);
         createDebugContent(debugContent);
 
-        showAndApply(parent, tabs);
+        List<SettingsCategory> categories = new ArrayList<>();
+        categories.add(simpleCategory("general",   "Allgemein",        generalContent));
+        categories.add(simpleCategory("colors",    "Farbzuordnung",    colorContent));
+        categories.add(simpleCategory("transform", "Datenumwandlung",  transformContent));
+        categories.add(simpleCategory("ftp",       "FTP-Verbindung",   connectContent));
+        categories.add(simpleCategory("ndv",       "NDV-Verbindung",   ndvContent));
+        categories.add(simpleCategory("ai",        "KI",               aiContent));
+        categories.add(simpleCategory("rag",       "RAG",              ragSettingsPanel));
+        categories.add(simpleCategory("proxy",     "Proxy",            proxyContent));
+        categories.add(simpleCategory("mcp",       "MCP Registry",     new McpRegistryPanel()));
+        categories.add(simpleCategory("mails",     "Mails",            mailContent));
+        categories.add(simpleCategory("debug",     "Debug",            debugContent));
+        categories.set(0, withApply(categories.get(0), SettingsDialog::applyAllSettings));
+
+        List<JButton> leftButtons = new ArrayList<>();
+        JButton folderBtn = new JButton("App-Ordner öffnen");
+        folderBtn.addActionListener(e -> {
+            try { Desktop.getDesktop().open(SettingsHelper.getSettingsFolder()); }
+            catch (IOException ex) { JOptionPane.showMessageDialog(parent, "Ordner konnte nicht geöffnet werden:\n" + ex.getMessage()); }
+        });
+        leftButtons.add(folderBtn);
+
+        Window ownerWindow = (parent instanceof Window) ? (Window) parent : SwingUtilities.getWindowAncestor(parent);
+        OutlookStyleSettingsDialog dlg = new OutlookStyleSettingsDialog(ownerWindow, "Einstellungen", categories, leftButtons);
+        if (initialTabIndex >= 0 && initialTabIndex < categories.size()) dlg.selectCategory(initialTabIndex);
+        dlg.setVisible(true);
     }
+
+    private static SettingsCategory simpleCategory(String id, String title, JComponent component) {
+        return new SettingsCategory() {
+            @Override public String getId() { return id; }
+            @Override public String getTitle() { return title; }
+            @Override public JComponent getComponent() { return component; }
+        };
+    }
+
+    private static SettingsCategory withApply(SettingsCategory delegate, Runnable applyAction) {
+        return new SettingsCategory() {
+            @Override public String getId() { return delegate.getId(); }
+            @Override public String getTitle() { return delegate.getTitle(); }
+            @Override public JComponent getComponent() { return delegate.getComponent(); }
+            @Override public void validate() { delegate.validate(); }
+            @Override public void apply() { delegate.apply(); applyAction.run(); }
+        };
+    }
+
 
     private static void createGeneralContent(JPanel generalContent, Component parent) {
         GridBagConstraints gbcGeneral = createDefaultGbc();
@@ -1490,23 +1483,8 @@ public class SettingsDialog {
         proxyContent.add(proxyTestButton, gbc);
     }
 
-    private static void showAndApply(Component parent, JComponent tabs) {
-        // Dialog formatieren
-        JPanel container = new JPanel(new BorderLayout());
-        container.add(tabs, BorderLayout.CENTER);
-
-        // Bildschirmhöhe holen
-        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-        int height = (int) (screenSize.height * 0.8);  // 80% der Bildschirmhöhe
-        int width = 600;  // feste Breite
-
-        container.setPreferredSize(new Dimension(width, height));
-
-        // Dialog anzeigen
-        int result = JOptionPane.showConfirmDialog(parent, container, "Einstellungen",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result == JOptionPane.OK_OPTION) {
+    /** Collect all values from the static UI fields and persist. */
+    private static void applyAllSettings() {
             settings.encoding = (String) encodingCombo.getSelectedItem();
             settings.editorFont = (String) fontCombo.getSelectedItem();
             settings.editorFontSize = Optional.ofNullable(fontSizeCombo.getEditor().getItem())
@@ -1655,12 +1633,6 @@ public class SettingsDialog {
 
             // Apply log levels immediately
             de.bund.zrb.util.AppLogger.applySettings();
-
-
-//            JOptionPane.showMessageDialog(parent,
-//                    "Einstellungen wurden gespeichert.",
-//                    "Info", JOptionPane.INFORMATION_MESSAGE);
-        }
     }
 
     private static void resetModeToolContractToDefault(ChatMode mode) {
