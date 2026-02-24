@@ -19,13 +19,13 @@ public class BrowseSnapshotTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_snapshot";
+        return "web_snapshot";
     }
 
     @Override
     public String description() {
         return "Get a compact text snapshot of the current page with interactive elements registered as NodeRefs (n1, n2, …). "
-             + "Use the returned NodeRef IDs in browse_click, browse_type, etc. "
+             + "Use the returned NodeRef IDs in web_click, web_type, etc. "
              + "Modes: 'interactive' (default, only clickable/input elements), 'full' (all visible text + elements).";
     }
 

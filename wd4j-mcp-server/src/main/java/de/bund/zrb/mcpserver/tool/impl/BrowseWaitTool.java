@@ -14,7 +14,7 @@ public class BrowseWaitTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_wait";
+        return "web_wait";
     }
 
     @Override

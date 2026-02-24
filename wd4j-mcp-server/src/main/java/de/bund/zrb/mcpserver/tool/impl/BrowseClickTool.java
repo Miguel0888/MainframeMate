@@ -13,13 +13,13 @@ public class BrowseClickTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_click";
+        return "web_click";
     }
 
     @Override
     public String description() {
         return "Click an element by its NodeRef ID (e.g. 'n1'). "
-             + "Get NodeRef IDs from browse_snapshot or browse_locate first.";
+             + "Get NodeRef IDs from web_snapshot or web_locate first.";
     }
 
     @Override
@@ -61,7 +61,7 @@ public class BrowseClickTool implements McpServerTool {
             } catch (Exception ignored) {}
 
             return ToolResult.text("Clicked " + ref + ". Current URL: " + url
-                    + "\nUse browse_snapshot to see the updated page.");
+                    + "\nUse web_snapshot to see the updated page.");
         } catch (Exception e) {
             return ToolResult.error("Click failed: " + e.getMessage());
         }

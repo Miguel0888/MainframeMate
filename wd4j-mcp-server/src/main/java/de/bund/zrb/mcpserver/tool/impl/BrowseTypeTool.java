@@ -13,7 +13,7 @@ public class BrowseTypeTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_type";
+        return "web_type";
     }
 
     @Override
@@ -89,7 +89,7 @@ public class BrowseTypeTool implements McpServerTool {
             }
 
             return ToolResult.text("Typed into " + ref + (submit ? " and submitted" : "")
-                    + ".\nUse browse_snapshot to see the updated page.");
+                    + ".\nUse web_snapshot to see the updated page.");
         } catch (Exception e) {
             return ToolResult.error("Type failed: " + e.getMessage());
         }

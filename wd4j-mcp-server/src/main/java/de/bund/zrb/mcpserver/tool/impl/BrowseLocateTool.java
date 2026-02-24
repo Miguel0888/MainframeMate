@@ -17,12 +17,12 @@ public class BrowseLocateTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_locate";
+        return "web_locate";
     }
 
     @Override
     public String description() {
-        return "Find elements on the page. Returns NodeRefs that can be used with browse_click, browse_type, etc. "
+        return "Find elements on the page. Returns NodeRefs that can be used with web_click, web_type, etc. "
              + "Strategies: 'css' (CSS selector), 'text' (visible text contains), 'aria' (accessible role/name). "
              + "Example: {\"strategy\":\"text\", \"query\":\"Anmelden\"} or {\"strategy\":\"css\", \"query\":\"input[name=q]\"}";
     }
@@ -82,7 +82,7 @@ public class BrowseLocateTool implements McpServerTool {
 
             if (refs.isEmpty()) {
                 return ToolResult.text("No elements found for " + strategy + ":'" + query + "'.\n"
-                        + "Try a different strategy or query. Use browse_snapshot to see all interactive elements.");
+                        + "Try a different strategy or query. Use web_snapshot to see all interactive elements.");
             }
 
             StringBuilder sb = new StringBuilder();
@@ -91,7 +91,7 @@ public class BrowseLocateTool implements McpServerTool {
                 sb.append("  ").append(ref.toCompactString()).append("\n");
             }
             sb.append("\nUse the NodeRef ID (e.g. ").append(refs.get(0).getId())
-              .append(") with browse_click or browse_type.");
+              .append(") with web_click or web_type.");
 
             return ToolResult.text(sb.toString());
         } catch (Exception e) {

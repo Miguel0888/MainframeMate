@@ -15,12 +15,12 @@ public class BrowseNavigateTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse";
+        return "web_navigate";
     }
 
     @Override
     public String description() {
-        return "Navigate to a URL. Returns the page title, final URL, and a compact snapshot of interactive elements. "
+        return "Navigate to a URL in the browser. Returns the page title, final URL, and a compact snapshot of interactive elements. "
              + "All previous NodeRefs are invalidated after navigation.";
     }
 

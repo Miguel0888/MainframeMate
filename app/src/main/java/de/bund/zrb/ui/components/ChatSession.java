@@ -689,6 +689,16 @@ public class ChatSession extends JPanel {
     private JsonObject normalizeToolCall(JsonObject original) {
         JsonObject obj = original.deepCopy();
 
+        // Clean up malformed tool names like "browser[name=browser]" → "browser"
+        if (obj.has("name") && obj.get("name").isJsonPrimitive()) {
+            String rawName = obj.get("name").getAsString();
+            int bracketIdx = rawName.indexOf('[');
+            if (bracketIdx > 0) {
+                rawName = rawName.substring(0, bracketIdx).trim();
+                obj.addProperty("name", rawName);
+            }
+        }
+
         JsonObject argsObj = null;
         if (obj.has("arguments") && !obj.get("arguments").isJsonNull()) {
             if (obj.get("arguments").isJsonObject()) {
@@ -1058,8 +1068,15 @@ public class ChatSession extends JPanel {
                 return createErrorResult(null, "Tool-Name fehlt", call);
             }
 
+            // Fuzzy match: if the exact name isn't found, try to find the best match
             if (!isSystemTool(toolName) && !isRegisteredTool(toolName)) {
-                return createUnknownToolResult(toolName, call);
+                String resolved = fuzzyMatchToolName(toolName);
+                if (resolved != null) {
+                    toolName = resolved;
+                    call.addProperty("name", resolved);
+                } else {
+                    return createUnknownToolResult(toolName, call);
+                }
             }
 
             if (!isSystemTool(toolName)) {
@@ -1295,6 +1312,51 @@ public class ChatSession extends JPanel {
                 "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\TEST\"}}."
         );
         return error;
+    }
+
+    /**
+     * Try to match a mistyped tool name to a registered tool.
+     * E.g. "browser" → "web_navigate", "browse" → "web_navigate".
+     */
+    private String fuzzyMatchToolName(String name) {
+        if (name == null) return null;
+        String lower = name.toLowerCase().trim();
+
+        // Collect all registered tool names
+        java.util.List<String> candidates = new java.util.ArrayList<>();
+        for (de.zrb.bund.newApi.mcp.McpTool tool : ToolRegistryImpl.getInstance().getAllTools()) {
+            candidates.add(tool.getSpec().getName());
+        }
+
+        // Exact match (case-insensitive)
+        for (String c : candidates) {
+            if (c.equalsIgnoreCase(lower)) return c;
+        }
+
+        // Prefix match: "browser" matches "browser_eval"
+        String bestPrefix = null;
+        for (String c : candidates) {
+            if (c.toLowerCase().startsWith(lower) || lower.startsWith(c.toLowerCase())) {
+                if (bestPrefix == null || c.length() < bestPrefix.length()) {
+                    bestPrefix = c;
+                }
+            }
+        }
+
+        // Common aliases
+        if (bestPrefix == null) {
+            if (lower.contains("browse") || lower.contains("browser") || lower.equals("navigate")) {
+                bestPrefix = "web_navigate";
+            } else if (lower.contains("snapshot") || lower.equals("page")) {
+                bestPrefix = "web_snapshot";
+            }
+        }
+
+        // Only return if the candidate is actually registered
+        if (bestPrefix != null && isRegisteredTool(bestPrefix)) {
+            return bestPrefix;
+        }
+        return null;
     }
 
     private JsonObject createUnknownToolResult(String toolName, JsonObject call) {

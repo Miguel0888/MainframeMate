@@ -12,7 +12,7 @@ public class BrowseBackForwardTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_history";
+        return "web_history";
     }
 
     @Override
@@ -70,7 +70,7 @@ public class BrowseBackForwardTool implements McpServerTool {
             } catch (Exception ignored) {}
 
             return ToolResult.text(action + " done. Current URL: " + url
-                    + "\nUse browse_snapshot to see the page.");
+                    + "\nUse web_snapshot to see the page.");
         } catch (Exception e) {
             return ToolResult.error("History action failed: " + e.getMessage());
         }

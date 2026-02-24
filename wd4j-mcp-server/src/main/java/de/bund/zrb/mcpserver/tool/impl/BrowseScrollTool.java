@@ -12,7 +12,7 @@ public class BrowseScrollTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_scroll";
+        return "web_scroll";
     }
 
     @Override

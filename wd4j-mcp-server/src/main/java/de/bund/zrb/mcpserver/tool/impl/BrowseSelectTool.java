@@ -13,7 +13,7 @@ public class BrowseSelectTool implements McpServerTool {
 
     @Override
     public String name() {
-        return "browse_select";
+        return "web_select";
     }
 
     @Override
