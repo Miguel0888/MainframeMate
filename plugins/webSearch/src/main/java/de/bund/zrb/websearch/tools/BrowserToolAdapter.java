@@ -35,6 +35,8 @@ public class BrowserToolAdapter implements McpTool {
 
         if (schema.has("properties")) {
             for (Map.Entry<String, JsonElement> entry : schema.getAsJsonObject("properties").entrySet()) {
+                // Hide contextId – the active tab is managed automatically
+                if ("contextId".equals(entry.getKey())) continue;
                 JsonObject propObj = entry.getValue().getAsJsonObject();
                 String type = propObj.has("type") ? propObj.get("type").getAsString() : "string";
                 String desc = propObj.has("description") ? propObj.get("description").getAsString() : "";
@@ -63,6 +65,12 @@ public class BrowserToolAdapter implements McpTool {
                 response.addProperty("status", "error");
             } else {
                 response.addProperty("status", "ok");
+            }
+
+            // Always include the active tab ID so the bot knows where it is
+            String contextId = session.getContextId();
+            if (contextId != null) {
+                response.addProperty("tabId", contextId);
             }
 
             JsonElement contentJson = result.toJson();
