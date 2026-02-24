@@ -1,0 +1,57 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :app
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :core
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv-lab
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j-mcp-server
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:excelimport
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:webSearch
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Task :ndv-lab:compileJava
+> Task :ndv-lab:processResources NO-SOURCE
+> Task :ndv-lab:classes
+> Task :ndv-lab:compileTestJava
+> Task :ndv-lab:processTestResources NO-SOURCE
+> Task :ndv-lab:testClasses
+> Task :ndv-lab:test
+> Task :ndv-lab:jacocoTestReport
+
+> Task :ndv-lab:jacocoMarkdownSummary
+Wrote C:\Projects\MainframeMate\ndv-lab\build\reports\jacoco\summary.md
+
+> Task :ndv-lab:coverage
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.10/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 12s
+5 actionable tasks: 5 executed

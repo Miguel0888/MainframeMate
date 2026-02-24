@@ -1,0 +1,243 @@
+﻿
+> Configure project :app
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :core
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv-lab
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j-mcp-server
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:excelimport
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:webSearch
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Task :ndv-lab:compileJava FAILED
+.\gradlew : C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTimeStamp.java:103: error: variable COMPACT_PATTERN might not have been initialized
+In Zeile:1 Zeichen:31
++ ... :\Projects\MainframeMate; .\gradlew :ndv-lab:compileJava 2>&1 | Out-F ...
++                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Projects\Mai...een initialized:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   }
+   ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1085: error: cannot find symbol
+            var10 = this.objectsFirst(var6, var1, "", var2, var3, 8, 3 | (this.isOpenSystemsServer() ? 32 : 16));
+            ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1090: error: cannot find symbol
+         return var10 != null ? var10[0] : null;
+                ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1090: error: cannot find symbol
+         return var10 != null ? var10[0] : null;
+                                ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1104: error: cannot find symbol
+            var9 = this.genDdm(var5);
+            ^
+  symbol:   variable var9
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1113: error: cannot find symbol
+         return var9.getSource();
+                ^
+  symbol:   variable var9
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1125: error: cannot find symbol
+            var10 = this.genDdm(var6);
+            ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1134: error: cannot find symbol
+         return var10.getSource();
+                ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1146: error: cannot find symbol
+            var12 = this.genDdm(var8);
+            ^
+  symbol:   variable var12
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1155: error: cannot find symbol
+         return var12.getSource();
+                ^
+  symbol:   variable var12
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1176: error: cannot find symbol
+            var8 = (PalTypeCmdGuard[])this.pal.retrieve(27);
+            ^
+  symbol:   variable var8
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1181: error: cannot find symbol
+         return var8 != null ? var8[0] : null;
+                ^
+  symbol:   variable var8
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1181: error: cannot find symbol
+         return var8 != null ? var8[0] : null;
+                               ^
+  symbol:   variable var8
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1330: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeLibraryStatistics[] cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeLibraryStatistics
+         var2 = (PalTypeLibraryStatistics[])this.pal.retrieve(4);
+                ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1335: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeLibraryStatistics cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeLibraryStatistics[]
+      return var2;
+             ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1353: error: cannot find symbol
+            var4 = (IPalTypeLibId[])this.pal.retrieve(6);
+            ^
+  symbol:   variable var4
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1354: error: cannot find symbol
+            if (var4 == null) {
+                ^
+  symbol:   variable var4
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1361: error: cannot find symbol
+         return var4[0].getLibrary();
+                ^
+  symbol:   variable var4
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1587: error: cannot find symbol
+            var18 = var17[0];
+            ^
+  symbol:   variable var18
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:1598: error: cannot find symbol
+         return new SourceLookupResult(var18, var10, var11, var12, (SourceLookupResult)null);
+                                       ^
+  symbol:   variable var18
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:2555: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeDbgSyt[] cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeDbgSyt
+               var2 = (PalTypeDbgSyt[])this.pal.retrieve(37);
+                      ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:2556: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeDbgSyt cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeDbgSyt[]
+               return var2;
+                      ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:2605: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeDbgVarValue[] cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeDbgVarValue
+            var3 = (PalTypeDbgVarValue[])this.pal.retrieve(39);
+                   ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:2610: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeDbgVarValue cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeDbgVarValue[]
+         return var3;
+                ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:2630: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeDbgStackFrame[] cannot be converted to com.softwareag.naturalone.natural.pal.external.IPalTypeDbgStackFrame
+               var2 = (PalTypeDbgStackFrame[])this.pal.retrieve(34);
+                      ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:2631: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.external.IPalTypeDbgStackFrame cannot be converted to com.softwareag.naturalone.natural.pal.external.IPalTypeDbgStackFrame[]
+               return var2;
+                      ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3818: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeLibrary[] cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeLibrary
+            var2 = (PalTypeLibrary[])this.pal.retrieve(5);
+                   ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3822: error: for-each not applicable to expression type
+               for(PalTypeLibrary var5 : var2) {
+                                         ^
+  required: array or java.lang.Iterable
+  found:    com.softwareag.naturalone.natural.pal.PalTypeLibrary
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3829: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeLibrary[] cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeLibrary
+               var2 = (PalTypeLibrary[])var4.toArray(new PalTypeLibrary[var4.size()]);
+                      ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3832: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.PalTypeLibrary cannot be converted to com.softwareag.naturalone.natural.pal.PalTypeLibrary[]
+            return var2;
+                   ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3853: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.external.IPalTypeObject[] cannot be converted to com.softwareag.naturalone.natural.pal.external.IPalTypeObject
+            var2 = (IPalTypeObject[])this.pal.retrieve(8);
+                   ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3857: error: for-each not applicable to expression type
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.10/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+1 actionable task: 1 executed
+               for(IPalTypeObject var5 : var2) {
+                                         ^
+  required: array or java.lang.Iterable
+  found:    com.softwareag.naturalone.natural.pal.external.IPalTypeObject
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3865: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.external.IPalTypeObject[] cannot be converted to com.softwareag.naturalone.natural.pal.external.IPalTypeObject
+               var2 = (IPalTypeObject[])var4.toArray(new IPalTypeObject[var4.size()]);
+                      ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:3868: error: incompatible types: 
+com.softwareag.naturalone.natural.pal.external.IPalTypeObject cannot be converted to com.softwareag.naturalone.natural.pal.external.IPalTypeObject[]
+            return var2;
+                   ^
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:4441: error: cannot find symbol
+            var22 = this.fileOperationSendDescription(var9, var1);
+            ^
+  symbol:   variable var22
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:4449: error: cannot find symbol
+         if (var22.getNotification() == 6) {
+             ^
+  symbol:   variable var22
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:4454: error: cannot find symbol
+         } else if (var22.getNotification() == 18) {
+                    ^
+  symbol:   variable var22
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:5445: error: cannot find symbol
+            var10 = (PalTypeCmdGuard[])this.pal.retrieve(27);
+            ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java:5451: error: cannot find symbol
+         LibraryInfo var11 = (new LibraryInfo.Builder(var3)).prefix(var9).cmdGuard(var10).build();
+                                                                                   ^
+  symbol:   variable var10
+  location: class com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions
+Note: C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+39 errors
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':ndv-lab:compileJava'.
+> Compilation failed; see the compiler error output for details.
+
+* Try:
+> Run with --info option to get more log output.
+> Run with --scan to get full insights.
+
+BUILD FAILED in 1s

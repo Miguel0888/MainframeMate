@@ -1,0 +1,129 @@
+1:package com.softwareag.naturalone.natural.pal.external;
+3:import java.io.File;
+4:import java.lang.reflect.Method;
+5:import java.net.URL;
+6:import java.net.URLClassLoader;
+7:import java.util.Arrays;
+9:/**
+10: * Injiziert die NDV-JARs (ndvserveraccess + ICU4J) zur Laufzeit in den
+11: * App-ClassLoader via {@code URLClassLoader.addURL()}.
+12: *
+13: * <p>Damit landen alle Klassen im selben ClassLoader — keine Proxy-Wrapping-,
+14: * mapArgs/mapResult- oder ClassCast-Probleme mehr.
+15: *
+16: * <p>Voraussetzung: Java 8 (App-ClassLoader ist ein {@code URLClassLoader}).
+17: */
+18:public final class NdvProxyBridge {
+20:    /**
+21:     * System Property für den Pfad zum Verzeichnis mit den NDV-JARs.
+22:     * Wird von der App-Schicht aus den Settings gesetzt.
+23:     */
+24:    public static final String PROPERTY_LIB_PATH = "mainframemate.ndv.libpath";
+26:    private static volatile boolean initialized;
+28:    private NdvProxyBridge() {}
+30:    // ── Initialisierung ──────────────────────────────────────────────────────
+32:    /**
+33:     * Fügt die angegebenen JARs dem App-ClassLoader hinzu.
+34:     * Mehrfachaufruf ist sicher (idempotent).
+35:     */
+36:    public static synchronized void init(File... jars) throws Exception {
+37:        if (initialized) return;
+39:        URLClassLoader appCl = getAppClassLoader();
+40:        Method addURL = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
+41:        addURL.setAccessible(true);
+43:        for (File jar : jars) {
+44:            if (!jar.isFile()) {
+45:                throw new IllegalArgumentException("JAR nicht gefunden: " + jar.getAbsolutePath());
+46:            }
+47:            addURL.invoke(appCl, jar.toURI().toURL());
+48:            System.out.println("[NdvProxyBridge] JAR geladen: " + jar.getName());
+49:        }
+51:        initialized = true;
+52:    }
+54:    /**
+55:     * Initialisiert automatisch aus System Property oder bekannten Verzeichnissen.
+56:     */
+57:    public static synchronized void ensureInitialized() {
+58:        if (initialized) return;
+60:        File libDir = resolveLibDir();
+61:        if (libDir == null || !libDir.isDirectory()) {
+62:            throw new IllegalStateException(
+63:                    "Kein NDV-JAR-Verzeichnis gefunden. Bitte System Property '"
+64:                    + PROPERTY_LIB_PATH + "' setzen oder JARs in "
+65:                    + getDefaultLibDir().getAbsolutePath() + " ablegen.");
+66:        }
+68:        File[] jars = findJars(libDir);
+69:        if (jars.length == 0) {
+70:            throw new IllegalStateException(
+71:                    "Keine JAR-Dateien in " + libDir.getAbsolutePath() + " gefunden.");
+72:        }
+74:        try {
+75:            init(jars);
+76:            System.out.println("[NdvProxyBridge] Initialisiert mit " + jars.length
+77:                    + " JARs aus " + libDir.getAbsolutePath());
+78:        } catch (Exception e) {
+79:            throw new IllegalStateException("NdvProxyBridge-Init fehlgeschlagen: " + e.getMessage(), e);
+80:        }
+81:    }
+83:    /** Für Tests: Reset-Flag (JARs bleiben im ClassLoader). */
+84:    public static synchronized void reset() {
+85:        initialized = false;
+86:    }
+88:    /** Prüft ob bereits initialisiert. */
+89:    public static boolean isInitialized() {
+90:        return initialized;
+91:    }
+93:    // ── ClassLoader-Zugriff ──────────────────────────────────────────────────
+95:    /**
+96:     * Gibt den App-ClassLoader zurück (nach ensureInitialized enthält er die JARs).
+97:     */
+98:    public static ClassLoader getClassLoader() {
+99:        if (!initialized) {
+100:            ensureInitialized();
+101:        }
+102:        return getAppClassLoader();
+103:    }
+105:    private static URLClassLoader getAppClassLoader() {
+106:        ClassLoader cl = NdvProxyBridge.class.getClassLoader();
+107:        if (cl instanceof URLClassLoader) {
+108:            return (URLClassLoader) cl;
+109:        }
+110:        // Fallback: System ClassLoader
+111:        cl = ClassLoader.getSystemClassLoader();
+112:        if (cl instanceof URLClassLoader) {
+113:            return (URLClassLoader) cl;
+114:        }
+115:        throw new IllegalStateException(
+116:                "App-ClassLoader ist kein URLClassLoader. Bitte Java 8 verwenden.");
+117:    }
+119:    // ── Pfad-Auflösung ──────────────────────────────────────────────────────
+121:    private static File resolveLibDir() {
+122:        // 1) Explizit gesetzte Property
+123:        String path = System.getProperty(PROPERTY_LIB_PATH);
+124:        if (path != null && !path.trim().isEmpty()) {
+125:            File dir = new File(path.trim());
+126:            if (dir.isDirectory() && findJars(dir).length > 0) {
+127:                return dir;
+128:            }
+129:        }
+131:        // 2) Standard-Verzeichnis
+132:        File defaultDir = getDefaultLibDir();
+133:        if (defaultDir.isDirectory() && findJars(defaultDir).length > 0) {
+134:            return defaultDir;
+135:        }
+137:        // 3) Entwicklungs-Fallback: ./lib/
+138:        File projectLib = new File("lib");
+139:        if (projectLib.isDirectory() && findJars(projectLib).length > 0) {
+140:            return projectLib;
+141:        }
+143:        return null;
+144:    }
+146:    private static File getDefaultLibDir() {
+147:        return new File(System.getProperty("user.home"),
+148:                ".mainframemate" + File.separator + "lib");
+149:    }
+151:    private static File[] findJars(File dir) {
+152:        File[] jars = dir.listFiles(f -> f.isFile() && f.getName().endsWith(".jar"));
+153:        return jars != null ? jars : new File[0];
+154:    }
+155:}

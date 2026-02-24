@@ -1,0 +1,10 @@
+assertTrue:2
+assertFalse:3
+disconnectedInitially() {
+            IPalTransactions pt = create();
+            assertTrue(pt.isDisconnected());
+        }
+
+        @Test
+        void palPropertiesNullInitially() {
+            IPal

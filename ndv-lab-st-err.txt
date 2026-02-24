@@ -1,0 +1,17 @@
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file 'C:\Projects\MainframeMate\ndv-lab\build.gradle' line: 110
+
+* What went wrong:
+Execution failed for task ':ndv-lab:jacocoMarkdownSummary'.
+> Cannot execute null+null
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s

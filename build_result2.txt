@@ -1,0 +1,85 @@
+﻿To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :app
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :core
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv-lab
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j-mcp-server
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:excelimport
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:webSearch
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Task :ndv-lab:clean
+
+> Task :ndv-lab:compileJava
+.\gradlew.bat : Note: C:\Projects\MainframeMate\ndv-lab\src\main\java\com\softwareag\naturalone\natural\paltransactions\internal\PalTransactions.java uses or overrides a deprecated API.
+In Zeile:1 Zeichen:31
++ ... nframeMate; .\gradlew.bat --no-daemon :ndv-lab:clean :ndv-lab:test :n ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Note: C:\Projec...deprecated API.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :ndv-lab:processResources NO-SOURCE
+> Task :ndv-lab:classes
+
+> Task :ndv-lab:compileTestJava FAILED
+C:\Projects\MainframeMate\ndv-lab\src\test\java\com\softwareag\naturalone\natural\paltransactions\external\PalCompileResultExceptionTest.java:26: error: cannot find symbol
+            assertEquals(rc, ex.getRC());
+                               ^
+  symbol:   method getRC()
+  location: variable ex of type com.softwareag.naturalone.natural.paltransactions.external.PalCompileResultException
+C:\Projects\MainframeMate\ndv-lab\src\test\java\com\softwareag\naturalone\natural\paltransactions\external\PalCompileResultExceptionTest.java:27: error: cannot find symbol
+            assertEquals(subrc, ex.getSubRC());
+                                  ^
+  symbol:   method getSubRC()
+  location: variable ex of type com.softwareag.naturalone.natural.paltransactions.external.PalCompileResultException
+Note: C:\Projects\MainframeMate\ndv-lab\src\test\java\com\softwareag\naturalone\natural\pal\external\PalToolsTest.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+2 errors
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':ndv-lab:compileTestJava'.
+> Compilation failed; see the compiler error output for details.
+
+* Try:
+> Run with --info option to get more log output.
+> Run with --scan to get full insights.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.10/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 9s
+3 actionable tasks: 3 executed

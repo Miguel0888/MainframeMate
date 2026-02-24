@@ -1,0 +1,46 @@
+
+> Configure project :app
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :core
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :ndv
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :wd4j-mcp-server
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:excelimport
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Configure project :plugins:webSearch
+? Building with debug info (default)
+? Building with debug info (default)
+
+> Task :app:generateGrammarSource UP-TO-DATE
+> Task :core:compileJava UP-TO-DATE
+> Task :ndv:compileJava UP-TO-DATE
+> Task :ndv:processResources NO-SOURCE
+> Task :ndv:classes UP-TO-DATE
+> Task :ndv:jar UP-TO-DATE
+> Task :app:compileJava UP-TO-DATE
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.10/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1s
+5 actionable tasks: 5 up-to-date
+EXIT:0 
