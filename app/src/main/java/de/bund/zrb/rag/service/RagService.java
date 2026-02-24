@@ -280,6 +280,24 @@ public class RagService {
     }
 
     /**
+     * List all documents stored in the persistent Lucene index.
+     * Unlike getIndexedDocumentIds() this survives restarts.
+     *
+     * @return map of documentId → sourceName/fileName
+     */
+    public java.util.Map<String, String> listAllIndexedDocuments() {
+        if (lexicalIndex instanceof LuceneLexicalIndex) {
+            return ((LuceneLexicalIndex) lexicalIndex).listAllDocuments();
+        }
+        // Fallback: in-memory map
+        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, IndexedDocument> e : indexedDocuments.entrySet()) {
+            result.put(e.getKey(), e.getValue().documentName);
+        }
+        return result;
+    }
+
+    /**
      * Get indexed document info.
      */
     public IndexedDocument getIndexedDocument(String documentId) {

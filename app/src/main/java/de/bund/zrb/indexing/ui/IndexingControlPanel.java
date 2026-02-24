@@ -126,6 +126,13 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         });
         tableButtons.add(runAllButton);
 
+        tableButtons.add(Box.createHorizontalStrut(20));
+
+        JButton showIndexedButton = new JButton("📋 Index anzeigen");
+        showIndexedButton.setToolTipText("Zeigt alle im Lucene-Index gespeicherten Dokumente");
+        showIndexedButton.addActionListener(e -> showIndexedDocuments());
+        tableButtons.add(showIndexedButton);
+
         JPanel topPanel = new JPanel(new BorderLayout());
         topPanel.add(tableScroll, BorderLayout.CENTER);
         topPanel.add(tableButtons, BorderLayout.SOUTH);
@@ -430,6 +437,57 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         IndexSource source = tableModel.getSourceAt(row);
         service.runNow(source.getSourceId());
         statusLabel.setText("Indexierung gestartet: " + source.getName());
+    }
+
+    /**
+     * Show all documents currently in the Lucene index in a scrollable dialog.
+     */
+    private void showIndexedDocuments() {
+        de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+        java.util.Map<String, String> docs = rag.listAllIndexedDocuments();
+
+        if (docs.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Der Index ist leer.\n\nBitte zuerst eine Indexierung starten.",
+                    "Index leer", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Build table data
+        String[] columns = {"#", "Dateiname / Quelle", "Dokument-ID (intern)"};
+        Object[][] data = new Object[docs.size()][3];
+        int i = 0;
+        for (java.util.Map.Entry<String, String> entry : docs.entrySet()) {
+            data[i][0] = i + 1;
+            data[i][1] = entry.getValue();
+            data[i][2] = entry.getKey();
+            i++;
+        }
+
+        JTable table = new JTable(data, columns) {
+            @Override
+            public boolean isCellEditable(int row, int col) { return false; }
+        };
+        table.setAutoCreateRowSorter(true);
+        table.setRowHeight(22);
+        table.getColumnModel().getColumn(0).setPreferredWidth(40);
+        table.getColumnModel().getColumn(0).setMaxWidth(60);
+        table.getColumnModel().getColumn(1).setPreferredWidth(250);
+        table.getColumnModel().getColumn(2).setPreferredWidth(400);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setPreferredSize(new Dimension(750, 400));
+
+        JLabel summaryLabel = new JLabel(docs.size() + " Dokumente im Index");
+        summaryLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(summaryLabel, BorderLayout.NORTH);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        JOptionPane.showMessageDialog(this, panel,
+                "Indexierte Dokumente (" + docs.size() + ")",
+                JOptionPane.PLAIN_MESSAGE);
     }
 
     private void saveSelectedSource() {

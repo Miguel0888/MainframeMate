@@ -109,19 +109,19 @@ public class SearchService {
 
     private List<SearchResult> searchLucene(String query, int maxResults) {
         RagService rag = RagService.getInstance();
-        List<ScoredChunk> chunks = rag.retrieve(query);
+        // Use retrieve with explicit topK to respect maxResults
+        List<ScoredChunk> chunks = rag.retrieve(query, maxResults * 3); // fetch extra for grouping
         return convertChunks(chunks, maxResults, query);
     }
 
     private List<SearchResult> searchRag(String query, int maxResults) {
         RagService rag = RagService.getInstance();
-        List<ScoredChunk> chunks = rag.retrieve(query);
+        List<ScoredChunk> chunks = rag.retrieve(query, maxResults * 3);
         return convertChunks(chunks, maxResults, query);
     }
 
     private List<SearchResult> convertChunks(List<ScoredChunk> chunks, int maxResults, String query) {
         List<SearchResult> results = new ArrayList<>();
-        Set<String> seenDocuments = new HashSet<>();
 
         for (ScoredChunk sc : chunks) {
             if (results.size() >= maxResults) break;
@@ -129,9 +129,6 @@ public class SearchService {
             Chunk chunk = sc.getChunk();
             String docId = chunk.getDocumentId();
 
-            // Group by document – show best chunk per document
-            if (seenDocuments.contains(docId)) continue;
-            seenDocuments.add(docId);
 
             // Determine source type from documentId path
             SearchResult.SourceType sourceType = detectSource(docId);

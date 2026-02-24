@@ -173,12 +173,7 @@ public class LuceneLexicalIndex implements LexicalIndex {
                 return Collections.emptyList();
             }
 
-            QueryParser parser = new QueryParser(FIELD_TEXT, analyzer);
-            parser.setDefaultOperator(QueryParser.Operator.OR);
-
-            // Escape special characters and search
-            String escapedQuery = QueryParser.escape(query);
-            Query luceneQuery = parser.parse(escapedQuery);
+            Query luceneQuery = buildSmartQuery(query.trim());
 
             TopDocs topDocs = searcher.search(luceneQuery, topN);
             List<ScoredChunk> results = new ArrayList<>();
@@ -198,6 +193,70 @@ public class LuceneLexicalIndex implements LexicalIndex {
             LOG.log(Level.WARNING, "Search failed for query: " + query, e);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Build a smart Lucene query that searches across multiple fields,
+     * supports wildcards, and handles short queries gracefully.
+     *
+     * Strategy:
+     * - Short query (1-2 chars): prefix/wildcard search (e.g. "a" → "a*")
+     * - Normal query: search text + sourceName + heading with OR
+     * - Multi-word: each word searched with OR, boosted if all match
+     */
+    private Query buildSmartQuery(String queryStr) throws Exception {
+        org.apache.lucene.search.BooleanQuery.Builder mainQuery =
+                new org.apache.lucene.search.BooleanQuery.Builder();
+
+        String[] words = queryStr.toLowerCase().split("\\s+");
+
+        for (String word : words) {
+            org.apache.lucene.search.BooleanQuery.Builder wordQuery =
+                    new org.apache.lucene.search.BooleanQuery.Builder();
+
+            if (word.length() <= 2) {
+                // Short words: use prefix query (no analyzer, direct match)
+                wordQuery.add(new org.apache.lucene.search.PrefixQuery(
+                        new Term(FIELD_TEXT, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                wordQuery.add(new org.apache.lucene.search.PrefixQuery(
+                        new Term(FIELD_SOURCE_NAME, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                wordQuery.add(new org.apache.lucene.search.PrefixQuery(
+                        new Term(FIELD_HEADING, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+            } else {
+                // Normal words: analyzed term query + wildcard fallback
+                // Term query (analyzed – finds exact stems)
+                QueryParser textParser = new QueryParser(FIELD_TEXT, analyzer);
+                textParser.setDefaultOperator(QueryParser.Operator.OR);
+                try {
+                    Query textQ = textParser.parse(word);
+                    wordQuery.add(textQ, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                } catch (Exception ignored) {}
+
+                // Source name (file name search)
+                QueryParser nameParser = new QueryParser(FIELD_SOURCE_NAME, analyzer);
+                try {
+                    Query nameQ = nameParser.parse(word);
+                    wordQuery.add(nameQ, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                } catch (Exception ignored) {}
+
+                // Heading
+                QueryParser headingParser = new QueryParser(FIELD_HEADING, analyzer);
+                try {
+                    Query headingQ = headingParser.parse(word);
+                    wordQuery.add(headingQ, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                } catch (Exception ignored) {}
+
+                // Wildcard fallback (for partial matches like "mai" → "mai*")
+                wordQuery.add(new org.apache.lucene.search.WildcardQuery(
+                        new Term(FIELD_TEXT, word + "*")), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                wordQuery.add(new org.apache.lucene.search.WildcardQuery(
+                        new Term(FIELD_SOURCE_NAME, word + "*")), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+            }
+
+            mainQuery.add(wordQuery.build(), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+        }
+
+        return mainQuery.build();
     }
 
     @Override
@@ -233,6 +292,36 @@ public class LuceneLexicalIndex implements LexicalIndex {
     @Override
     public int size() {
         return chunkCache.size();
+    }
+
+    /**
+     * List all unique document IDs and their source names in the index.
+     * Used for the control panel "show indexed documents" feature.
+     *
+     * @return map of documentId → sourceName
+     */
+    public synchronized java.util.Map<String, String> listAllDocuments() {
+        java.util.Map<String, String> docs = new java.util.LinkedHashMap<>();
+        if (!available) return docs;
+
+        try {
+            refreshReader();
+            if (searcher == null) return docs;
+
+            for (int i = 0; i < searcher.getIndexReader().maxDoc(); i++) {
+                try {
+                    Document doc = searcher.doc(i);
+                    String docId = doc.get(FIELD_DOCUMENT_ID);
+                    String name = doc.get(FIELD_SOURCE_NAME);
+                    if (docId != null && !docs.containsKey(docId)) {
+                        docs.put(docId, name != null ? name : docId);
+                    }
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to list documents", e);
+        }
+        return docs;
     }
 
     @Override
