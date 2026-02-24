@@ -76,6 +76,14 @@ public class Chat extends JPanel {
         keepAliveCheckbox.setFont(smallFont);
         contextMemoryCheckbox.setFont(smallFont);
 
+        // Copy chat as Markdown button
+        JButton copyMdButton = new JButton("📋");
+        copyMdButton.setFont(smallFont);
+        copyMdButton.setFocusable(false);
+        copyMdButton.setToolTipText("Chat als Markdown kopieren");
+        copyMdButton.setMargin(new Insets(1, 4, 1, 4));
+        copyMdButton.addActionListener(e -> copyActiveChatAsMarkdown(copyMdButton));
+
         // MCP Server menu button
         toolsMenuButton = new JButton("\uD83D\uDD27 Tools");
         toolsMenuButton.setFont(smallFont);
@@ -84,6 +92,7 @@ public class Chat extends JPanel {
         toolsMenuButton.addActionListener(e -> showToolsMenu());
 
         JPanel checkboxPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        checkboxPanel.add(copyMdButton);
         checkboxPanel.add(contextMemoryCheckbox);
         checkboxPanel.add(keepAliveCheckbox);
         checkboxPanel.add(toolsMenuButton);
@@ -91,6 +100,23 @@ public class Chat extends JPanel {
         header.add(checkboxPanel, BorderLayout.EAST);
         header.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         return header;
+    }
+
+    private void copyActiveChatAsMarkdown(JButton source) {
+        Component selected = chatTabs.getSelectedComponent();
+        if (selected instanceof ChatSession) {
+            String markdown = ((ChatSession) selected).exportAsMarkdown();
+            java.awt.datatransfer.StringSelection sel =
+                    new java.awt.datatransfer.StringSelection(markdown);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+
+            // Visual feedback
+            String orig = source.getText();
+            source.setText("✅");
+            Timer timer = new Timer(1500, ev -> source.setText(orig));
+            timer.setRepeats(false);
+            timer.start();
+        }
     }
 
 

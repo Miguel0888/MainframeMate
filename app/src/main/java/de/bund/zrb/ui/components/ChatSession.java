@@ -850,6 +850,44 @@ public class ChatSession extends JPanel {
         return sessionId;
     }
 
+    /**
+     * Export the entire chat history as Markdown text.
+     */
+    public String exportAsMarkdown() {
+        de.zrb.bund.api.ChatHistory history = chatManager.getHistory(sessionId);
+        if (history == null || history.isEmpty()) {
+            return "(Leerer Chat)";
+        }
+
+        StringBuilder md = new StringBuilder();
+        md.append("# Chat ").append(sessionId.toString().substring(0, 8)).append("\n\n");
+
+        for (de.zrb.bund.api.ChatHistory.Message msg : history.getMessages()) {
+            switch (msg.role) {
+                case "user":
+                    md.append("## 👤 Benutzer\n\n");
+                    md.append(msg.content).append("\n\n");
+                    break;
+                case "assistant":
+                    md.append("## 🤖 Bot\n\n");
+                    md.append(msg.content).append("\n\n");
+                    break;
+                case "tool":
+                    md.append("<details>\n<summary>🔧 Tool-Ergebnis</summary>\n\n");
+                    md.append("```json\n").append(msg.content).append("\n```\n\n");
+                    md.append("</details>\n\n");
+                    break;
+                default:
+                    md.append("## ").append(msg.role).append("\n\n");
+                    md.append(msg.content).append("\n\n");
+                    break;
+            }
+            md.append("---\n\n");
+        }
+
+        return md.toString();
+    }
+
     private java.util.List<JsonObject> extractToolCalls(String text) {
         java.util.List<JsonObject> results = new java.util.ArrayList<>();
         if (text == null) {
