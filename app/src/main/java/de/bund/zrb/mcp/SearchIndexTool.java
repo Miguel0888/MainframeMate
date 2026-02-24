@@ -2,7 +2,7 @@ package de.bund.zrb.mcp;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import de.bund.zrb.rag.model.ScoredChunk;
+import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
@@ -42,32 +42,29 @@ public class SearchIndexTool implements McpTool {
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
         properties.put("query", new ToolSpec.Property("string",
-                "Suchanfrage (Volltextsuche). Unterstützt Lucene-Syntax: "
-                        + "\"exakte phrase\", AND, OR, NOT, Wildcards (hamburg*), "
-                        + "Fuzzy (hamburg~1), Feldsuche (subject:bericht)."));
+                "Suchanfrage (Volltextsuche). Unterst\u00fctzt Lucene-Syntax: "
+                        + "\"exakte phrase\", AND, OR, NOT, Wildcards (*), Fuzzy (~1)."));
         properties.put("sources", new ToolSpec.Property("array",
-                "Optionale Liste der Quellen, in denen gesucht werden soll. "
-                        + "Mögliche Werte: LOCAL, FTP, NDV, MAIL. "
-                        + "Wenn nicht angegeben, werden alle Quellen durchsucht."));
+                "Optionale Quellen-Filter: LOCAL, FTP, NDV, MAIL. "
+                        + "Standard: alle Quellen. Nutze describe_tool f\u00fcr Details."));
         properties.put("maxResults", new ToolSpec.Property("integer",
-                "Maximale Anzahl Ergebnisse (Standard: 10, Maximum: 50)"));
+                "Max. Ergebnisse (Standard: 10, Max: 50)"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(
                 properties, Collections.singletonList("query"));
 
         Map<String, Object> example = new LinkedHashMap<>();
         example.put("query", "Hamburger Hafen Bericht");
-        example.put("sources", Arrays.asList("LOCAL", "MAIL"));
         example.put("maxResults", 5);
 
         return new ToolSpec(
                 "search_index",
-                "Durchsucht den globalen Volltextindex über alle Quellen "
+                "Durchsucht den globalen Volltextindex \u00fcber alle indexierten Quellen "
                         + "(lokale Dateien, FTP, NDV, E-Mails). "
-                        + "Findet Dokumente, Mails und Dateien anhand von Suchbegriffen. "
-                        + "Nutze dieses Tool, wenn der Nutzer nach bestimmten Dokumenten, "
-                        + "Informationen oder Dateien sucht. "
-                        + "Gibt Treffer mit Dateiname, Pfad, Quelle, Score und Text-Snippet zurück.",
+                        + "Nutze dieses Tool wenn der Nutzer nach Dokumenten, Mails, Dateien oder Inhalten sucht. "
+                        + "Gibt Treffer mit Pfad (als URI mit Prefix wie local://, ftp:, ndv://, mail://), "
+                        + "Score und Text-Snippet zur\u00fcck. "
+                        + "Der zur\u00fcckgegebene 'path' kann direkt an open_file oder read_file \u00fcbergeben werden.",
                 inputSchema,
                 example
         );
@@ -123,7 +120,12 @@ public class SearchIndexTool implements McpTool {
             for (SearchResult r : results) {
                 JsonObject hit = new JsonObject();
                 hit.addProperty("documentName", r.getDocumentName());
-                hit.addProperty("path", r.getPath());
+
+                // Build prefixed path so open_file/read_file can use it directly
+                String prefixedPath = VirtualResourceRef.buildPrefixedPath(
+                        r.getSource().name(), r.getDocumentId());
+                hit.addProperty("path", prefixedPath);
+
                 hit.addProperty("source", r.getSource().name());
                 hit.addProperty("score", r.getScore());
                 hit.addProperty("documentId", r.getDocumentId());

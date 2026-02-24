@@ -39,7 +39,10 @@ public class ReadFileTool implements McpTool {
     @Override
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
-        properties.put("path", new ToolSpec.Property("string", "Pfad zur Datei oder Verzeichnis (lokal oder FTP)"));
+        properties.put("path", new ToolSpec.Property("string",
+                "Pfad zur Datei oder Verzeichnis. "
+                + "Akzeptiert: lokale Pfade (C:\\...), FTP-Pfade (ftp:/...), "
+                + "oder URIs mit Prefix (local://..., ftp://...) wie sie von search_index zur\u00fcckgegeben werden."));
         properties.put("maxLines", new ToolSpec.Property("integer", "Maximale Anzahl Zeilen bei Dateien (optional, default: unbegrenzt)"));
         properties.put("encoding", new ToolSpec.Property("string", "Zeichenkodierung (optional, default: System-Default)"));
 
@@ -51,10 +54,10 @@ public class ReadFileTool implements McpTool {
 
         return new ToolSpec(
                 "read_file",
-                "Liest den Inhalt einer Datei oder listet ein Verzeichnis auf, ohne einen Tab zu öffnen. " +
-                "Bei Dateien wird der Textinhalt zurückgegeben. " +
-                "Bei Verzeichnissen wird eine Liste der Einträge zurückgegeben. " +
-                "Für FTP-Pfade muss vorher eine Verbindung bestehen.",
+                "Liest den Inhalt einer Datei oder listet ein Verzeichnis auf, ohne einen Tab zu \u00f6ffnen. " +
+                "Akzeptiert lokale Pfade, FTP-Pfade und Pfade mit Prefix (local://, ftp:) " +
+                "wie sie von search_index zur\u00fcckgegeben werden. " +
+                "Bei Dateien wird der Textinhalt zur\u00fcckgegeben, bei Verzeichnissen eine Liste der Eintr\u00e4ge.",
                 inputSchema,
                 example
         );

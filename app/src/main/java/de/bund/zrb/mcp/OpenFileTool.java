@@ -26,7 +26,10 @@ public class OpenFileTool implements McpTool {
     @Override
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
-        properties.put("file", new ToolSpec.Property("string", "Pfad zur Datei oder Verzeichnis (lokal oder FTP)"));
+        properties.put("file", new ToolSpec.Property("string",
+                "Pfad zur Datei oder Verzeichnis. "
+                + "Akzeptiert: lokale Pfade (C:\\...), FTP-Pfade (ftp:/...), "
+                + "oder URIs mit Prefix (local://..., ftp://...) wie sie von search_index zur\u00fcckgegeben werden."));
         properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschlüssel"));
         properties.put("search", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
         properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus geöffnet werden soll"));
@@ -41,9 +44,9 @@ public class OpenFileTool implements McpTool {
 
         return new ToolSpec(
                 "open_file",
-                "Öffnet eine Datei oder ein Verzeichnis als neuen Tab im Editor. " +
-                "Lokale Pfade (z.B. C:\\TEST) und FTP-Pfade werden automatisch erkannt. " +
-                "Für FTP-Dateien muss vorher eine Verbindung bestehen.",
+                "\u00d6ffnet eine Datei oder ein Verzeichnis als neuen Tab im Editor. " +
+                "Akzeptiert lokale Pfade, FTP-Pfade und Pfade mit Prefix (local://, ftp:) " +
+                "wie sie von search_index zur\u00fcckgegeben werden.",
                 inputSchema,
                 example
         );

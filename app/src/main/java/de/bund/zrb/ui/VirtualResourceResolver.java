@@ -15,6 +15,13 @@ public class VirtualResourceResolver {
     public VirtualResource resolve(String rawPath) throws FileServiceException {
         VirtualResourceRef ref = VirtualResourceRef.of(rawPath);
 
+        // Check for explicit local:// prefix (from bookmarks/search results)
+        if (ref.isLocalPrefixed()) {
+            String localPath = ref.getLocalPath();
+            VirtualResourceKind kind = resolveKindLocal(localPath);
+            return new VirtualResource(ref, kind, localPath, VirtualBackendType.LOCAL, null);
+        }
+
         // Check for explicit FTP prefix first (e.g. "ftp:/", "ftp:/dir/file.txt")
         if (ref.isFtpPath()) {
             String ftpPath = ref.getFtpPath();

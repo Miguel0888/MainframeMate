@@ -16,6 +16,12 @@ public final class VirtualResourceRef {
 
     /** Internal prefix to explicitly mark FTP paths, avoiding confusion with local "/" on Unix */
     public static final String FTP_PREFIX = "ftp:";
+    /** Prefix for local paths (used by bookmarks and search results) */
+    public static final String LOCAL_PREFIX = "local://";
+    /** Prefix for mail paths (OST/PST mail resources) */
+    public static final String MAIL_PREFIX = "mail://";
+    /** Prefix for NDV paths */
+    public static final String NDV_PREFIX = "ndv://";
 
     private final String raw;
 
@@ -58,8 +64,8 @@ public final class VirtualResourceRef {
     }
 
     public boolean isUri() {
-        if (isFtpPath()) {
-            return false; // ftp: prefix is not a standard URI
+        if (isFtpPath() || isLocalPrefixed() || isMailPath() || isNdvPath()) {
+            return false; // these are handled by their own prefixes
         }
         String s = raw.trim().toLowerCase();
         return s.contains("://") || s.startsWith("file:");
@@ -91,7 +97,7 @@ public final class VirtualResourceRef {
     }
 
     public boolean isLocalAbsolutePath() {
-        return isWindowsAbsolutePath() || isUnixAbsolutePath();
+        return isLocalPrefixed() || isWindowsAbsolutePath() || isUnixAbsolutePath();
     }
 
     public String normalizeLocalAbsolutePath() {
@@ -99,6 +105,64 @@ public final class VirtualResourceRef {
             return raw;
         }
         return new File(raw.trim()).getAbsoluteFile().toPath().normalize().toString();
+    }
+
+    /**
+     * Check if this path uses the explicit local:// prefix (from bookmarks/search results).
+     */
+    public boolean isLocalPrefixed() {
+        return raw.trim().toLowerCase().startsWith(LOCAL_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the local path without the local:// prefix.
+     */
+    public String getLocalPath() {
+        if (!isLocalPrefixed()) return raw;
+        return raw.trim().substring(LOCAL_PREFIX.length());
+    }
+
+    /**
+     * Check if this is a mail resource path (mail:// prefix).
+     */
+    public boolean isMailPath() {
+        return raw.trim().toLowerCase().startsWith(MAIL_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the mail path without the mail:// prefix.
+     */
+    public String getMailPath() {
+        if (!isMailPath()) return raw;
+        return raw.trim().substring(MAIL_PREFIX.length());
+    }
+
+    /**
+     * Check if this is an NDV path (ndv:// prefix).
+     */
+    public boolean isNdvPath() {
+        return raw.trim().toLowerCase().startsWith(NDV_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the NDV path without the ndv:// prefix.
+     */
+    public String getNdvPath() {
+        if (!isNdvPath()) return raw;
+        return raw.trim().substring(NDV_PREFIX.length());
+    }
+
+    /**
+     * Build a prefixed path from a backend type and raw path.
+     */
+    public static String buildPrefixedPath(String backendType, String rawPath) {
+        if (rawPath == null) return null;
+        switch (backendType) {
+            case "FTP":  return FTP_PREFIX + rawPath;
+            case "NDV":  return NDV_PREFIX + rawPath;
+            case "MAIL": return MAIL_PREFIX + rawPath;
+            default:     return LOCAL_PREFIX + rawPath;
+        }
     }
 }
 
