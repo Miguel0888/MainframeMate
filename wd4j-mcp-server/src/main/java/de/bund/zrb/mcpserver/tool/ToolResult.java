@@ -71,6 +71,18 @@ public class ToolResult {
     // ── Serialisation ───────────────────────────────────────────────
 
     /**
+     * Extract the first text content from this result, or empty string.
+     */
+    public String getText() {
+        for (JsonObject c : content) {
+            if (c.has("type") && "text".equals(c.get("type").getAsString()) && c.has("text")) {
+                return c.get("text").getAsString();
+            }
+        }
+        return "";
+    }
+
+    /**
      * Convert to the MCP tools/call result JSON structure.
      */
     public JsonElement toJson() {

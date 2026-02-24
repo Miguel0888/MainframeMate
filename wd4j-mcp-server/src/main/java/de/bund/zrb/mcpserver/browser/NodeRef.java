@@ -31,14 +31,18 @@ public class NodeRef {
     /** Compact one-line representation for the bot. */
     public String toCompactString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("[").append(id).append("] <").append(tag != null ? tag : "?").append(">");
-        if (role != null && !role.isEmpty()) {
-            sb.append(" role=").append(role);
-        }
+        sb.append("[").append(id).append("] ");
         if (name != null && !name.isEmpty()) {
-            sb.append(" \"").append(name).append("\"");
-        } else if (text != null && !text.isEmpty()) {
-            sb.append(" \"").append(text).append("\"");
+            // name from enrichment already contains tag + description
+            sb.append(name);
+        } else {
+            sb.append("<").append(tag != null ? tag : "?").append(">");
+            if (role != null && !role.isEmpty()) {
+                sb.append(" role=").append(role);
+            }
+            if (text != null && !text.isEmpty()) {
+                sb.append(" \"").append(text).append("\"");
+            }
         }
         return sb.toString();
     }
