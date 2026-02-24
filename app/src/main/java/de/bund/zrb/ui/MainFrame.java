@@ -278,6 +278,40 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         initDragAndDropImport();
         intiShortcuts();
+
+        // Register live settings listener – applies changes without restart
+        SettingsHelper.addChangeListener(this::onSettingsChanged);
+    }
+
+    /** Called whenever settings are saved – applies changes to running UI components. */
+    private void onSettingsChanged(Settings s) {
+        SwingUtilities.invokeLater(() -> {
+            // 1. Update editor font/margin on all open RSyntaxTextArea instances
+            Font editorFont = new Font(s.editorFont, Font.PLAIN, s.editorFontSize);
+            applyFontRecursively(tabManager.getComponent(), editorFont, s.marginColumn);
+
+            // 2. Re-apply log levels
+            de.bund.zrb.util.AppLogger.applySettings();
+        });
+    }
+
+    /** Recursively find all RSyntaxTextArea components and apply font + margin settings. */
+    private void applyFontRecursively(Component root, Font font, int marginColumn) {
+        if (root instanceof org.fife.ui.rsyntaxtextarea.RSyntaxTextArea) {
+            org.fife.ui.rsyntaxtextarea.RSyntaxTextArea area = (org.fife.ui.rsyntaxtextarea.RSyntaxTextArea) root;
+            area.setFont(font);
+            if (marginColumn > 0) {
+                area.setMarginLineEnabled(true);
+                area.setMarginLinePosition(marginColumn);
+            } else {
+                area.setMarginLineEnabled(false);
+            }
+        }
+        if (root instanceof Container) {
+            for (Component child : ((Container) root).getComponents()) {
+                applyFontRecursively(child, font, marginColumn);
+            }
+        }
     }
 
     private void intiShortcuts() {

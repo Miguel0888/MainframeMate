@@ -8,10 +8,15 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 public class SettingsHelper {
     private static final File SETTINGS_FILE = new File(System.getProperty("user.home"), ".mainframemate/settings.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    /** Listeners notified on every save() – receive the freshly saved Settings object. */
+    private static final CopyOnWriteArrayList<Consumer<Settings>> listeners = new CopyOnWriteArrayList<>();
 
     public static final List<String> SUPPORTED_ENCODINGS = Arrays.asList(
             "UTF-8",
@@ -40,6 +45,26 @@ public class SettingsHelper {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+        notifyListeners(settings);
+    }
+
+    // ── Observer API ──
+
+    /** Register a listener that is called after every save(). */
+    public static void addChangeListener(Consumer<Settings> listener) {
+        listeners.add(listener);
+    }
+
+    /** Remove a previously registered listener. */
+    public static void removeChangeListener(Consumer<Settings> listener) {
+        listeners.remove(listener);
+    }
+
+    private static void notifyListeners(Settings settings) {
+        for (Consumer<Settings> l : listeners) {
+            try { l.accept(settings); }
+            catch (Exception e) { e.printStackTrace(); }
         }
     }
 
