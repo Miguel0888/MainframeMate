@@ -435,8 +435,18 @@ public class ChatSession extends JPanel {
 
                             java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
                             if (!toolCalls.isEmpty()) {
-                                // Remove the raw bot message and replace with folded tool-call cards
+                                // Remove the raw bot message and replace with (optional prefix +) folded tool-call cards
                                 formatter.removeCurrentBotMessage();
+
+                                // Preserve any text the bot wrote before the first tool call JSON
+                                String prefixText = extractTextBeforeToolCall(botText);
+                                if (prefixText != null && !prefixText.trim().isEmpty()) {
+                                    String cleanPrefix = prefixText.trim();
+                                    Timestamp prefixId = chatManager.getHistory(sessionId).addBotMessage(cleanPrefix);
+                                    formatter.startBotMessage();
+                                    formatter.appendBotMessageChunk(cleanPrefix);
+                                    formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(prefixId));
+                                }
 
                                 for (JsonObject call : toolCalls) {
                                     String toolName = call.has("name") && !call.get("name").isJsonNull()
@@ -689,6 +699,26 @@ public class ChatSession extends JPanel {
     private JsonObject normalizeToolCall(JsonObject original) {
         JsonObject obj = original.deepCopy();
 
+        // Recognize aliases for "name": toolName, id, tool, function
+        if (!obj.has("name") || obj.get("name").isJsonNull() || obj.get("name").getAsString().trim().isEmpty()) {
+            for (String alias : new String[]{"toolName", "tool_name", "id", "tool", "function"}) {
+                if (obj.has(alias) && obj.get(alias).isJsonPrimitive() && !obj.get(alias).getAsString().trim().isEmpty()) {
+                    obj.addProperty("name", obj.get(alias).getAsString().trim());
+                    break;
+                }
+            }
+        }
+
+        // Recognize aliases for "input": parameters, params
+        if (!obj.has("input") && !obj.has("arguments")) {
+            for (String alias : new String[]{"parameters", "params"}) {
+                if (obj.has(alias) && obj.get(alias).isJsonObject()) {
+                    obj.add("input", obj.get(alias).getAsJsonObject());
+                    break;
+                }
+            }
+        }
+
         // Clean up malformed tool names like "browser[name=browser]" → "browser"
         if (obj.has("name") && obj.get("name").isJsonPrimitive()) {
             String rawName = obj.get("name").getAsString();
@@ -893,6 +923,51 @@ public class ChatSession extends JPanel {
         }
 
         return md.toString();
+    }
+
+    /**
+     * Extract any text the bot wrote before the first embedded tool-call JSON.
+     * Returns null if the entire text is a tool call or no prefix text exists.
+     */
+    private String extractTextBeforeToolCall(String text) {
+        if (text == null) return null;
+        String trimmed = text.trim();
+
+        // If the whole text is valid JSON tool call, there's no prefix
+        if (trimmed.startsWith("{") && tryParseToolCallJson(trimmed) != null) {
+            return null;
+        }
+
+        // Check for ```json fenced block
+        int fenceStart = trimmed.indexOf("```json");
+        if (fenceStart > 0) {
+            String prefix = trimmed.substring(0, fenceStart).trim();
+            return prefix.isEmpty() ? null : prefix;
+        }
+
+        // Find the first '{' that starts a valid tool-call JSON
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (trimmed.charAt(i) == '{') {
+                // Try to find the matching closing brace
+                int depth = 0;
+                for (int j = i; j < trimmed.length(); j++) {
+                    if (trimmed.charAt(j) == '{') depth++;
+                    else if (trimmed.charAt(j) == '}') {
+                        depth--;
+                        if (depth == 0) {
+                            String candidate = trimmed.substring(i, j + 1);
+                            if (tryParseToolCallJson(candidate) != null) {
+                                String prefix = trimmed.substring(0, i).trim();
+                                return prefix.isEmpty() ? null : prefix;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     private java.util.List<JsonObject> extractToolCalls(String text) {
