@@ -75,8 +75,10 @@ public class RagContentProcessor implements IndexingPipeline.ContentProcessor {
                 .build();
 
         // Step 3: Index via RagService (chunks + Lucene + optional embeddings)
+        // Only generate embeddings if the indexing rule has it enabled
+        boolean generateEmbeddings = source.isEmbeddingEnabled();
         try {
-            ragService.indexDocument(itemPath, filenameHint, document);
+            ragService.indexDocument(itemPath, filenameHint, document, generateEmbeddings);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[IndexProcessor] RAG indexing FAILED for: " + itemPath, e);
             throw e;

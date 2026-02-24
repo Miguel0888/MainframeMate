@@ -4,7 +4,10 @@ import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
 import de.bund.zrb.rag.port.LexicalIndex;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.analysis.LowerCaseFilter;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.miscellaneous.WordDelimiterGraphFilter;
+import org.apache.lucene.analysis.standard.StandardTokenizer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -58,7 +61,7 @@ public class LuceneLexicalIndex implements LexicalIndex {
      */
     public LuceneLexicalIndex() {
         this.directory = new ByteBuffersDirectory();
-        this.analyzer = new StandardAnalyzer();
+        this.analyzer = createSubwordAnalyzer();
         initialize(8.0);
     }
 
@@ -70,9 +73,44 @@ public class LuceneLexicalIndex implements LexicalIndex {
     public LuceneLexicalIndex(Path indexPath) throws IOException {
         indexPath.toFile().mkdirs();
         this.directory = FSDirectory.open(indexPath);
-        this.analyzer = new StandardAnalyzer();
+        this.analyzer = createSubwordAnalyzer();
         initialize(8.0);
         rebuildCacheFromIndex();
+    }
+
+    /**
+     * Creates an Analyzer that splits compound tokens like "OP02Hamburg" into
+     * subwords ["op", "02", "hamburg"], enabling searches for partial terms.
+     *
+     * Chain: StandardTokenizer → WordDelimiterGraphFilter → LowerCaseFilter
+     *
+     * WordDelimiterGraphFilter flags:
+     * - GENERATE_WORD_PARTS: emit subword tokens ("Hamburg")
+     * - GENERATE_NUMBER_PARTS: emit number tokens ("02")
+     * - SPLIT_ON_CASE_CHANGE: split "OP02Hamburg" at case transitions
+     * - SPLIT_ON_NUMERICS: split at digit/letter boundaries
+     * - PRESERVE_ORIGINAL: also keep the full original token for exact matching
+     */
+    private static Analyzer createSubwordAnalyzer() {
+        return new Analyzer() {
+            @Override
+            protected TokenStreamComponents createComponents(String fieldName) {
+                StandardTokenizer tokenizer = new StandardTokenizer();
+
+                int flags = WordDelimiterGraphFilter.GENERATE_WORD_PARTS
+                        | WordDelimiterGraphFilter.GENERATE_NUMBER_PARTS
+                        | WordDelimiterGraphFilter.SPLIT_ON_CASE_CHANGE
+                        | WordDelimiterGraphFilter.SPLIT_ON_NUMERICS
+                        | WordDelimiterGraphFilter.PRESERVE_ORIGINAL;
+
+                TokenStream stream = new WordDelimiterGraphFilter(tokenizer, flags, null);
+                stream = new LowerCaseFilter(stream);
+                // FlattenGraphFilter is needed when indexing graph-producing token filters
+                stream = new org.apache.lucene.analysis.core.FlattenGraphFilter(stream);
+
+                return new TokenStreamComponents(tokenizer, stream);
+            }
+        };
     }
 
     private synchronized void initialize(double ramBufferMB) {
@@ -224,17 +262,20 @@ public class LuceneLexicalIndex implements LexicalIndex {
 
     /**
      * Build a smart Lucene query that searches across multiple fields,
-     * supports wildcards, and handles short queries gracefully.
+     * supports wildcards, fuzzy matching, and handles short queries gracefully.
+     *
+     * The custom subword analyzer splits tokens like "OP02Hamburg" into
+     * ["op", "02", "hamburg"], so searching for "hamburg" now works.
      *
      * Strategy:
-     * - Short query (1-2 chars): prefix/wildcard search (e.g. "a" → "a*")
-     * - Normal query: search text + sourceName + heading with OR
-     * - Multi-word: each word searched with OR, boosted if all match
+     * - Short query (1-2 chars): prefix search
+     * - Normal query (3+ chars): analyzed term + wildcard + fuzzy across all fields
      */
-    private Query buildSmartQuery(String queryStr) throws Exception {
+    private Query buildSmartQuery(String queryStr) {
         org.apache.lucene.search.BooleanQuery.Builder mainQuery =
                 new org.apache.lucene.search.BooleanQuery.Builder();
 
+        String[] fields = {FIELD_TEXT, FIELD_SOURCE_NAME, FIELD_HEADING};
         String[] words = queryStr.toLowerCase().split("\\s+");
 
         for (String word : words) {
@@ -242,42 +283,34 @@ public class LuceneLexicalIndex implements LexicalIndex {
                     new org.apache.lucene.search.BooleanQuery.Builder();
 
             if (word.length() <= 2) {
-                // Short words: use prefix query (no analyzer, direct match)
-                wordQuery.add(new org.apache.lucene.search.PrefixQuery(
-                        new Term(FIELD_TEXT, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
-                wordQuery.add(new org.apache.lucene.search.PrefixQuery(
-                        new Term(FIELD_SOURCE_NAME, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
-                wordQuery.add(new org.apache.lucene.search.PrefixQuery(
-                        new Term(FIELD_HEADING, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                // Short words: prefix query on all fields
+                for (String field : fields) {
+                    wordQuery.add(new org.apache.lucene.search.PrefixQuery(
+                            new Term(field, word)), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                }
             } else {
-                // Normal words: analyzed term query + wildcard fallback
-                // Term query (analyzed – finds exact stems)
-                QueryParser textParser = new QueryParser(FIELD_TEXT, analyzer);
-                textParser.setDefaultOperator(QueryParser.Operator.OR);
-                try {
-                    Query textQ = textParser.parse(word);
-                    wordQuery.add(textQ, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
-                } catch (Exception ignored) {}
+                // Analyzed term query (uses subword analyzer – splits compound tokens)
+                for (String field : fields) {
+                    QueryParser parser = new QueryParser(field, analyzer);
+                    try {
+                        Query q = parser.parse(word);
+                        wordQuery.add(q, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                    } catch (Exception ignored) {}
+                }
 
-                // Source name (file name search)
-                QueryParser nameParser = new QueryParser(FIELD_SOURCE_NAME, analyzer);
-                try {
-                    Query nameQ = nameParser.parse(word);
-                    wordQuery.add(nameQ, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
-                } catch (Exception ignored) {}
+                // Wildcard fallback: "hamburg" → "hamburg*" (catches prefixes)
+                for (String field : fields) {
+                    wordQuery.add(new org.apache.lucene.search.WildcardQuery(
+                            new Term(field, "*" + word + "*")),
+                            org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                }
 
-                // Heading
-                QueryParser headingParser = new QueryParser(FIELD_HEADING, analyzer);
-                try {
-                    Query headingQ = headingParser.parse(word);
-                    wordQuery.add(headingQ, org.apache.lucene.search.BooleanClause.Occur.SHOULD);
-                } catch (Exception ignored) {}
-
-                // Wildcard fallback (for partial matches like "mai" → "mai*")
-                wordQuery.add(new org.apache.lucene.search.WildcardQuery(
-                        new Term(FIELD_TEXT, word + "*")), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
-                wordQuery.add(new org.apache.lucene.search.WildcardQuery(
-                        new Term(FIELD_SOURCE_NAME, word + "*")), org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                // Fuzzy query for typo tolerance (edit distance 1 for words > 4 chars)
+                if (word.length() > 4) {
+                    wordQuery.add(new org.apache.lucene.search.FuzzyQuery(
+                            new Term(FIELD_TEXT, word), 1),
+                            org.apache.lucene.search.BooleanClause.Occur.SHOULD);
+                }
             }
 
             mainQuery.add(wordQuery.build(), org.apache.lucene.search.BooleanClause.Occur.SHOULD);

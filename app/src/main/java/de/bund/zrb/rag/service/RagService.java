@@ -124,9 +124,19 @@ public class RagService {
     }
 
     /**
-     * Index a document synchronously.
+     * Index a document synchronously (with embeddings if client is available).
      */
     public void indexDocument(String documentId, String documentName, Document document) {
+        indexDocument(documentId, documentName, document, true);
+    }
+
+    /**
+     * Index a document synchronously, with explicit control over embedding generation.
+     *
+     * @param generateEmbeddings if false, skip embedding generation even if the client is available.
+     *                           This respects the "embedding enabled" flag in indexing rules.
+     */
+    public void indexDocument(String documentId, String documentName, Document document, boolean generateEmbeddings) {
         if (document == null || document.isEmpty()) {
             LOG.warning("Cannot index empty document: " + documentId);
             return;
@@ -157,8 +167,8 @@ public class RagService {
         }
         documentChunkIds.put(documentId, chunkIds);
 
-        // Generate embeddings and index in semantic index
-        if (embeddingClient.isAvailable()) {
+        // Generate embeddings and index in semantic index (only if enabled by indexing rule)
+        if (generateEmbeddings && embeddingClient.isAvailable()) {
             for (Chunk chunk : chunks) {
                 try {
                     float[] embedding = embeddingClient.embed(chunk.getText());
