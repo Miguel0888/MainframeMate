@@ -763,10 +763,17 @@ public class ChatSession extends JPanel {
         String systemPrompt = composeSystemPrompt(resolvedMode);
         String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
-        String userText = baseFollowUp
-                + "\n\nUrsprüngliche Nutzeranfrage: "
-                + (lastUserRequestText == null ? "" : lastUserRequestText)
-                + "\nAntworte direkt auf diese Anfrage auf Deutsch, ohne Standard-Floskeln wie I don't see a specific question.";
+        String userText;
+        if (resolvedMode == ChatMode.AGENT) {
+            userText = baseFollowUp
+                    + "\n\nUrsprüngliche Nutzeranfrage: "
+                    + (lastUserRequestText == null ? "" : lastUserRequestText);
+        } else {
+            userText = baseFollowUp
+                    + "\n\nUrsprüngliche Nutzeranfrage: "
+                    + (lastUserRequestText == null ? "" : lastUserRequestText)
+                    + "\nAntworte direkt auf diese Anfrage auf Deutsch, ohne Standard-Floskeln wie I don't see a specific question.";
+        }
         String finalPrompt = buildPromptWithMode(systemPrompt, userText, true);
 
         new Thread(() -> {
@@ -1034,9 +1041,11 @@ public class ChatSession extends JPanel {
                 String followUp;
                 if (currentMode == ChatMode.AGENT) {
                     followUp = "Du hast Tool-Ergebnisse erhalten. " +
-                            "Beantworte jetzt die ursprüngliche Nutzeranfrage direkt und konkret auf Deutsch. " +
-                            "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
-                            "Erzeuge nur dann einen weiteren Tool-Call, wenn für die Beantwortung zwingend weitere Informationen fehlen.";
+                            "Prüfe: Ist die Aufgabe des Nutzers VOLLSTÄNDIG erledigt? " +
+                            "Wenn NEIN: mache den nächsten Tool-Call (z.B. weitere Seiten lesen, weitere Artikel öffnen, weitere Daten sammeln). " +
+                            "Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. " +
+                            "WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. " +
+                            "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an.";
                 } else {
                     followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }

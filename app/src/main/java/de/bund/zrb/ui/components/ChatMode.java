@@ -45,8 +45,15 @@ public enum ChatMode {
     AGENT(
             "Agent",
             "Handelt wie ein Agent: nutzt Tools iterativ, bis die Aufgabe erledigt ist.",
-            "Du bist ein hilfreicher Agent in einer Editor-Anwendung. Nutze Tools iterativ, aber nur wenn nötig. " +
-                    "Arbeite schrittweise, pro Schritt genau EINEN Tool-Call. Wenn genug Informationen da sind: STOPP und antworte.",
+            "Du bist ein autonomer Agent. Deine Aufgabe ist es, den Auftrag des Nutzers VOLLSTÄNDIG zu erledigen.\n" +
+                    "REGELN:\n" +
+                    "1. Nutze so viele Tool-Calls wie nötig, bis die Aufgabe erledigt ist. Höre NICHT nach einem Schritt auf.\n" +
+                    "2. Erfinde NIEMALS Daten, Links oder Fakten. Nutze IMMER Tools, um echte Informationen zu bekommen.\n" +
+                    "3. Wenn der Nutzer Informationen aus dem Web will: Navigiere zu Seiten, lies den Text mit web_read_page, " +
+                    "klicke auf Artikel-Links, lies deren Inhalt, und fasse erst am Ende alles zusammen.\n" +
+                    "4. Der Nutzer kann dich jederzeit unterbrechen. Bis dahin: arbeite weiter.\n" +
+                    "5. Antworte dem Nutzer erst, wenn du ALLE nötigen Informationen gesammelt hast.\n" +
+                    "6. Pro Antwort genau EINEN Tool-Call. Nach dem Ergebnis sofort den nächsten Tool-Call, bis fertig.",
             true,
             EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
             defaultToolPrefix(),
