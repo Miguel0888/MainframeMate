@@ -20,6 +20,7 @@ import java.util.concurrent.Future;
 public class SearchTab extends JPanel implements FtpTab {
 
     private final SearchService searchService = SearchService.getInstance();
+    private final de.bund.zrb.ui.TabbedPaneManager tabManager;
 
     // ── UI Components ──
     private final JTextField searchField;
@@ -55,6 +56,11 @@ public class SearchTab extends JPanel implements FtpTab {
     private static final String SAVED_SEARCHES_KEY = "savedSearches";
 
     public SearchTab() {
+        this(null);
+    }
+
+    public SearchTab(de.bund.zrb.ui.TabbedPaneManager tabManager) {
+        this.tabManager = tabManager;
         setLayout(new BorderLayout(0, 0));
 
         // ════════════════════════════════════════════════════════════
@@ -507,12 +513,26 @@ public class SearchTab extends JPanel implements FtpTab {
         if (modelRow < 0 || modelRow >= currentResults.size()) return;
 
         SearchResult result = currentResults.get(modelRow);
-        JOptionPane.showMessageDialog(this,
-                "Dokument: " + result.getDocumentName()
-                        + "\nPfad: " + result.getPath()
-                        + "\nQuelle: " + result.getSource().getLabel()
-                        + "\nID: " + result.getDocumentId(),
-                "Suchergebnis", JOptionPane.INFORMATION_MESSAGE);
+        String path = result.getDocumentId(); // documentId is the full path used during indexing
+
+        if (tabManager == null) {
+            // Fallback: show info dialog if no tabManager available
+            JOptionPane.showMessageDialog(this,
+                    "Dokument: " + result.getDocumentName()
+                            + "\nPfad: " + path,
+                    "Suchergebnis", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        try {
+            // Open via VirtualResourceOpener (handles LOCAL, FTP, etc.)
+            new de.bund.zrb.ui.VirtualResourceOpener(tabManager)
+                    .open(path, null, lastQuery, null, true);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Fehler beim \u00d6ffnen:\n" + e.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -32,7 +32,7 @@ public class SearchMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        SearchTab searchTab = new SearchTab();
+        SearchTab searchTab = new SearchTab(tabManager);
         tabManager.addTab(searchTab);
         // Focus the search field after the tab is shown
         SwingUtilities.invokeLater(searchTab::focusSearchField);
