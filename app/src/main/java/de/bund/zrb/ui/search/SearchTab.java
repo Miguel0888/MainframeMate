@@ -230,11 +230,12 @@ public class SearchTab extends JPanel implements FtpTab {
         // Column widths
         resultTable.getColumnModel().getColumn(0).setPreferredWidth(55);
         resultTable.getColumnModel().getColumn(0).setMaxWidth(65);
-        resultTable.getColumnModel().getColumn(1).setPreferredWidth(180);
+        resultTable.getColumnModel().getColumn(1).setPreferredWidth(200);
         resultTable.getColumnModel().getColumn(2).setPreferredWidth(220);
         resultTable.getColumnModel().getColumn(3).setPreferredWidth(400);
         resultTable.getColumnModel().getColumn(4).setPreferredWidth(55);
         resultTable.getColumnModel().getColumn(4).setMaxWidth(65);
+
 
         // Custom renderer for snippet column with highlighting + alternating rows
         DefaultTableCellRenderer snippetRenderer = new DefaultTableCellRenderer() {
@@ -266,7 +267,7 @@ public class SearchTab extends JPanel implements FtpTab {
             }
         };
         for (int c = 0; c < resultTable.getColumnCount(); c++) {
-            if (c != 3) { // skip snippet column (has its own renderer)
+            if (c != 3) { // skip snippet column (has highlighting)
                 resultTable.getColumnModel().getColumn(c).setCellRenderer(altRenderer);
             }
         }
@@ -276,11 +277,28 @@ public class SearchTab extends JPanel implements FtpTab {
             if (!e.getValueIsAdjusting()) updatePreview();
         });
 
-        // Double-click / Enter -> open
+        // Double-click / Enter -> open; Single-click on star -> toggle bookmark
         resultTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) openSelectedResult();
+                int row = resultTable.rowAtPoint(e.getPoint());
+                int col = resultTable.columnAtPoint(e.getPoint());
+
+                if (row < 0) return;
+
+                if (e.getClickCount() == 1 && col == 1) {
+                    // Check if click is on the star area (right side of the cell)
+                    Rectangle cellRect = resultTable.getCellRect(row, col, true);
+                    int clickXInCell = e.getX() - cellRect.x;
+                    int cellWidth = cellRect.width;
+                    // Star is at the right side – consider last ~30px as star area
+                    if (clickXInCell > cellWidth - 30) {
+                        toggleBookmarkForRow(row);
+                        resultTable.repaint();
+                    }
+                } else if (e.getClickCount() == 2) {
+                    openSelectedResult();
+                }
             }
         });
         resultTable.addKeyListener(new KeyAdapter() {
@@ -305,6 +323,18 @@ public class SearchTab extends JPanel implements FtpTab {
         previewPane.setEditable(false);
         previewPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
         previewPane.setFont(new Font("SansSerif", Font.PLAIN, 12));
+
+        // Handle star-click in preview
+        previewPane.addHyperlinkListener(e -> {
+            if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED
+                    && e.getDescription() != null && e.getDescription().equals("toggle-bookmark")) {
+                int row = resultTable.getSelectedRow();
+                if (row >= 0) {
+                    toggleBookmarkForRow(row);
+                    updatePreview(); // refresh star
+                }
+            }
+        });
 
         JScrollPane previewScroll = new JScrollPane(previewPane);
         previewScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
@@ -487,6 +517,12 @@ public class SearchTab extends JPanel implements FtpTab {
         html.append("</div>");
         html.append("<div style='font-size:14px;font-weight:bold;margin-bottom:6px;'>");
         html.append("\uD83D\uDCC4 ").append(escHtml(r.getDocumentName()));
+        // Bookmark star – clickable
+        boolean bookmarked = isResultBookmarked(modelRow);
+        String starChar = bookmarked ? "\u2605" : "\u2606";
+        String starColor = bookmarked ? "#FFC800" : "#999999";
+        html.append(" <a href='toggle-bookmark' style='text-decoration:none;font-size:16px;color:")
+                .append(starColor).append(";'>").append(starChar).append("</a>");
         html.append("</div>");
 
         if (r.getHeading() != null && !r.getHeading().isEmpty()) {
@@ -532,6 +568,38 @@ public class SearchTab extends JPanel implements FtpTab {
             JOptionPane.showMessageDialog(this,
                     "Fehler beim \u00d6ffnen:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Bookmarking (Star)
+    // ═══════════════════════════════════════════════════════════════
+
+    private boolean isResultBookmarked(int modelRow) {
+        if (tabManager == null || modelRow < 0 || modelRow >= currentResults.size()) return false;
+        de.bund.zrb.ui.drawer.LeftDrawer drawer = tabManager.getBookmarkDrawer();
+        if (drawer == null) return false;
+        SearchResult r = currentResults.get(modelRow);
+        return drawer.isBookmarked(r.getDocumentId(), sourceTypeToBackend(r.getSource()));
+    }
+
+    private void toggleBookmarkForRow(int viewRow) {
+        if (tabManager == null) return;
+        int modelRow = resultTable.convertRowIndexToModel(viewRow);
+        if (modelRow < 0 || modelRow >= currentResults.size()) return;
+        de.bund.zrb.ui.drawer.LeftDrawer drawer = tabManager.getBookmarkDrawer();
+        if (drawer == null) return;
+        SearchResult r = currentResults.get(modelRow);
+        drawer.toggleBookmark(r.getDocumentId(), sourceTypeToBackend(r.getSource()));
+    }
+
+    private static String sourceTypeToBackend(SearchResult.SourceType type) {
+        switch (type) {
+            case LOCAL: return "LOCAL";
+            case FTP:   return "FTP";
+            case NDV:   return "NDV";
+            case MAIL:  return "MAIL";
+            default:    return "LOCAL";
         }
     }
 

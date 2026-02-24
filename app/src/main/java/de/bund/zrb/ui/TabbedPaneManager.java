@@ -215,7 +215,7 @@ public class TabbedPaneManager {
         return starButton;
     }
 
-    private LeftDrawer getBookmarkDrawer() {
+    public LeftDrawer getBookmarkDrawer() {
         if (mainframeContext instanceof MainFrame) {
             return ((MainFrame) mainframeContext).getBookmarkDrawer();
         }
