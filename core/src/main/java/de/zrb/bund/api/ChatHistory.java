@@ -3,7 +3,9 @@ package de.zrb.bund.api;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class ChatHistory {
@@ -63,6 +65,41 @@ public class ChatHistory {
             }
             result.add(rolePrefix + msg.content);
         }
+        return result;
+    }
+
+    /**
+     * Message-Builder für Ollama /api/chat Format.
+     * Gibt eine Liste von Maps zurück, die direkt als JSON serialisiert werden können.
+     * Jede Map enthält "role" und "content".
+     */
+    public List<Map<String, String>> toMessages(String userInput) {
+        List<Map<String, String>> result = new ArrayList<>();
+
+        // System-Prompt als erste Nachricht
+        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+            Map<String, String> systemMsg = new LinkedHashMap<>();
+            systemMsg.put("role", "system");
+            systemMsg.put("content", systemPrompt.trim());
+            result.add(systemMsg);
+        }
+
+        // Historische Nachrichten
+        for (Message msg : messages) {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("role", msg.role);
+            m.put("content", msg.content);
+            result.add(m);
+        }
+
+        // Aktuelle User-Eingabe
+        if (userInput != null && !userInput.trim().isEmpty()) {
+            Map<String, String> userMsg = new LinkedHashMap<>();
+            userMsg.put("role", "user");
+            userMsg.put("content", userInput);
+            result.add(userMsg);
+        }
+
         return result;
     }
 

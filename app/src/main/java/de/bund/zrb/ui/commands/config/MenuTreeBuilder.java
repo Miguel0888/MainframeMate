@@ -21,15 +21,15 @@ public class MenuTreeBuilder {
     static {
         // Datei-Menü Reihenfolge
         SUBMENU_ORDER.put("file", Arrays.asList(
-                "save", "saveAndClose", "---1", "connect", "local", "ndv", "---2", "exit"
+                "save", "saveAndClose", "---1", "connect", "local", "ndv", "mail", "archive", "---2", "exit"
         ));
         // Bearbeiten-Menü Reihenfolge
         SUBMENU_ORDER.put("edit", Arrays.asList(
-                "search", "compare", "---1", "bookmark"
+                "globalSearch", "---1", "search", "compare", "---2", "bookmark"
         ));
         // Einstellungen-Menü Reihenfolge
         SUBMENU_ORDER.put("settings", Arrays.asList(
-                "general", "server", "---1", "sentences", "expressions", "tools", "---2", "shortcuts", "plugins"
+                "general", "server", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "plugins"
         ));
         // Hilfe-Menü Reihenfolge
         SUBMENU_ORDER.put("help", Arrays.asList(

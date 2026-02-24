@@ -127,7 +127,7 @@ public class CloudChatManager implements ChatManager {
 
     @Override
     public ChatHistory getHistory(UUID sessionId) {
-        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
+        return sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
     }
 
     @Override
@@ -281,6 +281,17 @@ public class CloudChatManager implements ChatManager {
         JsonArray messages = new JsonArray();
         if (useContext) {
             ChatHistory history = sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
+
+            // Insert system prompt as first message (system role) so the model
+            // always knows about available tools and mode instructions.
+            String sysPrompt = history.getSystemPrompt();
+            if (sysPrompt != null && !sysPrompt.trim().isEmpty()) {
+                JsonObject sysMsg = new JsonObject();
+                sysMsg.addProperty("role", "system");
+                sysMsg.addProperty("content", sysPrompt.trim());
+                messages.add(sysMsg);
+            }
+
             for (ChatHistory.Message message : history.getMessages()) {
                 JsonObject msg = new JsonObject();
                 msg.addProperty("role", message.role);

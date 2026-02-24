@@ -18,6 +18,7 @@ public class PluginManager {
 
     private static final List<MainframeMatePlugin> plugins = new ArrayList<>();
     private static final Set<String> loadedPluginNames = new HashSet<>();
+    private static volatile boolean shutdownDone = false;
 
     public static void registerPlugin(MainframeMatePlugin plugin) {
         plugins.add(plugin);
@@ -38,10 +39,30 @@ public class PluginManager {
 
         // 3. Dynamisch geladene Plugins aus JARs im Plugin-Verzeichnis
         loadExternalPlugins(mainFrame);
+
+        // 4. Gespeicherte Tool-Definitionen bereinigen (entfernt verwaiste Einträge aus tools.json)
+        ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
+        registry.cleanupStoredTools();
     }
 
     public static List<MainframeMatePlugin> getPlugins() {
         return Collections.unmodifiableList(plugins);
+    }
+
+    /**
+     * Shutdown all plugins (e.g. close browser processes, release resources).
+     * Called when the application is exiting. Safe to call multiple times.
+     */
+    public static synchronized void shutdownAll() {
+        if (shutdownDone) return;
+        shutdownDone = true;
+        for (MainframeMatePlugin plugin : plugins) {
+            try {
+                plugin.shutdown();
+            } catch (Exception e) {
+                System.err.println("⚠️ Fehler beim Shutdown von Plugin \"" + plugin.getPluginName() + "\": " + e.getMessage());
+            }
+        }
     }
 
     /**

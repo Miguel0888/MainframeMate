@@ -70,15 +70,19 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistryImpl.register(new ConnectMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectLocalMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectNdvMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new ConnectMailMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new OpenArchiveMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ExitMenuCommand());
         CommandRegistryImpl.register(new ShowSettingsDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowServerSettingsDialogMenuCommand(this));
+        CommandRegistryImpl.register(new ShowMailSettingsDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowSentenceDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowExpressionEditorMenuCommand(this));
         CommandRegistryImpl.register(new ShowToolDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowFeatureDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowAboutDialogMenuCommand(this));
         CommandRegistryImpl.register(new ShowShortcutConfigMenuCommand(this));
+        CommandRegistryImpl.register(new ShowIndexingControlPanelMenuCommand(this));
 
         // Advanced
         CommandRegistryImpl.register(new BookmarkMenuCommand(this));
@@ -86,6 +90,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         // Sub Commands
         CommandRegistryImpl.register(new ShowComparePanelCommand(this));
         CommandRegistryImpl.register(new FocusSearchFieldCommand(this));
+        CommandRegistryImpl.register(new SearchMenuCommand(this, tabManager));
     }
 
     // MCP Tools
@@ -104,6 +109,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         toolRegistry.registerTool(new de.bund.zrb.mcp.SearchAttachmentsTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadChunksTool(this));
         toolRegistry.registerTool(new de.bund.zrb.mcp.ReadDocumentWindowTool(this));
+
+        // Global Search Tool (searches Lucene index across all sources)
+        toolRegistry.registerTool(new de.bund.zrb.mcp.SearchIndexTool(this));
     }
 
     @Override
@@ -135,6 +143,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                de.bund.zrb.runtime.PluginManager.shutdownAll();
                 de.bund.zrb.mcp.registry.McpServerManager.getInstance().stopAll();
                 dispose(); // sauber beenden
                 System.exit(0); // oder dispatchEvent(new WindowEvent(..., WINDOW_CLOSING));
@@ -359,6 +368,27 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     @Override
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
+        if (path == null || path.isEmpty()) return null;
+
+        // Route mail:// paths to the mail-opening logic (same as bookmarks)
+        if (path.startsWith(de.bund.zrb.files.path.VirtualResourceRef.MAIL_PREFIX)) {
+            String mailPath = path.substring(de.bund.zrb.files.path.VirtualResourceRef.MAIL_PREFIX.length());
+            openMailBookmark(mailPath);
+            return null; // opened async via SwingWorker
+        }
+
+        // Route ndv:// paths to the NDV-opening logic (same as bookmarks)
+        if (path.startsWith(de.bund.zrb.files.path.VirtualResourceRef.NDV_PREFIX)) {
+            String ndvPath = path.substring(de.bund.zrb.files.path.VirtualResourceRef.NDV_PREFIX.length());
+            // Create a minimal BookmarkEntry with the raw path – openNdvFileBookmark
+            // handles the fallback (no NDV metadata) via resolvePath(rawPath)
+            de.bund.zrb.model.BookmarkEntry ndvEntry = new de.bund.zrb.model.BookmarkEntry();
+            ndvEntry.path = de.bund.zrb.model.BookmarkEntry.PREFIX_NDV + ndvPath;
+            ndvEntry.resourceKind = "FILE";
+            openNdvFileBookmark(ndvEntry);
+            return null; // opened async
+        }
+
         return new VirtualResourceOpener(tabManager)
                 .open(path, sentenceType, searchPattern, toCompare);
     }
@@ -386,12 +416,69 @@ public class MainFrame extends JFrame implements MainframeContext {
                     openNdvFileBookmark(entry);
                 }
                 break;
+            case "MAIL":
+                openMailBookmark(rawPath);
+                break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
                 new VirtualResourceOpener(tabManager)
                         .open(rawPath, null, null, null, isFile);
                 break;
         }
+    }
+
+    /**
+     * Open a mail bookmark. rawPath format: "mailboxPath#folderPath#descriptorNodeId"
+     */
+    private void openMailBookmark(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) return;
+
+        // Parse: mailboxPath#folderPath#nodeId
+        String[] parts = rawPath.split("#", 3);
+        if (parts.length < 3) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Ungültiges Mail-Bookmark-Format:\n" + rawPath,
+                    "Mail-Bookmark", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String mailboxPath = parts[0];
+        String folderPath = parts[1];
+        long nodeId;
+        try {
+            nodeId = Long.parseLong(parts[2]);
+        } catch (NumberFormatException e) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Ungültige Nachrichten-ID im Bookmark:\n" + parts[2],
+                    "Mail-Bookmark", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Load message in background
+        javax.swing.SwingWorker<de.bund.zrb.mail.model.MailMessageContent, Void> worker =
+                new javax.swing.SwingWorker<de.bund.zrb.mail.model.MailMessageContent, Void>() {
+            @Override
+            protected de.bund.zrb.mail.model.MailMessageContent doInBackground() throws Exception {
+                de.bund.zrb.mail.infrastructure.PstMailboxReader reader =
+                        new de.bund.zrb.mail.infrastructure.PstMailboxReader();
+                return reader.readMessage(mailboxPath, folderPath, nodeId);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    de.bund.zrb.mail.model.MailMessageContent content = get();
+                    de.bund.zrb.ui.mail.MailPreviewTab tab =
+                            new de.bund.zrb.ui.mail.MailPreviewTab(content, mailboxPath);
+                    tabManager.addTab(tab);
+                } catch (Exception e) {
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "Fehler beim Öffnen der Mail aus Bookmark:\n" + e.getMessage(),
+                            "Mail-Bookmark", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
     }
 
     /**

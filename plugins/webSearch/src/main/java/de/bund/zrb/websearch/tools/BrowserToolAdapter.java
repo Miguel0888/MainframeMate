@@ -12,12 +12,16 @@ import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Wraps a {@link McpServerTool} (from wd4j-mcp-server) as a regular {@link McpTool}
  * that can be registered in the application's ToolRegistry.
  */
 public class BrowserToolAdapter implements McpTool {
+
+    private static final Logger LOG = Logger.getLogger(BrowserToolAdapter.class.getName());
 
     private final McpServerTool delegate;
     private final WebSearchBrowserManager browserManager;
@@ -35,6 +39,8 @@ public class BrowserToolAdapter implements McpTool {
 
         if (schema.has("properties")) {
             for (Map.Entry<String, JsonElement> entry : schema.getAsJsonObject("properties").entrySet()) {
+                // Hide contextId – the active tab is managed automatically
+                if ("contextId".equals(entry.getKey())) continue;
                 JsonObject propObj = entry.getValue().getAsJsonObject();
                 String type = propObj.has("type") ? propObj.get("type").getAsString() : "string";
                 String desc = propObj.has("description") ? propObj.get("description").getAsString() : "";
@@ -53,15 +59,33 @@ public class BrowserToolAdapter implements McpTool {
 
     @Override
     public McpToolResponse execute(JsonObject input, String resultVar) {
+        String toolName = delegate.name();
+        LOG.info("[BrowserToolAdapter] Executing tool: " + toolName + " | input: "
+                + (input.toString().length() > 500 ? input.toString().substring(0, 500) + "..." : input.toString()));
+        long startTime = System.currentTimeMillis();
+
         try {
+            // getSession() auto-launches and connects the browser if needed
             BrowserSession session = browserManager.getSession();
             ToolResult result = delegate.execute(input, session);
+
+            long elapsed = System.currentTimeMillis() - startTime;
             JsonObject response = new JsonObject();
 
             if (result.isError()) {
                 response.addProperty("status", "error");
+                LOG.warning("[BrowserToolAdapter] Tool " + toolName + " returned error after " + elapsed + "ms: "
+                        + result.getText());
             } else {
                 response.addProperty("status", "ok");
+                LOG.info("[BrowserToolAdapter] Tool " + toolName + " completed in " + elapsed + "ms"
+                        + " | result length: " + (result.getText() != null ? result.getText().length() : 0));
+            }
+
+            // Always include the active tab ID so the bot knows where it is
+            String contextId = session.getContextId();
+            if (contextId != null) {
+                response.addProperty("tabId", contextId);
             }
 
             JsonElement contentJson = result.toJson();
@@ -80,6 +104,8 @@ public class BrowserToolAdapter implements McpTool {
             response.add("raw", contentJson);
             return new McpToolResponse(response, resultVar, null);
         } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            LOG.log(Level.SEVERE, "[BrowserToolAdapter] Tool " + toolName + " threw exception after " + elapsed + "ms", e);
             JsonObject error = new JsonObject();
             error.addProperty("status", "error");
             error.addProperty("message", e.getMessage());

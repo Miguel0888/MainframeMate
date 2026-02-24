@@ -19,6 +19,7 @@ public class WebSearchSettingsDialog extends JDialog {
     private final JComboBox<String> browserCombo;
     private final JCheckBox headlessCheckbox;
     private final JTextField browserPathField;
+    private final JSpinner timeoutSpinner;
 
     public WebSearchSettingsDialog(MainframeContext context) {
         super(context.getMainFrame(), "Websearch-Einstellungen", true);
@@ -49,8 +50,9 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(new JLabel("Browser-Pfad:"), gbc);
 
         JPanel pathPanel = new JPanel(new BorderLayout(5, 0));
-        browserPathField = new JTextField(settings.getOrDefault("browserPath", ""), 25);
-        browserPathField.setToolTipText("Leer = automatische Erkennung");
+        String defaultBrowserPath = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
+        browserPathField = new JTextField(settings.getOrDefault("browserPath", defaultBrowserPath), 25);
+        browserPathField.setToolTipText("Standard: " + defaultBrowserPath);
         pathPanel.add(browserPathField, BorderLayout.CENTER);
 
         JButton browseBtn = new JButton("...");
@@ -77,8 +79,24 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(headlessCheckbox, gbc);
 
+        // ── Navigate-Timeout ────────────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 3; gbc.weightx = 0; gbc.gridwidth = 1;
+        form.add(new JLabel("Navigate-Timeout (s):"), gbc);
+
+        int savedTimeout = 30;
+        try {
+            savedTimeout = Integer.parseInt(settings.getOrDefault("navigateTimeoutSeconds", "30"));
+        } catch (NumberFormatException ignored) {}
+        timeoutSpinner = new JSpinner(new SpinnerNumberModel(savedTimeout, 5, 300, 5));
+        timeoutSpinner.setToolTipText("Maximale Wartezeit in Sekunden für eine Seitennavigation (Standard: 30)");
+        gbc.gridx = 1; gbc.weightx = 1;
+        form.add(timeoutSpinner, gbc);
+
+        // Apply timeout to system properties immediately
+        System.setProperty("websearch.navigate.timeout.seconds", String.valueOf(savedTimeout));
+
         // ── Info-Label ──────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
         JLabel infoLabel = new JLabel(
                 "<html><i>Die Browser-Tools (browser_navigate, browser_click_css, ...) werden "
                 + "automatisch in der Tool-Registry registriert und stehen im Chat zur Verfügung.</i></html>");
@@ -112,7 +130,12 @@ public class WebSearchSettingsDialog extends JDialog {
         settings.put("browser", (String) browserCombo.getSelectedItem());
         settings.put("headless", String.valueOf(headlessCheckbox.isSelected()));
         settings.put("browserPath", browserPathField.getText().trim());
+        String timeoutVal = String.valueOf(timeoutSpinner.getValue());
+        settings.put("navigateTimeoutSeconds", timeoutVal);
         context.savePluginSettings(PLUGIN_KEY, settings);
+
+        // Apply timeout to system properties so tools pick it up immediately
+        System.setProperty("websearch.navigate.timeout.seconds", timeoutVal);
     }
 }
 

@@ -17,4 +17,12 @@ public interface MainframeMatePlugin {
     List<MenuCommand> getCommands(MainframeContext mainFrame);
 
     List<McpTool> getTools();
+
+    /**
+     * Called when the application is shutting down.
+     * Plugins should release all resources (e.g. browser processes, connections).
+     */
+    default void shutdown() {
+        // default: nothing to clean up
+    }
 }

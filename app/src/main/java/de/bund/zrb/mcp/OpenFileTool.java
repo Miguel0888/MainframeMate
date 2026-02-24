@@ -1,6 +1,7 @@
 package de.bund.zrb.mcp;
 
 import com.google.gson.JsonObject;
+import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.ui.VirtualResource;
 import de.bund.zrb.ui.VirtualResourceResolver;
 import de.zrb.bund.api.MainframeContext;
@@ -26,24 +27,28 @@ public class OpenFileTool implements McpTool {
     @Override
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
-        properties.put("file", new ToolSpec.Property("string", "Pfad zur Datei oder Verzeichnis (lokal oder FTP)"));
-        properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschlüssel"));
+        properties.put("file", new ToolSpec.Property("string",
+                "Pfad zur Ressource (Datei, Verzeichnis, Mail, NDV-Quelle). "
+                + "Akzeptiert: lokale Pfade (C:\\...), FTP-Pfade (ftp:/...), "
+                + "oder URIs mit Prefix (local://..., ftp://..., mail://..., ndv://...) "
+                + "wie sie von search_index zur\u00fcckgegeben werden."));
+        properties.put("satzart", new ToolSpec.Property("string", "Optionaler Satzartenschl\u00fcssel"));
         properties.put("search", new ToolSpec.Property("string", "Optionaler Suchausdruck"));
-        properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus geöffnet werden soll"));
+        properties.put("toCompare", new ToolSpec.Property("boolean", "Ob im Vergleichsmodus ge\u00f6ffnet werden soll"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("file"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("file", "C:\\TEST\\datei.txt");
+        example.put("file", "local://C:\\TEST\\datei.txt");
         example.put("satzart", "100");
         example.put("search", "BEGIN");
         example.put("toCompare", true);
 
         return new ToolSpec(
-                "open_file",
-                "Öffnet eine Datei oder ein Verzeichnis als neuen Tab im Editor. " +
-                "Lokale Pfade (z.B. C:\\TEST) und FTP-Pfade werden automatisch erkannt. " +
-                "Für FTP-Dateien muss vorher eine Verbindung bestehen.",
+                "open_resource",
+                "\u00d6ffnet eine Ressource (Datei, Verzeichnis, Mail, NDV-Quelle) als neuen Tab. " +
+                "Akzeptiert Pfade mit Prefix (local://, ftp:, mail://, ndv://) " +
+                "wie sie von search_index zur\u00fcckgegeben werden, sowie direkte lokale/FTP-Pfade.",
                 inputSchema,
                 example
         );
@@ -70,10 +75,16 @@ public class OpenFileTool implements McpTool {
                     ? input.get("toCompare").getAsBoolean() : null;
 
             // First resolve to check what kind of resource this is (for response metadata)
-            VirtualResourceResolver resolver = new VirtualResourceResolver();
-            VirtualResource resource = resolver.resolve(file);
-
-            System.out.println("[TOOL open_file] resolved: " + resource.getResolvedPath() + " kind=" + resource.getKind());
+            // Skip resolve for mail:// and ndv:// – these are handled directly by MainFrame
+            VirtualResourceRef ref = VirtualResourceRef.of(file);
+            VirtualResource resource = null;
+            if (!ref.isMailPath() && !ref.isNdvPath()) {
+                VirtualResourceResolver resolver = new VirtualResourceResolver();
+                resource = resolver.resolve(file);
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.TOOL).fine("[open_resource] resolved: " + resource.getResolvedPath() + " kind=" + resource.getKind());
+            } else {
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.TOOL).fine("[open_resource] routing " + (ref.isMailPath() ? "MAIL" : "NDV") + " path directly");
+            }
 
             // Open the tab via MainframeContext (handles EDT internally or delegates correctly)
             AtomicReference<FtpTab> openedTab = new AtomicReference<>();
@@ -107,17 +118,23 @@ public class OpenFileTool implements McpTool {
 
             if (openedTab.get() == null) {
                 response.addProperty("status", "error");
-                response.addProperty("message", "Tab konnte nicht geöffnet werden. " +
-                        (resource.isLocal() ? "Prüfe, ob der Pfad existiert." :
-                         "Für FTP-Dateien muss eine aktive Verbindung bestehen und Credentials verfügbar sein."));
+                response.addProperty("message", "Tab konnte nicht ge\u00f6ffnet werden. " +
+                        (resource != null && resource.isLocal() ? "Pr\u00fcfe, ob der Pfad existiert." :
+                         "Pr\u00fcfe Pfad und Verbindungseinstellungen."));
                 return new McpToolResponse(response, resultVar, null);
             }
 
             response.addProperty("status", "success");
             response.addProperty("openedFile", file);
-            response.addProperty("resolvedPath", resource.getResolvedPath());
-            response.addProperty("kind", resource.getKind().name());
-            response.addProperty("local", resource.isLocal());
+            if (resource != null) {
+                response.addProperty("resolvedPath", resource.getResolvedPath());
+                response.addProperty("kind", resource.getKind().name());
+                response.addProperty("local", resource.isLocal());
+            } else {
+                response.addProperty("resolvedPath", file);
+                response.addProperty("kind", ref.isMailPath() ? "MAIL" : "NDV");
+                response.addProperty("local", false);
+            }
             response.addProperty("tabTitle", openedTab.get().getTitle());
 
             return new McpToolResponse(response, resultVar, null);

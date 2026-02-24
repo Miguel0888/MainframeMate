@@ -39,22 +39,26 @@ public class ReadFileTool implements McpTool {
     @Override
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> properties = new LinkedHashMap<>();
-        properties.put("path", new ToolSpec.Property("string", "Pfad zur Datei oder Verzeichnis (lokal oder FTP)"));
-        properties.put("maxLines", new ToolSpec.Property("integer", "Maximale Anzahl Zeilen bei Dateien (optional, default: unbegrenzt)"));
+        properties.put("path", new ToolSpec.Property("string",
+                "Pfad zur Ressource (Datei, Verzeichnis, Mail etc.). "
+                + "Akzeptiert: lokale Pfade (C:\\...), FTP-Pfade (ftp:/...), "
+                + "oder URIs mit Prefix (local://..., ftp://..., mail://..., ndv://...) "
+                + "wie sie von search_index zur\u00fcckgegeben werden."));
+        properties.put("maxLines", new ToolSpec.Property("integer", "Maximale Anzahl Zeilen (optional, default: unbegrenzt)"));
         properties.put("encoding", new ToolSpec.Property("string", "Zeichenkodierung (optional, default: System-Default)"));
 
         ToolSpec.InputSchema inputSchema = new ToolSpec.InputSchema(properties, Collections.singletonList("path"));
 
         Map<String, Object> example = new LinkedHashMap<>();
-        example.put("path", "C:\\TEST\\datei.txt");
+        example.put("path", "local://C:\\TEST\\datei.txt");
         example.put("maxLines", 100);
 
         return new ToolSpec(
-                "read_file",
-                "Liest den Inhalt einer Datei oder listet ein Verzeichnis auf, ohne einen Tab zu öffnen. " +
-                "Bei Dateien wird der Textinhalt zurückgegeben. " +
-                "Bei Verzeichnissen wird eine Liste der Einträge zurückgegeben. " +
-                "Für FTP-Pfade muss vorher eine Verbindung bestehen.",
+                "read_resource",
+                "Liest den Inhalt einer Ressource (Datei, Verzeichnis, Mail, NDV-Quelle) ohne einen Tab zu \u00f6ffnen. " +
+                "Akzeptiert Pfade mit Prefix (local://, ftp:, mail://, ndv://) " +
+                "wie sie von search_index zur\u00fcckgegeben werden, sowie direkte lokale/FTP-Pfade. " +
+                "Bei Dateien wird der Textinhalt zur\u00fcckgegeben, bei Verzeichnissen eine Liste der Eintr\u00e4ge.",
                 inputSchema,
                 example
         );
@@ -76,6 +80,12 @@ public class ReadFileTool implements McpTool {
                     ? input.get("maxLines").getAsInt() : null;
             String encoding = input.has("encoding") && !input.get("encoding").isJsonNull()
                     ? input.get("encoding").getAsString() : null;
+
+            // Handle mail:// paths directly (not resolvable via VirtualResourceResolver)
+            de.bund.zrb.files.path.VirtualResourceRef ref = de.bund.zrb.files.path.VirtualResourceRef.of(path);
+            if (ref.isMailPath()) {
+                return readMailResource(ref.getMailPath(), maxLines, resultVar);
+            }
 
             // Resolve the resource
             VirtualResourceResolver resolver = new VirtualResourceResolver();
@@ -210,6 +220,46 @@ public class ReadFileTool implements McpTool {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Read a mail resource. mailPath format: "mailboxPath#folderPath#descriptorNodeId"
+     */
+    private McpToolResponse readMailResource(String mailPath, Integer maxLines, String resultVar) {
+        JsonObject response = new JsonObject();
+        try {
+            String[] parts = mailPath.split("#", 3);
+            if (parts.length < 3) {
+                response.addProperty("status", "error");
+                response.addProperty("message", "Ungültiges Mail-Pfad-Format: " + mailPath);
+                return new McpToolResponse(response, resultVar, null);
+            }
+
+            String mailboxPath = parts[0];
+            String folderPath = parts[1];
+            long nodeId = Long.parseLong(parts[2]);
+
+            de.bund.zrb.mail.infrastructure.PstMailboxReader reader =
+                    new de.bund.zrb.mail.infrastructure.PstMailboxReader();
+            de.bund.zrb.mail.model.MailMessageContent content = reader.readMessage(mailboxPath, folderPath, nodeId);
+
+            String text = content.toMarkdown();
+            if (maxLines != null && maxLines > 0) {
+                text = truncateToLines(text, maxLines);
+            }
+
+            response.addProperty("status", "success");
+            response.addProperty("path", "mail://" + mailPath);
+            response.addProperty("kind", "MAIL");
+            response.addProperty("content", text);
+            response.addProperty("lineCount", text.split("\n", -1).length);
+
+            return new McpToolResponse(response, resultVar, null);
+        } catch (Exception e) {
+            response.addProperty("status", "error");
+            response.addProperty("message", e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+            return new McpToolResponse(response, resultVar, null);
+        }
     }
 }
 

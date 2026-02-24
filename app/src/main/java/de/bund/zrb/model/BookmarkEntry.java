@@ -30,6 +30,7 @@ public class BookmarkEntry {
     public static final String PREFIX_LOCAL = "local://";
     public static final String PREFIX_FTP   = "ftp://";
     public static final String PREFIX_NDV   = "ndv://";
+    public static final String PREFIX_MAIL  = "mail://";
 
     public BookmarkEntry() {
         // Für GSON
@@ -53,6 +54,7 @@ public class BookmarkEntry {
         if (rawPath == null) return null;
         if ("FTP".equals(backendType))   return PREFIX_FTP + rawPath;
         if ("NDV".equals(backendType))   return PREFIX_NDV + rawPath;
+        if ("MAIL".equals(backendType))  return PREFIX_MAIL + rawPath;
         // LOCAL or unknown: prefix with local://
         return PREFIX_LOCAL + rawPath;
     }
@@ -66,6 +68,7 @@ public class BookmarkEntry {
         if (path.startsWith(PREFIX_LOCAL)) return path.substring(PREFIX_LOCAL.length());
         if (path.startsWith(PREFIX_FTP))   return path.substring(PREFIX_FTP.length());
         if (path.startsWith(PREFIX_NDV))   return path.substring(PREFIX_NDV.length());
+        if (path.startsWith(PREFIX_MAIL))  return path.substring(PREFIX_MAIL.length());
         // Legacy: no prefix – treat as local
         return path;
     }
@@ -78,6 +81,7 @@ public class BookmarkEntry {
         if (path == null) return "LOCAL";
         if (path.startsWith(PREFIX_FTP))   return "FTP";
         if (path.startsWith(PREFIX_NDV))   return "NDV";
+        if (path.startsWith(PREFIX_MAIL))  return "MAIL";
         return "LOCAL";
     }
 

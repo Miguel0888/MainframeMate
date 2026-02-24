@@ -13,7 +13,8 @@ public final class ToolAccessTypeDefaults {
         String n = toolName.toLowerCase();
         if (n.contains("write") || n.contains("set") || n.contains("save") || n.contains("delete")
                 || n.contains("update") || n.contains("create") || n.contains("import") || n.contains("open")
-                || n.contains("websearch")) {
+                || n.contains("websearch")
+                || n.equals("web_cache_add_urls") || n.equals("web_archive_snapshot")) {
             return ToolAccessType.WRITE;
         }
         return ToolAccessType.READ;

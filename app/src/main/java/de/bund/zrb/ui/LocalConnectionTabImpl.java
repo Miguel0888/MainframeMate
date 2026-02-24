@@ -4,6 +4,8 @@ import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.indexing.model.SourceType;
+import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -40,6 +42,8 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     private final List<String> forwardHistory = new ArrayList<>();
     private JButton backButton;
     private JButton forwardButton;
+    private final IndexingSidebar indexingSidebar;
+    private boolean sidebarVisible = false;
 
     public LocalConnectionTabImpl(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
@@ -72,17 +76,29 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
+
+        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton.setToolTipText("Indexierungs-Details anzeigen");
+        detailsButton.setMargin(new Insets(0, 0, 0, 0));
+        detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.addActionListener(e -> toggleSidebar());
+        rightButtons.add(detailsButton);
 
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
+        // Indexing sidebar (initially hidden)
+        indexingSidebar = new IndexingSidebar(SourceType.LOCAL);
+        indexingSidebar.setVisible(false);
+
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -93,26 +109,17 @@ public class LocalConnectionTabImpl implements ConnectionTab {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (e.getClickCount() != 2) return;
-                String selected = fileList.getSelectedValue();
-                if (selected == null) return;
-
-                FileNode node = findNodeByName(selected);
-                if (node != null && node.isDirectory()) {
-                    loadDirectory(node.getPath());
-                    return;
-                }
-
-                if (node != null) {
-                    // Normaler Doppelklick = Datei im Editor öffnen (mit Compare, Suche, etc.)
-                    // CTRL+Doppelklick = Document Preview (gerendertes Markdown, z.B. für PDFs)
-                    if (e.isControlDown()) {
-                        openDocumentPreview(node.getPath(), node.getName());
-                    } else {
-                        openLocalFile(node.getPath());
-                    }
-                }
+                handleItemActivation(e.isControlDown());
             }
         });
+
+        // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
+        de.bund.zrb.ui.util.ListKeyboardNavigation.install(
+                fileList, searchField,
+                () -> handleItemActivation(false),
+                this::navigateBack,
+                this::navigateForward
+        );
 
         loadDirectory(defaultRootPath(), false);
     }
@@ -199,6 +206,29 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         updateFileList();
         // Update star button to reflect bookmark state for new directory
         tabbedPaneManager.refreshStarForTab(this);
+        // Update indexing sidebar
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(targetPath);
+        }
+    }
+
+    private void handleItemActivation(boolean ctrlDown) {
+        String selected = fileList.getSelectedValue();
+        if (selected == null) return;
+
+        FileNode node = findNodeByName(selected);
+        if (node != null && node.isDirectory()) {
+            loadDirectory(node.getPath());
+            return;
+        }
+
+        if (node != null) {
+            if (ctrlDown) {
+                openDocumentPreview(node.getPath(), node.getName());
+            } else {
+                openLocalFile(node.getPath());
+            }
+        }
     }
 
     private void navigateBack() {
@@ -234,6 +264,16 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         if (forwardButton != null) {
             forwardButton.setEnabled(!forwardHistory.isEmpty());
         }
+    }
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(pathField.getText());
+        }
+        mainPanel.revalidate();
+        mainPanel.repaint();
     }
 
     private void installMouseNavigation(JComponent component) {

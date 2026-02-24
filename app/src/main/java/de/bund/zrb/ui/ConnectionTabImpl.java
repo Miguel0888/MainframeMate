@@ -3,6 +3,8 @@ package de.bund.zrb.ui;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.indexing.model.SourceType;
+import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -36,6 +38,8 @@ public class ConnectionTabImpl implements ConnectionTab {
     private final TabbedPaneManager tabbedPaneManager;
     private JButton backButton;
     private JButton forwardButton;
+    private final IndexingSidebar indexingSidebar = new IndexingSidebar(SourceType.FTP);
+    private boolean sidebarVisible = false;
 
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
@@ -92,11 +96,18 @@ public class ConnectionTabImpl implements ConnectionTab {
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // Rechte Buttongruppe (⏴ ⏵ Öffnen)
-        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
+        // Rechte Buttongruppe (⏴ ⏵ Öffnen 📊)
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
+
+        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton.setToolTipText("Indexierungs-Details anzeigen");
+        detailsButton.setMargin(new Insets(0, 0, 0, 0));
+        detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.addActionListener(e -> toggleSidebar());
+        rightButtons.add(detailsButton);
 
         // Panelaufbau
         pathPanel.add(refreshButton, BorderLayout.WEST);
@@ -116,6 +127,8 @@ public class ConnectionTabImpl implements ConnectionTab {
 
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
+        indexingSidebar.setVisible(false);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -126,53 +139,17 @@ public class ConnectionTabImpl implements ConnectionTab {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() != 2) return;
-
-                String selected = fileList.getSelectedValue();
-                if (selected == null) return;
-
-                FileNode node = findNodeByName(selected);
-                if (node != null && node.isDirectory()) {
-                    browserState.goTo(node.getPath());
-                    pathField.setText(browserState.getCurrentPath());
-                    updateFileList();
-                    tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
-                    return;
-                }
-
-                // Best effort: try to treat as directory first, without using CWD.
-                String nextPath = navigator.childOf(browserState.getCurrentPath(), selected);
-                try {
-                    List<FileNode> listed = fileService.list(nextPath);
-                    currentDirectoryNodes = listed == null ? new ArrayList<>() : listed;
-                    browserState.goTo(nextPath);
-                    pathField.setText(browserState.getCurrentPath());
-                    refreshListModelFromNodes();
-                    tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
-                    return;
-                } catch (Exception ignore) {
-                    // not a directory
-                }
-
-                // CTRL+Doppelklick = Raw-Datei öffnen (wie bisher)
-                // Normaler Doppelklick = Document Preview
-                if (e.isControlDown()) {
-                    // VirtualResource-based file open
-                    try {
-                        FilePayload payload = fileService.readFile(nextPath);
-                        // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling
-                        String content = payload.getEditorText();
-                        VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
-                        tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                                "Fehler", JOptionPane.ERROR_MESSAGE);
-                    }
-                } else {
-                    // Open Document Preview
-                    previewOpener.openPreviewAsync(fileService, nextPath, selected, mainPanel);
-                }
+                handleItemActivation(e.isControlDown());
             }
         });
+
+        // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
+        de.bund.zrb.ui.util.ListKeyboardNavigation.install(
+                fileList, searchField,
+                () -> handleItemActivation(false),
+                this::navigateBack,
+                this::navigateForward
+        );
 
         // Initial load - only if path is meaningful
         String initialPath = browserState.getCurrentPath();
@@ -215,6 +192,49 @@ public class ConnectionTabImpl implements ConnectionTab {
             fileService.close();
         } catch (Exception ignore) {
             // ignore
+        }
+    }
+
+    private void handleItemActivation(boolean ctrlDown) {
+        String selected = fileList.getSelectedValue();
+        if (selected == null) return;
+
+        FileNode node = findNodeByName(selected);
+        if (node != null && node.isDirectory()) {
+            browserState.goTo(node.getPath());
+            pathField.setText(browserState.getCurrentPath());
+            updateFileList();
+            tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
+            return;
+        }
+
+        // Best effort: try to treat as directory first
+        String nextPath = navigator.childOf(browserState.getCurrentPath(), selected);
+        try {
+            List<FileNode> listed = fileService.list(nextPath);
+            currentDirectoryNodes = listed == null ? new ArrayList<>() : listed;
+            browserState.goTo(nextPath);
+            pathField.setText(browserState.getCurrentPath());
+            refreshListModelFromNodes();
+            tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
+            return;
+        } catch (Exception ignore) {
+            // not a directory
+        }
+
+        // CTRL = Raw-Datei öffnen, sonst Document Preview
+        if (ctrlDown) {
+            try {
+                FilePayload payload = fileService.readFile(nextPath);
+                String content = payload.getEditorText();
+                VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
+                tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        } else {
+            previewOpener.openPreviewAsync(fileService, nextPath, selected, mainPanel);
         }
     }
 
@@ -281,6 +301,16 @@ public class ConnectionTabImpl implements ConnectionTab {
         if (forwardButton != null) {
             forwardButton.setEnabled(browserState.canGoForward());
         }
+    }
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(pathField.getText());
+        }
+        mainPanel.revalidate();
+        mainPanel.repaint();
     }
 
     private void installMouseNavigation(JComponent component) {
@@ -401,7 +431,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         new Thread(() -> {
             try {
                 String currentPath = browserState.getCurrentPath();
-                System.out.println("[ConnectionTab] Loading directory: " + currentPath);
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[ConnectionTab] Loading directory: " + currentPath);
 
                 List<FileNode> nodes = fileService.list(currentPath);
 

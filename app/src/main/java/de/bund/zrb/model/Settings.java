@@ -88,9 +88,18 @@ public class Settings {
     public String proxyPacScript = de.bund.zrb.net.ProxyDefaults.DEFAULT_PAC_SCRIPT;
     public String proxyTestUrl = de.bund.zrb.net.ProxyDefaults.DEFAULT_TEST_URL;
 
+    // Mail (OST) Settings
+    public String mailStorePath = "";                     // Pfad zum OST-Ordner
+    public String mailContainerClasses = "IPF.Note,IPF.Imap"; // ContainerClasses die als MAIL gelten (kommasepariert)
+    public java.util.Set<String> mailHtmlWhitelistedSenders = new java.util.HashSet<>(); // Absender, die immer in HTML geöffnet werden
+
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert
     public int historyMaxVersionsPerFile = 100;           // Max Versionen pro Datei
     public int historyMaxAgeDays = 90;                    // Max Alter in Tagen
+
+    // Debug / Logging
+    public String logLevel = "INFO";                      // Global log level: OFF, SEVERE, WARNING, INFO, FINE, FINER, FINEST, ALL
+    public Map<String, String> logCategoryLevels = new LinkedHashMap<>(); // Per-category overrides e.g. "MAIL" -> "FINE"
 
 }

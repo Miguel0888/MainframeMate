@@ -104,6 +104,25 @@ public class McpServiceImpl implements McpService {
             return;
         }
 
+        // First pass: try to hoist values from nested objects (common LLM mistake)
+        for (String key : required) {
+            if (key == null || key.trim().isEmpty()) continue;
+            if (input != null && (!input.has(key) || input.get(key).isJsonNull())) {
+                // Look inside nested sub-objects for the missing key
+                for (String nested : new String[]{"arguments", "action", "request"}) {
+                    if (input.has(nested) && input.get(nested).isJsonObject()) {
+                        JsonObject sub = input.getAsJsonObject(nested);
+                        if (sub.has(key) && !sub.get(key).isJsonNull()) {
+                            // Hoist the value to top level
+                            input.add(key, sub.get(key));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Second pass: check for actually missing fields
         java.util.List<String> missing = new java.util.ArrayList<>();
         for (String key : required) {
             if (key == null || key.trim().isEmpty()) {

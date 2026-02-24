@@ -10,6 +10,7 @@ import de.bund.zrb.command.response.WDEmptyResult;
 import de.bund.zrb.type.browser.WDUserContext;
 import de.bund.zrb.type.browsingContext.WDBrowsingContext;
 import de.bund.zrb.type.browsingContext.WDLocator;
+import de.bund.zrb.type.browsingContext.WDReadinessState;
 import de.bund.zrb.type.script.WDRemoteReference;
 import de.bund.zrb.type.script.WDSerializationOptions;
 import de.bund.zrb.api.WDWebSocketManager;
@@ -56,11 +57,25 @@ public class WDBrowsingContextManager implements WDModule {
 
     /**
      * Navigates to the given URL within this browsing context.
+     * Uses the default readiness state (browser default, typically "complete").
      *
      * @param url The target URL to navigate to.
      * @return The response of the navigation command.
      */
     public WDBrowsingContextResult.NavigateResult navigate(String url, String contextId) {
+        return navigate(url, contextId, null);
+    }
+
+    /**
+     * Navigates to the given URL within this browsing context,
+     * waiting until the specified readiness state is reached.
+     *
+     * @param url            The target URL to navigate to.
+     * @param contextId      The browsing context ID.
+     * @param readinessState The readiness state to wait for (NONE, INTERACTIVE, COMPLETE), or null for browser default.
+     * @return The response of the navigation command.
+     */
+    public WDBrowsingContextResult.NavigateResult navigate(String url, String contextId, WDReadinessState readinessState) {
         if (contextId == null || contextId.isEmpty()) {
             throw new IllegalStateException("Cannot navigate: contextId is null or empty!");
         }
@@ -68,8 +83,12 @@ public class WDBrowsingContextManager implements WDModule {
             throw new IllegalArgumentException("Cannot navigate: URL is null or empty!");
         }
 
+        WDBrowsingContextRequest.Navigate command = (readinessState != null)
+                ? new WDBrowsingContextRequest.Navigate(url, contextId, readinessState)
+                : new WDBrowsingContextRequest.Navigate(url, contextId);
+
         return webSocketManager.sendAndWaitForResponse(
-                new WDBrowsingContextRequest.Navigate(url, contextId),
+                command,
                 WDBrowsingContextResult.NavigateResult.class
         );
     }

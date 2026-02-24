@@ -14,7 +14,7 @@ public class WebSearchSettingsMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "plugin.websearch.settings";
+        return "settings.plugins.websearch";
     }
 
     @Override

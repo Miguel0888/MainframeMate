@@ -293,7 +293,7 @@ public final class VirtualResourceOpener {
                 if (settings.ftpUseLoginAsHlq) {
                     // Use login name as HLQ (like IBM client)
                     initialPath = "'" + user.toUpperCase() + "'";
-                    System.out.println("[VirtualResourceOpener] Using login name as initial HLQ: " + initialPath);
+                    de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[VirtualResourceOpener] Using login name as initial HLQ: " + initialPath);
                 } else if (settings.ftpCustomHlq != null && !settings.ftpCustomHlq.trim().isEmpty()) {
                     // Use custom HLQ from settings
                     String customHlq = settings.ftpCustomHlq.trim().toUpperCase();
@@ -305,7 +305,7 @@ public final class VirtualResourceOpener {
                         customHlq = customHlq + "'";
                     }
                     initialPath = customHlq;
-                    System.out.println("[VirtualResourceOpener] Using custom HLQ from settings: " + initialPath);
+                    de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[VirtualResourceOpener] Using custom HLQ from settings: " + initialPath);
                 }
             }
 

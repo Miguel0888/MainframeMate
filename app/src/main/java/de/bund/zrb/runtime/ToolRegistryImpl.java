@@ -71,22 +71,31 @@ public class ToolRegistryImpl implements ToolRegistry {
     }
 
     /**
-     * Liefert alle Tool-Spezifikationen.
+     * Liefert alle Tool-Spezifikationen (nur tatsächlich registrierte Tools).
+     * Gespeicherte User-Anpassungen werden über registerTool() angewendet,
+     * aber nicht mehr registrierte Tools werden nicht reaktiviert.
      */
     public List<ToolSpec> getRegisteredToolSpecs() {
         Map<String, ToolSpec> merged = new LinkedHashMap<>();
 
-        // Registrierte Tools (inkl. möglicher Benutzeranpassung)
         for (McpTool tool : toolsByName.values()) {
             ToolSpec spec = tool.getSpec();
             merged.put(spec.getName(), spec);
         }
 
-        // Gespeicherte Tools, die nicht registriert sind
-        for (ToolSpec storedSpec : ToolSettingsHelper.loadTools()) {
-            merged.putIfAbsent(storedSpec.getName(), storedSpec);
-        }
-
         return new ArrayList<>(merged.values());
+    }
+
+    /**
+     * Entfernt gespeicherte Tool-Definitionen (tools.json), die nicht mehr
+     * als registriertes Tool existieren. Sollte nach dem Plugin-Init aufgerufen werden.
+     */
+    public void cleanupStoredTools() {
+        List<ToolSpec> stored = ToolSettingsHelper.loadTools();
+        int before = stored.size();
+        stored.removeIf(spec -> !toolsByName.containsKey(spec.getName()));
+        if (stored.size() < before) {
+            ToolSettingsHelper.saveTools(stored);
+        }
     }
 }

@@ -5,12 +5,16 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import de.bund.zrb.mcp.ToolManifestBuilder;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.util.RetryInterceptor;
 import de.bund.zrb.helper.SettingsHelper;
 import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
+import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.mcp.ToolSpec;
 import de.bund.zrb.net.ProxyResolver;
 import okhttp3.*;
 
@@ -26,7 +30,7 @@ public class OllamaChatManager implements ChatManager {
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
 
     public static final String DEBUG_MODEL = "custom-modell";
-    public static final String DEBUG_URL = "http://localhost:11434/api/generate";
+    public static final String DEBUG_URL = "http://localhost:11434/api/chat";
 
     private final String apiUrlDefault;
     private final String modelDefault;
@@ -74,7 +78,7 @@ public class OllamaChatManager implements ChatManager {
 
     @Override
     public ChatHistory getHistory(UUID sessionId) {
-        return sessionHistories.getOrDefault(sessionId, new ChatHistory(sessionId));
+        return sessionHistories.computeIfAbsent(sessionId, ChatHistory::new);
     }
 
     @Override
@@ -124,11 +128,38 @@ public class OllamaChatManager implements ChatManager {
                 ? sessionHistories.computeIfAbsent(sessionId, ChatHistory::new)
                 : null;
 
-        String prompt = (history != null)
-                ? buildPrompt(history, userInput)
-                : userInput;
+        // Determine API format based on URL
+        boolean useChatApi = url.contains("/api/chat");
 
-        String jsonPayload = gson.toJson(new OllamaRequest(model, prompt, keepAlive));
+        String jsonPayload;
+        if (useChatApi) {
+            // /api/chat format: uses messages array
+            List<Map<String, String>> messages;
+            if (history != null) {
+                messages = history.toMessages(userInput);
+            } else {
+                messages = new java.util.ArrayList<>();
+                Map<String, String> userMsg = new java.util.LinkedHashMap<>();
+                userMsg.put("role", "user");
+                userMsg.put("content", userInput);
+                messages.add(userMsg);
+            }
+
+            // Build native tool definitions from ToolRegistry
+            List<Map<String, Object>> nativeTools = buildNativeToolDefinitions();
+
+            jsonPayload = gson.toJson(new OllamaChatRequest(model, messages, nativeTools, keepAlive));
+        } else {
+            // /api/generate format: legacy support
+            String systemPrompt = null;
+            if (history != null && history.getSystemPrompt() != null && !history.getSystemPrompt().trim().isEmpty()) {
+                systemPrompt = history.getSystemPrompt().trim();
+            }
+            String prompt = (history != null)
+                    ? buildPrompt(history, userInput)
+                    : userInput;
+            jsonPayload = gson.toJson(new OllamaRequest(model, prompt, systemPrompt, keepAlive));
+        }
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
@@ -328,6 +359,29 @@ public class OllamaChatManager implements ChatManager {
         return out.length() == 0 ? null : out.toString();
     }
 
+    /**
+     * Builds native tool definitions from the ToolRegistry for Ollama /api/chat.
+     * Returns an empty list if no tools are registered.
+     */
+    private List<Map<String, Object>> buildNativeToolDefinitions() {
+        try {
+            List<McpTool> allTools = ToolRegistryImpl.getInstance().getAllTools();
+            if (allTools == null || allTools.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<ToolSpec> specs = new java.util.ArrayList<>();
+            for (McpTool tool : allTools) {
+                if (tool.getSpec() != null) {
+                    specs.add(tool.getSpec());
+                }
+            }
+            return ToolManifestBuilder.buildOllamaTools(specs);
+        } catch (Exception e) {
+            // If ToolRegistry is not yet initialized, return empty
+            return Collections.emptyList();
+        }
+    }
+
     private OkHttpClient buildClient(String url, Settings settings) {
         ProxyResolver.ProxyResolution resolution = ProxyResolver.resolveForUrl(url, settings);
         return baseClient.newBuilder()
@@ -338,14 +392,38 @@ public class OllamaChatManager implements ChatManager {
     private static class OllamaRequest {
         String model;
         String prompt;
+        String system;
         boolean stream = true;
         String keep_alive;
 
-        OllamaRequest(String model, String prompt, boolean keepAlive) {
+        OllamaRequest(String model, String prompt, String system, boolean keepAlive) {
             this.model = model;
             this.prompt = prompt;
+            this.system = system;
             String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
             this.keep_alive = keepAlive ? keepAliveValue : "0m";
+        }
+    }
+
+    /**
+     * Request format for /api/chat endpoint.
+     * Uses a messages array instead of a single prompt string.
+     * Supports native tool definitions via the tools field.
+     */
+    private static class OllamaChatRequest {
+        String model;
+        List<Map<String, String>> messages;
+        boolean stream = true;
+        String keep_alive;
+        List<Map<String, Object>> tools;
+
+        OllamaChatRequest(String model, List<Map<String, String>> messages, List<Map<String, Object>> tools, boolean keepAlive) {
+            this.model = model;
+            this.messages = messages;
+            String keepAliveValue = SettingsHelper.load().aiConfig.getOrDefault("ollama.keepalive", "10m");
+            this.keep_alive = keepAlive ? keepAliveValue : "0m";
+            // Only include tools if non-empty (null will be omitted by Gson)
+            this.tools = (tools != null && !tools.isEmpty()) ? tools : null;
         }
     }
 }

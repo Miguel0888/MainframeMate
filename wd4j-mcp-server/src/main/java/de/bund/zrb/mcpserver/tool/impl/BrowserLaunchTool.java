@@ -22,7 +22,10 @@ public class BrowserLaunchTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Launch a browser in headless mode, detect its BiDi WebSocket endpoint, and connect.";
+        return "Launch a browser, detect its BiDi WebSocket endpoint, and connect. "
+             + "The browser path and headless mode are configured in the plugin settings "
+             + "(Einstellungen > Plugin-Einstellungen > Websearch). "
+             + "No parameters are required for a normal launch.";
     }
 
     @Override
@@ -34,7 +37,8 @@ public class BrowserLaunchTool implements McpServerTool {
 
         JsonObject exePath = new JsonObject();
         exePath.addProperty("type", "string");
-        exePath.addProperty("description", "Path to the browser executable");
+        exePath.addProperty("description",
+                "Path to the browser executable (optional – taken from plugin settings if omitted)");
         props.add("browserExecutablePath", exePath);
 
         JsonObject args = new JsonObject();
@@ -47,7 +51,8 @@ public class BrowserLaunchTool implements McpServerTool {
 
         JsonObject headless = new JsonObject();
         headless.addProperty("type", "boolean");
-        headless.addProperty("description", "Launch in headless mode (default: true)");
+        headless.addProperty("description",
+                "Launch in headless mode (optional – taken from plugin settings if omitted)");
         props.add("headless", headless);
 
         JsonObject timeout = new JsonObject();
@@ -57,16 +62,23 @@ public class BrowserLaunchTool implements McpServerTool {
 
         schema.add("properties", props);
 
-        JsonArray required = new JsonArray();
-        required.add("browserExecutablePath");
-        schema.add("required", required);
+        // No required fields – everything comes from plugin settings by default
+        schema.add("required", new JsonArray());
 
         return schema;
     }
 
     @Override
     public ToolResult execute(JsonObject params, BrowserSession session) {
-        String browserPath = params.get("browserExecutablePath").getAsString();
+        if (!params.has("browserExecutablePath")
+                || params.get("browserExecutablePath").isJsonNull()
+                || params.get("browserExecutablePath").getAsString().trim().isEmpty()) {
+            return ToolResult.error(
+                    "Browser-Pfad ist nicht gesetzt. "
+                  + "Bitte unter Einstellungen > Plugin-Einstellungen > Websearch konfigurieren.");
+        }
+
+        String browserPath = params.get("browserExecutablePath").getAsString().trim();
         boolean headless = !params.has("headless") || params.get("headless").getAsBoolean();
         long timeoutMs = params.has("timeoutMs") ? params.get("timeoutMs").getAsLong() : 30000L;
 

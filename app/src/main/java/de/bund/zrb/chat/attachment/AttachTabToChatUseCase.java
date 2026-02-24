@@ -51,13 +51,28 @@ public class AttachTabToChatUseCase {
         Document document;
         List<String> warnings = null;
 
+        // Try to get path from Bookmarkable (works for all tab types)
+        try {
+            path = tab.getPath();
+        } catch (Exception ignored) {}
+
         // Check if this is a DocumentPreviewTab (has pre-built Document)
         if (tab instanceof DocumentPreviewTabAdapter) {
             DocumentPreviewTabAdapter previewTab = (DocumentPreviewTabAdapter) tab;
-            document = previewTab.getDocument();
-            warnings = previewTab.getWarnings();
-            if (previewTab.getMetadata() != null) {
-                path = previewTab.getMetadata().getSourceName();
+            Document previewDoc = previewTab.getDocument();
+            if (previewDoc != null && !previewDoc.isEmpty()) {
+                document = previewDoc;
+                warnings = previewTab.getWarnings();
+                if (path == null && previewTab.getMetadata() != null) {
+                    path = previewTab.getMetadata().getSourceName();
+                }
+            } else {
+                // Document not available (e.g. FileTabImpl opened as editor, not preview)
+                // Fall through to build from raw content
+                DocumentMetadata metadata = DocumentMetadata.builder()
+                        .sourceName(name)
+                        .build();
+                document = buildDocumentUseCase.buildWithStructure(content, metadata);
             }
         } else {
             // Build document from raw content

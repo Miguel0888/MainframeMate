@@ -159,12 +159,15 @@ public class ChatSession extends JPanel {
 
         // Chat-Mode Dropdown (Ask/Edit/Plan/Agent)
         modeComboBox = new JComboBox<>(ChatMode.values());
-        modeComboBox.setSelectedItem(ChatMode.AGENT);
+        // Restore last used mode from settings
+        ChatMode savedMode = loadLastChatMode();
+        modeComboBox.setSelectedItem(savedMode);
         modeComboBox.setToolTipText(((ChatMode) modeComboBox.getSelectedItem()).getTooltip());
         modeComboBox.addActionListener(e -> {
             ChatMode m = (ChatMode) modeComboBox.getSelectedItem();
             if (m != null) {
                 modeComboBox.setToolTipText(m.getTooltip());
+                saveLastChatMode(m);
             }
         });
         modeComboBox.setPreferredSize(new Dimension(120, 24));
@@ -368,16 +371,18 @@ public class ChatSession extends JPanel {
         String message = inputArea.getText().trim();
         if (message.isEmpty()) return;
         lastUserRequestText = message;
+        agentFollowUpRetries = 0; // Reset retries for new conversation turn
+        emptyResponseRetries = 0;
 
         // Prefix with system prompt based on selected mode
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
         ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
         String systemPrompt = composeSystemPrompt(resolvedMode);
 
-        // Persist system prompt in history so it's included in every API call (incl. tool follow-ups)
-        if (contextMemoryCheckbox.isSelected()) {
-            chatManager.getHistory(sessionId).setSystemPrompt(systemPrompt);
-        }
+        // Always persist system prompt in history so it's included in every API call
+        // (incl. tool follow-ups). This is necessary even without context memory because
+        // the tool-call loop needs the system prompt to keep working.
+        chatManager.getHistory(sessionId).setSystemPrompt(systemPrompt);
 
         // Build hidden context from attachments using RAG (query-dependent, NOT shown in chat UI)
         String hiddenContext = buildHiddenContextFromAttachments(message);
@@ -435,8 +440,18 @@ public class ChatSession extends JPanel {
 
                             java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
                             if (!toolCalls.isEmpty()) {
-                                // Remove the raw bot message and replace with folded tool-call cards
+                                // Remove the raw bot message and replace with (optional prefix +) folded tool-call cards
                                 formatter.removeCurrentBotMessage();
+
+                                // Preserve any text the bot wrote before the first tool call JSON
+                                String prefixText = extractTextBeforeToolCall(botText);
+                                if (prefixText != null && !prefixText.trim().isEmpty()) {
+                                    String cleanPrefix = prefixText.trim();
+                                    Timestamp prefixId = chatManager.getHistory(sessionId).addBotMessage(cleanPrefix);
+                                    formatter.startBotMessage();
+                                    formatter.appendBotMessageChunk(cleanPrefix);
+                                    formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(prefixId));
+                                }
 
                                 for (JsonObject call : toolCalls) {
                                     String toolName = call.has("name") && !call.get("name").isJsonNull()
@@ -447,12 +462,27 @@ public class ChatSession extends JPanel {
                                 executeToolCallsSequentially(toolCalls);
                             } else if (botText == null || botText.trim().isEmpty()) {
                                 formatter.removeCurrentBotMessage();
+                                // In AGENT mode, retry on empty response (model hiccup)
+                                ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
+                                if ((currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) && emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+                                    emptyResponseRetries++;
+                                    formatter.appendToolEvent(
+                                            "⚠️ Leere Modellantwort (Retry " + emptyResponseRetries + "/" + MAX_EMPTY_RESPONSE_RETRIES + ")",
+                                            "Das Modell hat keine Antwort geliefert. Automatischer Retry...",
+                                            true
+                                    );
+                                    String retryPrompt = buildEmptyResponseRetryPrompt(emptyResponseRetries);
+                                    streamAssistantFollowUp(retryPrompt);
+                                    return;
+                                }
+                                emptyResponseRetries = 0;
                                 formatter.appendToolEvent(
                                         "⚠️ Leere Modellantwort",
                                         "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
                                         true
                                 );
                             } else {
+                                emptyResponseRetries = 0; // Reset on successful response
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
                             }
@@ -514,6 +544,29 @@ public class ChatSession extends JPanel {
         return sb.toString();
     }
 
+    private ChatMode loadLastChatMode() {
+        try {
+            Settings settings = SettingsHelper.load();
+            String modeName = settings.aiConfig.getOrDefault("lastChatMode", "");
+            if (!modeName.isEmpty()) {
+                return ChatMode.valueOf(modeName);
+            }
+        } catch (Exception ignored) {
+            // Invalid or missing mode name – fall back to default
+        }
+        return ChatMode.AGENT;
+    }
+
+    private void saveLastChatMode(ChatMode mode) {
+        try {
+            Settings settings = SettingsHelper.load();
+            settings.aiConfig.put("lastChatMode", mode.name());
+            SettingsHelper.save(settings);
+        } catch (Exception ignored) {
+            // Non-critical – don't break UI
+        }
+    }
+
     private String buildLanguageInstruction() {
         Settings settings = SettingsHelper.load();
         String language = settings.aiConfig.getOrDefault("assistant.language", "de").trim().toLowerCase();
@@ -559,8 +612,19 @@ public class ChatSession extends JPanel {
             return "";
         }
 
+        // Check if native tool calling is active (Ollama /api/chat)
+        // In that case, tool schemas are sent natively in the request body,
+        // so we only provide a minimal summary in the system prompt.
+        boolean nativeToolCalling = isNativeToolCallingActive();
+
         java.util.List<ToolPolicy> policies = toolPolicyRepository.loadAll();
-        StringBuilder sb = new StringBuilder("Aktivierte Tools (nur Übersicht):\n");
+        StringBuilder sb = new StringBuilder();
+        if (nativeToolCalling) {
+            sb.append("Dir stehen Tools zur Verfügung (die Schemas werden nativ übergeben).\n");
+            sb.append("Nutze die Tools direkt über native tool_calls.\n");
+        } else {
+            sb.append("Aktivierte Tools (mit wichtigsten Parametern):\n");
+        }
         boolean found = false;
         for (ToolPolicy policy : policies) {
             if (policy == null || !policy.isEnabled() || policy.getToolName() == null) {
@@ -581,16 +645,98 @@ public class ChatSession extends JPanel {
             sb.append("- ").append(policy.getToolName())
                     .append(" [").append(accessType.name()).append("]")
                     .append(policy.isAskBeforeUse() ? " [ASK]" : "")
-                    .append(description == null || description.trim().isEmpty() ? "" : ": " + description)
+                    .append(description == null || description.trim().isEmpty() ? "" : ": " + trimDescription(description))
                     .append("\n");
+
+            // Only add detailed parameters when NOT using native tool calling
+            if (!nativeToolCalling && tool != null) {
+                String paramInfo = extractRequiredParams(tool);
+                if (!paramInfo.isEmpty()) {
+                    sb.append("  Parameters: ").append(paramInfo).append("\n");
+                }
+            }
+
             found = true;
         }
         sb.append("- describe_tool [READ]: Liefert Details/Schema für ein Tool nur bei Bedarf.\n");
+        if (!nativeToolCalling) {
+            sb.append("  Parameters: tool (string, required)\n");
+        }
         if (!found) {
             sb.append("- (keine aktivierten Tools in diesem Modus)\n");
         }
-        sb.append("Nutze describe_tool, wenn du Tool-Details/Parameter brauchst.");
+        if (!nativeToolCalling) {
+            sb.append("Nutze describe_tool, wenn du Tool-Details/Parameter brauchst.");
+        }
         return sb.toString();
+    }
+
+    /**
+     * Checks if the current AI provider supports native tool calling
+     * (Ollama with /api/chat endpoint).
+     */
+    private boolean isNativeToolCallingActive() {
+        try {
+            Settings settings = SettingsHelper.load();
+            String provider = settings.aiConfig.getOrDefault("provider", "DISABLED");
+            if ("OLLAMA".equals(provider)) {
+                String url = settings.aiConfig.getOrDefault("ollama.url", "");
+                return url.contains("/api/chat");
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    /**
+     * Extract a compact summary of required parameters from a tool spec.
+     * Returns something like "url (string, required), selector (string, optional)"
+     */
+    private String extractRequiredParams(de.zrb.bund.newApi.mcp.McpTool tool) {
+        try {
+            String json = tool.getSpec().toJson();
+            JsonObject spec = JsonParser.parseString(json).getAsJsonObject();
+            if (!spec.has("input_schema") || !spec.get("input_schema").isJsonObject()) {
+                return "";
+            }
+            JsonObject schema = spec.getAsJsonObject("input_schema");
+            if (!schema.has("properties") || !schema.get("properties").isJsonObject()) {
+                return "";
+            }
+
+            JsonObject props = schema.getAsJsonObject("properties");
+            java.util.Set<String> required = new java.util.HashSet<>();
+            if (schema.has("required") && schema.get("required").isJsonArray()) {
+                for (JsonElement el : schema.getAsJsonArray("required")) {
+                    if (el.isJsonPrimitive()) {
+                        required.add(el.getAsString());
+                    }
+                }
+            }
+
+            StringBuilder sb = new StringBuilder();
+            int count = 0;
+            // First add required params, then optional (up to a limit)
+            for (java.util.Map.Entry<String, JsonElement> entry : props.entrySet()) {
+                if (count >= 5) break; // Limit to avoid bloating system prompt
+                String paramName = entry.getKey();
+                String paramType = "any";
+                if (entry.getValue().isJsonObject() && entry.getValue().getAsJsonObject().has("type")) {
+                    paramType = entry.getValue().getAsJsonObject().get("type").getAsString();
+                }
+                boolean isRequired = required.contains(paramName);
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(paramName).append(" (").append(paramType);
+                if (isRequired) sb.append(", required");
+                sb.append(")");
+                count++;
+            }
+            if (props.size() > 5) {
+                sb.append(", ...");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /**
@@ -640,14 +786,37 @@ public class ChatSession extends JPanel {
             }
         }
 
-        // Case C: JSON is embedded within other text
-        int firstBrace = trimmed.indexOf('{');
-        int lastBrace = trimmed.lastIndexOf('}');
-        if (firstBrace >= 0 && lastBrace > firstBrace) {
-            String inside = trimmed.substring(firstBrace, lastBrace + 1).trim();
-            obj = tryParseToolCallJson(inside);
-            if (obj != null) {
-                return obj;
+        // Case C: JSON is embedded within other text – find the FIRST valid tool-call JSON
+        // (skip small JSON fragments like {"ref":"n1"} that aren't tool calls)
+        int searchFrom = 0;
+        while (searchFrom < trimmed.length()) {
+            int firstBrace = trimmed.indexOf('{', searchFrom);
+            if (firstBrace < 0) break;
+
+            // Find matching closing brace
+            int depth = 0;
+            int matchEnd = -1;
+            for (int j = firstBrace; j < trimmed.length(); j++) {
+                if (trimmed.charAt(j) == '{') depth++;
+                else if (trimmed.charAt(j) == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        matchEnd = j;
+                        break;
+                    }
+                }
+            }
+
+            if (matchEnd > firstBrace) {
+                String candidate = trimmed.substring(firstBrace, matchEnd + 1).trim();
+                obj = tryParseToolCallJson(candidate);
+                if (obj != null) {
+                    return obj;
+                }
+                // Not a valid tool call – skip past this JSON object and keep looking
+                searchFrom = matchEnd + 1;
+            } else {
+                break; // unmatched braces
             }
         }
 
@@ -671,11 +840,22 @@ public class ChatSession extends JPanel {
             JsonObject obj = parsed.getAsJsonObject();
             JsonObject normalized = normalizeToolCall(obj);
 
-            if (!normalized.has("name")) {
+            if (!normalized.has("name") || normalized.get("name").isJsonNull()
+                    || normalized.get("name").getAsString().trim().isEmpty()) {
                 return null;
             }
-            if (!normalized.has("input") && !normalized.has("tool_input") && !normalized.has("arguments")) {
-                return null;
+
+            // Accept tool calls even without explicit input/arguments if the name
+            // looks like a registered tool (some tools have no required parameters).
+            boolean hasInput = normalized.has("input") || normalized.has("tool_input") || normalized.has("arguments");
+            if (!hasInput) {
+                String toolName = normalized.get("name").getAsString().trim();
+                // If it looks like a known tool or has other tool-like fields, add empty input
+                if (isSystemTool(toolName) || isRegisteredTool(toolName) || fuzzyMatchToolName(toolName) != null) {
+                    normalized.add("input", new JsonObject());
+                } else {
+                    return null;
+                }
             }
             return normalized;
         } catch (Exception ignore) {
@@ -688,6 +868,78 @@ public class ChatSession extends JPanel {
      */
     private JsonObject normalizeToolCall(JsonObject original) {
         JsonObject obj = original.deepCopy();
+
+        // Recognize aliases for "name": toolName, tool_name, id, tool, function
+        // Always try to resolve, even if "name" already exists but is empty or a meta-value
+        String currentName = obj.has("name") && obj.get("name").isJsonPrimitive()
+                ? obj.get("name").getAsString().trim() : "";
+        boolean nameIsMissing = currentName.isEmpty() || "tool_name".equalsIgnoreCase(currentName);
+        if (nameIsMissing) {
+            for (String alias : new String[]{"toolName", "tool_name", "id", "tool", "function"}) {
+                if (obj.has(alias) && obj.get(alias).isJsonPrimitive() && !obj.get(alias).getAsString().trim().isEmpty()) {
+                    obj.addProperty("name", obj.get(alias).getAsString().trim());
+                    break;
+                }
+            }
+        }
+
+        // Handle double-nested structure: {"action":{"toolName":"x","toolInput":{...}}}
+        // or {"toolName":"x","toolInput":"..."} where toolInput is string-encoded
+        for (String wrapper : new String[]{"action", "request", "call"}) {
+            if (obj.has(wrapper) && obj.get(wrapper).isJsonObject()) {
+                JsonObject inner = obj.getAsJsonObject(wrapper);
+                // Merge inner fields if they look like a tool call
+                for (String key : new String[]{"name", "toolName", "tool_name", "id", "input", "toolInput", "tool_input", "arguments", "parameters", "params"}) {
+                    if (inner.has(key) && !obj.has(key)) {
+                        obj.add(key, inner.get(key));
+                    }
+                }
+                // Re-check name after merge
+                if (!obj.has("name") || obj.get("name").isJsonNull() || obj.get("name").getAsString().trim().isEmpty()) {
+                    for (String alias : new String[]{"toolName", "tool_name", "id"}) {
+                        if (obj.has(alias) && obj.get(alias).isJsonPrimitive() && !obj.get(alias).getAsString().trim().isEmpty()) {
+                            obj.addProperty("name", obj.get(alias).getAsString().trim());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Recognize aliases for "input": parameters, params, toolInput, tool_input
+        if (!obj.has("input") && !obj.has("arguments")) {
+            for (String alias : new String[]{"parameters", "params", "toolInput", "tool_input"}) {
+                if (!obj.has(alias) || obj.get(alias).isJsonNull()) {
+                    continue;
+                }
+                if (obj.get(alias).isJsonObject()) {
+                    obj.add("input", obj.get(alias).getAsJsonObject());
+                    break;
+                }
+                // Handle string-encoded JSON (e.g. toolInput: "{\"id\":\"n33\"}")
+                if (obj.get(alias).isJsonPrimitive()) {
+                    try {
+                        JsonElement parsed = JsonParser.parseString(obj.get(alias).getAsString());
+                        if (parsed.isJsonObject()) {
+                            obj.add("input", parsed.getAsJsonObject());
+                            break;
+                        }
+                    } catch (Exception ignore) {
+                        // not valid JSON string, skip
+                    }
+                }
+            }
+        }
+
+        // Clean up malformed tool names like "browser[name=browser]" → "browser"
+        if (obj.has("name") && obj.get("name").isJsonPrimitive()) {
+            String rawName = obj.get("name").getAsString();
+            int bracketIdx = rawName.indexOf('[');
+            if (bracketIdx > 0) {
+                rawName = rawName.substring(0, bracketIdx).trim();
+                obj.addProperty("name", rawName);
+            }
+        }
 
         JsonObject argsObj = null;
         if (obj.has("arguments") && !obj.get("arguments").isJsonNull()) {
@@ -711,25 +963,54 @@ public class ChatSession extends JPanel {
             obj.addProperty("name", argsObj.get("name").getAsString());
         }
 
-        if (obj.has("input") && obj.get("input").isJsonObject()) {
-            JsonObject input = obj.getAsJsonObject("input");
-            if (input.has("arguments") && input.get("arguments").isJsonPrimitive()) {
+        if (obj.has("input") && !obj.get("input").isJsonNull()) {
+            // Handle input as string-encoded JSON
+            if (obj.get("input").isJsonPrimitive()) {
                 try {
-                    JsonElement parsedNested = JsonParser.parseString(input.get("arguments").getAsString());
-                    if (parsedNested.isJsonObject()) {
-                        JsonObject nested = parsedNested.getAsJsonObject();
-                        for (java.util.Map.Entry<String, JsonElement> e : nested.entrySet()) {
-                            if (!input.has(e.getKey())) {
-                                input.add(e.getKey(), e.getValue());
-                            }
-                        }
-                        input.remove("arguments");
+                    JsonElement parsedInput = JsonParser.parseString(obj.get("input").getAsString());
+                    if (parsedInput.isJsonObject()) {
+                        obj.add("input", parsedInput.getAsJsonObject());
                     }
                 } catch (Exception ignore) {
-                    // ignore
+                    // not valid JSON string
+                }
+            }
+            if (obj.get("input").isJsonObject()) {
+                JsonObject input = obj.getAsJsonObject("input");
+                if (input.has("arguments") && input.get("arguments").isJsonPrimitive()) {
+                    try {
+                        JsonElement parsedNested = JsonParser.parseString(input.get("arguments").getAsString());
+                        if (parsedNested.isJsonObject()) {
+                            JsonObject nested = parsedNested.getAsJsonObject();
+                            for (java.util.Map.Entry<String, JsonElement> e : nested.entrySet()) {
+                                if (!input.has(e.getKey())) {
+                                    input.add(e.getKey(), e.getValue());
+                                }
+                            }
+                            input.remove("arguments");
+                        }
+                    } catch (Exception ignore) {
+                        // ignore
+                    }
                 }
             }
             obj.remove("arguments");
+        }
+
+        // Also handle tool_input as string-encoded JSON
+        if (!obj.has("input") && obj.has("tool_input") && !obj.get("tool_input").isJsonNull()) {
+            if (obj.get("tool_input").isJsonObject()) {
+                obj.add("input", obj.getAsJsonObject("tool_input"));
+            } else if (obj.get("tool_input").isJsonPrimitive()) {
+                try {
+                    JsonElement parsedToolInput = JsonParser.parseString(obj.get("tool_input").getAsString());
+                    if (parsedToolInput.isJsonObject()) {
+                        obj.add("input", parsedToolInput.getAsJsonObject());
+                    }
+                } catch (Exception ignore) {
+                    // not valid JSON string
+                }
+            }
         }
 
         if (!obj.has("input") && !obj.has("tool_input") && argsObj != null) {
@@ -747,16 +1028,28 @@ public class ChatSession extends JPanel {
         return obj;
     }
 
+    private volatile int agentFollowUpRetries = 0;
+    private static final int MAX_AGENT_RETRIES = 8;
+    private static final int MAX_EMPTY_RESPONSE_RETRIES = 5;
+    private volatile int emptyResponseRetries = 0;
+
     private void streamAssistantFollowUp(String followUpUserText) {
         ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
         ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
         String systemPrompt = composeSystemPrompt(resolvedMode);
         String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
-        String userText = baseFollowUp
-                + "\n\nUrsprüngliche Nutzeranfrage: "
-                + (lastUserRequestText == null ? "" : lastUserRequestText)
-                + "\nAntworte direkt auf diese Anfrage auf Deutsch, ohne Standard-Floskeln wie I don't see a specific question.";
+        String userText;
+        if (resolvedMode == ChatMode.AGENT || resolvedMode == ChatMode.RECHERCHE) {
+            userText = baseFollowUp
+                    + "\n\nUrsprüngliche Nutzeranfrage: "
+                    + (lastUserRequestText == null ? "" : lastUserRequestText);
+        } else {
+            userText = baseFollowUp
+                    + "\n\nUrsprüngliche Nutzeranfrage: "
+                    + (lastUserRequestText == null ? "" : lastUserRequestText)
+                    + "\nAntworte direkt auf diese Anfrage auf Deutsch, ohne Standard-Floskeln wie I don't see a specific question.";
+        }
         String finalPrompt = buildPromptWithMode(systemPrompt, userText, true);
 
         new Thread(() -> {
@@ -787,7 +1080,20 @@ public class ChatSession extends JPanel {
                             String botText = followUpResponse.toString();
                             java.util.List<JsonObject> toolCalls = extractToolCalls(botText);
                             if (!toolCalls.isEmpty()) {
+                                agentFollowUpRetries = 0; // Reset retry counter on successful tool call
+                                emptyResponseRetries = 0;
                                 formatter.removeCurrentBotMessage();
+
+                                // Preserve any text the bot wrote before the first tool call JSON
+                                String prefixText = extractTextBeforeToolCall(botText);
+                                if (prefixText != null && !prefixText.trim().isEmpty()) {
+                                    String cleanPrefix = prefixText.trim();
+                                    Timestamp prefixId = chatManager.getHistory(sessionId).addBotMessage(cleanPrefix);
+                                    formatter.startBotMessage();
+                                    formatter.appendBotMessageChunk(cleanPrefix);
+                                    formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(prefixId));
+                                }
+
                                 for (JsonObject call : toolCalls) {
                                     String toolName = call.has("name") && !call.get("name").isJsonNull()
                                             ? call.get("name").getAsString() : "unbekannt";
@@ -796,12 +1102,51 @@ public class ChatSession extends JPanel {
                                 executeToolCallsSequentially(toolCalls);
                             } else if (botText == null || botText.trim().isEmpty()) {
                                 formatter.removeCurrentBotMessage();
+                                // Retry on empty response (model hiccup) – use dedicated counter
+                                if (emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+                                    emptyResponseRetries++;
+                                    formatter.appendToolEvent(
+                                            "⚠️ Leere Modellantwort (Retry " + emptyResponseRetries + "/" + MAX_EMPTY_RESPONSE_RETRIES + ")",
+                                            "Das Modell hat keine Antwort geliefert. Automatischer Retry...",
+                                            true
+                                    );
+                                    String retryPrompt = buildEmptyResponseRetryPrompt(emptyResponseRetries);
+                                    // Exponential backoff
+                                    try { Thread.sleep(Math.min(500L * (1L << (emptyResponseRetries - 1)), 4000L)); } catch (InterruptedException ignored) {}
+                                    streamAssistantFollowUp(retryPrompt);
+                                    return;
+                                }
+                                emptyResponseRetries = 0;
                                 formatter.appendToolEvent(
                                         "⚠️ Leere Modellantwort",
-                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert.",
+                                        "Das Modell hat keine Textantwort und keinen Tool-Call geliefert (nach " + MAX_EMPTY_RESPONSE_RETRIES + " Versuchen).",
                                         true
                                 );
+                                agentFollowUpRetries = 0;
                             } else {
+                                // In AGENT mode, if the bot responded with text instead of a tool
+                                // call, it might have "thought out loud" instead of acting.
+                                // Retry with a more explicit instruction.
+                                ChatMode currentMode2 = (ChatMode) modeComboBox.getSelectedItem();
+                                if ((currentMode2 == ChatMode.AGENT || currentMode2 == ChatMode.RECHERCHE) && agentFollowUpRetries < MAX_AGENT_RETRIES) {
+                                    agentFollowUpRetries++;
+                                    // Save what the bot said as context
+                                    Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
+                                    formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
+
+                                    String retryPrompt = "FEHLER: Du hast Text statt eines Tool-Calls geantwortet. " +
+                                            "Die Aufgabe des Nutzers war: \"" + lastUserRequestText + "\"\n" +
+                                            "Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
+                                            "NEIN → Antworte NUR mit einem JSON-Tool-Call. Beispiel:\n" +
+                                            "{\"name\":\"web_navigate\",\"input\":{\"url\":\"https://example.com\"}}\n" +
+                                            "JA → Fasse die gesammelten Ergebnisse zusammen und antworte dem Nutzer.\n" +
+                                            "WICHTIG: Kein Text VOR dem JSON. Kein Erklärtext. NUR das JSON-Objekt.";
+                                    streamAssistantFollowUp(retryPrompt);
+                                    return;
+                                }
+
+                                agentFollowUpRetries = 0;
+                                emptyResponseRetries = 0;
                                 Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                 formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
                             }
@@ -840,6 +1185,89 @@ public class ChatSession extends JPanel {
         return sessionId;
     }
 
+    /**
+     * Export the entire chat history as Markdown text.
+     */
+    public String exportAsMarkdown() {
+        de.zrb.bund.api.ChatHistory history = chatManager.getHistory(sessionId);
+        if (history == null || history.isEmpty()) {
+            return "(Leerer Chat)";
+        }
+
+        StringBuilder md = new StringBuilder();
+        md.append("# Chat ").append(sessionId.toString().substring(0, 8)).append("\n\n");
+
+        for (de.zrb.bund.api.ChatHistory.Message msg : history.getMessages()) {
+            switch (msg.role) {
+                case "user":
+                    md.append("## 👤 Benutzer\n\n");
+                    md.append(msg.content).append("\n\n");
+                    break;
+                case "assistant":
+                    md.append("## 🤖 Bot\n\n");
+                    md.append(msg.content).append("\n\n");
+                    break;
+                case "tool":
+                    md.append("<details>\n<summary>🔧 Tool-Ergebnis</summary>\n\n");
+                    md.append("```json\n").append(msg.content).append("\n```\n\n");
+                    md.append("</details>\n\n");
+                    break;
+                default:
+                    md.append("## ").append(msg.role).append("\n\n");
+                    md.append(msg.content).append("\n\n");
+                    break;
+            }
+            md.append("---\n\n");
+        }
+
+        return md.toString();
+    }
+
+    /**
+     * Extract any text the bot wrote before the first embedded tool-call JSON.
+     * Returns null if the entire text is a tool call or no prefix text exists.
+     */
+    private String extractTextBeforeToolCall(String text) {
+        if (text == null) return null;
+        String trimmed = text.trim();
+
+        // If the whole text is valid JSON tool call, there's no prefix
+        if (trimmed.startsWith("{") && tryParseToolCallJson(trimmed) != null) {
+            return null;
+        }
+
+        // Check for ```json fenced block
+        int fenceStart = trimmed.indexOf("```json");
+        if (fenceStart > 0) {
+            String prefix = trimmed.substring(0, fenceStart).trim();
+            return prefix.isEmpty() ? null : prefix;
+        }
+
+        // Find the first '{' that starts a valid tool-call JSON
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (trimmed.charAt(i) == '{') {
+                // Try to find the matching closing brace
+                int depth = 0;
+                for (int j = i; j < trimmed.length(); j++) {
+                    if (trimmed.charAt(j) == '{') depth++;
+                    else if (trimmed.charAt(j) == '}') {
+                        depth--;
+                        if (depth == 0) {
+                            String candidate = trimmed.substring(i, j + 1);
+                            if (tryParseToolCallJson(candidate) != null) {
+                                String prefix = trimmed.substring(0, i).trim();
+                                return prefix.isEmpty() ? null : prefix;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     private java.util.List<JsonObject> extractToolCalls(String text) {
         java.util.List<JsonObject> results = new java.util.ArrayList<>();
         if (text == null) {
@@ -875,10 +1303,71 @@ public class ChatSession extends JPanel {
             }
         }
 
+        // Fallback: If the LLM mixed text with inline tool-call JSON that wasn't
+        // parsed above (e.g. because it's embedded after other text on the same
+        // brace-nesting level), try a regex-based extraction as last resort.
+        if (results.isEmpty()) {
+            results = extractToolCallsByRegex(text);
+        }
+
         if (MAX_TOOL_CALLS > 0 && results.size() > MAX_TOOL_CALLS) {
             return results.subList(0, MAX_TOOL_CALLS);
         }
 
+        return results;
+    }
+
+    /**
+     * Regex-based fallback for extracting tool-call JSON fragments from mixed text.
+     * Handles cases where the LLM writes prose and then appends or injects JSON.
+     */
+    private java.util.List<JsonObject> extractToolCallsByRegex(String text) {
+        java.util.List<JsonObject> results = new java.util.ArrayList<>();
+        if (text == null) return results;
+
+        // Find all top-level JSON objects in the text
+        int i = 0;
+        while (i < text.length()) {
+            int braceStart = text.indexOf('{', i);
+            if (braceStart < 0) break;
+
+            // Quick pre-check: must contain a tool-call indicator within reasonable distance
+            int previewEnd = Math.min(text.length(), braceStart + 300);
+            String preview = text.substring(braceStart, previewEnd).toLowerCase();
+            boolean looksLikeToolCall = preview.contains("\"name\"") || preview.contains("\"toolname\"")
+                    || preview.contains("\"tool_name\"") || preview.contains("\"id\"")
+                    || preview.contains("\"function\"");
+
+            if (!looksLikeToolCall) {
+                i = braceStart + 1;
+                continue;
+            }
+
+            // Find matching closing brace
+            int depth = 0;
+            int end = -1;
+            for (int j = braceStart; j < text.length(); j++) {
+                if (text.charAt(j) == '{') depth++;
+                else if (text.charAt(j) == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        end = j;
+                        break;
+                    }
+                }
+            }
+
+            if (end > braceStart) {
+                String candidate = text.substring(braceStart, end + 1).trim();
+                JsonObject obj = tryParseToolCallJson(candidate);
+                if (obj != null) {
+                    results.add(obj);
+                }
+                i = end + 1;
+            } else {
+                i = braceStart + 1;
+            }
+        }
         return results;
     }
 
@@ -949,6 +1438,29 @@ public class ChatSession extends JPanel {
                     toolsUsedInThisChat.add(requestedTool);
                 }
 
+                // ── RECHERCHE-Modus: Auto-Archivierung bei web_read_page ──
+                ChatMode rechercheCheck = (ChatMode) modeComboBox.getSelectedItem();
+                if (rechercheCheck == ChatMode.RECHERCHE
+                        && "web_read_page".equalsIgnoreCase(requestedTool)
+                        && isSuccessResult(result)) {
+                    try {
+                        de.bund.zrb.archive.service.ArchiveService archiveService =
+                                de.bund.zrb.archive.service.ArchiveService.getInstance();
+                        // Extract URL and content from result
+                        String pageUrl = extractFieldFromResult(result, "url");
+                        String pageTitle = extractFieldFromResult(result, "title");
+                        String pageContent = extractFieldFromResult(result, "result");
+                        if (pageUrl == null || pageUrl.isEmpty()) {
+                            pageUrl = extractFieldFromResult(result, "URL");
+                        }
+                        if (pageUrl != null && !pageUrl.isEmpty()) {
+                            archiveService.getSnapshotPipeline().processSnapshot(pageUrl, pageContent, pageTitle);
+                        }
+                    } catch (Exception archiveEx) {
+                        System.err.println("[Archive] Auto-archive failed: " + archiveEx.getMessage());
+                    }
+                }
+
                 results.add(result);
 
                 boolean isError = result != null && result.has("status")
@@ -984,11 +1496,17 @@ public class ChatSession extends JPanel {
 
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
-                if (currentMode == ChatMode.AGENT) {
-                    followUp = "Du hast Tool-Ergebnisse erhalten. " +
-                            "Beantworte jetzt die ursprüngliche Nutzeranfrage direkt und konkret auf Deutsch. " +
+                if (currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) {
+                    followUp = "Du hast Tool-Ergebnisse erhalten. Ursprüngliche Nutzeranfrage: \"" + lastUserRequestText + "\"\n\n" +
+                            "Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
+                            "Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. " +
+                            "Frage NICHT den Nutzer. Handle autonom. " +
+                            "Beispiele für nächste Schritte: weitere Seiten navigieren, Artikel-Links anklicken, web_read_page aufrufen, Daten sammeln. " +
+                            "Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. " +
+                            "WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. " +
                             "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
-                            "Erzeuge nur dann einen weiteren Tool-Call, wenn für die Beantwortung zwingend weitere Informationen fehlen.";
+                            "ERINNERUNG: Du bist ein Agent. Du darfst NICHT stoppen und den Nutzer fragen. " +
+                            "Mache einfach weiter bis die Aufgabe erledigt ist.";
                 } else {
                     followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }
@@ -1058,8 +1576,15 @@ public class ChatSession extends JPanel {
                 return createErrorResult(null, "Tool-Name fehlt", call);
             }
 
+            // Fuzzy match: if the exact name isn't found, try to find the best match
             if (!isSystemTool(toolName) && !isRegisteredTool(toolName)) {
-                return createUnknownToolResult(toolName, call);
+                String resolved = fuzzyMatchToolName(toolName);
+                if (resolved != null) {
+                    toolName = resolved;
+                    call.addProperty("name", resolved);
+                } else {
+                    return createUnknownToolResult(toolName, call);
+                }
             }
 
             if (!isSystemTool(toolName)) {
@@ -1173,7 +1698,7 @@ public class ChatSession extends JPanel {
         result.add("capabilities", capabilities);
 
         JsonObject constraints = new JsonObject();
-        if ("read_file".equalsIgnoreCase(resolvedName)) {
+        if ("read_resource".equalsIgnoreCase(resolvedName)) {
             constraints.addProperty("directoryListing", "non_recursive");
         }
         if (constraints.size() > 0) {
@@ -1218,10 +1743,10 @@ public class ChatSession extends JPanel {
         String n = toolName == null ? "" : toolName.toLowerCase();
         String d = description == null ? "" : description.toLowerCase();
 
-        if ("read_file".equals(n) || d.contains("liest") || d.contains("read")) {
+        if ("read_resource".equals(n) || d.contains("liest") || d.contains("read")) {
             capabilities.add("read_file_content");
         }
-        if ("read_file".equals(n) || d.contains("verzeichnis") || d.contains("directory")) {
+        if ("read_resource".equals(n) || d.contains("verzeichnis") || d.contains("directory")) {
             capabilities.add("list_directory");
         }
         if (n.contains("open")) {
@@ -1295,6 +1820,104 @@ public class ChatSession extends JPanel {
                 "Tool-Call prüfen. Erwartetes Format z.B. {\"name\":\"open_file\",\"input\":{\"file\":\"C:\\TEST\"}}."
         );
         return error;
+    }
+
+    /**
+     * Builds an adaptive retry prompt based on how many times we've retried.
+     */
+    private String buildEmptyResponseRetryPrompt(int retryCount) {
+        if (retryCount <= 2) {
+            return "Du hast eine leere Antwort geliefert. "
+                    + "Bitte beantworte die Nutzeranfrage: \"" + lastUserRequestText + "\"";
+        } else if (retryCount <= 4) {
+            return "WICHTIG: Deine letzte Antwort war leer. "
+                    + "Du MUSST jetzt entweder einen Tool-Call machen ODER eine Textantwort geben. "
+                    + "Aufgabe: \"" + lastUserRequestText + "\"\n"
+                    + "Wenn du nicht weiter weißt, sage dem Nutzer was du bisher herausgefunden hast.";
+        } else {
+            return "Letzte Chance: Antworte mit Text oder gib auf. Aufgabe: \"" + lastUserRequestText + "\"";
+        }
+    }
+
+    /**
+     * Extracts a string field from a tool result JSON object.
+     * Searches both top-level and nested "raw.content[0].text" for the field.
+     */
+    private String extractFieldFromResult(JsonObject result, String fieldName) {
+        if (result == null) return null;
+        if (result.has(fieldName) && !result.get(fieldName).isJsonNull()) {
+            return result.get(fieldName).getAsString();
+        }
+        // Try to find in the result text via simple string matching
+        if (result.has("result") && !result.get("result").isJsonNull()) {
+            String text = result.get("result").getAsString();
+            // For "url" or "URL", try to extract from "URL: <url>" pattern
+            if ("url".equalsIgnoreCase(fieldName) || "URL".equals(fieldName)) {
+                int idx = text.indexOf("URL: ");
+                if (idx >= 0) {
+                    int start = idx + 5;
+                    int end = text.indexOf('\n', start);
+                    if (end < 0) end = text.length();
+                    return text.substring(start, end).trim();
+                }
+            }
+            // For "title", try "Page: <title>" pattern
+            if ("title".equalsIgnoreCase(fieldName)) {
+                int idx = text.indexOf("Page: ");
+                if (idx >= 0) {
+                    int start = idx + 6;
+                    int end = text.indexOf('\n', start);
+                    if (end < 0) end = text.length();
+                    return text.substring(start, end).trim();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Try to match a mistyped tool name to a registered tool.
+     * E.g. "browser" → "web_navigate", "browse" → "web_navigate".
+     */
+    private String fuzzyMatchToolName(String name) {
+        if (name == null) return null;
+        String lower = name.toLowerCase().trim();
+
+        // Collect all registered tool names
+        java.util.List<String> candidates = new java.util.ArrayList<>();
+        for (de.zrb.bund.newApi.mcp.McpTool tool : ToolRegistryImpl.getInstance().getAllTools()) {
+            candidates.add(tool.getSpec().getName());
+        }
+
+        // Exact match (case-insensitive)
+        for (String c : candidates) {
+            if (c.equalsIgnoreCase(lower)) return c;
+        }
+
+        // Prefix match: "browser" matches "browser_eval"
+        String bestPrefix = null;
+        for (String c : candidates) {
+            if (c.toLowerCase().startsWith(lower) || lower.startsWith(c.toLowerCase())) {
+                if (bestPrefix == null || c.length() < bestPrefix.length()) {
+                    bestPrefix = c;
+                }
+            }
+        }
+
+        // Common aliases
+        if (bestPrefix == null) {
+            if (lower.contains("browse") || lower.contains("browser") || lower.equals("navigate")) {
+                bestPrefix = "web_navigate";
+            } else if (lower.contains("snapshot") || lower.equals("page")) {
+                bestPrefix = "web_snapshot";
+            }
+        }
+
+        // Only return if the candidate is actually registered
+        if (bestPrefix != null && isRegisteredTool(bestPrefix)) {
+            return bestPrefix;
+        }
+        return null;
     }
 
     private JsonObject createUnknownToolResult(String toolName, JsonObject call) {

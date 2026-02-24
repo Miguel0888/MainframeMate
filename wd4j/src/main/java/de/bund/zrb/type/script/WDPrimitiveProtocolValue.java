@@ -47,6 +47,11 @@ public interface WDPrimitiveProtocolValue extends WDLocalValue, WDRemoteValue {
         public String getType() {
             return type;
         }
+
+        @Override
+        public String asString() {
+            return "undefined";
+        }
     }
 
     class NullValue implements WDPrimitiveProtocolValue {
@@ -55,6 +60,11 @@ public interface WDPrimitiveProtocolValue extends WDLocalValue, WDRemoteValue {
         @Override
         public String getType() {
             return type;
+        }
+
+        @Override
+        public String asString() {
+            return "null";
         }
     }
 
@@ -72,6 +82,11 @@ public interface WDPrimitiveProtocolValue extends WDLocalValue, WDRemoteValue {
         }
 
         public String getValue() {
+            return value;
+        }
+
+        @Override
+        public String asString() {
             return value;
         }
     }
@@ -92,6 +107,11 @@ public interface WDPrimitiveProtocolValue extends WDLocalValue, WDRemoteValue {
         public Boolean getValue() {
             return value;
         }
+
+        @Override
+        public String asString() {
+            return String.valueOf(value);
+        }
     }
 
     class BigIntValue implements WDPrimitiveProtocolValue {
@@ -108,6 +128,11 @@ public interface WDPrimitiveProtocolValue extends WDLocalValue, WDRemoteValue {
         }
 
         public String getValue() {
+            return value;
+        }
+
+        @Override
+        public String asString() {
             return value;
         }
     }
@@ -149,6 +174,9 @@ public interface WDPrimitiveProtocolValue extends WDLocalValue, WDRemoteValue {
         public String getType() { return type; }
 
         public String getValue() { return value; }
+
+        @Override
+        public String asString() { return value; }
 
         private static boolean isValidNumber(String v) {
             return EnumWrapper.contains(SpecialNumber.class, v) || isNumeric(v);

@@ -3,14 +3,18 @@ package de.bund.zrb.websearch.plugin;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.zrb.bund.api.MainframeContext;
 
+import java.util.ArrayList;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
  * Manages the shared BrowserSession lifecycle for the WebSearch plugin.
- * Lazily initializes the browser on first tool call.
+ * The browser is launched and connected lazily on first tool call.
+ * All chat sessions share the same browser connection.
  */
 public class WebSearchBrowserManager {
 
+    private static final Logger LOG = Logger.getLogger(WebSearchBrowserManager.class.getName());
     private static final String PLUGIN_KEY = "webSearch";
 
     private final MainframeContext context;
@@ -21,14 +25,45 @@ public class WebSearchBrowserManager {
     }
 
     /**
-     * Get the shared browser session, creating it if necessary.
-     * The session is NOT automatically connected — tools like browser_open
-     * or browser_launch handle that.
+     * Get the shared browser session. If the browser is not yet running,
+     * it is launched and connected automatically using the plugin settings.
      */
     public synchronized BrowserSession getSession() {
-        if (session == null) {
-            session = new BrowserSession();
+        if (session != null && session.isConnected()) {
+            return session;
         }
+
+        // Close stale session if any
+        if (session != null) {
+            try { session.close(); } catch (Exception ignored) {}
+            session = null;
+        }
+
+        String browserPath = getBrowserPath();
+        if (browserPath == null || browserPath.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "Browser-Pfad ist nicht konfiguriert. "
+                  + "Bitte unter Einstellungen \u2192 Plugin-Einstellungen \u2192 Websearch setzen.");
+        }
+
+        boolean headless = isHeadless();
+        LOG.info("[WebSearch] Launching browser: " + browserPath + " (headless=" + headless + ")");
+
+        // Apply saved timeout to system property
+        String savedTimeout = loadSettings().getOrDefault("navigateTimeoutSeconds", "30");
+        System.setProperty("websearch.navigate.timeout.seconds", savedTimeout);
+
+        session = new BrowserSession();
+        try {
+            session.launchAndConnect(browserPath, new ArrayList<String>(), headless, 30000L);
+            LOG.info("[WebSearch] Browser connected, contextId=" + session.getContextId());
+        } catch (Exception e) {
+            LOG.severe("[WebSearch] Failed to launch browser: " + e.getMessage());
+            try { session.close(); } catch (Exception ignored) {}
+            session = null;
+            throw new RuntimeException("Browser konnte nicht gestartet werden: " + e.getMessage(), e);
+        }
+
         return session;
     }
 
@@ -37,9 +72,38 @@ public class WebSearchBrowserManager {
             try {
                 session.close();
             } catch (Exception e) {
-                System.err.println("[WebSearch] Error closing browser session: " + e.getMessage());
+                LOG.warning("[WebSearch] Error closing browser session: " + e.getMessage());
             }
             session = null;
+        }
+        // Fallback: kill any lingering Firefox processes started by us
+        killFirefoxProcesses();
+    }
+
+    /**
+     * Kill Firefox processes that may have been left behind.
+     * Uses ProcessHandle (Java 9+) if available, falls back to taskkill on Windows.
+     */
+    private void killFirefoxProcesses() {
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase();
+            if (os.contains("win")) {
+                // Use taskkill to find and kill Firefox processes
+                // Only kill if we're sure we launched them (headless or specific profile)
+                ProcessBuilder pb = new ProcessBuilder("taskkill", "/F", "/IM", "firefox.exe", "/T");
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                p.waitFor();
+                LOG.info("[WebSearch] Firefox processes killed via taskkill");
+            } else {
+                // Unix-like: pkill
+                ProcessBuilder pb = new ProcessBuilder("pkill", "-f", "firefox");
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                p.waitFor();
+            }
+        } catch (Exception e) {
+            LOG.fine("[WebSearch] Could not kill Firefox processes: " + e.getMessage());
         }
     }
 
@@ -48,11 +112,16 @@ public class WebSearchBrowserManager {
     }
 
     public boolean isHeadless() {
-        return !"false".equals(loadSettings().getOrDefault("headless", "true"));
+        // TODO: vorübergehend deaktiviert zum Debuggen – später wieder aktivieren
+        return false;
+        // return !"false".equals(loadSettings().getOrDefault("headless", "true"));
     }
 
+    private static final String DEFAULT_FIREFOX_PATH = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
+
     public String getBrowserPath() {
-        return loadSettings().getOrDefault("browserPath", "");
+        String path = loadSettings().getOrDefault("browserPath", "");
+        return (path == null || path.trim().isEmpty()) ? DEFAULT_FIREFOX_PATH : path;
     }
 
     private Map<String, String> loadSettings() {

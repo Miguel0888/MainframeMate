@@ -124,9 +124,19 @@ public class RagService {
     }
 
     /**
-     * Index a document synchronously.
+     * Index a document synchronously (with embeddings if client is available).
      */
     public void indexDocument(String documentId, String documentName, Document document) {
+        indexDocument(documentId, documentName, document, true);
+    }
+
+    /**
+     * Index a document synchronously, with explicit control over embedding generation.
+     *
+     * @param generateEmbeddings if false, skip embedding generation even if the client is available.
+     *                           This respects the "embedding enabled" flag in indexing rules.
+     */
+    public void indexDocument(String documentId, String documentName, Document document, boolean generateEmbeddings) {
         if (document == null || document.isEmpty()) {
             LOG.warning("Cannot index empty document: " + documentId);
             return;
@@ -157,8 +167,8 @@ public class RagService {
         }
         documentChunkIds.put(documentId, chunkIds);
 
-        // Generate embeddings and index in semantic index
-        if (embeddingClient.isAvailable()) {
+        // Generate embeddings and index in semantic index (only if enabled by indexing rule)
+        if (generateEmbeddings && embeddingClient.isAvailable()) {
             for (Chunk chunk : chunks) {
                 try {
                     float[] embedding = embeddingClient.embed(chunk.getText());
@@ -196,6 +206,33 @@ public class RagService {
         }
         indexedDocuments.remove(documentId);
         LOG.info("Removed document from RAG: " + documentId);
+    }
+
+    /**
+     * Search ONLY the Lucene lexical index (BM25).
+     * Does NOT use semantic/embedding search.
+     * Use this for the global search when RAG checkbox is off.
+     */
+    public List<ScoredChunk> searchLexicalOnly(String query, int topN) {
+        if (lexicalIndex == null || !lexicalIndex.isAvailable()) {
+            return Collections.emptyList();
+        }
+        return lexicalIndex.search(query, topN);
+    }
+
+    /**
+     * Get the number of chunks in the semantic (embedding) index.
+     * Returns 0 if no embeddings have been generated.
+     */
+    public int getSemanticIndexSize() {
+        return semanticIndex != null ? semanticIndex.size() : 0;
+    }
+
+    /**
+     * Get the number of chunks in the lexical (Lucene) index.
+     */
+    public int getLexicalIndexSize() {
+        return lexicalIndex != null ? lexicalIndex.size() : 0;
     }
 
     /**
@@ -277,6 +314,24 @@ public class RagService {
      */
     public Set<String> getIndexedDocumentIds() {
         return new HashSet<>(indexedDocuments.keySet());
+    }
+
+    /**
+     * List all documents stored in the persistent Lucene index.
+     * Unlike getIndexedDocumentIds() this survives restarts.
+     *
+     * @return map of documentId → sourceName/fileName
+     */
+    public java.util.Map<String, String> listAllIndexedDocuments() {
+        if (lexicalIndex instanceof LuceneLexicalIndex) {
+            return ((LuceneLexicalIndex) lexicalIndex).listAllDocuments();
+        }
+        // Fallback: in-memory map
+        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, IndexedDocument> e : indexedDocuments.entrySet()) {
+            result.put(e.getKey(), e.getValue().documentName);
+        }
+        return result;
     }
 
     /**
