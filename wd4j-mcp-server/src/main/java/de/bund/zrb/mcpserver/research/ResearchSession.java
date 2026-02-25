@@ -63,6 +63,13 @@ public class ResearchSession {
     private final List<String> newArchivedDocIds = new CopyOnWriteArrayList<>();
     private String crawlQueueId;
 
+    // ── Network Ingestion Pipeline ────────────────────────────────
+
+    private NetworkIngestionPipeline networkPipeline;
+
+    public NetworkIngestionPipeline getNetworkPipeline() { return networkPipeline; }
+    public void setNetworkPipeline(NetworkIngestionPipeline pipeline) { this.networkPipeline = pipeline; }
+
     // ── Constructor ─────────────────────────────────────────────────
 
     public ResearchSession(String sessionId, Mode mode) {

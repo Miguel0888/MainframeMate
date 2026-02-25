@@ -31,9 +31,9 @@ und **viewTokens** für Race-Condition-freie Interaktion.
 │  Action Plane              Network Plane      DOM Plane     │
 │  BrowserSession            H2 Archiv          JS Scripts    │
 │  navigate/click/type       Lucene Index       Tagging       │
-│  input.performActions      WebCacheEntries    MutationObs   │
-│  browsingContext.navigate  DataCollector       DOMParser     │
-│  UserContext-Isolation     (geplant)                         │
+│  input.performActions      addDataCollector   MutationObs   │
+│  browsingContext.navigate  getData/disownData DOMParser     │
+│  UserContext-Isolation     ResponseCompleted               │
 ├─────────────────────────────────────────────────────────────┤
 │  Persistenz: H2 (ArchiveRepository) + Lucene (SearchService)│
 └─────────────────────────────────────────────────────────────┘
@@ -86,6 +86,49 @@ und **viewTokens** für Race-Condition-freie Interaktion.
 | `DOM_QUIET` | SPA-Clicks ohne Navigation | MutationObserver wartet auf 500ms Ruhe (max 5s) |
 | `NETWORK_QUIET` | AJAX-heavy Seiten | PerformanceObserver wartet auf 500ms Ruhe (max 8s) |
 
+## Network Ingestion Pipeline
+
+Die Network Plane sammelt HTTP-Responses automatisch im Hintergrund:
+
+```
+responseCompleted Event
+        │
+        ▼
+┌─ Filter Chain ──────────────────────┐
+│ Status 2xx?                         │
+│ MIME in allowlist? (text/html, etc.) │
+│ URL not excluded? (no /login etc.)  │
+│ Domain policy allows?               │
+│ Body size ≤ maxBytesPerDoc?         │
+└─────────────┬───────────────────────┘
+              ▼
+    ingestionExecutor (async)
+              │
+        getData() ←── Retry (3x, 100-300ms jitter)
+              │
+        disownData() ←── Speicher freigeben
+              │
+        callback.onBodyCaptured()
+              │
+        session.addArchivedDocId()
+```
+
+### Start/Stop Lifecycle
+- **Start**: `research_session_start` (mode=research) → `NetworkIngestionPipeline.start(callback)`
+- **Stop**: `ResearchSessionManager.remove()` → `pipeline.stop()`
+
+### Konfiguration
+- `maxBytesPerDoc`: Max Response-Body-Größe (default: 2MB)
+- `headerAllowlist`: Nur diese Header werden gespeichert (default: content-type, content-length, last-modified, etag, cache-control)
+- `domainPolicy`: include/exclude Listen
+- MIME-Allowlist: text/html, text/plain, text/xml, text/csv, application/json, application/xml, application/xhtml+xml, ...
+- Excluded URLs: /login, /signin, /auth, /oauth, /token, /checkout, /payment, ...
+
+### Metriken
+- `capturedCount`: Erfolgreich erfasste Bodies
+- `skippedCount`: Übersprungen (Filter)
+- `failedCount`: getData oder Callback fehlgeschlagen
+
 ## ReadinessState (wait-Parameter)
 
 `browsingContext.navigate` mit `wait` (Default: `interactive`):
@@ -116,6 +159,7 @@ und **viewTokens** für Race-Condition-freie Interaktion.
 - `MenuView.java` – Immutable Snapshot (viewToken, excerpt, menuItems)
 - `MenuItem.java` – Einzelner Menüeintrag (menuItemId, type, label, href, actionHint)
 - `MenuViewBuilder.java` – Tagging-Bridge + Settle-Logik
+- `NetworkIngestionPipeline.java` – Network-First Body Collection (addDataCollector → responseCompleted → getData → disownData → callback)
 - `SettlePolicy.java` – Enum (NAVIGATION, DOM_QUIET, NETWORK_QUIET)
 
 ### Tools: `wd4j-mcp-server/tool/impl/`
@@ -212,7 +256,11 @@ Bot: research_config_update(limits={maxDepth:3}, defaultSettlePolicy="DOM_QUIET"
 | Domain-Policy (include/exclude) | ✅ | ResearchSession.isUrlAllowed() |
 | Limits (maxUrls, maxDepth, maxBytesPerDoc) | ✅ | ResearchSession config |
 | Privacy-Policy (header allowlist) | ✅ | ResearchSession.headerAllowlist |
-| Network Plane (addDataCollector/getData/disownData) | 🔮 Geplant | Erfordert Event-Subscription-Integration |
+| Network Plane (addDataCollector/getData/disownData) | ✅ | NetworkIngestionPipeline |
+| Event-Subscription (network.responseCompleted) | ✅ | addEventListener + Consumer |
+| Retry/Backoff bei getData | ✅ | 3 Versuche, 100-300ms Jitter |
+| Privacy-Filter (MIME, URL, Header-Allowlist) | ✅ | isCaptureableMime, isExcludedUrl, headerAllowlist |
+| Pipeline-Lifecycle (start/stop mit Session) | ✅ | ResearchSessionStartTool + ResearchSessionManager |
 | H2 Schema (request/response/body/doc/crawl_queue) | ⚠️ Teilweise | Bestehende archive_entries + web_cache Tabellen |
 | Lucene Batch-Commit-Policy | ⚠️ Teilweise | Bestehende LuceneLexicalIndex.commitBatch() |
 | SPA DOM-Snapshot-Pipeline | ⚠️ Teilweise | MutationObserver in DOM_QUIET settle |

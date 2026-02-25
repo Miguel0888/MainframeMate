@@ -51,18 +51,39 @@ public class ResearchSessionManager {
 
     /**
      * Remove the ResearchSession for the given BrowserSession (e.g. on close).
+     * Stops the Network Ingestion Pipeline if active.
      */
     public void remove(BrowserSession browserSession) {
         ResearchSession removed = sessions.remove(browserSession);
         if (removed != null) {
+            // Stop network pipeline
+            NetworkIngestionPipeline pipeline = removed.getNetworkPipeline();
+            if (pipeline != null && pipeline.isActive()) {
+                try {
+                    pipeline.stop();
+                } catch (Exception e) {
+                    LOG.warning("[ResearchSessionManager] Error stopping pipeline: " + e.getMessage());
+                }
+            }
             LOG.info("[ResearchSessionManager] Removed session " + removed.getSessionId());
         }
     }
 
     /**
      * Clear all sessions (e.g. on app shutdown).
+     * Stops all active Network Ingestion Pipelines.
      */
     public void clear() {
+        for (ResearchSession rs : sessions.values()) {
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            if (pipeline != null && pipeline.isActive()) {
+                try {
+                    pipeline.stop();
+                } catch (Exception e) {
+                    LOG.warning("[ResearchSessionManager] Error stopping pipeline: " + e.getMessage());
+                }
+            }
+        }
         sessions.clear();
     }
 }

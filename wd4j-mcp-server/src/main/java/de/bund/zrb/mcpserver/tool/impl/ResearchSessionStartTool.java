@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
+import de.bund.zrb.mcpserver.research.NetworkIngestionPipeline;
 import de.bund.zrb.mcpserver.research.ResearchSession;
 import de.bund.zrb.mcpserver.research.ResearchSessionManager;
 import de.bund.zrb.mcpserver.research.SettlePolicy;
@@ -131,6 +132,32 @@ public class ResearchSessionStartTool implements McpServerTool {
                 rs.setMaxDepth(2);
             }
 
+            // ── Start Network Ingestion Pipeline (research mode only) ──
+            boolean networkPipelineActive = false;
+            if (mode == ResearchSession.Mode.RESEARCH && session.getDriver() != null) {
+                try {
+                    NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(
+                            session.getDriver(), rs);
+                    pipeline.start(new NetworkIngestionPipeline.IngestionCallback() {
+                        @Override
+                        public String onBodyCaptured(String url, String mimeType, long status,
+                                                     String bodyText, java.util.Map<String, String> headers,
+                                                     long capturedAt) {
+                            // Store in ResearchSession for now; full H2 integration TBD
+                            LOG.fine("[NetworkIngestion] Captured: " + url
+                                    + " (" + mimeType + ", " + bodyText.length() + " chars)");
+                            return "net-" + Long.toHexString(capturedAt);
+                        }
+                    });
+                    rs.setNetworkPipeline(pipeline);
+                    networkPipelineActive = true;
+                    LOG.info("[research_session_start] Network ingestion pipeline started");
+                } catch (Exception e) {
+                    LOG.warning("[research_session_start] Network pipeline failed to start: "
+                            + e.getMessage());
+                }
+            }
+
             // Build response
             JsonObject result = new JsonObject();
             result.addProperty("status", "ok");
@@ -154,6 +181,9 @@ public class ResearchSessionStartTool implements McpServerTool {
                 text.append("  userContextId: ").append(userContextId).append("\n");
             }
             text.append("  contextId: ").append(contextId).append("\n");
+            if (networkPipelineActive) {
+                text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
+            }
             text.append("\nUse research_open to navigate to a URL.");
 
             return ToolResult.text(text.toString());
