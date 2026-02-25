@@ -81,7 +81,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
      * Quick title extraction from HTML body text.
      */
     private static String extractTitleFromHtml(String body, String fallbackUrl) {
-        if (body == null) return fallbackUrl;
+        if (body == null) return truncateTitle(fallbackUrl);
         int titleStart = body.indexOf("<title>");
         if (titleStart < 0) titleStart = body.indexOf("<TITLE>");
         if (titleStart >= 0) {
@@ -92,7 +92,13 @@ public class WebSearchPlugin implements MainframeMatePlugin {
                 return body.substring(titleStart, titleEnd).trim();
             }
         }
-        return fallbackUrl;
+        return truncateTitle(fallbackUrl);
+    }
+
+    /** Truncate title to fit H2 VARCHAR(512) column. */
+    private static String truncateTitle(String value) {
+        if (value == null) return null;
+        return value.length() <= 500 ? value : value.substring(0, 500) + "…";
     }
 
     @Override

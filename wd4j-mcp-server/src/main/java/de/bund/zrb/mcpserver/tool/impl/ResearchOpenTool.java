@@ -253,62 +253,27 @@ public class ResearchOpenTool implements McpServerTool {
     }
 
     /**
-     * Check if two URLs refer to the same page (ignoring fragments and trailing slashes,
-     * and handling common redirects like www.yahoo.com → de.yahoo.com).
+     * Check if two URLs refer to the same page (ignoring fragments and trailing slashes).
+     * Strict comparison: host + path + query must match exactly.
+     * No cross-subdomain guessing (www.yahoo.com ≠ de.yahoo.com).
      */
     private boolean isSameUrl(String current, String target) {
         if (current == null || target == null) return false;
         String c = normalizeForComparison(current);
         String t = normalizeForComparison(target);
-        // Exact match after normalization
-        if (c.equals(t)) return true;
-        // Check if one is a redirect of the other (same host-suffix)
-        // e.g. yahoo.com → de.yahoo.com (redirect happened, same domain family)
-        try {
-            java.net.URI cu = java.net.URI.create(c);
-            java.net.URI tu = java.net.URI.create(t);
-            String cHost = cu.getHost();
-            String tHost = tu.getHost();
-            if (cHost != null && tHost != null) {
-                // Same domain family: "de.yahoo.com" ends with "yahoo.com"
-                String cBase = baseDomain(cHost);
-                String tBase = baseDomain(tHost);
-                if (cBase.equals(tBase)) {
-                    // Same base domain, both root paths → same page
-                    String cPath = cu.getPath() == null ? "/" : cu.getPath();
-                    String tPath = tu.getPath() == null ? "/" : tu.getPath();
-                    if (isRootPath(cPath) && isRootPath(tPath)) return true;
-                }
-            }
-        } catch (Exception ignored) {}
-        return false;
+        return c.equals(t);
     }
 
     private String normalizeForComparison(String url) {
-        // Remove fragment
+        // Remove fragment only (NOT query params – they distinguish pages like ?p=hi vs ?p=news)
         int hash = url.indexOf('#');
         if (hash >= 0) url = url.substring(0, hash);
-        // Remove query params like ?p=us
-        int q = url.indexOf('?');
-        if (q >= 0) url = url.substring(0, q);
         // Remove trailing slash
         while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
         // Lowercase scheme+host
         return url.toLowerCase();
     }
 
-    private String baseDomain(String host) {
-        // "de.yahoo.com" → "yahoo.com", "www.yahoo.com" → "yahoo.com"
-        String[] parts = host.split("\\.");
-        if (parts.length >= 2) {
-            return parts[parts.length - 2] + "." + parts[parts.length - 1];
-        }
-        return host;
-    }
-
-    private boolean isRootPath(String path) {
-        return path.equals("/") || path.isEmpty();
-    }
 
     private String extractUrl(JsonObject params) {
         if (params.has("url") && params.get("url").isJsonPrimitive()) {
