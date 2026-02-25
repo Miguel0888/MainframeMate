@@ -364,10 +364,12 @@ public class ChatFormatter {
     }
 
     /**
-     * Wraps a JTextPane in a JScrollPane with a horizontal scrollbar (as needed)
-     * and a fixed maximum height. Used for collapsible detail boxes.
+     * Wraps a JTextPane in a JScrollPane with scrollbars as needed.
+     * Used for collapsible detail boxes.
      */
     private JScrollPane createScrollableDetailPane(JTextPane bodyPane) {
+        bodyPane.setVisible(true);
+
         JScrollPane scrollPane = new JScrollPane(bodyPane,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
