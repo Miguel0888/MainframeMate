@@ -206,6 +206,12 @@ public class ResearchChooseTool implements McpServerTool {
                 }
             }
 
+            // Add next-step instruction
+            sb.append("\n── Next step ──\n");
+            sb.append("Read the excerpt. To click another link: research_choose with ");
+            sb.append("viewToken='").append(view.getViewToken()).append("' and menuItemId.\n");
+            sb.append("To go back: research_back. To summarize results: write your answer in German.");
+
             return ToolResult.text(sb.toString());
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_choose] Post-click view build failed", e);

@@ -32,12 +32,9 @@ public class ResearchSessionStartTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Start a research session. Call this ONCE at the beginning – do NOT call again. "
-             + "If already started, it returns the existing session. "
-             + "After this, use research_open to navigate. "
-             + "mode: 'research' (default, full crawl) or 'agent' (quick lookup). "
-             + "domainPolicy: {\"include\":[\"example.com\"], \"exclude\":[\"ads.example.com\"]}. "
-             + "limits: {\"maxUrls\":500, \"maxDepth\":5, \"maxBytesPerDoc\":2000000}.";
+        return "Start a research session. Call ONCE, then use research_open. "
+             + "Parameters: mode (string, optional). No other parameters needed. "
+             + "After calling this, your next call MUST be research_open with a URL.";
     }
 
     @Override
@@ -231,8 +228,9 @@ public class ResearchSessionStartTool implements McpServerTool {
         if (hasPipeline) {
             text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
         }
-        text.append("\nUse research_open to navigate to a URL. ");
-        text.append("Do NOT call research_session_start again – the session is ready.");
+        text.append("\nSession is ready. NEXT STEP: Call research_open with a URL.\n");
+        text.append("Example: {\"name\":\"research_open\",\"input\":{\"url\":\"https://search.yahoo.com/search?p=wirtschaft\"}}\n");
+        text.append("STOP: Do NOT call research_session_start again.");
 
         return ToolResult.text(text.toString());
     }

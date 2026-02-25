@@ -1425,6 +1425,8 @@ public class ChatSession extends JPanel {
         return results;
     }
 
+    private volatile int repeatedSessionStartCount = 0;
+
     private void executeToolCallsSequentially(java.util.List<JsonObject> calls) {
         if (calls == null || calls.isEmpty()) {
             return;
@@ -1438,6 +1440,31 @@ public class ChatSession extends JPanel {
                 String requestedTool = effectiveCall.has("name") && !effectiveCall.get("name").isJsonNull()
                         ? effectiveCall.get("name").getAsString()
                         : null;
+
+                // ── Guard: Prevent repeated research_session_start calls ──
+                if ("research_session_start".equals(requestedTool)) {
+                    repeatedSessionStartCount++;
+                    if (repeatedSessionStartCount > 1) {
+                        // Bot is stuck in a loop calling research_session_start
+                        // Skip the call and inject a corrective message
+                        JsonObject fakeResult = new JsonObject();
+                        fakeResult.addProperty("status", "ok");
+                        fakeResult.addProperty("toolName", "research_session_start");
+                        fakeResult.addProperty("result",
+                                "Session already active. STOP calling research_session_start! "
+                              + "Your NEXT call MUST be research_open. "
+                              + "Example: {\"name\":\"research_open\",\"input\":{\"url\":\"https://search.yahoo.com/search?p=wirtschaft\"}}");
+                        results.add(fakeResult);
+                        SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                                "⚠️ research_session_start (übersprungen)",
+                                "Session existiert bereits. Bot muss research_open verwenden.",
+                                true));
+                        continue;
+                    }
+                } else {
+                    // Reset counter when bot finally uses a different tool
+                    repeatedSessionStartCount = 0;
+                }
 
                 if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
                     JsonObject describeCall = new JsonObject();
