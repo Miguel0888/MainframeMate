@@ -51,20 +51,26 @@ public class ResearchSessionStartTool implements McpServerTool {
         mode.addProperty("description", "Session mode: 'research' (default) or 'agent'");
         props.add("mode", mode);
 
-        JsonObject domainPolicy = new JsonObject();
-        domainPolicy.addProperty("type", "object");
-        domainPolicy.addProperty("description", "Domain filter: {\"include\":[\"example.com\"], \"exclude\":[\"ads.example.com\"]}");
-        props.add("domainPolicy", domainPolicy);
+        // Flat string parameters instead of nested objects to avoid LLM JSON-parse issues
+        JsonObject includeDomains = new JsonObject();
+        includeDomains.addProperty("type", "string");
+        includeDomains.addProperty("description", "Comma-separated domains to include, e.g. 'yahoo.com,reuters.com'. Optional.");
+        props.add("includeDomains", includeDomains);
 
-        JsonObject limits = new JsonObject();
-        limits.addProperty("type", "object");
-        limits.addProperty("description", "Crawl limits: {\"maxUrls\":500, \"maxDepth\":5, \"maxBytesPerDoc\":2000000}");
-        props.add("limits", limits);
+        JsonObject excludeDomains = new JsonObject();
+        excludeDomains.addProperty("type", "string");
+        excludeDomains.addProperty("description", "Comma-separated domains to exclude, e.g. 'ads.example.com'. Optional.");
+        props.add("excludeDomains", excludeDomains);
 
-        JsonObject seedUrls = new JsonObject();
-        seedUrls.addProperty("type", "array");
-        seedUrls.addProperty("description", "Optional seed URLs to add to crawl queue on session start");
-        props.add("seedUrls", seedUrls);
+        JsonObject maxUrls = new JsonObject();
+        maxUrls.addProperty("type", "integer");
+        maxUrls.addProperty("description", "Max URLs to crawl (default: 500). Optional.");
+        props.add("maxUrls", maxUrls);
+
+        JsonObject maxDepth = new JsonObject();
+        maxDepth.addProperty("type", "integer");
+        maxDepth.addProperty("description", "Max crawl depth (default: 5). Optional.");
+        props.add("maxDepth", maxDepth);
 
         schema.add("properties", props);
         return schema;
@@ -111,22 +117,48 @@ public class ResearchSessionStartTool implements McpServerTool {
                 rs.addContextId(contextId);
             }
 
-            // Apply domain policy
+            // Apply domain policy (flat string parameters)
+            if (params.has("includeDomains") && params.get("includeDomains").isJsonPrimitive()) {
+                String includeStr = params.get("includeDomains").getAsString().trim();
+                if (!includeStr.isEmpty()) {
+                    for (String domain : includeStr.split("[,;\\s]+")) {
+                        String d = domain.trim();
+                        if (!d.isEmpty()) rs.getDomainInclude().add(d);
+                    }
+                }
+            }
+            if (params.has("excludeDomains") && params.get("excludeDomains").isJsonPrimitive()) {
+                String excludeStr = params.get("excludeDomains").getAsString().trim();
+                if (!excludeStr.isEmpty()) {
+                    for (String domain : excludeStr.split("[,;\\s]+")) {
+                        String d = domain.trim();
+                        if (!d.isEmpty()) rs.getDomainExclude().add(d);
+                    }
+                }
+            }
+            // Legacy: also accept nested domainPolicy for backward compatibility
             if (params.has("domainPolicy") && params.get("domainPolicy").isJsonObject()) {
                 JsonObject dp = params.getAsJsonObject("domainPolicy");
                 if (dp.has("include") && dp.get("include").isJsonArray()) {
                     for (JsonElement el : dp.getAsJsonArray("include")) {
-                        rs.getDomainInclude().add(el.getAsString());
+                        if (el.isJsonPrimitive()) rs.getDomainInclude().add(el.getAsString());
                     }
                 }
                 if (dp.has("exclude") && dp.get("exclude").isJsonArray()) {
                     for (JsonElement el : dp.getAsJsonArray("exclude")) {
-                        rs.getDomainExclude().add(el.getAsString());
+                        if (el.isJsonPrimitive()) rs.getDomainExclude().add(el.getAsString());
                     }
                 }
             }
 
-            // Apply limits
+            // Apply limits (flat parameters)
+            if (params.has("maxUrls") && params.get("maxUrls").isJsonPrimitive()) {
+                rs.setMaxUrls(params.get("maxUrls").getAsInt());
+            }
+            if (params.has("maxDepth") && params.get("maxDepth").isJsonPrimitive()) {
+                rs.setMaxDepth(params.get("maxDepth").getAsInt());
+            }
+            // Legacy: also accept nested limits object
             if (params.has("limits") && params.get("limits").isJsonObject()) {
                 JsonObject lim = params.getAsJsonObject("limits");
                 if (lim.has("maxUrls")) rs.setMaxUrls(lim.get("maxUrls").getAsInt());

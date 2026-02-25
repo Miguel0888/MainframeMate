@@ -190,6 +190,17 @@ public class OllamaChatManager implements ChatManager {
                         OllamaChunk chunk = extractResponse(line);
 
                         if (chunk.error != null && !chunk.error.trim().isEmpty()) {
+                            // Ollama tool-call parse errors are recoverable:
+                            // the LLM produced invalid JSON in its tool call.
+                            // Don't abort – let the ChatSession retry with a corrective prompt.
+                            if (chunk.error.contains("error parsing tool call")
+                                    || chunk.error.contains("invalid value after key value pair")
+                                    || chunk.error.contains("invalid character")) {
+                                System.err.println("[OllamaChatManager] Recoverable tool-parse error: " + chunk.error);
+                                // Signal as soft error via onError – ChatSession handles retry
+                                listener.onError(new IOException("Ollama error: " + chunk.error));
+                                return;
+                            }
                             listener.onError(new IOException("Ollama error: " + chunk.error));
                             return;
                         }

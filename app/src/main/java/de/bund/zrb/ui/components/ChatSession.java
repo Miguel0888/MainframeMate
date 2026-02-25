@@ -496,10 +496,37 @@ public class ChatSession extends JPanel {
                     @Override
                     public void onError(Exception e) {
                         SwingUtilities.invokeLater(() -> {
+                            String msg = e.getMessage() != null ? e.getMessage() : "";
+                            ChatMode errorMode = (ChatMode) modeComboBox.getSelectedItem();
+                            boolean isToolParseError = msg.contains("error parsing tool call")
+                                    || msg.contains("invalid value after key value pair")
+                                    || msg.contains("invalid character");
+
+                            // In AGENT/RECHERCHE mode: Ollama tool-parse errors → auto retry
+                            if (isToolParseError
+                                    && (errorMode == ChatMode.AGENT || errorMode == ChatMode.RECHERCHE)
+                                    && agentFollowUpRetries < MAX_AGENT_RETRIES) {
+                                agentFollowUpRetries++;
+                                awaitingBotResponse = false;
+                                formatter.appendToolEvent(
+                                        "⚠️ LLM Tool-Call Parse-Fehler (Retry " + agentFollowUpRetries + "/"
+                                                + MAX_AGENT_RETRIES + ")",
+                                        "Ollama konnte den Tool-Call nicht parsen. Automatischer Retry...",
+                                        true);
+                                String retryPrompt = "WICHTIG: Dein letzter Tool-Call hatte ungültiges JSON. "
+                                        + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
+                                        + "{\"name\":\"research_open\",\"input\":{\"url\":\"https://finance.yahoo.com\"}}\n"
+                                        + "Kein Text davor oder danach. Keine Kommentare im JSON. "
+                                        + "Die Aufgabe war: \"" + lastUserRequestText + "\"";
+                                streamAssistantFollowUp(retryPrompt);
+                                return;
+                            }
+
+                            awaitingBotResponse = false;
                             setStatus("⚠️ Fehler");
                             cancelButton.setVisible(false);
                             JOptionPane.showMessageDialog(ChatSession.this,
-                                    "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
+                                    "Fehler beim Abrufen der AI-Antwort:\n" + msg,
                                     "AI-Fehler", JOptionPane.ERROR_MESSAGE);
                         });
                     }
@@ -1158,10 +1185,37 @@ public class ChatSession extends JPanel {
                     @Override
                     public void onError(Exception e) {
                         SwingUtilities.invokeLater(() -> {
+                            String msg = e.getMessage() != null ? e.getMessage() : "";
+                            ChatMode errorMode = (ChatMode) modeComboBox.getSelectedItem();
+                            boolean isToolParseError = msg.contains("error parsing tool call")
+                                    || msg.contains("invalid value after key value pair")
+                                    || msg.contains("invalid character");
+
+                            // In AGENT/RECHERCHE mode: Ollama tool-parse errors are retryable
+                            if (isToolParseError
+                                    && (errorMode == ChatMode.AGENT || errorMode == ChatMode.RECHERCHE)
+                                    && agentFollowUpRetries < MAX_AGENT_RETRIES) {
+                                agentFollowUpRetries++;
+                                formatter.appendToolEvent(
+                                        "⚠️ LLM Tool-Call Parse-Fehler (Retry " + agentFollowUpRetries + "/"
+                                                + MAX_AGENT_RETRIES + ")",
+                                        "Ollama konnte den Tool-Call nicht parsen. Automatischer Retry mit einfacherem Prompt...",
+                                        true);
+                                setStatus("🔄 Retry...");
+                                cancelButton.setVisible(true);
+                                String retryPrompt = "WICHTIG: Dein letzter Tool-Call hatte ungültiges JSON. "
+                                        + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
+                                        + "{\"name\":\"research_open\",\"input\":{\"url\":\"https://finance.yahoo.com\"}}\n"
+                                        + "Kein Text davor oder danach. Keine Kommentare im JSON. "
+                                        + "Die Aufgabe war: \"" + lastUserRequestText + "\"";
+                                streamAssistantFollowUp(retryPrompt);
+                                return;
+                            }
+
                             setStatus("⚠️ Fehler");
                             cancelButton.setVisible(false);
                             JOptionPane.showMessageDialog(ChatSession.this,
-                                    "Fehler beim Abrufen der AI-Antwort:\n" + e.getMessage(),
+                                    "Fehler beim Abrufen der AI-Antwort:\n" + msg,
                                     "AI-Fehler", JOptionPane.ERROR_MESSAGE);
                         });
                     }
