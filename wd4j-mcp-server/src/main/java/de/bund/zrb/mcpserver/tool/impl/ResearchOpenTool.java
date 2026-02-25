@@ -29,6 +29,47 @@ public class ResearchOpenTool implements McpServerTool {
 
     private static final Logger LOG = Logger.getLogger(ResearchOpenTool.class.getName());
 
+    /**
+     * Ensure the NetworkIngestionPipeline is running.
+     * After a browser kill+restart, the pipeline is gone because a new session was created.
+     * This method auto-starts it so research_open works without requiring research_session_start again.
+     */
+    private void ensurePipeline(ResearchSession rs, BrowserSession session) {
+        NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+        if (pipeline != null && pipeline.isActive()) return;
+
+        if (session.getDriver() == null) return;
+
+        try {
+            NetworkIngestionPipeline newPipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
+
+            NetworkIngestionPipeline.IngestionCallback cb =
+                    NetworkIngestionPipeline.getGlobalDefaultCallback();
+            if (cb == null) {
+                cb = (runId, url, mimeType, status, bodyText, headers, capturedAt) -> {
+                    LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
+                    return "net-" + Long.toHexString(capturedAt);
+                };
+            }
+
+            // Ensure runId exists
+            if (rs.getRunId() == null) {
+                RunLifecycleCallback runCallback = ResearchSessionManager.getRunLifecycleCallback();
+                if (runCallback != null) {
+                    rs.setRunId(runCallback.startRun(rs.getMode().name(), null));
+                } else {
+                    rs.setRunId(java.util.UUID.randomUUID().toString());
+                }
+            }
+
+            newPipeline.start(cb);
+            rs.setNetworkPipeline(newPipeline);
+            LOG.info("[research_open] Auto-started network ingestion pipeline after browser restart");
+        } catch (Exception e) {
+            LOG.warning("[research_open] Failed to auto-start pipeline: " + e.getMessage());
+        }
+    }
+
     @Override
     public String name() {
         return "research_open";
@@ -162,18 +203,56 @@ public class ResearchOpenTool implements McpServerTool {
         try {
             String ctx = session.getContextId();
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+
+            // Ensure pipeline is running (auto-start after browser restart)
+            ensurePipeline(rs, session);
             NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
 
-            // Clear HTML cache before new navigation
+            // ── Same-URL detection (no JS) ──
+            // If we already have cached HTML for this URL, return existing view
+            // instead of re-navigating (Firefox hangs on navigate to same URL)
+            boolean alreadyThere = false;
             if (pipeline != null) {
-                pipeline.clearNavigationCache();
+                String cachedUrl = pipeline.getLastNavigationUrl();
+                if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
+                    // Check if we already have a valid view
+                    MenuView existingView = rs.getCurrentMenuView();
+                    if (existingView != null && existingView.getMenuItems() != null
+                            && !existingView.getMenuItems().isEmpty()) {
+                        LOG.info("[research_open] Already on " + cachedUrl
+                                + " with valid view – returning cached view.");
+
+                        List<String> newDocs = rs.drainNewArchivedDocIds();
+                        StringBuilder sb = new StringBuilder(existingView.toCompactText());
+                        if (!newDocs.isEmpty()) {
+                            sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+                            for (String docId : newDocs) {
+                                sb.append("  ").append(docId).append("\n");
+                            }
+                        }
+                        sb.append("\n── Next step ──\n");
+                        sb.append("You are already on this page. To follow a link, use research_choose with ");
+                        sb.append("viewToken='").append(existingView.getViewToken()).append("' and the menuItemId.");
+                        return ToolResult.text(sb.toString());
+                    }
+                    // Have cached HTML but no view yet – just rebuild from cache, don't navigate
+                    alreadyThere = true;
+                    LOG.info("[research_open] Already on " + cachedUrl + " – rebuilding view from cached HTML.");
+                }
             }
 
-            // Navigate via address bar (URL-based, no JS)
-            WDBrowsingContextResult.NavigateResult nav =
-                    session.getDriver().browsingContext().navigate(url, ctx, readiness);
-            String finalUrl = nav.getUrl();
-            LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
+            if (!alreadyThere) {
+                // Clear HTML cache before new navigation
+                if (pipeline != null) {
+                    pipeline.clearNavigationCache();
+                }
+
+                // Navigate via address bar (URL-based, no JS)
+                WDBrowsingContextResult.NavigateResult nav =
+                        session.getDriver().browsingContext().navigate(url, ctx, readiness);
+                String finalUrl = nav.getUrl();
+                LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
+            }
 
             // Build menu view from captured HTML via Jsoup (no JS injection)
             MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);

@@ -114,8 +114,23 @@ public class ResearchChooseTool implements McpServerTool {
 
             LOG.info("[research_choose] Navigating to: " + url + " (label: " + chosen.getLabel() + ")");
 
-            // Clear cache, navigate, build new view
+            // Ensure pipeline is running (auto-start after browser restart)
             NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            if (pipeline == null || !pipeline.isActive()) {
+                try {
+                    NetworkIngestionPipeline newPipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
+                    NetworkIngestionPipeline.IngestionCallback cb = NetworkIngestionPipeline.getGlobalDefaultCallback();
+                    if (cb == null) {
+                        cb = (runId, u, mime, st, body, headers, ts) -> "net-" + Long.toHexString(ts);
+                    }
+                    if (rs.getRunId() == null) rs.setRunId(java.util.UUID.randomUUID().toString());
+                    newPipeline.start(cb);
+                    rs.setNetworkPipeline(newPipeline);
+                    pipeline = newPipeline;
+                } catch (Exception ex) {
+                    LOG.warning("[research_choose] Failed to auto-start pipeline: " + ex.getMessage());
+                }
+            }
             if (pipeline != null) {
                 pipeline.clearNavigationCache();
             }

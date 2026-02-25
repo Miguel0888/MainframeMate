@@ -73,14 +73,31 @@ public class MenuViewBuilder {
     }
 
     /**
-     * Build with settle – simplified: just a small delay, then build from cached HTML.
+     * Build with settle – wait for the pipeline to cache the HTML body, then build.
      * No JS-based settle needed since we parse the HTTP response body directly.
+     * Uses active polling instead of blind sleep to minimize wait time.
      */
     public MenuView buildWithSettle(SettlePolicy policy, int maxItems, int excerptLen) {
-        // For network-based approach, a short wait allows async responses to arrive
-        if (policy == SettlePolicy.NETWORK_QUIET || policy == SettlePolicy.DOM_QUIET) {
-            sleep(800);
+        // Wait for the pipeline to cache the navigation HTML body.
+        // The pipeline fetches bodies asynchronously via getData() with retry logic,
+        // so we need to actively wait until the HTML is available.
+        if (pipeline != null) {
+            int maxWaitMs = (policy == SettlePolicy.NETWORK_QUIET || policy == SettlePolicy.DOM_QUIET)
+                    ? 5000 : 3000;
+            int polled = 0;
+            while (polled < maxWaitMs) {
+                if (pipeline.getLastNavigationHtml() != null) {
+                    LOG.fine("[MenuViewBuilder] HTML body available after " + polled + "ms");
+                    break;
+                }
+                sleep(100);
+                polled += 100;
+            }
+            if (pipeline.getLastNavigationHtml() == null) {
+                LOG.warning("[MenuViewBuilder] HTML body not available after " + maxWaitMs + "ms");
+            }
         } else {
+            // No pipeline – just wait a bit
             sleep(300);
         }
         return build(maxItems, excerptLen);
