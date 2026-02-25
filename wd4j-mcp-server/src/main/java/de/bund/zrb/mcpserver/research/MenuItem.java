@@ -33,18 +33,67 @@ public class MenuItem {
 
     /**
      * Compact one-line representation for the bot.
+     * Format: "Für {label}: {url}"
+     * The URL is what the bot passes back to research_navigate.
+     * This "Für X: URL" format is optimized for small LLMs – they understand it
+     * as an actionable instruction ("if you want X, go to URL").
      */
     public String toCompactString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("[").append(menuItemId).append("] ");
-        sb.append(type.name().toLowerCase()).append(": ");
-        sb.append(label != null ? label : "(no label)");
-        if (href != null && !href.isEmpty()) {
-            String displayHref = href.length() > 120 ? href.substring(0, 120) + "…" : href;
-            sb.append(" → ").append(displayHref);
-        }
+        sb.append("Für ");
+        sb.append(label != null && !label.isEmpty() ? label : "(no label)");
         if (actionHint != null && !actionHint.isEmpty()) {
             sb.append(" (").append(actionHint).append(")");
+        }
+        sb.append(":  ");
+        if (href != null && !href.isEmpty()) {
+            sb.append(href);
+        } else {
+            sb.append("(no URL)");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Return the href as a relative path if it's on the same domain as the given base URL.
+     * This saves tokens and is more readable for the bot.
+     */
+    public String getRelativeHref(String baseUrl) {
+        if (href == null || href.isEmpty()) return href;
+        if (baseUrl == null || baseUrl.isEmpty()) return href;
+        try {
+            java.net.URL base = new java.net.URL(baseUrl);
+            java.net.URL link = new java.net.URL(href);
+            // Same host (including subdomains)?
+            if (base.getHost().equalsIgnoreCase(link.getHost())) {
+                String path = link.getPath();
+                String query = link.getQuery();
+                if (query != null && !query.isEmpty()) {
+                    return path + "?" + query;
+                }
+                return path;
+            }
+        } catch (Exception ignored) {}
+        return href;
+    }
+
+    /**
+     * Compact one-line representation with relative URL (saves tokens).
+     * Format: "Für {label}: {relativeUrl}"
+     */
+    public String toCompactStringWithRelativeUrl(String pageUrl) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Für ");
+        sb.append(label != null && !label.isEmpty() ? label : "(no label)");
+        if (actionHint != null && !actionHint.isEmpty()) {
+            sb.append(" (").append(actionHint).append(")");
+        }
+        sb.append(":  ");
+        String displayUrl = getRelativeHref(pageUrl);
+        if (displayUrl != null && !displayUrl.isEmpty()) {
+            sb.append(displayUrl);
+        } else {
+            sb.append("(no URL)");
         }
         return sb.toString();
     }

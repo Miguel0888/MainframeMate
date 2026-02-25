@@ -202,14 +202,14 @@ public class ResearchOpenTool implements McpServerTool {
                             && !existingView.getMenuItems().isEmpty()) {
                         return ToolResult.error(
                                 "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
-                              + "Use research_navigate with a link ID (e.g. 'm0') "
+                              + "Use research_navigate with a URL from the link list "
                               + "or a DIFFERENT URL.");
                     }
 
                     // No valid view – still an error
                     return ToolResult.error(
                             "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
-                          + "Use research_navigate with a link ID or a DIFFERENT URL.");
+                          + "Use research_navigate with a DIFFERENT URL.");
                 }
             }
 
@@ -254,7 +254,7 @@ public class ResearchOpenTool implements McpServerTool {
             }
 
             sb.append("\n── Next step ──\n");
-            sb.append("Read the excerpt above. To follow a link, use research_navigate with the link ID (e.g. 'm0') or a URL. ")
+            sb.append("Read the excerpt above. To follow a link, use research_navigate with the URL. ")
               .append("Do NOT call research_open again with the same URL.");
 
             return ToolResult.text(sb.toString());

@@ -30,8 +30,8 @@ public class ResearchChooseTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "[DEPRECATED – use research_navigate with the link ID as target instead] "
-             + "Follow a link from the current page by its ID (e.g. 'm3').";
+        return "[DEPRECATED – use research_navigate with the URL as target instead] "
+             + "Follow a link from the current page. Use research_navigate instead.";
     }
 
     @Override
@@ -158,7 +158,7 @@ public class ResearchChooseTool implements McpServerTool {
                 }
             }
             sb.append("\n── Next step ──\n");
-            sb.append("Use research_navigate with a link ID (e.g. 'm0') or a URL to continue.");
+            sb.append("Use research_navigate with a URL from the link list to continue.");
 
             return ToolResult.text(sb.toString());
 

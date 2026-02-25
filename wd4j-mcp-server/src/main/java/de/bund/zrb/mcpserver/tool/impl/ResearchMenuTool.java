@@ -30,7 +30,7 @@ public class ResearchMenuTool implements McpServerTool {
     public String description() {
         return "Refresh the current page's link list without navigating. "
              + "Returns: page title, excerpt, links, and archived document IDs. "
-             + "Use research_navigate with a link ID or URL to continue browsing.";
+             + "Use research_navigate with a URL from the list to continue browsing.";
     }
 
     @Override
@@ -57,7 +57,7 @@ public class ResearchMenuTool implements McpServerTool {
             List<String> newDocs = rs.drainNewArchivedDocIds();
             StringBuilder sb = new StringBuilder(view.toCompactText());
             if (!newDocs.isEmpty()) {
-                sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+                sb.append("\n── Archiviert (").append(newDocs.size()).append(") ──\n");
                 for (String docId : newDocs) {
                     sb.append("  ").append(docId).append("\n");
                 }

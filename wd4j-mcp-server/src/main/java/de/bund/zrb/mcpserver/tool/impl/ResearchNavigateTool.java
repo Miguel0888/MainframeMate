@@ -25,14 +25,16 @@ import java.util.logging.Logger;
  * <ul>
  *   <li>An absolute URL: {@code https://de.yahoo.com/nachrichten/...}</li>
  *   <li>A relative path: {@code /nachrichten/politik/} (resolved against current page)</li>
- *   <li>A menu item ID: {@code m3} (follows link from current page's link list)</li>
- *   <li>A history action: {@code back}, {@code forward}, {@code reload}</li>
+ *   <li>A history action: {@code back}, {@code forward}</li>
  * </ul>
  * <p>
- * Returns: page title, text excerpt, numbered link list, archived doc IDs, network traffic.
- * The bot picks a link from the list and calls this tool again with that link's ID or URL.
+ * Returns: page title, text excerpt, and a list of URLs with descriptions.
+ * Each link uses the format "Für {description}: {url}" so the bot knows
+ * what to pass as {@code target} for the next call.
  * <p>
- * Replaces: research_open, research_choose, research_navigate (back/forward).
+ * Design principle (Callcenter-Metapher): When you call a URL, you get a
+ * friendly response saying "You have these options: for A go here, for B go there."
+ * No abstract IDs, no separate session-start, no separate choose-tool.
  */
 public class ResearchNavigateTool implements McpServerTool {
 
@@ -45,13 +47,12 @@ public class ResearchNavigateTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Navigate to a target. "
-             + "The target can be: an absolute URL (https://...), "
-             + "a relative path (/path/page), "
-             + "a link ID from the current page (m0, m3, m17), "
-             + "or a history action (back, forward, reload). "
-             + "Returns: page title, excerpt, numbered link list. "
-             + "Pick a link ID or URL from the response to navigate further.";
+        return "Navigate to a web page. "
+             + "Pass a URL as 'target': absolute (https://...) or relative (/path – resolved against current page). "
+             + "Or pass 'back'/'forward' for browser history. "
+             + "The response lists the page content and URLs you can navigate to next. "
+             + "IMPORTANT: Pick one of the returned URLs and call this tool again with that URL. "
+             + "Do NOT call this tool with the same URL twice.";
     }
 
     @Override
@@ -63,7 +64,8 @@ public class ResearchNavigateTool implements McpServerTool {
         JsonObject target = new JsonObject();
         target.addProperty("type", "string");
         target.addProperty("description",
-                "Where to go: absolute URL, relative path, link ID (m0..mN), or action (back/forward/reload)");
+                "The URL to navigate to. Examples: 'https://example.com', '/politik/', 'back', 'forward'. "
+                + "Use a URL from the previous response. Do NOT repeat the same URL.");
         props.add("target", target);
 
         schema.add("properties", props);
@@ -85,9 +87,6 @@ public class ResearchNavigateTool implements McpServerTool {
         if (isHistoryAction(target)) {
             return handleHistoryAction(target, session);
         }
-        if (isMenuItemId(target)) {
-            return handleMenuItemNavigation(target, session);
-        }
         // URL (absolute or relative)
         return handleUrlNavigation(target, session);
     }
@@ -98,16 +97,11 @@ public class ResearchNavigateTool implements McpServerTool {
 
     private boolean isHistoryAction(String target) {
         String lower = target.toLowerCase();
-        return "back".equals(lower) || "forward".equals(lower) || "reload".equals(lower);
-    }
-
-    private boolean isMenuItemId(String target) {
-        // m0, m1, m42, etc.
-        return target.matches("^m\\d+$");
+        return "back".equals(lower) || "forward".equals(lower);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  History actions (back/forward/reload)
+    //  History actions (back/forward)
     // ═══════════════════════════════════════════════════════════════
 
     private ToolResult handleHistoryAction(String action, BrowserSession session) {
@@ -119,9 +113,6 @@ public class ResearchNavigateTool implements McpServerTool {
                     break;
                 case "forward":
                     session.evaluate("window.history.forward()", true);
-                    break;
-                case "reload":
-                    session.evaluate("window.location.reload()", true);
                     break;
             }
 
@@ -141,48 +132,6 @@ public class ResearchNavigateTool implements McpServerTool {
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] History action failed", e);
             return ToolResult.error("Action '" + action + "' failed: " + e.getMessage());
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Menu item navigation (m0, m3, etc.)
-    // ═══════════════════════════════════════════════════════════════
-
-    private ToolResult handleMenuItemNavigation(String menuItemId, BrowserSession session) {
-        LOG.info("[research_navigate] Follow menu item: " + menuItemId);
-        try {
-            ResearchSession rs = ensureSession(session);
-            MenuView currentView = rs.getCurrentMenuView();
-
-            if (currentView == null || currentView.getMenuItems().isEmpty()) {
-                return ToolResult.error("No link list available. Navigate to a URL first.");
-            }
-
-            // Find the menu item
-            MenuItem chosen = null;
-            for (MenuItem item : currentView.getMenuItems()) {
-                if (menuItemId.equals(item.getMenuItemId())) {
-                    chosen = item;
-                    break;
-                }
-            }
-
-            if (chosen == null) {
-                return ToolResult.error("Unknown link '" + menuItemId + "'. "
-                        + "Valid: m0 to m" + (currentView.getMenuItems().size() - 1) + ".");
-            }
-
-            String url = chosen.getHref();
-            if (url == null || url.isEmpty()) {
-                return ToolResult.error("Link '" + menuItemId + "' (" + chosen.getLabel() + ") has no URL.");
-            }
-
-            LOG.info("[research_navigate] → " + url + " (label: " + chosen.getLabel() + ")");
-            return navigateToUrl(url, rs, session);
-
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[research_navigate] Menu item navigation failed", e);
-            return ToolResult.error("Navigation failed: " + e.getMessage());
         }
     }
 
@@ -286,15 +235,24 @@ public class ResearchNavigateTool implements McpServerTool {
             if (existingView != null && existingView.getMenuItems() != null
                     && !existingView.getMenuItems().isEmpty()) {
                 StringBuilder sb = new StringBuilder();
-                sb.append("You are ALREADY on this page (").append(url).append("). ")
-                  .append("Pick a link from the list below instead:\n\n");
-                sb.append(existingView.toCompactText());
-                sb.append("\n── Hint ──\n");
-                sb.append("Call research_navigate with a link ID (e.g. 'm0') or a DIFFERENT URL.");
+                sb.append("FEHLER: Du bist BEREITS auf dieser Seite (").append(url).append(").\n");
+                sb.append("Du MUSST eine ANDERE URL wählen! Hier sind Vorschläge:\n\n");
+
+                // Show first 5 links as concrete suggestions
+                int count = 0;
+                for (MenuItem item : existingView.getMenuItems()) {
+                    if (count >= 5) break;
+                    if (item.getHref() != null && !item.getHref().isEmpty()
+                            && !isSameUrl(item.getHref(), url)) {
+                        sb.append("  ").append(item.toCompactStringWithRelativeUrl(url)).append("\n");
+                        count++;
+                    }
+                }
+                sb.append("\nRufe research_navigate mit EINER dieser URLs auf.");
                 return ToolResult.error(sb.toString());
             }
-            return ToolResult.error("Already on this page (" + currentUrl + "). "
-                    + "Use a link ID (m0..mN) or navigate to a different URL.");
+            return ToolResult.error("FEHLER: Du bist BEREITS auf " + currentUrl
+                    + ". Navigiere zu einer ANDEREN URL.");
         }
 
         // Ensure pipeline
@@ -376,25 +334,30 @@ public class ResearchNavigateTool implements McpServerTool {
         // Archived docs
         List<String> newDocs = rs.drainNewArchivedDocIds();
         if (!newDocs.isEmpty()) {
-            sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+            sb.append("\n── Archiviert (").append(newDocs.size()).append(") ──\n");
             for (String docId : newDocs) {
                 sb.append("  ").append(docId).append("\n");
             }
         }
 
-        // Network traffic
+        // Network traffic (compact)
         if (pipeline != null) {
             Map<String, Integer> cats = pipeline.getCategoryCounts();
             if (!cats.isEmpty()) {
-                sb.append("\n── Network traffic ──\n");
+                sb.append("\n── Netzwerk ──\n  ");
+                boolean first = true;
                 for (Map.Entry<String, Integer> e : cats.entrySet()) {
-                    sb.append("  ").append(e.getKey()).append(": ").append(e.getValue()).append("\n");
+                    if (!first) sb.append(", ");
+                    sb.append(e.getKey()).append(":").append(e.getValue());
+                    first = false;
                 }
+                sb.append("\n");
             }
         }
 
-        sb.append("\n── Next step ──\n");
-        sb.append("Pick a link ID (e.g. 'm0') or provide a URL to navigate further.");
+        sb.append("\n── Nächster Schritt ──\n");
+        sb.append("Wähle eine URL aus der Liste oben und rufe research_navigate damit auf.\n");
+        sb.append("Beispiel: research_navigate({\"target\": \"/politik/\"})\n");
 
         return sb.toString();
     }
@@ -563,11 +526,7 @@ public class ResearchNavigateTool implements McpServerTool {
         if (params.has("url") && params.get("url").isJsonPrimitive()) {
             return params.get("url").getAsString();
         }
-        // Fallback: "menuItemId" (backwards compat with old research_choose calls)
-        if (params.has("menuItemId") && params.get("menuItemId").isJsonPrimitive()) {
-            return params.get("menuItemId").getAsString();
-        }
-        // Fallback: "action" (backwards compat with old research_navigate calls)
+        // Fallback: "action" (backwards compat)
         if (params.has("action") && params.get("action").isJsonPrimitive()) {
             return params.get("action").getAsString();
         }

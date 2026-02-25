@@ -49,7 +49,7 @@ public enum ChatMode {
                     "REGELN:\n" +
                     "1. Nutze so viele Tool-Calls wie nötig, bis die Aufgabe erledigt ist. Höre NICHT nach einem Schritt auf.\n" +
                     "2. Erfinde NIEMALS Daten, Links oder Fakten. Nutze IMMER Tools, um echte Informationen zu bekommen.\n" +
-                    "3. Web-Recherche: Nutze research_navigate mit einer URL, einem Link-ID (m0..mN) oder einer History-Aktion (back/forward/reload).\n" +
+                    "3. Web-Recherche: Nutze research_navigate mit einer URL oder 'back'/'forward'.\n" +
                     "4. Der Nutzer kann dich jederzeit unterbrechen. Bis dahin: arbeite weiter.\n" +
                     "5. Antworte dem Nutzer erst, wenn du ALLE nötigen Informationen gesammelt hast.\n" +
                     "6. Pro Antwort genau EINEN Tool-Call als reines JSON-Objekt. KEIN Text vor oder nach dem JSON.\n" +
@@ -57,14 +57,14 @@ public enum ChatMode {
                     "   FALSCH: Text gefolgt von JSON, oder JSON mit toolName/toolInput statt name/input.\n" +
                     "7. Wenn ein Tool-Ergebnis zurückkommt, mache sofort den nächsten Tool-Call – frage NICHT den Nutzer.\n" +
                     "   Du darfst NIEMALS den Nutzer fragen was als nächstes zu tun ist. Handle autonom.\n" +
-                    "8. research_navigate liefert dir automatisch den Seitentext und ein Menü mit nummerierten Links.\n" +
-                    "   Wähle einen Link per ID (z.B. 'm3') oder navigiere per URL.\n" +
+                    "8. research_navigate liefert dir den Seitentext und eine Liste von URLs.\n" +
+                    "   Die Antwort zeigt: 'Für Politik: /politik/' – kopiere die URL und rufe research_navigate damit auf.\n" +
                     "9. Antworte auf Deutsch.\n" +
                     "10. WICHTIG: Schreibe KEINEN erklärenden Text wenn du einen Tool-Call machen willst. NUR das JSON.\n" +
                     "11. Wenn du 'laut denkst' oder dein Vorgehen beschreiben willst, tu es NICHT. " +
                     "Mache stattdessen direkt den Tool-Call.\n" +
                     "12. Du hast volle Autonomie. Der Nutzer erwartet, dass du SELBSTÄNDIG arbeitest.\n" +
-                    "13. Rufe NIEMALS dieselbe URL zweimal auf. Nutze die Link-IDs (m0, m1, ...) aus der Antwort.",
+                    "13. Rufe NIEMALS dieselbe URL zweimal auf! Wähle eine ANDERE URL aus der Link-Liste.",
             true,
             EnumSet.of(ToolAccessType.READ, ToolAccessType.WRITE),
             defaultToolPrefix(),
@@ -77,15 +77,14 @@ public enum ChatMode {
             "Du bist ein Web-Recherche-Agent. Du nutzt Tools um Webseiten zu besuchen und Informationen zu finden.\n\n" +
                     "WORKFLOW (genau diese Reihenfolge):\n" +
                     "Schritt 1: research_navigate mit der Ziel-URL aufrufen (z.B. target='https://de.yahoo.com')\n" +
-                    "Schritt 2: Excerpt lesen → interessante Links per Link-ID (m0, m3, ...) anklicken via research_navigate\n" +
+                    "Schritt 2: Excerpt lesen. Die Antwort zeigt URLs wie 'Für Politik: /politik/' – wähle eine URL und rufe research_navigate damit auf.\n" +
                     "Schritt 3: Ergebnisse zusammenfassen und dem Nutzer auf Deutsch antworten\n\n" +
                     "WICHTIGE REGELN:\n" +
                     "- research_navigate ist dein EINZIGES Navigations-Tool. Es akzeptiert:\n" +
-                    "  * Eine URL: research_navigate mit target='https://de.yahoo.com/nachrichten/...'\n" +
-                    "  * Eine Link-ID: research_navigate mit target='m3' (aus der Link-Liste)\n" +
-                    "  * Einen relativen Pfad: research_navigate mit target='/nachrichten/politik/'\n" +
-                    "  * History-Aktionen: research_navigate mit target='back', 'forward' oder 'reload'\n" +
-                    "- Rufe NIEMALS dieselbe URL zweimal auf! Nutze die Link-IDs aus der Antwort.\n" +
+                    "  * Eine absolute URL: target='https://de.yahoo.com/nachrichten/...'\n" +
+                    "  * Einen relativen Pfad: target='/nachrichten/politik/' (wird zur aktuellen Domain aufgelöst)\n" +
+                    "  * History-Aktionen: target='back' oder target='forward'\n" +
+                    "- Rufe NIEMALS dieselbe URL zweimal auf! Nimm eine ANDERE URL aus der Antwort.\n" +
                     "- Besuche 3-5 Artikel, dann fasse zusammen.\n" +
                     "- Pro Antwort genau EINEN Tool-Call als JSON.\n" +
                     "- Antworte auf Deutsch.",

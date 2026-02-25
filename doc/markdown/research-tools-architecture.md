@@ -7,10 +7,11 @@ Der Bot arbeitet mit **einem einzigen Navigations-Tool** (`research_navigate`) u
 bei jedem Aufruf eine **Link-Liste** zurück, aus der er den nächsten Schritt wählt.
 
 **Kernprinzipien:**
-- **Ein Tool für alles**: `research_navigate` akzeptiert URLs, relative Pfade, Link-IDs (m0..mN), oder History-Aktionen (back/forward/reload).
-- **Callcenter-Prinzip**: Jede Antwort enthält eine klare Auswahl: "Für A wählen Sie m0, für B wählen Sie m1, ..."
+- **Ein Tool für alles**: `research_navigate` akzeptiert URLs (absolut oder relativ) oder History-Aktionen (back/forward).
+- **Callcenter-Prinzip**: Jede Antwort enthält eine klare Auswahl: "Für Politik: /politik/, Für Sport: /sport/, ..."
+- **Nur URLs, keine IDs**: Links werden als echte URLs zurückgegeben, nicht als abstrakte m0/m1-IDs.
 - **Relative Pfade**: `/nachrichten/politik/` wird automatisch zur aktuellen Domain aufgelöst.
-- **Same-URL-Guard**: Wiederholte Navigation zur selben URL wird blockiert mit Verweis auf die Link-Liste.
+- **Same-URL-Guard**: Wiederholte Navigation zur selben URL wird blockiert mit konkreten Alternativen.
 - **Indexierung im Hintergrund**: Network-Plane sammelt Inhalte automatisch → H2 + Lucene.
 - **Event-getriebenes Timing**: Settle-Policies (NAVIGATION / DOM_QUIET / NETWORK_QUIET).
 
@@ -79,12 +80,13 @@ Der Fuzzy-Match in ChatSession mappt alte Tool-Namen automatisch auf `research_n
 | `research_queue_add` | URLs zur Crawl-Queue hinzufügen | `urls` (req.), `sourceId`, `depth` | added, skipped |
 | `research_queue_status` | Queue-Status abfragen | `sourceId` | pending, crawled, indexed, failed, nextPending[] |
 
-## viewToken-Vertrag
+## viewToken-Vertrag (intern)
 
-- Jede MenuView hat einen `viewToken` (z.B. `v1`, `v2`, ...)
-- `menuItemId`s (z.B. `m0`, `m3`) sind **nur innerhalb** desselben viewTokens gültig
+- Jede MenuView hat intern einen `viewToken` (z.B. `v1`, `v2`, ...)
+- `menuItemId`s (z.B. `m0`, `m3`) existieren intern im Code, werden aber **nicht mehr an den Bot exponiert**
+- Der Bot sieht nur **URLs** (absolut oder relativ)
 - Bei Navigation wird ein neuer viewToken erzeugt
-- `research_navigate` mit staler Link-ID → **definierter Fehler** → Bot muss `research_menu` aufrufen
+- Der viewToken wird nur noch für interne Konsistenzprüfungen verwendet
 
 ## Settle-Policies
 
@@ -217,32 +219,39 @@ responseCompleted Event
 ## Beispiel-Workflow (Bot)
 
 ```
-Bot: research_session_start()
-→ sessionId: "a1b2c3d4", status: ready
-
 Bot: research_navigate(target="https://news.example.com")
-→ Page: News | excerpt: "...", [m0] Headlines, [m1] Sports, [m2] Economy
+→ Du bist auf: News (https://news.example.com)
+  Seiteninhalt: "Aktuelle Nachrichten..."
+  Hier kannst du weiternavigieren:
+    Für Headlines:  /headlines/
+    Für Sport:      /sport/
+    Für Wirtschaft: /economy/
 
-Bot: research_navigate(target="m1")
-→ Page: Sports | excerpt: "...", [m0] Football, [m1] Tennis, ...
+Bot: research_navigate(target="/sport/")
+→ Du bist auf: Sport (https://news.example.com/sport/)
+  Seiteninhalt: "Sportnachrichten..."
+  Hier kannst du weiternavigieren:
+    Für Fußball:  /sport/football/
+    Für Tennis:   /sport/tennis/
 
-Bot: research_navigate(target="m0")
-→ Page: Football | excerpt: "Match results...", [m0] Bundesliga, ...
+Bot: research_navigate(target="/sport/football/")
+→ Du bist auf: Fußball (https://news.example.com/sport/football/)
+  Seiteninhalt: "Match results..."
+  Hier kannst du weiternavigieren:
+    Für Bundesliga: /sport/football/bundesliga/
 
 Bot: research_navigate(target="back")
-→ Page: Sports | excerpt: "...", [m0] Football, ...
+→ Du bist auf: Sport (https://news.example.com/sport/)
 
 Bot: research_navigate(target="/economy/stocks/")
-→ Page: Stocks | excerpt: "DAX...", [m0] DAX Details, ...
+→ Du bist auf: Stocks (https://news.example.com/economy/stocks/)
+  Seiteninhalt: "DAX..."
 
 Bot: research_search(query="football results")
 → {results: [{documentId: "...", snippet: "...", score: 0.85}]}
 
 Bot: research_doc_get(entryId="abc-123")
 → {extractedText: "Full article text...", metadata: {...}}
-
-Bot: research_config_update(limits={maxDepth:3}, defaultSettlePolicy="DOM_QUIET")
-→ "Configuration updated: maxDepth: 3, defaultSettlePolicy: DOM_QUIET"
 ```
 
 ## Anforderungsabdeckung (Mapping)

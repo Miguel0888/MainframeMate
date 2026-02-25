@@ -32,27 +32,27 @@ public class MenuView {
 
     /**
      * Render a compact text representation for the bot.
+     * Uses "Für X: URL" format and relative paths where possible.
      * Format:
      * <pre>
-     * Page: &lt;title&gt;
-     * URL: &lt;url&gt;
+     * Du bist auf: &lt;title&gt; (&lt;url&gt;)
      *
-     * ── Excerpt ──
+     * ── Seiteninhalt ──
      * &lt;excerpt&gt;
      *
-     * ── Links (N) ──
-     * [m0] link: "Homepage" → https://...
-     * [m1] link: "Nachrichten" → /nachrichten/
+     * ── Hier kannst du weiternavigieren ──
+     * Für Bundesliga:  /sport/bundesliga/
+     * Für Politik:     /politik/
      * ...
      * </pre>
      */
     public String toCompactText() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Page: ").append(title != null ? title : "(no title)").append("\n");
-        sb.append("URL: ").append(url != null ? url : "(unknown)").append("\n");
+        sb.append("Du bist auf: ").append(title != null ? title : "(no title)");
+        sb.append(" (").append(url != null ? url : "unknown").append(")\n");
 
         if (excerpt != null && !excerpt.isEmpty()) {
-            sb.append("\n── Excerpt ──────────────────────────────\n");
+            sb.append("\n── Seiteninhalt ──\n");
             sb.append(excerpt);
             if (excerpt.length() >= 2900) {
                 sb.append("\n[… truncated]");
@@ -60,13 +60,13 @@ public class MenuView {
             sb.append("\n");
         }
 
-        sb.append("\n── Links (").append(menuItems.size()).append(") ──────────────\n");
-        for (MenuItem item : menuItems) {
-            sb.append("  ").append(item.toCompactString()).append("\n");
-        }
-
         if (menuItems.isEmpty()) {
-            sb.append("  (no links found on this page)\n");
+            sb.append("\n── Keine Links auf dieser Seite gefunden ──\n");
+        } else {
+            sb.append("\n── Hier kannst du weiternavigieren (").append(menuItems.size()).append(" Links) ──\n");
+            for (MenuItem item : menuItems) {
+                sb.append("  ").append(item.toCompactStringWithRelativeUrl(url)).append("\n");
+            }
         }
 
         return sb.toString();
