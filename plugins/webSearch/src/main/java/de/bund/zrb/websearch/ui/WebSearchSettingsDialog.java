@@ -16,6 +16,13 @@ public class WebSearchSettingsDialog extends JDialog {
 
     private static final String PLUGIN_KEY = "webSearch";
 
+    /** Default blacklist: block URLs whose host is a bare IP address (IPv4 or IPv6). */
+    static final String DEFAULT_BLACKLIST =
+            "# IPv4-Adressen blockieren (http(s)://123.45.67.89)\n"
+          + "https?://\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}([:/]|$)\n"
+          + "# IPv6-Adressen blockieren (http(s)://[::1])\n"
+          + "https?://\\[[:0-9a-fA-F]+\\]";
+
     private final MainframeContext context;
     private final JComboBox<String> browserCombo;
     private final JCheckBox headlessCheckbox;
@@ -133,7 +140,10 @@ public class WebSearchSettingsDialog extends JDialog {
         blacklistLabel.setToolTipText("URLs, die einem Blacklist-Pattern matchen, werden blockiert.");
         form.add(blacklistLabel, gbc);
 
-        blacklistArea = new JTextArea(settings.getOrDefault("urlBlacklist", ""), 4, 30);
+        String savedBlacklist = settings.containsKey("urlBlacklist")
+                ? settings.get("urlBlacklist")
+                : DEFAULT_BLACKLIST;
+        blacklistArea = new JTextArea(savedBlacklist, 4, 30);
         blacklistArea.setToolTipText(
                 "Regex-Patterns (ein Pattern pro Zeile). Beispiele:\n"
               + "  ads\\.example\\.com  → blockiert Werbe-Domain\n"

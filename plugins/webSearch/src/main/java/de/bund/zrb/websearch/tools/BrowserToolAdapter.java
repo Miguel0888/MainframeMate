@@ -40,6 +40,13 @@ public class BrowserToolAdapter implements McpTool {
         this.browserManager = browserManager;
     }
 
+    /** Default blacklist: block URLs whose host is a bare IP address (IPv4 or IPv6). */
+    private static final String DEFAULT_BLACKLIST =
+            "# IPv4-Adressen blockieren (http(s)://123.45.67.89)\n"
+          + "https?://\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}([:/]|$)\n"
+          + "# IPv6-Adressen blockieren (http(s)://[::1])\n"
+          + "https?://\\[[:0-9a-fA-F]+\\]";
+
     /**
      * Reload the URL boundary checker from the current plugin settings.
      * Called when the WebSearch settings are saved.
@@ -47,8 +54,10 @@ public class BrowserToolAdapter implements McpTool {
     public static void reloadBoundaries(Map<String, String> settings) {
         List<String> whitelist = UrlBoundaryChecker.parsePatternList(
                 settings.getOrDefault("urlWhitelist", ""));
-        List<String> blacklist = UrlBoundaryChecker.parsePatternList(
-                settings.getOrDefault("urlBlacklist", ""));
+        String blacklistValue = settings.containsKey("urlBlacklist")
+                ? settings.get("urlBlacklist")
+                : DEFAULT_BLACKLIST;
+        List<String> blacklist = UrlBoundaryChecker.parsePatternList(blacklistValue);
         boundaryChecker = new UrlBoundaryChecker(whitelist, blacklist);
         LOG.info("[BrowserToolAdapter] URL boundaries reloaded: whitelist=" + whitelist.size()
                 + " patterns, blacklist=" + blacklist.size() + " patterns");
