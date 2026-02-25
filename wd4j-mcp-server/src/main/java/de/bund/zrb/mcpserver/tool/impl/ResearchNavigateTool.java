@@ -237,23 +237,18 @@ public class ResearchNavigateTool implements McpServerTool {
                 sb.append("FEHLER: Du bist BEREITS auf dieser Seite (").append(url).append(").\n");
                 sb.append("Du DARFST diese URL NICHT erneut aufrufen.\n\n");
 
-                // Show available targets in same format as normal results
+                // Show available links so the bot can pick one
                 int count = 0;
-                String firstTarget = null;
                 for (MenuItem item : existingView.getMenuItems()) {
                     if (count >= 5) break;
                     if (item.getHref() != null && !item.getHref().isEmpty()
                             && !isSameUrl(item.getHref(), url)) {
                         String relUrl = item.getRelativeHref(url);
                         sb.append("  Für ").append(item.getLabel()).append(":  ").append(relUrl).append("\n");
-                        if (firstTarget == null) firstTarget = relUrl;
                         count++;
                     }
                 }
-
-                if (count > 0 && firstTarget != null) {
-                    sb.append("\nRufe JETZT research_navigate auf mit target=\"").append(firstTarget).append("\"");
-                }
+                sb.append("\nDu MUSST eine dieser URLs wählen. Rufe research_navigate mit einer davon auf.");
                 return ToolResult.error(sb.toString());
             }
             return ToolResult.error("FEHLER: Du bist BEREITS auf " + currentUrl
@@ -313,7 +308,14 @@ public class ResearchNavigateTool implements McpServerTool {
             String finalUrl = nav.getUrl();
             LOG.info("[research_navigate] Landed on: " + finalUrl);
 
+            // Update the pipeline's lastNavigationUrl to the ACTUAL landing URL,
+            // not the requested URL. This is critical for same-URL detection after
+            // 404-redirects (e.g. /politik/ → /?err=404&err_url=...).
             NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            if (pipeline != null && finalUrl != null && !finalUrl.isEmpty()) {
+                pipeline.setLastNavigationUrl(finalUrl);
+            }
+
             MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
             MenuView view = builder.buildWithSettle(SettlePolicy.NAVIGATION,
                     rs.getMaxMenuItems(), rs.getExcerptMaxLength());
@@ -361,7 +363,8 @@ public class ResearchNavigateTool implements McpServerTool {
         }
 
         sb.append("\n── Nächster Schritt ──\n");
-        sb.append("Wähle eine URL aus der Liste oben und rufe research_navigate damit auf.\n");
+        sb.append("Wähle eine URL aus der Liste oben und rufe research_navigate damit auf.");
+        sb.append(" Bevorzuge Navigations-/Sektionslinks vor einzelnen Artikeln.\n");
 
         return sb.toString();
     }
@@ -472,8 +475,8 @@ public class ResearchNavigateTool implements McpServerTool {
     private boolean isSameUrl(String current, String target) {
         if (current == null || target == null) return false;
         try {
-            URI c = new URI(current);
-            URI t = new URI(target);
+            URI c = new URI(stripErrorParams(current));
+            URI t = new URI(stripErrorParams(target));
             if (!nullSafeEqualsIgnoreCase(c.getScheme(), t.getScheme())) return false;
             if (!nullSafeEqualsIgnoreCase(c.getHost(), t.getHost())) return false;
             if (effectivePort(c) != effectivePort(t)) return false;
@@ -485,6 +488,26 @@ public class ResearchNavigateTool implements McpServerTool {
             return cQuery.equals(tQuery);
         } catch (Exception e) {
             return normalizeSimple(current).equals(normalizeSimple(target));
+        }
+    }
+
+    /**
+     * Strip error/redirect query params that Yahoo and other sites add on 404 redirects.
+     * E.g. "https://de.yahoo.com/?err=404&err_url=..." → "https://de.yahoo.com/"
+     */
+    private String stripErrorParams(String url) {
+        if (url == null) return null;
+        try {
+            URI uri = new URI(url);
+            String query = uri.getQuery();
+            if (query == null || query.isEmpty()) return url;
+            // If the query contains err= or err_url=, it's a redirect-error page → strip all query
+            if (query.contains("err=") || query.contains("err_url=")) {
+                return new URI(uri.getScheme(), uri.getAuthority(), uri.getPath(), null, null).toString();
+            }
+            return url;
+        } catch (Exception e) {
+            return url;
         }
     }
 

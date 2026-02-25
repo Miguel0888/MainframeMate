@@ -187,29 +187,14 @@ public class ResearchOpenTool implements McpServerTool {
             NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
 
             // ── Same-URL detection (no JS) ──
-            // If we're already on this URL, reject immediately with error.
-            // The bot must use research_choose or navigate to a DIFFERENT URL.
             if (pipeline != null) {
                 String cachedUrl = pipeline.getLastNavigationUrl();
                 if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
                     LOG.warning("[research_open] REJECTED: Already on " + cachedUrl
                             + " – bot tried to navigate to same URL again.");
-
-                    // Check if we have a valid view to point the bot to
-                    MenuView existingView = rs.getCurrentMenuView();
-                    if (existingView != null && existingView.getViewToken() != null
-                            && existingView.getMenuItems() != null
-                            && !existingView.getMenuItems().isEmpty()) {
-                        return ToolResult.error(
-                                "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
-                              + "Use research_navigate with a URL from the link list "
-                              + "or a DIFFERENT URL.");
-                    }
-
-                    // No valid view – still an error
                     return ToolResult.error(
-                            "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
-                          + "Use research_navigate with a DIFFERENT URL.");
+                            "BLOCKED: Du bist bereits auf " + cachedUrl
+                          + ". Wähle eine ANDERE URL aus der letzten Antwort.");
                 }
             }
 

@@ -186,11 +186,18 @@ public class BrowserToolAdapter implements McpTool {
      * and nested "arguments.url" (older format).
      */
     private String extractUrlFromInput(JsonObject input) {
+        // Check "target" first (used by research_navigate)
+        if (input.has("target") && input.get("target").isJsonPrimitive()) {
+            return input.get("target").getAsString();
+        }
         if (input.has("url") && input.get("url").isJsonPrimitive()) {
             return input.get("url").getAsString();
         }
         if (input.has("arguments") && input.get("arguments").isJsonObject()) {
             JsonObject args = input.getAsJsonObject("arguments");
+            if (args.has("target") && args.get("target").isJsonPrimitive()) {
+                return args.get("target").getAsString();
+            }
             if (args.has("url") && args.get("url").isJsonPrimitive()) {
                 return args.get("url").getAsString();
             }
