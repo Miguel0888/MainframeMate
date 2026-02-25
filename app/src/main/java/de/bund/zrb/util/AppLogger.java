@@ -28,9 +28,11 @@ public final class AppLogger {
     public static final String NDV      = "NDV";
     public static final String TOOL     = "TOOL";
     public static final String INDEX    = "INDEX";
-    public static final String SEARCH   = "SEARCH";
+    public static final String SEARCH   = "SEARCH";   // Lucene index search operations
     public static final String RAG      = "RAG";
     public static final String UI       = "UI";
+    public static final String PLUGIN   = "PLUGIN";   // Plugin lifecycle & logging
+    public static final String BROWSER  = "BROWSER";  // Browser/BiDi/WebDriver logs
 
     private static volatile boolean initialized = false;
 

@@ -1427,6 +1427,8 @@ public class ChatSession extends JPanel {
     }
 
     private volatile int repeatedSessionStartCount = 0;
+    /** Caches the result of the first successful research_session_start for this chat session */
+    private volatile JsonObject cachedSessionStartResult = null;
 
     private void executeToolCallsSequentially(java.util.List<JsonObject> calls) {
         if (calls == null || calls.isEmpty()) {
@@ -1445,35 +1447,47 @@ public class ChatSession extends JPanel {
                 // ── Guard: Prevent repeated research_session_start calls ──
                 if ("research_session_start".equals(requestedTool)) {
                     repeatedSessionStartCount++;
-                    if (repeatedSessionStartCount > 1) {
-                        // Bot is stuck in a loop – auto-execute research_open instead
-                        String searchQuery = extractSearchQueryFromUserRequest(lastUserRequestText);
-                        String encodedQuery;
-                        try {
-                            encodedQuery = java.net.URLEncoder.encode(
-                                    searchQuery != null && !searchQuery.isEmpty() ? searchQuery : "news",
-                                    "UTF-8");
-                        } catch (java.io.UnsupportedEncodingException ue) {
-                            encodedQuery = "news";
-                        }
-                        final String autoUrl = "https://search.yahoo.com/search?p=" + encodedQuery;
 
+                    // If we already have a cached result, return it immediately without calling the server
+                    if (cachedSessionStartResult != null) {
                         SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
-                                "⚠️ research_session_start → auto-redirect",
-                                "Bot steckt fest. Führe automatisch research_open aus: " + autoUrl,
-                                true));
+                                "⚠️ research_session_start (cached)",
+                                "Session existiert bereits. Cached result wird verwendet.",
+                                false));
+                        results.add(cachedSessionStartResult);
 
-                        // Replace the call with research_open
-                        effectiveCall = new JsonObject();
-                        effectiveCall.addProperty("name", "research_open");
-                        JsonObject autoInput = new JsonObject();
-                        autoInput.addProperty("url", autoUrl);
-                        effectiveCall.add("input", autoInput);
-                        requestedTool = "research_open";
-                        repeatedSessionStartCount = 0; // Reset so it doesn't loop
+                        // If called more than twice, auto-redirect to research_open
+                        if (repeatedSessionStartCount > 2) {
+                            String searchQuery = extractSearchQueryFromUserRequest(lastUserRequestText);
+                            String encodedQuery;
+                            try {
+                                encodedQuery = java.net.URLEncoder.encode(
+                                        searchQuery != null && !searchQuery.isEmpty() ? searchQuery : "news",
+                                        "UTF-8");
+                            } catch (java.io.UnsupportedEncodingException ue) {
+                                encodedQuery = "news";
+                            }
+                            final String autoUrl = "https://search.yahoo.com/search?p=" + encodedQuery;
+
+                            SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                                    "⚠️ research_session_start → auto-redirect",
+                                    "Bot steckt fest. Führe automatisch research_open aus: " + autoUrl,
+                                    true));
+
+                            effectiveCall = new JsonObject();
+                            effectiveCall.addProperty("name", "research_open");
+                            JsonObject autoInput = new JsonObject();
+                            autoInput.addProperty("url", autoUrl);
+                            effectiveCall.add("input", autoInput);
+                            requestedTool = "research_open";
+                        } else {
+                            // Skip tool execution – just use cached result
+                            continue;
+                        }
                     }
-                } else {
-                    // Reset counter when bot finally uses a different tool
+                    // First call: let it execute normally (result will be cached below)
+                } else if (!"research_open".equals(requestedTool)) {
+                    // Only reset counter for truly different tools (not research_open from auto-redirect)
                     repeatedSessionStartCount = 0;
                 }
 
@@ -1530,6 +1544,11 @@ public class ChatSession extends JPanel {
                     toolsUsedInThisChat.add(requestedTool);
                 }
 
+                // Cache first successful research_session_start result
+                if ("research_session_start".equals(requestedTool) && isSuccessResult(result) && cachedSessionStartResult == null) {
+                    cachedSessionStartResult = result;
+                }
+
                 // ── RECHERCHE-Modus: Archivierung erfolgt automatisch via NetworkIngestionPipeline ──
                 // (Die alte WebSnapshotPipeline.processSnapshot-Logik wurde entfernt;
                 //  die Network Plane archiviert HTTP-Responses im Hintergrund.)
@@ -1570,17 +1589,26 @@ public class ChatSession extends JPanel {
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
                 if (currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) {
-                    followUp = "Du hast Tool-Ergebnisse erhalten. Ursprüngliche Nutzeranfrage: \"" + lastUserRequestText + "\"\n\n" +
-                            "Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
-                            "Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. " +
-                            "Frage NICHT den Nutzer. Handle autonom. " +
-                            "Beispiele für nächste Schritte: research_open für neue URLs, research_choose um Menü-Links zu folgen, " +
-                            "research_search um im Archiv zu suchen, research_doc_get um archivierte Seiten zu lesen. " +
-                            "Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. " +
-                            "WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. " +
-                            "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
-                            "ERINNERUNG: Du bist ein Agent. Du darfst NICHT stoppen und den Nutzer fragen. " +
-                            "Mache einfach weiter bis die Aufgabe erledigt ist.";
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Du hast Tool-Ergebnisse erhalten. Ursprüngliche Nutzeranfrage: \"").append(lastUserRequestText).append("\"\n\n");
+
+                    // Prevent repeated research_session_start calls
+                    if (toolsUsedInThisChat.contains("research_session_start")) {
+                        sb.append("WICHTIG: research_session_start wurde bereits ausgeführt! Rufe es NIEMALS erneut auf. ");
+                        sb.append("Die Session ist aktiv. Nutze direkt research_open, research_choose, research_search oder research_doc_get.\n\n");
+                    }
+
+                    sb.append("Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? ");
+                    sb.append("Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. ");
+                    sb.append("Frage NICHT den Nutzer. Handle autonom. ");
+                    sb.append("Beispiele für nächste Schritte: research_open für neue URLs, research_choose um Menü-Links zu folgen, ");
+                    sb.append("research_search um im Archiv zu suchen, research_doc_get um archivierte Seiten zu lesen. ");
+                    sb.append("Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. ");
+                    sb.append("WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. ");
+                    sb.append("Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. ");
+                    sb.append("ERINNERUNG: Du bist ein Agent. Du darfst NICHT stoppen und den Nutzer fragen. ");
+                    sb.append("Mache einfach weiter bis die Aufgabe erledigt ist.");
+                    followUp = sb.toString();
                 } else {
                     followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }

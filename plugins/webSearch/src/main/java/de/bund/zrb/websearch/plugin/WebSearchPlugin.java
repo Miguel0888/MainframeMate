@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * WebSearch plugin – provides browser tools for web browsing and searching.
@@ -21,6 +23,8 @@ import java.util.List;
  * the ExcelImport plugin registers its ImportExcelTool.</p>
  */
 public class WebSearchPlugin implements MainframeMatePlugin {
+
+    private static final Logger LOG = Logger.getLogger("de.bund.zrb.plugin");
 
     private MainframeContext context;
     private WebSearchBrowserManager browserManager;
@@ -40,6 +44,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         // Register global NetworkIngestionPipeline callback:
         // captured HTTP response bodies → H2 archive via WebSnapshotPipeline
         registerNetworkIngestionCallback();
+        LOG.info("[WebSearchPlugin] Initialized with " + tools.size() + " tools");
     }
 
     /**
@@ -73,7 +78,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
                         }
                     });
         } catch (Exception e) {
-            System.err.println("[WebSearchPlugin] Could not register network ingestion callback: " + e.getMessage());
+            LOG.log(Level.WARNING, "[WebSearchPlugin] Could not register network ingestion callback: " + e.getMessage(), e);
         }
     }
 

@@ -9,17 +9,25 @@ import de.bund.zrb.type.browsingContext.WDLocator;
 import de.bund.zrb.type.browsingContext.WDReadinessState;
 import de.bund.zrb.type.script.*;
 
+import de.bund.zrb.type.log.WDLogEntry;
+import de.bund.zrb.type.session.WDSubscriptionRequest;
+import de.bund.zrb.event.WDLogEvent;
+
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 /**
  * Holds the state of a single browser session: WebSocket connection,
  * WebDriver instance, and the active browsing context (tab).
  */
 public class BrowserSession {
+
+    private static final Logger LOG = Logger.getLogger(BrowserSession.class.getName());
 
     private WDWebSocketImpl webSocket;
     private WebDriver driver;
@@ -42,9 +50,41 @@ public class BrowserSession {
 
         driver.connect(browserName);
 
+        // Subscribe to browser console logs via BiDi
+        subscribeToConsoleLogs();
+
         if (createContext) {
             WDBrowsingContextResult.CreateResult ctx = driver.browsingContext().create();
             this.contextId = ctx.getContext();
+        }
+    }
+
+    /**
+     * Subscribe to BiDi log.entryAdded events and pipe them to consoleLogs.
+     */
+    private void subscribeToConsoleLogs() {
+        try {
+            WDSubscriptionRequest logSubscription = new WDSubscriptionRequest(
+                    Collections.singletonList("log.entryAdded"));
+            Consumer<WDLogEvent.EntryAdded> logListener = event -> {
+                if (event != null && event.getParams() != null) {
+                    WDLogEntry entry = event.getParams();
+                    String level = "info";
+                    String text = "(no text)";
+                    if (entry instanceof WDLogEntry.BaseWDLogEntry) {
+                        WDLogEntry.BaseWDLogEntry base = (WDLogEntry.BaseWDLogEntry) entry;
+                        level = base.getLevel() != null ? base.getLevel().value() : "info";
+                        text = base.getText() != null ? base.getText() : "(no text)";
+                    }
+                    String logLine = "[" + level.toUpperCase() + "] " + text;
+                    addConsoleLog(logLine);
+                    LOG.fine("[BrowserLog] " + logLine);
+                }
+            };
+            driver.addEventListener(logSubscription, logListener);
+            LOG.info("[BrowserSession] Subscribed to log.entryAdded via BiDi");
+        } catch (Exception e) {
+            LOG.warning("[BrowserSession] Failed to subscribe to log.entryAdded: " + e.getMessage());
         }
     }
 
