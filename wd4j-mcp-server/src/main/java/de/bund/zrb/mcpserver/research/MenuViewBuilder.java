@@ -53,13 +53,12 @@ public class MenuViewBuilder {
         LOG.info("[MenuViewBuilder] Page: " + parsed.title + " | URL: " + parsed.url
                 + " | Links: " + parsed.links.size());
 
-        // Convert links to MenuItems
+        // Convert links to MenuItems – no "external" hint, all links are navigable via research_choose
         List<MenuItem> menuItems = new ArrayList<>();
         for (int i = 0; i < parsed.links.size(); i++) {
             HtmlLinkExtractor.LinkInfo link = parsed.links.get(i);
             String menuItemId = "m" + i;
-            String hint = link.isExternal ? "external" : "";
-            menuItems.add(new MenuItem(menuItemId, MenuItem.Type.LINK, link.label, link.href, hint));
+            menuItems.add(new MenuItem(menuItemId, MenuItem.Type.LINK, link.label, link.href, ""));
         }
 
         // Generate token first, then create view with token embedded, then store it

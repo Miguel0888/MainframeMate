@@ -137,6 +137,7 @@ public class ResearchChooseTool implements McpServerTool {
             }
             if (pipeline != null) {
                 pipeline.clearNavigationCache();
+                pipeline.setLastNavigationUrl(url);
             }
 
             session.getDriver().browsingContext().navigate(
@@ -157,8 +158,8 @@ public class ResearchChooseTool implements McpServerTool {
                 }
             }
             sb.append("\n── Next step ──\n");
-            sb.append("To follow another link: research_choose with viewToken='")
-              .append(view.getViewToken()).append("' and menuItemId.");
+            sb.append("Use research_choose with viewToken='")
+              .append(view.getViewToken()).append("' and a menuItemId to follow another link.");
 
             return ToolResult.text(sb.toString());
 

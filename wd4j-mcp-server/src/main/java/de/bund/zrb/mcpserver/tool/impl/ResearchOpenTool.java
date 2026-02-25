@@ -191,7 +191,6 @@ public class ResearchOpenTool implements McpServerTool {
             // ── Same-URL detection (no JS) ──
             // If we're already on this URL, reject immediately with error.
             // The bot must use research_choose or navigate to a DIFFERENT URL.
-            boolean alreadyThere = false;
             if (pipeline != null) {
                 String cachedUrl = pipeline.getLastNavigationUrl();
                 if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
@@ -211,35 +210,28 @@ public class ResearchOpenTool implements McpServerTool {
                               + "or call research_open with a DIFFERENT URL from the link list.");
                     }
 
-                    // No valid view but same URL – previous navigation may have timed out
-                    if (pipeline.getLastNavigationHtml() == null) {
-                        return ToolResult.error(
-                                "ERROR: This URL was already attempted but the page did not load. "
-                              + "Do NOT retry the same URL. Navigate to a DIFFERENT URL instead. "
-                              + "URL: " + url);
-                    }
-
-                    // Have cached HTML but no view – rebuild from cache
-                    alreadyThere = true;
-                    LOG.info("[research_open] Rebuilding view from cached HTML for: " + cachedUrl);
+                    // No valid view – still an error
+                    return ToolResult.error(
+                            "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
+                          + "Do NOT call research_open with the same URL again! "
+                          + "Use research_choose with a menuItemId to follow a link on this page, "
+                          + "or call research_open with a COMPLETELY DIFFERENT URL.");
                 }
             }
 
-            if (!alreadyThere) {
-                // Clear HTML cache before new navigation
-                if (pipeline != null) {
-                    pipeline.clearNavigationCache();
-                    // Pre-set the target URL so that after a timeout, same-URL detection
-                    // prevents the bot from re-navigating to the same URL endlessly.
-                    pipeline.setLastNavigationUrl(url);
-                }
-
-                // Navigate via address bar (URL-based, no JS)
-                WDBrowsingContextResult.NavigateResult nav =
-                        session.getDriver().browsingContext().navigate(url, ctx, readiness);
-                String finalUrl = nav.getUrl();
-                LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
+            // Clear HTML cache before new navigation
+            if (pipeline != null) {
+                pipeline.clearNavigationCache();
+                // Pre-set the target URL so that after a timeout, same-URL detection
+                // prevents the bot from re-navigating to the same URL endlessly.
+                pipeline.setLastNavigationUrl(url);
             }
+
+            // Navigate via address bar (URL-based, no JS)
+            WDBrowsingContextResult.NavigateResult nav =
+                    session.getDriver().browsingContext().navigate(url, ctx, readiness);
+            String finalUrl = nav.getUrl();
+            LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
 
             // Build menu view from captured HTML via Jsoup (no JS injection)
             MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
@@ -268,9 +260,9 @@ public class ResearchOpenTool implements McpServerTool {
             }
 
             sb.append("\n── Next step ──\n");
-            sb.append("Read the excerpt above. To follow a link, use research_choose with ");
-            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId (e.g. 'm0'). ");
-            sb.append("To navigate to a completely different site, use research_open with a new URL.");
+            sb.append("IMPORTANT: Use research_choose with viewToken='").append(view.getViewToken())
+              .append("' and a menuItemId (e.g. 'm0') to follow ANY link above. ")
+              .append("Do NOT call research_open again with the same URL.");
 
             return ToolResult.text(sb.toString());
         } catch (Exception e) {
