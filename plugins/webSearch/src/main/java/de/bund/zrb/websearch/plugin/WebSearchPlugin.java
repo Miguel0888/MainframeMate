@@ -61,11 +61,12 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         List<McpTool> list = new ArrayList<>();
 
         // ── Research-mode tools (bot-friendly menu-based navigation) ──
+        // These replace the old Browse* tools with a menu/viewToken-based API
         list.add(new BrowserToolAdapter(new ResearchSessionStartTool(), browserManager));
-        list.add(new BrowserToolAdapter(new ResearchOpenTool(), browserManager));
-        list.add(new BrowserToolAdapter(new ResearchMenuTool(), browserManager));
-        list.add(new BrowserToolAdapter(new ResearchChooseTool(), browserManager));
-        list.add(new BrowserToolAdapter(new ResearchBackForwardTool(), browserManager));
+        list.add(new BrowserToolAdapter(new ResearchOpenTool(), browserManager));       // replaces BrowseNavigateTool
+        list.add(new BrowserToolAdapter(new ResearchMenuTool(), browserManager));       // replaces BrowseReadPageTool + BrowseSnapshotTool
+        list.add(new BrowserToolAdapter(new ResearchChooseTool(), browserManager));     // replaces BrowseClickTool + BrowseLocateTool
+        list.add(new BrowserToolAdapter(new ResearchBackForwardTool(), browserManager));// replaces BrowseBackForwardTool
         list.add(new BrowserToolAdapter(new ResearchConfigUpdateTool(), browserManager));
 
         // ── Archive/Search/Queue tools (direct McpTool, no browser needed) ──
@@ -74,18 +75,10 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         list.add(new ResearchQueueAddTool());
         list.add(new ResearchQueueStatusTool());
 
-        // ── Low-level browsing tools (NodeRef-based, for advanced use) ──
-        list.add(new BrowserToolAdapter(new BrowseNavigateTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowseReadPageTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowseSnapshotTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowseLocateTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowseClickTool(), browserManager));
+        // ── Utility tools (no research equivalent, kept as-is) ──
         list.add(new BrowserToolAdapter(new BrowseTypeTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseSelectTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseScrollTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowseWaitTool(), browserManager));
-        list.add(new BrowserToolAdapter(new BrowseBackForwardTool(), browserManager));
-        // Keep eval and screenshot as utility tools
         list.add(new BrowserToolAdapter(new BrowserEvalTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowserScreenshotTool(), browserManager));
         return list;

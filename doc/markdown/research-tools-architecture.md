@@ -133,8 +133,30 @@ und **viewTokens** für Race-Condition-freie Interaktion.
 - `ResearchQueueStatusTool.java` – `research_queue_status`
 
 ### Geändert
-- `plugins/webSearch/plugin/WebSearchPlugin.java` – Alle 10 Research-Tools registriert
+- `plugins/webSearch/plugin/WebSearchPlugin.java` – Alle alten Browse*-Tools entfernt, 10 Research-Tools + 5 Utility-Tools registriert
 - `plugins/webSearch/build.gradle` – `compileOnly project(':app')`
+- `wd4j-mcp-server/McpServerMain.java` – Alte Browser*-Tools durch Research-Tools ersetzt
+- `app/ChatMode.java` – AGENT + RECHERCHE System-Prompts auf neue Tool-Namen umgestellt
+- `app/ChatSession.java` – Fuzzy-Match mappt alte Tool-Namen auf neue; Auto-Archivierung triggert bei research_open/choose/menu
+- `app/WebSnapshotPipeline.java` – Javadoc aktualisiert
+
+### Gelöschte Dateien (durch Research-Tools ersetzt)
+- `BrowseNavigateTool.java` → `ResearchOpenTool.java`
+- `BrowseReadPageTool.java` → `ResearchMenuTool.java`
+- `BrowseSnapshotTool.java` → `ResearchMenuTool.java`
+- `BrowseClickTool.java` → `ResearchChooseTool.java`
+- `BrowseLocateTool.java` → Tagging-Bridge (MenuViewBuilder)
+- `BrowseBackForwardTool.java` → `ResearchBackForwardTool.java`
+- `BrowseWaitTool.java` → Settle-Policies (NAVIGATION/DOM_QUIET/NETWORK_QUIET)
+- `BrowserNavigateTool.java` → `ResearchOpenTool.java`
+- `BrowserOpenTool.java` → `ResearchSessionStartTool.java`
+- `BrowserClickCssTool.java` → `ResearchChooseTool.java`
+- `BrowserTypeCssTool.java` → `BrowseTypeTool.java` (behalten)
+- `BrowserWaitForTool.java` → Settle-Policies
+- `BrowserLaunchTool.java` → `ResearchSessionStartTool.java`
+- `BrowserCloseTool.java` → Session-Lifecycle
+- `PageDomSnapshotTool.java` → `ResearchMenuTool.java` (Tagging-Bridge)
+- `PageExtractTool.java` → `ResearchMenuTool.java` (excerpt)
 
 ## Beispiel-Workflow (Bot)
 

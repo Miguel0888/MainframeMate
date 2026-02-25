@@ -99,7 +99,7 @@ public class BrowseTypeTool implements McpServerTool {
             }
 
             return ToolResult.text("Typed into " + ref + (submit ? " and submitted" : "")
-                    + ".\nUse web_read_page to read the result, or web_snapshot to see interactive elements.");
+                    + ".\nUse research_menu to see the result and interactive elements.");
         } catch (Exception e) {
             return ToolResult.error("Type failed: " + e.getMessage());
         }

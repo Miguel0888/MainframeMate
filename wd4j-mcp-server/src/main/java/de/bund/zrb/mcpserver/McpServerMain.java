@@ -51,17 +51,21 @@ public class McpServerMain {
 
         // ── 3. Register all tools ───────────────────────────────────
         ToolRegistry registry = new ToolRegistry();
-        registry.register(new BrowserOpenTool());
-        registry.register(new BrowserLaunchTool());
-        registry.register(new BrowserNavigateTool());
-        registry.register(new BrowserClickCssTool());
-        registry.register(new BrowserTypeCssTool());
+
+        // Research-mode tools (bot-friendly menu-based navigation)
+        registry.register(new ResearchSessionStartTool());
+        registry.register(new ResearchOpenTool());
+        registry.register(new ResearchMenuTool());
+        registry.register(new ResearchChooseTool());
+        registry.register(new ResearchBackForwardTool());
+        registry.register(new ResearchConfigUpdateTool());
+
+        // Utility tools (still useful alongside research tools)
+        registry.register(new BrowseTypeTool());
+        registry.register(new BrowseSelectTool());
+        registry.register(new BrowseScrollTool());
         registry.register(new BrowserEvalTool());
         registry.register(new BrowserScreenshotTool());
-        registry.register(new BrowserCloseTool());
-        registry.register(new BrowserWaitForTool());
-        registry.register(new PageDomSnapshotTool());
-        registry.register(new PageExtractTool());
 
         // ── 4. Set up transport + router ────────────────────────────
         StdioTransport transport = new StdioTransport(System.in, protocolOut);

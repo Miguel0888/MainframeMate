@@ -1138,7 +1138,7 @@ public class ChatSession extends JPanel {
                                             "Die Aufgabe des Nutzers war: \"" + lastUserRequestText + "\"\n" +
                                             "Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
                                             "NEIN → Antworte NUR mit einem JSON-Tool-Call. Beispiel:\n" +
-                                            "{\"name\":\"web_navigate\",\"input\":{\"url\":\"https://example.com\"}}\n" +
+                                            "{\"name\":\"research_open\",\"input\":{\"url\":\"https://example.com\"}}\n" +
                                             "JA → Fasse die gesammelten Ergebnisse zusammen und antworte dem Nutzer.\n" +
                                             "WICHTIG: Kein Text VOR dem JSON. Kein Erklärtext. NUR das JSON-Objekt.";
                                     streamAssistantFollowUp(retryPrompt);
@@ -1438,10 +1438,12 @@ public class ChatSession extends JPanel {
                     toolsUsedInThisChat.add(requestedTool);
                 }
 
-                // ── RECHERCHE-Modus: Auto-Archivierung bei web_read_page ──
+                // ── RECHERCHE-Modus: Auto-Archivierung bei research_open / research_menu ──
                 ChatMode rechercheCheck = (ChatMode) modeComboBox.getSelectedItem();
                 if (rechercheCheck == ChatMode.RECHERCHE
-                        && "web_read_page".equalsIgnoreCase(requestedTool)
+                        && requestedTool != null
+                        && (requestedTool.startsWith("research_open") || requestedTool.equals("research_menu")
+                            || requestedTool.equals("research_choose"))
                         && isSuccessResult(result)) {
                     try {
                         de.bund.zrb.archive.service.ArchiveService archiveService =
@@ -1501,7 +1503,8 @@ public class ChatSession extends JPanel {
                             "Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
                             "Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. " +
                             "Frage NICHT den Nutzer. Handle autonom. " +
-                            "Beispiele für nächste Schritte: weitere Seiten navigieren, Artikel-Links anklicken, web_read_page aufrufen, Daten sammeln. " +
+                            "Beispiele für nächste Schritte: research_open für neue URLs, research_choose um Menü-Links zu folgen, " +
+                            "research_search um im Archiv zu suchen, research_doc_get um archivierte Seiten zu lesen. " +
                             "Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. " +
                             "WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. " +
                             "Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. " +
@@ -1877,7 +1880,7 @@ public class ChatSession extends JPanel {
 
     /**
      * Try to match a mistyped tool name to a registered tool.
-     * E.g. "browser" → "web_navigate", "browse" → "web_navigate".
+     * E.g. "browse" → "research_open", "navigate" → "research_open".
      */
     private String fuzzyMatchToolName(String name) {
         if (name == null) return null;
@@ -1894,7 +1897,7 @@ public class ChatSession extends JPanel {
             if (c.equalsIgnoreCase(lower)) return c;
         }
 
-        // Prefix match: "browser" matches "browser_eval"
+        // Prefix match: "research" matches "research_open"
         String bestPrefix = null;
         for (String c : candidates) {
             if (c.toLowerCase().startsWith(lower) || lower.startsWith(c.toLowerCase())) {
@@ -1904,12 +1907,18 @@ public class ChatSession extends JPanel {
             }
         }
 
-        // Common aliases
+        // Common aliases – map old tool names to new research tools
         if (bestPrefix == null) {
-            if (lower.contains("browse") || lower.contains("browser") || lower.equals("navigate")) {
-                bestPrefix = "web_navigate";
-            } else if (lower.contains("snapshot") || lower.equals("page")) {
-                bestPrefix = "web_snapshot";
+            if (lower.contains("browse") || lower.contains("browser") || lower.equals("navigate")
+                    || lower.equals("web_navigate") || lower.equals("web_open")) {
+                bestPrefix = "research_open";
+            } else if (lower.contains("snapshot") || lower.equals("page")
+                    || lower.equals("web_snapshot") || lower.equals("web_read_page")) {
+                bestPrefix = "research_menu";
+            } else if (lower.equals("web_click") || lower.equals("click")) {
+                bestPrefix = "research_choose";
+            } else if (lower.equals("web_history") || lower.equals("back") || lower.equals("forward")) {
+                bestPrefix = "research_navigate";
             }
         }
 

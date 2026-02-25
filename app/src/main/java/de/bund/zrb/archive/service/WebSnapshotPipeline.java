@@ -12,8 +12,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Automatic archiving pipeline.  Triggered after every web_read_page call
- * in RECHERCHE mode.
+ * Automatic archiving pipeline. Triggered after every research_open / research_choose
+ * call in RECHERCHE mode.
  * <p>
  * Steps:
  * 1. Accept URL + text content
@@ -42,7 +42,7 @@ public class WebSnapshotPipeline {
      * Process a web page snapshot.
      *
      * @param url         the page URL
-     * @param textContent the extracted text content (from web_read_page)
+     * @param textContent the extracted text content (from research_open/research_menu)
      * @param title       the page title
      * @return the created ArchiveEntry, or null on failure
      */
