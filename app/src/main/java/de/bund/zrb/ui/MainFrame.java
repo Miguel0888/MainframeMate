@@ -163,6 +163,13 @@ public class MainFrame extends JFrame implements MainframeContext {
         chatManager = getAiService();
 
         setTitle("MainframeMate");
+
+        // Apply branding icons to this window (multi-size for OS/taskbar selection)
+        java.util.List<java.awt.Image> brandIcons = de.bund.zrb.ui.branding.IconThemeInstaller.getAppIcons();
+        if (!brandIcons.isEmpty()) {
+            setIconImages(brandIcons);
+        }
+
         setCompatibleFontIfNecessary();
         setSize(1000, 700);
         setDefaultCloseOperation(EXIT_ON_CLOSE);

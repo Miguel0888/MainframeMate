@@ -122,6 +122,67 @@ sourceSets {
 
 compileJava.dependsOn generateGrammarSource
 
+// ── Icon Theme: unpack branding icons from app.zip ──────────────────────────
+def iconThemeZip = rootProject.file('app.zip')
+def iconThemeDir = file("${project.buildDir}/generated-resources/icon-theme")
+
+sourceSets.main.resources.srcDir iconThemeDir
+
+task unpackBrandingIcons(type: Copy) {
+    description = 'Entpackt das Branding-Icon-ZIP in die generierten Ressourcen.'
+    from zipTree(iconThemeZip)
+    into iconThemeDir
+    // Deterministic: always clean target first
+    doFirst {
+        if (iconThemeDir.exists()) {
+            delete iconThemeDir
+        }
+    }
+    // Validate required files after unpack
+    doLast {
+        def requiredAppSizes = [16, 24, 32, 48, 64, 128, 256]
+        def variants = ['transparent']
+        def missing = []
+
+        variants.each { variant ->
+            requiredAppSizes.each { size ->
+                def expected = file("${iconThemeDir}/app/mainframemate_hub_${variant}_${size}.png")
+                if (!expected.exists()) {
+                    missing << expected.path
+                }
+            }
+        }
+
+        // Optional: if ui/ folder exists, validate required UI icons
+        def uiDir = file("${iconThemeDir}/ui")
+        if (uiDir.exists()) {
+            def requiredUiIcons = [
+                'optionpane_information_32.png',
+                'optionpane_warning_32.png',
+                'optionpane_error_32.png',
+                'optionpane_question_32.png'
+            ]
+            requiredUiIcons.each { icon ->
+                def expected = file("${uiDir}/${icon}")
+                if (!expected.exists()) {
+                    missing << expected.path
+                }
+            }
+        }
+
+        if (!missing.isEmpty()) {
+            throw new GradleException(
+                "Icon Theme Validation FAILED – missing required files:\n  " +
+                missing.join("\n  ")
+            )
+        }
+        logger.lifecycle("[IconTheme] Validation passed – all required icons present.")
+    }
+}
+
+
+processResources.dependsOn unpackBrandingIcons
+
 // Ensure all plugins are built and installed when assembling the app
 tasks.named('assemble') {
     dependsOn ':plugins:excelimport:installPlugin'

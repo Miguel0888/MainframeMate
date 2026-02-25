@@ -4,6 +4,7 @@ import de.bund.zrb.history.LocalHistoryService;
 import de.bund.zrb.indexing.service.IndexingService;
 import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
+import de.bund.zrb.ui.branding.IconThemeInstaller;
 import de.bund.zrb.ui.util.UnicodeFontFix;
 
 import de.bund.zrb.runtime.PluginManager;
@@ -14,6 +15,9 @@ public class Main {
     public static void main(String[] args) {
 //        UnicodeFontFix.apply(); // for windows 11 required to display emojis correctly
         MainframeSyntaxSupport.register(); // Register Natural/JCL/COBOL syntax highlighting
+
+        // Install branding icon theme (before any Swing window is created)
+        IconThemeInstaller.install();
 
         // Apply log settings from preferences (before any logging happens)
         de.bund.zrb.util.AppLogger.applySettings();
