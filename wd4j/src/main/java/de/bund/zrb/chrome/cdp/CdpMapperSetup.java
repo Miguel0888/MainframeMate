@@ -1,7 +1,6 @@
 package de.bund.zrb.chrome.cdp;
 
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -118,6 +117,7 @@ public class CdpMapperSetup {
         cdp.sendCommand("Runtime.evaluate", runParams, sessionId)
                 .get(60, TimeUnit.SECONDS); // Mapper init can take a bit
         System.out.println("[ChromeBidi] Mapper instance started!");
+
 
         return new MapperHandle(sessionId, targetId);
     }

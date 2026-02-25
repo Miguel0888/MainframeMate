@@ -1,7 +1,6 @@
 package de.bund.zrb.websearch.ui;
 
 import de.bund.zrb.api.WDWebSocket;
-import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.type.script.WDEvaluateResult;
 
@@ -106,26 +105,36 @@ public class BrowserConnectionTestDialog extends JDialog {
         try {
             // Step 1: Launch browser
             log("[1/6] Browser wird gestartet...");
+            log("  Typ: " + (browserPath.toLowerCase().contains("chrome") ? "Chrome (BiDi via CDP-Mapper)" : "Firefox (nativer BiDi-Support)"));
             List<String> extraArgs = new ArrayList<String>();
+
+            long launchStart = System.currentTimeMillis();
             testSession.launchAndConnect(browserPath, extraArgs, headless, 30000, debugPort);
+            long launchTime = System.currentTimeMillis() - launchStart;
             if (stopped) return;
-            log("  ✅ Browser gestartet und verbunden");
-            log("  Context-ID: " + testSession.getContextId());
+
+            String contextId = testSession.getContextId();
+            if (contextId != null) {
+                log("  ✅ Browser gestartet und verbunden (" + launchTime + "ms)");
+                log("  Context-ID: " + contextId);
+            } else {
+                log("  ⚠️ Browser gestartet aber kein Context verfügbar");
+                log("  Der Test wird trotzdem fortgesetzt...");
+            }
 
             // Register WebSocket frame listeners for traffic display
             WDWebSocket ws = testSession.getWebSocket();
             if (ws != null) {
                 ws.onFrameSent(frame -> {
                     String text = frame.text();
-                    String truncated = text.length() > 300 ? text.substring(0, 300) + "..." : text;
-                    log("  >>> SEND: " + truncated);
+                    String truncated = text.length() > 200 ? text.substring(0, 200) + "…" : text;
+                    log("  >>> " + truncated);
                 });
                 ws.onFrameReceived(frame -> {
                     String text = frame.text();
-                    String truncated = text.length() > 300 ? text.substring(0, 300) + "..." : text;
-                    log("  <<< RECV: " + truncated);
+                    String truncated = text.length() > 200 ? text.substring(0, 200) + "…" : text;
+                    log("  <<< " + truncated);
                 });
-                log("  WebSocket-Traffic-Listener registriert");
             }
             log("");
 

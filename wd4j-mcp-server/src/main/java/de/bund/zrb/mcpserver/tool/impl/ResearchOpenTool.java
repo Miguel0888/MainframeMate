@@ -240,6 +240,16 @@ public class ResearchOpenTool implements McpServerTool {
                         sb.append("Or call research_open with a DIFFERENT URL from the menu.");
                         return ToolResult.text(sb.toString());
                     }
+                    // Check if we have cached HTML body – if not, the previous navigation
+                    // likely timed out. Don't retry the same URL endlessly.
+                    if (pipeline.getLastNavigationHtml() == null) {
+                        LOG.warning("[research_open] Same URL " + url
+                                + " but no cached HTML – previous navigation likely timed out. Giving up.");
+                        return ToolResult.error(
+                                "This URL was already attempted but the page did not load (timeout). "
+                              + "Please try a DIFFERENT URL, or use wait='none' to proceed without waiting. "
+                              + "URL: " + url);
+                    }
                     // Have cached HTML but no valid view – rebuild from cache, don't navigate
                     alreadyThere = true;
                     LOG.info("[research_open] Already on " + cachedUrl + " – rebuilding view from cached HTML.");
@@ -250,6 +260,9 @@ public class ResearchOpenTool implements McpServerTool {
                 // Clear HTML cache before new navigation
                 if (pipeline != null) {
                     pipeline.clearNavigationCache();
+                    // Pre-set the target URL so that after a timeout, same-URL detection
+                    // prevents the bot from re-navigating to the same URL endlessly.
+                    pipeline.setLastNavigationUrl(url);
                 }
 
                 // Navigate via address bar (URL-based, no JS)

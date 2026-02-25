@@ -2,7 +2,6 @@ package de.bund.zrb.chrome;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import de.bund.zrb.api.WDWebSocket;
 import de.bund.zrb.api.WebSocketFrame;
 import de.bund.zrb.chrome.cdp.CdpConnection;
@@ -62,7 +61,54 @@ public class ChromeBidiWebSocketImpl implements WDWebSocket {
         // Step 3: Setup the mapper
         this.mapperHandle = CdpMapperSetup.setupMapper(cdpConnection, verbose);
 
+        // Step 4: Send session.new to initialize the mapper's target management.
+        // Without this, the mapper doesn't call Target.setAutoAttach and
+        // browsingContext.getTree will always return empty contexts.
+        initBidiSession();
+
         System.out.println("[ChromeBidi] Ready! BiDi adapter operational via mapper tab.");
+    }
+
+    /**
+     * Send a session.new BiDi command to the mapper.
+     * This triggers the mapper's internal initialization (Target.setAutoAttach,
+     * Target.setDiscoverTargets) so it starts tracking existing browser tabs.
+     */
+    private void initBidiSession() {
+        String sessionNewCmd = "{\"id\":0,\"method\":\"session.new\",\"params\":{\"capabilities\":{}}}";
+
+        final CompletableFuture<String> sessionResponse = new CompletableFuture<>();
+
+        // Temporarily listen for the session.new response
+        Consumer<WebSocketFrame> responseListener = frame -> {
+            String text = frame.text();
+            if (text.contains("\"id\":0") || text.contains("\"id\": 0")) {
+                sessionResponse.complete(text);
+            }
+        };
+        onFrameReceivedListeners.add(responseListener);
+
+        try {
+            // Send the command
+            String escapedJson = GSON.toJson(sessionNewCmd);
+            String expression = "onBidiMessage(" + escapedJson + ")";
+            JsonObject evalParams = new JsonObject();
+            evalParams.addProperty("expression", expression);
+            cdpConnection.sendCommand("Runtime.evaluate", evalParams, mapperHandle.sessionId);
+
+            // Wait for response (with timeout)
+            String response = sessionResponse.get(15, TimeUnit.SECONDS);
+            System.out.println("[ChromeBidi] session.new response: " +
+                    (response.length() > 200 ? response.substring(0, 200) + "..." : response));
+
+            // Give the mapper a moment to auto-attach to existing targets
+            Thread.sleep(1000);
+        } catch (Exception e) {
+            System.err.println("[ChromeBidi] Warning: session.new failed: " + e.getMessage());
+            System.err.println("[ChromeBidi] The mapper may not discover existing tabs.");
+        } finally {
+            onFrameReceivedListeners.remove(responseListener);
+        }
     }
 
     // ── WDWebSocket interface ──
@@ -183,6 +229,21 @@ public class ChromeBidiWebSocketImpl implements WDWebSocket {
 
     public boolean isConnected() {
         return cdpConnection.isOpen() && !closed;
+    }
+
+    /**
+     * Returns the underlying CDP connection. Useful for fallback operations
+     * like querying existing targets when the BiDi mapper's getTree returns empty.
+     */
+    public CdpConnection getCdpConnection() {
+        return cdpConnection;
+    }
+
+    /**
+     * Returns the mapper handle (sessionId + targetId of the mapper tab).
+     */
+    public CdpMapperSetup.MapperHandle getMapperHandle() {
+        return mapperHandle;
     }
 
     // ── Internal ──

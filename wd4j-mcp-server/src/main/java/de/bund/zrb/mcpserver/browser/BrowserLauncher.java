@@ -180,8 +180,13 @@ public class BrowserLauncher {
         command.add("--disable-client-side-phishing-detection");
         command.add("--disable-default-apps");
         command.add("--disable-extensions");
+        command.add("--disable-component-extensions-with-background-pages");
         command.add("--disable-sync");
         command.add("--disable-translate");
+        command.add("--disable-hang-monitor");
+        command.add("--disable-popup-blocking");
+        command.add("--no-service-autorun");
+        command.add("--password-store=basic");
 
         // Dedicated user data dir
         boolean hasUserData = false;

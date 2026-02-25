@@ -69,6 +69,45 @@ public class BrowserSession {
     public void connectChrome(String cdpWebSocketUrl, boolean createContext)
             throws Exception {
         LOG.info("[BrowserSession] Connecting to Chrome via BiDi mapper: " + cdpWebSocketUrl);
+
+        // Pre-query: Find existing page targets BEFORE the mapper is set up
+        // (because the mapper creates its own tab which pollutes the list)
+        String preFoundContextId = null;
+        if (createContext) {
+            try {
+                java.net.URI wsUri = java.net.URI.create(cdpWebSocketUrl);
+                int port = wsUri.getPort();
+                java.net.URL jsonUrl = new java.net.URL("http://127.0.0.1:" + port + "/json");
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) jsonUrl.openConnection();
+                conn.setConnectTimeout(3000);
+                conn.setReadTimeout(3000);
+                if (conn.getResponseCode() == 200) {
+                    java.io.BufferedReader reader = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                    reader.close();
+
+                    com.google.gson.JsonArray targets = com.google.gson.JsonParser.parseString(sb.toString()).getAsJsonArray();
+                    for (com.google.gson.JsonElement elem : targets) {
+                        com.google.gson.JsonObject t = elem.getAsJsonObject();
+                        String type = t.has("type") ? t.get("type").getAsString() : "";
+                        String url = t.has("url") ? t.get("url").getAsString() : "";
+                        String id = t.has("id") ? t.get("id").getAsString() : "";
+                        if (!"page".equals(type)) continue;
+                        if (url.contains("MAPPER_TARGET")) continue;
+                        preFoundContextId = id;
+                        LOG.info("[BrowserSession] Pre-mapper: found target " + id + " (" + url + ")");
+                        break;
+                    }
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                LOG.warning("[BrowserSession] Pre-mapper target lookup failed: " + e.getMessage());
+            }
+        }
+
         ChromeBidiWebSocketImpl chromeBidiWs = new ChromeBidiWebSocketImpl(cdpWebSocketUrl, false);
         this.webSocket = chromeBidiWs;
         this.driver = new WebDriver(chromeBidiWs);
@@ -80,8 +119,39 @@ public class BrowserSession {
         subscribeToConsoleLogs();
 
         if (createContext) {
-            WDBrowsingContextResult.CreateResult ctx = driver.browsingContext().create();
-            this.contextId = ctx.getContext();
+            // Try BiDi getTree first (may work after mapper init)
+            try {
+                WDBrowsingContextResult.GetTreeResult tree = driver.browsingContext().getTree();
+                if (tree.getContexts() != null && !tree.getContexts().isEmpty()) {
+                    for (de.bund.zrb.type.browsingContext.WDInfo ctx : tree.getContexts()) {
+                        String url = ctx.getUrl();
+                        if (url != null && url.contains("MAPPER_TARGET")) continue;
+                        this.contextId = ctx.getContext().value();
+                        LOG.info("[BrowserSession] Using BiDi context: " + this.contextId + " (" + url + ")");
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warning("[BrowserSession] getTree failed: " + e.getMessage());
+            }
+
+            // Fallback: use pre-queried target ID
+            if (this.contextId == null && preFoundContextId != null) {
+                this.contextId = preFoundContextId;
+                LOG.info("[BrowserSession] Using pre-mapper target as context: " + preFoundContextId);
+            }
+
+            // Last resort: try browsingContext.create (may hang with Chrome mapper!)
+            if (this.contextId == null) {
+                LOG.warning("[BrowserSession] No context found – trying browsingContext.create (may hang)...");
+                try {
+                    WDBrowsingContextResult.CreateResult ctx = driver.browsingContext().create();
+                    this.contextId = ctx.getContext();
+                } catch (Exception e) {
+                    LOG.warning("[BrowserSession] browsingContext.create failed: " + e.getMessage());
+                    throw new RuntimeException("Could not obtain a browsing context for Chrome", e);
+                }
+            }
         }
     }
 

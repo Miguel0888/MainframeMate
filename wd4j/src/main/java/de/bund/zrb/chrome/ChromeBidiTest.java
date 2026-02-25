@@ -58,6 +58,30 @@ public class ChromeBidiTest {
         }
         System.out.println("CDP WebSocket URL: " + cdpWsUrl);
 
+        // Pre-mapper: find existing about:blank target via HTTP /json
+        System.out.println("\n[0] Pre-mapper: finding existing targets via HTTP /json...");
+        String preFoundContextId = null;
+        String targetsJson = getChromeTargets(port);
+        if (targetsJson != null) {
+            System.out.println("Chrome /json response: " + targetsJson.substring(0, Math.min(300, targetsJson.length())) + "...");
+            // Use Gson for proper JSON parsing
+            com.google.gson.JsonArray targets = com.google.gson.JsonParser.parseString(targetsJson).getAsJsonArray();
+            for (com.google.gson.JsonElement elem : targets) {
+                com.google.gson.JsonObject t = elem.getAsJsonObject();
+                String type = t.has("type") ? t.get("type").getAsString() : "";
+                String targetUrl = t.has("url") ? t.get("url").getAsString() : "";
+                String id = t.has("id") ? t.get("id").getAsString() : "";
+                System.out.println("  Target: type=" + type + " id=" + id + " url=" + targetUrl);
+                if ("page".equals(type) && !targetUrl.contains("MAPPER_TARGET")) {
+                    preFoundContextId = id;
+                    System.out.println("  → Using this as context: " + id);
+                    break;
+                }
+            }
+        } else {
+            System.out.println("  /json returned null!");
+        }
+
         // Create the ChromeBidiWebSocketImpl
         System.out.println("\nCreating ChromeBidiWebSocketImpl...");
         ChromeBidiWebSocketImpl bidiWs = new ChromeBidiWebSocketImpl(cdpWsUrl, true);
@@ -97,41 +121,47 @@ public class ChromeBidiTest {
         bidiWs.send("{\"id\":2,\"method\":\"session.status\",\"params\":{}}");
         waitForResponse(responses, 2, 3000);
 
-        // Step 3: Create a new browsing context (tab)
-        System.out.println("\n[3] Creating browsingContext (type=tab)...");
-        bidiWs.send("{\"id\":3,\"method\":\"browsingContext.create\",\"params\":{\"type\":\"tab\"}}");
-        String createResp = waitForResponse(responses, 3, 10000);
+        // Step 3: Get existing browsing contexts (the about:blank tab Chrome already opened)
+        System.out.println("\n[3] Getting browsingContext.getTree to find existing tab...");
+        bidiWs.send("{\"id\":3,\"method\":\"browsingContext.getTree\",\"params\":{}}");
+        String treeResp = waitForResponse(responses, 3, 5000);
 
-        // Extract context ID from the response
+        // Extract context ID from the tree response (first non-mapper context)
         String contextId = null;
-        if (createResp != null) {
-            int ctxIdx = createResp.indexOf("\"context\"");
-            if (ctxIdx >= 0) {
-                int valStart = createResp.indexOf("\"", ctxIdx + 10) + 1;
-                int valEnd = createResp.indexOf("\"", valStart);
+        if (treeResp != null) {
+            // Find all "context":"..." entries and pick the first that is NOT a mapper target
+            int searchFrom = 0;
+            while (searchFrom < treeResp.length()) {
+                int ctxIdx = treeResp.indexOf("\"context\"", searchFrom);
+                if (ctxIdx < 0) break;
+                int valStart = treeResp.indexOf("\"", ctxIdx + 10) + 1;
+                int valEnd = treeResp.indexOf("\"", valStart);
                 if (valStart > 0 && valEnd > valStart) {
-                    contextId = createResp.substring(valStart, valEnd);
+                    String candidate = treeResp.substring(valStart, valEnd);
+                    // Check if this context's URL contains MAPPER_TARGET
+                    int urlIdx = treeResp.indexOf("\"url\"", valEnd);
+                    boolean isMapper = false;
+                    if (urlIdx >= 0 && urlIdx < valEnd + 200) {
+                        int urlValStart = treeResp.indexOf("\"", urlIdx + 5) + 1;
+                        int urlValEnd = treeResp.indexOf("\"", urlValStart);
+                        if (urlValStart > 0 && urlValEnd > urlValStart) {
+                            String url = treeResp.substring(urlValStart, urlValEnd);
+                            isMapper = url.contains("MAPPER_TARGET");
+                        }
+                    }
+                    if (!isMapper && contextId == null) {
+                        contextId = candidate;
+                        System.out.println("Found existing context: " + contextId);
+                    }
                 }
+                searchFrom = valEnd > 0 ? valEnd + 1 : searchFrom + 1;
             }
         }
 
-        // Fallback: try to get context from contextCreated event
-        if (contextId == null) {
-            System.out.println("No context in create response, checking events...");
-            for (String evt : events) {
-                if (evt.contains("browsingContext.contextCreated")) {
-                    int ctxIdx = evt.indexOf("\"context\"");
-                    if (ctxIdx >= 0) {
-                        int valStart = evt.indexOf("\"", ctxIdx + 10) + 1;
-                        int valEnd = evt.indexOf("\"", valStart);
-                        if (valStart > 0 && valEnd > valStart) {
-                            contextId = evt.substring(valStart, valEnd);
-                            System.out.println("Got context from event: " + contextId);
-                            break;
-                        }
-                    }
-                }
-            }
+        // Fallback: use pre-mapper target ID
+        if (contextId == null && preFoundContextId != null) {
+            contextId = preFoundContextId;
+            System.out.println("Using pre-mapper target as context: " + contextId);
         }
 
         if (contextId == null) {
@@ -196,6 +226,14 @@ public class ChromeBidiTest {
         cmd.add("--no-first-run");
         cmd.add("--no-default-browser-check");
         cmd.add("--disable-extensions");
+        cmd.add("--disable-component-extensions-with-background-pages");
+        cmd.add("--disable-background-networking");
+        cmd.add("--disable-default-apps");
+        cmd.add("--disable-sync");
+        cmd.add("--disable-translate");
+        cmd.add("--disable-hang-monitor");
+        cmd.add("--no-service-autorun");
+        cmd.add("--password-store=basic");
         cmd.add("--user-data-dir=" + System.getProperty("java.io.tmpdir") + "\\chrome-bidi-test-profile");
         cmd.add("about:blank");
 
@@ -244,6 +282,25 @@ public class ChromeBidiTest {
                         if (end > start) return json.substring(start, end);
                     }
                 }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private static String getChromeTargets(int port) {
+        try {
+            URL url = new URL("http://127.0.0.1:" + port + "/json");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(2000);
+            conn.setReadTimeout(2000);
+
+            if (conn.getResponseCode() == 200) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+                reader.close();
+                return sb.toString();
             }
         } catch (Exception ignored) {}
         return null;

@@ -475,6 +475,9 @@ public class NetworkIngestionPipeline {
     /** URL of the last captured navigation HTML. */
     public String getLastNavigationUrl() { return lastNavigationUrl; }
 
+    /** Pre-set the navigation URL (before actual navigation) for same-URL detection after timeouts. */
+    public void setLastNavigationUrl(String url) { this.lastNavigationUrl = url; }
+
     /** Clear the cached HTML (e.g. before a new navigation). */
     public void clearNavigationCache() {
         lastNavigationHtml = null;
