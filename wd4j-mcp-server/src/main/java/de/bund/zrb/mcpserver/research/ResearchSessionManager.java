@@ -19,10 +19,29 @@ public class ResearchSessionManager {
 
     private final Map<BrowserSession, ResearchSession> sessions = new ConcurrentHashMap<>();
 
+    /** Global callback for Data Lake run lifecycle, registered by WebSearchPlugin. */
+    private static volatile RunLifecycleCallback runLifecycleCallback;
+
     private ResearchSessionManager() {}
 
     public static ResearchSessionManager getInstance() {
         return INSTANCE;
+    }
+
+    /**
+     * Register a global callback for Data Lake run lifecycle events.
+     * Called once at plugin init time (e.g. from WebSearchPlugin).
+     */
+    public static void setRunLifecycleCallback(RunLifecycleCallback callback) {
+        runLifecycleCallback = callback;
+        LOG.info("[ResearchSessionManager] RunLifecycleCallback registered");
+    }
+
+    /**
+     * Get the global RunLifecycleCallback, or null if none registered.
+     */
+    public static RunLifecycleCallback getRunLifecycleCallback() {
+        return runLifecycleCallback;
     }
 
     /**

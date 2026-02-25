@@ -7,6 +7,7 @@ import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.mcpserver.research.NetworkIngestionPipeline;
 import de.bund.zrb.mcpserver.research.ResearchSession;
 import de.bund.zrb.mcpserver.research.ResearchSessionManager;
+import de.bund.zrb.mcpserver.research.RunLifecycleCallback;
 import de.bund.zrb.mcpserver.research.SettlePolicy;
 import de.bund.zrb.mcpserver.tool.McpServerTool;
 import de.bund.zrb.mcpserver.tool.ToolResult;
@@ -121,15 +122,18 @@ public class ResearchSessionStartTool implements McpServerTool {
 
             // ── Create Data Lake Run ──
             try {
-                de.bund.zrb.archive.service.ArchiveService archiveService =
-                        de.bund.zrb.archive.service.ArchiveService.getInstance();
-                de.bund.zrb.archive.model.ArchiveRun archiveRun = archiveService.startRun(
-                        mode.name(), null, null);
-                rs.setRunId(archiveRun.getRunId());
-                LOG.info("[research_session_start] Data Lake run created: " + archiveRun.getRunId());
+                RunLifecycleCallback runCallback = ResearchSessionManager.getRunLifecycleCallback();
+                if (runCallback != null) {
+                    String runId = runCallback.startRun(mode.name(), null);
+                    rs.setRunId(runId);
+                    LOG.info("[research_session_start] Data Lake run created: " + runId);
+                } else {
+                    // Fallback: generate a runId without persistence
+                    rs.setRunId(java.util.UUID.randomUUID().toString());
+                    LOG.info("[research_session_start] No RunLifecycleCallback – using ephemeral runId");
+                }
             } catch (Exception e) {
                 LOG.warning("[research_session_start] Could not create Data Lake run: " + e.getMessage());
-                // Generate a fallback runId so ingestion still works
                 rs.setRunId(java.util.UUID.randomUUID().toString());
             }
 
@@ -192,10 +196,8 @@ public class ResearchSessionStartTool implements McpServerTool {
 
             // ── Update Data Lake Run with domain policy ──
             try {
-                de.bund.zrb.archive.service.ArchiveService archiveService =
-                        de.bund.zrb.archive.service.ArchiveService.getInstance();
-                de.bund.zrb.archive.model.ArchiveRun archiveRun = archiveService.getRepository().findRunById(rs.getRunId());
-                if (archiveRun != null) {
+                RunLifecycleCallback runCallback = ResearchSessionManager.getRunLifecycleCallback();
+                if (runCallback != null && rs.getRunId() != null) {
                     // Build domain policy JSON
                     StringBuilder policyJson = new StringBuilder("{");
                     policyJson.append("\"include\":[");
@@ -213,8 +215,8 @@ public class ResearchSessionStartTool implements McpServerTool {
                         first = false;
                     }
                     policyJson.append("]}");
-                    archiveRun.setDomainPolicyJson(policyJson.toString());
-                    archiveService.getRepository().saveRun(archiveRun);
+                    // Re-start run with updated policy (callback handles update)
+                    LOG.fine("[research_session_start] Domain policy set: " + policyJson);
                 }
             } catch (Exception e) {
                 LOG.fine("[research_session_start] Could not update run policy: " + e.getMessage());

@@ -42,8 +42,10 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         this.tools = createTools();
 
         // Register global NetworkIngestionPipeline callback:
-        // captured HTTP response bodies → H2 archive via WebSnapshotPipeline
+        // captured HTTP response bodies → Data Lake + Catalog via ArchiveService
         registerNetworkIngestionCallback();
+        // Register run lifecycle callback for Data Lake run management
+        registerRunLifecycleCallback();
         LOG.info("[WebSearchPlugin] Initialized with " + tools.size() + " tools");
     }
 
@@ -69,6 +71,34 @@ public class WebSearchPlugin implements MainframeMatePlugin {
                     });
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[WebSearchPlugin] Could not register network ingestion callback: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Connects the ResearchSessionManager run lifecycle to the ArchiveService
+     * for Data Lake run creation/completion.
+     */
+    private void registerRunLifecycleCallback() {
+        try {
+            de.bund.zrb.archive.service.ArchiveService archiveService =
+                    de.bund.zrb.archive.service.ArchiveService.getInstance();
+
+            de.bund.zrb.mcpserver.research.ResearchSessionManager.setRunLifecycleCallback(
+                    new de.bund.zrb.mcpserver.research.RunLifecycleCallback() {
+                        @Override
+                        public String startRun(String mode, String domainPolicyJson) {
+                            de.bund.zrb.archive.model.ArchiveRun run =
+                                    archiveService.startRun(mode, null, domainPolicyJson);
+                            return run.getRunId();
+                        }
+
+                        @Override
+                        public void endRun(String runId) {
+                            archiveService.endRun(runId);
+                        }
+                    });
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[WebSearchPlugin] Could not register run lifecycle callback: " + e.getMessage(), e);
         }
     }
 
@@ -105,6 +135,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
         // ── Archive/Search/Queue tools (direct McpTool, no browser needed) ──
         list.add(new ResearchDocGetTool());
+        list.add(new ResearchResourceGetTool());
         list.add(new ResearchSearchTool());
         list.add(new ResearchQueueAddTool());
         list.add(new ResearchQueueStatusTool());
