@@ -8,6 +8,7 @@ import de.bund.zrb.type.script.WDEvaluateResult;
 import de.bund.zrb.type.script.WDRemoteReference;
 
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -216,42 +217,50 @@ public class MenuViewBuilder {
 
     private String runDescribeScript(int maxItems, int excerptLen) {
         String script = buildDescribeScript(maxItems, excerptLen);
+        // Run with a Java-side timeout to prevent browser freezes from blocking us forever
+        ExecutorService ex = Executors.newSingleThreadExecutor();
         try {
-            Object result = session.evaluate(script, true);
-            if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
-                String s = ((WDEvaluateResult.WDEvaluateResultSuccess) result).getResult().asString();
-                if (s != null && !s.startsWith("[Object:")) return s;
-            }
+            Future<String> future = ex.submit(new Callable<String>() {
+                @Override
+                public String call() {
+                    Object result = session.evaluate(script, true);
+                    if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
+                        String s = ((WDEvaluateResult.WDEvaluateResultSuccess) result).getResult().asString();
+                        if (s != null && !s.startsWith("[Object:")) return s;
+                    }
+                    return "";
+                }
+            });
+            return future.get(8, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            LOG.warning("[MenuViewBuilder] Describe script timed out after 8s – page JS too heavy");
+            return "";
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[MenuViewBuilder] Describe script failed", e);
+            return "";
+        } finally {
+            ex.shutdownNow();
         }
-        return "";
     }
 
     private String buildDescribeScript(int maxItems, int excerptLen) {
         return "(function(){"
+             + "var _start=Date.now();"
+             + "function _expired(){return (Date.now()-_start)>3000;}" // 3s max
              + "var r='TITLE|'+document.title+'\\n'+'URL|'+window.location.href+'\\n';"
-             // Interactive elements selector
+             // Interactive elements selector (no iframes – cross-origin hangs the browser)
              + "var sel='a[href],button,input,select,textarea,[role=button],[role=link],[role=tab],"
-             + "[role=menuitem],[role=checkbox],[role=radio],[onclick],[contenteditable=true]';"
+             + "[role=menuitem],[role=checkbox],[role=radio]';"
              + "var nodes=document.querySelectorAll(sel);"
-             // Also try iframes (same-origin)
-             + "var allNodes=[];"
-             + "for(var m=0;m<nodes.length;m++)allNodes.push(nodes[m]);"
-             + "try{var ifs=document.querySelectorAll('iframe');"
-             + "for(var f=0;f<ifs.length;f++){"
-             + "  try{var fd=ifs[f].contentDocument;"
-             + "  if(fd){var fn=fd.querySelectorAll(sel);for(var fi=0;fi<fn.length;fi++)allNodes.push(fn[fi]);}}"
-             + "  catch(e){}"
-             + "}}catch(e){}"
-             // Iterate and tag
-             + "var idx=0;"
-             + "for(var i=0;i<allNodes.length&&idx<" + maxItems + ";i++){"
-             + "  var n=allNodes[i];"
-             // Visibility check
-             + "  try{var cs=window.getComputedStyle(n);"
-             + "  if(cs.display==='none'||cs.visibility==='hidden')continue;"
-             + "  if(n.offsetWidth===0&&n.offsetHeight===0)continue;}catch(e){continue;}"
+             // Iterate and tag – cap total scanned to 500 to avoid freezing on huge DOMs
+             + "var idx=0;var scanned=0;var maxScan=500;"
+             + "for(var i=0;i<nodes.length&&idx<" + maxItems + "&&scanned<maxScan;i++){"
+             + "  if(_expired())break;"
+             + "  scanned++;"
+             + "  var n=nodes[i];"
+             // Fast visibility check: offsetParent is null for hidden elements (except body/fixed)
+             + "  try{if(!n.offsetParent&&n.tagName!=='BODY'"
+             + "    &&(!n.style||n.style.position!=='fixed'))continue;}catch(e){continue;}"
              // Describe
              + "  var tag=n.tagName.toLowerCase();"
              + "  var al=n.getAttribute('aria-label')||'';"
@@ -264,8 +273,8 @@ public class MenuViewBuilder {
              + "  else{var raw=n.getAttribute('href')||'';"
              + "  if(raw){try{hr=new URL(raw,location.href).href;}catch(e){hr=raw;}}}"
              + "  }catch(e){}"
-             + "  var tx='';try{tx=(n.innerText||n.textContent||'').trim().substring(0,60).replace(/\\n/g,' ');}catch(e){}"
-             // Build label: prefer aria-label > placeholder > title > text
+             + "  var tx='';try{tx=(n.textContent||'').trim().substring(0,60).replace(/\\n/g,' ');}catch(e){}"
+             // Build label
              + "  var label=al||ph||tt||tx||nm||'';"
              + "  if(label.length>80)label=label.substring(0,80)+'…';"
              // Build desc line
@@ -283,16 +292,30 @@ public class MenuViewBuilder {
              + "  r+='EL|'+idx+'|'+tag+'|'+label+'|'+hr+'|'+hint+'\\n';"
              + "  idx++;"
              + "}"
-             // Excerpt: try article/main first, fall back to body
+             // Excerpt: use textContent directly (NO cloneNode – that freezes on big DOMs)
              + "var excEl=document.querySelector('article')||document.querySelector('[role=main]')"
-             + "||document.querySelector('main')||document.querySelector('#content')"
-             + "||document.querySelector('.content')||document.body;"
-             + "var exc='';if(excEl){"
-             + "  var cl=excEl.cloneNode(true);"
-             + "  var rm=cl.querySelectorAll('script,style,nav,footer,header,noscript,[aria-hidden=true],.ad,.ads');"
-             + "  for(var ri=0;ri<rm.length;ri++){try{rm[ri].parentNode.removeChild(rm[ri]);}catch(e){}}"
-             + "  exc=(cl.innerText||cl.textContent||'').replace(/\\t/g,' ').replace(/ {3,}/g,' ')"
-             + "    .replace(/\\n{3,}/g,'\\n\\n').trim().substring(0," + excerptLen + ");"
+             + "||document.querySelector('main')||document.querySelector('#content');"
+             + "var exc='';"
+             + "if(excEl&&!_expired()){"
+             + "  try{exc=(excEl.textContent||'').replace(/\\s+/g,' ').trim().substring(0," + excerptLen + ");}catch(e){}"
+             + "}else if(!_expired()){"
+             // Fallback: walk text nodes in body, skip script/style, cap at excerptLen
+             + "  try{"
+             + "    var tw=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{"
+             + "      acceptNode:function(nd){"
+             + "        var p=nd.parentElement;if(!p)return NodeFilter.FILTER_SKIP;"
+             + "        var pn=p.tagName;"
+             + "        if(pn==='SCRIPT'||pn==='STYLE'||pn==='NOSCRIPT'||pn==='NAV')return NodeFilter.FILTER_REJECT;"
+             + "        return NodeFilter.FILTER_ACCEPT;"
+             + "      }"
+             + "    });"
+             + "    var buf=[];var len=0;"
+             + "    while(tw.nextNode()&&len<" + excerptLen + "&&!_expired()){"
+             + "      var v=tw.currentNode.nodeValue.trim();"
+             + "      if(v.length>2){buf.push(v);len+=v.length;}"
+             + "    }"
+             + "    exc=buf.join(' ').substring(0," + excerptLen + ");"
+             + "  }catch(e){}"
              + "}"
              + "r+='EXCERPT|'+exc;"
              + "return r;"
@@ -338,13 +361,6 @@ public class MenuViewBuilder {
                     "(function(){"
                   + "var els=document.querySelectorAll('[data-mm-menu-id]');"
                   + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-menu-id');"
-                  + "try{var ifs=document.querySelectorAll('iframe');"
-                  + "for(var f=0;f<ifs.length;f++){"
-                  + "  try{var fd=ifs[f].contentDocument;if(fd){"
-                  + "    var fe=fd.querySelectorAll('[data-mm-menu-id]');"
-                  + "    for(var j=0;j<fe.length;j++)fe[j].removeAttribute('data-mm-menu-id');"
-                  + "  }}catch(e){}"
-                  + "}}catch(e){}"
                   + "})()",
                     true);
         } catch (Exception ignored) {}
