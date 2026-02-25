@@ -3,6 +3,8 @@ package de.bund.zrb.websearch.plugin;
 import de.bund.zrb.mcpserver.tool.impl.*;
 import de.bund.zrb.websearch.commands.WebSearchSettingsMenuCommand;
 import de.bund.zrb.websearch.tools.BrowserToolAdapter;
+import de.bund.zrb.websearch.tools.ResearchDocGetTool;
+import de.bund.zrb.websearch.tools.ResearchSearchTool;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.api.MenuCommand;
@@ -59,7 +61,18 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
     private List<McpTool> createTools() {
         List<McpTool> list = new ArrayList<>();
-        // New text-based browsing tools with NodeRef system
+
+        // ── Research-mode tools (bot-friendly menu-based navigation) ──
+        list.add(new BrowserToolAdapter(new ResearchOpenTool(), browserManager));
+        list.add(new BrowserToolAdapter(new ResearchMenuTool(), browserManager));
+        list.add(new BrowserToolAdapter(new ResearchChooseTool(), browserManager));
+        list.add(new BrowserToolAdapter(new ResearchBackForwardTool(), browserManager));
+
+        // ── Archive/Search tools (direct McpTool, no browser needed) ──
+        list.add(new ResearchDocGetTool());
+        list.add(new ResearchSearchTool());
+
+        // ── Low-level browsing tools (NodeRef-based, for advanced use) ──
         list.add(new BrowserToolAdapter(new BrowseNavigateTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseReadPageTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseSnapshotTool(), browserManager));

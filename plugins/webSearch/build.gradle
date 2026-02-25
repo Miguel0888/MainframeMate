@@ -7,6 +7,10 @@ dependencies {
     implementation project(':wd4j')
     implementation project(':wd4j-mcp-server')
     implementation 'com.google.code.gson:gson:2.8.9'
+
+    // App classes are available at runtime (plugin is loaded in app classloader)
+    // but we use compileOnly to avoid circular dependency
+    compileOnly project(':app')
 }
 
 jar {
