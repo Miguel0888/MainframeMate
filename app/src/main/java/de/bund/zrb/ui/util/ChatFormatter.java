@@ -1,5 +1,9 @@
 package de.bund.zrb.ui.util;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
 import de.bund.zrb.model.Settings;
@@ -29,6 +33,8 @@ public class ChatFormatter {
         }
     }
 
+    private static final Gson PRETTY_GSON = new GsonBuilder().setPrettyPrinting().create();
+
     private final java.util.List<JTextPane> allTextPanes = new java.util.ArrayList<>();
 
     private final JPanel messageContainer;
@@ -52,6 +58,19 @@ public class ChatFormatter {
                 });
             }
         });
+    }
+
+    /**
+     * Tries to pretty-print a JSON string. If parsing fails, returns the original string unchanged.
+     */
+    private static String prettyPrintJson(String json) {
+        if (json == null || json.isEmpty()) return json;
+        try {
+            JsonElement el = JsonParser.parseString(json);
+            return PRETTY_GSON.toJson(el);
+        } catch (Exception e) {
+            return json; // not valid JSON – return as-is
+        }
     }
 
     public void appendUserMessage(String text, @NotNull Runnable onDelete) {
@@ -125,7 +144,8 @@ public class ChatFormatter {
         header.add(toggle);
 
         JTextPane bodyPane = createConfiguredTextPane();
-        String html = ChatMarkdownFormatter.format("```json\n" + (jsonBody == null ? "" : jsonBody) + "\n```");
+        String prettyJson = prettyPrintJson(jsonBody);
+        String html = ChatMarkdownFormatter.format("```json\n" + (prettyJson == null ? "" : prettyJson) + "\n```");
         bodyPane.setText(formatHtml(html));
         bodyPane.setVisible(false);
 
@@ -165,7 +185,8 @@ public class ChatFormatter {
         header.add(toggle);
 
         JTextPane bodyPane = createConfiguredTextPane();
-        String html = ChatMarkdownFormatter.format("```json\n" + (jsonBody == null ? "" : jsonBody) + "\n```");
+        String prettyJson = prettyPrintJson(jsonBody);
+        String html = ChatMarkdownFormatter.format("```json\n" + (prettyJson == null ? "" : prettyJson) + "\n```");
         bodyPane.setText(formatHtml(html));
         bodyPane.setVisible(false);
 
