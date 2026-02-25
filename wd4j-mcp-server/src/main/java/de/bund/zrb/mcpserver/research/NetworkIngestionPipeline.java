@@ -365,14 +365,22 @@ public class NetworkIngestionPipeline {
                         runId, url, mimeType, status, bodyText, filteredHeaders, System.currentTimeMillis());
                 if (docId != null) {
                     session.addArchivedDocId(docId);
-                    capturedCount.incrementAndGet();
-                    LOG.fine("[NetworkIngestion] Captured: " + url + " → docId=" + docId);
+                    int count = capturedCount.incrementAndGet();
+                    // Log first 20 captures at INFO, rest at FINE
+                    if (count <= 20) {
+                        LOG.info("[NetworkIngestion] ✅ Captured #" + count + ": " + mimeType
+                                + " " + url + " → id=" + docId
+                                + " (" + bodyText.length() + " chars, runId=" + runId + ")");
+                    } else {
+                        LOG.fine("[NetworkIngestion] Captured: " + url + " → docId=" + docId);
+                    }
                 } else {
                     failedCount.incrementAndGet();
+                    LOG.info("[NetworkIngestion] ⚠ Callback returned null for: " + mimeType + " " + url);
                 }
             } catch (Exception e) {
                 failedCount.incrementAndGet();
-                LOG.log(Level.FINE, "[NetworkIngestion] Callback failed for " + url, e);
+                LOG.log(Level.WARNING, "[NetworkIngestion] ❌ Callback failed for " + url, e);
             }
         }
     }

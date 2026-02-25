@@ -134,7 +134,7 @@ public class ArchiveService {
             if (existing != null) {
                 // Same content at same URL → update seen count only
                 repository.updateResourceSeen(existing.getResourceId());
-                LOG.fine("[Archive] Dedupe hit: " + url + " (seen=" + (existing.getSeenCount() + 1) + ")");
+                LOG.info("[Archive] 🔄 Dedupe hit: " + url + " (seen=" + (existing.getSeenCount() + 1) + ")");
                 return existing.getResourceId();
             }
 
@@ -171,10 +171,13 @@ public class ArchiveService {
                 ArchiveDocument doc = catalogPipeline.process(resource, bodyText);
                 if (doc != null) {
                     resultId = doc.getDocId();
+                    LOG.info("[Archive] 📄 Document created: " + doc.getTitle()
+                            + " (kind=" + doc.getKind() + ", words=" + doc.getWordCount()
+                            + ", host=" + doc.getHost() + ")");
                 }
             }
 
-            LOG.fine("[Archive] Ingested: " + kind.name() + " " + url
+            LOG.info("[Archive] Ingested " + kind.name() + ": " + url
                     + " (indexable=" + indexable + ", id=" + resultId + ")");
             return resultId;
 

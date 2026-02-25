@@ -77,7 +77,7 @@ public class ResearchSessionManager {
 
     /**
      * Remove the ResearchSession for the given BrowserSession (e.g. on close).
-     * Stops the Network Ingestion Pipeline if active.
+     * Stops the Network Ingestion Pipeline and ends the Data Lake run.
      */
     public void remove(BrowserSession browserSession) {
         ResearchSession removed = sessions.remove(browserSession);
@@ -91,13 +91,15 @@ public class ResearchSessionManager {
                     LOG.warning("[ResearchSessionManager] Error stopping pipeline: " + e.getMessage());
                 }
             }
+            // End Data Lake run
+            endRunForSession(removed);
             LOG.info("[ResearchSessionManager] Removed session " + removed.getSessionId());
         }
     }
 
     /**
      * Clear all sessions (e.g. on app shutdown).
-     * Stops all active Network Ingestion Pipelines.
+     * Stops all active Network Ingestion Pipelines and ends Data Lake runs.
      */
     public void clear() {
         for (ResearchSession rs : sessions.values()) {
@@ -109,8 +111,23 @@ public class ResearchSessionManager {
                     LOG.warning("[ResearchSessionManager] Error stopping pipeline: " + e.getMessage());
                 }
             }
+            endRunForSession(rs);
         }
         sessions.clear();
+    }
+
+    /**
+     * End the Data Lake run for a session via callback.
+     */
+    private void endRunForSession(ResearchSession rs) {
+        if (rs.getRunId() != null && runLifecycleCallback != null) {
+            try {
+                runLifecycleCallback.endRun(rs.getRunId());
+                LOG.info("[ResearchSessionManager] Data Lake run ended: " + rs.getRunId());
+            } catch (Exception e) {
+                LOG.warning("[ResearchSessionManager] Error ending run: " + e.getMessage());
+            }
+        }
     }
 }
 
