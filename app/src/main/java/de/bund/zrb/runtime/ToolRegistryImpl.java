@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
+import de.zrb.bund.newApi.mcp.ToolConfig;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 import de.bund.zrb.helper.ToolSettingsHelper;
 import de.bund.zrb.helper.ToolConfigHelper;
@@ -15,7 +16,7 @@ public class ToolRegistryImpl implements ToolRegistry {
     private static ToolRegistryImpl instance;
 
     private final Map<String, McpTool> toolsByName = new LinkedHashMap<>();
-    private final Map<String, JsonObject> toolConfigs = new LinkedHashMap<>();
+    private final Map<String, ToolConfig> toolConfigs = new LinkedHashMap<>();
 
     private ToolRegistryImpl() {
         // private, damit keine externe Instanzierung möglich ist
@@ -41,8 +42,8 @@ public class ToolRegistryImpl implements ToolRegistry {
         toolsByName.put(name, wrapped);
 
         // Initialize default config if no saved config exists for this tool
-        JsonObject defaultConfig = tool.getDefaultConfig();
-        if (defaultConfig != null && defaultConfig.size() > 0 && !toolConfigs.containsKey(name)) {
+        ToolConfig defaultConfig = tool.getDefaultConfig();
+        if (defaultConfig != null && !defaultConfig.isEmpty() && !toolConfigs.containsKey(name)) {
             toolConfigs.put(name, defaultConfig);
         }
     }
@@ -65,6 +66,16 @@ public class ToolRegistryImpl implements ToolRegistry {
             @Override
             public McpToolResponse execute(JsonObject input, String resultVar) {
                 return original.execute(input, resultVar);
+            }
+
+            @Override
+            public ToolConfig getDefaultConfig() {
+                return original.getDefaultConfig();
+            }
+
+            @Override
+            public Class<? extends ToolConfig> getConfigClass() {
+                return original.getConfigClass();
             }
         };
     }
@@ -113,31 +124,31 @@ public class ToolRegistryImpl implements ToolRegistry {
 
     /**
      * Get the config for a specific tool. Returns the default config if no
-     * user-customized config exists, or an empty JsonObject if no default either.
+     * user-customized config exists, or an empty ToolConfig if no default either.
      */
-    public JsonObject getToolConfig(String toolName) {
-        JsonObject config = toolConfigs.get(toolName);
+    public ToolConfig getToolConfig(String toolName) {
+        ToolConfig config = toolConfigs.get(toolName);
         if (config != null) return config;
         // Try getting default from the registered tool
         McpTool tool = toolsByName.get(toolName);
         if (tool != null) {
-            JsonObject def = tool.getDefaultConfig();
-            if (def != null && def.size() > 0) return def;
+            ToolConfig def = tool.getDefaultConfig();
+            if (def != null && !def.isEmpty()) return def;
         }
-        return new JsonObject();
+        return new ToolConfig();
     }
 
     /**
      * Set config for a specific tool (in-memory only, call saveToolConfigs to persist).
      */
-    public void setToolConfig(String toolName, JsonObject config) {
+    public void setToolConfig(String toolName, ToolConfig config) {
         toolConfigs.put(toolName, config);
     }
 
     /**
      * Get all tool configs (tool name → config).
      */
-    public Map<String, JsonObject> getAllToolConfigs() {
+    public Map<String, ToolConfig> getAllToolConfigs() {
         return new LinkedHashMap<>(toolConfigs);
     }
 

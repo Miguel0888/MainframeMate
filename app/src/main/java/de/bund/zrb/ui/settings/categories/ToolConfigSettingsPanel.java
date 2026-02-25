@@ -7,6 +7,7 @@ import de.bund.zrb.helper.ToolConfigHelper;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 import de.bund.zrb.ui.settings.SettingsCategory;
 import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.mcp.ToolConfig;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -86,9 +87,9 @@ public class ToolConfigSettingsPanel extends JPanel implements SettingsCategory 
         for (McpTool tool : tools) {
             String name = tool.getSpec().getName();
             // Show all tools that have a non-empty default config or a saved config
-            JsonObject defaultConfig = tool.getDefaultConfig();
-            JsonObject savedConfig = ToolConfigHelper.getConfig(name);
-            if ((defaultConfig != null && defaultConfig.size() > 0) || savedConfig != null) {
+            ToolConfig defaultConfig = tool.getDefaultConfig();
+            ToolConfig savedConfig = ToolConfigHelper.getConfig(name);
+            if ((defaultConfig != null && !defaultConfig.isEmpty()) || savedConfig != null) {
                 toolListModel.addElement(name);
             }
         }
@@ -107,8 +108,8 @@ public class ToolConfigSettingsPanel extends JPanel implements SettingsCategory 
         }
         currentToolName = selected;
         ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
-        JsonObject config = registry.getToolConfig(selected);
-        configEditor.setText(new GsonBuilder().setPrettyPrinting().create().toJson(config));
+        ToolConfig config = registry.getToolConfig(selected);
+        configEditor.setText(config.toPrettyJson());
         statusLabel.setText("Tool: " + selected);
     }
 
@@ -117,8 +118,17 @@ public class ToolConfigSettingsPanel extends JPanel implements SettingsCategory 
         String jsonText = configEditor.getText().trim();
         if (jsonText.isEmpty()) return;
         try {
-            JsonObject config = JsonParser.parseString(jsonText).getAsJsonObject();
-            ToolRegistryImpl.getInstance().setToolConfig(currentToolName, config);
+            JsonObject jsonObj = JsonParser.parseString(jsonText).getAsJsonObject();
+            // Deserialize using the tool's config class for proper typing
+            ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
+            McpTool tool = registry.getToolByName(currentToolName);
+            ToolConfig config;
+            if (tool != null) {
+                config = ToolConfig.fromJson(jsonObj, tool.getConfigClass());
+            } else {
+                config = ToolConfig.fromJson(jsonObj, ToolConfig.class);
+            }
+            registry.setToolConfig(currentToolName, config);
         } catch (Exception e) {
             // Don't overwrite with invalid JSON
             System.err.println("[ToolConfig] Invalid JSON for " + currentToolName + ": " + e.getMessage());
@@ -130,8 +140,8 @@ public class ToolConfigSettingsPanel extends JPanel implements SettingsCategory 
         ToolRegistryImpl registry = ToolRegistryImpl.getInstance();
         McpTool tool = registry.getToolByName(currentToolName);
         if (tool != null) {
-            JsonObject defaultConfig = tool.getDefaultConfig();
-            configEditor.setText(new GsonBuilder().setPrettyPrinting().create().toJson(defaultConfig));
+            ToolConfig defaultConfig = tool.getDefaultConfig();
+            configEditor.setText(defaultConfig.toPrettyJson());
             statusLabel.setText("Default-Config geladen für: " + currentToolName);
         }
     }

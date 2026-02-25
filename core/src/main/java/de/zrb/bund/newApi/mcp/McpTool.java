@@ -23,12 +23,20 @@ public interface McpTool {
     McpToolResponse execute(JsonObject input, String resultVar);
 
     /**
-     * Returns the default configuration for this tool as a JSON object.
-     * The default implementation returns an empty JsonObject (no config).
-     * Plugins can override this to provide tool-specific configuration
-     * with all allowed parameters and their empty/default values.
+     * Returns the default configuration for this tool as a Gson-serializable ToolConfig object.
+     * The default implementation returns an empty ToolConfig (no custom settings).
+     * Plugins can override this to return a subclass of ToolConfig with tool-specific fields.
      */
-    default JsonObject getDefaultConfig() {
-        return new JsonObject();
+    default ToolConfig getDefaultConfig() {
+        return new ToolConfig();
+    }
+
+    /**
+     * Returns the concrete ToolConfig class used by this tool.
+     * This is needed for proper Gson deserialization from persisted JSON.
+     * Override this if you use a custom ToolConfig subclass.
+     */
+    default Class<? extends ToolConfig> getConfigClass() {
+        return ToolConfig.class;
     }
 }

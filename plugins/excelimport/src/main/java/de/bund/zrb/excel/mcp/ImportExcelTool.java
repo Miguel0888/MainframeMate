@@ -8,6 +8,7 @@ import de.bund.zrb.excel.model.ExcelMapping;
 import de.bund.zrb.excel.plugin.ExcelImport;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
+import de.zrb.bund.newApi.mcp.ToolConfig;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.*;
@@ -19,6 +20,16 @@ public class ImportExcelTool implements McpTool {
 
     public ImportExcelTool(ExcelImport plugin) {
         this.plugin = plugin;
+    }
+
+    @Override
+    public ToolConfig getDefaultConfig() {
+        return new ExcelImportToolConfig();
+    }
+
+    @Override
+    public Class<? extends ToolConfig> getConfigClass() {
+        return ExcelImportToolConfig.class;
     }
 
     @Override

@@ -9,6 +9,7 @@ import de.bund.zrb.mcpserver.tool.ToolResult;
 import de.bund.zrb.websearch.plugin.WebSearchBrowserManager;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
+import de.zrb.bund.newApi.mcp.ToolConfig;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.*;
@@ -58,23 +59,13 @@ public class BrowserToolAdapter implements McpTool {
     }
 
     @Override
-    public JsonObject getDefaultConfig() {
-        JsonObject config = new JsonObject();
-        JsonObject schema = delegate.inputSchema();
-        if (schema.has("properties")) {
-            for (Map.Entry<String, JsonElement> entry : schema.getAsJsonObject("properties").entrySet()) {
-                String key = entry.getKey();
-                if ("contextId".equals(key)) continue; // internal, not user-configurable
-                JsonObject propObj = entry.getValue().getAsJsonObject();
-                String type = propObj.has("type") ? propObj.get("type").getAsString() : "string";
-                switch (type) {
-                    case "boolean": config.addProperty(key, false); break;
-                    case "integer": case "number": config.addProperty(key, 0); break;
-                    default: config.addProperty(key, ""); break;
-                }
-            }
-        }
-        return config;
+    public ToolConfig getDefaultConfig() {
+        return WebSearchToolConfig.fromSchema(delegate.inputSchema());
+    }
+
+    @Override
+    public Class<? extends ToolConfig> getConfigClass() {
+        return WebSearchToolConfig.class;
     }
 
     @Override
