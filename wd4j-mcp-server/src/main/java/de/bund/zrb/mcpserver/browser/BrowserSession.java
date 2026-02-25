@@ -51,11 +51,34 @@ public class BrowserSession {
         driver.connect(browserName);
 
         // Subscribe to browser console logs via BiDi
-        subscribeToConsoleLogs();
+        try {
+            subscribeToConsoleLogs();
+        } catch (Exception e) {
+            LOG.warning("[BrowserSession] Console log subscription failed (non-fatal): " + e.getMessage());
+        }
 
         if (createContext) {
-            WDBrowsingContextResult.CreateResult ctx = driver.browsingContext().create();
-            this.contextId = ctx.getContext();
+            // Try to create a new browsing context
+            try {
+                WDBrowsingContextResult.CreateResult ctx = driver.browsingContext().create();
+                this.contextId = ctx.getContext();
+                LOG.info("[BrowserSession] Created new browsing context: " + contextId);
+            } catch (Exception e) {
+                LOG.warning("[BrowserSession] browsingContext.create failed, trying getTree: " + e.getMessage());
+                // Fallback: find an existing context via getTree (Chrome creates a default tab)
+                try {
+                    WDBrowsingContextResult.GetTreeResult tree = driver.browsingContext().getTree();
+                    if (tree != null && tree.getContexts() != null && !tree.getContexts().isEmpty()) {
+                        this.contextId = tree.getContexts().get(0).getContext().value();
+                        LOG.info("[BrowserSession] Using existing browsing context from tree: " + contextId);
+                    } else {
+                        throw new RuntimeException("No browsing contexts available and create failed");
+                    }
+                } catch (Exception e2) {
+                    throw new RuntimeException("Failed to create or find browsing context: "
+                            + e.getMessage() + " / " + e2.getMessage(), e2);
+                }
+            }
         }
     }
 

@@ -127,14 +127,27 @@ public class WebSearchBrowserManager {
     }
 
     public String getBrowserPath() {
-        String path = loadSettings().getOrDefault("browserPath", "");
+        Map<String, String> settings = loadSettings();
+        String browser = getBrowser();
+
+        // Try per-browser path first (new format: browserPath.Firefox, browserPath.Chrome, etc.)
+        String path = settings.getOrDefault("browserPath." + browser, "");
         if (path != null && !path.trim().isEmpty()) {
             return path;
         }
+
+        // Fallback to legacy single "browserPath" setting
+        path = settings.getOrDefault("browserPath", "");
+        if (path != null && !path.trim().isEmpty()) {
+            return path;
+        }
+
         // Default path based on selected browser
-        String browser = getBrowser();
         if ("Chrome".equalsIgnoreCase(browser)) {
             return BrowserLauncher.DEFAULT_CHROME_PATH;
+        }
+        if ("Edge".equalsIgnoreCase(browser)) {
+            return BrowserLauncher.DEFAULT_EDGE_PATH;
         }
         return BrowserLauncher.DEFAULT_FIREFOX_PATH;
     }

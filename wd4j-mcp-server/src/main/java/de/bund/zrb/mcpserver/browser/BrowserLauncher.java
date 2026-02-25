@@ -26,6 +26,7 @@ public class BrowserLauncher {
     /** Default browser paths on Windows. */
     public static final String DEFAULT_FIREFOX_PATH = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
     public static final String DEFAULT_CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    public static final String DEFAULT_EDGE_PATH = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
     /**
      * Browser type enum.
@@ -37,7 +38,10 @@ public class BrowserLauncher {
         public static BrowserType fromPath(String path) {
             if (path == null) return FIREFOX;
             String lower = path.toLowerCase();
-            if (lower.contains("chrome") || lower.contains("chromium")) return CHROME;
+            if (lower.contains("chrome") || lower.contains("chromium")
+                    || lower.contains("msedge") || lower.contains("edge")) {
+                return CHROME;
+            }
             return FIREFOX;
         }
 
@@ -208,22 +212,34 @@ public class BrowserLauncher {
         try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
         checkProcessAlive(process);
 
-        // Query /json/version for the WebSocket URL
-        String wsUrl = queryChromeBidiEndpoint(debugPort, timeoutMs);
+        // Chrome does NOT support BiDi on /session via --remote-debugging-port.
+        // It only speaks CDP on that port. The webSocketDebuggerUrl from /json/version
+        // is the only WebSocket endpoint available (e.g. /devtools/browser/UUID).
+        //
+        // For full BiDi support, Chrome requires ChromeDriver as a BiDi relay,
+        // where POST /session with {"webSocketUrl": true} returns the BiDi WS URL.
+        //
+        // Current approach: Use the CDP webSocketDebuggerUrl directly.
+        // WD4J BiDi commands will fail – this is a known limitation.
+        // Firefox is the recommended browser for BiDi.
+        String wsUrl = waitForChromeAndGetWsUrl(debugPort, timeoutMs);
         if (wsUrl == null) {
             process.destroyForcibly();
-            throw new RuntimeException("Failed to get Chrome BiDi WebSocket URL from port " + debugPort);
+            throw new RuntimeException("Chrome did not become ready on port " + debugPort
+                    + " within " + timeoutMs + "ms");
         }
 
-        System.err.println("[BrowserLauncher] BiDi endpoint: " + wsUrl);
+        System.err.println("[BrowserLauncher] Chrome CDP WebSocket endpoint: " + wsUrl);
+        System.err.println("[BrowserLauncher] ⚠ Chrome only supports CDP, not WebDriver BiDi on this endpoint.");
+        System.err.println("[BrowserLauncher] ⚠ For full BiDi support, use Firefox.");
         return new LaunchResult(wsUrl, process, BrowserType.CHROME);
     }
 
     /**
-     * Query Chrome's /json/version endpoint to get the webSocketDebuggerUrl.
-     * Chrome exposes this on the debugging port as a JSON response.
+     * Wait for Chrome to become ready by polling /json/version.
+     * Returns the webSocketDebuggerUrl once Chrome responds, null on timeout.
      */
-    private static String queryChromeBidiEndpoint(int port, long timeoutMs) {
+    private static String waitForChromeAndGetWsUrl(int port, long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         Exception lastError = null;
 
@@ -241,22 +257,18 @@ public class BrowserLauncher {
                     String line;
                     while ((line = reader.readLine()) != null) sb.append(line);
                     reader.close();
+                    conn.disconnect();
 
                     String json = sb.toString();
-                    // Extract webSocketDebuggerUrl from JSON
-                    // Format: {"webSocketDebuggerUrl":"ws://127.0.0.1:PORT/devtools/browser/UUID"}
-                    String wsKey = "\"webSocketDebuggerUrl\"";
-                    int idx = json.indexOf(wsKey);
-                    if (idx >= 0) {
-                        int start = json.indexOf("\"ws://", idx);
-                        if (start >= 0) {
-                            start++; // skip opening quote
-                            int end = json.indexOf("\"", start);
-                            if (end > start) {
-                                return json.substring(start, end);
-                            }
-                        }
+                    System.err.println("[BrowserLauncher] Chrome /json/version: " + json);
+
+                    // Extract webSocketDebuggerUrl
+                    Matcher m = Pattern.compile("\"webSocketDebuggerUrl\"\\s*:\\s*\"(ws://[^\"]+)\"").matcher(json);
+                    if (m.find()) {
+                        return m.group(1);
                     }
+                    System.err.println("[BrowserLauncher] No webSocketDebuggerUrl in response");
+                    return null;
                 }
                 conn.disconnect();
             } catch (Exception e) {
@@ -266,7 +278,7 @@ public class BrowserLauncher {
             try { Thread.sleep(300); } catch (InterruptedException ignored) {}
         }
 
-        System.err.println("[BrowserLauncher] Failed to query Chrome /json/version: "
+        System.err.println("[BrowserLauncher] Chrome not ready on port " + port + ": "
                 + (lastError != null ? lastError.getMessage() : "timeout"));
         return null;
     }

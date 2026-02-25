@@ -26,3 +26,9 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
+
+// Quick manual test task: run ChromeBidiConnectionTest against a running Chrome
+task chromeBidiTest(type: JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'de.bund.zrb.ChromeBidiConnectionTest'
+}

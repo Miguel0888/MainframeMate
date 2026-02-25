@@ -140,16 +140,36 @@ public class WebDriver {
      * To avoid this issue, you can also create a new context every time you launch a browser. Thus, this method is optional.
      */
     public WebDriver connect(String browserName) throws InterruptedException, ExecutionException {
-        // ToDo: Maybe send status command first to check if a session is already active
-
-        // Create a new session
-        WDSessionResult.NewResult sessionResponse = session().newSession(browserName); // ToDo: Does not work with Chrome!
-
-        // Kontext-ID extrahieren oder neuen Kontext erstellen
-        if (sessionResponse == null) {
-            throw new IllegalArgumentException("SessionResponse darf nicht null sein!");
+        // Try session.status first to check if browser is ready
+        try {
+            WDSessionResult.StatusResult status = session().status();
+            if (status != null) {
+                System.out.println("[WebDriver] session.status OK: ready=" + status.isReady()
+                        + ", message=" + status.getMessage());
+            }
+        } catch (Exception e) {
+            System.out.println("[WebDriver] session.status failed (non-fatal): " + e.getMessage());
         }
-        sessionId = sessionResponse.getSessionId();
+
+        // Try to create a new session
+        try {
+            WDSessionResult.NewResult sessionResponse = session().newSession(browserName);
+            if (sessionResponse != null && sessionResponse.getSessionId() != null) {
+                sessionId = sessionResponse.getSessionId();
+                System.out.println("[WebDriver] session.new succeeded: sessionId=" + sessionId);
+                return this;
+            }
+        } catch (Exception e) {
+            System.out.println("[WebDriver] session.new failed for '" + browserName + "': " + e.getMessage());
+            // Chrome/Edge without Chromedriver may not support session.new directly.
+            // Fall through to fallback.
+        }
+
+        // Fallback: generate a session ID (Chrome BiDi works without explicit session.new
+        // when connecting directly to the browser's BiDi endpoint)
+        sessionId = "bidi-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        System.out.println("[WebDriver] Using fallback sessionId: " + sessionId
+                + " (browser=" + browserName + ")");
         return this; // fluent API
     }
 

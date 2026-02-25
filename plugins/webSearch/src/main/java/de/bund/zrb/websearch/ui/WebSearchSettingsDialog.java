@@ -1,5 +1,6 @@
 package de.bund.zrb.websearch.ui;
 
+import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.websearch.tools.BrowserToolAdapter;
 import de.zrb.bund.api.MainframeContext;
 
@@ -11,6 +12,7 @@ import java.util.Map;
 /**
  * Settings dialog for the WebSearch plugin.
  * Allows configuring browser type, headless mode, and URL boundaries.
+ * Browser paths are stored per browser (browserPath.Firefox, browserPath.Chrome, browserPath.Edge).
  */
 public class WebSearchSettingsDialog extends JDialog {
 
@@ -23,6 +25,14 @@ public class WebSearchSettingsDialog extends JDialog {
           + "# IPv6-Adressen blockieren (http(s)://[::1])\n"
           + "https?://\\[[:0-9a-fA-F]+\\]";
 
+    /** Default paths per browser. */
+    private static final Map<String, String> DEFAULT_BROWSER_PATHS = new LinkedHashMap<>();
+    static {
+        DEFAULT_BROWSER_PATHS.put("Firefox", BrowserLauncher.DEFAULT_FIREFOX_PATH);
+        DEFAULT_BROWSER_PATHS.put("Chrome",  BrowserLauncher.DEFAULT_CHROME_PATH);
+        DEFAULT_BROWSER_PATHS.put("Edge",    BrowserLauncher.DEFAULT_EDGE_PATH);
+    }
+
     private final MainframeContext context;
     private final JComboBox<String> browserCombo;
     private final JCheckBox headlessCheckbox;
@@ -31,11 +41,33 @@ public class WebSearchSettingsDialog extends JDialog {
     private final JTextArea whitelistArea;
     private final JTextArea blacklistArea;
 
+    /** Cached paths per browser – loaded from settings, updated on browser switch. */
+    private final Map<String, String> browserPaths = new LinkedHashMap<>();
+
     public WebSearchSettingsDialog(MainframeContext context) {
         super(context.getMainFrame(), "Websearch-Einstellungen", true);
         this.context = context;
 
         Map<String, String> settings = context.loadPluginSettings(PLUGIN_KEY);
+
+        // Load per-browser paths from settings (with defaults)
+        for (Map.Entry<String, String> entry : DEFAULT_BROWSER_PATHS.entrySet()) {
+            String browser = entry.getKey();
+            String defaultPath = entry.getValue();
+            String saved = settings.getOrDefault("browserPath." + browser, "");
+            browserPaths.put(browser, saved.isEmpty() ? defaultPath : saved);
+        }
+        // Migrate legacy single "browserPath" setting
+        String legacyPath = settings.getOrDefault("browserPath", "");
+        if (!legacyPath.isEmpty()) {
+            String legacyBrowser = settings.getOrDefault("browser", "Firefox");
+            // Only migrate if browser-specific key is still the default
+            String current = browserPaths.get(legacyBrowser);
+            String defaultForBrowser = DEFAULT_BROWSER_PATHS.getOrDefault(legacyBrowser, "");
+            if (current.equals(defaultForBrowser)) {
+                browserPaths.put(legacyBrowser, legacyPath);
+            }
+        }
 
         setLayout(new BorderLayout(10, 10));
         JPanel form = new JPanel(new GridBagLayout());
@@ -60,9 +92,10 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(new JLabel("Browser-Pfad:"), gbc);
 
         JPanel pathPanel = new JPanel(new BorderLayout(5, 0));
-        String defaultBrowserPath = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
-        browserPathField = new JTextField(settings.getOrDefault("browserPath", defaultBrowserPath), 25);
-        browserPathField.setToolTipText("Standard: " + defaultBrowserPath);
+        String initialPath = browserPaths.getOrDefault(savedBrowser,
+                DEFAULT_BROWSER_PATHS.getOrDefault(savedBrowser, ""));
+        browserPathField = new JTextField(initialPath, 25);
+        updatePathTooltip(savedBrowser);
         pathPanel.add(browserPathField, BorderLayout.CENTER);
 
         JButton browseBtn = new JButton("...");
@@ -76,8 +109,38 @@ public class WebSearchSettingsDialog extends JDialog {
         });
         pathPanel.add(browseBtn, BorderLayout.EAST);
 
+        JButton resetPathBtn = new JButton("↺");
+        resetPathBtn.setToolTipText("Pfad auf Standard zurücksetzen");
+        resetPathBtn.setPreferredSize(new Dimension(30, 25));
+        resetPathBtn.setMargin(new Insets(0, 0, 0, 0));
+        resetPathBtn.addActionListener(e -> {
+            String browser = (String) browserCombo.getSelectedItem();
+            String defaultPath = DEFAULT_BROWSER_PATHS.getOrDefault(browser, "");
+            browserPathField.setText(defaultPath);
+        });
+
+        JPanel pathButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        pathButtons.add(browseBtn);
+        pathButtons.add(resetPathBtn);
+        pathPanel.add(pathButtons, BorderLayout.EAST);
+
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(pathPanel, gbc);
+
+        // ── Browser-ComboBox change listener: save current path, load new one ──
+        browserCombo.addActionListener(e -> {
+            // Save current browser path before switching
+            String previousBrowser = findPreviousBrowser();
+            if (previousBrowser != null) {
+                browserPaths.put(previousBrowser, browserPathField.getText().trim());
+            }
+            // Load path for newly selected browser
+            String newBrowser = (String) browserCombo.getSelectedItem();
+            String newPath = browserPaths.getOrDefault(newBrowser,
+                    DEFAULT_BROWSER_PATHS.getOrDefault(newBrowser, ""));
+            browserPathField.setText(newPath);
+            updatePathTooltip(newBrowser);
+        });
 
         // ── Headless ────────────────────────────────────────────────
         gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
@@ -177,11 +240,44 @@ public class WebSearchSettingsDialog extends JDialog {
         setLocationRelativeTo(context.getMainFrame());
     }
 
+    /** Track the previous browser selection to save its path before switching. */
+    private String lastSelectedBrowser = null;
+
+    private String findPreviousBrowser() {
+        // On first call, we don't know the previous, return all browsers that are NOT current
+        String current = (String) browserCombo.getSelectedItem();
+        if (lastSelectedBrowser != null && !lastSelectedBrowser.equals(current)) {
+            String prev = lastSelectedBrowser;
+            lastSelectedBrowser = current;
+            return prev;
+        }
+        lastSelectedBrowser = current;
+        return null;
+    }
+
+    private void updatePathTooltip(String browser) {
+        String defaultPath = DEFAULT_BROWSER_PATHS.getOrDefault(browser, "");
+        browserPathField.setToolTipText("Standard für " + browser + ": " + defaultPath);
+    }
+
     private void saveSettings() {
+        String selectedBrowser = (String) browserCombo.getSelectedItem();
+
+        // Save current browser path into the map
+        browserPaths.put(selectedBrowser, browserPathField.getText().trim());
+
         Map<String, String> settings = new LinkedHashMap<>();
-        settings.put("browser", (String) browserCombo.getSelectedItem());
+        settings.put("browser", selectedBrowser);
         settings.put("headless", String.valueOf(headlessCheckbox.isSelected()));
-        settings.put("browserPath", browserPathField.getText().trim());
+
+        // Save per-browser paths
+        for (Map.Entry<String, String> entry : browserPaths.entrySet()) {
+            settings.put("browserPath." + entry.getKey(), entry.getValue());
+        }
+        // Also save as legacy "browserPath" for backward compatibility
+        settings.put("browserPath", browserPaths.getOrDefault(selectedBrowser,
+                DEFAULT_BROWSER_PATHS.getOrDefault(selectedBrowser, "")));
+
         String timeoutVal = String.valueOf(timeoutSpinner.getValue());
         settings.put("navigateTimeoutSeconds", timeoutVal);
         settings.put("urlWhitelist", whitelistArea.getText());
