@@ -198,6 +198,17 @@ public class WebSearchSettingsDialog extends JDialog {
 
         // ── Buttons ─────────────────────────────────────────────────
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton testButton = new JButton("🔌 Verbindung testen");
+        testButton.setToolTipText("Startet den Browser und testet die WebDriver-BiDi-Verbindung");
+        testButton.addActionListener(e -> {
+            String browser = (String) browserCombo.getSelectedItem();
+            String path = browserPathField.getText().trim();
+            boolean hl = headlessCheckbox.isSelected();
+            int port = ((Number) debugPortSpinner.getValue()).intValue();
+            BrowserConnectionTestDialog testDialog = new BrowserConnectionTestDialog(this);
+            testDialog.setVisible(true);
+            testDialog.startTest(browser, path, hl, port);
+        });
         JButton okButton = new JButton("OK");
         JButton cancelButton = new JButton("Abbrechen");
 
@@ -207,6 +218,8 @@ public class WebSearchSettingsDialog extends JDialog {
         });
         cancelButton.addActionListener(e -> dispose());
 
+        buttonPanel.add(testButton);
+        buttonPanel.add(Box.createHorizontalStrut(20));
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
         add(buttonPanel, BorderLayout.SOUTH);

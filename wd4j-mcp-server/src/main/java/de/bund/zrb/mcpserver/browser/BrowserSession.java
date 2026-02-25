@@ -347,6 +347,14 @@ public class BrowserSession {
     }
 
     /**
+     * Returns the underlying WebSocket connection for diagnostic purposes
+     * (e.g. registering frame listeners in the connection test dialog).
+     */
+    public WDWebSocket getWebSocket() {
+        return webSocket;
+    }
+
+    /**
      * Returns the browser {@link Process} that was started by {@link #launchAndConnect},
      * or {@code null} if the session was created via {@link #connect} (external browser).
      * Used for targeted cleanup – only this process should be killed, never all Firefox instances.
