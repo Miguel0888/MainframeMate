@@ -53,7 +53,8 @@ public class WebSearchBrowserManager {
         }
 
         boolean headless = isHeadless();
-        LOG.info("[WebSearch] Launching browser: " + browserPath + " (headless=" + headless + ")");
+        int debugPort = getDebugPort();
+        LOG.info("[WebSearch] Launching browser: " + browserPath + " (headless=" + headless + ", debugPort=" + debugPort + ")");
 
         // Apply saved timeout to system property
         String savedTimeout = loadSettings().getOrDefault("navigateTimeoutSeconds", "30");
@@ -61,7 +62,7 @@ public class WebSearchBrowserManager {
 
         session = new BrowserSession();
         try {
-            session.launchAndConnect(browserPath, new ArrayList<String>(), headless, 30000L);
+            session.launchAndConnect(browserPath, new ArrayList<String>(), headless, 30000L, debugPort);
             LOG.info("[WebSearch] Browser connected, contextId=" + session.getContextId());
             subscribeToBrowserConsoleLogs();
         } catch (Exception e) {
@@ -137,6 +138,21 @@ public class WebSearchBrowserManager {
             return BrowserLauncher.DEFAULT_CHROME_PATH;
         }
         return BrowserLauncher.DEFAULT_FIREFOX_PATH;
+    }
+
+    /**
+     * Returns the configured debugging port.
+     * 0 = auto-select a free port (default for Firefox),
+     * 9222 = typical Chrome default.
+     */
+    public int getDebugPort() {
+        String portStr = loadSettings().getOrDefault("debugPort", "0");
+        try {
+            int port = Integer.parseInt(portStr.trim());
+            return Math.max(0, Math.min(port, 65535));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     public Map<String, String> loadSettings() {

@@ -1,5 +1,6 @@
 package de.bund.zrb.mcpserver.browser;
 
+import de.bund.zrb.api.WDWebSocket;
 import de.bund.zrb.WDWebSocketImpl;
 import de.bund.zrb.WebDriver;
 import de.bund.zrb.chrome.ChromeBidiWebSocketImpl;
@@ -30,7 +31,7 @@ public class BrowserSession {
 
     private static final Logger LOG = Logger.getLogger(BrowserSession.class.getName());
 
-    private WDWebSocketImpl webSocket;
+    private WDWebSocket webSocket;
     private WebDriver driver;
     private String contextId;
     private String sessionId;
@@ -69,6 +70,7 @@ public class BrowserSession {
             throws Exception {
         LOG.info("[BrowserSession] Connecting to Chrome via BiDi mapper: " + cdpWebSocketUrl);
         ChromeBidiWebSocketImpl chromeBidiWs = new ChromeBidiWebSocketImpl(cdpWebSocketUrl, false);
+        this.webSocket = chromeBidiWs;
         this.driver = new WebDriver(chromeBidiWs);
 
         // Chrome mapper handles session internally; use reconnect with a placeholder session ID
@@ -117,7 +119,17 @@ public class BrowserSession {
      */
     public void launchAndConnect(String browserPath, List<String> args, boolean headless, long timeoutMs)
             throws Exception {
-        BrowserLauncher.LaunchResult launchResult = BrowserLauncher.launchWithProcess(browserPath, args, headless, timeoutMs);
+        launchAndConnect(browserPath, args, headless, timeoutMs, 0);
+    }
+
+    /**
+     * Launch a browser process with a specific debug port, parse its WebSocket URL, then connect.
+     *
+     * @param debugPort  the debugging port to use; 0 = auto-select a free port
+     */
+    public void launchAndConnect(String browserPath, List<String> args, boolean headless, long timeoutMs, int debugPort)
+            throws Exception {
+        BrowserLauncher.LaunchResult launchResult = BrowserLauncher.launchWithProcess(browserPath, args, headless, timeoutMs, debugPort);
         this.browserProcess = launchResult.process;
 
         if (launchResult.browserType == BrowserLauncher.BrowserType.CHROME) {

@@ -57,14 +57,25 @@ public class BrowserLauncher {
 
     /**
      * Launch a browser and return both the WebSocket URL and the Process handle.
+     * Uses auto-detected free port (port=0).
      */
     public static LaunchResult launchWithProcess(String browserPath, List<String> extraArgs,
                                                   boolean headless, long timeoutMs) throws Exception {
+        return launchWithProcess(browserPath, extraArgs, headless, timeoutMs, 0);
+    }
+
+    /**
+     * Launch a browser and return both the WebSocket URL and the Process handle.
+     *
+     * @param debugPort  the debugging port to use; 0 = auto-select a free port
+     */
+    public static LaunchResult launchWithProcess(String browserPath, List<String> extraArgs,
+                                                  boolean headless, long timeoutMs, int debugPort) throws Exception {
         BrowserType type = BrowserType.fromPath(browserPath);
         if (type == BrowserType.CHROME) {
-            return launchChrome(browserPath, extraArgs, headless, timeoutMs);
+            return launchChrome(browserPath, extraArgs, headless, timeoutMs, debugPort);
         } else {
-            return launchFirefox(browserPath, extraArgs, headless, timeoutMs);
+            return launchFirefox(browserPath, extraArgs, headless, timeoutMs, debugPort);
         }
     }
 
@@ -73,7 +84,7 @@ public class BrowserLauncher {
     // ══════════════════════════════════════════════════════════════════
 
     private static LaunchResult launchFirefox(String browserPath, List<String> extraArgs,
-                                              boolean headless, long timeoutMs) throws Exception {
+                                              boolean headless, long timeoutMs, int debugPort) throws Exception {
         List<String> command = new ArrayList<>();
         command.add(browserPath);
 
@@ -100,7 +111,7 @@ public class BrowserLauncher {
         }
 
         if (!hasRemoteDebugging) {
-            command.add("--remote-debugging-port=0");
+            command.add("--remote-debugging-port=" + debugPort);
         }
 
         System.err.println("[BrowserLauncher] Starting Firefox: " + command);
@@ -148,9 +159,11 @@ public class BrowserLauncher {
     // ══════════════════════════════════════════════════════════════════
 
     private static LaunchResult launchChrome(String browserPath, List<String> extraArgs,
-                                             boolean headless, long timeoutMs) throws Exception {
-        // Find a free port for debugging
-        int debugPort = findFreePort();
+                                             boolean headless, long timeoutMs, int debugPort) throws Exception {
+        // Use provided port or find a free one
+        if (debugPort <= 0) {
+            debugPort = findFreePort();
+        }
 
         List<String> command = new ArrayList<>();
         command.add(browserPath);
