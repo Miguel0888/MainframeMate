@@ -6,6 +6,7 @@ import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 import de.bund.zrb.helper.ToolSettingsHelper;
+import de.bund.zrb.helper.ToolConfigHelper;
 
 import java.util.*;
 
@@ -14,9 +15,12 @@ public class ToolRegistryImpl implements ToolRegistry {
     private static ToolRegistryImpl instance;
 
     private final Map<String, McpTool> toolsByName = new LinkedHashMap<>();
+    private final Map<String, JsonObject> toolConfigs = new LinkedHashMap<>();
 
     private ToolRegistryImpl() {
         // private, damit keine externe Instanzierung möglich ist
+        // Load saved configs from disk
+        toolConfigs.putAll(ToolConfigHelper.loadAll());
     }
 
     /**
@@ -35,6 +39,12 @@ public class ToolRegistryImpl implements ToolRegistry {
         ToolSpec userSpec = ToolSettingsHelper.findToolByName(name);
         McpTool wrapped = wrapWithUserSpec(tool, userSpec);
         toolsByName.put(name, wrapped);
+
+        // Initialize default config if no saved config exists for this tool
+        JsonObject defaultConfig = tool.getDefaultConfig();
+        if (defaultConfig != null && defaultConfig.size() > 0 && !toolConfigs.containsKey(name)) {
+            toolConfigs.put(name, defaultConfig);
+        }
     }
 
     /**
@@ -97,5 +107,44 @@ public class ToolRegistryImpl implements ToolRegistry {
         if (stored.size() < before) {
             ToolSettingsHelper.saveTools(stored);
         }
+    }
+
+    // ── Tool Config Management ──────────────────────────────────────
+
+    /**
+     * Get the config for a specific tool. Returns the default config if no
+     * user-customized config exists, or an empty JsonObject if no default either.
+     */
+    public JsonObject getToolConfig(String toolName) {
+        JsonObject config = toolConfigs.get(toolName);
+        if (config != null) return config;
+        // Try getting default from the registered tool
+        McpTool tool = toolsByName.get(toolName);
+        if (tool != null) {
+            JsonObject def = tool.getDefaultConfig();
+            if (def != null && def.size() > 0) return def;
+        }
+        return new JsonObject();
+    }
+
+    /**
+     * Set config for a specific tool (in-memory only, call saveToolConfigs to persist).
+     */
+    public void setToolConfig(String toolName, JsonObject config) {
+        toolConfigs.put(toolName, config);
+    }
+
+    /**
+     * Get all tool configs (tool name → config).
+     */
+    public Map<String, JsonObject> getAllToolConfigs() {
+        return new LinkedHashMap<>(toolConfigs);
+    }
+
+    /**
+     * Persist all tool configs to disk.
+     */
+    public void saveToolConfigs() {
+        ToolConfigHelper.saveAll(toolConfigs);
     }
 }

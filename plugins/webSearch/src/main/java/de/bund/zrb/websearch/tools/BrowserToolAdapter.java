@@ -58,6 +58,26 @@ public class BrowserToolAdapter implements McpTool {
     }
 
     @Override
+    public JsonObject getDefaultConfig() {
+        JsonObject config = new JsonObject();
+        JsonObject schema = delegate.inputSchema();
+        if (schema.has("properties")) {
+            for (Map.Entry<String, JsonElement> entry : schema.getAsJsonObject("properties").entrySet()) {
+                String key = entry.getKey();
+                if ("contextId".equals(key)) continue; // internal, not user-configurable
+                JsonObject propObj = entry.getValue().getAsJsonObject();
+                String type = propObj.has("type") ? propObj.get("type").getAsString() : "string";
+                switch (type) {
+                    case "boolean": config.addProperty(key, false); break;
+                    case "integer": case "number": config.addProperty(key, 0); break;
+                    default: config.addProperty(key, ""); break;
+                }
+            }
+        }
+        return config;
+    }
+
+    @Override
     public McpToolResponse execute(JsonObject input, String resultVar) {
         String toolName = delegate.name();
         LOG.info("[BrowserToolAdapter] Executing tool: " + toolName + " | input: "
