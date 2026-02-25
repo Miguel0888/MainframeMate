@@ -13,7 +13,9 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Connection tab for the Archive system.
@@ -50,17 +52,30 @@ public class ArchiveConnectionTab implements ConnectionTab {
         importBtn.setToolTipText("Datei ins Archiv importieren");
         importBtn.addActionListener(e -> importFile());
 
+        JButton deleteBtn = new JButton("🗑 Löschen");
+        deleteBtn.setToolTipText("Markierte oder alle Einträge löschen");
+        deleteBtn.addActionListener(e -> deleteEntries());
+
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        rightButtons.add(importBtn);
+        rightButtons.add(deleteBtn);
+
         toolbar.add(refreshBtn, BorderLayout.WEST);
         toolbar.add(searchField, BorderLayout.CENTER);
-        toolbar.add(importBtn, BorderLayout.EAST);
+        toolbar.add(rightButtons, BorderLayout.EAST);
         mainPanel.add(toolbar, BorderLayout.NORTH);
 
         // ── Table ──
         tableModel = new ArchiveTableModel();
         archiveTable = new JTable(tableModel);
         archiveTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        archiveTable.getColumnModel().getColumn(0).setMaxWidth(40);
-        archiveTable.getColumnModel().getColumn(2).setMaxWidth(80);
+        // Checkbox column
+        archiveTable.getColumnModel().getColumn(0).setMaxWidth(30);
+        archiveTable.getColumnModel().getColumn(0).setMinWidth(30);
+        // Icon column
+        archiveTable.getColumnModel().getColumn(1).setMaxWidth(40);
+        // Status column
+        archiveTable.getColumnModel().getColumn(3).setMaxWidth(80);
         archiveTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showPreview();
         });
@@ -140,6 +155,34 @@ public class ArchiveConnectionTab implements ConnectionTab {
                 + "\nStatus: " + entry.getStatus()
                 + "\nMIME: " + entry.getMimeType()
                 + "\n\n(Kein Snapshot gefunden)");
+    }
+
+    private void deleteEntries() {
+        List<ArchiveEntry> selected = tableModel.getSelectedEntries();
+        if (selected.isEmpty()) {
+            // Nichts markiert → alles löschen?
+            int count = tableModel.getRowCount();
+            if (count == 0) return;
+            int result = JOptionPane.showConfirmDialog(mainPanel,
+                    "Es sind keine Einträge markiert.\nAlle " + count + " Einträge löschen?",
+                    "Archiv leeren", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                repo.deleteAll();
+                loadEntries();
+                previewArea.setText("");
+            }
+        } else {
+            int result = JOptionPane.showConfirmDialog(mainPanel,
+                    selected.size() + " markierte Einträge löschen?",
+                    "Einträge löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                for (ArchiveEntry entry : selected) {
+                    repo.delete(entry.getEntryId());
+                }
+                loadEntries();
+                previewArea.setText("");
+            }
+        }
     }
 
     private void importFile() {
@@ -267,10 +310,12 @@ public class ArchiveConnectionTab implements ConnectionTab {
 
     private static class ArchiveTableModel extends AbstractTableModel {
         private List<ArchiveEntry> entries = new ArrayList<ArchiveEntry>();
-        private final String[] COLUMNS = {"", "Titel", "Status", "URL"};
+        private final Set<Integer> selectedRows = new HashSet<Integer>();
+        private final String[] COLUMNS = {"✓", "", "Titel", "Status", "URL"};
 
         void setEntries(List<ArchiveEntry> entries) {
             this.entries = entries != null ? entries : new ArrayList<ArchiveEntry>();
+            this.selectedRows.clear();
             fireTableDataChanged();
         }
 
@@ -278,19 +323,54 @@ public class ArchiveConnectionTab implements ConnectionTab {
             return entries.get(row);
         }
 
+        List<ArchiveEntry> getSelectedEntries() {
+            List<ArchiveEntry> result = new ArrayList<ArchiveEntry>();
+            for (int row : selectedRows) {
+                if (row < entries.size()) {
+                    result.add(entries.get(row));
+                }
+            }
+            return result;
+        }
+
         @Override public int getRowCount() { return entries.size(); }
         @Override public int getColumnCount() { return COLUMNS.length; }
         @Override public String getColumnName(int col) { return COLUMNS[col]; }
+
+        @Override
+        public Class<?> getColumnClass(int col) {
+            if (col == 0) return Boolean.class;
+            return String.class;
+        }
+
+        @Override
+        public boolean isCellEditable(int row, int col) {
+            return col == 0;
+        }
+
+        @Override
+        public void setValueAt(Object value, int row, int col) {
+            if (col == 0 && value instanceof Boolean) {
+                if ((Boolean) value) {
+                    selectedRows.add(row);
+                } else {
+                    selectedRows.remove(row);
+                }
+                fireTableCellUpdated(row, col);
+            }
+        }
 
         @Override
         public Object getValueAt(int row, int col) {
             ArchiveEntry e = entries.get(row);
             switch (col) {
                 case 0:
+                    return selectedRows.contains(row);
+                case 1:
                     return e.getUrl() != null && !e.getUrl().isEmpty() ? "🌐" : "📄";
-                case 1: return e.getTitle();
-                case 2: return e.getStatus().name();
-                case 3: return e.getUrl();
+                case 2: return e.getTitle();
+                case 3: return e.getStatus().name();
+                case 4: return e.getUrl();
                 default: return "";
             }
         }

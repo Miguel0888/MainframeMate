@@ -210,6 +210,11 @@ public class ArchiveRepository {
     public void delete(String entryId) {
         try {
             Connection conn = getConnection();
+            // Also delete snapshot file
+            ArchiveEntry entry = findById(entryId);
+            if (entry != null && entry.getSnapshotPath() != null && !entry.getSnapshotPath().isEmpty()) {
+                deleteSnapshotFile(entry.getSnapshotPath());
+            }
             PreparedStatement ps1 = conn.prepareStatement("DELETE FROM archive_metadata WHERE entry_id=?");
             ps1.setString(1, entryId);
             ps1.executeUpdate();
@@ -220,6 +225,40 @@ public class ArchiveRepository {
             ps2.close();
         } catch (SQLException e) {
             LOG.log(Level.WARNING, "[Archive] delete failed", e);
+        }
+    }
+
+    public void deleteAll() {
+        try {
+            // Delete all snapshot files
+            List<ArchiveEntry> all = findAll();
+            for (ArchiveEntry entry : all) {
+                if (entry.getSnapshotPath() != null && !entry.getSnapshotPath().isEmpty()) {
+                    deleteSnapshotFile(entry.getSnapshotPath());
+                }
+            }
+            Connection conn = getConnection();
+            Statement stmt = conn.createStatement();
+            stmt.executeUpdate("DELETE FROM archive_metadata");
+            stmt.executeUpdate("DELETE FROM archive_entries");
+            stmt.close();
+            LOG.info("[Archive] All entries deleted");
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] deleteAll failed", e);
+        }
+    }
+
+    private void deleteSnapshotFile(String snapshotPath) {
+        try {
+            String home = System.getProperty("user.home");
+            File snapshotFile = new File(home + File.separator + ".mainframemate"
+                    + File.separator + "archive" + File.separator + "snapshots"
+                    + File.separator + snapshotPath);
+            if (snapshotFile.exists()) {
+                snapshotFile.delete();
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Archive] Could not delete snapshot file: " + snapshotPath, e);
         }
     }
 
