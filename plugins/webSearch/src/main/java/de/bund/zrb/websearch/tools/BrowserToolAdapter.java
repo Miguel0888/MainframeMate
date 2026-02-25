@@ -24,12 +24,44 @@ public class BrowserToolAdapter implements McpTool {
 
     private static final Logger LOG = Logger.getLogger(BrowserToolAdapter.class.getName());
 
+    /** Tools whose URL parameter must be checked against whitelist/blacklist boundaries. */
+    private static final Set<String> URL_CHECKED_TOOLS = new HashSet<>(Arrays.asList(
+            "research_open"
+    ));
+
     private final McpServerTool delegate;
     private final WebSearchBrowserManager browserManager;
+
+    /** Shared boundary checker – loaded from plugin settings on first use, refreshed on settings change. */
+    private static volatile UrlBoundaryChecker boundaryChecker;
 
     public BrowserToolAdapter(McpServerTool delegate, WebSearchBrowserManager browserManager) {
         this.delegate = delegate;
         this.browserManager = browserManager;
+    }
+
+    /**
+     * Reload the URL boundary checker from the current plugin settings.
+     * Called when the WebSearch settings are saved.
+     */
+    public static void reloadBoundaries(Map<String, String> settings) {
+        List<String> whitelist = UrlBoundaryChecker.parsePatternList(
+                settings.getOrDefault("urlWhitelist", ""));
+        List<String> blacklist = UrlBoundaryChecker.parsePatternList(
+                settings.getOrDefault("urlBlacklist", ""));
+        boundaryChecker = new UrlBoundaryChecker(whitelist, blacklist);
+        LOG.info("[BrowserToolAdapter] URL boundaries reloaded: whitelist=" + whitelist.size()
+                + " patterns, blacklist=" + blacklist.size() + " patterns");
+    }
+
+    /**
+     * Get the current boundary checker, loading from settings if necessary.
+     */
+    private UrlBoundaryChecker getBoundaryChecker() {
+        if (boundaryChecker == null) {
+            reloadBoundaries(browserManager.loadSettings());
+        }
+        return boundaryChecker;
     }
 
     @Override
@@ -73,6 +105,22 @@ public class BrowserToolAdapter implements McpTool {
         String toolName = delegate.name();
         LOG.info("[BrowserToolAdapter] Executing tool: " + toolName + " | input: "
                 + (input.toString().length() > 500 ? input.toString().substring(0, 500) + "..." : input.toString()));
+
+        // ── URL boundary check ──────────────────────────────────────
+        if (URL_CHECKED_TOOLS.contains(toolName)) {
+            String url = extractUrlFromInput(input);
+            if (url != null && !url.isEmpty()) {
+                String error = getBoundaryChecker().check(url);
+                if (error != null) {
+                    LOG.warning("[BrowserToolAdapter] URL blocked: " + url);
+                    JsonObject errorResult = new JsonObject();
+                    errorResult.addProperty("status", "error");
+                    errorResult.addProperty("message", error);
+                    return new McpToolResponse(errorResult, resultVar, null);
+                }
+            }
+        }
+
         long startTime = System.currentTimeMillis();
 
         try {
@@ -122,6 +170,23 @@ public class BrowserToolAdapter implements McpTool {
             error.addProperty("message", e.getMessage());
             return new McpToolResponse(error, resultVar, null);
         }
+    }
+
+    /**
+     * Extract URL from tool input JSON. Handles both direct "url" field
+     * and nested "arguments.url" (older format).
+     */
+    private String extractUrlFromInput(JsonObject input) {
+        if (input.has("url") && input.get("url").isJsonPrimitive()) {
+            return input.get("url").getAsString();
+        }
+        if (input.has("arguments") && input.get("arguments").isJsonObject()) {
+            JsonObject args = input.getAsJsonObject("arguments");
+            if (args.has("url") && args.get("url").isJsonPrimitive()) {
+                return args.get("url").getAsString();
+            }
+        }
+        return null;
     }
 }
 

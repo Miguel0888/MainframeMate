@@ -1,5 +1,6 @@
 package de.bund.zrb.websearch.ui;
 
+import de.bund.zrb.websearch.tools.BrowserToolAdapter;
 import de.zrb.bund.api.MainframeContext;
 
 import javax.swing.*;
@@ -9,7 +10,7 @@ import java.util.Map;
 
 /**
  * Settings dialog for the WebSearch plugin.
- * Allows configuring browser type and headless mode.
+ * Allows configuring browser type, headless mode, and URL boundaries.
  */
 public class WebSearchSettingsDialog extends JDialog {
 
@@ -20,6 +21,8 @@ public class WebSearchSettingsDialog extends JDialog {
     private final JCheckBox headlessCheckbox;
     private final JTextField browserPathField;
     private final JSpinner timeoutSpinner;
+    private final JTextArea whitelistArea;
+    private final JTextArea blacklistArea;
 
     public WebSearchSettingsDialog(MainframeContext context) {
         super(context.getMainFrame(), "Websearch-Einstellungen", true);
@@ -103,6 +106,45 @@ public class WebSearchSettingsDialog extends JDialog {
         infoLabel.setForeground(Color.GRAY);
         form.add(infoLabel, gbc);
 
+        // ── URL Whitelist ───────────────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 1; gbc.weightx = 0;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        JLabel whitelistLabel = new JLabel("<html>URL-Whitelist<br><small>(Regex, pro Zeile)</small>:</html>");
+        whitelistLabel.setToolTipText("Nur URLs, die einem Pattern matchen, werden erlaubt. Leer = alle erlaubt.");
+        form.add(whitelistLabel, gbc);
+
+        whitelistArea = new JTextArea(settings.getOrDefault("urlWhitelist", ""), 4, 30);
+        whitelistArea.setToolTipText(
+                "Regex-Patterns (ein Pattern pro Zeile). Beispiele:\n"
+              + "  yahoo\\.com       → erlaubt alle Yahoo-URLs\n"
+              + "  https://news\\.yahoo\\.com/.*  → nur Yahoo News\n"
+              + "Zeilen mit # sind Kommentare. Leer = alle URLs erlaubt.");
+        whitelistArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        JScrollPane whitelistScroll = new JScrollPane(whitelistArea);
+        gbc.gridx = 1; gbc.weightx = 1; gbc.weighty = 0.3;
+        gbc.fill = GridBagConstraints.BOTH;
+        form.add(whitelistScroll, gbc);
+
+        // ── URL Blacklist ───────────────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 6; gbc.weightx = 0; gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        JLabel blacklistLabel = new JLabel("<html>URL-Blacklist<br><small>(Regex, pro Zeile)</small>:</html>");
+        blacklistLabel.setToolTipText("URLs, die einem Blacklist-Pattern matchen, werden blockiert.");
+        form.add(blacklistLabel, gbc);
+
+        blacklistArea = new JTextArea(settings.getOrDefault("urlBlacklist", ""), 4, 30);
+        blacklistArea.setToolTipText(
+                "Regex-Patterns (ein Pattern pro Zeile). Beispiele:\n"
+              + "  ads\\.example\\.com  → blockiert Werbe-Domain\n"
+              + "  \\.(exe|zip|msi)$   → blockiert Downloads\n"
+              + "Blacklist hat Vorrang vor Whitelist.");
+        blacklistArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        JScrollPane blacklistScroll = new JScrollPane(blacklistArea);
+        gbc.gridx = 1; gbc.weightx = 1; gbc.weighty = 0.3;
+        gbc.fill = GridBagConstraints.BOTH;
+        form.add(blacklistScroll, gbc);
+
         add(form, BorderLayout.CENTER);
 
         // ── Buttons ─────────────────────────────────────────────────
@@ -121,7 +163,7 @@ public class WebSearchSettingsDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
 
         pack();
-        setMinimumSize(new Dimension(450, 250));
+        setMinimumSize(new Dimension(550, 550));
         setLocationRelativeTo(context.getMainFrame());
     }
 
@@ -132,10 +174,15 @@ public class WebSearchSettingsDialog extends JDialog {
         settings.put("browserPath", browserPathField.getText().trim());
         String timeoutVal = String.valueOf(timeoutSpinner.getValue());
         settings.put("navigateTimeoutSeconds", timeoutVal);
+        settings.put("urlWhitelist", whitelistArea.getText());
+        settings.put("urlBlacklist", blacklistArea.getText());
         context.savePluginSettings(PLUGIN_KEY, settings);
 
         // Apply timeout to system properties so tools pick it up immediately
         System.setProperty("websearch.navigate.timeout.seconds", timeoutVal);
+
+        // Reload URL boundary checker with new settings
+        BrowserToolAdapter.reloadBoundaries(settings);
     }
 }
 

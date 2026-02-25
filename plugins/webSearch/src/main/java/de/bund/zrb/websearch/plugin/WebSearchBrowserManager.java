@@ -132,7 +132,7 @@ public class WebSearchBrowserManager {
         return (path == null || path.trim().isEmpty()) ? DEFAULT_FIREFOX_PATH : path;
     }
 
-    private Map<String, String> loadSettings() {
+    public Map<String, String> loadSettings() {
         return context.loadPluginSettings(PLUGIN_KEY);
     }
 }
