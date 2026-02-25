@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.commands;
 
+import de.bund.zrb.BuildInfo;
 import de.bund.zrb.ui.branding.IconThemeInstaller;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
@@ -39,7 +40,7 @@ public class ShowAboutDialogMenuCommand extends ShortcutMenuCommand {
         }
 
         JOptionPane.showMessageDialog(parent,
-                "MainframeMate\nVersion 5.3.0\n© 2026 GZD",
+                "MainframeMate\nVersion " + BuildInfo.getVersion() + "\n© 2026 GZD",
                 "Über MainframeMate",
                 logoIcon != null ? JOptionPane.PLAIN_MESSAGE : JOptionPane.INFORMATION_MESSAGE,
                 logoIcon);

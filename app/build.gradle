@@ -181,6 +181,24 @@ task unpackBrandingIcons(type: Copy) {
 }
 
 
+// ── Build Info: inject version from Gradle into runtime properties ───────────
+def buildInfoDir = file("${project.buildDir}/generated-resources/build-info")
+task generateBuildInfo {
+    description = 'Generates version.properties from Gradle project version.'
+    inputs.property('version', project.version)
+    outputs.dir buildInfoDir
+    doLast {
+        buildInfoDir.mkdirs()
+        def propsFile = new File(buildInfoDir, "version.properties")
+        propsFile.text = "app.version=${project.version}\n" +
+                         "app.name=MainframeMate\n" +
+                         "build.timestamp=${new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")}\n"
+        logger.lifecycle("[BuildInfo] Generated ${propsFile} (version=${project.version})")
+    }
+}
+
+sourceSets.main.resources.srcDir buildInfoDir
+processResources.dependsOn generateBuildInfo
 processResources.dependsOn unpackBrandingIcons
 
 // Ensure all plugins are built and installed when assembling the app
