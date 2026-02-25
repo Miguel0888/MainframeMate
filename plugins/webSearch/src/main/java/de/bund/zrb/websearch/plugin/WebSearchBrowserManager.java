@@ -137,6 +137,9 @@ public class WebSearchBrowserManager {
         if ("Chrome".equalsIgnoreCase(browser)) {
             return BrowserLauncher.DEFAULT_CHROME_PATH;
         }
+        if ("Edge".equalsIgnoreCase(browser)) {
+            return BrowserLauncher.resolveEdgePath();
+        }
         return BrowserLauncher.DEFAULT_FIREFOX_PATH;
     }
 

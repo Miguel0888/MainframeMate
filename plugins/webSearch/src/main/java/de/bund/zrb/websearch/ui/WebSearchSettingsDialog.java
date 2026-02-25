@@ -257,7 +257,7 @@ public class WebSearchSettingsDialog extends JDialog {
             case "chrome":
                 return BrowserLauncher.DEFAULT_CHROME_PATH;
             case "edge":
-                return "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+                return BrowserLauncher.resolveEdgePath();
             default:
                 return BrowserLauncher.DEFAULT_FIREFOX_PATH;
         }

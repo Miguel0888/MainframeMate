@@ -26,6 +26,9 @@ public class BrowserLauncher {
     /** Default browser paths on Windows. */
     public static final String DEFAULT_FIREFOX_PATH = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
     public static final String DEFAULT_CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+    public static final String DEFAULT_EDGE_PATH = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+    /** Fallback: on 64-bit systems Edge may be under Program Files instead of Program Files (x86). */
+    private static final String DEFAULT_EDGE_PATH_64 = "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe";
 
     /**
      * Browser type enum.
@@ -37,7 +40,8 @@ public class BrowserLauncher {
         public static BrowserType fromPath(String path) {
             if (path == null) return FIREFOX;
             String lower = path.toLowerCase();
-            if (lower.contains("chrome") || lower.contains("chromium")) return CHROME;
+            if (lower.contains("chrome") || lower.contains("chromium")
+                    || lower.contains("msedge") || lower.contains("edge")) return CHROME;
             return FIREFOX;
         }
 
@@ -322,6 +326,15 @@ public class BrowserLauncher {
         } catch (Exception e) {
             return 9222; // fallback
         }
+    }
+
+    /**
+     * Returns the actual Edge executable path, checking both Program Files locations.
+     */
+    public static String resolveEdgePath() {
+        if (new File(DEFAULT_EDGE_PATH).exists()) return DEFAULT_EDGE_PATH;
+        if (new File(DEFAULT_EDGE_PATH_64).exists()) return DEFAULT_EDGE_PATH_64;
+        return DEFAULT_EDGE_PATH; // return default even if not found – will fail later with clear error
     }
 
     /**
