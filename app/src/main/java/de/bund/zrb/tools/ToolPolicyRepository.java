@@ -39,8 +39,13 @@ public class ToolPolicyRepository {
         // Keep only policies for tools that are still registered
         for (ToolPolicy p : existing) {
             if (p != null && p.getToolName() != null && registeredNames.contains(p.getToolName())) {
-                if (p.getAccessType() == null) {
-                    p.setAccessType(ToolAccessTypeDefaults.resolveDefault(p.getToolName()));
+                ToolAccessType correctAccess = ToolAccessTypeDefaults.resolveDefault(p.getToolName());
+                if (p.getAccessType() == null || p.getAccessType() != correctAccess) {
+                    p.setAccessType(correctAccess);
+                    // Ensure WRITE tools have askBeforeUse=true
+                    if (correctAccess.isWrite()) {
+                        p.setAskBeforeUse(true);
+                    }
                 }
                 merged.put(p.getToolName(), p);
             }

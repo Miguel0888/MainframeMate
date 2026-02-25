@@ -307,10 +307,32 @@ public class HtmlLinkExtractor {
         try {
             String hrefHost = new java.net.URL(href).getHost().toLowerCase();
             String baseHost = new java.net.URL(baseUrl).getHost().toLowerCase();
-            return !hrefHost.equals(baseHost) && !hrefHost.endsWith("." + baseHost);
+            // Same host → internal
+            if (hrefHost.equals(baseHost)) return false;
+            // Subdomain of base → internal (e.g. news.example.com vs example.com)
+            if (hrefHost.endsWith("." + baseHost)) return false;
+            // Same registered domain → internal
+            // (e.g. de.nachrichten.yahoo.com vs de.yahoo.com → both yahoo.com)
+            String hrefRd = getRegisteredDomain(hrefHost);
+            String baseRd = getRegisteredDomain(baseHost);
+            if (hrefRd != null && hrefRd.equals(baseRd)) return false;
+            return true;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Extract the registered domain (last 2 segments) from a hostname.
+     * E.g. "de.nachrichten.yahoo.com" → "yahoo.com"
+     */
+    private static String getRegisteredDomain(String host) {
+        if (host == null) return null;
+        String[] parts = host.split("\\.");
+        if (parts.length >= 2) {
+            return parts[parts.length - 2] + "." + parts[parts.length - 1];
+        }
+        return host;
     }
 
     private static String cleanText(Element el) {
