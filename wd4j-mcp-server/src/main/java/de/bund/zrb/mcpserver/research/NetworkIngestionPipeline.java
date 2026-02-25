@@ -104,6 +104,28 @@ public class NetworkIngestionPipeline {
                               String bodyText, Map<String, String> headers, long capturedAt);
     }
 
+    /**
+     * Global default callback that plugins can register at startup.
+     * If set, all new pipelines will use this callback (unless explicitly overridden).
+     */
+    private static volatile IngestionCallback globalDefaultCallback;
+
+    /**
+     * Register a global default callback for all new NetworkIngestionPipelines.
+     * Called once at plugin init time (e.g. from WebSearchPlugin).
+     */
+    public static void setGlobalDefaultCallback(IngestionCallback callback) {
+        globalDefaultCallback = callback;
+        LOG.info("[NetworkIngestion] Global default callback registered");
+    }
+
+    /**
+     * Get the global default callback, or null if none registered.
+     */
+    public static IngestionCallback getGlobalDefaultCallback() {
+        return globalDefaultCallback;
+    }
+
     public NetworkIngestionPipeline(WebDriver driver, ResearchSession session) {
         this.driver = driver;
         this.session = session;

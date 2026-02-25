@@ -2,6 +2,7 @@ package de.bund.zrb.websearch.tools;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.model.ArchiveEntryStatus;
 import de.bund.zrb.archive.model.WebCacheEntry;
 import de.bund.zrb.archive.store.ArchiveRepository;
@@ -80,6 +81,33 @@ public class ResearchQueueStatusTool implements McpTool {
                 resp.addProperty("indexed", indexed);
                 resp.addProperty("failed", failed);
             }
+
+            // Always include archived documents (from archive_entries table)
+            List<ArchiveEntry> archivedEntries = repo.findAll();
+            resp.addProperty("archivedDocuments", archivedEntries.size());
+
+            JsonArray archivedArr = new JsonArray();
+            int maxShow = 30; // Show up to 30 most recent
+            for (int i = 0; i < Math.min(archivedEntries.size(), maxShow); i++) {
+                ArchiveEntry ae = archivedEntries.get(i);
+                JsonObject doc = new JsonObject();
+                doc.addProperty("entryId", ae.getEntryId());
+                doc.addProperty("url", ae.getUrl());
+                doc.addProperty("title", ae.getTitle());
+                doc.addProperty("status", ae.getStatus().name());
+                doc.addProperty("capturedAt", ae.getCrawlTimestamp());
+                doc.addProperty("contentLength", ae.getContentLength());
+                archivedArr.add(doc);
+            }
+            resp.add("recentArchived", archivedArr);
+
+            // Include network pipeline stats if available
+            try {
+                de.bund.zrb.mcpserver.research.ResearchSessionManager mgr =
+                        de.bund.zrb.mcpserver.research.ResearchSessionManager.getInstance();
+                // We can't easily enumerate sessions here, but the stats are in the pipeline
+                // The bot sees them in research_menu/research_open via newArchivedDocs
+            } catch (Exception ignored) {}
 
             return new McpToolResponse(resp, resultVar, null);
         } catch (Exception e) {

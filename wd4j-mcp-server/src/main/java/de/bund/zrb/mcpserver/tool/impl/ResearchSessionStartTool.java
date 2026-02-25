@@ -180,16 +180,25 @@ public class ResearchSessionStartTool implements McpServerTool {
                 try {
                     NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(
                             session.getDriver(), rs);
-                    pipeline.start(new NetworkIngestionPipeline.IngestionCallback() {
-                        @Override
-                        public String onBodyCaptured(String url, String mimeType, long status,
-                                                     String bodyText, java.util.Map<String, String> headers,
-                                                     long capturedAt) {
-                            LOG.fine("[NetworkIngestion] Captured: " + url
-                                    + " (" + mimeType + ", " + bodyText.length() + " chars)");
-                            return "net-" + Long.toHexString(capturedAt);
-                        }
-                    });
+
+                    // Use global callback (registered by WebSearchPlugin) or fallback
+                    NetworkIngestionPipeline.IngestionCallback cb =
+                            NetworkIngestionPipeline.getGlobalDefaultCallback();
+                    if (cb == null) {
+                        // Fallback: logging only (no persistence)
+                        cb = new NetworkIngestionPipeline.IngestionCallback() {
+                            @Override
+                            public String onBodyCaptured(String url, String mimeType, long status,
+                                                         String bodyText, java.util.Map<String, String> headers,
+                                                         long capturedAt) {
+                                LOG.fine("[NetworkIngestion] Captured (no persister): " + url
+                                        + " (" + mimeType + ", " + bodyText.length() + " chars)");
+                                return "net-" + Long.toHexString(capturedAt);
+                            }
+                        };
+                    }
+
+                    pipeline.start(cb);
                     rs.setNetworkPipeline(pipeline);
                     LOG.info("[research_session_start] Network ingestion pipeline started");
                 } catch (Exception e) {

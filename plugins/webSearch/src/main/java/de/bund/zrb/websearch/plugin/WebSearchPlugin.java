@@ -36,6 +36,63 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         this.context = mainFrame;
         this.browserManager = new WebSearchBrowserManager(mainFrame);
         this.tools = createTools();
+
+        // Register global NetworkIngestionPipeline callback:
+        // captured HTTP response bodies → H2 archive via WebSnapshotPipeline
+        registerNetworkIngestionCallback();
+    }
+
+    /**
+     * Connects the NetworkIngestionPipeline (wd4j-mcp-server) to the
+     * ArchiveService/WebSnapshotPipeline (app) for persistent storage.
+     */
+    private void registerNetworkIngestionCallback() {
+        try {
+            de.bund.zrb.archive.service.ArchiveService archiveService =
+                    de.bund.zrb.archive.service.ArchiveService.getInstance();
+            de.bund.zrb.archive.service.WebSnapshotPipeline snapshotPipeline =
+                    archiveService.getSnapshotPipeline();
+
+            de.bund.zrb.mcpserver.research.NetworkIngestionPipeline.setGlobalDefaultCallback(
+                    new de.bund.zrb.mcpserver.research.NetworkIngestionPipeline.IngestionCallback() {
+                        @Override
+                        public String onBodyCaptured(String url, String mimeType, long status,
+                                                     String bodyText, java.util.Map<String, String> headers,
+                                                     long capturedAt) {
+                            // Extract title from HTML if available
+                            String title = extractTitleFromHtml(bodyText, url);
+
+                            // Persist via WebSnapshotPipeline → H2 + filesystem
+                            de.bund.zrb.archive.model.ArchiveEntry entry =
+                                    snapshotPipeline.processSnapshot(url, bodyText, title);
+
+                            if (entry != null) {
+                                return entry.getEntryId();
+                            }
+                            return null;
+                        }
+                    });
+        } catch (Exception e) {
+            System.err.println("[WebSearchPlugin] Could not register network ingestion callback: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Quick title extraction from HTML body text.
+     */
+    private static String extractTitleFromHtml(String body, String fallbackUrl) {
+        if (body == null) return fallbackUrl;
+        int titleStart = body.indexOf("<title>");
+        if (titleStart < 0) titleStart = body.indexOf("<TITLE>");
+        if (titleStart >= 0) {
+            titleStart += 7; // length of "<title>"
+            int titleEnd = body.indexOf("</title>", titleStart);
+            if (titleEnd < 0) titleEnd = body.indexOf("</TITLE>", titleStart);
+            if (titleEnd > titleStart && (titleEnd - titleStart) < 500) {
+                return body.substring(titleStart, titleEnd).trim();
+            }
+        }
+        return fallbackUrl;
     }
 
     @Override
