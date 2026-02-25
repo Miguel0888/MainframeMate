@@ -82,19 +82,21 @@ public class WDSessionManager implements WDModule {
         // Erzeuge das Command-Objekt mit der ID
         WDSessionRequest.Subscribe subscribeCommand = new WDSessionRequest.Subscribe(subscriptionRequest);
 
-        // Die ID ist bereits bekannt, sollt aber eigentlich in der Antwort geliefert werden (ToDo: Wait for fix in WebDriver BiDi!)
-        String subscriptionId = subscribeCommand.getId().toString();
-
         // Sende den Subscribe-Command
         WDSessionResult.SubscribeResult result = WDWebSocketManager.sendAndWaitForResponse(
                 subscribeCommand, WDSessionResult.SubscribeResult.class);
 
-        // Bug fix: Falls die Antwort leer ist, erstelle ein Fallback-Result mit der ID
-        if (result == null || result.getSubscription() == null) {
-            System.out.println("Warning: No Subscription-ID returned. Using command ID as fallback.");
+        // Determine subscription ID: prefer the returned subscription from the response (spec-conformant)
+        String subscriptionId;
+        if (result != null && result.getSubscription() != null
+                && result.getSubscription().value() != null && !result.getSubscription().value().trim().isEmpty()) {
+            subscriptionId = result.getSubscription().value();
+        } else {
+            // Fallback: use command ID (Firefox may not return subscription field in older versions)
+            subscriptionId = subscribeCommand.getId().toString();
+            System.out.println("Warning: No Subscription-ID returned by remote end. Using command ID as fallback: " + subscriptionId);
             result = new WDSessionResult.SubscribeResult(new WDSubscription(subscriptionId));
         }
-        // End Bug fix (ToDo: Remove when fixed in WebDriver BiDi!)
 
         // Speichere die Subscription mit ihren vollen Kriterien
         subscriptionIds.put(subscriptionRequest, subscriptionId);
@@ -136,25 +138,47 @@ public class WDSessionManager implements WDModule {
     }
 
 
-    // ToDo: Not Supported Yet!?!
-    // [WebSocket] Message sent: {"id":6,"method":"session.unsubscribe","params":{"subscriptions":["5"]}}
-    //[WebSocket] Message received: {"type":"error","id":6,"error":"invalid argument","message":"Expected \"events\" to be an array, got [object Undefined] undefined","stacktrace":"RemoteError@chrome://remote/content/shared/RemoteError.sys.mjs:8:8\nWebDriverError@chrome://remote/content/shared/webdriver/Errors.sys.mjs:197:5\nInvalidArgumentError@chrome://remote/content/shared/webdriver/Errors.sys.mjs:392:5\nassert.that/<@chrome://remote/content/shared/webdriver/Assert.sys.mjs:538:13\nassert.array@chrome://remote/content/shared/webdriver/Assert.sys.mjs:511:41\n#assertNonEmptyArrayWithStrings@chrome://remote/content/webdriver-bidi/modules/root/session.sys.mjs:136:17\nunsubscribe@chrome://remote/content/webdriver-bidi/modules/root/session.sys.mjs:115:41\nhandleCommand@chrome://remote/content/shared/messagehandler/MessageHandler.sys.mjs:257:33\nexecute@chrome://remote/content/shared/webdriver/Session.sys.mjs:390:32\nonPacket@chrome://remote/content/webdriver-bidi/WebDriverBiDiConnection.sys.mjs:236:37\nonMessage@chrome://remote/content/server/WebSocketTransport.sys.mjs:127:18\nhandleEvent@chrome://remote/content/server/WebSocketTransport.sys.mjs:109:14\n"}
+    // Unsubscribe by subscription ID with fallback to by-attributes.
+    // The WebDriver BiDi spec supports both variants (union type).
+    // Firefox may not support by-ID yet, so we fall back to by-attributes.
     public void unsubscribe(WDSubscription subscription) {
         if (subscription == null || subscription.value().isEmpty()) {
             throw new IllegalArgumentException("Subscription ID must not be null or empty.");
         }
 
-        // Baue die Unsubscribe-Parameter
-        UnsubscribeParameters unsubscribeParameters =
-                new UnsubscribeParameters.WDUnsubscribeByIDRequestParams(Collections.singletonList(subscription));
+        // Find the original subscription request for potential fallback
+        WDSubscriptionRequest originalRequest = null;
+        for (Map.Entry<WDSubscriptionRequest, String> entry : subscriptionIds.entrySet()) {
+            if (entry.getValue().equals(subscription.value())) {
+                originalRequest = entry.getKey();
+                break;
+            }
+        }
 
-        // Sende den Unsubscribe-Command mit der Subscription-ID
-        WDWebSocketManager.sendAndWaitForResponse(new WDSessionRequest.Unsubscribe(unsubscribeParameters), WDEmptyResult.class);
+        try {
+            // Try by-ID first (spec-conformant)
+            UnsubscribeParameters unsubscribeParameters =
+                    new UnsubscribeParameters.WDUnsubscribeByIDRequestParams(Collections.singletonList(subscription));
+            WDWebSocketManager.sendAndWaitForResponse(
+                    new WDSessionRequest.Unsubscribe(unsubscribeParameters), WDEmptyResult.class);
 
-        // Entferne die Subscription aus der Map (Vergleich als String)
+            System.out.println("Unsubscribed from event using Subscription-ID: " + subscription.value());
+        } catch (Exception e) {
+            // Fallback: by-attributes (Firefox may not support by-ID yet)
+            System.out.println("Unsubscribe by ID failed (" + e.getMessage()
+                    + "), falling back to unsubscribe by attributes.");
+
+            if (originalRequest != null) {
+                try {
+                    unsubscribe(originalRequest.getEvents(), null);
+                } catch (Exception e2) {
+                    System.out.println("Unsubscribe by attributes also failed: " + e2.getMessage());
+                }
+            }
+        }
+
+        // Entferne die Subscription aus der Map
         subscriptionIds.entrySet().removeIf(entry -> entry.getValue().equals(subscription.value()));
-
-        System.out.println("Unsubscribed from event using Subscription-ID: " + subscription.value());
     }
 
     /**

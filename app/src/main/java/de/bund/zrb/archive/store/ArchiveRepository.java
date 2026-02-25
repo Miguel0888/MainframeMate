@@ -70,8 +70,8 @@ public class ArchiveRepository {
                     + ")");
 
             // ── Schema migration for existing databases ──
-            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN url VARCHAR(4096)"); } catch (Exception e) { LOG.fine("[Archive] Migration archive_entries.url: " + e.getMessage()); }
-            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN title VARCHAR(2048)"); } catch (Exception e) { LOG.fine("[Archive] Migration archive_entries.title: " + e.getMessage()); }
+            migrateColumn(stmt, conn, "archive_entries", "url", 4096);
+            migrateColumn(stmt, conn, "archive_entries", "title", 2048);
 
             stmt.execute("CREATE TABLE IF NOT EXISTS archive_metadata ("
                     + "entry_id VARCHAR(36),"
@@ -91,8 +91,8 @@ public class ArchiveRepository {
                     + ")");
 
             // ── Schema migration for existing web_cache ──
-            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN url VARCHAR(4096)"); } catch (Exception e) { LOG.fine("[Archive] Migration web_cache.url: " + e.getMessage()); }
-            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN parent_url VARCHAR(4096)"); } catch (Exception e) { LOG.fine("[Archive] Migration web_cache.parent_url: " + e.getMessage()); }
+            migrateColumn(stmt, conn, "web_cache", "url", 4096);
+            migrateColumn(stmt, conn, "web_cache", "parent_url", 4096);
 
             // Indices (ignore if already exist)
             try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_cache_source ON web_cache(source_id)"); } catch (Exception e) { LOG.fine("[Archive] Index idx_cache_source: " + e.getMessage()); }
@@ -104,6 +104,41 @@ public class ArchiveRepository {
             LOG.info("[Archive] Database initialized at " + jdbcUrl);
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "[Archive] Failed to initialize database", e);
+        }
+    }
+
+    /**
+     * Migrate a VARCHAR column to the required size. Verifies the result via INFORMATION_SCHEMA.
+     */
+    private void migrateColumn(Statement stmt, Connection conn, String table, String column, int requiredSize) {
+        try {
+            stmt.execute("ALTER TABLE " + table + " ALTER COLUMN " + column + " VARCHAR(" + requiredSize + ")");
+            LOG.info("[Archive] Migration " + table + "." + column + " → VARCHAR(" + requiredSize + ") executed.");
+        } catch (Exception e) {
+            // ALTER may fail if column already has the correct size or table was just created
+            LOG.fine("[Archive] Migration " + table + "." + column + ": " + e.getMessage());
+        }
+
+        // Verify the actual column size via INFORMATION_SCHEMA
+        try {
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
+                    + "WHERE UPPER(TABLE_NAME) = UPPER(?) AND UPPER(COLUMN_NAME) = UPPER(?)");
+            ps.setString(1, table);
+            ps.setString(2, column);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                long actualSize = rs.getLong(1);
+                if (actualSize < requiredSize) {
+                    LOG.warning("[Archive] ⚠ Column " + table + "." + column
+                            + " has size " + actualSize + " but requires " + requiredSize
+                            + ". Data truncation may occur!");
+                }
+            }
+            rs.close();
+            ps.close();
+        } catch (Exception e) {
+            LOG.fine("[Archive] Could not verify column size for " + table + "." + column + ": " + e.getMessage());
         }
     }
 

@@ -137,7 +137,12 @@ public interface WDSessionResult extends WDResultData {
      * The session.subscribe command enables certain events either globally or for a set of navigables.
      */
     class SubscribeResult implements WDSessionResult {
-        private final WDSubscription subscription;
+        // Non-final for Gson deserialization. Wire name from spec: "subscription"
+        @com.google.gson.annotations.SerializedName("subscription")
+        private WDSubscription subscription;
+
+        // Required for Gson
+        public SubscribeResult() {}
 
         public SubscribeResult(WDSubscription subscription) {
             this.subscription = subscription;

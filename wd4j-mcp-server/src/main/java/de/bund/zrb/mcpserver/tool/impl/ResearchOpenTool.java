@@ -208,7 +208,7 @@ public class ResearchOpenTool implements McpServerTool {
             // Add clear next-step instruction for the bot
             sb.append("\n── Next step ──\n");
             sb.append("Read the excerpt above. To click a link, use research_choose with ");
-            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId (e.g. 'm21').");
+            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId.");
 
             return ToolResult.text(sb.toString());
         } catch (Exception e) {
