@@ -32,9 +32,14 @@ public class ResearchSessionStartTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Start a research session. Call ONCE, then use research_open. "
-             + "Parameters: mode (string, optional). No other parameters needed. "
-             + "After calling this, your next call MUST be research_open with a URL.";
+        return "Start a research session with browser isolation and crawl policies. "
+             + "Call this ONCE at the beginning – do NOT call again. "
+             + "If already started, it returns the existing session. "
+             + "After this, use research_open to navigate to a URL. "
+             + "mode: 'research' (default, full crawl) or 'agent' (quick lookup). "
+             + "includeDomains: comma-separated domains to include (e.g. 'yahoo.com,reuters.com'). "
+             + "excludeDomains: comma-separated domains to exclude. "
+             + "maxUrls: max URLs to crawl (default 500). maxDepth: max crawl depth (default 5).";
     }
 
     @Override
