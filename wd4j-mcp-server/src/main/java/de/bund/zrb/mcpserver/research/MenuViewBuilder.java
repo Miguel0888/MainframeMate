@@ -3,6 +3,7 @@ package de.bund.zrb.mcpserver.research;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.mcpserver.browser.NodeRef;
 import de.bund.zrb.mcpserver.browser.NodeRefRegistry;
+import de.bund.zrb.support.ScriptHelper;
 import de.bund.zrb.type.browsingContext.WDLocator;
 import de.bund.zrb.type.script.WDEvaluateResult;
 import de.bund.zrb.type.script.WDRemoteReference;
@@ -29,6 +30,12 @@ import java.util.logging.Logger;
 public class MenuViewBuilder {
 
     private static final Logger LOG = Logger.getLogger(MenuViewBuilder.class.getName());
+
+    // ── Pre-loaded JS scripts (loaded once from resources) ──────────
+    private static final String SCRIPT_DESCRIBE       = ScriptHelper.loadScript("scripts/describePageElements.js");
+    private static final String SCRIPT_CLEANUP        = ScriptHelper.loadScript("scripts/cleanupMarkers.js");
+    private static final String SCRIPT_SETTLE_DOM     = ScriptHelper.loadScript("scripts/settleDomQuiet.js");
+    private static final String SCRIPT_SETTLE_NETWORK = ScriptHelper.loadScript("scripts/settleNetworkQuiet.js");
 
     private final BrowserSession session;
     private final ResearchSession researchSession;
@@ -104,19 +111,11 @@ public class MenuViewBuilder {
         cleanupMarkers();
 
         // Create MenuView and register in session
-        // viewToken is set by ResearchSession.updateView
-        MenuView view = new MenuView(
-                null, // token will be set below
-                parsed.url,
-                parsed.title,
-                parsed.excerpt,
-                menuItems
-        );
+        MenuView view = new MenuView(null, parsed.url, parsed.title, parsed.excerpt, menuItems);
 
         // Register and get the viewToken
         String viewToken = researchSession.updateView(view, itemRefs);
 
-        // Create final view with token
         MenuView finalView = new MenuView(viewToken, parsed.url, parsed.title, parsed.excerpt, menuItems);
         LOG.info("[MenuViewBuilder] View built: " + viewToken + " (" + menuItems.size() + " items, "
                 + itemRefs.size() + " with refs)");
@@ -133,7 +132,7 @@ public class MenuViewBuilder {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Internal: Settle strategies
+    // Settle strategies
     // ══════════════════════════════════════════════════════════════════
 
     private void settle(SettlePolicy policy) {
@@ -151,54 +150,21 @@ public class MenuViewBuilder {
     }
 
     private void settleNavigation() {
-        // The actual navigation wait is handled by BrowserSession.navigate()
-        // with ReadinessState.INTERACTIVE. We add a minimal stabilization delay
-        // for late-loading scripts/styles.
         sleep(300);
     }
 
     private void settleDomQuiet() {
-        // Wait until DOM mutations are quiet for ~500ms
-        String script =
-                "(function(){"
-              + "return new Promise(function(resolve){"
-              + "  var timer;"
-              + "  var obs=new MutationObserver(function(){"
-              + "    clearTimeout(timer);"
-              + "    timer=setTimeout(function(){obs.disconnect();resolve('quiet');},500);"
-              + "  });"
-              + "  obs.observe(document.body||document.documentElement,{childList:true,subtree:true,attributes:true});"
-              + "  timer=setTimeout(function(){obs.disconnect();resolve('timeout');},5000);"
-              + "});"
-              + "})()";
         try {
-            session.evaluate(script, true);
+            session.evaluate(SCRIPT_SETTLE_DOM, true);
         } catch (Exception e) {
             LOG.fine("[MenuViewBuilder] DOM_QUIET settle failed: " + e.getMessage());
         }
-        // Additional small delay after quiet
         sleep(300);
     }
 
     private void settleNetworkQuiet() {
-        // Wait until no new network activity for ~500ms using PerformanceObserver
-        String script =
-                "(function(){"
-              + "return new Promise(function(resolve){"
-              + "  var timer;"
-              + "  function reset(){clearTimeout(timer);timer=setTimeout(function(){resolve('quiet');},500);}"
-              + "  try{"
-              + "    var obs=new PerformanceObserver(function(list){"
-              + "      if(list.getEntries().length>0)reset();"
-              + "    });"
-              + "    obs.observe({type:'resource',buffered:false});"
-              + "    reset();"
-              + "    setTimeout(function(){try{obs.disconnect();}catch(e){}resolve('timeout');},8000);"
-              + "  }catch(e){resolve('unsupported');}"
-              + "});"
-              + "})()";
         try {
-            session.evaluate(script, true);
+            session.evaluate(SCRIPT_SETTLE_NETWORK, true);
         } catch (Exception e) {
             LOG.fine("[MenuViewBuilder] NETWORK_QUIET settle failed: " + e.getMessage());
         }
@@ -212,12 +178,19 @@ public class MenuViewBuilder {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Internal: JS script
+    // Script execution
     // ══════════════════════════════════════════════════════════════════
 
+    /**
+     * Run the describe script with a Java-side timeout guard.
+     * The script itself also has an internal 3 s timeout.
+     */
     private String runDescribeScript(int maxItems, int excerptLen) {
-        String script = buildDescribeScript(maxItems, excerptLen);
-        // Run with a Java-side timeout to prevent browser freezes from blocking us forever
+        // Inject parameters into the pre-loaded script template
+        final String script = SCRIPT_DESCRIBE
+                .replace("__MAX_ITEMS__", String.valueOf(maxItems))
+                .replace("__EXCERPT_LEN__", String.valueOf(excerptLen));
+
         ExecutorService ex = Executors.newSingleThreadExecutor();
         try {
             Future<String> future = ex.submit(new Callable<String>() {
@@ -233,7 +206,7 @@ public class MenuViewBuilder {
             });
             return future.get(8, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            LOG.warning("[MenuViewBuilder] Describe script timed out after 8s – page JS too heavy");
+            LOG.warning("[MenuViewBuilder] Describe script timed out after 8s");
             return "";
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[MenuViewBuilder] Describe script failed", e);
@@ -243,87 +216,14 @@ public class MenuViewBuilder {
         }
     }
 
-    private String buildDescribeScript(int maxItems, int excerptLen) {
-        return "(function(){"
-             + "var _start=Date.now();"
-             + "function _expired(){return (Date.now()-_start)>3000;}" // 3s max
-             + "var r='TITLE|'+document.title+'\\n'+'URL|'+window.location.href+'\\n';"
-             // Interactive elements selector (no iframes – cross-origin hangs the browser)
-             + "var sel='a[href],button,input,select,textarea,[role=button],[role=link],[role=tab],"
-             + "[role=menuitem],[role=checkbox],[role=radio]';"
-             + "var nodes=document.querySelectorAll(sel);"
-             // Iterate and tag – cap total scanned to 500 to avoid freezing on huge DOMs
-             + "var idx=0;var scanned=0;var maxScan=500;"
-             + "for(var i=0;i<nodes.length&&idx<" + maxItems + "&&scanned<maxScan;i++){"
-             + "  if(_expired())break;"
-             + "  scanned++;"
-             + "  var n=nodes[i];"
-             // Fast visibility check: offsetParent is null for hidden elements (except body/fixed)
-             + "  try{if(!n.offsetParent&&n.tagName!=='BODY'"
-             + "    &&(!n.style||n.style.position!=='fixed'))continue;}catch(e){continue;}"
-             // Describe
-             + "  var tag=n.tagName.toLowerCase();"
-             + "  var al=n.getAttribute('aria-label')||'';"
-             + "  var ph=n.getAttribute('placeholder')||'';"
-             + "  var tt=n.getAttribute('title')||'';"
-             + "  var tp=n.getAttribute('type')||'';"
-             + "  var nm=n.getAttribute('name')||'';"
-             + "  var hr='';"
-             + "  try{if(tag==='a'&&n.href){hr=n.href;}"
-             + "  else{var raw=n.getAttribute('href')||'';"
-             + "  if(raw){try{hr=new URL(raw,location.href).href;}catch(e){hr=raw;}}}"
-             + "  }catch(e){}"
-             + "  var tx='';try{tx=(n.textContent||'').trim().substring(0,60).replace(/\\n/g,' ');}catch(e){}"
-             // Build label
-             + "  var label=al||ph||tt||tx||nm||'';"
-             + "  if(label.length>80)label=label.substring(0,80)+'…';"
-             // Build desc line
-             + "  var desc=tp?tag+'['+tp+']':tag;"
-             + "  if(nm)desc+='[name='+nm+']';"
-             + "  desc+=' \"'+label+'\"';"
-             + "  if(hr&&hr.indexOf('javascript:')<0)desc+=' ->'+hr.substring(0,200);"
-             // Action hint
-             + "  var hint='';"
-             + "  if(n.getAttribute('target')==='_blank')hint='new window';"
-             + "  else if(hr&&(hr.endsWith('.pdf')||hr.endsWith('.zip')||hr.endsWith('.exe')))hint='download';"
-             + "  else if(tp==='password')hint='password field';"
-             // Tag element
-             + "  n.setAttribute('data-mm-menu-id',''+idx);"
-             + "  r+='EL|'+idx+'|'+tag+'|'+label+'|'+hr+'|'+hint+'\\n';"
-             + "  idx++;"
-             + "}"
-             // Excerpt: use textContent directly (NO cloneNode – that freezes on big DOMs)
-             + "var excEl=document.querySelector('article')||document.querySelector('[role=main]')"
-             + "||document.querySelector('main')||document.querySelector('#content');"
-             + "var exc='';"
-             + "if(excEl&&!_expired()){"
-             + "  try{exc=(excEl.textContent||'').replace(/\\s+/g,' ').trim().substring(0," + excerptLen + ");}catch(e){}"
-             + "}else if(!_expired()){"
-             // Fallback: walk text nodes in body, skip script/style, cap at excerptLen
-             + "  try{"
-             + "    var tw=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{"
-             + "      acceptNode:function(nd){"
-             + "        var p=nd.parentElement;if(!p)return NodeFilter.FILTER_SKIP;"
-             + "        var pn=p.tagName;"
-             + "        if(pn==='SCRIPT'||pn==='STYLE'||pn==='NOSCRIPT'||pn==='NAV')return NodeFilter.FILTER_REJECT;"
-             + "        return NodeFilter.FILTER_ACCEPT;"
-             + "      }"
-             + "    });"
-             + "    var buf=[];var len=0;"
-             + "    while(tw.nextNode()&&len<" + excerptLen + "&&!_expired()){"
-             + "      var v=tw.currentNode.nodeValue.trim();"
-             + "      if(v.length>2){buf.push(v);len+=v.length;}"
-             + "    }"
-             + "    exc=buf.join(' ').substring(0," + excerptLen + ");"
-             + "  }catch(e){}"
-             + "}"
-             + "r+='EXCERPT|'+exc;"
-             + "return r;"
-             + "})()";
+    private void cleanupMarkers() {
+        try {
+            session.evaluate(SCRIPT_CLEANUP, true);
+        } catch (Exception ignored) {}
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Internal: Parsing JS output
+    // Parsing
     // ══════════════════════════════════════════════════════════════════
 
     private ParsedPage parseJsOutput(String jsOutput) {
@@ -339,7 +239,6 @@ public class MenuViewBuilder {
             } else if (line.startsWith("EXCERPT|")) {
                 page.excerpt = line.substring(8);
             } else if (line.startsWith("EL|")) {
-                // Format: EL|idx|tag|label|href|hint
                 String[] parts = line.split("\\|", 7);
                 if (parts.length >= 4) {
                     ElementInfo el = new ElementInfo();
@@ -353,17 +252,6 @@ public class MenuViewBuilder {
             }
         }
         return page;
-    }
-
-    private void cleanupMarkers() {
-        try {
-            session.evaluate(
-                    "(function(){"
-                  + "var els=document.querySelectorAll('[data-mm-menu-id]');"
-                  + "for(var i=0;i<els.length;i++)els[i].removeAttribute('data-mm-menu-id');"
-                  + "})()",
-                    true);
-        } catch (Exception ignored) {}
     }
 
     // ── Internal data classes ───────────────────────────────────────
