@@ -104,11 +104,40 @@ public class HtmlLinkExtractor {
         return "";
     }
 
+    /**
+     * Junk URL patterns – links that are never useful for research navigation.
+     * These include login, logout, account management, mail, help, ads, etc.
+     */
+    private static final Set<String> JUNK_URL_PATTERNS = new LinkedHashSet<>(java.util.Arrays.asList(
+            "login.", "logout", "signin", "signup", "register",
+            "myaccount", "account/", "profile",
+            "mail.", "mail/",
+            "hilfe.", "help.", "support.",
+            "privacy", "datenschutz", "impressum", "nutzungsbedingungen",
+            "terms", "tos", "legal",
+            "cookie", "consent",
+            "ads.", "ad.", "adclick",
+            "search.yahoo.com/search"
+    ));
+
+    /**
+     * Junk label patterns – links whose labels indicate non-content targets.
+     */
+    private static final Set<String> JUNK_LABEL_PATTERNS = new LinkedHashSet<>(java.util.Arrays.asList(
+            "anmelden", "abmelden", "einloggen", "ausloggen",
+            "sign in", "sign out", "log in", "log out",
+            "account verwalten", "ihren account",
+            "datenschutz", "impressum", "nutzungsbedingungen",
+            "cookie", "hilfe", "help"
+    ));
+
     private static List<LinkInfo> extractLinks(Document doc, String baseUrl, int maxLinks) {
         // Collect all links into categorized buckets for prioritization:
-        // Content links first, then section nav, then external/footer
-        List<LinkInfo> contentLinks = new ArrayList<>();
+        // Section navigation FIRST (so the bot can orient itself),
+        // then content links, then external/other.
+        // Junk links (login, mail, account, etc.) are filtered out entirely.
         List<LinkInfo> sectionLinks = new ArrayList<>();
+        List<LinkInfo> contentLinks = new ArrayList<>();
         List<LinkInfo> otherLinks = new ArrayList<>();
         Set<String> seenUrls = new LinkedHashSet<>();
 
@@ -138,6 +167,11 @@ public class HtmlLinkExtractor {
                 continue;
             }
 
+            // Skip junk links (login, mail, account, help, etc.)
+            if (isJunkUrl(href)) {
+                continue;
+            }
+
             // Dedupe by URL
             if (seenUrls.contains(href)) continue;
             seenUrls.add(href);
@@ -157,33 +191,39 @@ public class HtmlLinkExtractor {
             // Skip links with no meaningful label
             if (label.isEmpty()) continue;
 
+            // Skip links with junk labels
+            if (isJunkLabel(label)) {
+                continue;
+            }
+
             LinkInfo link = new LinkInfo();
             link.label = label;
             link.href = href;
             link.isExternal = isExternal(href, baseUrl);
 
-            // Categorize: content links (deep paths on same host) get priority
+            // Categorize: section links FIRST so the bot can navigate to topic areas
             if (!link.isExternal && baseHost != null) {
                 int pathDepth = getPathDepth(href);
-                if (pathDepth >= 2) {
+                if (pathDepth <= 1) {
+                    // Shallow path = section navigation (e.g. /sport/, /politik/, /finanzen/)
+                    // These are the most important for orientation!
+                    sectionLinks.add(link);
+                } else {
                     // Deep path = likely article/content (e.g. /nachrichten/some-article-123.html)
                     contentLinks.add(link);
-                } else {
-                    // Shallow path = section navigation (e.g. /sport/, /finanzen/)
-                    sectionLinks.add(link);
                 }
             } else {
                 otherLinks.add(link);
             }
         }
 
-        // Merge: content first, then sections, then external/other
+        // Merge: sections FIRST (orientation), then content, then external/other
         List<LinkInfo> result = new ArrayList<>();
-        for (LinkInfo l : contentLinks) {
+        for (LinkInfo l : sectionLinks) {
             if (result.size() >= maxLinks) break;
             result.add(l);
         }
-        for (LinkInfo l : sectionLinks) {
+        for (LinkInfo l : contentLinks) {
             if (result.size() >= maxLinks) break;
             result.add(l);
         }
@@ -193,6 +233,32 @@ public class HtmlLinkExtractor {
         }
 
         return result;
+    }
+
+    /**
+     * Check if a URL matches known junk patterns (login, mail, account, etc.).
+     */
+    private static boolean isJunkUrl(String href) {
+        String lower = href.toLowerCase();
+        for (String pattern : JUNK_URL_PATTERNS) {
+            if (lower.contains(pattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a link label matches known junk patterns.
+     */
+    private static boolean isJunkLabel(String label) {
+        String lower = label.toLowerCase();
+        for (String pattern : JUNK_LABEL_PATTERNS) {
+            if (lower.contains(pattern)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

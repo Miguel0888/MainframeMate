@@ -237,22 +237,23 @@ public class ResearchNavigateTool implements McpServerTool {
                 sb.append("FEHLER: Du bist BEREITS auf dieser Seite (").append(url).append(").\n");
                 sb.append("Du DARFST diese URL NICHT erneut aufrufen.\n\n");
 
-                // Collect allowed targets
-                StringBuilder allowed = new StringBuilder();
+                // Show available targets in same format as normal results
                 int count = 0;
+                String firstTarget = null;
                 for (MenuItem item : existingView.getMenuItems()) {
                     if (count >= 5) break;
                     if (item.getHref() != null && !item.getHref().isEmpty()
                             && !isSameUrl(item.getHref(), url)) {
                         String relUrl = item.getRelativeHref(url);
                         sb.append("  Für ").append(item.getLabel()).append(":  ").append(relUrl).append("\n");
-                        if (allowed.length() > 0) allowed.append(", ");
-                        allowed.append(relUrl);
+                        if (firstTarget == null) firstTarget = relUrl;
                         count++;
                     }
                 }
-                sb.append("\nALLOWED_NEXT_TARGETS: [").append(allowed).append("]\n");
-                sb.append("Du MUSST einen dieser Targets wählen. Rufe research_navigate mit einem davon auf.");
+
+                if (count > 0 && firstTarget != null) {
+                    sb.append("\nRufe JETZT research_navigate auf mit target=\"").append(firstTarget).append("\"");
+                }
                 return ToolResult.error(sb.toString());
             }
             return ToolResult.error("FEHLER: Du bist BEREITS auf " + currentUrl

@@ -1068,12 +1068,11 @@ public class ChatSession extends JPanel {
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
         String userText;
         if (resolvedMode == ChatMode.RECHERCHE) {
-            // Stateful follow-up: compact goal only, NOT the full original request.
-            // Repeating the original request causes the bot to re-start from step 1 every time.
+            // Stateful follow-up: just tell the bot to continue. 
+            // Do NOT repeat the goal as a full sentence – small models treat it as a new task.
             userText = baseFollowUp
-                    + "\n\nZIEL: " + (lastUserRequestText == null ? "" : lastUserRequestText)
-                    + "\nNÄCHSTER SCHRITT: Wähle eine URL aus dem TOOL_RESULT und rufe research_navigate damit auf. "
-                    + "Wiederhole NICHT die Start-URL.";
+                    + "\nDu hast das TOOL_RESULT erhalten. Wähle JETZT eine URL aus der Link-Liste und "
+                    + "rufe research_navigate damit auf. NUR das JSON, kein Text.";
         } else if (resolvedMode == ChatMode.AGENT) {
             userText = baseFollowUp
                     + "\n\nZIEL: " + (lastUserRequestText == null ? "" : lastUserRequestText)
@@ -1210,7 +1209,8 @@ public class ChatSession extends JPanel {
                                 cancelButton.setVisible(true);
                                 String retryPrompt = "WICHTIG: Dein letzter Tool-Call hatte ungültiges JSON. "
                                         + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
-                                        + "{\"name\":\"research_navigate\",\"input\":{\"target\":\"https://finance.yahoo.com\"}}\n"
+                                        + "{\"name\":\"research_navigate\",\"input\":{\"target\":\"/politik/\"}}\n"
+                                        + "Ersetze /politik/ mit einer URL aus dem letzten TOOL_RESULT. "
                                         + "Kein Text davor oder danach. Keine Kommentare im JSON. "
                                         + "Die Aufgabe war: \"" + lastUserRequestText + "\"";
                                 streamAssistantFollowUp(retryPrompt);
@@ -1487,7 +1487,14 @@ public class ChatSession extends JPanel {
                     }
                 }
 
-                if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
+                // In RECHERCHE mode, skip describe_tool – the bot knows research_navigate
+                // from the system prompt. Sending describe_tool produces 2 results which
+                // confuses small models.
+                ChatMode currentModeForDescribe = (ChatMode) modeComboBox.getSelectedItem();
+                boolean skipDescribe = (currentModeForDescribe == ChatMode.RECHERCHE 
+                        && "research_navigate".equals(requestedTool));
+
+                if (!skipDescribe && requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
                     JsonObject describeCall = new JsonObject();
                     describeCall.addProperty("name", "describe_tool");
                     JsonObject describeInput = new JsonObject();
@@ -1511,7 +1518,7 @@ public class ChatSession extends JPanel {
 
                 JsonObject result = executeSingleToolCall(effectiveCall);
                 if (shouldRetryToolCall(result)) {
-                    if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
+                    if (!skipDescribe && requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
                         JsonObject describeCall = new JsonObject();
                         describeCall.addProperty("name", "describe_tool");
                         JsonObject describeInput = new JsonObject();
@@ -1584,9 +1591,11 @@ public class ChatSession extends JPanel {
                     StringBuilder sb = new StringBuilder();
                     sb.append("TOOL_RESULT erhalten.\n");
                     sb.append("ZIEL: ").append(lastUserRequestText).append("\n\n");
-                    sb.append("NÄCHSTER SCHRITT: Wähle eine URL aus dem TOOL_RESULT und rufe research_navigate damit auf. ");
-                    sb.append("Wiederhole NICHT die Start-URL. ");
-                    sb.append("Wenn du genug Informationen hast, fasse zusammen und antworte dem Nutzer.");
+                    sb.append("NÄCHSTER SCHRITT: Wähle eine URL aus der Link-Liste im TOOL_RESULT. ");
+                    sb.append("Bevorzuge Sektionsseiten (z.B. /politik/, /wirtschaft/) die zum ZIEL passen. ");
+                    sb.append("Wiederhole NICHT die Start-URL oder eine bereits besuchte URL. ");
+                    sb.append("Wenn du genug Artikel gelesen hast, fasse zusammen und antworte dem Nutzer.\n");
+                    sb.append("Antworte NUR mit dem JSON-Tool-Call. KEIN Text.");
                     followUp = sb.toString();
                 } else if (currentMode == ChatMode.AGENT) {
                     StringBuilder sb = new StringBuilder();
