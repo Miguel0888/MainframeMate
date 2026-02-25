@@ -395,6 +395,18 @@ public class ChatSession extends JPanel {
             finalPrompt = hiddenContext + "\n\n" + finalPrompt;
         }
 
+        // ── Debug: show all auto-generated texts in the chat ──
+        final String dbgSystemPrompt = systemPrompt;
+        final String dbgHiddenContext = hiddenContext;
+        final String dbgFinalPrompt = finalPrompt;
+        SwingUtilities.invokeLater(() -> {
+            formatter.appendSystemEvent("⚙ System-Prompt (" + resolvedMode.name() + ")", dbgSystemPrompt);
+            if (!dbgHiddenContext.isEmpty()) {
+                formatter.appendSystemEvent("⚙ Hidden Context (Attachments/RAG)", dbgHiddenContext);
+            }
+            formatter.appendSystemEvent("⚙ Finaler Prompt → API", dbgFinalPrompt);
+        });
+
         awaitingBotResponse = true;
 
         final String userMessageForHistory = message; // Only store user message, not hidden context
@@ -473,6 +485,7 @@ public class ChatSession extends JPanel {
                                             true
                                     );
                                     String retryPrompt = buildEmptyResponseRetryPrompt(emptyResponseRetries);
+                                    formatter.appendSystemEvent("⚙ Empty-Response-Retry → API", retryPrompt);
                                     streamAssistantFollowUp(retryPrompt);
                                     return;
                                 }
@@ -518,6 +531,7 @@ public class ChatSession extends JPanel {
                                         + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
                                         + "{\"name\":\"tool_name\",\"input\":{\"param\":\"value\"}}\n"
                                         + "Kein Text davor oder danach. Keine Kommentare im JSON.";
+                                formatter.appendSystemEvent("⚙ Parse-Error-Retry → API", retryPrompt);
                                 streamAssistantFollowUp(retryPrompt);
                                 return;
                             }
@@ -1090,6 +1104,11 @@ public class ChatSession extends JPanel {
         }
         String finalPrompt = buildPromptWithMode(systemPrompt, userText, true);
 
+        // ── Debug: show follow-up prompt in chat ──
+        final String dbgFollowUpPrompt = finalPrompt;
+        SwingUtilities.invokeLater(() -> formatter.appendSystemEvent(
+                "⚙ FollowUp-Prompt → API (" + resolvedMode.name() + ")", dbgFollowUpPrompt));
+
         new Thread(() -> {
             try {
                 final StringBuilder followUpResponse = new StringBuilder();
@@ -1149,6 +1168,7 @@ public class ChatSession extends JPanel {
                                             true
                                     );
                                     String retryPrompt = buildEmptyResponseRetryPrompt(emptyResponseRetries);
+                                    formatter.appendSystemEvent("⚙ FollowUp Empty-Retry → API", retryPrompt);
                                     // Exponential backoff
                                     try { Thread.sleep(Math.min(500L * (1L << (emptyResponseRetries - 1)), 4000L)); } catch (InterruptedException ignored) {}
                                     streamAssistantFollowUp(retryPrompt);
@@ -1177,6 +1197,7 @@ public class ChatSession extends JPanel {
                                             "NEIN → Antworte NUR mit einem JSON-Tool-Call. Wähle eine URL aus dem letzten TOOL_RESULT.\n" +
                                             "JA → Fasse die gesammelten Ergebnisse zusammen und antworte dem Nutzer.\n" +
                                             "WICHTIG: Kein Text VOR dem JSON. NUR das JSON-Objekt.";
+                                    formatter.appendSystemEvent("⚙ Text-statt-ToolCall-Retry → API", retryPrompt);
                                     streamAssistantFollowUp(retryPrompt);
                                     return;
                                 }
@@ -1217,6 +1238,7 @@ public class ChatSession extends JPanel {
                                         + "{\"name\":\"research_navigate\",\"input\":{\"target\":\"<URL aus der Liste>\"}}\n"
                                         + "Ersetze <URL aus der Liste> mit einer URL aus dem letzten TOOL_RESULT. "
                                         + "Kein Text davor oder danach. Keine Kommentare im JSON.";
+                                formatter.appendSystemEvent("⚙ FollowUp Parse-Error-Retry → API", retryPrompt);
                                 streamAssistantFollowUp(retryPrompt);
                                 return;
                             }
@@ -1603,6 +1625,11 @@ public class ChatSession extends JPanel {
                 } else {
                     followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";
                 }
+
+                // ── Debug: show tool-result follow-up in chat ──
+                final String dbgFollowUp = followUp;
+                SwingUtilities.invokeLater(() -> formatter.appendSystemEvent(
+                        "⚙ Tool-Result FollowUp (" + currentMode + ")", dbgFollowUp));
 
                 streamAssistantFollowUp(followUp);
             }

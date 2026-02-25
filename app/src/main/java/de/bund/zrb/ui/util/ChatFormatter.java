@@ -22,7 +22,8 @@ public class ChatFormatter {
         USER("👤 Du:", "#e6f0ff"),
         BOT("🤖 Bot:", "#f0ffe6"),
         TOOL("🔧 Tool:", "#fff8e6"),
-        ERROR("⚠ Fehler:", "#ffe6e6");
+        ERROR("⚠ Fehler:", "#ffe6e6"),
+        SYSTEM("⚙ System:", "#e8e8e8");
 
         public final String label;
         public final String bgColor;
@@ -207,6 +208,52 @@ public class ChatFormatter {
         scrollToBottom();
     }
 
+    /**
+     * Displays an auto-generated system text (system prompt, follow-up, hidden context, etc.)
+     * as a collapsible light gray card in the chat. The body is collapsed by default.
+     */
+    public void appendSystemEvent(String headerText, String body) {
+        JPanel wrapper = createMessagePanelWrapper(Role.SYSTEM);
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setOpaque(false);
+
+        JLabel titleLabel = new JLabel(headerText == null ? Role.SYSTEM.label : headerText);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        titleLabel.setForeground(new Color(0x666666));
+        header.add(titleLabel);
+        header.add(Box.createHorizontalGlue());
+
+        JButton toggle = new JButton("Details");
+        toggle.setFocusable(false);
+        toggle.setMargin(new Insets(0, 4, 0, 4));
+        header.add(toggle);
+
+        JTextPane bodyPane = createConfiguredTextPane();
+        String safeBody = (body == null ? "" : body);
+        String html = ChatMarkdownFormatter.format(safeBody);
+        bodyPane.setText(formatHtml(html));
+        bodyPane.setVisible(false);
+
+        toggle.addActionListener(e -> {
+            bodyPane.setVisible(!bodyPane.isVisible());
+            applyDynamicSizing(bodyPane);
+            wrapper.revalidate();
+            wrapper.repaint();
+            scrollToBottom();
+        });
+
+        wrapper.add(header);
+        wrapper.add(Box.createVerticalStrut(4));
+        wrapper.add(bodyPane);
+
+        messageContainer.add(wrapper);
+        messageContainer.add(Box.createVerticalStrut(6));
+        scrollToBottom();
+    }
+
     public ToolApprovalRequest requestToolApproval(String toolName, String toolCallJson, boolean isWrite) {
         ToolApprovalRequest request = new ToolApprovalRequest();
         JPanel wrapper = createMessagePanelWrapper(Role.TOOL);
@@ -369,6 +416,8 @@ public class ChatFormatter {
         wrapper.setBorder(BorderFactory.createCompoundBorder(
                 role == Role.BOT
                         ? BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(0x66AA66))
+                        : role == Role.SYSTEM
+                        ? BorderFactory.createMatteBorder(0, 4, 0, 0, new Color(0xAAAAAA))
                         : BorderFactory.createEmptyBorder(),
                 BorderFactory.createEmptyBorder(6, 8, 6, 8)
         ));
