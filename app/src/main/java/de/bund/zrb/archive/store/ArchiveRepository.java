@@ -112,8 +112,8 @@ public class ArchiveRepository {
                             + "content_length, file_size_bytes, crawl_timestamp, last_indexed, status, source_id, error_message) "
                             + "KEY(entry_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
             ps.setString(1, entry.getEntryId());
-            ps.setString(2, entry.getUrl());
-            ps.setString(3, entry.getTitle());
+            ps.setString(2, truncate(entry.getUrl(), 2048));
+            ps.setString(3, truncate(entry.getTitle(), 512));
             ps.setString(4, entry.getMimeType());
             ps.setString(5, entry.getSnapshotPath());
             ps.setLong(6, entry.getContentLength());
@@ -132,6 +132,11 @@ public class ArchiveRepository {
             LOG.log(Level.WARNING, "[Archive] Failed to save entry: " + entry.getEntryId(), e);
         }
         return entry;
+    }
+
+    private static String truncate(String value, int maxLen) {
+        if (value == null) return null;
+        return value.length() <= maxLen ? value : value.substring(0, maxLen);
     }
 
     private void saveMetadata(Connection conn, ArchiveEntry entry) throws SQLException {

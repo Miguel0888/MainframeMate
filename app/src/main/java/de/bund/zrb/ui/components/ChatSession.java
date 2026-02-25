@@ -1445,21 +1445,31 @@ public class ChatSession extends JPanel {
                 if ("research_session_start".equals(requestedTool)) {
                     repeatedSessionStartCount++;
                     if (repeatedSessionStartCount > 1) {
-                        // Bot is stuck in a loop calling research_session_start
-                        // Skip the call and inject a corrective message
-                        JsonObject fakeResult = new JsonObject();
-                        fakeResult.addProperty("status", "ok");
-                        fakeResult.addProperty("toolName", "research_session_start");
-                        fakeResult.addProperty("result",
-                                "Session already active. STOP calling research_session_start! "
-                              + "Your NEXT call MUST be research_open. "
-                              + "Example: {\"name\":\"research_open\",\"input\":{\"url\":\"https://search.yahoo.com/search?p=wirtschaft\"}}");
-                        results.add(fakeResult);
+                        // Bot is stuck in a loop – auto-execute research_open instead
+                        String searchQuery = extractSearchQueryFromUserRequest(lastUserRequestText);
+                        String encodedQuery;
+                        try {
+                            encodedQuery = java.net.URLEncoder.encode(
+                                    searchQuery != null && !searchQuery.isEmpty() ? searchQuery : "news",
+                                    "UTF-8");
+                        } catch (java.io.UnsupportedEncodingException ue) {
+                            encodedQuery = "news";
+                        }
+                        final String autoUrl = "https://search.yahoo.com/search?p=" + encodedQuery;
+
                         SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
-                                "⚠️ research_session_start (übersprungen)",
-                                "Session existiert bereits. Bot muss research_open verwenden.",
+                                "⚠️ research_session_start → auto-redirect",
+                                "Bot steckt fest. Führe automatisch research_open aus: " + autoUrl,
                                 true));
-                        continue;
+
+                        // Replace the call with research_open
+                        effectiveCall = new JsonObject();
+                        effectiveCall.addProperty("name", "research_open");
+                        JsonObject autoInput = new JsonObject();
+                        autoInput.addProperty("url", autoUrl);
+                        effectiveCall.add("input", autoInput);
+                        requestedTool = "research_open";
+                        repeatedSessionStartCount = 0; // Reset so it doesn't loop
                     }
                 } else {
                     // Reset counter when bot finally uses a different tool
@@ -1577,6 +1587,29 @@ public class ChatSession extends JPanel {
                 streamAssistantFollowUp(followUp);
             }
         }).start();
+    }
+
+    /**
+     * Extracts a search query from the user's request text.
+     * E.g. "suche auf yahoo nach wirtschaft und politik" → "wirtschaft und politik"
+     */
+    private String extractSearchQueryFromUserRequest(String userText) {
+        if (userText == null || userText.trim().isEmpty()) return "";
+        String text = userText.trim().toLowerCase();
+        // Remove common prefixes like "suche auf yahoo nach", "suche nach", "such nach"
+        String[] prefixes = {
+            "suche auf yahoo nach ", "such auf yahoo nach ",
+            "suche auf yahoo ", "such auf yahoo ",
+            "suche nach ", "such nach ", "suche ",
+            "search yahoo for ", "search for ", "search "
+        };
+        for (String prefix : prefixes) {
+            if (text.startsWith(prefix)) {
+                return userText.trim().substring(prefix.length()).trim();
+            }
+        }
+        // If no prefix matched, use the whole text as query (minus very short ones)
+        return text.length() > 3 ? userText.trim() : "";
     }
 
     private boolean shouldRetryToolCall(JsonObject result) {

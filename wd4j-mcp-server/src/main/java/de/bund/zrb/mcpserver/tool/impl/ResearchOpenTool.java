@@ -110,6 +110,31 @@ public class ResearchOpenTool implements McpServerTool {
         } catch (TimeoutException e) {
             future.cancel(true);
             LOG.severe("[research_open] Timeout after " + timeoutSeconds + "s for: " + url);
+            // Don't kill browser – try to build menu from current page state instead
+            try {
+                ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+                MenuViewBuilder builder = new MenuViewBuilder(session, rs);
+                MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+                if (view != null && view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
+                    LOG.info("[research_open] Timeout recovery: built menu from current page state");
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("⚠️ Navigation timed out after ").append(timeoutSeconds)
+                      .append("s, showing current page state.\n\n");
+                    sb.append(view.toCompactText());
+                    // Append newly archived doc IDs
+                    List<String> newDocs = rs.drainNewArchivedDocIds();
+                    if (!newDocs.isEmpty()) {
+                        sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+                        for (String docId : newDocs) {
+                            sb.append("  ").append(docId).append("\n");
+                        }
+                    }
+                    return ToolResult.text(sb.toString());
+                }
+            } catch (Exception recovery) {
+                LOG.warning("[research_open] Timeout recovery failed: " + recovery.getMessage());
+            }
+            // Only kill as last resort if recovery failed
             session.killBrowserProcess();
             return ToolResult.error(
                     "Navigation timeout after " + timeoutSeconds + "s. "
