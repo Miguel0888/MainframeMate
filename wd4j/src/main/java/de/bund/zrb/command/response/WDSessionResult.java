@@ -137,20 +137,20 @@ public interface WDSessionResult extends WDResultData {
      * The session.subscribe command enables certain events either globally or for a set of navigables.
      */
     class SubscribeResult implements WDSessionResult {
-        private final WDSubscription WDSubscription;
+        private final WDSubscription subscription;
 
-        public SubscribeResult(WDSubscription WDSubscription) {
-            this.WDSubscription = WDSubscription;
+        public SubscribeResult(WDSubscription subscription) {
+            this.subscription = subscription;
         }
 
         public WDSubscription getSubscription() {
-            return WDSubscription;
+            return subscription;
         }
 
         @Override
         public String toString() {
             return "SessionSubscribeResult{" +
-                    "subscription=" + WDSubscription +
+                    "subscription=" + subscription +
                     '}';
         }
     }
