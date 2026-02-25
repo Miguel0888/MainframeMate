@@ -13,6 +13,11 @@ public class ToolApprovalRequest {
         latch.countDown();
     }
 
+    public void approveForSession() {
+        decision = ToolApprovalDecision.APPROVED_FOR_SESSION;
+        latch.countDown();
+    }
+
     public void cancel() {
         decision = ToolApprovalDecision.CANCELLED;
         latch.countDown();

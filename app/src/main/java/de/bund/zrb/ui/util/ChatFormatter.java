@@ -207,8 +207,15 @@ public class ChatFormatter {
 
         JButton approveButton = new JButton("Ausführen");
         approveButton.setFocusable(false);
+
+        JButton dropdownButton = new JButton("▾");
+        dropdownButton.setFocusable(false);
+        dropdownButton.setMargin(new Insets(2, 2, 2, 2));
+        dropdownButton.setPreferredSize(new Dimension(20, approveButton.getPreferredSize().height));
+
         header.add(Box.createHorizontalStrut(6));
         header.add(approveButton);
+        header.add(dropdownButton);
 
         JButton cancelButton = new JButton("Abbrechen");
         cancelButton.setFocusable(false);
@@ -232,15 +239,34 @@ public class ChatFormatter {
         approveButton.addActionListener(e -> {
             if (decided.compareAndSet(false, true)) {
                 approveButton.setEnabled(false);
+                dropdownButton.setEnabled(false);
                 cancelButton.setEnabled(false);
                 titleLabel.setText(title + " ✅");
                 request.approve();
             }
         });
 
+        dropdownButton.addActionListener(e -> {
+            JPopupMenu popup = new JPopupMenu();
+            JMenuItem rememberItem = new JMenuItem("Für Session merken");
+            rememberItem.setToolTipText("Dieses Tool wird für die restliche Chat-Session automatisch freigegeben");
+            rememberItem.addActionListener(ev -> {
+                if (decided.compareAndSet(false, true)) {
+                    approveButton.setEnabled(false);
+                    dropdownButton.setEnabled(false);
+                    cancelButton.setEnabled(false);
+                    titleLabel.setText(title + " ✅ (Session)");
+                    request.approveForSession();
+                }
+            });
+            popup.add(rememberItem);
+            popup.show(dropdownButton, 0, dropdownButton.getHeight());
+        });
+
         cancelButton.addActionListener(e -> {
             if (decided.compareAndSet(false, true)) {
                 approveButton.setEnabled(false);
+                dropdownButton.setEnabled(false);
                 cancelButton.setEnabled(false);
                 titleLabel.setText(title + " ❌");
                 request.cancel();

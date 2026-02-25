@@ -80,6 +80,7 @@ public class ChatSession extends JPanel {
     private volatile String lastUserRequestText = "";
     private final Set<String> toolsUsedInThisChat = new HashSet<>();
     private final Set<String> schemaKnownTools = new HashSet<>();
+    private final Set<String> sessionApprovedTools = new HashSet<>();
 
     // Attachment system
     private final AttachmentChipsPanel attachmentChipsPanel;
@@ -1700,9 +1701,15 @@ public class ChatSession extends JPanel {
                 }
 
                 if (policy.isAskBeforeUse()) {
-                    ToolApprovalDecision decision = requestUserApproval(toolName, call.toString(), accessType.isWrite());
-                    if (decision == ToolApprovalDecision.CANCELLED) {
-                        return createCancelledResult(toolName, call);
+                    String toolKey = toolName.toLowerCase();
+                    if (!sessionApprovedTools.contains(toolKey)) {
+                        ToolApprovalDecision decision = requestUserApproval(toolName, call.toString(), accessType.isWrite());
+                        if (decision == ToolApprovalDecision.CANCELLED) {
+                            return createCancelledResult(toolName, call);
+                        }
+                        if (decision == ToolApprovalDecision.APPROVED_FOR_SESSION) {
+                            sessionApprovedTools.add(toolKey);
+                        }
                     }
                 }
             }
