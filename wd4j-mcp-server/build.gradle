@@ -11,8 +11,8 @@ dependencies {
     implementation project(':wd4j')
     implementation 'com.google.code.gson:gson:2.8.9'
 
-    // jsoup is optional – available at compile time, user can add to classpath at runtime
-    compileOnly 'org.jsoup:jsoup:1.17.2'
+    // jsoup for server-side HTML parsing (link extraction, text extraction)
+    implementation 'org.jsoup:jsoup:1.17.2'
 
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'

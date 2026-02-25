@@ -87,7 +87,8 @@ public class ResearchBackForwardTool implements McpServerTool {
             rs.invalidateView();
 
             // Build fresh menu view
-            MenuViewBuilder builder = new MenuViewBuilder(session, rs);
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
             MenuView view = builder.buildWithSettle(policy, rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
             return ToolResult.text(view.toCompactText());

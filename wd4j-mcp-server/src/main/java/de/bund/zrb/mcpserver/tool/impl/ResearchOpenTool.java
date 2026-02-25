@@ -10,6 +10,7 @@ import de.bund.zrb.mcpserver.tool.ToolResult;
 import de.bund.zrb.type.browsingContext.WDReadinessState;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -113,7 +114,8 @@ public class ResearchOpenTool implements McpServerTool {
             // Don't kill browser – try to build menu from current page state instead
             try {
                 ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
-                MenuViewBuilder builder = new MenuViewBuilder(session, rs);
+                NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+                MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
                 MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
                 if (view != null && view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
                     LOG.info("[research_open] Timeout recovery: built menu from current page state");
@@ -158,67 +160,23 @@ public class ResearchOpenTool implements McpServerTool {
     private ToolResult doOpen(String url, WDReadinessState readiness,
                               SettlePolicy policy, BrowserSession session) {
         try {
-            // Invalidate old refs
-            session.getNodeRefRegistry().invalidateAll();
-
             String ctx = session.getContextId();
-
-            // ── Same-URL detection: skip navigate if already on this page ──
-            boolean alreadyThere = false;
-            try {
-                de.bund.zrb.type.script.WDEvaluateResult currentUrlResult =
-                        session.evaluate("window.location.href", true, ctx);
-                if (currentUrlResult instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
-                    String currentUrl = ((de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess)
-                            currentUrlResult).getResult().asString();
-                    if (currentUrl != null && isSameUrl(currentUrl, url)) {
-                        LOG.info("[research_open] Already on " + currentUrl + " – skipping navigate, building menu.");
-                        alreadyThere = true;
-                    }
-                }
-            } catch (Exception e) {
-                // Can't determine current URL (e.g. about:blank) – proceed with navigate
-                LOG.fine("[research_open] Could not check current URL: " + e.getMessage());
-            }
-
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
 
-            if (alreadyThere) {
-                // If we already have a valid menu view for this page, return it immediately
-                // instead of re-executing the expensive JS describe script which can hang
-                // on heavy JS-laden pages (e.g. Yahoo with ad frameworks).
-                MenuView existingView = rs.getCurrentMenuView();
-                if (existingView != null && existingView.getMenuItems() != null
-                        && !existingView.getMenuItems().isEmpty()) {
-                    LOG.info("[research_open] Returning existing menu view ("
-                            + existingView.getViewToken() + ", "
-                            + existingView.getMenuItems().size() + " items) – page already loaded.");
-
-                    List<String> newDocs = rs.drainNewArchivedDocIds();
-                    StringBuilder sb = new StringBuilder(existingView.toCompactText());
-                    if (!newDocs.isEmpty()) {
-                        sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
-                        for (String docId : newDocs) {
-                            sb.append("  ").append(docId).append("\n");
-                        }
-                    }
-                    sb.append("\n── Next step ──\n");
-                    sb.append("Read the excerpt above. To click a link, use research_choose with ");
-                    sb.append("viewToken='").append(existingView.getViewToken()).append("' and the menuItemId.");
-                    return ToolResult.text(sb.toString());
-                }
+            // Clear HTML cache before new navigation
+            if (pipeline != null) {
+                pipeline.clearNavigationCache();
             }
 
-            if (!alreadyThere) {
-                // Navigate with specified readiness state
-                WDBrowsingContextResult.NavigateResult nav =
-                        session.getDriver().browsingContext().navigate(url, ctx, readiness);
-                String finalUrl = nav.getUrl();
-                LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
-            }
+            // Navigate via address bar (URL-based, no JS)
+            WDBrowsingContextResult.NavigateResult nav =
+                    session.getDriver().browsingContext().navigate(url, ctx, readiness);
+            String finalUrl = nav.getUrl();
+            LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
 
-            // Build menu view with settle
-            MenuViewBuilder builder = new MenuViewBuilder(session, rs);
+            // Build menu view from captured HTML via Jsoup (no JS injection)
+            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
             MenuView view = builder.buildWithSettle(policy,
                     rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
@@ -232,10 +190,21 @@ public class ResearchOpenTool implements McpServerTool {
                 }
             }
 
-            // Add clear next-step instruction for the bot
+            // Network traffic summary
+            if (pipeline != null) {
+                Map<String, Integer> cats = pipeline.getCategoryCounts();
+                if (!cats.isEmpty()) {
+                    sb.append("\n── Network traffic ──\n");
+                    for (Map.Entry<String, Integer> e : cats.entrySet()) {
+                        sb.append("  ").append(e.getKey()).append(": ").append(e.getValue()).append("\n");
+                    }
+                }
+            }
+
             sb.append("\n── Next step ──\n");
-            sb.append("Read the excerpt above. To click a link, use research_choose with ");
-            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId.");
+            sb.append("Read the excerpt above. To follow a link, use research_choose with ");
+            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId, ");
+            sb.append("or call research_open with a URL directly.");
 
             return ToolResult.text(sb.toString());
         } catch (Exception e) {

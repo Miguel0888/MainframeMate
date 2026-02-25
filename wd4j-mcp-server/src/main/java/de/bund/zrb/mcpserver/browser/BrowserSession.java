@@ -95,7 +95,7 @@ public class BrowserSession {
             throws Exception {
         BrowserLauncher.LaunchResult launchResult = BrowserLauncher.launchWithProcess(browserPath, args, headless, timeoutMs);
         this.browserProcess = launchResult.process;
-        connect(launchResult.wsUrl, "firefox", true);
+        connect(launchResult.wsUrl, launchResult.browserType.bidiName(), true);
     }
 
     // ── Navigation ──────────────────────────────────────────────────

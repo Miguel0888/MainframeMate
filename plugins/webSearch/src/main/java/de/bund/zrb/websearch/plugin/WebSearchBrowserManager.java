@@ -1,5 +1,6 @@
 package de.bund.zrb.websearch.plugin;
 
+import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.event.WDLogEvent;
 import de.bund.zrb.type.log.WDLogEntry;
@@ -125,11 +126,17 @@ public class WebSearchBrowserManager {
         // return !"false".equals(loadSettings().getOrDefault("headless", "true"));
     }
 
-    private static final String DEFAULT_FIREFOX_PATH = "C:\\Program Files\\Mozilla Firefox\\firefox.exe";
-
     public String getBrowserPath() {
         String path = loadSettings().getOrDefault("browserPath", "");
-        return (path == null || path.trim().isEmpty()) ? DEFAULT_FIREFOX_PATH : path;
+        if (path != null && !path.trim().isEmpty()) {
+            return path;
+        }
+        // Default path based on selected browser
+        String browser = getBrowser();
+        if ("Chrome".equalsIgnoreCase(browser)) {
+            return BrowserLauncher.DEFAULT_CHROME_PATH;
+        }
+        return BrowserLauncher.DEFAULT_FIREFOX_PATH;
     }
 
     public Map<String, String> loadSettings() {

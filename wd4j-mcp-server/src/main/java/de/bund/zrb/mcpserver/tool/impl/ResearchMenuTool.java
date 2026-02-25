@@ -65,7 +65,8 @@ public class ResearchMenuTool implements McpServerTool {
 
         try {
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
-            MenuViewBuilder builder = new MenuViewBuilder(session, rs);
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
             // Append newly archived doc IDs

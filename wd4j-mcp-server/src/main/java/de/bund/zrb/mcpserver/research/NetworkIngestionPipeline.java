@@ -118,6 +118,14 @@ public class NetworkIngestionPipeline {
     private final AtomicInteger skippedCount = new AtomicInteger(0);
     private final AtomicInteger failedCount = new AtomicInteger(0);
 
+    // ── HTML body cache for Jsoup-based link extraction ──
+    // Stores the last captured navigation HTML (text/html, status 2xx)
+    private volatile String lastNavigationHtml;
+    private volatile String lastNavigationUrl;
+
+    // ── DevTools-style resource category counters ──
+    private final ConcurrentHashMap<ResourceCategory, AtomicInteger> categoryCounts = new ConcurrentHashMap<>();
+
     // Async ingestion
     private final ExecutorService ingestionExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
         @Override
@@ -269,6 +277,10 @@ public class NetworkIngestionPipeline {
             long status = response.getStatus();
             WDRequest requestRef = requestData.getRequest();
 
+            // Classify every response (for DevTools-style traffic overview)
+            ResourceCategory category = ResourceCategory.classify(mimeType, null);
+            countCategory(category);
+
             // Filter: status must be 2xx
             if (status < 200 || status >= 300) {
                 skippedCount.incrementAndGet();
@@ -366,6 +378,15 @@ public class NetworkIngestionPipeline {
             bodyText = bodyText.substring(0, session.getMaxBytesPerDoc());
         }
 
+        // Cache HTML body for Jsoup-based link extraction (navigation HTML only)
+        String mimeLower = mimeType != null ? mimeType.toLowerCase() : "";
+        if (mimeLower.contains("text/html") && status >= 200 && status < 300) {
+            lastNavigationHtml = bodyText;
+            lastNavigationUrl = url;
+            LOG.fine("[NetworkIngestion] Cached HTML body for link extraction: " + url
+                    + " (" + bodyText.length() + " chars)");
+        }
+
         // Filter headers by allowlist
         Map<String, String> filteredHeaders = new LinkedHashMap<>();
         if (response.getHeaders() != null) {
@@ -445,4 +466,41 @@ public class NetworkIngestionPipeline {
     public int getCapturedCount() { return capturedCount.get(); }
     public int getSkippedCount() { return skippedCount.get(); }
     public int getFailedCount() { return failedCount.get(); }
+
+    // ── HTML body cache (for Jsoup link extraction) ─────────────────
+
+    /** Last captured navigation HTML body (text/html, status 2xx). */
+    public String getLastNavigationHtml() { return lastNavigationHtml; }
+
+    /** URL of the last captured navigation HTML. */
+    public String getLastNavigationUrl() { return lastNavigationUrl; }
+
+    /** Clear the cached HTML (e.g. before a new navigation). */
+    public void clearNavigationCache() {
+        lastNavigationHtml = null;
+        lastNavigationUrl = null;
+    }
+
+    // ── Resource category counters ──────────────────────────────────
+
+    /** Increment counter for a resource category. */
+    void countCategory(ResourceCategory cat) {
+        categoryCounts.computeIfAbsent(cat, k -> new AtomicInteger(0)).incrementAndGet();
+    }
+
+    /** Get count for a specific category. */
+    public int getCategoryCount(ResourceCategory cat) {
+        AtomicInteger c = categoryCounts.get(cat);
+        return c != null ? c.get() : 0;
+    }
+
+    /** Get all category counts as a map. */
+    public Map<String, Integer> getCategoryCounts() {
+        Map<String, Integer> result = new LinkedHashMap<>();
+        for (ResourceCategory cat : ResourceCategory.values()) {
+            int c = getCategoryCount(cat);
+            if (c > 0) result.put(cat.name(), c);
+        }
+        return result;
+    }
 }
