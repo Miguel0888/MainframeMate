@@ -332,7 +332,25 @@ public class ResearchNavigateTool implements McpServerTool {
     // ═══════════════════════════════════════════════════════════════
 
     private ToolResult buildResponse(MenuView view, ResearchSession rs, NetworkIngestionPipeline pipeline) {
-        return ToolResult.text(buildResponseText(view, rs, pipeline));
+        ToolResult result = ToolResult.text(buildResponseText(view, rs, pipeline));
+
+        // Add links as structured JSON so the bot can reliably pick a URL
+        if (view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
+            JsonObject linksJson = new JsonObject();
+            JsonArray linksArray = new JsonArray();
+            for (MenuItem item : view.getMenuItems()) {
+                JsonObject link = new JsonObject();
+                link.addProperty("label", item.getLabel() != null ? item.getLabel() : "");
+                String url = item.getRelativeHref(view.getUrl());
+                link.addProperty("url", url != null ? url : "");
+                linksArray.add(link);
+            }
+            linksJson.add("links", linksArray);
+            linksJson.addProperty("hint", "Wähle eine URL aus 'links' und rufe research_navigate damit auf.");
+            result.addText(linksJson.toString());
+        }
+
+        return result;
     }
 
     private String buildResponseText(MenuView view, ResearchSession rs, NetworkIngestionPipeline pipeline) {

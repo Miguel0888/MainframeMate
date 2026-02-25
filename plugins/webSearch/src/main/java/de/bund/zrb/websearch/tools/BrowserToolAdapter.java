@@ -163,8 +163,25 @@ public class BrowserToolAdapter implements McpTool {
                 for (JsonElement el : content) {
                     JsonObject c = el.getAsJsonObject();
                     if ("text".equals(c.get("type").getAsString())) {
+                        String t = c.get("text").getAsString();
+                        // If the text content is a JSON object, merge its fields into the
+                        // top-level response (e.g. "links" array from research_navigate)
+                        String trimmed = t.trim();
+                        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                            try {
+                                JsonObject parsed = com.google.gson.JsonParser.parseString(trimmed).getAsJsonObject();
+                                for (Map.Entry<String, JsonElement> entry : parsed.entrySet()) {
+                                    if (!response.has(entry.getKey())) {
+                                        response.add(entry.getKey(), entry.getValue());
+                                    }
+                                }
+                                continue; // don't append to the text blob
+                            } catch (Exception ignored) {
+                                // Not valid JSON – treat as normal text
+                            }
+                        }
                         if (text.length() > 0) text.append("\n");
-                        text.append(c.get("text").getAsString());
+                        text.append(t);
                     }
                 }
                 response.addProperty("result", text.toString());
