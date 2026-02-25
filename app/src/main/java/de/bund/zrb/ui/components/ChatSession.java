@@ -399,12 +399,16 @@ public class ChatSession extends JPanel {
         final String dbgSystemPrompt = systemPrompt;
         final String dbgHiddenContext = hiddenContext;
         final String dbgFinalPrompt = finalPrompt;
+        final String dbgUserMessage = message;
         SwingUtilities.invokeLater(() -> {
             formatter.appendSystemEvent("⚙ System-Prompt (" + resolvedMode.name() + ")", dbgSystemPrompt);
             if (!dbgHiddenContext.isEmpty()) {
                 formatter.appendSystemEvent("⚙ Hidden Context (Attachments/RAG)", dbgHiddenContext);
             }
-            formatter.appendSystemEvent("⚙ Finaler Prompt → API", dbgFinalPrompt);
+            // Only show final prompt if it differs from the plain user message (avoids duplication)
+            if (!dbgFinalPrompt.trim().equals(dbgUserMessage.trim())) {
+                formatter.appendSystemEvent("⚙ Finaler Prompt → API", dbgFinalPrompt);
+            }
         });
 
         awaitingBotResponse = true;
@@ -974,19 +978,23 @@ public class ChatSession extends JPanel {
 
         // Clean up malformed tool names like "browser[name=browser]" → "browser"
         // or "research_navigate.call" / "research_navigate.input" → "research_navigate"
+        // or "research_navigate>" / "research_navigate," → "research_navigate"
         if (obj.has("name") && obj.get("name").isJsonPrimitive()) {
-            String rawName = obj.get("name").getAsString();
+            String rawName = obj.get("name").getAsString().trim();
+            // Strip trailing non-identifier characters (e.g. >, ), ], comma, semicolon, quotes)
+            rawName = rawName.replaceAll("[^a-zA-Z0-9_]+$", "");
+            // Strip leading non-identifier characters
+            rawName = rawName.replaceAll("^[^a-zA-Z0-9_]+", "");
             int bracketIdx = rawName.indexOf('[');
             if (bracketIdx > 0) {
                 rawName = rawName.substring(0, bracketIdx).trim();
-                obj.addProperty("name", rawName);
             }
             // Strip dotted suffixes: "research_navigate.call" → "research_navigate"
             int dotIdx = rawName.indexOf('.');
             if (dotIdx > 0) {
                 rawName = rawName.substring(0, dotIdx).trim();
-                obj.addProperty("name", rawName);
             }
+            obj.addProperty("name", rawName);
         }
 
         JsonObject argsObj = null;
