@@ -27,6 +27,7 @@ public class ResearchSession {
     private final String sessionId;
     private final Mode mode;
     private String userContextId;
+    private String runId;  // Data Lake run ID
     private final List<String> contextIds = new CopyOnWriteArrayList<>();
 
     // ── View Token management ───────────────────────────────────────
@@ -191,6 +192,7 @@ public class ResearchSession {
     public String getSessionId() { return sessionId; }
     public Mode getMode() { return mode; }
     public String getUserContextId() { return userContextId; }
+    public String getRunId() { return runId; }
     public List<String> getContextIds() { return Collections.unmodifiableList(contextIds); }
     public String getCurrentViewToken() { return currentViewToken; }
     public MenuView getCurrentMenuView() { return currentMenuView; }
@@ -211,6 +213,7 @@ public class ResearchSession {
     // ═══════════════════════════════════════════════════════════════
 
     public void setUserContextId(String id) { this.userContextId = id; }
+    public void setRunId(String runId) { this.runId = runId; }
     public void addContextId(String id) { contextIds.add(id); }
     public void setDefaultSettlePolicy(SettlePolicy p) { this.defaultSettlePolicy = p; }
     public void setMaxMenuItems(int max) { this.maxMenuItems = max; }

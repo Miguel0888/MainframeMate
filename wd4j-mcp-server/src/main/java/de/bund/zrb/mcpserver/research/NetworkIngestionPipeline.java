@@ -121,6 +121,7 @@ public class NetworkIngestionPipeline {
         /**
          * Called when a response body has been successfully captured.
          *
+         * @param runId        the research run ID (Data Lake)
          * @param url          the response URL
          * @param mimeType     the response MIME type
          * @param status       HTTP status code
@@ -129,7 +130,7 @@ public class NetworkIngestionPipeline {
          * @param capturedAt   timestamp of capture
          * @return docId of the stored document, or null on failure
          */
-        String onBodyCaptured(String url, String mimeType, long status,
+        String onBodyCaptured(String runId, String url, String mimeType, long status,
                               String bodyText, Map<String, String> headers, long capturedAt);
     }
 
@@ -359,8 +360,9 @@ public class NetworkIngestionPipeline {
         // Store via callback
         if (callback != null) {
             try {
+                String runId = session.getRunId();
                 String docId = callback.onBodyCaptured(
-                        url, mimeType, status, bodyText, filteredHeaders, System.currentTimeMillis());
+                        runId, url, mimeType, status, bodyText, filteredHeaders, System.currentTimeMillis());
                 if (docId != null) {
                     session.addArchivedDocId(docId);
                     capturedCount.incrementAndGet();

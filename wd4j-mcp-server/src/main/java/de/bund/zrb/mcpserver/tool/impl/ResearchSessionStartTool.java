@@ -119,6 +119,20 @@ public class ResearchSessionStartTool implements McpServerTool {
                 rs.addContextId(contextId);
             }
 
+            // ── Create Data Lake Run ──
+            try {
+                de.bund.zrb.archive.service.ArchiveService archiveService =
+                        de.bund.zrb.archive.service.ArchiveService.getInstance();
+                de.bund.zrb.archive.model.ArchiveRun archiveRun = archiveService.startRun(
+                        mode.name(), null, null);
+                rs.setRunId(archiveRun.getRunId());
+                LOG.info("[research_session_start] Data Lake run created: " + archiveRun.getRunId());
+            } catch (Exception e) {
+                LOG.warning("[research_session_start] Could not create Data Lake run: " + e.getMessage());
+                // Generate a fallback runId so ingestion still works
+                rs.setRunId(java.util.UUID.randomUUID().toString());
+            }
+
             // Apply domain policy (flat string parameters)
             if (params.has("includeDomains") && params.get("includeDomains").isJsonPrimitive()) {
                 String includeStr = params.get("includeDomains").getAsString().trim();
@@ -176,6 +190,36 @@ public class ResearchSessionStartTool implements McpServerTool {
                 rs.setMaxDepth(2);
             }
 
+            // ── Update Data Lake Run with domain policy ──
+            try {
+                de.bund.zrb.archive.service.ArchiveService archiveService =
+                        de.bund.zrb.archive.service.ArchiveService.getInstance();
+                de.bund.zrb.archive.model.ArchiveRun archiveRun = archiveService.getRepository().findRunById(rs.getRunId());
+                if (archiveRun != null) {
+                    // Build domain policy JSON
+                    StringBuilder policyJson = new StringBuilder("{");
+                    policyJson.append("\"include\":[");
+                    boolean first = true;
+                    for (String d : rs.getDomainInclude()) {
+                        if (!first) policyJson.append(",");
+                        policyJson.append("\"").append(d).append("\"");
+                        first = false;
+                    }
+                    policyJson.append("],\"exclude\":[");
+                    first = true;
+                    for (String d : rs.getDomainExclude()) {
+                        if (!first) policyJson.append(",");
+                        policyJson.append("\"").append(d).append("\"");
+                        first = false;
+                    }
+                    policyJson.append("]}");
+                    archiveRun.setDomainPolicyJson(policyJson.toString());
+                    archiveService.getRepository().saveRun(archiveRun);
+                }
+            } catch (Exception e) {
+                LOG.fine("[research_session_start] Could not update run policy: " + e.getMessage());
+            }
+
             // ── Start Network Ingestion Pipeline (research mode only, once) ──
             if (mode == ResearchSession.Mode.RESEARCH && session.getDriver() != null
                     && rs.getNetworkPipeline() == null) {
@@ -190,7 +234,7 @@ public class ResearchSessionStartTool implements McpServerTool {
                         // Fallback: logging only (no persistence)
                         cb = new NetworkIngestionPipeline.IngestionCallback() {
                             @Override
-                            public String onBodyCaptured(String url, String mimeType, long status,
+                            public String onBodyCaptured(String runId, String url, String mimeType, long status,
                                                          String bodyText, java.util.Map<String, String> headers,
                                                          long capturedAt) {
                                 LOG.fine("[NetworkIngestion] Captured (no persister): " + url
@@ -225,6 +269,7 @@ public class ResearchSessionStartTool implements McpServerTool {
         StringBuilder text = new StringBuilder();
         text.append("Research session started.\n");
         text.append("  sessionId: ").append(rs.getSessionId()).append("\n");
+        text.append("  runId: ").append(rs.getRunId()).append("\n");
         text.append("  mode: ").append(rs.getMode().name().toLowerCase()).append("\n");
         if (rs.getUserContextId() != null) {
             text.append("  userContextId: ").append(rs.getUserContextId()).append("\n");

@@ -49,61 +49,27 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
     /**
      * Connects the NetworkIngestionPipeline (wd4j-mcp-server) to the
-     * ArchiveService/WebSnapshotPipeline (app) for persistent storage.
+     * ArchiveService (app) for persistent storage via Data Lake + Catalog.
      */
     private void registerNetworkIngestionCallback() {
         try {
             de.bund.zrb.archive.service.ArchiveService archiveService =
                     de.bund.zrb.archive.service.ArchiveService.getInstance();
-            de.bund.zrb.archive.service.WebSnapshotPipeline snapshotPipeline =
-                    archiveService.getSnapshotPipeline();
 
             de.bund.zrb.mcpserver.research.NetworkIngestionPipeline.setGlobalDefaultCallback(
                     new de.bund.zrb.mcpserver.research.NetworkIngestionPipeline.IngestionCallback() {
                         @Override
-                        public String onBodyCaptured(String url, String mimeType, long status,
+                        public String onBodyCaptured(String runId, String url, String mimeType, long status,
                                                      String bodyText, java.util.Map<String, String> headers,
                                                      long capturedAt) {
-                            // Extract title from HTML if available
-                            String title = extractTitleFromHtml(bodyText, url);
-
-                            // Persist via WebSnapshotPipeline → H2 + filesystem
-                            de.bund.zrb.archive.model.ArchiveEntry entry =
-                                    snapshotPipeline.processSnapshot(url, bodyText, title);
-
-                            if (entry != null) {
-                                return entry.getEntryId();
-                            }
-                            return null;
+                            // Use new Data Lake ingestion pipeline
+                            return archiveService.ingestNetworkResponse(
+                                    runId, url, mimeType, status, bodyText, headers, capturedAt);
                         }
                     });
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[WebSearchPlugin] Could not register network ingestion callback: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Quick title extraction from HTML body text.
-     */
-    private static String extractTitleFromHtml(String body, String fallbackUrl) {
-        if (body == null) return truncateTitle(fallbackUrl);
-        int titleStart = body.indexOf("<title>");
-        if (titleStart < 0) titleStart = body.indexOf("<TITLE>");
-        if (titleStart >= 0) {
-            titleStart += 7; // length of "<title>"
-            int titleEnd = body.indexOf("</title>", titleStart);
-            if (titleEnd < 0) titleEnd = body.indexOf("</TITLE>", titleStart);
-            if (titleEnd > titleStart && (titleEnd - titleStart) < 500) {
-                return body.substring(titleStart, titleEnd).trim();
-            }
-        }
-        return truncateTitle(fallbackUrl);
-    }
-
-    /** Truncate title to fit H2 VARCHAR(512) column. */
-    private static String truncateTitle(String value) {
-        if (value == null) return null;
-        return value.length() <= 500 ? value : value.substring(0, 500) + "…";
     }
 
     @Override
