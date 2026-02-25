@@ -53,12 +53,7 @@ public class McpServerMain {
         ToolRegistry registry = new ToolRegistry();
 
         // Research-mode tools (bot-friendly menu-based navigation)
-        registry.register(new ResearchSessionStartTool());
-        registry.register(new ResearchOpenTool());
-        registry.register(new ResearchMenuTool());
-        registry.register(new ResearchChooseTool());
-        registry.register(new ResearchBackForwardTool());
-        registry.register(new ResearchConfigUpdateTool());
+        registry.register(new ResearchNavigateTool());
 
         // Utility tools (still useful alongside research tools)
         registry.register(new BrowseTypeTool());

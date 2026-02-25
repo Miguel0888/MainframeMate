@@ -1166,7 +1166,7 @@ public class ChatSession extends JPanel {
                                             "Die Aufgabe des Nutzers war: \"" + lastUserRequestText + "\"\n" +
                                             "Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
                                             "NEIN → Antworte NUR mit einem JSON-Tool-Call. Beispiel:\n" +
-                                            "{\"name\":\"research_open\",\"input\":{\"url\":\"https://example.com\"}}\n" +
+                                            "{\"name\":\"research_navigate\",\"input\":{\"target\":\"https://example.com\"}}\n" +
                                             "JA → Fasse die gesammelten Ergebnisse zusammen und antworte dem Nutzer.\n" +
                                             "WICHTIG: Kein Text VOR dem JSON. Kein Erklärtext. NUR das JSON-Objekt.";
                                     streamAssistantFollowUp(retryPrompt);
@@ -1206,7 +1206,7 @@ public class ChatSession extends JPanel {
                                 cancelButton.setVisible(true);
                                 String retryPrompt = "WICHTIG: Dein letzter Tool-Call hatte ungültiges JSON. "
                                         + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
-                                        + "{\"name\":\"research_open\",\"input\":{\"url\":\"https://finance.yahoo.com\"}}\n"
+                                        + "{\"name\":\"research_navigate\",\"input\":{\"target\":\"https://finance.yahoo.com\"}}\n"
                                         + "Kein Text davor oder danach. Keine Kommentare im JSON. "
                                         + "Die Aufgabe war: \"" + lastUserRequestText + "\"";
                                 streamAssistantFollowUp(retryPrompt);
@@ -1427,8 +1427,6 @@ public class ChatSession extends JPanel {
     }
 
     private volatile int repeatedSessionStartCount = 0;
-    /** Caches the result of the first successful research_session_start for this chat session */
-    private volatile JsonObject cachedSessionStartResult = null;
 
     private void executeToolCallsSequentially(java.util.List<JsonObject> calls) {
         if (calls == null || calls.isEmpty()) {
@@ -1444,51 +1442,45 @@ public class ChatSession extends JPanel {
                         ? effectiveCall.get("name").getAsString()
                         : null;
 
-                // ── Guard: Prevent repeated research_session_start calls ──
+                // ── Guard: research_session_start no longer exists ──
+                // Session is auto-created by research_navigate. Tell the bot to use research_navigate directly.
                 if ("research_session_start".equals(requestedTool)) {
-                    repeatedSessionStartCount++;
+                    JsonObject autoResult = new JsonObject();
+                    autoResult.addProperty("status", "ok");
+                    autoResult.addProperty("toolName", "research_session_start");
+                    autoResult.addProperty("result",
+                            "Session wird automatisch erstellt. Kein separater Aufruf nötig. "
+                          + "Rufe direkt research_navigate mit target='<URL>' auf.");
+                    results.add(autoResult);
+                    SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
+                            "⚠️ research_session_start (deprecated)",
+                            "Session wird automatisch beim ersten research_navigate erstellt.",
+                            false));
+                    continue;
+                }
 
-                    // If we already have a cached result, return it immediately without calling the server
-                    if (cachedSessionStartResult != null) {
+                // ── Guard: research_open / research_choose → redirect to research_navigate ──
+                if ("research_open".equals(requestedTool) || "research_choose".equals(requestedTool)) {
+                    // Extract URL/menuItemId and redirect to research_navigate
+                    JsonObject input = effectiveCall.has("input") && effectiveCall.get("input").isJsonObject()
+                            ? effectiveCall.getAsJsonObject("input") : new JsonObject();
+                    String target = null;
+                    if (input.has("url")) target = input.get("url").getAsString();
+                    else if (input.has("menuItemId")) target = input.get("menuItemId").getAsString();
+
+                    if (target != null) {
+                        effectiveCall = new JsonObject();
+                        effectiveCall.addProperty("name", "research_navigate");
+                        JsonObject navInput = new JsonObject();
+                        navInput.addProperty("target", target);
+                        effectiveCall.add("input", navInput);
+                        requestedTool = "research_navigate";
+
                         SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
-                                "⚠️ research_session_start (cached)",
-                                "Session existiert bereits. Cached result wird verwendet.",
+                                "⚠️ Auto-Redirect → research_navigate",
+                                "Altes Tool umgeleitet auf research_navigate.",
                                 false));
-                        results.add(cachedSessionStartResult);
-
-                        // If called more than twice, auto-redirect to research_open
-                        if (repeatedSessionStartCount > 2) {
-                            String searchQuery = extractSearchQueryFromUserRequest(lastUserRequestText);
-                            String encodedQuery;
-                            try {
-                                encodedQuery = java.net.URLEncoder.encode(
-                                        searchQuery != null && !searchQuery.isEmpty() ? searchQuery : "news",
-                                        "UTF-8");
-                            } catch (java.io.UnsupportedEncodingException ue) {
-                                encodedQuery = "news";
-                            }
-                            final String autoUrl = "https://search.yahoo.com/search?p=" + encodedQuery;
-
-                            SwingUtilities.invokeLater(() -> formatter.appendToolEvent(
-                                    "⚠️ research_session_start → auto-redirect",
-                                    "Bot steckt fest. Führe automatisch research_open aus: " + autoUrl,
-                                    true));
-
-                            effectiveCall = new JsonObject();
-                            effectiveCall.addProperty("name", "research_open");
-                            JsonObject autoInput = new JsonObject();
-                            autoInput.addProperty("url", autoUrl);
-                            effectiveCall.add("input", autoInput);
-                            requestedTool = "research_open";
-                        } else {
-                            // Skip tool execution – just use cached result
-                            continue;
-                        }
                     }
-                    // First call: let it execute normally (result will be cached below)
-                } else if (!"research_open".equals(requestedTool)) {
-                    // Only reset counter for truly different tools (not research_open from auto-redirect)
-                    repeatedSessionStartCount = 0;
                 }
 
                 if (requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
@@ -1544,10 +1536,6 @@ public class ChatSession extends JPanel {
                     toolsUsedInThisChat.add(requestedTool);
                 }
 
-                // Cache first successful research_session_start result
-                if ("research_session_start".equals(requestedTool) && isSuccessResult(result) && cachedSessionStartResult == null) {
-                    cachedSessionStartResult = result;
-                }
 
                 // ── RECHERCHE-Modus: Archivierung erfolgt automatisch via NetworkIngestionPipeline ──
                 // (Die alte WebSnapshotPipeline.processSnapshot-Logik wurde entfernt;

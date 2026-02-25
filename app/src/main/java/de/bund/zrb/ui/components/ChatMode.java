@@ -76,12 +76,10 @@ public enum ChatMode {
             "Durchsucht Webseiten systematisch und archiviert Inhalte für die spätere Suche.",
             "Du bist ein Web-Recherche-Agent. Du nutzt Tools um Webseiten zu besuchen und Informationen zu finden.\n\n" +
                     "WORKFLOW (genau diese Reihenfolge):\n" +
-                    "Schritt 1: research_session_start aufrufen (NUR EINMAL! Danach NIE wieder!)\n" +
-                    "Schritt 2: research_navigate mit der Ziel-URL aufrufen (z.B. https://de.yahoo.com)\n" +
-                    "Schritt 3: Excerpt lesen → interessante Links per Link-ID (m0, m3, ...) anklicken via research_navigate\n" +
-                    "Schritt 4: Ergebnisse zusammenfassen und dem Nutzer auf Deutsch antworten\n\n" +
+                    "Schritt 1: research_navigate mit der Ziel-URL aufrufen (z.B. target='https://de.yahoo.com')\n" +
+                    "Schritt 2: Excerpt lesen → interessante Links per Link-ID (m0, m3, ...) anklicken via research_navigate\n" +
+                    "Schritt 3: Ergebnisse zusammenfassen und dem Nutzer auf Deutsch antworten\n\n" +
                     "WICHTIGE REGELN:\n" +
-                    "- research_session_start wird GENAU EINMAL aufgerufen. Wenn die Antwort 'session is ready' sagt → SOFORT zu Schritt 2.\n" +
                     "- research_navigate ist dein EINZIGES Navigations-Tool. Es akzeptiert:\n" +
                     "  * Eine URL: research_navigate mit target='https://de.yahoo.com/nachrichten/...'\n" +
                     "  * Eine Link-ID: research_navigate mit target='m3' (aus der Link-Liste)\n" +

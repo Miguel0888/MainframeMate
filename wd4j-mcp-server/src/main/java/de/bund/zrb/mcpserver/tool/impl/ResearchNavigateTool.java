@@ -9,6 +9,8 @@ import de.bund.zrb.mcpserver.tool.McpServerTool;
 import de.bund.zrb.mcpserver.tool.ToolResult;
 import de.bund.zrb.type.browsingContext.WDReadinessState;
 
+import de.bund.zrb.type.browser.WDUserContextInfo;
+
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -124,7 +126,7 @@ public class ResearchNavigateTool implements McpServerTool {
             }
 
             session.getNodeRefRegistry().invalidateAll();
-            ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+            ResearchSession rs = ensureSession(session);
             rs.invalidateView();
 
             NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
@@ -149,7 +151,7 @@ public class ResearchNavigateTool implements McpServerTool {
     private ToolResult handleMenuItemNavigation(String menuItemId, BrowserSession session) {
         LOG.info("[research_navigate] Follow menu item: " + menuItemId);
         try {
-            ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+            ResearchSession rs = ensureSession(session);
             MenuView currentView = rs.getCurrentMenuView();
 
             if (currentView == null || currentView.getMenuItems().isEmpty()) {
@@ -190,7 +192,7 @@ public class ResearchNavigateTool implements McpServerTool {
 
     private ToolResult handleUrlNavigation(String target, BrowserSession session) {
         try {
-            ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+            ResearchSession rs = ensureSession(session);
             String url = resolveUrl(target, rs);
 
             LOG.info("[research_navigate] Navigate to: " + url + (url.equals(target) ? "" : " (resolved from: " + target + ")"));
@@ -395,6 +397,71 @@ public class ResearchNavigateTool implements McpServerTool {
         sb.append("Pick a link ID (e.g. 'm0') or provide a URL to navigate further.");
 
         return sb.toString();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Session auto-init (replaces ResearchSessionStartTool)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Ensures a fully initialized ResearchSession exists for this BrowserSession.
+     * Creates UserContext, RunId, and NetworkIngestionPipeline on first call.
+     * Subsequent calls return the existing session immediately.
+     */
+    private ResearchSession ensureSession(BrowserSession session) {
+        ResearchSession rs = ResearchSessionManager.getInstance().get(session);
+        if (rs != null && rs.getRunId() != null) {
+            // Session fully initialized
+            ensurePipeline(rs, session);
+            return rs;
+        }
+
+        // Create or get session
+        rs = ResearchSessionManager.getInstance().getOrCreate(session, ResearchSession.Mode.RESEARCH);
+
+        // Create UserContext for isolation (if driver supports it and not yet created)
+        if (rs.getUserContextId() == null) {
+            try {
+                if (session.getDriver() != null) {
+                    WDUserContextInfo userCtxInfo = session.getDriver().browser().createUserContext();
+                    String userContextId = userCtxInfo.getUserContext().value();
+                    rs.setUserContextId(userContextId);
+                    LOG.info("[research_navigate] UserContext created: " + userContextId);
+                }
+            } catch (Exception e) {
+                LOG.fine("[research_navigate] UserContext creation skipped: " + e.getMessage());
+            }
+        }
+
+        // Register context
+        String contextId = session.getContextId();
+        if (contextId != null) {
+            rs.addContextId(contextId);
+        }
+
+        // Create Data Lake Run (if not yet created)
+        if (rs.getRunId() == null) {
+            try {
+                RunLifecycleCallback runCallback = ResearchSessionManager.getRunLifecycleCallback();
+                if (runCallback != null) {
+                    String runId = runCallback.startRun(rs.getMode().name(), null);
+                    rs.setRunId(runId);
+                    LOG.info("[research_navigate] Data Lake run created: " + runId);
+                } else {
+                    rs.setRunId(java.util.UUID.randomUUID().toString());
+                    LOG.info("[research_navigate] Using ephemeral runId");
+                }
+            } catch (Exception e) {
+                LOG.warning("[research_navigate] Could not create run: " + e.getMessage());
+                rs.setRunId(java.util.UUID.randomUUID().toString());
+            }
+        }
+
+        // Ensure pipeline is running
+        ensurePipeline(rs, session);
+
+        LOG.info("[research_navigate] Session ready: " + rs.getSessionId());
+        return rs;
     }
 
     // ═══════════════════════════════════════════════════════════════
