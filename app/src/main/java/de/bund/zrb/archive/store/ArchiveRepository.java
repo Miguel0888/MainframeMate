@@ -56,8 +56,8 @@ public class ArchiveRepository {
 
             stmt.execute("CREATE TABLE IF NOT EXISTS archive_entries ("
                     + "entry_id VARCHAR(36) PRIMARY KEY,"
-                    + "url VARCHAR(2048),"
-                    + "title VARCHAR(512),"
+                    + "url VARCHAR(4096),"
+                    + "title VARCHAR(2048),"
                     + "mime_type VARCHAR(128),"
                     + "snapshot_path VARCHAR(1024),"
                     + "content_length BIGINT,"
@@ -69,6 +69,10 @@ public class ArchiveRepository {
                     + "error_message VARCHAR(2048)"
                     + ")");
 
+            // ── Schema migration for existing databases ──
+            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN url VARCHAR(4096)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN title VARCHAR(2048)"); } catch (Exception ignored) {}
+
             stmt.execute("CREATE TABLE IF NOT EXISTS archive_metadata ("
                     + "entry_id VARCHAR(36),"
                     + "meta_key VARCHAR(256),"
@@ -77,14 +81,18 @@ public class ArchiveRepository {
                     + ")");
 
             stmt.execute("CREATE TABLE IF NOT EXISTS web_cache ("
-                    + "url VARCHAR(2048) PRIMARY KEY,"
+                    + "url VARCHAR(4096) PRIMARY KEY,"
                     + "source_id VARCHAR(36) NOT NULL,"
                     + "status VARCHAR(20) NOT NULL DEFAULT 'PENDING',"
                     + "depth INT DEFAULT 0,"
-                    + "parent_url VARCHAR(2048),"
+                    + "parent_url VARCHAR(4096),"
                     + "discovered_at BIGINT,"
                     + "archive_entry_id VARCHAR(36)"
                     + ")");
+
+            // ── Schema migration for existing web_cache ──
+            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN url VARCHAR(4096)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN parent_url VARCHAR(4096)"); } catch (Exception ignored) {}
 
             // Indices (ignore if already exist)
             try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_cache_source ON web_cache(source_id)"); } catch (Exception ignored) {}
@@ -112,8 +120,8 @@ public class ArchiveRepository {
                             + "content_length, file_size_bytes, crawl_timestamp, last_indexed, status, source_id, error_message) "
                             + "KEY(entry_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
             ps.setString(1, entry.getEntryId());
-            ps.setString(2, truncate(entry.getUrl(), 2048));
-            ps.setString(3, truncate(entry.getTitle(), 512));
+            ps.setString(2, truncate(entry.getUrl(), 4096));
+            ps.setString(3, truncate(entry.getTitle(), 2048));
             ps.setString(4, entry.getMimeType());
             ps.setString(5, entry.getSnapshotPath());
             ps.setLong(6, entry.getContentLength());

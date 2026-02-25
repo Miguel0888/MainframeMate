@@ -55,6 +55,35 @@ public class NetworkIngestionPipeline {
             "/checkout", "/payment", "/pay/"
     );
 
+    // Hosts/domain substrings to never capture (tracking, ads, analytics, CDN junk)
+    private static final List<String> EXCLUDED_HOST_PATTERNS = Arrays.asList(
+            "googlesyndication.com",
+            "googleadservices.com",
+            "adtrafficquality.google",
+            "doubleclick.net",
+            "google-analytics.com",
+            "googletagmanager.com",
+            "analytics.",
+            "pbd.yahoo.com",
+            "yimg.com",
+            "s.yimg.com",
+            "tb.pbs.yahoo.com",
+            "video-api.yql.yahoo.com",
+            "ep2.adtrafficquality.google",
+            "tpc.googlesyndication.com",
+            "ads.yahoo.com",
+            "pixel.",
+            "tracking.",
+            "ad.doubleclick.net",
+            "facebook.com/tr",
+            "connect.facebook.net",
+            "cdn.segment.com",
+            "bat.bing.com",
+            "scorecardresearch.com",
+            "quantserve.com",
+            "amazon-adsystem.com"
+    );
+
     // Retry settings for getData
     private static final int GET_DATA_MAX_RETRIES = 3;
     private static final long GET_DATA_RETRY_BASE_MS = 100;
@@ -357,8 +386,24 @@ public class NetworkIngestionPipeline {
     private boolean isExcludedUrl(String url) {
         if (url == null) return false;
         String lower = url.toLowerCase();
+        // Check URL path patterns (auth/login)
         for (String pattern : EXCLUDED_URL_PATTERNS) {
             if (lower.contains(pattern)) return true;
+        }
+        // Check host-level blacklist (tracking, ads, CDN junk)
+        try {
+            String host = new java.net.URI(url).getHost();
+            if (host != null) {
+                String hostLower = host.toLowerCase();
+                for (String excluded : EXCLUDED_HOST_PATTERNS) {
+                    if (hostLower.contains(excluded) || lower.contains(excluded)) return true;
+                }
+            }
+        } catch (Exception e) {
+            // If URI parse fails, just check against full URL string
+            for (String excluded : EXCLUDED_HOST_PATTERNS) {
+                if (lower.contains(excluded)) return true;
+            }
         }
         return false;
     }

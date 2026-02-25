@@ -254,14 +254,57 @@ public class ResearchOpenTool implements McpServerTool {
 
     /**
      * Check if two URLs refer to the same page (ignoring fragments and trailing slashes).
-     * Strict comparison: host + path + query must match exactly.
-     * No cross-subdomain guessing (www.yahoo.com ≠ de.yahoo.com).
+     * Strict comparison: scheme + host + path + query must match exactly.
+     * Uses java.net.URI for reliable parsing.
      */
     private boolean isSameUrl(String current, String target) {
         if (current == null || target == null) return false;
-        String c = normalizeForComparison(current);
-        String t = normalizeForComparison(target);
-        return c.equals(t);
+        try {
+            java.net.URI c = new java.net.URI(current);
+            java.net.URI t = new java.net.URI(target);
+
+            // Compare scheme (case-insensitive)
+            if (!nullSafeEqualsIgnoreCase(c.getScheme(), t.getScheme())) return false;
+            // Compare host (case-insensitive)
+            if (!nullSafeEqualsIgnoreCase(c.getHost(), t.getHost())) return false;
+            // Compare port (default ports: 80 for http, 443 for https)
+            int cPort = effectivePort(c);
+            int tPort = effectivePort(t);
+            if (cPort != tPort) return false;
+            // Compare path (case-sensitive, normalize trailing slash)
+            String cPath = normalizePath(c.getPath());
+            String tPath = normalizePath(t.getPath());
+            if (!cPath.equals(tPath)) return false;
+            // Compare query (case-sensitive – ?p=hi ≠ ?p=news)
+            String cQuery = c.getQuery() != null ? c.getQuery() : "";
+            String tQuery = t.getQuery() != null ? t.getQuery() : "";
+            return cQuery.equals(tQuery);
+        } catch (Exception e) {
+            // Fallback: simple string comparison without fragment
+            return normalizeForComparison(current).equals(normalizeForComparison(target));
+        }
+    }
+
+    private boolean nullSafeEqualsIgnoreCase(String a, String b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.equalsIgnoreCase(b);
+    }
+
+    private int effectivePort(java.net.URI uri) {
+        int port = uri.getPort();
+        if (port >= 0) return port;
+        if ("https".equalsIgnoreCase(uri.getScheme())) return 443;
+        if ("http".equalsIgnoreCase(uri.getScheme())) return 80;
+        return -1;
+    }
+
+    private String normalizePath(String path) {
+        if (path == null || path.isEmpty()) return "/";
+        while (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
     }
 
     private String normalizeForComparison(String url) {

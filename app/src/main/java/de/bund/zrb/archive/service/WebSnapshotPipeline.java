@@ -48,9 +48,9 @@ public class WebSnapshotPipeline {
      */
     public ArchiveEntry processSnapshot(String url, String textContent, String title) {
         if (url == null || url.trim().isEmpty()) return null;
-        // Skip URLs that are too long for H2 VARCHAR(2048)
-        if (url.length() > 2048) {
-            LOG.fine("[Archive] Skipping URL exceeding 2048 chars: " + url.substring(0, 100) + "...");
+        // Skip URLs that are too long for H2 VARCHAR(4096)
+        if (url.length() > 4096) {
+            LOG.fine("[Archive] Skipping URL exceeding 4096 chars: " + url.substring(0, 100) + "...");
             return null;
         }
 
@@ -81,9 +81,9 @@ public class WebSnapshotPipeline {
             ArchiveEntry entry = existing != null ? existing : new ArchiveEntry();
             entry.setUrl(url);
             String effectiveTitle = title != null ? title : url;
-            // Truncate title to fit H2 VARCHAR(512) column
-            if (effectiveTitle.length() > 500) {
-                effectiveTitle = effectiveTitle.substring(0, 500) + "…";
+            // Truncate title to fit H2 VARCHAR(2048) column
+            if (effectiveTitle.length() > 2000) {
+                effectiveTitle = effectiveTitle.substring(0, 2000) + "…";
             }
             entry.setTitle(effectiveTitle);
             entry.setMimeType("text/plain");
