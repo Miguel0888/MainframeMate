@@ -150,10 +150,10 @@ public class MenuViewBuilder {
     }
 
     private void settleNavigation() {
-        // Default: wait a moment for the page to reach interactive state
         // The actual navigation wait is handled by BrowserSession.navigate()
-        // with ReadinessState.INTERACTIVE. Here we add a stabilization delay.
-        sleep(1000);
+        // with ReadinessState.INTERACTIVE. We add a minimal stabilization delay
+        // for late-loading scripts/styles.
+        sleep(300);
     }
 
     private void settleDomQuiet() {

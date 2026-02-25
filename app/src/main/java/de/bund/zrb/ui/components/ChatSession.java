@@ -1438,30 +1438,9 @@ public class ChatSession extends JPanel {
                     toolsUsedInThisChat.add(requestedTool);
                 }
 
-                // ── RECHERCHE-Modus: Auto-Archivierung bei research_open / research_menu ──
-                ChatMode rechercheCheck = (ChatMode) modeComboBox.getSelectedItem();
-                if (rechercheCheck == ChatMode.RECHERCHE
-                        && requestedTool != null
-                        && (requestedTool.startsWith("research_open") || requestedTool.equals("research_menu")
-                            || requestedTool.equals("research_choose"))
-                        && isSuccessResult(result)) {
-                    try {
-                        de.bund.zrb.archive.service.ArchiveService archiveService =
-                                de.bund.zrb.archive.service.ArchiveService.getInstance();
-                        // Extract URL and content from result
-                        String pageUrl = extractFieldFromResult(result, "url");
-                        String pageTitle = extractFieldFromResult(result, "title");
-                        String pageContent = extractFieldFromResult(result, "result");
-                        if (pageUrl == null || pageUrl.isEmpty()) {
-                            pageUrl = extractFieldFromResult(result, "URL");
-                        }
-                        if (pageUrl != null && !pageUrl.isEmpty()) {
-                            archiveService.getSnapshotPipeline().processSnapshot(pageUrl, pageContent, pageTitle);
-                        }
-                    } catch (Exception archiveEx) {
-                        System.err.println("[Archive] Auto-archive failed: " + archiveEx.getMessage());
-                    }
-                }
+                // ── RECHERCHE-Modus: Archivierung erfolgt automatisch via NetworkIngestionPipeline ──
+                // (Die alte WebSnapshotPipeline.processSnapshot-Logik wurde entfernt;
+                //  die Network Plane archiviert HTTP-Responses im Hintergrund.)
 
                 results.add(result);
 

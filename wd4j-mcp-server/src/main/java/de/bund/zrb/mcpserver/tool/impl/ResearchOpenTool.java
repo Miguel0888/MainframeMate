@@ -96,7 +96,7 @@ public class ResearchOpenTool implements McpServerTool {
 
         LOG.info("[research_open] Opening: " + url + " (wait=" + readiness + ", settle=" + policy + ")");
 
-        long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 60);
+        long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<ToolResult> future = executor.submit(new Callable<ToolResult>() {
             @Override
@@ -136,12 +136,33 @@ public class ResearchOpenTool implements McpServerTool {
             // Invalidate old refs
             session.getNodeRefRegistry().invalidateAll();
 
-            // Navigate with specified readiness state
             String ctx = session.getContextId();
-            WDBrowsingContextResult.NavigateResult nav =
-                    session.getDriver().browsingContext().navigate(url, ctx, readiness);
-            String finalUrl = nav.getUrl();
-            LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
+
+            // ── Same-URL detection: skip navigate if already on this page ──
+            boolean alreadyThere = false;
+            try {
+                de.bund.zrb.type.script.WDEvaluateResult currentUrlResult =
+                        session.evaluate("window.location.href", true, ctx);
+                if (currentUrlResult instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
+                    String currentUrl = ((de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess)
+                            currentUrlResult).getResult().asString();
+                    if (currentUrl != null && isSameUrl(currentUrl, url)) {
+                        LOG.info("[research_open] Already on " + currentUrl + " – skipping navigate, building menu.");
+                        alreadyThere = true;
+                    }
+                }
+            } catch (Exception e) {
+                // Can't determine current URL (e.g. about:blank) – proceed with navigate
+                LOG.fine("[research_open] Could not check current URL: " + e.getMessage());
+            }
+
+            if (!alreadyThere) {
+                // Navigate with specified readiness state
+                WDBrowsingContextResult.NavigateResult nav =
+                        session.getDriver().browsingContext().navigate(url, ctx, readiness);
+                String finalUrl = nav.getUrl();
+                LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
+            }
 
             // Build menu view with settle
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
@@ -197,6 +218,64 @@ public class ResearchOpenTool implements McpServerTool {
     private boolean isConnectionError(String msg) {
         return msg != null && (msg.contains("WebSocket connection is closed")
                 || msg.contains("not connected"));
+    }
+
+    /**
+     * Check if two URLs refer to the same page (ignoring fragments and trailing slashes,
+     * and handling common redirects like www.yahoo.com → de.yahoo.com).
+     */
+    private boolean isSameUrl(String current, String target) {
+        if (current == null || target == null) return false;
+        String c = normalizeForComparison(current);
+        String t = normalizeForComparison(target);
+        // Exact match after normalization
+        if (c.equals(t)) return true;
+        // Check if one is a redirect of the other (same host-suffix)
+        // e.g. yahoo.com → de.yahoo.com (redirect happened, same domain family)
+        try {
+            java.net.URI cu = java.net.URI.create(c);
+            java.net.URI tu = java.net.URI.create(t);
+            String cHost = cu.getHost();
+            String tHost = tu.getHost();
+            if (cHost != null && tHost != null) {
+                // Same domain family: "de.yahoo.com" ends with "yahoo.com"
+                String cBase = baseDomain(cHost);
+                String tBase = baseDomain(tHost);
+                if (cBase.equals(tBase)) {
+                    // Same base domain, both root paths → same page
+                    String cPath = cu.getPath() == null ? "/" : cu.getPath();
+                    String tPath = tu.getPath() == null ? "/" : tu.getPath();
+                    if (isRootPath(cPath) && isRootPath(tPath)) return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private String normalizeForComparison(String url) {
+        // Remove fragment
+        int hash = url.indexOf('#');
+        if (hash >= 0) url = url.substring(0, hash);
+        // Remove query params like ?p=us
+        int q = url.indexOf('?');
+        if (q >= 0) url = url.substring(0, q);
+        // Remove trailing slash
+        while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
+        // Lowercase scheme+host
+        return url.toLowerCase();
+    }
+
+    private String baseDomain(String host) {
+        // "de.yahoo.com" → "yahoo.com", "www.yahoo.com" → "yahoo.com"
+        String[] parts = host.split("\\.");
+        if (parts.length >= 2) {
+            return parts[parts.length - 2] + "." + parts[parts.length - 1];
+        }
+        return host;
+    }
+
+    private boolean isRootPath(String path) {
+        return path.equals("/") || path.isEmpty();
     }
 
     private String extractUrl(JsonObject params) {

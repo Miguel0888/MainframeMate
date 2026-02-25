@@ -26,6 +26,13 @@ public class ResearchSessionManager {
     }
 
     /**
+     * Get the existing ResearchSession for the given BrowserSession, or null if none exists.
+     */
+    public ResearchSession get(BrowserSession browserSession) {
+        return sessions.get(browserSession);
+    }
+
+    /**
      * Get or create a ResearchSession for the given BrowserSession.
      * Default mode: RESEARCH.
      */

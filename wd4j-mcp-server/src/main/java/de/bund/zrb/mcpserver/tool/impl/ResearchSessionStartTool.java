@@ -32,10 +32,12 @@ public class ResearchSessionStartTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Start a research session with browser isolation and crawl policies. "
-             + "Creates a UserContext for cookie/storage isolation. "
-             + "mode: 'research' (full crawl, auto-archive) or 'agent' (quick lookup, minimal state). "
-             + "Returns sessionId, userContextId, and initial contextId.";
+        return "Start a research session. Call this ONCE at the beginning – do NOT call again. "
+             + "If already started, it returns the existing session. "
+             + "After this, use research_open to navigate. "
+             + "mode: 'research' (default, full crawl) or 'agent' (quick lookup). "
+             + "domainPolicy: {\"include\":[\"example.com\"], \"exclude\":[\"ads.example.com\"]}. "
+             + "limits: {\"maxUrls\":500, \"maxDepth\":5, \"maxBytesPerDoc\":2000000}.";
     }
 
     @Override
@@ -78,7 +80,15 @@ public class ResearchSessionStartTool implements McpServerTool {
         LOG.info("[research_session_start] Starting session (mode=" + mode + ")");
 
         try {
-            // Create ResearchSession
+            // Check if a session already exists for this browser – return it immediately
+            ResearchSession existing = ResearchSessionManager.getInstance().get(session);
+            if (existing != null) {
+                LOG.info("[research_session_start] Session already exists: " + existing.getSessionId()
+                        + " – returning existing session (no new UserContext/Pipeline)");
+                return buildSuccessResponse(existing, session.getContextId());
+            }
+
+            // Create new ResearchSession
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session, mode);
 
             // Create UserContext for isolation (if driver supports it)
@@ -132,9 +142,9 @@ public class ResearchSessionStartTool implements McpServerTool {
                 rs.setMaxDepth(2);
             }
 
-            // ── Start Network Ingestion Pipeline (research mode only) ──
-            boolean networkPipelineActive = false;
-            if (mode == ResearchSession.Mode.RESEARCH && session.getDriver() != null) {
+            // ── Start Network Ingestion Pipeline (research mode only, once) ──
+            if (mode == ResearchSession.Mode.RESEARCH && session.getDriver() != null
+                    && rs.getNetworkPipeline() == null) {
                 try {
                     NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(
                             session.getDriver(), rs);
@@ -143,14 +153,12 @@ public class ResearchSessionStartTool implements McpServerTool {
                         public String onBodyCaptured(String url, String mimeType, long status,
                                                      String bodyText, java.util.Map<String, String> headers,
                                                      long capturedAt) {
-                            // Store in ResearchSession for now; full H2 integration TBD
                             LOG.fine("[NetworkIngestion] Captured: " + url
                                     + " (" + mimeType + ", " + bodyText.length() + " chars)");
                             return "net-" + Long.toHexString(capturedAt);
                         }
                     });
                     rs.setNetworkPipeline(pipeline);
-                    networkPipelineActive = true;
                     LOG.info("[research_session_start] Network ingestion pipeline started");
                 } catch (Exception e) {
                     LOG.warning("[research_session_start] Network pipeline failed to start: "
@@ -158,38 +166,33 @@ public class ResearchSessionStartTool implements McpServerTool {
                 }
             }
 
-            // Build response
-            JsonObject result = new JsonObject();
-            result.addProperty("status", "ok");
-            result.addProperty("sessionId", rs.getSessionId());
-            if (userContextId != null) {
-                result.addProperty("userContextId", userContextId);
-            }
-
-            JsonArray contexts = new JsonArray();
-            for (String cid : rs.getContextIds()) {
-                contexts.add(cid);
-            }
-            result.add("contexts", contexts);
-            result.addProperty("mode", mode.name().toLowerCase());
-
-            StringBuilder text = new StringBuilder();
-            text.append("Research session started.\n");
-            text.append("  sessionId: ").append(rs.getSessionId()).append("\n");
-            text.append("  mode: ").append(mode.name().toLowerCase()).append("\n");
-            if (userContextId != null) {
-                text.append("  userContextId: ").append(userContextId).append("\n");
-            }
-            text.append("  contextId: ").append(contextId).append("\n");
-            if (networkPipelineActive) {
-                text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
-            }
-            text.append("\nUse research_open to navigate to a URL.");
-
-            return ToolResult.text(text.toString());
+            return buildSuccessResponse(rs, session.getContextId());
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "[research_session_start] Failed", e);
             return ToolResult.error("Session start failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Build a consistent success response for an existing or new session.
+     */
+    private ToolResult buildSuccessResponse(ResearchSession rs, String contextId) {
+        boolean hasPipeline = rs.getNetworkPipeline() != null && rs.getNetworkPipeline().isActive();
+
+        StringBuilder text = new StringBuilder();
+        text.append("Research session started.\n");
+        text.append("  sessionId: ").append(rs.getSessionId()).append("\n");
+        text.append("  mode: ").append(rs.getMode().name().toLowerCase()).append("\n");
+        if (rs.getUserContextId() != null) {
+            text.append("  userContextId: ").append(rs.getUserContextId()).append("\n");
+        }
+        text.append("  contextId: ").append(contextId).append("\n");
+        if (hasPipeline) {
+            text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
+        }
+        text.append("\nUse research_open to navigate to a URL. ");
+        text.append("Do NOT call research_session_start again – the session is ready.");
+
+        return ToolResult.text(text.toString());
     }
 }
