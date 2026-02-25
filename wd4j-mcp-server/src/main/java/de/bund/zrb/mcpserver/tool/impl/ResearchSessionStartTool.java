@@ -33,7 +33,7 @@ public class ResearchSessionStartTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Start a research session. Call this ONCE before using research_open. "
+        return "Start a research session. Call this ONCE before using research_navigate. "
              + "No parameters needed. Do NOT call again after session is started.";
     }
 
@@ -246,7 +246,7 @@ public class ResearchSessionStartTool implements McpServerTool {
         if (hasPipeline) {
             text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
         }
-        text.append("\nSession is ready. NEXT STEP: Call research_open with a URL.\n");
+        text.append("\nSession is ready. NEXT STEP: Call research_navigate with a URL.\n");
         text.append("STOP: Do NOT call research_session_start again.");
 
         return ToolResult.text(text.toString());

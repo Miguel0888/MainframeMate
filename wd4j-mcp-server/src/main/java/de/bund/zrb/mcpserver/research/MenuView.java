@@ -36,14 +36,13 @@ public class MenuView {
      * <pre>
      * Page: &lt;title&gt;
      * URL: &lt;url&gt;
-     * viewToken: &lt;token&gt;
      *
      * ── Excerpt ──
      * &lt;excerpt&gt;
      *
-     * ── Menu (N items) ──
+     * ── Links (N) ──
      * [m0] link: "Homepage" → https://...
-     * [m1] button: "Login"
+     * [m1] link: "Nachrichten" → /nachrichten/
      * ...
      * </pre>
      */
@@ -51,7 +50,6 @@ public class MenuView {
         StringBuilder sb = new StringBuilder();
         sb.append("Page: ").append(title != null ? title : "(no title)").append("\n");
         sb.append("URL: ").append(url != null ? url : "(unknown)").append("\n");
-        sb.append("viewToken: ").append(viewToken).append("\n");
 
         if (excerpt != null && !excerpt.isEmpty()) {
             sb.append("\n── Excerpt ──────────────────────────────\n");
@@ -62,13 +60,13 @@ public class MenuView {
             sb.append("\n");
         }
 
-        sb.append("\n── Menu (").append(menuItems.size()).append(" items) ──────────────\n");
+        sb.append("\n── Links (").append(menuItems.size()).append(") ──────────────\n");
         for (MenuItem item : menuItems) {
             sb.append("  ").append(item.toCompactString()).append("\n");
         }
 
         if (menuItems.isEmpty()) {
-            sb.append("  (no interactive elements found)\n");
+            sb.append("  (no links found on this page)\n");
         }
 
         return sb.toString();

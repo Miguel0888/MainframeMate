@@ -77,10 +77,8 @@ public class ResearchOpenTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Navigate to a NEW URL and get a link list. "
-             + "Returns page title, text excerpt, and numbered links. "
-             + "IMPORTANT: Do NOT call this with the same URL twice – use research_choose to follow links on the current page. "
-             + "Only pass the 'url' parameter.";
+        return "[DEPRECATED – use research_navigate instead] "
+             + "Navigate to a URL. Use research_navigate with the URL as target instead.";
     }
 
     @Override
@@ -204,18 +202,14 @@ public class ResearchOpenTool implements McpServerTool {
                             && !existingView.getMenuItems().isEmpty()) {
                         return ToolResult.error(
                                 "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
-                              + "Do NOT call research_open with the same URL again! "
-                              + "Use research_choose with viewToken='" + existingView.getViewToken()
-                              + "' and a menuItemId (e.g. 'm0') to follow a link, "
-                              + "or call research_open with a DIFFERENT URL from the link list.");
+                              + "Use research_navigate with a link ID (e.g. 'm0') "
+                              + "or a DIFFERENT URL.");
                     }
 
                     // No valid view – still an error
                     return ToolResult.error(
                             "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
-                          + "Do NOT call research_open with the same URL again! "
-                          + "Use research_choose with a menuItemId to follow a link on this page, "
-                          + "or call research_open with a COMPLETELY DIFFERENT URL.");
+                          + "Use research_navigate with a link ID or a DIFFERENT URL.");
                 }
             }
 
@@ -260,8 +254,7 @@ public class ResearchOpenTool implements McpServerTool {
             }
 
             sb.append("\n── Next step ──\n");
-            sb.append("IMPORTANT: Use research_choose with viewToken='").append(view.getViewToken())
-              .append("' and a menuItemId (e.g. 'm0') to follow ANY link above. ")
+            sb.append("Read the excerpt above. To follow a link, use research_navigate with the link ID (e.g. 'm0') or a URL. ")
               .append("Do NOT call research_open again with the same URL.");
 
             return ToolResult.text(sb.toString());

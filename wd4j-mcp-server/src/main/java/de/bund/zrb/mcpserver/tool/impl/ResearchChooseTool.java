@@ -30,8 +30,8 @@ public class ResearchChooseTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Follow a link from the current page by its ID (e.g. 'm3'). "
-             + "Pass the viewToken from the last response and the menuItemId.";
+        return "[DEPRECATED – use research_navigate with the link ID as target instead] "
+             + "Follow a link from the current page by its ID (e.g. 'm3').";
     }
 
     @Override
@@ -158,8 +158,7 @@ public class ResearchChooseTool implements McpServerTool {
                 }
             }
             sb.append("\n── Next step ──\n");
-            sb.append("Use research_choose with viewToken='")
-              .append(view.getViewToken()).append("' and a menuItemId to follow another link.");
+            sb.append("Use research_navigate with a link ID (e.g. 'm0') or a URL to continue.");
 
             return ToolResult.text(sb.toString());
 

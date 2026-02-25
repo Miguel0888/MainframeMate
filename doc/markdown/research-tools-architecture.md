@@ -3,37 +3,37 @@
 ## Übersicht
 
 Die Research-Tool-Suite bietet einem Bot eine **menübasierte Navigation** durch Webseiten.
-Statt DOM-Details (CSS-Selektoren, XPath) arbeitet der Bot mit **Action-Tokens** (menuItemIds)
-und **viewTokens** für Race-Condition-freie Interaktion.
+Der Bot arbeitet mit **einem einzigen Navigations-Tool** (`research_navigate`) und bekommt
+bei jedem Aufruf eine **Link-Liste** zurück, aus der er den nächsten Schritt wählt.
 
 **Kernprinzipien:**
-- **Navigation zuerst**: Jeder Tool-Call liefert (a) kurzen Textausschnitt und (b) klickbares Menü.
+- **Ein Tool für alles**: `research_navigate` akzeptiert URLs, relative Pfade, Link-IDs (m0..mN), oder History-Aktionen (back/forward/reload).
+- **Callcenter-Prinzip**: Jede Antwort enthält eine klare Auswahl: "Für A wählen Sie m0, für B wählen Sie m1, ..."
+- **Relative Pfade**: `/nachrichten/politik/` wird automatisch zur aktuellen Domain aufgelöst.
+- **Same-URL-Guard**: Wiederholte Navigation zur selben URL wird blockiert mit Verweis auf die Link-Liste.
 - **Indexierung im Hintergrund**: Network-Plane sammelt Inhalte automatisch → H2 + Lucene.
-- **Aktionen außen, Auswertung innen**: Klicks per WebDriver BiDi `input.performActions`, Datenerhebung per JS im Browser.
 - **Event-getriebenes Timing**: Settle-Policies (NAVIGATION / DOM_QUIET / NETWORK_QUIET).
-- **Robuste Tagging-Bridge**: JS taggt Elemente → CSS locateNodes → WebDriver Actions.
 
 ## Architektur: 3-Plane-System
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Bot (LLM)                                                  │
-│  ↕ MCP Tools (research_session_start, research_open, ...)   │
+│  ↕ MCP Tools (research_session_start, research_navigate)    │
 ├─────────────────────────────────────────────────────────────┤
 │  Research Layer (wd4j-mcp-server/research/)                 │
 │  ├── ResearchSession      → sessionId, userContextId,       │
-│  │                          viewToken, menuItem→SharedRef,  │
-│  │                          domainPolicy, limits, privacy   │
-│  ├── MenuViewBuilder      → Tagging-Bridge (JS→CSS locate)  │
-│  ├── MenuView / MenuItem  → Datenmodell                     │
+│  │                          menuItems, domainPolicy, limits │
+│  ├── MenuViewBuilder      → HTML→Jsoup link extraction      │
+│  ├── MenuView / MenuItem  → Datenmodell (link list)         │
 │  └── SettlePolicy         → Wait-Strategie                  │
 ├─────────────────────────────────────────────────────────────┤
 │  Action Plane              Network Plane      DOM Plane     │
-│  BrowserSession            H2 Archiv          JS Scripts    │
-│  navigate/click/type       Lucene Index       Tagging       │
-│  input.performActions      addDataCollector   MutationObs   │
-│  browsingContext.navigate  getData/disownData DOMParser     │
-│  UserContext-Isolation     ResponseCompleted               │
+│  BrowserSession            H2 Archiv          Jsoup Parse   │
+│  browsingContext.navigate  Lucene Index                     │
+│  URL-based navigation      addDataCollector                 │
+│  UserContext-Isolation     getData/disownData               │
+│                            ResponseCompleted                │
 ├─────────────────────────────────────────────────────────────┤
 │  Persistenz: H2 (ArchiveRepository) + Lucene (SearchService)│
 └─────────────────────────────────────────────────────────────┘
@@ -45,17 +45,23 @@ und **viewTokens** für Race-Condition-freie Interaktion.
 
 | Tool | Beschreibung | Eingabe | Ausgabe |
 |------|-------------|---------|---------|
-| `research_session_start` | Session erzeugen mit UserContext-Isolation, Policies, Limits | `mode`, `domainPolicy`, `limits`, `seedUrls` | `sessionId`, `userContextId`, `contexts[]`, `status` |
-| `research_config_update` | Session-Config live ändern | `domainPolicy`, `limits`, `defaultSettlePolicy`, `maxMenuItems`, `excerptMaxLength` | Bestätigung |
+| `research_session_start` | Session erzeugen mit Browser-Start | (keine) | sessionId, contextId, status |
+| `research_config_update` | Session-Config live ändern | diverse Config-Parameter | Bestätigung |
 
-### Navigation & Interaktion (Kern)
+### Navigation (Kern)
 
 | Tool | Beschreibung | Eingabe | Ausgabe |
 |------|-------------|---------|---------|
-| `research_open` | URL navigieren + Menüansicht | `url` (req.), `wait` (none/interactive/complete), `settlePolicy`, `sessionId`, `contextId` | viewToken, excerpt, menuItems[], newArchivedDocs[] |
-| `research_menu` | Aktuelle Menüansicht | `selector`, `sessionId`, `contextId` | viewToken, excerpt, menuItems[], newArchivedDocs[] |
-| `research_choose` | Menüeintrag klicken | `menuItemId` (req.), `viewToken` (req.), `settlePolicy`, `wait`, `sessionId`, `contextId` | viewToken, excerpt, menuItems[], newArchivedDocs[] |
-| `research_navigate` | Back/Forward/Reload | `action` (back/forward/reload), `settlePolicy` | viewToken, excerpt, menuItems[] |
+| `research_navigate` | **DAS Navigations-Tool**. Akzeptiert: absolute URL, relativen Pfad, Link-ID (m0..mN), oder History-Aktion (back/forward/reload) | `target` (req.) | Page title, excerpt, Link-Liste, archived docs, network traffic |
+| `research_menu` | Aktuelle Link-Liste neu laden (ohne Navigation) | (keine) | Page title, excerpt, Link-Liste, archived docs |
+
+### Deprecated (Rückwärtskompatibilität)
+
+| Tool | Ersetzt durch |
+|------|--------------|
+| `research_open` | `research_navigate` mit URL |
+| `research_choose` | `research_navigate` mit Link-ID |
+| `research_history` | `research_navigate` mit back/forward/reload |
 
 ### Archiv & Suche
 

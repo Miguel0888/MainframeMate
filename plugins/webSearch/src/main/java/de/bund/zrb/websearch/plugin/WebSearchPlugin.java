@@ -125,12 +125,15 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         List<McpTool> list = new ArrayList<>();
 
         // ── Research-mode tools (bot-friendly menu-based navigation) ──
-        // These replace the old Browse* tools with a menu/viewToken-based API
+        // Unified navigation tool – replaces research_open, research_choose, and research_navigate
         list.add(new BrowserToolAdapter(new ResearchSessionStartTool(), browserManager));
-        list.add(new BrowserToolAdapter(new ResearchOpenTool(), browserManager));       // replaces BrowseNavigateTool
-        list.add(new BrowserToolAdapter(new ResearchMenuTool(), browserManager));       // replaces BrowseReadPageTool + BrowseSnapshotTool
-        list.add(new BrowserToolAdapter(new ResearchChooseTool(), browserManager));     // replaces BrowseClickTool + BrowseLocateTool
-        list.add(new BrowserToolAdapter(new ResearchBackForwardTool(), browserManager));// replaces BrowseBackForwardTool
+        list.add(new BrowserToolAdapter(new ResearchNavigateTool(), browserManager));   // THE navigation tool
+        list.add(new BrowserToolAdapter(new ResearchMenuTool(), browserManager));       // refresh current view
+
+        // ── Deprecated tools (kept for backwards compatibility) ──
+        list.add(new BrowserToolAdapter(new ResearchOpenTool(), browserManager));       // deprecated → use research_navigate
+        list.add(new BrowserToolAdapter(new ResearchChooseTool(), browserManager));     // deprecated → use research_navigate
+        list.add(new BrowserToolAdapter(new ResearchBackForwardTool(), browserManager));// deprecated → use research_navigate
         list.add(new BrowserToolAdapter(new ResearchConfigUpdateTool(), browserManager));
 
         // ── Archive/Search/Queue tools (direct McpTool, no browser needed) ──

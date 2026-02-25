@@ -28,10 +28,9 @@ public class ResearchMenuTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Get the current menu view for the active page. "
-             + "Returns: viewToken, page excerpt, menu items (links/buttons), "
-             + "and IDs of documents archived since last call. "
-             + "Call this after research_choose returns a stale viewToken error.";
+        return "Refresh the current page's link list without navigating. "
+             + "Returns: page title, excerpt, links, and archived document IDs. "
+             + "Use research_navigate with a link ID or URL to continue browsing.";
     }
 
     @Override
@@ -39,21 +38,6 @@ public class ResearchMenuTool implements McpServerTool {
         JsonObject schema = new JsonObject();
         schema.addProperty("type", "object");
         JsonObject props = new JsonObject();
-
-        JsonObject selector = new JsonObject();
-        selector.addProperty("type", "string");
-        selector.addProperty("description", "Optional CSS selector to scope the menu to a section");
-        props.add("selector", selector);
-
-        JsonObject sessionId = new JsonObject();
-        sessionId.addProperty("type", "string");
-        sessionId.addProperty("description", "Session ID (optional)");
-        props.add("sessionId", sessionId);
-
-        JsonObject contextId = new JsonObject();
-        contextId.addProperty("type", "string");
-        contextId.addProperty("description", "BrowsingContext ID (optional, uses active tab)");
-        props.add("contextId", contextId);
 
         schema.add("properties", props);
         return schema;
