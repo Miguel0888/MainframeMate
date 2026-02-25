@@ -5,15 +5,19 @@ plugins {
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
+
+    withSourcesJar()
 }
 
 dependencies {
+    // Depends on wd4j for WebDriver BiDi interfaces (WDWebSocket, WebSocketFrame)
     implementation project(':wd4j')
-    implementation project(':wd4j2cdp')
-    implementation 'com.google.code.gson:gson:2.8.9'
 
-    // jsoup for server-side HTML parsing (link extraction, text extraction)
-    implementation 'org.jsoup:jsoup:1.17.2'
+    // CDP WebSocket connection
+    implementation 'org.java-websocket:Java-WebSocket:1.5.2'
+
+    // JSON handling
+    implementation 'com.google.code.gson:gson:2.8.9'
 
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -22,3 +26,4 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
