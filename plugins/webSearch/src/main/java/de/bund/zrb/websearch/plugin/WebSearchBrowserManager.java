@@ -74,36 +74,43 @@ public class WebSearchBrowserManager {
             } catch (Exception e) {
                 LOG.warning("[WebSearch] Error closing browser session: " + e.getMessage());
             }
+            // Fallback: if close() didn't terminate the process, kill it explicitly
+            killOwnBrowserProcess();
             session = null;
         }
-        // Fallback: kill any lingering Firefox processes started by us
-        killFirefoxProcesses();
     }
 
     /**
-     * Kill Firefox processes that may have been left behind.
-     * Uses ProcessHandle (Java 9+) if available, falls back to taskkill on Windows.
+     * Kill only the browser process that WE started (tracked via BrowserSession.getBrowserProcess()).
+     * Never kills other Firefox instances belonging to the user or other applications.
      */
-    private void killFirefoxProcesses() {
+    private void killOwnBrowserProcess() {
+        if (session == null) return;
+        Process proc = session.getBrowserProcess();
+        if (proc == null) return;
+        if (!proc.isAlive()) {
+            LOG.fine("[WebSearch] Browser process already exited.");
+            return;
+        }
+        LOG.info("[WebSearch] Forcefully killing our browser process (pid=" + getPid(proc) + ")");
+        proc.destroyForcibly();
         try {
-            String os = System.getProperty("os.name", "").toLowerCase();
-            if (os.contains("win")) {
-                // Use taskkill to find and kill Firefox processes
-                // Only kill if we're sure we launched them (headless or specific profile)
-                ProcessBuilder pb = new ProcessBuilder("taskkill", "/F", "/IM", "firefox.exe", "/T");
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                p.waitFor();
-                LOG.info("[WebSearch] Firefox processes killed via taskkill");
-            } else {
-                // Unix-like: pkill
-                ProcessBuilder pb = new ProcessBuilder("pkill", "-f", "firefox");
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                p.waitFor();
-            }
+            proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Best-effort PID extraction for logging. Returns -1 if unavailable (Java 8).
+     */
+    private static long getPid(Process proc) {
+        try {
+            // Java 9+: Process.pid() via reflection
+            java.lang.reflect.Method pidMethod = proc.getClass().getMethod("pid");
+            return (Long) pidMethod.invoke(proc);
         } catch (Exception e) {
-            LOG.fine("[WebSearch] Could not kill Firefox processes: " + e.getMessage());
+            return -1;
         }
     }
 

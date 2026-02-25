@@ -228,6 +228,15 @@ public class BrowserSession {
         return driver;
     }
 
+    /**
+     * Returns the browser {@link Process} that was started by {@link #launchAndConnect},
+     * or {@code null} if the session was created via {@link #connect} (external browser).
+     * Used for targeted cleanup – only this process should be killed, never all Firefox instances.
+     */
+    public Process getBrowserProcess() {
+        return browserProcess;
+    }
+
     // ── NodeRef & Snapshot ──────────────────────────────────────────
 
     public NodeRefRegistry getNodeRefRegistry() {
