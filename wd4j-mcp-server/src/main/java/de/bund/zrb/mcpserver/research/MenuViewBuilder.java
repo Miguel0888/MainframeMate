@@ -39,9 +39,10 @@ public class MenuViewBuilder {
 
         if (html == null || html.isEmpty()) {
             LOG.warning("[MenuViewBuilder] No cached HTML body available – returning empty view");
-            MenuView emptyView = new MenuView(null, pageUrl, "", "No HTML body captured.", Collections.<MenuItem>emptyList());
-            String token = researchSession.updateView(emptyView, Collections.<String, de.bund.zrb.type.script.WDRemoteReference.SharedReference>emptyMap());
-            return new MenuView(token, pageUrl, "", "No HTML body captured.", Collections.<MenuItem>emptyList());
+            String token = researchSession.generateNextViewToken();
+            MenuView emptyView = new MenuView(token, pageUrl, "", "No HTML body captured.", Collections.<MenuItem>emptyList());
+            researchSession.setCurrentView(emptyView);
+            return emptyView;
         }
 
         LOG.fine("[MenuViewBuilder] Parsing HTML with Jsoup (" + html.length() + " chars, url=" + pageUrl + ")");
@@ -61,12 +62,11 @@ public class MenuViewBuilder {
             menuItems.add(new MenuItem(menuItemId, MenuItem.Type.LINK, link.label, link.href, hint));
         }
 
-        // Create and register MenuView
-        MenuView view = new MenuView(null, parsed.url, parsed.title, parsed.excerpt, menuItems);
-        String viewToken = researchSession.updateView(view,
-                Collections.<String, de.bund.zrb.type.script.WDRemoteReference.SharedReference>emptyMap());
-
+        // Generate token first, then create view with token embedded, then store it
+        String viewToken = researchSession.generateNextViewToken();
         MenuView finalView = new MenuView(viewToken, parsed.url, parsed.title, parsed.excerpt, menuItems);
+        researchSession.setCurrentView(finalView);
+
         LOG.info("[MenuViewBuilder] View built: " + viewToken + " (" + menuItems.size() + " links)");
 
         return finalView;
@@ -109,5 +109,3 @@ public class MenuViewBuilder {
         }
     }
 }
-
-

@@ -105,13 +105,22 @@ public class HtmlLinkExtractor {
     }
 
     private static List<LinkInfo> extractLinks(Document doc, String baseUrl, int maxLinks) {
-        List<LinkInfo> links = new ArrayList<>();
+        // Collect all links into categorized buckets for prioritization:
+        // Content links first, then section nav, then external/footer
+        List<LinkInfo> contentLinks = new ArrayList<>();
+        List<LinkInfo> sectionLinks = new ArrayList<>();
+        List<LinkInfo> otherLinks = new ArrayList<>();
         Set<String> seenUrls = new LinkedHashSet<>();
+
+        String baseHost = null;
+        try {
+            if (baseUrl != null && !baseUrl.isEmpty()) {
+                baseHost = new java.net.URL(baseUrl).getHost().toLowerCase();
+            }
+        } catch (Exception ignored) {}
 
         Elements anchors = doc.select("a[href]");
         for (Element a : anchors) {
-            if (links.size() >= maxLinks) break;
-
             String href = a.absUrl("href");
             if (href.isEmpty()) {
                 href = a.attr("href");
@@ -120,6 +129,12 @@ public class HtmlLinkExtractor {
             // Skip non-navigable links
             if (href.isEmpty() || href.startsWith("javascript:") || href.startsWith("mailto:")
                     || href.startsWith("tel:") || href.equals("#")) {
+                continue;
+            }
+
+            // Skip fragment-only links (e.g. https://de.yahoo.com/#convenience-bar)
+            // These only scroll the page and don't navigate to new content
+            if (isFragmentOnly(href, baseUrl)) {
                 continue;
             }
 
@@ -146,10 +161,79 @@ public class HtmlLinkExtractor {
             link.label = label;
             link.href = href;
             link.isExternal = isExternal(href, baseUrl);
-            links.add(link);
+
+            // Categorize: content links (deep paths on same host) get priority
+            if (!link.isExternal && baseHost != null) {
+                int pathDepth = getPathDepth(href);
+                if (pathDepth >= 2) {
+                    // Deep path = likely article/content (e.g. /nachrichten/some-article-123.html)
+                    contentLinks.add(link);
+                } else {
+                    // Shallow path = section navigation (e.g. /sport/, /finanzen/)
+                    sectionLinks.add(link);
+                }
+            } else {
+                otherLinks.add(link);
+            }
         }
 
-        return links;
+        // Merge: content first, then sections, then external/other
+        List<LinkInfo> result = new ArrayList<>();
+        for (LinkInfo l : contentLinks) {
+            if (result.size() >= maxLinks) break;
+            result.add(l);
+        }
+        for (LinkInfo l : sectionLinks) {
+            if (result.size() >= maxLinks) break;
+            result.add(l);
+        }
+        for (LinkInfo l : otherLinks) {
+            if (result.size() >= maxLinks) break;
+            result.add(l);
+        }
+
+        return result;
+    }
+
+    /**
+     * Check if the href is just a fragment on the same page (e.g. baseUrl + "#section").
+     */
+    private static boolean isFragmentOnly(String href, String baseUrl) {
+        if (baseUrl == null || baseUrl.isEmpty()) return false;
+        try {
+            java.net.URL hrefUrl = new java.net.URL(href);
+            java.net.URL base = new java.net.URL(baseUrl);
+
+            // Same host + same path + has fragment → fragment-only
+            if (hrefUrl.getHost().equalsIgnoreCase(base.getHost())) {
+                String hrefPath = hrefUrl.getPath();
+                String basePath = base.getPath();
+                if (hrefPath == null || hrefPath.isEmpty()) hrefPath = "/";
+                if (basePath == null || basePath.isEmpty()) basePath = "/";
+
+                if (hrefPath.equals(basePath) && hrefUrl.getRef() != null) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    /**
+     * Get path depth: /foo/ = 1, /foo/bar/ = 2, /foo/bar/baz.html = 3
+     */
+    private static int getPathDepth(String href) {
+        try {
+            String path = new java.net.URL(href).getPath();
+            if (path == null || path.isEmpty() || path.equals("/")) return 0;
+            // Remove trailing slash, then count segments
+            if (path.endsWith("/")) path = path.substring(0, path.length() - 1);
+            String[] segments = path.split("/");
+            // First segment is empty (before leading /)
+            return segments.length - 1;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private static boolean isExternal(String href, String baseUrl) {

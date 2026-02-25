@@ -215,12 +215,14 @@ public class ResearchOpenTool implements McpServerTool {
             if (pipeline != null) {
                 String cachedUrl = pipeline.getLastNavigationUrl();
                 if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
-                    // Check if we already have a valid view
+                    // Check if we already have a valid view with a valid token
                     MenuView existingView = rs.getCurrentMenuView();
-                    if (existingView != null && existingView.getMenuItems() != null
+                    if (existingView != null && existingView.getViewToken() != null
+                            && existingView.getMenuItems() != null
                             && !existingView.getMenuItems().isEmpty()) {
                         LOG.info("[research_open] Already on " + cachedUrl
-                                + " with valid view – returning cached view.");
+                                + " with valid view (token=" + existingView.getViewToken()
+                                + ") – returning cached view.");
 
                         List<String> newDocs = rs.drainNewArchivedDocIds();
                         StringBuilder sb = new StringBuilder(existingView.toCompactText());
@@ -230,12 +232,15 @@ public class ResearchOpenTool implements McpServerTool {
                                 sb.append("  ").append(docId).append("\n");
                             }
                         }
-                        sb.append("\n── Next step ──\n");
-                        sb.append("You are already on this page. To follow a link, use research_choose with ");
-                        sb.append("viewToken='").append(existingView.getViewToken()).append("' and the menuItemId.");
+                        sb.append("\n── ⚠ IMPORTANT ──\n");
+                        sb.append("You are ALREADY on this page. Do NOT call research_open with the same URL again.\n");
+                        sb.append("Instead, use research_choose with viewToken='")
+                          .append(existingView.getViewToken())
+                          .append("' and a menuItemId from the list above (e.g. 'm0').\n");
+                        sb.append("Or call research_open with a DIFFERENT URL from the menu.");
                         return ToolResult.text(sb.toString());
                     }
-                    // Have cached HTML but no view yet – just rebuild from cache, don't navigate
+                    // Have cached HTML but no valid view – rebuild from cache, don't navigate
                     alreadyThere = true;
                     LOG.info("[research_open] Already on " + cachedUrl + " – rebuilding view from cached HTML.");
                 }

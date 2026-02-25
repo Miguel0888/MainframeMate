@@ -83,9 +83,30 @@ public class ResearchSession {
     // ═══════════════════════════════════════════════════════════════
 
     /**
+     * Generate the next view token without storing a view yet.
+     * Allows caller to create a MenuView with the token embedded,
+     * then store it via {@link #setCurrentView(MenuView)}.
+     */
+    public synchronized String generateNextViewToken() {
+        return "v" + viewTokenCounter.incrementAndGet();
+    }
+
+    /**
+     * Store the final MenuView (with viewToken already set) as the current view.
+     * This replaces the old pattern where updateView stored an object with null token.
+     */
+    public synchronized void setCurrentView(MenuView menuView) {
+        this.currentViewToken = menuView.getViewToken();
+        this.currentMenuView = menuView;
+        this.menuItemRefs.clear();
+        LOG.fine("[ResearchSession " + sessionId + "] View set → " + currentViewToken);
+    }
+
+    /**
      * Update the current view with a new MenuView and the corresponding
      * menuItemId → SharedReference mapping.
      * Generates a new viewToken and invalidates all previous menuItem refs.
+     * @deprecated Use {@link #generateNextViewToken()} + {@link #setCurrentView(MenuView)} instead.
      */
     public synchronized String updateView(MenuView menuView,
                                           Map<String, WDRemoteReference.SharedReference> itemRefs) {

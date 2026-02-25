@@ -9,7 +9,6 @@ import de.bund.zrb.mcpserver.tool.ToolResult;
 import de.bund.zrb.type.browsingContext.WDReadinessState;
 
 import java.util.List;
-import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -81,6 +80,16 @@ public class ResearchChooseTool implements McpServerTool {
 
         try {
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+
+            // Tolerate viewToken='null' (string) – use current token instead.
+            // This can happen if the bot received a stale response with null viewToken.
+            if ("null".equals(viewToken)) {
+                String current = rs.getCurrentViewToken();
+                if (current != null) {
+                    LOG.warning("[research_choose] Bot sent viewToken='null', using current: " + current);
+                    viewToken = current;
+                }
+            }
 
             // Validate viewToken
             if (!rs.isViewTokenValid(viewToken)) {
@@ -164,4 +173,3 @@ public class ResearchChooseTool implements McpServerTool {
         }
     }
 }
-
