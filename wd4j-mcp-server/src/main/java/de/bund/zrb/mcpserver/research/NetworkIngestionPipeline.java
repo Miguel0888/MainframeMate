@@ -81,7 +81,28 @@ public class NetworkIngestionPipeline {
             "bat.bing.com",
             "scorecardresearch.com",
             "quantserve.com",
-            "amazon-adsystem.com"
+            "amazon-adsystem.com",
+            // Content recommendation / native ads
+            "taboola.com",
+            "outbrain.com",
+            "revcontent.com",
+            "mgid.com",
+            "nativo.com",
+            "contentad.net",
+            // Additional Yahoo ad/tracking
+            "gemini.yahoo.com",
+            "geo.yahoo.com",
+            "udc.yahoo.com",
+            "consent.yahoo.com",
+            "guce.yahoo.com",
+            "b.scorecardresearch.com",
+            // Social trackers
+            "platform.twitter.com",
+            "platform.instagram.com",
+            // CDN/beacon
+            "beap.gemini.yahoo.com",
+            "csc.beap.gemini.yahoo.com",
+            "comet.yahoo.com"
     );
 
     // Retry settings for getData

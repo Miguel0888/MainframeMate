@@ -181,6 +181,34 @@ public class ResearchOpenTool implements McpServerTool {
                 LOG.fine("[research_open] Could not check current URL: " + e.getMessage());
             }
 
+            ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
+
+            if (alreadyThere) {
+                // If we already have a valid menu view for this page, return it immediately
+                // instead of re-executing the expensive JS describe script which can hang
+                // on heavy JS-laden pages (e.g. Yahoo with ad frameworks).
+                MenuView existingView = rs.getCurrentMenuView();
+                if (existingView != null && existingView.getMenuItems() != null
+                        && !existingView.getMenuItems().isEmpty()) {
+                    LOG.info("[research_open] Returning existing menu view ("
+                            + existingView.getViewToken() + ", "
+                            + existingView.getMenuItems().size() + " items) – page already loaded.");
+
+                    List<String> newDocs = rs.drainNewArchivedDocIds();
+                    StringBuilder sb = new StringBuilder(existingView.toCompactText());
+                    if (!newDocs.isEmpty()) {
+                        sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+                        for (String docId : newDocs) {
+                            sb.append("  ").append(docId).append("\n");
+                        }
+                    }
+                    sb.append("\n── Next step ──\n");
+                    sb.append("Read the excerpt above. To click a link, use research_choose with ");
+                    sb.append("viewToken='").append(existingView.getViewToken()).append("' and the menuItemId.");
+                    return ToolResult.text(sb.toString());
+                }
+            }
+
             if (!alreadyThere) {
                 // Navigate with specified readiness state
                 WDBrowsingContextResult.NavigateResult nav =
@@ -190,7 +218,6 @@ public class ResearchOpenTool implements McpServerTool {
             }
 
             // Build menu view with settle
-            ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
             MenuViewBuilder builder = new MenuViewBuilder(session, rs);
             MenuView view = builder.buildWithSettle(policy,
                     rs.getMaxMenuItems(), rs.getExcerptMaxLength());
