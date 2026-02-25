@@ -54,7 +54,7 @@ public class MenuView {
         if (excerpt != null && !excerpt.isEmpty()) {
             sb.append("\n── Seiteninhalt ──\n");
             sb.append(excerpt);
-            if (excerpt.length() >= 2900) {
+            if (excerpt.length() >= 480) {
                 sb.append("\n[… truncated]");
             }
             sb.append("\n");

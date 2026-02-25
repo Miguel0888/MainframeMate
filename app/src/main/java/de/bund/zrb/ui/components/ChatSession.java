@@ -516,9 +516,8 @@ public class ChatSession extends JPanel {
                                         true);
                                 String retryPrompt = "WICHTIG: Dein letzter Tool-Call hatte ungültiges JSON. "
                                         + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
-                                        + "{\"name\":\"research_navigate\",\"input\":{\"target\":\"https://de.yahoo.com\"}}\n"
-                                        + "Kein Text davor oder danach. Keine Kommentare im JSON. "
-                                        + "Die Aufgabe war: \"" + lastUserRequestText + "\"";
+                                        + "{\"name\":\"tool_name\",\"input\":{\"param\":\"value\"}}\n"
+                                        + "Kein Text davor oder danach. Keine Kommentare im JSON.";
                                 streamAssistantFollowUp(retryPrompt);
                                 return;
                             }
@@ -1068,10 +1067,17 @@ public class ChatSession extends JPanel {
         String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
         String userText;
-        if (resolvedMode == ChatMode.AGENT || resolvedMode == ChatMode.RECHERCHE) {
+        if (resolvedMode == ChatMode.RECHERCHE) {
+            // Stateful follow-up: compact goal only, NOT the full original request.
+            // Repeating the original request causes the bot to re-start from step 1 every time.
             userText = baseFollowUp
-                    + "\n\nUrsprüngliche Nutzeranfrage: "
-                    + (lastUserRequestText == null ? "" : lastUserRequestText);
+                    + "\n\nZIEL: " + (lastUserRequestText == null ? "" : lastUserRequestText)
+                    + "\nNÄCHSTER SCHRITT: Wähle eine URL aus dem TOOL_RESULT und rufe research_navigate damit auf. "
+                    + "Wiederhole NICHT die Start-URL.";
+        } else if (resolvedMode == ChatMode.AGENT) {
+            userText = baseFollowUp
+                    + "\n\nZIEL: " + (lastUserRequestText == null ? "" : lastUserRequestText)
+                    + "\nFahre fort. Wähle den nächsten Schritt basierend auf dem TOOL_RESULT.";
         } else {
             userText = baseFollowUp
                     + "\n\nUrsprüngliche Nutzeranfrage: "
@@ -1162,13 +1168,11 @@ public class ChatSession extends JPanel {
                                     Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
                                     formatter.endBotMessage(() -> chatManager.getHistory(sessionId).remove(botId));
 
-                                    String retryPrompt = "FEHLER: Du hast Text statt eines Tool-Calls geantwortet. " +
-                                            "Die Aufgabe des Nutzers war: \"" + lastUserRequestText + "\"\n" +
-                                            "Ist die Aufgabe VOLLSTÄNDIG erledigt? " +
-                                            "NEIN → Antworte NUR mit einem JSON-Tool-Call. Beispiel:\n" +
-                                            "{\"name\":\"research_navigate\",\"input\":{\"target\":\"https://example.com\"}}\n" +
+                                    String retryPrompt = "FEHLER: Du hast Text statt eines Tool-Calls geantwortet.\n" +
+                                            "Ist die Aufgabe VOLLSTÄNDIG erledigt?\n" +
+                                            "NEIN → Antworte NUR mit einem JSON-Tool-Call. Wähle eine URL aus dem letzten TOOL_RESULT.\n" +
                                             "JA → Fasse die gesammelten Ergebnisse zusammen und antworte dem Nutzer.\n" +
-                                            "WICHTIG: Kein Text VOR dem JSON. Kein Erklärtext. NUR das JSON-Objekt.";
+                                            "WICHTIG: Kein Text VOR dem JSON. NUR das JSON-Objekt.";
                                     streamAssistantFollowUp(retryPrompt);
                                     return;
                                 }
@@ -1576,26 +1580,21 @@ public class ChatSession extends JPanel {
 
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
                 String followUp;
-                if (currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) {
+                if (currentMode == ChatMode.RECHERCHE) {
                     StringBuilder sb = new StringBuilder();
-                    sb.append("Du hast Tool-Ergebnisse erhalten. Ursprüngliche Nutzeranfrage: \"").append(lastUserRequestText).append("\"\n\n");
-
-                    // Prevent repeated research_session_start calls
-                    if (toolsUsedInThisChat.contains("research_session_start")) {
-                        sb.append("WICHTIG: research_session_start wurde bereits ausgeführt! Rufe es NIEMALS erneut auf. ");
-                        sb.append("Die Session ist aktiv. Nutze direkt research_open, research_choose, research_search oder research_doc_get.\n\n");
-                    }
-
-                    sb.append("Prüfe: Ist die Aufgabe VOLLSTÄNDIG erledigt? ");
-                    sb.append("Wenn NEIN: Antworte NUR mit dem nächsten Tool-Call als reines JSON – KEIN Text davor oder danach. ");
-                    sb.append("Frage NICHT den Nutzer. Handle autonom. ");
-                    sb.append("Beispiele für nächste Schritte: research_open für neue URLs, research_choose um Menü-Links zu folgen, ");
-                    sb.append("research_search um im Archiv zu suchen, research_doc_get um archivierte Seiten zu lesen. ");
-                    sb.append("Wenn JA: fasse die gesammelten Informationen zusammen und antworte dem Nutzer auf Deutsch. ");
-                    sb.append("WICHTIG: Erfinde KEINE Daten. Nur was du über Tools gelesen hast, darfst du berichten. ");
-                    sb.append("Falls ein Tool-Result 'blocked' oder 'cancelled' ist, erkläre das kurz und biete eine Alternative an. ");
-                    sb.append("ERINNERUNG: Du bist ein Agent. Du darfst NICHT stoppen und den Nutzer fragen. ");
-                    sb.append("Mache einfach weiter bis die Aufgabe erledigt ist.");
+                    sb.append("TOOL_RESULT erhalten.\n");
+                    sb.append("ZIEL: ").append(lastUserRequestText).append("\n\n");
+                    sb.append("NÄCHSTER SCHRITT: Wähle eine URL aus dem TOOL_RESULT und rufe research_navigate damit auf. ");
+                    sb.append("Wiederhole NICHT die Start-URL. ");
+                    sb.append("Wenn du genug Informationen hast, fasse zusammen und antworte dem Nutzer.");
+                    followUp = sb.toString();
+                } else if (currentMode == ChatMode.AGENT) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("TOOL_RESULT erhalten.\n");
+                    sb.append("ZIEL: ").append(lastUserRequestText).append("\n\n");
+                    sb.append("Fahre fort. Wenn NICHT fertig: Antworte NUR mit dem nächsten Tool-Call als JSON. ");
+                    sb.append("Frage NICHT den Nutzer. ");
+                    sb.append("Wenn fertig: Fasse zusammen und antworte auf Deutsch.");
                     followUp = sb.toString();
                 } else {
                     followUp = "Nutze die TOOL_RESULTS oben und antworte dem Nutzer direkt und konkret auf Deutsch.";

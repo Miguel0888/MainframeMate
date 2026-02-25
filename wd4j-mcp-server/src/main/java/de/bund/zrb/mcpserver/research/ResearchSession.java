@@ -41,8 +41,8 @@ public class ResearchSession {
     // ── Policy & Config ─────────────────────────────────────────────
 
     private SettlePolicy defaultSettlePolicy = SettlePolicy.NAVIGATION;
-    private int maxMenuItems = 50;
-    private int excerptMaxLength = 3000;
+    private int maxMenuItems = 12;
+    private int excerptMaxLength = 500;
 
     // Domain policy
     private final Set<String> domainInclude = new LinkedHashSet<>();

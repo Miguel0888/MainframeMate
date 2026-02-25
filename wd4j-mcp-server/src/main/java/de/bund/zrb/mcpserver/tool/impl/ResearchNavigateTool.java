@@ -23,8 +23,8 @@ import java.util.logging.Logger;
  * <p>
  * Accepts ONE parameter: {@code target}. The target can be:
  * <ul>
- *   <li>An absolute URL: {@code https://de.yahoo.com/nachrichten/...}</li>
- *   <li>A relative path: {@code /nachrichten/politik/} (resolved against current page)</li>
+ *   <li>An absolute URL: {@code https://example.com/path/...}</li>
+ *   <li>A relative path: {@code /path/subpath/} (resolved against current page)</li>
  *   <li>A history action: {@code back}, {@code forward}</li>
  * </ul>
  * <p>
@@ -48,11 +48,10 @@ public class ResearchNavigateTool implements McpServerTool {
     @Override
     public String description() {
         return "Navigate to a web page. "
-             + "Pass a URL as 'target': absolute (https://...) or relative (/path – resolved against current page). "
+             + "Pass a URL as 'target': use a URL from the previous tool response. "
              + "Or pass 'back'/'forward' for browser history. "
-             + "The response lists the page content and URLs you can navigate to next. "
-             + "IMPORTANT: Pick one of the returned URLs and call this tool again with that URL. "
-             + "Do NOT call this tool with the same URL twice.";
+             + "The response shows page content and a list of URLs you can visit next. "
+             + "ALWAYS pick a URL from the response list. NEVER repeat the same URL.";
     }
 
     @Override
@@ -64,8 +63,8 @@ public class ResearchNavigateTool implements McpServerTool {
         JsonObject target = new JsonObject();
         target.addProperty("type", "string");
         target.addProperty("description",
-                "The URL to navigate to. Examples: 'https://example.com', '/politik/', 'back', 'forward'. "
-                + "Use a URL from the previous response. Do NOT repeat the same URL.");
+                "A URL from the previous response, a relative path, or 'back'/'forward'. "
+                + "MUST be different from the current page URL.");
         props.add("target", target);
 
         schema.add("properties", props);
@@ -236,19 +235,24 @@ public class ResearchNavigateTool implements McpServerTool {
                     && !existingView.getMenuItems().isEmpty()) {
                 StringBuilder sb = new StringBuilder();
                 sb.append("FEHLER: Du bist BEREITS auf dieser Seite (").append(url).append(").\n");
-                sb.append("Du MUSST eine ANDERE URL wählen! Hier sind Vorschläge:\n\n");
+                sb.append("Du DARFST diese URL NICHT erneut aufrufen.\n\n");
 
-                // Show first 5 links as concrete suggestions
+                // Collect allowed targets
+                StringBuilder allowed = new StringBuilder();
                 int count = 0;
                 for (MenuItem item : existingView.getMenuItems()) {
                     if (count >= 5) break;
                     if (item.getHref() != null && !item.getHref().isEmpty()
                             && !isSameUrl(item.getHref(), url)) {
-                        sb.append("  ").append(item.toCompactStringWithRelativeUrl(url)).append("\n");
+                        String relUrl = item.getRelativeHref(url);
+                        sb.append("  Für ").append(item.getLabel()).append(":  ").append(relUrl).append("\n");
+                        if (allowed.length() > 0) allowed.append(", ");
+                        allowed.append(relUrl);
                         count++;
                     }
                 }
-                sb.append("\nRufe research_navigate mit EINER dieser URLs auf.");
+                sb.append("\nALLOWED_NEXT_TARGETS: [").append(allowed).append("]\n");
+                sb.append("Du MUSST einen dieser Targets wählen. Rufe research_navigate mit einem davon auf.");
                 return ToolResult.error(sb.toString());
             }
             return ToolResult.error("FEHLER: Du bist BEREITS auf " + currentUrl
@@ -357,7 +361,6 @@ public class ResearchNavigateTool implements McpServerTool {
 
         sb.append("\n── Nächster Schritt ──\n");
         sb.append("Wähle eine URL aus der Liste oben und rufe research_navigate damit auf.\n");
-        sb.append("Beispiel: research_navigate({\"target\": \"/politik/\"})\n");
 
         return sb.toString();
     }
