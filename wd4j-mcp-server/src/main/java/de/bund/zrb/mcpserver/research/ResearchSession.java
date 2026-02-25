@@ -2,53 +2,85 @@ package de.bund.zrb.mcpserver.research;
 
 import de.bund.zrb.type.script.WDRemoteReference;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 /**
- * Holds the state of a research session:
- * - current viewToken
- * - mapping of menuItemId → SharedReference (for action dispatch)
- * - session config (mode, settle policy defaults, limits)
- *
- * <p>The viewToken is incremented on every {@link #updateView(MenuView, Map)} call.
- * A stale viewToken in a choose/action request must be rejected.</p>
+ * Holds the full state of a research session as specified in the requirements:
+ * <ul>
+ *   <li>Session identity: sessionId, userContextId, contextIds</li>
+ *   <li>View management: viewToken, menuItemId→SharedRef mapping</li>
+ *   <li>Policy: domainPolicy, limits, privacyPolicy, settlePolicy defaults</li>
+ *   <li>Crawl queue tracking: newArchivedDocIds since last menu call</li>
+ * </ul>
  */
 public class ResearchSession {
 
     private static final Logger LOG = Logger.getLogger(ResearchSession.class.getName());
 
+    // ── Identity ────────────────────────────────────────────────────
+
     public enum Mode { RESEARCH, AGENT }
 
     private final String sessionId;
     private final Mode mode;
-    private final AtomicInteger viewTokenCounter = new AtomicInteger(0);
+    private String userContextId;
+    private final List<String> contextIds = new CopyOnWriteArrayList<>();
 
-    // Current state
+    // ── View Token management ───────────────────────────────────────
+
+    private final AtomicInteger viewTokenCounter = new AtomicInteger(0);
     private volatile String currentViewToken;
     private volatile MenuView currentMenuView;
-    private final Map<String, WDRemoteReference.SharedReference> menuItemRefs = new LinkedHashMap<>();
+    private final Map<String, WDRemoteReference.SharedReference> menuItemRefs =
+            Collections.synchronizedMap(new LinkedHashMap<String, WDRemoteReference.SharedReference>());
 
-    // Config defaults
+    // ── Policy & Config ─────────────────────────────────────────────
+
     private SettlePolicy defaultSettlePolicy = SettlePolicy.NAVIGATION;
     private int maxMenuItems = 50;
     private int excerptMaxLength = 3000;
+
+    // Domain policy
+    private final Set<String> domainInclude = new LinkedHashSet<>();
+    private final Set<String> domainExclude = new LinkedHashSet<>();
+
+    // Limits
+    private int maxUrls = 500;
+    private int maxDepth = 5;
+    private int maxBytesPerDoc = 2_000_000; // 2 MB
+
+    // Privacy policy: which headers to capture
+    private final Set<String> headerAllowlist = new LinkedHashSet<>(Arrays.asList(
+            "content-type", "content-length", "last-modified", "etag", "cache-control"
+    ));
+    private boolean captureRequestBodies = false;
+
+    // ── Archived docs tracking ──────────────────────────────────────
+
+    private final List<String> newArchivedDocIds = new CopyOnWriteArrayList<>();
+    private String crawlQueueId;
+
+    // ── Constructor ─────────────────────────────────────────────────
 
     public ResearchSession(String sessionId, Mode mode) {
         this.sessionId = sessionId;
         this.mode = mode;
     }
 
-    // ── View Token management ───────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    //  View Token management
+    // ═══════════════════════════════════════════════════════════════
 
     /**
      * Update the current view with a new MenuView and the corresponding
      * menuItemId → SharedReference mapping.
      * Generates a new viewToken and invalidates all previous menuItem refs.
      */
-    public synchronized String updateView(MenuView menuView, Map<String, WDRemoteReference.SharedReference> itemRefs) {
+    public synchronized String updateView(MenuView menuView,
+                                          Map<String, WDRemoteReference.SharedReference> itemRefs) {
         String newToken = "v" + viewTokenCounter.incrementAndGet();
         this.currentViewToken = newToken;
         this.currentMenuView = menuView;
@@ -56,16 +88,11 @@ public class ResearchSession {
         if (itemRefs != null) {
             this.menuItemRefs.putAll(itemRefs);
         }
-        LOG.fine("[ResearchSession] View updated → " + newToken + " (" + menuItemRefs.size() + " items)");
+        LOG.fine("[ResearchSession " + sessionId + "] View updated → " + newToken
+                + " (" + menuItemRefs.size() + " items)");
         return newToken;
     }
 
-    /**
-     * Validate that the given viewToken matches the current one.
-     *
-     * @param viewToken token from the bot's request
-     * @return true if valid, false if stale
-     */
     public boolean isViewTokenValid(String viewToken) {
         return currentViewToken != null && currentViewToken.equals(viewToken);
     }
@@ -76,7 +103,8 @@ public class ResearchSession {
      * @throws IllegalArgumentException if the menuItemId is unknown
      * @throws IllegalStateException    if the viewToken is stale
      */
-    public synchronized WDRemoteReference.SharedReference resolveMenuItem(String menuItemId, String viewToken) {
+    public synchronized WDRemoteReference.SharedReference resolveMenuItem(
+            String menuItemId, String viewToken) {
         if (!isViewTokenValid(viewToken)) {
             throw new IllegalStateException(
                     "Stale viewToken '" + viewToken + "' (current: " + currentViewToken + "). "
@@ -91,29 +119,98 @@ public class ResearchSession {
         return ref;
     }
 
-    /**
-     * Invalidate the current view (e.g. after external navigation).
-     */
     public synchronized void invalidateView() {
         currentViewToken = null;
         currentMenuView = null;
         menuItemRefs.clear();
     }
 
-    // ── Getters ─────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    //  Archived doc tracking
+    // ═══════════════════════════════════════════════════════════════
+
+    /** Add a newly archived doc ID (called by the ingestion pipeline). */
+    public void addArchivedDocId(String docId) {
+        newArchivedDocIds.add(docId);
+    }
+
+    /** Drain and return all new archived doc IDs since last call. */
+    public List<String> drainNewArchivedDocIds() {
+        List<String> drained = new ArrayList<>(newArchivedDocIds);
+        newArchivedDocIds.clear();
+        return drained;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Domain policy
+    // ═══════════════════════════════════════════════════════════════
+
+    /** Check if a URL is allowed by domain policy. */
+    public boolean isUrlAllowed(String url) {
+        if (url == null) return false;
+        String host = extractHost(url);
+        if (host == null) return true; // can't check → allow
+
+        // Exclude takes precedence
+        for (String ex : domainExclude) {
+            if (host.contains(ex)) return false;
+        }
+        // If include list is non-empty, host must match
+        if (!domainInclude.isEmpty()) {
+            for (String inc : domainInclude) {
+                if (host.contains(inc)) return true;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private String extractHost(String url) {
+        try {
+            int schemeEnd = url.indexOf("://");
+            if (schemeEnd < 0) return null;
+            String rest = url.substring(schemeEnd + 3);
+            int slash = rest.indexOf('/');
+            return slash > 0 ? rest.substring(0, slash).toLowerCase() : rest.toLowerCase();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Getters
+    // ═══════════════════════════════════════════════════════════════
 
     public String getSessionId() { return sessionId; }
     public Mode getMode() { return mode; }
+    public String getUserContextId() { return userContextId; }
+    public List<String> getContextIds() { return Collections.unmodifiableList(contextIds); }
     public String getCurrentViewToken() { return currentViewToken; }
     public MenuView getCurrentMenuView() { return currentMenuView; }
     public SettlePolicy getDefaultSettlePolicy() { return defaultSettlePolicy; }
     public int getMaxMenuItems() { return maxMenuItems; }
     public int getExcerptMaxLength() { return excerptMaxLength; }
+    public Set<String> getDomainInclude() { return domainInclude; }
+    public Set<String> getDomainExclude() { return domainExclude; }
+    public int getMaxUrls() { return maxUrls; }
+    public int getMaxDepth() { return maxDepth; }
+    public int getMaxBytesPerDoc() { return maxBytesPerDoc; }
+    public Set<String> getHeaderAllowlist() { return headerAllowlist; }
+    public boolean isCaptureRequestBodies() { return captureRequestBodies; }
+    public String getCrawlQueueId() { return crawlQueueId; }
 
-    // ── Setters (config) ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    //  Setters (config)
+    // ═══════════════════════════════════════════════════════════════
 
-    public void setDefaultSettlePolicy(SettlePolicy policy) { this.defaultSettlePolicy = policy; }
+    public void setUserContextId(String id) { this.userContextId = id; }
+    public void addContextId(String id) { contextIds.add(id); }
+    public void setDefaultSettlePolicy(SettlePolicy p) { this.defaultSettlePolicy = p; }
     public void setMaxMenuItems(int max) { this.maxMenuItems = max; }
     public void setExcerptMaxLength(int max) { this.excerptMaxLength = max; }
+    public void setMaxUrls(int max) { this.maxUrls = max; }
+    public void setMaxDepth(int max) { this.maxDepth = max; }
+    public void setMaxBytesPerDoc(int max) { this.maxBytesPerDoc = max; }
+    public void setCaptureRequestBodies(boolean b) { this.captureRequestBodies = b; }
+    public void setCrawlQueueId(String id) { this.crawlQueueId = id; }
 }
-

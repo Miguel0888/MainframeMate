@@ -10,7 +10,11 @@ import de.bund.zrb.type.browsingContext.WDBrowsingContext;
 import de.bund.zrb.type.script.WDLocalValue;
 import de.bund.zrb.type.script.WDRemoteReference;
 import de.bund.zrb.type.script.WDTarget;
+import de.bund.zrb.command.request.parameters.input.sourceActions.PointerSourceAction;
+import de.bund.zrb.command.request.parameters.input.sourceActions.SourceActions;
+import de.bund.zrb.type.input.WDElementOrigin;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
@@ -20,13 +24,16 @@ import java.util.logging.Logger;
 /**
  * Choose a menu item from the current view.
  * <p>
- * The bot passes a {@code menuItemId} (e.g. "m3") and the {@code viewToken}
- * from the last {@code research_menu} / {@code research_open} response.
- * If the viewToken is stale, the tool rejects the request and instructs
- * the bot to call {@code research_menu} first.
+ * Eingaben (MUSS): menuItemId, viewToken, sessionId (opt.), contextId (opt.),
+ * wait (opt.), settlePolicy (opt.).
  * <p>
- * After clicking, the tool waits according to the {@code settlePolicy},
- * then returns a fresh menu view.
+ * Aktionen passieren AUSSEN mittels locateNodes+input.performActions (nicht per JS click).
+ * Bei Fallback (performActions nicht unterstützt): scrollIntoView + el.click() per callFunction.
+ * <p>
+ * Settle-Policy (MUSS):
+ * - NAVIGATION: warten auf Navigation Events
+ * - DOM_QUIET: MutationObserver-basiert
+ * - NETWORK_QUIET: PerformanceObserver-basiert
  */
 public class ResearchChooseTool implements McpServerTool {
 
@@ -40,10 +47,10 @@ public class ResearchChooseTool implements McpServerTool {
     @Override
     public String description() {
         return "Choose a menu item by its ID (e.g. 'm3') from the current view. "
-             + "Requires the viewToken from the last research_menu or research_open response. "
-             + "If the viewToken is stale, call research_menu first to get a fresh view. "
-             + "After the action, returns an updated menu view. "
-             + "settlePolicy: NAVIGATION (default, for link clicks), DOM_QUIET (SPA), NETWORK_QUIET (AJAX).";
+             + "Requires viewToken from the last research_menu/research_open response. "
+             + "Stale viewToken → call research_menu first. "
+             + "Click is performed via WebDriver Actions (not JS). "
+             + "settlePolicy: NAVIGATION (default), DOM_QUIET (SPA), NETWORK_QUIET (AJAX).";
     }
 
     @Override
@@ -64,8 +71,23 @@ public class ResearchChooseTool implements McpServerTool {
 
         JsonObject settle = new JsonObject();
         settle.addProperty("type", "string");
-        settle.addProperty("description", "How to wait after click: NAVIGATION (default), DOM_QUIET, NETWORK_QUIET");
+        settle.addProperty("description", "Settle strategy: NAVIGATION (default), DOM_QUIET, NETWORK_QUIET");
         props.add("settlePolicy", settle);
+
+        JsonObject wait = new JsonObject();
+        wait.addProperty("type", "string");
+        wait.addProperty("description", "ReadinessState hint: 'none', 'interactive', 'complete'");
+        props.add("wait", wait);
+
+        JsonObject sessionId = new JsonObject();
+        sessionId.addProperty("type", "string");
+        sessionId.addProperty("description", "Session ID (optional)");
+        props.add("sessionId", sessionId);
+
+        JsonObject contextId = new JsonObject();
+        contextId.addProperty("type", "string");
+        contextId.addProperty("description", "BrowsingContext ID (optional)");
+        props.add("contextId", contextId);
 
         schema.add("properties", props);
         JsonArray required = new JsonArray();
@@ -91,13 +113,14 @@ public class ResearchChooseTool implements McpServerTool {
         SettlePolicy policy = SettlePolicy.fromString(
                 params.has("settlePolicy") ? params.get("settlePolicy").getAsString() : null);
 
-        LOG.info("[research_choose] Choose " + menuItemId + " (viewToken=" + viewToken + ", settle=" + policy + ")");
+        LOG.info("[research_choose] Choose " + menuItemId
+                + " (viewToken=" + viewToken + ", settle=" + policy + ")");
 
         long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 60);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<ToolResult> future = executor.submit(new Callable<ToolResult>() {
             @Override
-            public ToolResult call() throws Exception {
+            public ToolResult call() {
                 return doChoose(menuItemId, viewToken, policy, session);
             }
         });
@@ -141,27 +164,27 @@ public class ResearchChooseTool implements McpServerTool {
         WDRemoteReference.SharedReference sharedRef;
         try {
             sharedRef = rs.resolveMenuItem(menuItemId, viewToken);
-        } catch (IllegalArgumentException e) {
-            return ToolResult.error(e.getMessage());
-        } catch (IllegalStateException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             return ToolResult.error(e.getMessage());
         }
 
-        // Click the element via WebDriver actions (scroll into view + click)
+        // Click via WebDriver input.performActions (outside, not JS click)
+        String ctx = session.getContextId();
         try {
-            String ctx = session.getContextId();
-            WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
-            List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(sharedRef);
-
-            session.getDriver().script().callFunction(
-                    "function(el) { el.scrollIntoView({block:'center'}); el.click(); }",
-                    true, target, args);
-
-            LOG.info("[research_choose] Clicked " + menuItemId + " successfully");
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[research_choose] Click failed for " + menuItemId, e);
-            return ToolResult.error("Click failed for " + menuItemId + ": " + e.getMessage()
-                    + ". The element may have become stale. Call research_menu to get a fresh view.");
+            clickViaActions(session, ctx, sharedRef);
+            LOG.info("[research_choose] Clicked " + menuItemId + " via WebDriver Actions");
+        } catch (Exception actionsEx) {
+            // Fallback: JS click (some browsers/elements don't support pointer actions)
+            LOG.warning("[research_choose] performActions failed, falling back to JS click: "
+                    + actionsEx.getMessage());
+            try {
+                clickViaJs(session, ctx, sharedRef);
+                LOG.info("[research_choose] Clicked " + menuItemId + " via JS fallback");
+            } catch (Exception jsEx) {
+                LOG.log(Level.WARNING, "[research_choose] Click failed for " + menuItemId, jsEx);
+                return ToolResult.error("Click failed for " + menuItemId + ": " + jsEx.getMessage()
+                        + ". Element may be stale. Call research_menu for a fresh view.");
+            }
         }
 
         // Invalidate old refs and build new menu view
@@ -170,14 +193,72 @@ public class ResearchChooseTool implements McpServerTool {
             rs.invalidateView();
 
             MenuViewBuilder builder = new MenuViewBuilder(session, rs);
-            MenuView view = builder.buildWithSettle(policy, rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+            MenuView view = builder.buildWithSettle(policy,
+                    rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
-            return ToolResult.text(view.toCompactText());
+            // Append newly archived docs
+            List<String> newDocs = rs.drainNewArchivedDocIds();
+            StringBuilder sb = new StringBuilder(view.toCompactText());
+            if (!newDocs.isEmpty()) {
+                sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+                for (String docId : newDocs) {
+                    sb.append("  ").append(docId).append("\n");
+                }
+            }
+
+            return ToolResult.text(sb.toString());
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_choose] Post-click view build failed", e);
             return ToolResult.error("Click succeeded but page view failed: " + e.getMessage()
                     + ". Call research_menu to get the current state.");
         }
     }
-}
 
+    /**
+     * Click an element via WebDriver BiDi input.performActions (pointer move to element + click).
+     * This is the spec-compliant approach: actions happen OUTSIDE the page JS.
+     */
+    private void clickViaActions(BrowserSession session, String ctx,
+                                 WDRemoteReference.SharedReference sharedRef) {
+        // First scroll into view
+        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
+        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(sharedRef);
+        session.getDriver().script().callFunction(
+                "function(el) { el.scrollIntoView({block:'center'}); }",
+                true, target, args);
+
+        // Build pointer action: move to element origin, then down+up
+        WDElementOrigin elementOrigin = new WDElementOrigin(sharedRef);
+        PointerSourceAction.PointerMoveAction move = new PointerSourceAction.PointerMoveAction(
+                0, 0, elementOrigin);
+        PointerSourceAction.PointerDownAction down = new PointerSourceAction.PointerDownAction(0);
+        PointerSourceAction.PointerUpAction up = new PointerSourceAction.PointerUpAction(0);
+
+        List<PointerSourceAction> actionSeq = new ArrayList<>();
+        actionSeq.add(move);
+        actionSeq.add(down);
+        actionSeq.add(up);
+
+        SourceActions.PointerSourceActions pointerActions = new SourceActions.PointerSourceActions(
+                "pointer-click",
+                new SourceActions.PointerSourceActions.PointerParameters(),
+                actionSeq);
+
+        List<SourceActions> allActions = new ArrayList<>();
+        allActions.add(pointerActions);
+
+        session.getDriver().input().performActions(ctx, allActions);
+    }
+
+    /**
+     * Fallback: click via JS callFunction (scrollIntoView + el.click()).
+     */
+    private void clickViaJs(BrowserSession session, String ctx,
+                            WDRemoteReference.SharedReference sharedRef) {
+        WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
+        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(sharedRef);
+        session.getDriver().script().callFunction(
+                "function(el) { el.scrollIntoView({block:'center'}); el.click(); }",
+                true, target, args);
+    }
+}

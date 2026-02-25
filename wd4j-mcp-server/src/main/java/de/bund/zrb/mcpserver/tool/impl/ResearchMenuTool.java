@@ -6,13 +6,16 @@ import de.bund.zrb.mcpserver.research.*;
 import de.bund.zrb.mcpserver.tool.McpServerTool;
 import de.bund.zrb.mcpserver.tool.ToolResult;
 
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Returns the current menu view for the active page without navigating.
- * The bot calls this to get an updated list of interactive elements
- * after the viewToken has become stale.
+ * <p>
+ * Ausgabe (MUSS): viewToken, url, title, excerpt, menuItems[], newArchivedDocs[].
+ * <p>
+ * The bot calls this after a stale viewToken error, or anytime a fresh view is needed.
  */
 public class ResearchMenuTool implements McpServerTool {
 
@@ -26,9 +29,9 @@ public class ResearchMenuTool implements McpServerTool {
     @Override
     public String description() {
         return "Get the current menu view for the active page. "
-             + "Returns: viewToken, page excerpt, and menu items (links/buttons). "
-             + "Call this after research_choose returns a stale viewToken error, "
-             + "or anytime you need a fresh view of the page.";
+             + "Returns: viewToken, page excerpt, menu items (links/buttons), "
+             + "and IDs of documents archived since last call. "
+             + "Call this after research_choose returns a stale viewToken error.";
     }
 
     @Override
@@ -39,8 +42,18 @@ public class ResearchMenuTool implements McpServerTool {
 
         JsonObject selector = new JsonObject();
         selector.addProperty("type", "string");
-        selector.addProperty("description", "Optional CSS selector to scope the menu to a page section");
+        selector.addProperty("description", "Optional CSS selector to scope the menu to a section");
         props.add("selector", selector);
+
+        JsonObject sessionId = new JsonObject();
+        sessionId.addProperty("type", "string");
+        sessionId.addProperty("description", "Session ID (optional)");
+        props.add("sessionId", sessionId);
+
+        JsonObject contextId = new JsonObject();
+        contextId.addProperty("type", "string");
+        contextId.addProperty("description", "BrowsingContext ID (optional, uses active tab)");
+        props.add("contextId", contextId);
 
         schema.add("properties", props);
         return schema;
@@ -55,11 +68,20 @@ public class ResearchMenuTool implements McpServerTool {
             MenuViewBuilder builder = new MenuViewBuilder(session, rs);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
-            return ToolResult.text(view.toCompactText());
+            // Append newly archived doc IDs
+            List<String> newDocs = rs.drainNewArchivedDocIds();
+            StringBuilder sb = new StringBuilder(view.toCompactText());
+            if (!newDocs.isEmpty()) {
+                sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
+                for (String docId : newDocs) {
+                    sb.append("  ").append(docId).append("\n");
+                }
+            }
+
+            return ToolResult.text(sb.toString());
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_menu] Failed to build menu view", e);
             return ToolResult.error("Failed to build menu view: " + e.getMessage());
         }
     }
 }
-
