@@ -516,7 +516,7 @@ public class ChatSession extends JPanel {
                                         true);
                                 String retryPrompt = "WICHTIG: Dein letzter Tool-Call hatte ungültiges JSON. "
                                         + "Antworte NUR mit einem einzigen, validen JSON-Objekt:\n"
-                                        + "{\"name\":\"research_open\",\"input\":{\"url\":\"https://finance.yahoo.com\"}}\n"
+                                        + "{\"name\":\"research_navigate\",\"input\":{\"target\":\"https://de.yahoo.com\"}}\n"
                                         + "Kein Text davor oder danach. Keine Kommentare im JSON. "
                                         + "Die Aufgabe war: \"" + lastUserRequestText + "\"";
                                 streamAssistantFollowUp(retryPrompt);
@@ -2048,17 +2048,19 @@ public class ChatSession extends JPanel {
             }
         }
 
-        // Common aliases – map old tool names to new research tools
+        // Common aliases – map old tool names to new research_navigate
         if (bestPrefix == null) {
             if (lower.contains("browse") || lower.contains("browser") || lower.equals("navigate")
-                    || lower.equals("web_navigate") || lower.equals("web_open")) {
-                bestPrefix = "research_open";
+                    || lower.equals("web_navigate") || lower.equals("web_open")
+                    || lower.equals("research_open") || lower.equals("research_choose")) {
+                bestPrefix = "research_navigate";
             } else if (lower.contains("snapshot") || lower.equals("page")
                     || lower.equals("web_snapshot") || lower.equals("web_read_page")) {
                 bestPrefix = "research_menu";
             } else if (lower.equals("web_click") || lower.equals("click")) {
-                bestPrefix = "research_choose";
-            } else if (lower.equals("web_history") || lower.equals("back") || lower.equals("forward")) {
+                bestPrefix = "research_navigate";
+            } else if (lower.equals("web_history") || lower.equals("back") || lower.equals("forward")
+                    || lower.equals("research_history")) {
                 bestPrefix = "research_navigate";
             }
         }

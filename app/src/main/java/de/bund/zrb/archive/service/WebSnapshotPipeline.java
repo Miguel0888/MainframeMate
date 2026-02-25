@@ -12,7 +12,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Automatic archiving pipeline. Triggered after every research_open / research_choose
+ * Automatic archiving pipeline. Triggered after every research_navigate
  * call in RECHERCHE mode.
  * <p>
  * Steps:
@@ -42,7 +42,7 @@ public class WebSnapshotPipeline {
      * Process a web page snapshot.
      *
      * @param url         the page URL
-     * @param textContent the extracted text content (from research_open/research_menu)
+     * @param textContent the extracted text content (from research_navigate/research_menu)
      * @param title       the page title
      * @return the created ArchiveEntry, or null on failure
      */

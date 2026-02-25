@@ -261,25 +261,38 @@ public class ResearchNavigateTool implements McpServerTool {
     // ═══════════════════════════════════════════════════════════════
 
     private ToolResult navigateToUrl(String url, ResearchSession rs, BrowserSession session) {
-        // ── Same-URL guard ──
+        // ── Same-URL guard (multi-source check) ──
+        String currentUrl = null;
+
+        // Source 1: pipeline's last navigation URL
         NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
         if (pipeline != null) {
-            String cachedUrl = pipeline.getLastNavigationUrl();
-            if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
-                MenuView existingView = rs.getCurrentMenuView();
-                if (existingView != null && existingView.getMenuItems() != null
-                        && !existingView.getMenuItems().isEmpty()) {
-                    LOG.warning("[research_navigate] BLOCKED: Already on " + cachedUrl);
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("You are ALREADY on this page. Pick a link from the list below:\n\n");
-                    sb.append(existingView.toCompactText());
-                    sb.append("\n── Hint ──\n");
-                    sb.append("Use research_navigate with a link ID (e.g. 'm0') or a DIFFERENT URL.");
-                    return ToolResult.error(sb.toString());
-                }
-                return ToolResult.error("Already on this page (" + cachedUrl + "). "
-                        + "Use a link ID (m0..mN) or navigate to a different URL.");
+            currentUrl = pipeline.getLastNavigationUrl();
+        }
+
+        // Source 2: current MenuView URL (fallback if pipeline was re-created)
+        if (currentUrl == null) {
+            MenuView view = rs.getCurrentMenuView();
+            if (view != null) {
+                currentUrl = view.getUrl();
             }
+        }
+
+        if (currentUrl != null && isSameUrl(currentUrl, url)) {
+            LOG.warning("[research_navigate] BLOCKED: Already on " + currentUrl);
+            MenuView existingView = rs.getCurrentMenuView();
+            if (existingView != null && existingView.getMenuItems() != null
+                    && !existingView.getMenuItems().isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("You are ALREADY on this page (").append(url).append("). ")
+                  .append("Pick a link from the list below instead:\n\n");
+                sb.append(existingView.toCompactText());
+                sb.append("\n── Hint ──\n");
+                sb.append("Call research_navigate with a link ID (e.g. 'm0') or a DIFFERENT URL.");
+                return ToolResult.error(sb.toString());
+            }
+            return ToolResult.error("Already on this page (" + currentUrl + "). "
+                    + "Use a link ID (m0..mN) or navigate to a different URL.");
         }
 
         // Ensure pipeline

@@ -26,7 +26,7 @@ public class BrowserToolAdapter implements McpTool {
 
     /** Tools whose URL parameter must be checked against whitelist/blacklist boundaries. */
     private static final Set<String> URL_CHECKED_TOOLS = new HashSet<>(Arrays.asList(
-            "research_open"
+            "research_navigate"
     ));
 
     private final McpServerTool delegate;

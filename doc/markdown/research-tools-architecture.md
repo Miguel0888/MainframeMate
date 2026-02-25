@@ -55,13 +55,15 @@ bei jedem Aufruf eine **Link-Liste** zurück, aus der er den nächsten Schritt w
 | `research_navigate` | **DAS Navigations-Tool**. Akzeptiert: absolute URL, relativen Pfad, Link-ID (m0..mN), oder History-Aktion (back/forward/reload) | `target` (req.) | Page title, excerpt, Link-Liste, archived docs, network traffic |
 | `research_menu` | Aktuelle Link-Liste neu laden (ohne Navigation) | (keine) | Page title, excerpt, Link-Liste, archived docs |
 
-### Deprecated (Rückwärtskompatibilität)
+### Deprecated (entfernt)
 
-| Tool | Ersetzt durch |
-|------|--------------|
-| `research_open` | `research_navigate` mit URL |
-| `research_choose` | `research_navigate` mit Link-ID |
-| `research_history` | `research_navigate` mit back/forward/reload |
+Die folgenden Tools wurden entfernt und durch `research_navigate` ersetzt:
+- `research_open` → `research_navigate` mit URL
+- `research_choose` → `research_navigate` mit Link-ID
+- `research_history` → `research_navigate` mit back/forward/reload
+
+Die alten Java-Klassen existieren noch im Code, werden aber **nicht mehr registriert**.
+Der Fuzzy-Match in ChatSession mappt alte Tool-Namen automatisch auf `research_navigate`.
 
 ### Archiv & Suche
 
@@ -81,8 +83,8 @@ bei jedem Aufruf eine **Link-Liste** zurück, aus der er den nächsten Schritt w
 
 - Jede MenuView hat einen `viewToken` (z.B. `v1`, `v2`, ...)
 - `menuItemId`s (z.B. `m0`, `m3`) sind **nur innerhalb** desselben viewTokens gültig
-- Bei Navigation/Reload/Choose wird ein neuer viewToken erzeugt
-- `research_choose` mit stale viewToken → **definierter Fehler** → Bot muss `research_menu` aufrufen
+- Bei Navigation wird ein neuer viewToken erzeugt
+- `research_navigate` mit staler Link-ID → **definierter Fehler** → Bot muss `research_menu` aufrufen
 
 ## Settle-Policies
 
@@ -168,13 +170,16 @@ responseCompleted Event
 - `NetworkIngestionPipeline.java` – Network-First Body Collection (addDataCollector → responseCompleted → getData → disownData → callback)
 - `SettlePolicy.java` – Enum (NAVIGATION, DOM_QUIET, NETWORK_QUIET)
 
-### Tools: `wd4j-mcp-server/tool/impl/`
+### Tools: `wd4j-mcp-server/tool/impl/` (aktiv registriert)
 - `ResearchSessionStartTool.java` – `research_session_start`
-- `ResearchOpenTool.java` – `research_open`
+- `ResearchNavigateTool.java` – `research_navigate` (DAS einzige Navigations-Tool)
 - `ResearchMenuTool.java` – `research_menu`
-- `ResearchChooseTool.java` – `research_choose` (WebDriver Actions + JS Fallback)
-- `ResearchBackForwardTool.java` – `research_navigate`
 - `ResearchConfigUpdateTool.java` – `research_config_update`
+
+### Tools: `wd4j-mcp-server/tool/impl/` (nicht mehr registriert, Code noch vorhanden)
+- `ResearchOpenTool.java` – ersetzt durch `research_navigate`
+- `ResearchChooseTool.java` – ersetzt durch `research_navigate`
+- `ResearchBackForwardTool.java` – ersetzt durch `research_navigate`
 
 ### Tools: `plugins/webSearch/tools/`
 - `ResearchDocGetTool.java` – `research_doc_get` (H2 Archiv)
@@ -183,11 +188,12 @@ responseCompleted Event
 - `ResearchQueueStatusTool.java` – `research_queue_status`
 
 ### Geändert
-- `plugins/webSearch/plugin/WebSearchPlugin.java` – Alle alten Browse*-Tools entfernt, 10 Research-Tools + 5 Utility-Tools registriert
+- `plugins/webSearch/plugin/WebSearchPlugin.java` – Nur noch 4 Research-Tools + Archive/Search/Queue + 5 Utility-Tools registriert (deprecated Tools entfernt)
+- `plugins/webSearch/tools/BrowserToolAdapter.java` – URL-Check auf `research_navigate` umgestellt
 - `plugins/webSearch/build.gradle` – `compileOnly project(':app')`
 - `wd4j-mcp-server/McpServerMain.java` – Alte Browser*-Tools durch Research-Tools ersetzt
-- `app/ChatMode.java` – AGENT + RECHERCHE System-Prompts auf neue Tool-Namen umgestellt
-- `app/ChatSession.java` – Fuzzy-Match mappt alte Tool-Namen auf neue; Auto-Archivierung triggert bei research_open/choose/menu
+- `app/ChatMode.java` – AGENT + RECHERCHE System-Prompts auf `research_navigate` umgestellt
+- `app/ChatSession.java` – Fuzzy-Match mappt alte Tool-Namen (`research_open`, `research_choose`, `research_history`) auf `research_navigate`
 - `app/WebSnapshotPipeline.java` – Javadoc aktualisiert
 
 ### Gelöschte Dateien (durch Research-Tools ersetzt)
@@ -211,26 +217,23 @@ responseCompleted Event
 ## Beispiel-Workflow (Bot)
 
 ```
-Bot: research_session_start(mode="research", domainPolicy={include:["news.example.com"]})
-→ sessionId: "a1b2c3d4", userContextId: "uc-42", contexts: ["ctx-1"]
+Bot: research_session_start()
+→ sessionId: "a1b2c3d4", status: ready
 
-Bot: research_open(url="https://news.example.com", wait="interactive")
-→ viewToken: v1, excerpt: "...", menuItems: [m0] link: "Headlines", [m1] link: "Sports"
+Bot: research_navigate(target="https://news.example.com")
+→ Page: News | excerpt: "...", [m0] Headlines, [m1] Sports, [m2] Economy
 
-Bot: research_choose(menuItemId="m1", viewToken="v1", settlePolicy="NAVIGATION")
-→ viewToken: v2, excerpt: "Sports news...", menuItems: [m0] link: "Football", ...
+Bot: research_navigate(target="m1")
+→ Page: Sports | excerpt: "...", [m0] Football, [m1] Tennis, ...
 
-Bot: research_choose(menuItemId="m0", viewToken="v2", settlePolicy="DOM_QUIET")
-→ viewToken: v3, excerpt: "Football article...", menuItems: ...
+Bot: research_navigate(target="m0")
+→ Page: Football | excerpt: "Match results...", [m0] Bundesliga, ...
 
-Bot: research_navigate(action="back")
-→ viewToken: v4, excerpt: "Sports news...", menuItems: ...
+Bot: research_navigate(target="back")
+→ Page: Sports | excerpt: "...", [m0] Football, ...
 
-Bot: research_queue_add(urls=["https://news.example.com/page2", "..."])
-→ {added: 2, skipped: 0}
-
-Bot: research_queue_status()
-→ {pending: 2, crawled: 1, indexed: 1, failed: 0}
+Bot: research_navigate(target="/economy/stocks/")
+→ Page: Stocks | excerpt: "DAX...", [m0] DAX Details, ...
 
 Bot: research_search(query="football results")
 → {results: [{documentId: "...", snippet: "...", score: 0.85}]}

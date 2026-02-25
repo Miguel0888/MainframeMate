@@ -106,7 +106,7 @@ public class ResearchQueueStatusTool implements McpTool {
                 de.bund.zrb.mcpserver.research.ResearchSessionManager mgr =
                         de.bund.zrb.mcpserver.research.ResearchSessionManager.getInstance();
                 // We can't easily enumerate sessions here, but the stats are in the pipeline
-                // The bot sees them in research_menu/research_open via newArchivedDocs
+                // The bot sees them in research_menu/research_navigate via newArchivedDocs
             } catch (Exception ignored) {}
 
             return new McpToolResponse(resp, resultVar, null);
