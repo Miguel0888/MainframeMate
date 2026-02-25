@@ -70,8 +70,8 @@ public class ArchiveRepository {
                     + ")");
 
             // ── Schema migration for existing databases ──
-            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN url VARCHAR(4096)"); } catch (Exception ignored) {}
-            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN title VARCHAR(2048)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN url VARCHAR(4096)"); } catch (Exception e) { LOG.fine("[Archive] Migration archive_entries.url: " + e.getMessage()); }
+            try { stmt.execute("ALTER TABLE archive_entries ALTER COLUMN title VARCHAR(2048)"); } catch (Exception e) { LOG.fine("[Archive] Migration archive_entries.title: " + e.getMessage()); }
 
             stmt.execute("CREATE TABLE IF NOT EXISTS archive_metadata ("
                     + "entry_id VARCHAR(36),"
@@ -91,14 +91,14 @@ public class ArchiveRepository {
                     + ")");
 
             // ── Schema migration for existing web_cache ──
-            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN url VARCHAR(4096)"); } catch (Exception ignored) {}
-            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN parent_url VARCHAR(4096)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN url VARCHAR(4096)"); } catch (Exception e) { LOG.fine("[Archive] Migration web_cache.url: " + e.getMessage()); }
+            try { stmt.execute("ALTER TABLE web_cache ALTER COLUMN parent_url VARCHAR(4096)"); } catch (Exception e) { LOG.fine("[Archive] Migration web_cache.parent_url: " + e.getMessage()); }
 
             // Indices (ignore if already exist)
-            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_cache_source ON web_cache(source_id)"); } catch (Exception ignored) {}
-            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_cache_status ON web_cache(status)"); } catch (Exception ignored) {}
-            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_status ON archive_entries(status)"); } catch (Exception ignored) {}
-            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_url ON archive_entries(url)"); } catch (Exception ignored) {}
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_cache_source ON web_cache(source_id)"); } catch (Exception e) { LOG.fine("[Archive] Index idx_cache_source: " + e.getMessage()); }
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_cache_status ON web_cache(status)"); } catch (Exception e) { LOG.fine("[Archive] Index idx_cache_status: " + e.getMessage()); }
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_status ON archive_entries(status)"); } catch (Exception e) { LOG.fine("[Archive] Index idx_entries_status: " + e.getMessage()); }
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_url ON archive_entries(url)"); } catch (Exception e) { LOG.fine("[Archive] Index idx_entries_url: " + e.getMessage()); }
 
             stmt.close();
             LOG.info("[Archive] Database initialized at " + jdbcUrl);

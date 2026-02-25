@@ -234,7 +234,6 @@ public class ResearchSessionStartTool implements McpServerTool {
             text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
         }
         text.append("\nSession is ready. NEXT STEP: Call research_open with a URL.\n");
-        text.append("Example: {\"name\":\"research_open\",\"input\":{\"url\":\"https://search.yahoo.com/search?p=wirtschaft\"}}\n");
         text.append("STOP: Do NOT call research_session_start again.");
 
         return ToolResult.text(text.toString());

@@ -2014,6 +2014,19 @@ public class ChatSession extends JPanel {
         if (name == null) return null;
         String lower = name.toLowerCase().trim();
 
+        // If the tool name includes a namespace prefix (e.g. "navi.research_open"),
+        // strip it and try the suffix first.
+        int lastDot = lower.lastIndexOf('.');
+        if (lastDot > 0 && lastDot < lower.length() - 1) {
+            String suffix = lower.substring(lastDot + 1).trim();
+            String resolved = fuzzyMatchToolNameCore(suffix);
+            if (resolved != null) return resolved;
+        }
+
+        return fuzzyMatchToolNameCore(lower);
+    }
+
+    private String fuzzyMatchToolNameCore(String lower) {
         // Collect all registered tool names
         java.util.List<String> candidates = new java.util.ArrayList<>();
         for (de.zrb.bund.newApi.mcp.McpTool tool : ToolRegistryImpl.getInstance().getAllTools()) {

@@ -91,20 +91,12 @@ public class WebSnapshotPipeline {
             entry.setContentLength(textContent != null ? textContent.length() : 0);
             entry.setFileSizeBytes(textFile.length());
             entry.setCrawlTimestamp(System.currentTimeMillis());
-            entry.setStatus(ArchiveEntryStatus.CRAWLED);
+            entry.setStatus(ArchiveEntryStatus.INDEXED);
+            entry.setLastIndexed(System.currentTimeMillis());
 
             repo.save(entry);
 
             // Update web cache status if applicable
-            if (repo.urlExists(url)) {
-                repo.updateWebCacheStatus(url, ArchiveEntryStatus.CRAWLED, entry.getEntryId());
-            }
-
-            // Mark as indexed (Lucene indexing would happen here in full implementation)
-            entry.setStatus(ArchiveEntryStatus.INDEXED);
-            entry.setLastIndexed(System.currentTimeMillis());
-            repo.save(entry);
-
             if (repo.urlExists(url)) {
                 repo.updateWebCacheStatus(url, ArchiveEntryStatus.INDEXED, entry.getEntryId());
             }
