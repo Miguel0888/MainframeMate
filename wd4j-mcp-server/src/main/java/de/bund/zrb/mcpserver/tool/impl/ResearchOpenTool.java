@@ -77,11 +77,10 @@ public class ResearchOpenTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Navigate to a URL and get a menu view with clickable items. "
-             + "Returns: viewToken, page excerpt, menu items, and newly archived doc IDs. "
-             + "Use menuItemId with research_choose to interact. "
-             + "wait: none|interactive (default)|complete. "
-             + "settlePolicy: NAVIGATION (default), DOM_QUIET (SPA), NETWORK_QUIET (AJAX).";
+        return "Navigate to a NEW URL and get a link list. "
+             + "Returns page title, text excerpt, and numbered links. "
+             + "IMPORTANT: Do NOT call this with the same URL twice – use research_choose to follow links on the current page. "
+             + "Only pass the 'url' parameter.";
     }
 
     @Override
@@ -92,28 +91,9 @@ public class ResearchOpenTool implements McpServerTool {
 
         JsonObject url = new JsonObject();
         url.addProperty("type", "string");
-        url.addProperty("description", "URL to navigate to");
+        url.addProperty("description", "The URL to navigate to (must be different from the current page)");
         props.add("url", url);
 
-        JsonObject wait = new JsonObject();
-        wait.addProperty("type", "string");
-        wait.addProperty("description", "ReadinessState to wait for: 'none', 'interactive' (default), 'complete'");
-        props.add("wait", wait);
-
-        JsonObject settle = new JsonObject();
-        settle.addProperty("type", "string");
-        settle.addProperty("description", "Settle strategy after navigation: NAVIGATION (default), DOM_QUIET, NETWORK_QUIET");
-        props.add("settlePolicy", settle);
-
-        JsonObject sessionId = new JsonObject();
-        sessionId.addProperty("type", "string");
-        sessionId.addProperty("description", "Session ID (from research_session_start). Optional if only one session.");
-        props.add("sessionId", sessionId);
-
-        JsonObject contextId = new JsonObject();
-        contextId.addProperty("type", "string");
-        contextId.addProperty("description", "BrowsingContext ID to navigate in. Optional (uses active tab).");
-        props.add("contextId", contextId);
 
         schema.add("properties", props);
         JsonArray required = new JsonArray();
@@ -209,50 +189,39 @@ public class ResearchOpenTool implements McpServerTool {
             NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
 
             // ── Same-URL detection (no JS) ──
-            // If we already have cached HTML for this URL, return existing view
-            // instead of re-navigating (Firefox hangs on navigate to same URL)
+            // If we're already on this URL, reject immediately with error.
+            // The bot must use research_choose or navigate to a DIFFERENT URL.
             boolean alreadyThere = false;
             if (pipeline != null) {
                 String cachedUrl = pipeline.getLastNavigationUrl();
                 if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
-                    // Check if we already have a valid view with a valid token
+                    LOG.warning("[research_open] REJECTED: Already on " + cachedUrl
+                            + " – bot tried to navigate to same URL again.");
+
+                    // Check if we have a valid view to point the bot to
                     MenuView existingView = rs.getCurrentMenuView();
                     if (existingView != null && existingView.getViewToken() != null
                             && existingView.getMenuItems() != null
                             && !existingView.getMenuItems().isEmpty()) {
-                        LOG.info("[research_open] Already on " + cachedUrl
-                                + " with valid view (token=" + existingView.getViewToken()
-                                + ") – returning cached view.");
-
-                        List<String> newDocs = rs.drainNewArchivedDocIds();
-                        StringBuilder sb = new StringBuilder(existingView.toCompactText());
-                        if (!newDocs.isEmpty()) {
-                            sb.append("\n── Newly archived (").append(newDocs.size()).append(") ──\n");
-                            for (String docId : newDocs) {
-                                sb.append("  ").append(docId).append("\n");
-                            }
-                        }
-                        sb.append("\n── ⚠ IMPORTANT ──\n");
-                        sb.append("You are ALREADY on this page. Do NOT call research_open with the same URL again.\n");
-                        sb.append("Instead, use research_choose with viewToken='")
-                          .append(existingView.getViewToken())
-                          .append("' and a menuItemId from the list above (e.g. 'm0').\n");
-                        sb.append("Or call research_open with a DIFFERENT URL from the menu.");
-                        return ToolResult.text(sb.toString());
-                    }
-                    // Check if we have cached HTML body – if not, the previous navigation
-                    // likely timed out. Don't retry the same URL endlessly.
-                    if (pipeline.getLastNavigationHtml() == null) {
-                        LOG.warning("[research_open] Same URL " + url
-                                + " but no cached HTML – previous navigation likely timed out. Giving up.");
                         return ToolResult.error(
-                                "This URL was already attempted but the page did not load (timeout). "
-                              + "Please try a DIFFERENT URL, or use wait='none' to proceed without waiting. "
+                                "ERROR: You are ALREADY on this page (" + cachedUrl + "). "
+                              + "Do NOT call research_open with the same URL again! "
+                              + "Use research_choose with viewToken='" + existingView.getViewToken()
+                              + "' and a menuItemId (e.g. 'm0') to follow a link, "
+                              + "or call research_open with a DIFFERENT URL from the link list.");
+                    }
+
+                    // No valid view but same URL – previous navigation may have timed out
+                    if (pipeline.getLastNavigationHtml() == null) {
+                        return ToolResult.error(
+                                "ERROR: This URL was already attempted but the page did not load. "
+                              + "Do NOT retry the same URL. Navigate to a DIFFERENT URL instead. "
                               + "URL: " + url);
                     }
-                    // Have cached HTML but no valid view – rebuild from cache, don't navigate
+
+                    // Have cached HTML but no view – rebuild from cache
                     alreadyThere = true;
-                    LOG.info("[research_open] Already on " + cachedUrl + " – rebuilding view from cached HTML.");
+                    LOG.info("[research_open] Rebuilding view from cached HTML for: " + cachedUrl);
                 }
             }
 
@@ -300,8 +269,8 @@ public class ResearchOpenTool implements McpServerTool {
 
             sb.append("\n── Next step ──\n");
             sb.append("Read the excerpt above. To follow a link, use research_choose with ");
-            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId, ");
-            sb.append("or call research_open with a URL directly.");
+            sb.append("viewToken='").append(view.getViewToken()).append("' and the menuItemId (e.g. 'm0'). ");
+            sb.append("To navigate to a completely different site, use research_open with a new URL.");
 
             return ToolResult.text(sb.toString());
         } catch (Exception e) {

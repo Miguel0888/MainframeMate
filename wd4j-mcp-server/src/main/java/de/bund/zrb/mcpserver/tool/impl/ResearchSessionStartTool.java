@@ -33,49 +33,15 @@ public class ResearchSessionStartTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Start a research session with browser isolation and crawl policies. "
-             + "Call this ONCE at the beginning – do NOT call again. "
-             + "If already started, it returns the existing session. "
-             + "After this, use research_open to navigate to a URL. "
-             + "mode: 'research' (default, full crawl) or 'agent' (quick lookup). "
-             + "includeDomains: comma-separated domains to include (e.g. 'yahoo.com,reuters.com'). "
-             + "excludeDomains: comma-separated domains to exclude. "
-             + "maxUrls: max URLs to crawl (default 500). maxDepth: max crawl depth (default 5).";
+        return "Start a research session. Call this ONCE before using research_open. "
+             + "No parameters needed. Do NOT call again after session is started.";
     }
 
     @Override
     public JsonObject inputSchema() {
         JsonObject schema = new JsonObject();
         schema.addProperty("type", "object");
-        JsonObject props = new JsonObject();
-
-        JsonObject mode = new JsonObject();
-        mode.addProperty("type", "string");
-        mode.addProperty("description", "Session mode: 'research' (default) or 'agent'");
-        props.add("mode", mode);
-
-        // Flat string parameters instead of nested objects to avoid LLM JSON-parse issues
-        JsonObject includeDomains = new JsonObject();
-        includeDomains.addProperty("type", "string");
-        includeDomains.addProperty("description", "Comma-separated domains to include, e.g. 'yahoo.com,reuters.com'. Optional.");
-        props.add("includeDomains", includeDomains);
-
-        JsonObject excludeDomains = new JsonObject();
-        excludeDomains.addProperty("type", "string");
-        excludeDomains.addProperty("description", "Comma-separated domains to exclude, e.g. 'ads.example.com'. Optional.");
-        props.add("excludeDomains", excludeDomains);
-
-        JsonObject maxUrls = new JsonObject();
-        maxUrls.addProperty("type", "integer");
-        maxUrls.addProperty("description", "Max URLs to crawl (default: 500). Optional.");
-        props.add("maxUrls", maxUrls);
-
-        JsonObject maxDepth = new JsonObject();
-        maxDepth.addProperty("type", "integer");
-        maxDepth.addProperty("description", "Max crawl depth (default: 5). Optional.");
-        props.add("maxDepth", maxDepth);
-
-        schema.add("properties", props);
+        schema.add("properties", new JsonObject());
         return schema;
     }
 

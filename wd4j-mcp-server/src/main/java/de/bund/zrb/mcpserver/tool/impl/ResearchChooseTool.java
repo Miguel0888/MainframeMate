@@ -30,9 +30,8 @@ public class ResearchChooseTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Follow a link by its menu item ID (e.g. 'm3') from the current view. "
-             + "Navigates to the link's URL (address bar, no clicking). "
-             + "Requires viewToken from the last research_open response.";
+        return "Follow a link from the current page by its ID (e.g. 'm3'). "
+             + "Pass the viewToken from the last response and the menuItemId.";
     }
 
     @Override
@@ -43,18 +42,14 @@ public class ResearchChooseTool implements McpServerTool {
 
         JsonObject menuItem = new JsonObject();
         menuItem.addProperty("type", "string");
-        menuItem.addProperty("description", "Menu item ID to follow (e.g. 'm0', 'm3')");
+        menuItem.addProperty("description", "Link ID to follow (e.g. 'm0', 'm3')");
         props.add("menuItemId", menuItem);
 
         JsonObject viewToken = new JsonObject();
         viewToken.addProperty("type", "string");
-        viewToken.addProperty("description", "viewToken from the last research_open response");
+        viewToken.addProperty("description", "viewToken from the last response");
         props.add("viewToken", viewToken);
 
-        JsonObject sessionId = new JsonObject();
-        sessionId.addProperty("type", "string");
-        sessionId.addProperty("description", "Session ID (optional)");
-        props.add("sessionId", sessionId);
 
         schema.add("properties", props);
         JsonArray required = new JsonArray();

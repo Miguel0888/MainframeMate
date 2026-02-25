@@ -26,8 +26,7 @@ public class ResearchBackForwardTool implements McpServerTool {
     @Override
     public String description() {
         return "Navigate browser history: action='back', 'forward', or 'reload'. "
-             + "Returns a fresh menu view after the action. "
-             + "settlePolicy: NAVIGATION (default), DOM_QUIET, NETWORK_QUIET.";
+             + "Returns a fresh link list after the action.";
     }
 
     @Override
@@ -41,10 +40,6 @@ public class ResearchBackForwardTool implements McpServerTool {
         action.addProperty("description", "Navigation action: 'back', 'forward', or 'reload'");
         props.add("action", action);
 
-        JsonObject settle = new JsonObject();
-        settle.addProperty("type", "string");
-        settle.addProperty("description", "How to wait after action: NAVIGATION (default), DOM_QUIET, NETWORK_QUIET");
-        props.add("settlePolicy", settle);
 
         schema.add("properties", props);
         JsonArray required = new JsonArray();
