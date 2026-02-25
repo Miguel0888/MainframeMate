@@ -73,46 +73,13 @@ public class WebSearchBrowserManager {
                 session.close();
             } catch (Exception e) {
                 LOG.warning("[WebSearch] Error closing browser session: " + e.getMessage());
+                // close() failed – force-kill as fallback (only our own process)
+                try { session.killBrowserProcess(); } catch (Exception ignored) {}
             }
-            // Fallback: if close() didn't terminate the process, kill it explicitly
-            killOwnBrowserProcess();
             session = null;
         }
     }
 
-    /**
-     * Kill only the browser process that WE started (tracked via BrowserSession.getBrowserProcess()).
-     * Never kills other Firefox instances belonging to the user or other applications.
-     */
-    private void killOwnBrowserProcess() {
-        if (session == null) return;
-        Process proc = session.getBrowserProcess();
-        if (proc == null) return;
-        if (!proc.isAlive()) {
-            LOG.fine("[WebSearch] Browser process already exited.");
-            return;
-        }
-        LOG.info("[WebSearch] Forcefully killing our browser process (pid=" + getPid(proc) + ")");
-        proc.destroyForcibly();
-        try {
-            proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /**
-     * Best-effort PID extraction for logging. Returns -1 if unavailable (Java 8).
-     */
-    private static long getPid(Process proc) {
-        try {
-            // Java 9+: Process.pid() via reflection
-            java.lang.reflect.Method pidMethod = proc.getClass().getMethod("pid");
-            return (Long) pidMethod.invoke(proc);
-        } catch (Exception e) {
-            return -1;
-        }
-    }
 
     public String getBrowser() {
         return loadSettings().getOrDefault("browser", "Firefox");

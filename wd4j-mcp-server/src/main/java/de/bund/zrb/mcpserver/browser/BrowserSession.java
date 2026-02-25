@@ -173,16 +173,10 @@ public class BrowserSession {
                     System.err.println("[MCP] Error closing context: " + e.getMessage());
                 }
             }
-            if (webSocket != null) {
-                webSocket.close();
-            }
-            if (browserProcess != null) {
-                browserProcess.destroyForcibly();
-                browserProcess = null;
-            }
+            closeWebSocket();
+            destroyBrowserProcess();
         } finally {
             driver = null;
-            webSocket = null;
             contextId = null;
         }
     }
@@ -195,18 +189,59 @@ public class BrowserSession {
     public void killBrowserProcess() {
         System.err.println("[BrowserSession] Killing browser process due to timeout/hang");
         try {
-            if (webSocket != null) {
-                try { webSocket.close(); } catch (Exception ignored) {}
-            }
+            closeWebSocket();
         } finally {
-            if (browserProcess != null) {
-                browserProcess.destroyForcibly();
-                browserProcess = null;
-            }
+            destroyBrowserProcess();
             driver = null;
-            webSocket = null;
             contextId = null;
             nodeRefRegistry.invalidateAll();
+        }
+    }
+
+    // ── Internal process lifecycle ──────────────────────────────────
+
+    /**
+     * Close the WebSocket connection, ignoring errors.
+     */
+    private void closeWebSocket() {
+        if (webSocket != null) {
+            try { webSocket.close(); } catch (Exception ignored) {}
+            webSocket = null;
+        }
+    }
+
+    /**
+     * Destroy only the browser process that THIS session started.
+     * Never kills other browser instances. This is the single place
+     * where the process is terminated — all callers delegate here.
+     */
+    private void destroyBrowserProcess() {
+        if (browserProcess == null) return;
+        if (!browserProcess.isAlive()) {
+            browserProcess = null;
+            return;
+        }
+        long pid = getPid(browserProcess);
+        System.err.println("[BrowserSession] Destroying browser process (pid=" + pid + ")");
+        browserProcess.destroyForcibly();
+        try {
+            browserProcess.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        browserProcess = null;
+    }
+
+    /**
+     * Best-effort PID extraction for logging. Returns -1 on Java 8.
+     */
+    private static long getPid(Process proc) {
+        try {
+            // Java 9+: Process.pid() via reflection (project targets Java 8)
+            java.lang.reflect.Method pidMethod = proc.getClass().getMethod("pid");
+            return (Long) pidMethod.invoke(proc);
+        } catch (Exception e) {
+            return -1;
         }
     }
 
