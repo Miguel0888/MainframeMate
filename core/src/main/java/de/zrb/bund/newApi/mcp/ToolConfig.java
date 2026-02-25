@@ -42,8 +42,18 @@ public class ToolConfig {
      * @param <T>   the config type
      * @return the deserialized config, or a new empty instance on error
      */
+    @SuppressWarnings("unchecked")
     public static <T extends ToolConfig> T fromJson(JsonObject json, Class<T> clazz) {
         try {
+            // Check if the class has a static fromFlatJson(JsonObject) method (e.g. WebSearchToolConfig)
+            try {
+                java.lang.reflect.Method fromFlat = clazz.getMethod("fromFlatJson", JsonObject.class);
+                if (java.lang.reflect.Modifier.isStatic(fromFlat.getModifiers())) {
+                    return (T) fromFlat.invoke(null, json);
+                }
+            } catch (NoSuchMethodException ignored) {
+                // Fall through to standard Gson deserialization
+            }
             Gson gson = new GsonBuilder().create();
             return gson.fromJson(json, clazz);
         } catch (Exception e) {

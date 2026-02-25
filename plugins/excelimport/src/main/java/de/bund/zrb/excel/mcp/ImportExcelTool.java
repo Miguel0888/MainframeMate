@@ -9,6 +9,7 @@ import de.bund.zrb.excel.plugin.ExcelImport;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolConfig;
+import de.zrb.bund.newApi.mcp.ToolConfigReader;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 
 import java.util.*;
@@ -69,10 +70,12 @@ public class ImportExcelTool implements McpTool {
         try {
             ExcelImportConfig config = new ExcelImportConfig(new Gson().fromJson(input, Map.class), getSpec().getInputSchema(), getStringExcelMappingFunction());
 
-            boolean stopOnEmptyRequiredCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("stopOnEmptyRequired", "true"));
-            boolean requireAllFieldsEmptyCheck = Boolean.parseBoolean(plugin.getSettings().getOrDefault("requireAllFieldsEmpty", "false"));
+            // Load tool config from ToolConfig system (Settings >> Tool Config)
+            ExcelImportToolConfig toolConfig = getResolvedConfig();
+            boolean stopOnEmptyRequiredCheck = toolConfig.isStopOnEmptyRequired();
+            boolean requireAllFieldsEmptyCheck = toolConfig.isRequireAllFieldsEmpty();
 
-            result = ExcelImportController.importFromConfig(plugin, config, requireAllFieldsEmptyCheck, stopOnEmptyRequiredCheck);
+            result = ExcelImportController.importFromConfig(plugin, config, stopOnEmptyRequiredCheck, requireAllFieldsEmptyCheck);
 
             response.addProperty("status", "success");
             response.addProperty("content", ""); // ToDo: May be implemented, but not required
@@ -82,6 +85,35 @@ public class ImportExcelTool implements McpTool {
         }
 
         return new McpToolResponse(response, resultVar, result);
+    }
+
+    /**
+     * Loads the resolved ExcelImportToolConfig.
+     * Prefers the persisted tool-configs.json (editable via Settings >> Tool Config),
+     * falls back to legacy plugin settings.
+     */
+    private ExcelImportToolConfig getResolvedConfig() {
+        // 1) Try tool-configs.json (written by Settings >> Tool Config)
+        ExcelImportToolConfig fromFile = ToolConfigReader.getConfig("import_excel", ExcelImportToolConfig.class);
+        if (fromFile != null) {
+            return fromFile;
+        }
+
+        // 2) Fallback: legacy plugin settings
+        Map<String, String> settings = plugin.getSettings();
+        if (settings != null && !settings.isEmpty()) {
+            ExcelImportToolConfig config = new ExcelImportToolConfig();
+            config.setLastJsonPath(settings.getOrDefault("lastJsonPath", ""));
+            config.setLastExcelPath(settings.getOrDefault("lastExcelPath", ""));
+            config.setSeparator(settings.getOrDefault("separator", ""));
+            config.setShowConfirmation(Boolean.parseBoolean(settings.getOrDefault("showConfirmation", "true")));
+            config.setAutoOpen(Boolean.parseBoolean(settings.getOrDefault("autoOpen", "true")));
+            config.setStopOnEmptyRequired(Boolean.parseBoolean(settings.getOrDefault("stopOnEmptyRequired", "true")));
+            config.setRequireAllFieldsEmpty(Boolean.parseBoolean(settings.getOrDefault("requireAllFieldsEmpty", "false")));
+            return config;
+        }
+
+        return new ExcelImportToolConfig();
     }
 
     private Function<String, ExcelMapping> getStringExcelMappingFunction() {

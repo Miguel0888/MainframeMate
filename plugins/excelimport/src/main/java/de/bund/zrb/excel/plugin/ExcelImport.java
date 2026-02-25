@@ -1,7 +1,6 @@
 package de.bund.zrb.excel.plugin;
 
 import de.bund.zrb.excel.commands.ExcelImportMenuCommand;
-import de.bund.zrb.excel.commands.ExcelSettingsMenuCommand;
 import de.bund.zrb.excel.controller.ExcelImportController;
 import de.bund.zrb.excel.mcp.ImportExcelTool;
 import de.bund.zrb.excel.repo.TemplateRepository;
@@ -51,9 +50,8 @@ public class ExcelImport implements MainframeMatePlugin {
      */
     @Override
     public List<MenuCommand> getCommands(MainframeContext mainFrame) {
-        return Arrays.asList(
-                new ExcelImportMenuCommand(mainFrame, this),
-                new ExcelSettingsMenuCommand(mainFrame)
+        return Collections.singletonList(
+                new ExcelImportMenuCommand(mainFrame, this)
         );
     }
 
