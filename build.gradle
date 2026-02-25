@@ -29,3 +29,104 @@ subprojects {
         }
     }
 }
+
+task testTask {
+    doLast {
+        println "TEST TASK WORKS"
+    }
+}
+
+// ── OSS License Report: collect all runtime dependencies across all modules ──
+tasks.register('generateOssLicenseReport') {
+    description = 'Collects all runtime/implementation dependencies and writes oss-licenses.json for the About dialog.'
+    group = 'documentation'
+
+    def outputDir = file("${rootProject.projectDir}/app/build/generated-resources/oss-licenses")
+    outputs.dir outputDir
+
+    doLast {
+        def seen = new LinkedHashSet()
+        def entries = []
+
+        // Known license mappings for common dependencies
+        def knownLicenses = [
+            'com.google.code.gson'             : 'Apache-2.0',
+            'com.google.code.findbugs'          : 'Apache-2.0',
+            'com.google.googlejavaformat'       : 'Apache-2.0',
+            'commons-net'                       : 'Apache-2.0',
+            'org.apache.commons'                : 'Apache-2.0',
+            'org.apache.poi'                    : 'Apache-2.0',
+            'org.apache.tika'                   : 'Apache-2.0',
+            'org.apache.pdfbox'                 : 'Apache-2.0',
+            'org.apache.lucene'                 : 'Apache-2.0',
+            'com.squareup.okhttp3'              : 'Apache-2.0',
+            'com.squareup.okio'                 : 'Apache-2.0',
+            'org.jetbrains.kotlin'              : 'Apache-2.0',
+            'net.java.dev.jna'                  : 'Apache-2.0 / LGPL-2.1',
+            'com.fifesoft'                      : 'BSD-3-Clause',
+            'org.java-websocket'                : 'MIT',
+            'org.reflections'                   : 'WTFPL / Apache-2.0',
+            'org.jsoup'                         : 'MIT',
+            'org.commonmark'                    : 'BSD-2-Clause',
+            'com.h2database'                    : 'EPL-1.0 / MPL-2.0',
+            'org.antlr'                         : 'BSD-3-Clause',
+            'com.pff'                           : 'Apache-2.0',
+            'org.junit.jupiter'                 : 'EPL-2.0',
+            'org.junit'                         : 'EPL-2.0',
+            'junit'                             : 'EPL-2.0',
+        ]
+
+        rootProject.subprojects.each { sub ->
+            sub.configurations.each { conf ->
+                if (conf.canBeResolved && (conf.name == 'runtimeClasspath' || conf.name == 'compileClasspath')) {
+                    try {
+                        conf.resolvedConfiguration.resolvedArtifacts.each { art ->
+                            def mid = art.moduleVersion.id
+                            def key = "${mid.group}:${mid.name}:${mid.version}"
+                            if (seen.add(key)) {
+                                def license = 'Unknown'
+                                // Try group prefix matching
+                                for (entry in knownLicenses) {
+                                    if (mid.group.startsWith(entry.key)) {
+                                        license = entry.value
+                                        break
+                                    }
+                                }
+                                entries << [
+                                    group   : mid.group,
+                                    artifact: mid.name,
+                                    version : mid.version,
+                                    license : license,
+                                    module  : sub.name
+                                ]
+                            }
+                        }
+                    } catch (Exception ignored) {
+                        // Some configurations may not be resolvable
+                    }
+                }
+            }
+        }
+
+        // Sort by group, then artifact
+        entries.sort { a, b ->
+            def cmp = a.group <=> b.group
+            cmp != 0 ? cmp : a.artifact <=> b.artifact
+        }
+
+        outputDir.mkdirs()
+        def jsonFile = new File(outputDir, "oss-licenses.json")
+        def json = new groovy.json.JsonBuilder(entries).toPrettyString()
+        jsonFile.text = json
+        logger.lifecycle("[OSSLicenses] Generated ${jsonFile} with ${entries.size()} dependencies.")
+    }
+}
+
+// Make sure oss-licenses.json is generated before app:processResources
+project(':app') {
+    afterEvaluate {
+        tasks.named('processResources').configure {
+            dependsOn rootProject.tasks.named('generateOssLicenseReport')
+        }
+    }
+}
