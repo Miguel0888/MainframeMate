@@ -40,5 +40,20 @@ public interface WDWebSocket {
   }
   boolean isClosed();
   String url();
+
+  /**
+   * Send a JSON message through the WebSocket.
+   */
+  void send(String jsonCommand);
+
+  /**
+   * Check if the WebSocket connection is currently open.
+   */
+  boolean isConnected();
+
+  /**
+   * Close the WebSocket connection.
+   */
+  void close();
 }
 

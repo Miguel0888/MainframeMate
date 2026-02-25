@@ -1,5 +1,6 @@
 package de.bund.zrb;
 
+import de.bund.zrb.api.WDWebSocket;
 import de.bund.zrb.api.WDWebSocketManager;
 import de.bund.zrb.command.response.WDSessionResult;
 import de.bund.zrb.manager.*;
@@ -45,12 +46,26 @@ public class WebDriver {
 
     // ToDo: Use WebSocket Interface instead of WebSocketImpl, here !!!
     public WebDriver(WDWebSocketImpl webSocketImpl) throws ExecutionException, InterruptedException {
-        this(webSocketImpl, new WDEventDispatcher());
+        this((WDWebSocket) webSocketImpl, new WDEventDispatcher());
+    }
+
+    /**
+     * Creates a WebDriver with any WDWebSocket implementation (Firefox BiDi direct or Chrome BiDi via CDP mapper).
+     */
+    public WebDriver(WDWebSocket webSocket) throws ExecutionException, InterruptedException {
+        this(webSocket, new WDEventDispatcher());
     }
 
     // ToDo: Use WebSocket Interface instead of WebSocketImpl, here !!!
     public WebDriver(WDWebSocketImpl webSocketImpl, WDEventDispatcher dispatcher) throws ExecutionException, InterruptedException {
-        this.webSocketManager = new WDWebSocketManagerImpl(webSocketImpl);
+        this((WDWebSocket) webSocketImpl, dispatcher);
+    }
+
+    /**
+     * Creates a WebDriver with any WDWebSocket implementation and a custom event dispatcher.
+     */
+    public WebDriver(WDWebSocket webSocket, WDEventDispatcher dispatcher) throws ExecutionException, InterruptedException {
+        this.webSocketManager = new WDWebSocketManagerImpl(webSocket);
 
         this.browser = new WDBrowserManager(webSocketManager);
         this.session = new WDSessionManager(webSocketManager);

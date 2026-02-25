@@ -2,6 +2,7 @@ package de.bund.zrb.mcpserver.browser;
 
 import de.bund.zrb.WDWebSocketImpl;
 import de.bund.zrb.WebDriver;
+import de.bund.zrb.chrome.ChromeBidiWebSocketImpl;
 import de.bund.zrb.command.response.WDBrowsingContextResult;
 import de.bund.zrb.manager.*;
 import de.bund.zrb.type.browsingContext.WDBrowsingContext;
@@ -60,6 +61,29 @@ public class BrowserSession {
     }
 
     /**
+     * Connect to Chrome via its CDP WebSocket URL, using the BiDi mapper adapter.
+     * Chrome does not support native BiDi - instead, a JavaScript mapper is injected
+     * into a hidden tab that translates BiDi ↔ CDP.
+     */
+    public void connectChrome(String cdpWebSocketUrl, boolean createContext)
+            throws Exception {
+        LOG.info("[BrowserSession] Connecting to Chrome via BiDi mapper: " + cdpWebSocketUrl);
+        ChromeBidiWebSocketImpl chromeBidiWs = new ChromeBidiWebSocketImpl(cdpWebSocketUrl, false);
+        this.driver = new WebDriver(chromeBidiWs);
+
+        // Chrome mapper handles session internally; use reconnect with a placeholder session ID
+        driver.reconnect("chrome-bidi-mapper");
+
+        // Subscribe to browser console logs via BiDi
+        subscribeToConsoleLogs();
+
+        if (createContext) {
+            WDBrowsingContextResult.CreateResult ctx = driver.browsingContext().create();
+            this.contextId = ctx.getContext();
+        }
+    }
+
+    /**
      * Subscribe to BiDi log.entryAdded events and pipe them to consoleLogs.
      */
     private void subscribeToConsoleLogs() {
@@ -95,7 +119,14 @@ public class BrowserSession {
             throws Exception {
         BrowserLauncher.LaunchResult launchResult = BrowserLauncher.launchWithProcess(browserPath, args, headless, timeoutMs);
         this.browserProcess = launchResult.process;
-        connect(launchResult.wsUrl, launchResult.browserType.bidiName(), true);
+
+        if (launchResult.browserType == BrowserLauncher.BrowserType.CHROME) {
+            // Chrome: wsUrl is the CDP webSocketDebuggerUrl, route through BiDi mapper
+            connectChrome(launchResult.wsUrl, true);
+        } else {
+            // Firefox: wsUrl is the native BiDi endpoint
+            connect(launchResult.wsUrl, launchResult.browserType.bidiName(), true);
+        }
     }
 
     // ── Navigation ──────────────────────────────────────────────────

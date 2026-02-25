@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import de.bund.zrb.api.WebSocketFrame;
+import de.bund.zrb.api.WDWebSocket;
 import de.bund.zrb.service.WDEventDispatcher;
 import de.bund.zrb.support.mapping.GsonMapperFactory;
 import de.bund.zrb.api.WDCommand;
@@ -24,7 +25,7 @@ import java.util.function.Consumer;
 public class WDWebSocketManagerImpl implements WDWebSocketManager {
     private final Gson gson = GsonMapperFactory.getGson(); // ✅ Nutzt zentrale Fabrik
 
-    private final WDWebSocketImpl webSocket; // ToDo: Should be WebSocket instead of WebSocketImpl
+    private final WDWebSocket webSocket;
 
     // Retry-Regeln nun dynamisch über System Properties:
     //  - wd4j.command.retry.maxCount  (int)   Anzahl Versuche
@@ -60,7 +61,7 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
     private static volatile WDWebSocketManagerImpl instance; // ToDo: Remove singleton pattern
 
     @Deprecated // since WebSocketConnection should not be a singleton anymore?
-    public WDWebSocketManagerImpl(WDWebSocketImpl webSocket) {
+    public WDWebSocketManagerImpl(WDWebSocket webSocket) {
         this.webSocket = webSocket;
     }
 
