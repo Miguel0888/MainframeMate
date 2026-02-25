@@ -148,11 +148,11 @@ public class ChatFormatter {
         String prettyJson = prettyPrintJson(jsonBody);
         String html = ChatMarkdownFormatter.format("```json\n" + (prettyJson == null ? "" : prettyJson) + "\n```");
         bodyPane.setText(formatHtml(html));
-        bodyPane.setVisible(false);
+
+        JScrollPane scrollPane = createScrollableDetailPane(bodyPane);
 
         toggle.addActionListener(e -> {
-            bodyPane.setVisible(!bodyPane.isVisible());
-            applyDynamicSizing(bodyPane);
+            scrollPane.setVisible(!scrollPane.isVisible());
             wrapper.revalidate();
             wrapper.repaint();
             scrollToBottom();
@@ -160,7 +160,7 @@ public class ChatFormatter {
 
         wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
-        wrapper.add(bodyPane);
+        wrapper.add(scrollPane);
 
         messageContainer.add(wrapper);
         messageContainer.add(Box.createVerticalStrut(6));
@@ -189,11 +189,11 @@ public class ChatFormatter {
         String prettyJson = prettyPrintJson(jsonBody);
         String html = ChatMarkdownFormatter.format("```json\n" + (prettyJson == null ? "" : prettyJson) + "\n```");
         bodyPane.setText(formatHtml(html));
-        bodyPane.setVisible(false);
+
+        JScrollPane scrollPane = createScrollableDetailPane(bodyPane);
 
         toggle.addActionListener(e -> {
-            bodyPane.setVisible(!bodyPane.isVisible());
-            applyDynamicSizing(bodyPane);
+            scrollPane.setVisible(!scrollPane.isVisible());
             wrapper.revalidate();
             wrapper.repaint();
             scrollToBottom();
@@ -201,7 +201,7 @@ public class ChatFormatter {
 
         wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
-        wrapper.add(bodyPane);
+        wrapper.add(scrollPane);
 
         messageContainer.add(wrapper);
         messageContainer.add(Box.createVerticalStrut(6));
@@ -235,11 +235,11 @@ public class ChatFormatter {
         String safeBody = (body == null ? "" : body);
         String html = ChatMarkdownFormatter.format(safeBody);
         bodyPane.setText(formatHtml(html));
-        bodyPane.setVisible(false);
+
+        JScrollPane scrollPane = createScrollableDetailPane(bodyPane);
 
         toggle.addActionListener(e -> {
-            bodyPane.setVisible(!bodyPane.isVisible());
-            applyDynamicSizing(bodyPane);
+            scrollPane.setVisible(!scrollPane.isVisible());
             wrapper.revalidate();
             wrapper.repaint();
             scrollToBottom();
@@ -247,7 +247,7 @@ public class ChatFormatter {
 
         wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
-        wrapper.add(bodyPane);
+        wrapper.add(scrollPane);
 
         messageContainer.add(wrapper);
         messageContainer.add(Box.createVerticalStrut(6));
@@ -293,11 +293,11 @@ public class ChatFormatter {
         JTextPane bodyPane = createConfiguredTextPane();
         String html = ChatMarkdownFormatter.format("```json\n" + (toolCallJson == null ? "" : toolCallJson) + "\n```");
         bodyPane.setText(formatHtml(html));
-        bodyPane.setVisible(false);
+
+        JScrollPane detailScrollPane = createScrollableDetailPane(bodyPane);
 
         detailsButton.addActionListener(e -> {
-            bodyPane.setVisible(!bodyPane.isVisible());
-            applyDynamicSizing(bodyPane);
+            detailScrollPane.setVisible(!detailScrollPane.isVisible());
             wrapper.revalidate();
             wrapper.repaint();
             scrollToBottom();
@@ -343,7 +343,7 @@ public class ChatFormatter {
 
         wrapper.add(header);
         wrapper.add(Box.createVerticalStrut(4));
-        wrapper.add(bodyPane);
+        wrapper.add(detailScrollPane);
 
         messageContainer.add(wrapper);
         messageContainer.add(Box.createVerticalStrut(6));
@@ -361,6 +361,24 @@ public class ChatFormatter {
         pane.setBorder(null);
         pane.setAlignmentX(Component.LEFT_ALIGNMENT);
         return pane;
+    }
+
+    /**
+     * Wraps a JTextPane in a JScrollPane with a horizontal scrollbar (as needed)
+     * and a fixed maximum height. Used for collapsible detail boxes.
+     */
+    private JScrollPane createScrollableDetailPane(JTextPane bodyPane) {
+        JScrollPane scrollPane = new JScrollPane(bodyPane,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setOpaque(false);
+        scrollPane.getViewport().setOpaque(false);
+        scrollPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 300));
+        scrollPane.setPreferredSize(new Dimension(100, 200));
+        scrollPane.setVisible(false);
+        return scrollPane;
     }
 
     private JPanel createMessagePanel(Role role, JTextPane textPane, Optional<Runnable> onDelete) {
