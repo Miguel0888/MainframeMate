@@ -33,4 +33,10 @@ public interface WDWebSocketManager {
      * @return true if connected
      */
     boolean isConnected();
+
+    /**
+     * Shuts down the event dispatch executor and cleans up pending resources.
+     * Must be called when the WebSocket connection is closed.
+     */
+    void shutdown();
 }

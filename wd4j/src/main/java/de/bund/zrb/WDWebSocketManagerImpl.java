@@ -376,4 +376,19 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
         //  You may use a WebDriver BiDi command to check the session status?
         //  -> newSession() Command has to be send otherwise
     }
+
+    /**
+     * Shuts down the event dispatch executor and cancels all pending command futures.
+     * Call this when closing the WebSocket connection to prevent thread leaks
+     * and to unblock any threads waiting on {@code sendAndWaitForResponse}.
+     */
+    @Override
+    public void shutdown() {
+        dispatchExecutor.shutdownNow();
+
+        // Complete all pending futures exceptionally so that no thread remains blocked
+        for (Map.Entry<Integer, Consumer<WDCommandResponse<?>>> entry : responseDispatcher.entrySet()) {
+            responseDispatcher.remove(entry.getKey());
+        }
+    }
 }

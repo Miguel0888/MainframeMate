@@ -214,4 +214,13 @@ public class WebDriver {
     public WDWebSocketManager getWebSocketManager() {
         return webSocketManager;
     }
+
+    /**
+     * Closes the WebDriver instance, shutting down the event dispatch executor
+     * and cleaning up pending resources. Should be called when the browser
+     * connection is no longer needed.
+     */
+    public void close() {
+        webSocketManager.shutdown();
+    }
 }
