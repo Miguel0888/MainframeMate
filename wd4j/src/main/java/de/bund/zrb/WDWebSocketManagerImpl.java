@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
@@ -46,6 +47,26 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
         t.setDaemon(true);
         return t;
     });
+
+    // ---- Congestion Detection Watchdog ----
+
+    /**
+     * Periodic watchdog that monitors WebSocket traffic and warns when the connection
+     * appears congested (no messages received for a configurable period while commands
+     * are still pending). Interval and threshold are configurable via system properties:
+     * <ul>
+     *   <li>{@code wd4j.congestion.checkIntervalMs} – check interval in ms (default 5000)</li>
+     *   <li>{@code wd4j.congestion.thresholdMs} – silence threshold in ms (default 10000)</li>
+     * </ul>
+     */
+    private final ScheduledExecutorService congestionWatchdog = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "WD4J-congestion-watchdog");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private volatile long lastWatchdogMessageCount = 0;
+    private volatile long lastWatchdogCheckTimestamp = System.currentTimeMillis();
 
     // Retry-Regeln nun dynamisch über System Properties:
     //  - wd4j.command.retry.maxCount  (int)   Anzahl Versuche
@@ -83,6 +104,7 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
     @Deprecated // since WebSocketConnection should not be a singleton anymore?
     public WDWebSocketManagerImpl(WDWebSocket webSocket) {
         this.webSocket = webSocket;
+        startCongestionWatchdog();
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -377,13 +399,71 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
         //  -> newSession() Command has to be send otherwise
     }
 
+    // ---- Congestion Detection Watchdog ----
+
     /**
-     * Shuts down the event dispatch executor and cancels all pending command futures.
+     * Starts a periodic congestion watchdog that checks whether the WebSocket connection
+     * appears stuck. It compares the current message-received count with the previous check:
+     * if no new messages arrived while commands are still pending, it warns.
+     *
+     * Configurable via system properties:
+     * - wd4j.congestion.checkIntervalMs (default 5000)
+     * - wd4j.congestion.thresholdMs     (default 10000)
+     */
+    private void startCongestionWatchdog() {
+        long checkInterval = Long.getLong("wd4j.congestion.checkIntervalMs", 5000);
+        final long threshold = Long.getLong("wd4j.congestion.thresholdMs", 10000);
+
+        congestionWatchdog.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!(webSocket instanceof WDWebSocketImpl)) return;
+                    WDWebSocketImpl ws = (WDWebSocketImpl) webSocket;
+
+                    long currentCount = ws.getMessagesReceivedCount();
+                    long lastReceived = ws.getLastMessageReceivedTimestamp();
+                    long now = System.currentTimeMillis();
+                    int pendingCount = responseDispatcher.size();
+
+                    // Check: no new messages since last watchdog run AND we have pending commands
+                    if (currentCount == lastWatchdogMessageCount && pendingCount > 0) {
+                        long silenceDuration = now - Math.max(lastReceived, lastWatchdogCheckTimestamp);
+                        if (silenceDuration >= threshold) {
+                            System.err.println("[CONGESTION WARNING] WebSocket connection may be congested! "
+                                    + "No messages received for " + silenceDuration + " ms. "
+                                    + "Pending commands: " + pendingCount + ", "
+                                    + "Total received: " + currentCount + ", "
+                                    + "Total sent: " + ws.getMessagesSentCount() + ", "
+                                    + "Connected: " + ws.isConnected());
+                        }
+                    } else if (Boolean.getBoolean("wd4j.log.congestion")) {
+                        // Heartbeat log: show throughput stats when congestion logging is enabled
+                        long elapsed = now - lastWatchdogCheckTimestamp;
+                        long newMessages = currentCount - lastWatchdogMessageCount;
+                        System.out.println("[CONGESTION OK] +" + newMessages + " msgs in " + elapsed + " ms"
+                                + " (total rx=" + currentCount + ", tx=" + ws.getMessagesSentCount()
+                                + ", pending=" + pendingCount + ")");
+                    }
+
+                    lastWatchdogMessageCount = currentCount;
+                    lastWatchdogCheckTimestamp = now;
+                } catch (Exception e) {
+                    // Watchdog must never crash
+                    System.err.println("[CONGESTION WATCHDOG] Error: " + e.getMessage());
+                }
+            }
+        }, checkInterval, checkInterval, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Shuts down the event dispatch executor, congestion watchdog, and cancels all pending command futures.
      * Call this when closing the WebSocket connection to prevent thread leaks
      * and to unblock any threads waiting on {@code sendAndWaitForResponse}.
      */
     @Override
     public void shutdown() {
+        congestionWatchdog.shutdownNow();
         dispatchExecutor.shutdownNow();
 
         // Complete all pending futures exceptionally so that no thread remains blocked

@@ -8,6 +8,7 @@ import org.java_websocket.handshake.ServerHandshake;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -27,6 +28,12 @@ public class WDWebSocketImpl implements WDWebSocket {
     private final List<Consumer<WebSocketFrame>> onFrameSentListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<String>> onSocketErrorListeners = new CopyOnWriteArrayList<>();
     private double timeout = 30_000.0; // in ms
+
+    // ---- Congestion detection counters (lock-free) ----
+    private final AtomicLong messagesReceived = new AtomicLong(0);
+    private final AtomicLong messagesSent = new AtomicLong(0);
+    private volatile long lastMessageReceivedTimestamp = 0;
+    private volatile long lastMessageSentTimestamp = 0;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /// **WebSocket-Event-Listener**
@@ -134,9 +141,17 @@ public class WDWebSocketImpl implements WDWebSocket {
 
             @Override
             public void onMessage(String message) {
+                long msgNum = messagesReceived.incrementAndGet();
+                lastMessageReceivedTimestamp = System.currentTimeMillis();
+
                 if (Boolean.getBoolean("wd4j.log.websocket")) {
-                    System.out.println("[WebSocket] Message received: " + message);
+                    // Structured logging: show direction, message number, size, and truncated content
+                    String preview = message.length() > 200
+                            ? message.substring(0, 200) + "... (" + message.length() + " chars)"
+                            : message;
+                    System.out.println("[WebSocket] ← IN  #" + msgNum + " (" + message.length() + " chars): " + preview);
                 }
+
                 try {
                     WebSocketFrameImpl frame = new WebSocketFrameImpl(message);
 
@@ -163,8 +178,14 @@ public class WDWebSocketImpl implements WDWebSocket {
             // Hier fangen wir ALLE ausgehenden Nachrichten ab und benachrichtigen `onFrameSentListeners`
             @Override
             public void send(String message) {
+                long msgNum = messagesSent.incrementAndGet();
+                lastMessageSentTimestamp = System.currentTimeMillis();
+
                 if (Boolean.getBoolean("wd4j.log.websocket")) {
-                    System.out.println("[WebSocket] Message sent: " + message);
+                    String preview = message.length() > 200
+                            ? message.substring(0, 200) + "... (" + message.length() + " chars)"
+                            : message;
+                    System.out.println("[WebSocket] → OUT #" + msgNum + " (" + message.length() + " chars): " + preview);
                 }
                 super.send(message); // Die Nachricht wirklich senden
 
@@ -199,5 +220,35 @@ public class WDWebSocketImpl implements WDWebSocket {
     @Override
     public String url() {
         return url;
+    }
+
+    // ---- Congestion detection accessors ----
+
+    /**
+     * Returns the total number of messages received since connection was opened.
+     */
+    public long getMessagesReceivedCount() {
+        return messagesReceived.get();
+    }
+
+    /**
+     * Returns the total number of messages sent since connection was opened.
+     */
+    public long getMessagesSentCount() {
+        return messagesSent.get();
+    }
+
+    /**
+     * Returns the timestamp (epoch millis) of the last received message, or 0 if none received yet.
+     */
+    public long getLastMessageReceivedTimestamp() {
+        return lastMessageReceivedTimestamp;
+    }
+
+    /**
+     * Returns the timestamp (epoch millis) of the last sent message, or 0 if none sent yet.
+     */
+    public long getLastMessageSentTimestamp() {
+        return lastMessageSentTimestamp;
     }
 }
