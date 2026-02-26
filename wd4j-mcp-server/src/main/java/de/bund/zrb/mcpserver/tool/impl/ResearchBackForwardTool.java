@@ -62,16 +62,16 @@ public class ResearchBackForwardTool implements McpServerTool {
         LOG.info("[research_navigate] Action: " + action + " (settle=" + policy + ")");
 
         try {
-            // Execute history action
+            // Execute history action via BiDi-native commands (NO evaluate!)
             switch (action.toLowerCase()) {
                 case "back":
-                    session.evaluate("window.history.back()", true);
+                    session.getDriver().browsingContext().traverseHistory(session.getContextId(), -1);
                     break;
                 case "forward":
-                    session.evaluate("window.history.forward()", true);
+                    session.getDriver().browsingContext().traverseHistory(session.getContextId(), 1);
                     break;
                 case "reload":
-                    session.evaluate("window.location.reload()", true);
+                    session.getDriver().browsingContext().reload(session.getContextId());
                     break;
                 default:
                     return ToolResult.error("Unknown action: " + action + ". Use 'back', 'forward', or 'reload'.");

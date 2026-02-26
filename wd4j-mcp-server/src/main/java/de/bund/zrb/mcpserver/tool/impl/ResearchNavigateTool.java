@@ -104,39 +104,24 @@ public class ResearchNavigateTool implements McpServerTool {
     private ToolResult handleHistoryAction(String action, BrowserSession session) {
         LOG.info("[research_navigate] History action: " + action);
         try {
-            switch (action.toLowerCase()) {
-                case "back":
-                    session.evaluate("window.history.back()", true);
-                    break;
-                case "forward":
-                    session.evaluate("window.history.forward()", true);
-                    break;
-            }
+            ResearchSession rs = ensureSession(session);
+
+            // Use BiDi-native traverseHistory instead of script.evaluate
+            int delta = "back".equalsIgnoreCase(action) ? -1 : 1;
+            session.getDriver().browsingContext().traverseHistory(session.getContextId(), delta);
 
             session.getNodeRefRegistry().invalidateAll();
-            ResearchSession rs = ensureSession(session);
             rs.invalidateView();
 
             // Wait for history navigation to settle
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) {
+            try { Thread.sleep(3000); } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
 
-            // Fetch HTML from DOM
-            String html = fetchHtmlFromDom(session);
-
-            // Get current URL from browser
-            String currentUrl = null;
-            try {
-                de.bund.zrb.type.script.WDEvaluateResult urlResult =
-                        session.evaluate("window.location.href", false);
-                if (urlResult instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
-                    currentUrl = ((de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) urlResult)
-                            .getResult().asString();
-                }
-            } catch (Exception e) {
-                LOG.fine("[research_navigate] Could not get current URL: " + e.getMessage());
-            }
+            // Get HTML from the NetworkIngestionPipeline cache (no evaluate!)
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
+            String currentUrl = pipeline != null ? pipeline.getLastNavigationUrl() : null;
 
             if (currentUrl != null) {
                 rs.setLastNavigationUrl(currentUrl);
@@ -276,9 +261,10 @@ public class ResearchNavigateTool implements McpServerTool {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             LOG.severe("[research_navigate] Timeout after " + timeoutSeconds + "s for: " + url);
-            // Try to build menu from whatever HTML the DOM has
+            // Try to build menu from whatever HTML the pipeline has cached
             try {
-                String html = fetchHtmlFromDom(session);
+                NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+                String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
                 if (html != null) {
                     MenuViewBuilder builder = new MenuViewBuilder(rs, null);
                     builder.setHtmlOverride(html, url);
@@ -319,14 +305,21 @@ public class ResearchNavigateTool implements McpServerTool {
             // Update lastNavigationUrl for same-URL detection
             rs.setLastNavigationUrl(finalUrl != null && !finalUrl.isEmpty() ? finalUrl : url);
 
-            // Fixed delay to let the page render enough for link extraction
-            // 2s is sufficient since we use lightweight JS (no full outerHTML serialization)
-            try { Thread.sleep(2000); } catch (InterruptedException ignored) {
+            // Fixed delay to let the page load and the NetworkIngestionPipeline
+            // intercept + cache the HTML response body. 3s is enough because the
+            // pipeline captures via intercept (blocks response, reads body, continues).
+            try { Thread.sleep(3000); } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
 
-            // Fetch HTML body directly from the DOM (no NetworkIngestionPipeline needed)
-            String html = fetchHtmlFromDom(session);
+            // Get HTML from the NetworkIngestionPipeline cache (NO evaluate!)
+            // The pipeline captures text/html responses via intercept and caches them.
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
+            String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
+
+            if (html == null) {
+                LOG.warning("[research_navigate] No HTML cached by pipeline for: " + finalUrl);
+            }
 
             MenuViewBuilder builder = new MenuViewBuilder(rs, null);
             builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
@@ -339,68 +332,6 @@ public class ResearchNavigateTool implements McpServerTool {
         }
     }
 
-    /**
-     * Fetch the page HTML directly from the DOM via script.evaluate.
-     * This avoids the NetworkIngestionPipeline and its browser-freezing
-     * response body collector.
-     *
-     * Uses a lightweight JS snippet that only extracts essentials (title, text, links)
-     * instead of serializing the entire DOM via outerHTML – which freezes heavy pages.
-     * Falls back to outerHTML only if the lightweight extraction fails.
-     *
-     * Uses a dedicated timeout (8s) to prevent browser freeze on heavy pages
-     * (e.g. Yahoo with ads/tracking scripts that overload the JS engine).
-     */
-    private String fetchHtmlFromDom(BrowserSession session) {
-        long evalTimeoutSeconds = Long.getLong("websearch.evaluate.timeout.seconds", 8);
-        ExecutorService evalExecutor = Executors.newSingleThreadExecutor();
-        try {
-            Future<String> future = evalExecutor.submit(() -> {
-                // Lightweight extraction: only grab what we need (title, text snippet, links)
-                // This is MUCH faster than outerHTML on heavy pages with ads/tracking
-                String lightScript =
-                        "(function() {" +
-                        "  var t = document.title || '';" +
-                        "  var b = document.body ? document.body.innerText : '';" +
-                        "  if (b.length > 3000) b = b.substring(0, 3000);" +
-                        "  var links = [];" +
-                        "  var anchors = document.querySelectorAll('a[href]');" +
-                        "  for (var i = 0; i < Math.min(anchors.length, 50); i++) {" +
-                        "    var a = anchors[i];" +
-                        "    var label = (a.innerText || a.textContent || '').trim();" +
-                        "    if (label.length > 0 && label.length < 120 && a.href) {" +
-                        "      links.push('<a href=\"' + a.href.replace(/\"/g,'&quot;') + '\">' + label.replace(/</g,'&lt;') + '</a>');" +
-                        "    }" +
-                        "  }" +
-                        "  return '<html><head><title>' + t.replace(/</g,'&lt;') + '</title></head><body>' + " +
-                        "    '<p>' + b.replace(/</g,'&lt;').replace(/\\n/g,'<br>') + '</p>' +" +
-                        "    links.join('\\n') + '</body></html>';" +
-                        "})()";
-
-                de.bund.zrb.type.script.WDEvaluateResult result =
-                        session.evaluate(lightScript, false);
-                if (result instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
-                    de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess success =
-                            (de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) result;
-                    return success.getResult().asString();
-                }
-                return null;
-            });
-            String html = future.get(evalTimeoutSeconds, TimeUnit.SECONDS);
-            if (html != null && !html.isEmpty()) {
-                LOG.info("[research_navigate] Fetched HTML from DOM (lightweight): " + html.length() + " chars");
-                return html;
-            }
-        } catch (TimeoutException e) {
-            LOG.warning("[research_navigate] DOM evaluate timed out after " + evalTimeoutSeconds
-                    + "s – page too heavy, returning null");
-        } catch (Exception e) {
-            LOG.warning("[research_navigate] Failed to fetch HTML from DOM: " + e.getMessage());
-        } finally {
-            evalExecutor.shutdownNow();
-        }
-        return null;
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Response builder
@@ -510,7 +441,7 @@ public class ResearchNavigateTool implements McpServerTool {
 
         // Start NetworkIngestionPipeline (intercept-based, non-blocking)
         // This runs in the background and archives relevant HTML/JSON responses.
-        // HTML for link extraction is still fetched via DOM evaluate (more reliable).
+        // HTML for link extraction comes from the pipeline's cache (lastNavigationHtml).
         if (session.getDriver() != null && rs.getNetworkPipeline() == null) {
             try {
                 NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
