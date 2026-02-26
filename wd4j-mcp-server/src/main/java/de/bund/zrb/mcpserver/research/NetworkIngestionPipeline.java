@@ -1,146 +1,41 @@
 package de.bund.zrb.mcpserver.research;
 
 import de.bund.zrb.WebDriver;
-import de.bund.zrb.event.WDNetworkEvent;
-import de.bund.zrb.type.network.*;
-import de.bund.zrb.type.session.WDSubscriptionRequest;
-import de.bund.zrb.websocket.WDEventNames;
 
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Network-First Ingestion Pipeline for the Research Tool Suite.
  * <p>
- * Implements the "Network Plane" from the architecture specification:
- * <ol>
- *   <li>{@code network.addDataCollector} activated per session</li>
- *   <li>On {@code network.responseCompleted}: decides by URL/MimeType/Status whether to fetch body</li>
- *   <li>Body fetched with {@code network.getData}, then disowned with {@code network.disownData}</li>
- *   <li>Content stored via callback (H2 archive) and indexed (Lucene)</li>
- * </ol>
- * <p>
- * Asynchronicity requirement: {@code getData} may not immediately return the body
- * after {@code responseCompleted}. Implements retry/backoff (3 attempts, 100-300ms jitter).
- * <p>
- * Privacy/Security:
- * <ul>
- *   <li>Bodies only for allowlisted MIME types and max size</li>
- *   <li>Login endpoints and auth URLs excluded</li>
- *   <li>Headers filtered by session's headerAllowlist</li>
- * </ul>
+ * CURRENTLY DISABLED: All network intercept / data collector logic has been
+ * removed to prevent browser freezes. The pipeline shell remains so that
+ * callers (ResearchNavigateTool, ResearchOpenTool, etc.) keep compiling.
+ * The start()/stop() methods are no-ops.
  */
 public class NetworkIngestionPipeline {
 
     private static final Logger LOG = Logger.getLogger(NetworkIngestionPipeline.class.getName());
 
-    // Default MIME types to capture
-    private static final Set<String> DEFAULT_CAPTURE_MIMES = new LinkedHashSet<>(Arrays.asList(
-            "text/html", "text/plain", "text/xml", "text/csv",
-            "application/json", "application/xml", "application/xhtml+xml",
-            "application/atom+xml", "application/rss+xml",
-            "application/ld+json", "application/feed+json"
-    ));
-
-    // URL patterns to never capture (auth/login endpoints)
-    private static final List<String> EXCLUDED_URL_PATTERNS = Arrays.asList(
-            "/login", "/signin", "/sign-in", "/auth", "/oauth",
-            "/token", "/logout", "/signout", "/sign-out",
-            "/password", "/register", "/signup", "/sign-up",
-            "/checkout", "/payment", "/pay/"
-    );
-
-    // Hosts/domain substrings to never capture (tracking, ads, analytics, CDN junk)
-    private static final List<String> EXCLUDED_HOST_PATTERNS = Arrays.asList(
-            "googlesyndication.com",
-            "googleadservices.com",
-            "adtrafficquality.google",
-            "doubleclick.net",
-            "google-analytics.com",
-            "googletagmanager.com",
-            "analytics.",
-            "pbd.yahoo.com",
-            "yimg.com",
-            "s.yimg.com",
-            "tb.pbs.yahoo.com",
-            "video-api.yql.yahoo.com",
-            "ep2.adtrafficquality.google",
-            "tpc.googlesyndication.com",
-            "ads.yahoo.com",
-            "pixel.",
-            "tracking.",
-            "ad.doubleclick.net",
-            "facebook.com/tr",
-            "connect.facebook.net",
-            "cdn.segment.com",
-            "bat.bing.com",
-            "scorecardresearch.com",
-            "quantserve.com",
-            "amazon-adsystem.com",
-            // Content recommendation / native ads
-            "taboola.com",
-            "outbrain.com",
-            "revcontent.com",
-            "mgid.com",
-            "nativo.com",
-            "contentad.net",
-            // Additional Yahoo ad/tracking
-            "gemini.yahoo.com",
-            "geo.yahoo.com",
-            "udc.yahoo.com",
-            "consent.yahoo.com",
-            "guce.yahoo.com",
-            "b.scorecardresearch.com",
-            // Social trackers
-            "platform.twitter.com",
-            "platform.instagram.com",
-            // CDN/beacon
-            "beap.gemini.yahoo.com",
-            "csc.beap.gemini.yahoo.com",
-            "comet.yahoo.com"
-    );
-
-    // Retry settings for getData
-    private static final int GET_DATA_MAX_RETRIES = 3;
-    private static final long GET_DATA_RETRY_BASE_MS = 100;
-    private static final long GET_DATA_RETRY_MAX_MS = 300;
-
     private final WebDriver driver;
     private final ResearchSession session;
-    private WDCollector collector;
     private final AtomicBoolean active = new AtomicBoolean(false);
     private final AtomicInteger capturedCount = new AtomicInteger(0);
     private final AtomicInteger skippedCount = new AtomicInteger(0);
     private final AtomicInteger failedCount = new AtomicInteger(0);
 
     // ── HTML body cache for Jsoup-based link extraction ──
-    // Stores the last captured navigation HTML (text/html, status 2xx)
     private volatile String lastNavigationHtml;
     private volatile String lastNavigationUrl;
 
     // ── DevTools-style resource category counters ──
     private final ConcurrentHashMap<ResourceCategory, AtomicInteger> categoryCounts = new ConcurrentHashMap<>();
 
-    // Async ingestion
-    private final ExecutorService ingestionExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
-        @Override
-        public Thread newThread(Runnable r) {
-            Thread t = new Thread(r, "NetworkIngestion-" + session.getSessionId());
-            t.setDaemon(true);
-            return t;
-        }
-    });
-
-    // Callback for storing captured data
+    // Callback for storing captured data (kept for API compatibility)
     private IngestionCallback callback;
-
-    // Event listener reference (for cleanup)
-    private Consumer<WDNetworkEvent.ResponseCompleted> responseListener;
 
     /**
      * Callback interface for the captured network data.
@@ -191,273 +86,27 @@ public class NetworkIngestionPipeline {
     }
 
     /**
-     * Start the pipeline: register data collector and subscribe to responseCompleted events.
+     * Start the pipeline: DISABLED – network intercept ausgebaut.
+     * Die Methode setzt nur das active-Flag, registriert aber keine Network-Listener.
      */
     public synchronized void start(IngestionCallback callback) {
         if (active.get()) {
             LOG.fine("[NetworkIngestion] Already active for session " + session.getSessionId());
             return;
         }
-
         this.callback = callback;
-
-        try {
-            // 1. Register a response body collector (max 2MB default)
-            int maxSize = session.getMaxBytesPerDoc();
-            collector = driver.network().addResponseBodyCollector(maxSize);
-            LOG.info("[NetworkIngestion] DataCollector registered: " + collector.value()
-                    + " (maxSize=" + maxSize + ")");
-
-            // 2. Subscribe to network.responseCompleted events
-            WDSubscriptionRequest subReq = new WDSubscriptionRequest(
-                    Collections.singletonList(WDEventNames.RESPONSE_COMPLETED.getName()));
-
-            responseListener = new Consumer<WDNetworkEvent.ResponseCompleted>() {
-                @Override
-                public void accept(WDNetworkEvent.ResponseCompleted event) {
-                    handleResponseCompleted(event);
-                }
-            };
-
-            driver.addEventListener(subReq, responseListener);
-            active.set(true);
-            LOG.info("[NetworkIngestion] Pipeline started for session " + session.getSessionId());
-
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[NetworkIngestion] Failed to start pipeline", e);
-        }
+        active.set(true);
+        LOG.info("[NetworkIngestion] Pipeline start SKIPPED (network disabled) for session " + session.getSessionId());
     }
 
     /**
-     * Stop the pipeline: remove collector and unsubscribe.
+     * Stop the pipeline: DISABLED – network intercept ausgebaut.
      */
     public synchronized void stop() {
         if (!active.get()) return;
         active.set(false);
-
-        try {
-            if (responseListener != null) {
-                driver.removeEventListener(
-                        WDEventNames.RESPONSE_COMPLETED.getName(), responseListener);
-                responseListener = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] Error removing event listener: " + e.getMessage());
-        }
-
-        try {
-            if (collector != null) {
-                driver.network().removeDataCollector(collector);
-                collector = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] Error removing collector: " + e.getMessage());
-        }
-
-        ingestionExecutor.shutdown();
-        LOG.info("[NetworkIngestion] Pipeline stopped. Captured=" + capturedCount.get()
+        LOG.info("[NetworkIngestion] Pipeline stopped (network disabled). Captured=" + capturedCount.get()
                 + " Skipped=" + skippedCount.get() + " Failed=" + failedCount.get());
-    }
-
-    /**
-     * Handle a network.responseCompleted event.
-     * Decides whether to fetch the body based on URL, MIME type, status, and policies.
-     */
-    private void handleResponseCompleted(WDNetworkEvent.ResponseCompleted event) {
-        if (!active.get() || event == null) return;
-
-        try {
-            WDNetworkEvent.ResponseCompleted.ResponseCompletedParametersWD params = event.getParams();
-            if (params == null || params.getResponse() == null || params.getRequest() == null) return;
-
-            WDResponseData response = params.getResponse();
-            WDRequestData requestData = params.getRequest();
-            String url = response.getUrl();
-            String mimeType = response.getMimeType();
-            long status = response.getStatus();
-            WDRequest requestRef = requestData.getRequest();
-
-            // Classify every response (for DevTools-style traffic overview)
-            ResourceCategory category = ResourceCategory.classify(mimeType, null);
-            countCategory(category);
-
-            // Filter: status must be 2xx
-            if (status < 200 || status >= 300) {
-                skippedCount.incrementAndGet();
-                return;
-            }
-
-            // Filter: MIME type must be capturable
-            if (!isCaptureableMime(mimeType)) {
-                skippedCount.incrementAndGet();
-                return;
-            }
-
-            // Filter: excluded URL patterns (auth/login)
-            if (isExcludedUrl(url)) {
-                skippedCount.incrementAndGet();
-                return;
-            }
-
-            // Filter: domain policy
-            if (!session.isUrlAllowed(url)) {
-                skippedCount.incrementAndGet();
-                return;
-            }
-
-            // Filter: body size limit
-            if (response.getBodySize() > session.getMaxBytesPerDoc()) {
-                skippedCount.incrementAndGet();
-                LOG.fine("[NetworkIngestion] Skipping oversized response: " + url
-                        + " (" + response.getBodySize() + " bytes)");
-                return;
-            }
-
-            // Async: fetch body and store
-            ingestionExecutor.submit(new Runnable() {
-                @Override
-                public void run() {
-                    fetchAndStore(url, mimeType, status, requestRef, response);
-                }
-            });
-
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[NetworkIngestion] Error handling responseCompleted", e);
-        }
-    }
-
-    /**
-     * Fetch the response body with retry/backoff and store via callback.
-     */
-    private void fetchAndStore(String url, String mimeType, long status,
-                               WDRequest requestRef, WDResponseData response) {
-        String bodyText = null;
-
-        // Retry loop: getData may not be ready immediately after responseCompleted
-        for (int attempt = 1; attempt <= GET_DATA_MAX_RETRIES; attempt++) {
-            try {
-                WDBytesValue bytesValue = driver.network().getData(
-                        WDDataType.RESPONSE, requestRef, collector, false);
-
-                if (bytesValue != null && bytesValue.getValue() != null) {
-                    // WDBytesValue returns decoded string directly (type:"string")
-                    bodyText = bytesValue.getValue();
-                    break;
-                }
-            } catch (Exception e) {
-                if (attempt < GET_DATA_MAX_RETRIES) {
-                    long delay = GET_DATA_RETRY_BASE_MS
-                            + (long) (Math.random() * (GET_DATA_RETRY_MAX_MS - GET_DATA_RETRY_BASE_MS));
-                    LOG.fine("[NetworkIngestion] getData retry " + attempt + " for " + url
-                            + " (delay=" + delay + "ms): " + e.getMessage());
-                    try { Thread.sleep(delay); } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
-                } else {
-                    LOG.fine("[NetworkIngestion] getData failed after " + GET_DATA_MAX_RETRIES
-                            + " attempts for " + url + ": " + e.getMessage());
-                }
-            }
-        }
-
-        // Disown the data to free browser memory
-        try {
-            driver.network().disownData(WDDataType.RESPONSE, collector, requestRef);
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] disownData failed for " + url + ": " + e.getMessage());
-        }
-
-        if (bodyText == null || bodyText.isEmpty()) {
-            failedCount.incrementAndGet();
-            return;
-        }
-
-        // Truncate if too large
-        if (bodyText.length() > session.getMaxBytesPerDoc()) {
-            bodyText = bodyText.substring(0, session.getMaxBytesPerDoc());
-        }
-
-        // Cache HTML body for Jsoup-based link extraction (navigation HTML only)
-        String mimeLower = mimeType != null ? mimeType.toLowerCase() : "";
-        if (mimeLower.contains("text/html") && status >= 200 && status < 300) {
-            lastNavigationHtml = bodyText;
-            lastNavigationUrl = url;
-            LOG.fine("[NetworkIngestion] Cached HTML body for link extraction: " + url
-                    + " (" + bodyText.length() + " chars)");
-        }
-
-        // Filter headers by allowlist
-        Map<String, String> filteredHeaders = new LinkedHashMap<>();
-        if (response.getHeaders() != null) {
-            Set<String> allowlist = session.getHeaderAllowlist();
-            for (WDHeader h : response.getHeaders()) {
-                if (h.getName() != null && allowlist.contains(h.getName().toLowerCase())) {
-                    String val = h.getValue() != null ? h.getValue().getValue() : "";
-                    filteredHeaders.put(h.getName().toLowerCase(), val != null ? val : "");
-                }
-            }
-        }
-
-        // Store via callback
-        if (callback != null) {
-            try {
-                String runId = session.getRunId();
-                String docId = callback.onBodyCaptured(
-                        runId, url, mimeType, status, bodyText, filteredHeaders, System.currentTimeMillis());
-                if (docId != null) {
-                    session.addArchivedDocId(docId);
-                    int count = capturedCount.incrementAndGet();
-                    // Log first 20 captures at INFO, rest at FINE
-                    if (count <= 20) {
-                        LOG.info("[NetworkIngestion] ✅ Captured #" + count + ": " + mimeType
-                                + " " + url + " → id=" + docId
-                                + " (" + bodyText.length() + " chars, runId=" + runId + ")");
-                    } else {
-                        LOG.fine("[NetworkIngestion] Captured: " + url + " → docId=" + docId);
-                    }
-                } else {
-                    failedCount.incrementAndGet();
-                    LOG.info("[NetworkIngestion] ⚠ Callback returned null for: " + mimeType + " " + url);
-                }
-            } catch (Exception e) {
-                failedCount.incrementAndGet();
-                LOG.log(Level.WARNING, "[NetworkIngestion] ❌ Callback failed for " + url, e);
-            }
-        }
-    }
-
-    // ── Filtering helpers ───────────────────────────────────────────
-
-    private boolean isCaptureableMime(String mimeType) {
-        if (mimeType == null) return false;
-        String lower = mimeType.toLowerCase().split(";")[0].trim();
-        return DEFAULT_CAPTURE_MIMES.contains(lower);
-    }
-
-    private boolean isExcludedUrl(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase();
-        // Check URL path patterns (auth/login)
-        for (String pattern : EXCLUDED_URL_PATTERNS) {
-            if (lower.contains(pattern)) return true;
-        }
-        // Check host-level blacklist (tracking, ads, CDN junk)
-        try {
-            String host = new java.net.URI(url).getHost();
-            if (host != null) {
-                String hostLower = host.toLowerCase();
-                for (String excluded : EXCLUDED_HOST_PATTERNS) {
-                    if (hostLower.contains(excluded) || lower.contains(excluded)) return true;
-                }
-            }
-        } catch (Exception e) {
-            // If URI parse fails, just check against full URL string
-            for (String excluded : EXCLUDED_HOST_PATTERNS) {
-                if (lower.contains(excluded)) return true;
-            }
-        }
-        return false;
     }
 
     // ── Status ──────────────────────────────────────────────────────
