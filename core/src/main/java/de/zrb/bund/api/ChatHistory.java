@@ -76,32 +76,53 @@ public class ChatHistory {
      * Message-Builder für Ollama /api/chat Format.
      * Gibt eine Liste von Maps zurück, die direkt als JSON serialisiert werden können.
      * Jede Map enthält "role" und "content".
+     *
+     * WICHTIG: Erzwingt strikt abwechselnde user/assistant-Rollen.
+     * - System-Prompt wird in die erste User-Nachricht integriert.
+     * - Aufeinanderfolgende Nachrichten derselben Rolle werden zusammengefügt.
+     * - "tool"-Messages werden als "user" behandelt.
      */
     public List<Map<String, String>> toMessages(String userInput) {
-        List<Map<String, String>> result = new ArrayList<>();
+        // 1. Collect all messages into a flat list with normalized roles
+        List<String[]> flat = new ArrayList<>(); // [role, content]
 
-        // System-Prompt als erste Nachricht
+        // System prompt becomes the first user content
         if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-            Map<String, String> systemMsg = new LinkedHashMap<>();
-            systemMsg.put("role", "system");
-            systemMsg.put("content", systemPrompt.trim());
-            result.add(systemMsg);
+            flat.add(new String[]{"user", "[SYSTEM]\n" + systemPrompt.trim()});
         }
 
-        // Historische Nachrichten
         for (Message msg : messages) {
-            Map<String, String> m = new LinkedHashMap<>();
-            m.put("role", msg.role);
-            m.put("content", msg.content);
-            result.add(m);
+            // Normalize: "tool" → "user", everything else stays
+            String role = "assistant".equals(msg.role) ? "assistant" : "user";
+            flat.add(new String[]{role, msg.content});
         }
 
-        // Aktuelle User-Eingabe
+        // Append current user input
         if (userInput != null && !userInput.trim().isEmpty()) {
-            Map<String, String> userMsg = new LinkedHashMap<>();
-            userMsg.put("role", "user");
-            userMsg.put("content", userInput);
-            result.add(userMsg);
+            flat.add(new String[]{"user", userInput});
+        }
+
+        // 2. Merge consecutive same-role messages
+        List<Map<String, String>> result = new ArrayList<>();
+        for (String[] entry : flat) {
+            if (!result.isEmpty() && result.get(result.size() - 1).get("role").equals(entry[0])) {
+                // Same role as previous → merge
+                Map<String, String> last = result.get(result.size() - 1);
+                last.put("content", last.get("content") + "\n\n" + entry[1]);
+            } else {
+                Map<String, String> m = new LinkedHashMap<>();
+                m.put("role", entry[0]);
+                m.put("content", entry[1]);
+                result.add(m);
+            }
+        }
+
+        // 3. Ensure it starts with "user" (insert empty if needed)
+        if (!result.isEmpty() && "assistant".equals(result.get(0).get("role"))) {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("role", "user");
+            m.put("content", ".");
+            result.add(0, m);
         }
 
         return result;
