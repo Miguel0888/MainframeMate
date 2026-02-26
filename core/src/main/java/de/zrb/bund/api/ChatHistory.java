@@ -83,46 +83,42 @@ public class ChatHistory {
      * - "tool"-Messages werden als "user" behandelt.
      */
     public List<Map<String, String>> toMessages(String userInput) {
-        // 1. Collect all messages into a flat list with normalized roles
-        List<String[]> flat = new ArrayList<>(); // [role, content]
+        List<Map<String, String>> result = new ArrayList<>();
 
-        // System prompt becomes the first user content
+        // 1. System-Prompt als eigene "system"-Nachricht (von Ollama/OpenAI unterstützt)
         if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-            flat.add(new String[]{"user", "[SYSTEM]\n" + systemPrompt.trim()});
+            Map<String, String> systemMsg = new LinkedHashMap<>();
+            systemMsg.put("role", "system");
+            systemMsg.put("content", systemPrompt.trim());
+            result.add(systemMsg);
         }
 
+        // 2. Collect history + current input as flat list with normalized roles
+        List<String[]> flat = new ArrayList<>();
         for (Message msg : messages) {
-            // Normalize: "tool" → "user", everything else stays
+            // Normalize: anything not "assistant" becomes "user"
             String role = "assistant".equals(msg.role) ? "assistant" : "user";
             flat.add(new String[]{role, msg.content});
         }
-
-        // Append current user input
         if (userInput != null && !userInput.trim().isEmpty()) {
             flat.add(new String[]{"user", userInput});
         }
 
-        // 2. Merge consecutive same-role messages
-        List<Map<String, String>> result = new ArrayList<>();
+        // 3. Merge consecutive same-role messages to ensure strict alternation
         for (String[] entry : flat) {
-            if (!result.isEmpty() && result.get(result.size() - 1).get("role").equals(entry[0])) {
-                // Same role as previous → merge
+            // Skip system messages already added
+            if (!result.isEmpty()) {
                 Map<String, String> last = result.get(result.size() - 1);
-                last.put("content", last.get("content") + "\n\n" + entry[1]);
-            } else {
-                Map<String, String> m = new LinkedHashMap<>();
-                m.put("role", entry[0]);
-                m.put("content", entry[1]);
-                result.add(m);
+                if (!"system".equals(last.get("role")) && last.get("role").equals(entry[0])) {
+                    // Same role as previous non-system → merge
+                    last.put("content", last.get("content") + "\n\n" + entry[1]);
+                    continue;
+                }
             }
-        }
-
-        // 3. Ensure it starts with "user" (insert empty if needed)
-        if (!result.isEmpty() && "assistant".equals(result.get(0).get("role"))) {
             Map<String, String> m = new LinkedHashMap<>();
-            m.put("role", "user");
-            m.put("content", ".");
-            result.add(0, m);
+            m.put("role", entry[0]);
+            m.put("content", entry[1]);
+            result.add(m);
         }
 
         return result;
