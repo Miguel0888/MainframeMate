@@ -1612,16 +1612,43 @@ public class ChatSession extends JPanel {
                 }
                 aggregated.add("results", arr);
 
-                chatManager.getHistory(sessionId).addToolMessage(
-                        "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
-                );
-
+                // In RECHERCHE mode, extract links and result text as plain text
+                // so the model can reliably read them (small models can't parse nested JSON)
                 ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
+                String toolMessage;
+                if (currentMode == ChatMode.RECHERCHE) {
+                    StringBuilder plain = new StringBuilder();
+                    for (JsonObject r : results) {
+                        if (r == null) continue;
+                        // Append the result text (page content)
+                        if (r.has("result") && !r.get("result").isJsonNull()) {
+                            plain.append(r.get("result").getAsString()).append("\n");
+                        }
+                        // Append links as plain text list
+                        if (r.has("links") && r.get("links").isJsonArray()) {
+                            plain.append("\nLINKS:\n");
+                            for (com.google.gson.JsonElement linkEl : r.getAsJsonArray("links")) {
+                                if (linkEl.isJsonObject()) {
+                                    com.google.gson.JsonObject link = linkEl.getAsJsonObject();
+                                    String label = link.has("label") ? link.get("label").getAsString() : "";
+                                    String url = link.has("url") ? link.get("url").getAsString() : "";
+                                    plain.append("- ").append(label).append(": ").append(url).append("\n");
+                                }
+                            }
+                        }
+                    }
+                    toolMessage = plain.toString().trim().isEmpty()
+                            ? "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
+                            : plain.toString();
+                } else {
+                    toolMessage = "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```";
+                }
+
+                chatManager.getHistory(sessionId).addToolMessage(toolMessage);
+
                 String followUp;
                 if (currentMode == ChatMode.RECHERCHE) {
-                    // Stateful follow-up: compact state, no goal repetition.
-                    // Small models treat repeated goals as new tasks → infinite loop.
-                    followUp = "Wähle eine URL aus der Link-Liste und rufe research_navigate auf. NUR JSON.";
+                    followUp = "Wähle eine URL aus den LINKS oben und rufe research_navigate auf. NUR JSON.";
                 } else if (currentMode == ChatMode.AGENT) {
                     StringBuilder sb = new StringBuilder();
                     sb.append("TOOL_RESULT erhalten.\n");
