@@ -7,6 +7,7 @@ import de.bund.zrb.support.mapping.EnumWrapper;
  * Currently the spec defines only "response".
  */
 public enum WDDataType implements EnumWrapper {
+    REQUEST("request"),
     RESPONSE("response");
 
     private final String value;
