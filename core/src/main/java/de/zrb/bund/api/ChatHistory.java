@@ -43,7 +43,11 @@ public class ChatHistory {
     }
 
     public Timestamp addToolMessage(String content) {
-        Message msg = new Message(sessionId, "tool", content);
+        // Use "user" role instead of "tool" because the Ollama/OpenAI Chat API
+        // ignores "tool" messages that don't follow an "assistant" message with
+        // a tool_calls array. Since we handle tool calls manually (JSON parsing),
+        // there is no native tool_calls entry, so "tool" messages get silently dropped.
+        Message msg = new Message(sessionId, "user", content);
         messages.add(msg);
         return msg.timestamp;
     }

@@ -142,6 +142,10 @@ public class LlamaCppChatManager implements ChatManager {
                 .post(RequestBody.create(jsonBody, MediaType.get("application/json")))
                 .build();
 
+        System.out.println(">>>>>> LLAMA REQUEST to " + url);
+        System.out.println(">>>>>> " + jsonBody);
+        System.out.println(">>>>>> END REQUEST");
+
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
         listener.onStreamStart();

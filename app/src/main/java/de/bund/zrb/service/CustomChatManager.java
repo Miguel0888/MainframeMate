@@ -191,6 +191,11 @@ public class CustomChatManager implements ChatManager {
         }
 
         Request request = requestBuilder.build();
+
+        System.out.println(">>>>>> CUSTOM REQUEST to " + url);
+        System.out.println(">>>>>> " + gson.toJson(requestBody));
+        System.out.println(">>>>>> END REQUEST");
+
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
         listener.onStreamStart();

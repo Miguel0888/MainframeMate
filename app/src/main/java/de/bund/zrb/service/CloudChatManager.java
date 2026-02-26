@@ -251,7 +251,12 @@ public class CloudChatManager implements ChatManager {
             }
         }
 
-        RequestBody body = RequestBody.create(gson.toJson(payload), MediaType.get("application/json"));
+        String payloadJson = gson.toJson(payload);
+        System.out.println(">>>>>> CLOUD REQUEST to " + url);
+        System.out.println(">>>>>> " + payloadJson);
+        System.out.println(">>>>>> END REQUEST");
+
+        RequestBody body = RequestBody.create(payloadJson, MediaType.get("application/json"));
         return builder.post(body).build();
     }
 

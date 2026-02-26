@@ -165,6 +165,10 @@ public class OllamaChatManager implements ChatManager {
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
                 .build();
 
+        System.out.println(">>>>>> OLLAMA REQUEST to " + url);
+        System.out.println(">>>>>> " + jsonPayload);
+        System.out.println(">>>>>> END REQUEST");
+
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
         listener.onStreamStart();
