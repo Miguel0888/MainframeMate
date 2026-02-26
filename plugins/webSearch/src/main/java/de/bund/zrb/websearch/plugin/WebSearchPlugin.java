@@ -105,7 +105,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
     @Override
     public List<MenuCommand> getCommands(MainframeContext mainFrame) {
         return Arrays.<MenuCommand>asList(
-                new WebSearchSettingsMenuCommand(mainFrame)
+                new WebSearchSettingsMenuCommand(mainFrame, browserManager)
         );
     }
 

@@ -158,6 +158,18 @@ public class WebSearchBrowserManager {
         }
     }
 
+    /**
+     * Returns the current BrowserSession if one exists and is connected,
+     * WITHOUT creating a new one. Returns null if no session is active.
+     * Use this for diagnostics/settings dialogs that should not trigger a browser launch.
+     */
+    public synchronized BrowserSession getExistingSession() {
+        if (session != null && session.isConnected()) {
+            return session;
+        }
+        return null;
+    }
+
     public Map<String, String> loadSettings() {
         return context.loadPluginSettings(PLUGIN_KEY);
     }

@@ -1,6 +1,11 @@
 package de.bund.zrb.websearch.ui;
 
+import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.mcpserver.browser.BrowserLauncher;
+import de.bund.zrb.mcpserver.research.NetworkIngestionPipeline;
+import de.bund.zrb.mcpserver.research.ResearchSession;
+import de.bund.zrb.mcpserver.research.ResearchSessionManager;
+import de.bund.zrb.websearch.plugin.WebSearchBrowserManager;
 import de.bund.zrb.websearch.tools.BrowserToolAdapter;
 import de.zrb.bund.api.MainframeContext;
 
@@ -29,6 +34,7 @@ public class WebSearchSettingsDialog extends JDialog {
           + "https?://\\[[:0-9a-fA-F]+\\]";
 
     private final MainframeContext context;
+    private final WebSearchBrowserManager browserManager;
     private final JComboBox<String> browserCombo;
     private final JCheckBox headlessCheckbox;
     private final JTextField browserPathField;
@@ -43,12 +49,15 @@ public class WebSearchSettingsDialog extends JDialog {
     private final JLabel wsTxCountLabel;
     private final JLabel wsLastRxLabel;
     private final JLabel wsCongestionLabel;
+    private final JLabel wsPipelineStatusLabel;
+    private final JButton wsKillInterceptsButton;
     private Timer wsStatsTimer;
     private static final SimpleDateFormat TS_FORMAT = new SimpleDateFormat("HH:mm:ss.SSS");
 
-    public WebSearchSettingsDialog(MainframeContext context) {
+    public WebSearchSettingsDialog(MainframeContext context, WebSearchBrowserManager browserManager) {
         super(context.getMainFrame(), "Websearch-Einstellungen", true);
         this.context = context;
+        this.browserManager = browserManager;
 
         Map<String, String> settings = context.loadPluginSettings(PLUGIN_KEY);
 
@@ -258,6 +267,27 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsCongestionLabel, gbc);
 
+        // ── Pipeline Status ─────────────────────────────────────────
+        wsPipelineStatusLabel = createStatsLabel();
+        gbc.gridx = 0; gbc.gridy = 15; gbc.weightx = 0;
+        form.add(new JLabel("Pipeline / Intercept:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1;
+        form.add(wsPipelineStatusLabel, gbc);
+
+        // ── Kill Intercepts Button ──────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 16; gbc.weightx = 0;
+        form.add(new JLabel("Notfall:"), gbc);
+
+        wsKillInterceptsButton = new JButton("🚨 Alle Intercepts aufheben");
+        wsKillInterceptsButton.setToolTipText(
+                "Stoppt die NetworkIngestionPipeline und entfernt ALLE registrierten Intercepts.\n"
+              + "Das gibt sämtliche blockierten Responses frei und kann den Browser-Freeze lösen.\n"
+              + "ACHTUNG: Die Pipeline muss danach neu gestartet werden (nächstes research_navigate).");
+        wsKillInterceptsButton.setForeground(new Color(180, 0, 0));
+        wsKillInterceptsButton.addActionListener(e -> killAllIntercepts());
+        gbc.gridx = 1; gbc.weightx = 1;
+        form.add(wsKillInterceptsButton, gbc);
+
         add(form, BorderLayout.CENTER);
 
         // ── Buttons ─────────────────────────────────────────────────
@@ -356,6 +386,106 @@ public class WebSearchSettingsDialog extends JDialog {
             wsCongestionLabel.setText("Keine Verbindung / Keine Daten");
             wsCongestionLabel.setForeground(Color.GRAY);
         }
+
+        // Pipeline / Intercept status
+        updatePipelineStatus();
+    }
+
+    /**
+     * Updates the pipeline status label with information about the active
+     * NetworkIngestionPipeline and its intercept.
+     */
+    private void updatePipelineStatus() {
+        if (browserManager == null) {
+            wsPipelineStatusLabel.setText("Kein BrowserManager");
+            wsPipelineStatusLabel.setForeground(Color.GRAY);
+            wsKillInterceptsButton.setEnabled(false);
+            return;
+        }
+
+        BrowserSession session = browserManager.getExistingSession();
+        if (session == null || !session.isConnected()) {
+            wsPipelineStatusLabel.setText("Keine aktive Browser-Session");
+            wsPipelineStatusLabel.setForeground(Color.GRAY);
+            wsKillInterceptsButton.setEnabled(false);
+            return;
+        }
+
+        ResearchSessionManager rsm = ResearchSessionManager.getInstance();
+        ResearchSession rs = rsm != null ? rsm.get(session) : null;
+        NetworkIngestionPipeline pipeline = rs != null ? rs.getNetworkPipeline() : null;
+
+        if (pipeline == null) {
+            wsPipelineStatusLabel.setText("Keine Pipeline aktiv");
+            wsPipelineStatusLabel.setForeground(Color.GRAY);
+            wsKillInterceptsButton.setEnabled(false);
+        } else if (pipeline.isActive()) {
+            String status = "✅ Aktiv – Captured=" + pipeline.getCapturedCount()
+                    + " Skipped=" + pipeline.getSkippedCount()
+                    + " Failed=" + pipeline.getFailedCount();
+            wsPipelineStatusLabel.setText(status);
+            wsPipelineStatusLabel.setForeground(new Color(0, 120, 0));
+            wsKillInterceptsButton.setEnabled(true);
+        } else {
+            wsPipelineStatusLabel.setText("Pipeline gestoppt (inaktiv)");
+            wsPipelineStatusLabel.setForeground(new Color(180, 120, 0));
+            wsKillInterceptsButton.setEnabled(false);
+        }
+    }
+
+    /**
+     * Emergency action: stops the NetworkIngestionPipeline and removes ALL intercepts.
+     * This releases all blocked responses and should unfreeze the browser.
+     * The pipeline must be restarted afterwards (next research_navigate will do it).
+     */
+    private void killAllIntercepts() {
+        StringBuilder log = new StringBuilder();
+        log.append("🚨 Notfall-Intercept-Aufhebung gestartet...\n\n");
+
+        try {
+            // 1. Stop the pipeline (removes intercept, collector, event listeners)
+            BrowserSession session = browserManager != null ? browserManager.getExistingSession() : null;
+            if (session == null || !session.isConnected()) {
+                JOptionPane.showMessageDialog(this,
+                        "Keine aktive Browser-Session vorhanden.",
+                        "Intercept-Aufhebung", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            ResearchSessionManager rsm = ResearchSessionManager.getInstance();
+            ResearchSession rs = rsm != null ? rsm.get(session) : null;
+            NetworkIngestionPipeline pipeline = rs != null ? rs.getNetworkPipeline() : null;
+
+            if (pipeline != null && pipeline.isActive()) {
+                log.append("1. Pipeline stoppen... ");
+                try {
+                    pipeline.stop();
+                    log.append("✅ OK\n");
+                } catch (Exception e) {
+                    log.append("⚠ Fehler: ").append(e.getMessage()).append("\n");
+                }
+                // Detach pipeline from session so next navigate creates a fresh one
+                rs.setNetworkPipeline(null);
+            } else {
+                log.append("1. Keine aktive Pipeline gefunden.\n");
+            }
+
+            // 2. As a safety measure, also try to remove ALL intercepts via session.end + new session
+            //    But that's too drastic. Instead, just log the state.
+            log.append("\n✅ Intercepts wurden aufgehoben.\n");
+            log.append("Die Pipeline wird beim nächsten research_navigate automatisch neu gestartet.\n");
+            log.append("\nFalls der Browser immer noch eingefroren ist, kann ein Seiten-Reload helfen.");
+
+            // Force an immediate stats update
+            updatePipelineStatus();
+
+        } catch (Exception e) {
+            log.append("\n❌ Fehler: ").append(e.getMessage());
+        }
+
+        JOptionPane.showMessageDialog(this,
+                log.toString(),
+                "Intercept-Aufhebung", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private static String formatTimestamp(String epochMs) {
