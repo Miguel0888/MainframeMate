@@ -142,7 +142,12 @@ public class WDWebSocketImpl implements WDWebSocket {
             @Override
             public void onMessage(String message) {
                 long msgNum = messagesReceived.incrementAndGet();
-                lastMessageReceivedTimestamp = System.currentTimeMillis();
+                long now = System.currentTimeMillis();
+                lastMessageReceivedTimestamp = now;
+
+                // Publish stats as system properties so UI modules can read them without a dependency
+                System.setProperty("wd4j.stats.rx.count", String.valueOf(msgNum));
+                System.setProperty("wd4j.stats.rx.lastTimestamp", String.valueOf(now));
 
                 if (Boolean.getBoolean("wd4j.log.websocket")) {
                     // Structured logging: show direction, message number, size, and truncated content
@@ -179,7 +184,12 @@ public class WDWebSocketImpl implements WDWebSocket {
             @Override
             public void send(String message) {
                 long msgNum = messagesSent.incrementAndGet();
-                lastMessageSentTimestamp = System.currentTimeMillis();
+                long now = System.currentTimeMillis();
+                lastMessageSentTimestamp = now;
+
+                // Publish stats as system properties so UI modules can read them without a dependency
+                System.setProperty("wd4j.stats.tx.count", String.valueOf(msgNum));
+                System.setProperty("wd4j.stats.tx.lastTimestamp", String.valueOf(now));
 
                 if (Boolean.getBoolean("wd4j.log.websocket")) {
                     String preview = message.length() > 200

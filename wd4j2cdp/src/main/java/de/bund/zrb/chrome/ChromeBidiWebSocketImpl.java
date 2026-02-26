@@ -10,6 +10,7 @@ import de.bund.zrb.chrome.cdp.CdpMapperSetup;
 import java.net.URI;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -37,6 +38,10 @@ public class ChromeBidiWebSocketImpl implements WDWebSocket {
     private final List<Consumer<WebSocketFrame>> onFrameReceivedListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<WebSocketFrame>> onFrameSentListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<String>> onSocketErrorListeners = new CopyOnWriteArrayList<>();
+
+    // ---- Congestion detection counters (lock-free) ----
+    private final AtomicLong messagesReceived = new AtomicLong(0);
+    private final AtomicLong messagesSent = new AtomicLong(0);
 
     /**
      * Creates and initializes the Chrome BiDi adapter.
@@ -173,6 +178,11 @@ public class ChromeBidiWebSocketImpl implements WDWebSocket {
             throw new RuntimeException("Cannot send message: ChromeBidi adapter is closed.");
         }
 
+        long msgNum = messagesSent.incrementAndGet();
+        long now = System.currentTimeMillis();
+        System.setProperty("wd4j.stats.tx.count", String.valueOf(msgNum));
+        System.setProperty("wd4j.stats.tx.lastTimestamp", String.valueOf(now));
+
         // Send via Runtime.evaluate on the mapper session
         // The mapper expects: onBidiMessage(jsonString)
         String escapedJson = GSON.toJson(jsonBidiMessage); // This creates a JSON string with proper escaping
@@ -256,6 +266,11 @@ public class ChromeBidiWebSocketImpl implements WDWebSocket {
 
         if ("sendBidiResponse".equals(name)) {
             String payload = params.get("payload").getAsString();
+
+            long msgNum = messagesReceived.incrementAndGet();
+            long now = System.currentTimeMillis();
+            System.setProperty("wd4j.stats.rx.count", String.valueOf(msgNum));
+            System.setProperty("wd4j.stats.rx.lastTimestamp", String.valueOf(now));
 
             if (Boolean.getBoolean("wd4j.log.websocket")) {
                 String logMsg = payload.length() > 500 ? payload.substring(0, 500) + "..." : payload;
