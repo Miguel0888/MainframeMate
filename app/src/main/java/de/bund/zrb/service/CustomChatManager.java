@@ -20,6 +20,7 @@ import java.net.Proxy;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 /**
  * Custom ChatManager für selbstgehostete LLM-Server.
@@ -32,6 +33,8 @@ import java.util.concurrent.TimeUnit;
  * - Temperatur und andere Generierungsparameter
  */
 public class CustomChatManager implements ChatManager {
+
+    private static final Logger LOG = de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.AI);
 
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
@@ -192,9 +195,11 @@ public class CustomChatManager implements ChatManager {
 
         Request request = requestBuilder.build();
 
-        System.out.println(">>>>>> CUSTOM REQUEST to " + url);
-        System.out.println(">>>>>> " + gson.toJson(requestBody));
-        System.out.println(">>>>>> END REQUEST");
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+            LOG.fine("CUSTOM REQUEST to " + url);
+            LOG.fine(gson.toJson(requestBody));
+            LOG.fine("END REQUEST");
+        }
 
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);

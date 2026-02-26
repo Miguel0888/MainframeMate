@@ -12,8 +12,11 @@ import okhttp3.*;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.logging.Logger;
 
 public class LlamaCppChatManager implements ChatManager {
+
+    private static final Logger LOG = de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.AI);
 
     private final OkHttpClient client;
     private final Gson gson = new Gson();
@@ -62,7 +65,7 @@ public class LlamaCppChatManager implements ChatManager {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(llamaProcess.getInputStream()))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
-                            System.out.println("[llama-server] " + line);
+                            LOG.fine("[llama-server] " + line);
                         }
                     } catch (IOException e) {
                         e.printStackTrace();
@@ -142,9 +145,11 @@ public class LlamaCppChatManager implements ChatManager {
                 .post(RequestBody.create(jsonBody, MediaType.get("application/json")))
                 .build();
 
-        System.out.println(">>>>>> LLAMA REQUEST to " + url);
-        System.out.println(">>>>>> " + jsonBody);
-        System.out.println(">>>>>> END REQUEST");
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+            LOG.fine("LLAMA REQUEST to " + url);
+            LOG.fine(jsonBody);
+            LOG.fine("END REQUEST");
+        }
 
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);

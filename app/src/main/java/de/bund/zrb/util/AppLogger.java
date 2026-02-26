@@ -33,6 +33,7 @@ public final class AppLogger {
     public static final String UI       = "UI";
     public static final String PLUGIN   = "PLUGIN";   // Plugin lifecycle & logging
     public static final String BROWSER  = "BROWSER";  // Browser/BiDi/WebDriver logs
+    public static final String AI       = "AI";       // AI/LLM chat request/response logging
 
     private static volatile boolean initialized = false;
 

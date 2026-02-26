@@ -23,8 +23,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 public class CloudChatManager implements ChatManager {
+
+    private static final Logger LOG = de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.AI);
 
     private static final String VENDOR_OPENAI = "OPENAI";
     private static final String VENDOR_CLAUDE = "CLAUDE";
@@ -252,9 +255,11 @@ public class CloudChatManager implements ChatManager {
         }
 
         String payloadJson = gson.toJson(payload);
-        System.out.println(">>>>>> CLOUD REQUEST to " + url);
-        System.out.println(">>>>>> " + payloadJson);
-        System.out.println(">>>>>> END REQUEST");
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+            LOG.fine("CLOUD REQUEST to " + url);
+            LOG.fine(payloadJson);
+            LOG.fine("END REQUEST");
+        }
 
         RequestBody body = RequestBody.create(payloadJson, MediaType.get("application/json"));
         return builder.post(body).build();

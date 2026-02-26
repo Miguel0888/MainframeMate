@@ -20,7 +20,8 @@ public class DebugSettingsPanel extends AbstractSettingsPanel {
             de.bund.zrb.util.AppLogger.RAG,
             de.bund.zrb.util.AppLogger.UI,
             de.bund.zrb.util.AppLogger.PLUGIN,
-            de.bund.zrb.util.AppLogger.BROWSER
+            de.bund.zrb.util.AppLogger.BROWSER,
+            de.bund.zrb.util.AppLogger.AI
     };
 
     private final JComboBox<String> globalLogLevelCombo;

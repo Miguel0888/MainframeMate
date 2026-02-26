@@ -24,8 +24,11 @@ import java.net.Proxy;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 public class OllamaChatManager implements ChatManager {
+
+    private static final Logger LOG = de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.AI);
 
     private final Map<UUID, Call> activeCalls = new ConcurrentHashMap<>();
 
@@ -165,9 +168,11 @@ public class OllamaChatManager implements ChatManager {
                 .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
                 .build();
 
-        System.out.println(">>>>>> OLLAMA REQUEST to " + url);
-        System.out.println(">>>>>> " + jsonPayload);
-        System.out.println(">>>>>> END REQUEST");
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+            LOG.fine("OLLAMA REQUEST to " + url);
+            LOG.fine(jsonPayload);
+            LOG.fine("END REQUEST");
+        }
 
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
