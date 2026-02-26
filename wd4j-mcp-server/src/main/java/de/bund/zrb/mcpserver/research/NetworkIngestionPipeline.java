@@ -5,6 +5,7 @@ import de.bund.zrb.command.request.parameters.network.AddInterceptParameters;
 import de.bund.zrb.command.response.WDNetworkResult;
 import de.bund.zrb.event.WDNetworkEvent;
 import de.bund.zrb.type.network.*;
+import de.bund.zrb.type.network.WDCollector;
 import de.bund.zrb.type.session.WDSubscriptionRequest;
 import de.bund.zrb.websocket.WDEventNames;
 
