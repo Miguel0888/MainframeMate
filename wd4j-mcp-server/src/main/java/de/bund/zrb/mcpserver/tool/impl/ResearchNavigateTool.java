@@ -304,9 +304,12 @@ public class ResearchNavigateTool implements McpServerTool {
         try {
             WDBrowsingContextResult.NavigateResult nav =
                     session.getDriver().browsingContext().navigate(
-                            url, session.getContextId(), WDReadinessState.INTERACTIVE);
+                            url, session.getContextId(), WDReadinessState.NONE);
             String finalUrl = nav.getUrl();
             LOG.info("[research_navigate] Landed on: " + finalUrl);
+
+            // Fixed 2s delay instead of readiness wait (test: avoids browser hangs)
+            try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
 
             // Update the pipeline's lastNavigationUrl to the ACTUAL landing URL,
             // not the requested URL. This is critical for same-URL detection after
@@ -317,8 +320,7 @@ public class ResearchNavigateTool implements McpServerTool {
             }
 
             MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
-            MenuView view = builder.buildWithSettle(SettlePolicy.NAVIGATION,
-                    rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+            MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
             return buildResponse(view, rs, pipeline);
         } catch (Exception e) {
