@@ -12,8 +12,6 @@ import de.bund.zrb.type.browsingContext.WDReadinessState;
 import de.bund.zrb.type.browser.WDUserContextInfo;
 
 import java.net.URI;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -119,15 +117,36 @@ public class ResearchNavigateTool implements McpServerTool {
             ResearchSession rs = ensureSession(session);
             rs.invalidateView();
 
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            ensurePipeline(rs, session);
-            pipeline = rs.getNetworkPipeline();
+            // Wait for history navigation to settle
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
 
-            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
-            MenuView view = builder.buildWithSettle(SettlePolicy.NAVIGATION,
-                    rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+            // Fetch HTML from DOM
+            String html = fetchHtmlFromDom(session);
 
-            return buildResponse(view, rs, pipeline);
+            // Get current URL from browser
+            String currentUrl = null;
+            try {
+                de.bund.zrb.type.script.WDEvaluateResult urlResult =
+                        session.evaluate("window.location.href", false);
+                if (urlResult instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
+                    currentUrl = ((de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) urlResult)
+                            .getResult().asString();
+                }
+            } catch (Exception e) {
+                LOG.fine("[research_navigate] Could not get current URL: " + e.getMessage());
+            }
+
+            if (currentUrl != null) {
+                rs.setLastNavigationUrl(currentUrl);
+            }
+
+            MenuViewBuilder builder = new MenuViewBuilder(rs, null);
+            builder.setHtmlOverride(html, currentUrl != null ? currentUrl : "");
+            MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+
+            return buildResponse(view, rs, null);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] History action failed", e);
             return ToolResult.error("Action '" + action + "' failed: " + e.getMessage());
@@ -199,11 +218,7 @@ public class ResearchNavigateTool implements McpServerTool {
         if (view != null && view.getUrl() != null) {
             return view.getUrl();
         }
-        NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-        if (pipeline != null) {
-            return pipeline.getLastNavigationUrl();
-        }
-        return null;
+        return rs.getLastNavigationUrl();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -211,16 +226,10 @@ public class ResearchNavigateTool implements McpServerTool {
     // ═══════════════════════════════════════════════════════════════
 
     private ToolResult navigateToUrl(String url, ResearchSession rs, BrowserSession session) {
-        // ── Same-URL guard (multi-source check) ──
-        String currentUrl = null;
+        // ── Same-URL guard ──
+        String currentUrl = rs.getLastNavigationUrl();
 
-        // Source 1: pipeline's last navigation URL
-        NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-        if (pipeline != null) {
-            currentUrl = pipeline.getLastNavigationUrl();
-        }
-
-        // Source 2: current MenuView URL (fallback if pipeline was re-created)
+        // Fallback: current MenuView URL
         if (currentUrl == null) {
             MenuView view = rs.getCurrentMenuView();
             if (view != null) {
@@ -255,15 +264,8 @@ public class ResearchNavigateTool implements McpServerTool {
                     + ". Navigiere zu einer ANDEREN URL.");
         }
 
-        // Ensure pipeline
-        ensurePipeline(rs, session);
-        pipeline = rs.getNetworkPipeline();
-
-        // Clear cache for new navigation
-        if (pipeline != null) {
-            pipeline.clearNavigationCache();
-            pipeline.setLastNavigationUrl(url);
-        }
+        // Pre-set URL for same-URL detection during navigation
+        rs.setLastNavigationUrl(url);
 
         // ── Execute navigation with timeout ──
         long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
@@ -274,16 +276,20 @@ public class ResearchNavigateTool implements McpServerTool {
             return future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             LOG.severe("[research_navigate] Timeout after " + timeoutSeconds + "s for: " + url);
-            // Try to build menu from current page state
+            // Try to build menu from whatever HTML the DOM has
             try {
-                MenuViewBuilder builder = new MenuViewBuilder(rs, rs.getNetworkPipeline());
-                MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
-                if (view != null && view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("⚠️ Page loading timed out after ").append(timeoutSeconds)
-                      .append("s, showing available content.\n\n");
-                    sb.append(buildResponseText(view, rs, rs.getNetworkPipeline()));
-                    return ToolResult.text(sb.toString());
+                String html = fetchHtmlFromDom(session);
+                if (html != null) {
+                    MenuViewBuilder builder = new MenuViewBuilder(rs, null);
+                    builder.setHtmlOverride(html, url);
+                    MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+                    if (view != null && view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
+                        StringBuilder sb = new StringBuilder();
+                        sb.append("⚠️ Page loading timed out after ").append(timeoutSeconds)
+                          .append("s, showing available content.\n\n");
+                        sb.append(buildResponseText(view, rs));
+                        return ToolResult.text(sb.toString());
+                    }
                 }
             } catch (Exception ignored) {}
             session.killBrowserProcess();
@@ -308,23 +314,50 @@ public class ResearchNavigateTool implements McpServerTool {
             String finalUrl = nav.getUrl();
             LOG.info("[research_navigate] Landed on: " + finalUrl);
 
-            // Update the pipeline's lastNavigationUrl to the ACTUAL landing URL,
-            // not the requested URL. This is critical for same-URL detection after
-            // 404-redirects (e.g. /politik/ → /?err=404&err_url=...).
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            if (pipeline != null && finalUrl != null && !finalUrl.isEmpty()) {
-                pipeline.setLastNavigationUrl(finalUrl);
+            // Update lastNavigationUrl for same-URL detection
+            rs.setLastNavigationUrl(finalUrl != null && !finalUrl.isEmpty() ? finalUrl : url);
+
+            // Small delay to let the page render after INTERACTIVE readiness
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
             }
 
-            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
-            MenuView view = builder.buildWithSettle(SettlePolicy.NAVIGATION,
-                    rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+            // Fetch HTML body directly from the DOM (no NetworkIngestionPipeline needed)
+            String html = fetchHtmlFromDom(session);
 
-            return buildResponse(view, rs, pipeline);
+            MenuViewBuilder builder = new MenuViewBuilder(rs, null);
+            builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
+            MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+
+            return buildResponse(view, rs, null);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] doNavigate failed", e);
             return ToolResult.error("Navigation failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Fetch the page HTML directly from the DOM via script.evaluate.
+     * This avoids the NetworkIngestionPipeline and its browser-freezing
+     * response body collector.
+     */
+    private String fetchHtmlFromDom(BrowserSession session) {
+        try {
+            de.bund.zrb.type.script.WDEvaluateResult result =
+                    session.evaluate("document.documentElement.outerHTML", false);
+            if (result instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
+                de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess success =
+                        (de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) result;
+                String html = success.getResult().asString();
+                if (html != null && !html.isEmpty()) {
+                    LOG.info("[research_navigate] Fetched HTML from DOM: " + html.length() + " chars");
+                    return html;
+                }
+            }
+        } catch (Exception e) {
+            LOG.warning("[research_navigate] Failed to fetch HTML from DOM: " + e.getMessage());
+        }
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -332,7 +365,7 @@ public class ResearchNavigateTool implements McpServerTool {
     // ═══════════════════════════════════════════════════════════════
 
     private ToolResult buildResponse(MenuView view, ResearchSession rs, NetworkIngestionPipeline pipeline) {
-        ToolResult result = ToolResult.text(buildResponseText(view, rs, pipeline));
+        ToolResult result = ToolResult.text(buildResponseText(view, rs));
 
         // Add links as structured JSON so the bot can reliably pick a URL
         if (view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
@@ -352,7 +385,7 @@ public class ResearchNavigateTool implements McpServerTool {
         return result;
     }
 
-    private String buildResponseText(MenuView view, ResearchSession rs, NetworkIngestionPipeline pipeline) {
+    private String buildResponseText(MenuView view, ResearchSession rs) {
         StringBuilder sb = new StringBuilder();
 
         // Page title and URL
@@ -389,7 +422,6 @@ public class ResearchNavigateTool implements McpServerTool {
         ResearchSession rs = ResearchSessionManager.getInstance().get(session);
         if (rs != null && rs.getRunId() != null) {
             // Session fully initialized
-            ensurePipeline(rs, session);
             return rs;
         }
 
@@ -434,46 +466,17 @@ public class ResearchNavigateTool implements McpServerTool {
             }
         }
 
-        // Ensure pipeline is running
-        ensurePipeline(rs, session);
+        // NOTE: NetworkIngestionPipeline is NOT started here.
+        // HTML is fetched directly from the DOM via script.evaluate after navigation.
 
         LOG.info("[research_navigate] Session ready: " + rs.getSessionId());
         return rs;
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Pipeline management
+    //  Pipeline management (DISABLED – HTML fetched from DOM directly)
     // ═══════════════════════════════════════════════════════════════
 
-    private void ensurePipeline(ResearchSession rs, BrowserSession session) {
-        NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-        if (pipeline != null && pipeline.isActive()) return;
-        if (session.getDriver() == null) return;
-
-        try {
-            NetworkIngestionPipeline newPipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
-            NetworkIngestionPipeline.IngestionCallback cb = NetworkIngestionPipeline.getGlobalDefaultCallback();
-            if (cb == null) {
-                cb = (runId, url, mimeType, status, bodyText, headers, capturedAt) -> {
-                    LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
-                    return "net-" + Long.toHexString(capturedAt);
-                };
-            }
-            if (rs.getRunId() == null) {
-                RunLifecycleCallback runCallback = ResearchSessionManager.getRunLifecycleCallback();
-                if (runCallback != null) {
-                    rs.setRunId(runCallback.startRun(rs.getMode().name(), null));
-                } else {
-                    rs.setRunId(java.util.UUID.randomUUID().toString());
-                }
-            }
-            newPipeline.start(cb);
-            rs.setNetworkPipeline(newPipeline);
-            LOG.info("[research_navigate] Auto-started network ingestion pipeline");
-        } catch (Exception e) {
-            LOG.warning("[research_navigate] Failed to auto-start pipeline: " + e.getMessage());
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  URL comparison

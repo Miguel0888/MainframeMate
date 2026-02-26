@@ -20,9 +20,22 @@ public class MenuViewBuilder {
     private final ResearchSession researchSession;
     private final NetworkIngestionPipeline pipeline;
 
+    // Direct HTML override (bypasses pipeline)
+    private String htmlOverride;
+    private String urlOverride;
+
     public MenuViewBuilder(ResearchSession researchSession, NetworkIngestionPipeline pipeline) {
         this.researchSession = researchSession;
         this.pipeline = pipeline;
+    }
+
+    /**
+     * Set HTML content directly, bypassing the NetworkIngestionPipeline.
+     * Used when HTML is fetched via script.evaluate("document.documentElement.outerHTML").
+     */
+    public void setHtmlOverride(String html, String url) {
+        this.htmlOverride = html;
+        this.urlOverride = url;
     }
 
     /**
@@ -34,8 +47,17 @@ public class MenuViewBuilder {
      * @return MenuView with viewToken, excerpt, and link-based menuItems
      */
     public MenuView build(int maxItems, int excerptLen) {
-        String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
-        String pageUrl = pipeline != null ? pipeline.getLastNavigationUrl() : "";
+        // Priority 1: direct HTML override (from DOM fetch)
+        String html = htmlOverride;
+        String pageUrl = urlOverride;
+
+        // Priority 2: pipeline cache (legacy path)
+        if (html == null && pipeline != null) {
+            html = pipeline.getLastNavigationHtml();
+            pageUrl = pipeline.getLastNavigationUrl();
+        }
+
+        if (pageUrl == null) pageUrl = "";
 
         if (html == null || html.isEmpty()) {
             LOG.warning("[MenuViewBuilder] No cached HTML body available – returning empty view");

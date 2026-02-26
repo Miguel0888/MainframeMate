@@ -71,6 +71,13 @@ public class ResearchSession {
     public NetworkIngestionPipeline getNetworkPipeline() { return networkPipeline; }
     public void setNetworkPipeline(NetworkIngestionPipeline pipeline) { this.networkPipeline = pipeline; }
 
+    // ── Last Navigation URL (for same-URL detection, no pipeline needed) ──
+
+    private volatile String lastNavigationUrl;
+
+    public String getLastNavigationUrl() { return lastNavigationUrl; }
+    public void setLastNavigationUrl(String url) { this.lastNavigationUrl = url; }
+
     // ── Constructor ─────────────────────────────────────────────────
 
     public ResearchSession(String sessionId, Mode mode) {
