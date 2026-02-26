@@ -308,16 +308,19 @@ public class ResearchNavigateTool implements McpServerTool {
 
     private ToolResult doNavigate(String url, ResearchSession rs, BrowserSession session) {
         try {
+            // Use NONE readiness to avoid freezing on pages with endless resource loading
+            // (ads, tracking scripts, etc.). A fixed delay afterwards lets the page render.
             WDBrowsingContextResult.NavigateResult nav =
                     session.getDriver().browsingContext().navigate(
-                            url, session.getContextId(), WDReadinessState.INTERACTIVE);
+                            url, session.getContextId(), WDReadinessState.NONE);
             String finalUrl = nav.getUrl();
             LOG.info("[research_navigate] Landed on: " + finalUrl);
 
             // Update lastNavigationUrl for same-URL detection
             rs.setLastNavigationUrl(finalUrl != null && !finalUrl.isEmpty() ? finalUrl : url);
 
-            // Small delay to let the page render after INTERACTIVE readiness
+            // Fixed delay to let the page render enough for link extraction
+            // 2s is sufficient since we use lightweight JS (no full outerHTML serialization)
             try { Thread.sleep(2000); } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
@@ -340,22 +343,61 @@ public class ResearchNavigateTool implements McpServerTool {
      * Fetch the page HTML directly from the DOM via script.evaluate.
      * This avoids the NetworkIngestionPipeline and its browser-freezing
      * response body collector.
+     *
+     * Uses a lightweight JS snippet that only extracts essentials (title, text, links)
+     * instead of serializing the entire DOM via outerHTML – which freezes heavy pages.
+     * Falls back to outerHTML only if the lightweight extraction fails.
+     *
+     * Uses a dedicated timeout (8s) to prevent browser freeze on heavy pages
+     * (e.g. Yahoo with ads/tracking scripts that overload the JS engine).
      */
     private String fetchHtmlFromDom(BrowserSession session) {
+        long evalTimeoutSeconds = Long.getLong("websearch.evaluate.timeout.seconds", 8);
+        ExecutorService evalExecutor = Executors.newSingleThreadExecutor();
         try {
-            de.bund.zrb.type.script.WDEvaluateResult result =
-                    session.evaluate("document.documentElement.outerHTML", false);
-            if (result instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
-                de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess success =
-                        (de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) result;
-                String html = success.getResult().asString();
-                if (html != null && !html.isEmpty()) {
-                    LOG.info("[research_navigate] Fetched HTML from DOM: " + html.length() + " chars");
-                    return html;
+            Future<String> future = evalExecutor.submit(() -> {
+                // Lightweight extraction: only grab what we need (title, text snippet, links)
+                // This is MUCH faster than outerHTML on heavy pages with ads/tracking
+                String lightScript =
+                        "(function() {" +
+                        "  var t = document.title || '';" +
+                        "  var b = document.body ? document.body.innerText : '';" +
+                        "  if (b.length > 3000) b = b.substring(0, 3000);" +
+                        "  var links = [];" +
+                        "  var anchors = document.querySelectorAll('a[href]');" +
+                        "  for (var i = 0; i < Math.min(anchors.length, 50); i++) {" +
+                        "    var a = anchors[i];" +
+                        "    var label = (a.innerText || a.textContent || '').trim();" +
+                        "    if (label.length > 0 && label.length < 120 && a.href) {" +
+                        "      links.push('<a href=\"' + a.href.replace(/\"/g,'&quot;') + '\">' + label.replace(/</g,'&lt;') + '</a>');" +
+                        "    }" +
+                        "  }" +
+                        "  return '<html><head><title>' + t.replace(/</g,'&lt;') + '</title></head><body>' + " +
+                        "    '<p>' + b.replace(/</g,'&lt;').replace(/\\n/g,'<br>') + '</p>' +" +
+                        "    links.join('\\n') + '</body></html>';" +
+                        "})()";
+
+                de.bund.zrb.type.script.WDEvaluateResult result =
+                        session.evaluate(lightScript, false);
+                if (result instanceof de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) {
+                    de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess success =
+                            (de.bund.zrb.type.script.WDEvaluateResult.WDEvaluateResultSuccess) result;
+                    return success.getResult().asString();
                 }
+                return null;
+            });
+            String html = future.get(evalTimeoutSeconds, TimeUnit.SECONDS);
+            if (html != null && !html.isEmpty()) {
+                LOG.info("[research_navigate] Fetched HTML from DOM (lightweight): " + html.length() + " chars");
+                return html;
             }
+        } catch (TimeoutException e) {
+            LOG.warning("[research_navigate] DOM evaluate timed out after " + evalTimeoutSeconds
+                    + "s – page too heavy, returning null");
         } catch (Exception e) {
             LOG.warning("[research_navigate] Failed to fetch HTML from DOM: " + e.getMessage());
+        } finally {
+            evalExecutor.shutdownNow();
         }
         return null;
     }
