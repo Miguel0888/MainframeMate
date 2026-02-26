@@ -69,6 +69,16 @@ public class WDNetworkManager implements WDModule {
         WDWebSocketManager.sendAndWaitForResponse(new WDNetworkRequest.ContinueResponse(requestId), WDEmptyResult.class);
     }
 
+    /**
+     * Continues a previously intercepted response without waiting for acknowledgement (fire-and-forget).
+     * Used in intercept handlers where blocking would cause browser freezes due to request backlog.
+     *
+     * @param requestId The ID of the intercepted response.
+     */
+    public void continueResponseFireAndForget(String requestId) {
+        WDWebSocketManager.sendFireAndForget(new WDNetworkRequest.ContinueResponse(requestId));
+    }
+
 
     /**
      * Continues an authentication request with provided credentials or rejects it.

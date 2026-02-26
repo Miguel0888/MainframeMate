@@ -83,6 +83,18 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
     }
 
     /**
+     * Sendet einen Befehl ohne auf die Antwort zu warten (fire-and-forget).
+     * Wird für zeitkritische Operationen wie continueResponse in Intercept-Handlern verwendet,
+     * wo blockierendes Warten zu Browser-Freezes führen würde.
+     *
+     * @param command Das Command-Objekt, das gesendet werden soll.
+     */
+    @Override
+    public void sendFireAndForget(WDCommand command) {
+        send(command);
+    }
+
+    /**
      * Sendet einen Befehl und wartet auf die Antwort.
      * receive nutzt den Dispatcher (Map<id, callback>), um die Antwort zu liefern.
      *

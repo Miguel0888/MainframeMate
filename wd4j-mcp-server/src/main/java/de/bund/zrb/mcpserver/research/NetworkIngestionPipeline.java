@@ -96,13 +96,6 @@ public class NetworkIngestionPipeline {
     // Track requests that are relevant → fetch body on responseCompleted
     private final ConcurrentHashMap<String, PendingCapture> pendingCaptures = new ConcurrentHashMap<>();
 
-    // Executor for intercept handling (continueResponse must NOT run in the WebSocket thread
-    // because sendAndWaitForResponse blocks, causing a deadlock with the single-threaded WS reader)
-    private final ExecutorService interceptExecutor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "NetworkIngestion-intercept");
-        t.setDaemon(true);
-        return t;
-    });
 
     // Async ingestion (single-threaded to avoid overwhelming the browser)
     private final ExecutorService ingestionExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -214,7 +207,6 @@ public class NetworkIngestionPipeline {
         if (!active.get()) return;
         active.set(false);
         cleanup();
-        interceptExecutor.shutdown();
         ingestionExecutor.shutdown();
         pendingCaptures.clear();
         LOG.info("[NetworkIngestion] Pipeline stopped. Captured=" + capturedCount.get()
@@ -272,21 +264,13 @@ public class NetworkIngestionPipeline {
      *
      * Decision: if the response is relevant (capturable MIME, allowed URL, 2xx),
      * we remember it for body capture on responseCompleted. Either way,
-     * we IMMEDIATELY call continueResponse to unblock the browser.
+     * we IMMEDIATELY call continueResponseFireAndForget to unblock the browser.
      *
-     * IMPORTANT: This handler is called from the WebSocket reader thread.
-     * continueResponse() uses sendAndWaitForResponse() which blocks synchronously.
-     * If we block the WS reader thread, the response to continueResponse can never
-     * arrive → deadlock. Therefore we delegate to interceptExecutor.
+     * Uses fire-and-forget (non-blocking send) to avoid deadlocks and request backlog.
      */
     private void handleResponseStarted(WDNetworkEvent.ResponseStarted event) {
         if (event == null) return;
-        // Delegate to interceptExecutor to avoid blocking the WebSocket reader thread
-        interceptExecutor.submit(() -> handleResponseStartedImpl(event));
-    }
 
-    /** Actual responseStarted logic, runs in interceptExecutor thread. */
-    private void handleResponseStartedImpl(WDNetworkEvent.ResponseStarted event) {
         String requestId = null;
         try {
             WDNetworkEvent.ResponseStarted.ResponseStartedParametersWD params = event.getParams();
@@ -323,15 +307,15 @@ public class NetworkIngestionPipeline {
                 skippedCount.incrementAndGet();
             }
 
-            // ALWAYS continue the response immediately to unblock the browser
-            driver.network().continueResponse(requestId);
+            // ALWAYS continue the response immediately using fire-and-forget (non-blocking)
+            driver.network().continueResponseFireAndForget(requestId);
 
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[NetworkIngestion] Error in responseStarted handler", e);
             // Safety: always try to continue to prevent browser deadlock
             if (requestId != null) {
                 try {
-                    driver.network().continueResponse(requestId);
+                    driver.network().continueResponseFireAndForget(requestId);
                 } catch (Exception e2) {
                     LOG.warning("[NetworkIngestion] Failed to continueResponse on error: " + e2.getMessage());
                 }

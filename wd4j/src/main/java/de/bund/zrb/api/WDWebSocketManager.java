@@ -19,6 +19,15 @@ public interface WDWebSocketManager {
     void registerEventListener(WDEventDispatcher eventDispatcher);
 
     /**
+     * Send the given command without waiting for a response (fire-and-forget).
+     * Used for time-critical operations like continueResponse in intercept handlers
+     * where blocking would cause browser freezes.
+     *
+     * @param command the command object to send
+     */
+    void sendFireAndForget(WDCommand command);
+
+    /**
      * Returns true if the underlying WebSocket is connected.
      *
      * @return true if connected
