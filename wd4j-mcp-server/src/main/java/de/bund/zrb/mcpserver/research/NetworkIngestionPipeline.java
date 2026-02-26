@@ -1,8 +1,6 @@
 package de.bund.zrb.mcpserver.research;
 
 import de.bund.zrb.WebDriver;
-import de.bund.zrb.command.request.parameters.network.AddInterceptParameters;
-import de.bund.zrb.command.response.WDNetworkResult;
 import de.bund.zrb.event.WDNetworkEvent;
 import de.bund.zrb.type.network.*;
 import de.bund.zrb.type.network.WDCollector;
@@ -18,21 +16,23 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Intercept-based Network Ingestion Pipeline for the Research Tool Suite.
+ * Passive Event-based Network Ingestion Pipeline for the Research Tool Suite.
  * <p>
- * Uses {@code network.addIntercept(RESPONSE_STARTED)} to block every response
- * at header-arrival time. The pipeline inspects MIME type, URL, and status:
+ * Uses a {@code network.addDataCollector(RESPONSE)} to record response bodies
+ * in the browser, then listens to {@code network.responseCompleted} events.
+ * <b>No intercepts are used</b> – the browser is never blocked by this pipeline.
+ * <p>
+ * On every {@code responseCompleted}:
  * <ul>
- *   <li>Irrelevant responses (ads, tracking, images, CSS, JS, etc.) are immediately
- *       released via {@code continueResponse} – the browser is never overloaded.</li>
- *   <li>Relevant responses (text/html, application/json, etc.) are also released
- *       via {@code continueResponse}, but additionally the body is fetched
- *       asynchronously after {@code responseCompleted} via DataCollector + getData.</li>
+ *   <li>Irrelevant responses (ads, tracking, images, CSS, JS, non-2xx, etc.)
+ *       are immediately disowned via {@code disownData} to free browser memory.</li>
+ *   <li>Relevant responses (text/html, application/json, etc.) are fetched
+ *       asynchronously via {@code getData(disown=true)} and stored.</li>
  * </ul>
  * <p>
- * This approach avoids the browser freeze caused by the old passive DataCollector,
- * because the browser is blocked per-response and released immediately after inspection.
- * No response backlog can accumulate.
+ * This passive approach avoids browser freezes that occurred with the previous
+ * intercept-based design, where a failed or slow {@code continueResponse}
+ * would permanently block the browser.
  */
 public class NetworkIngestionPipeline {
 
@@ -80,7 +80,6 @@ public class NetworkIngestionPipeline {
 
     private final WebDriver driver;
     private final ResearchSession session;
-    private String interceptId;
     private WDCollector collector;
     private final AtomicBoolean active = new AtomicBoolean(false);
     private final AtomicInteger capturedCount = new AtomicInteger(0);
@@ -94,8 +93,6 @@ public class NetworkIngestionPipeline {
     // ── DevTools-style resource category counters ──
     private final ConcurrentHashMap<ResourceCategory, AtomicInteger> categoryCounts = new ConcurrentHashMap<>();
 
-    // Track requests that are relevant → fetch body on responseCompleted
-    private final ConcurrentHashMap<String, PendingCapture> pendingCaptures = new ConcurrentHashMap<>();
 
 
     // Async ingestion (single-threaded to avoid overwhelming the browser)
@@ -108,8 +105,7 @@ public class NetworkIngestionPipeline {
     // Callback for storing captured data
     private IngestionCallback callback;
 
-    // Event listener references (for cleanup)
-    private Consumer<WDNetworkEvent.ResponseStarted> responseStartedListener;
+    // Event listener reference (for cleanup)
     private Consumer<WDNetworkEvent.ResponseCompleted> responseCompletedListener;
 
     /**
@@ -120,20 +116,6 @@ public class NetworkIngestionPipeline {
                               String bodyText, Map<String, String> headers, long capturedAt);
     }
 
-    /** Pending capture metadata (from responseStarted, used in responseCompleted). */
-    private static class PendingCapture {
-        final String url;
-        final String mimeType;
-        final long status;
-        final WDResponseData response;
-
-        PendingCapture(String url, String mimeType, long status, WDResponseData response) {
-            this.url = url;
-            this.mimeType = mimeType;
-            this.status = status;
-            this.response = response;
-        }
-    }
 
     /**
      * Global default callback that plugins can register at startup.
@@ -155,7 +137,8 @@ public class NetworkIngestionPipeline {
     }
 
     /**
-     * Start the pipeline: register intercept on RESPONSE_STARTED and subscribe to events.
+     * Start the pipeline: register DataCollector and subscribe to responseCompleted events.
+     * No intercepts are used – the browser is never blocked.
      */
     public synchronized void start(IngestionCallback callback) {
         if (active.get()) {
@@ -172,27 +155,14 @@ public class NetworkIngestionPipeline {
             LOG.info("[NetworkIngestion] DataCollector registered: " + collector.value()
                     + " (maxSize=" + maxSize + ")");
 
-            // 2. Add intercept on RESPONSE_STARTED phase
-            //    This blocks every response at header time until we call continueResponse.
-            WDNetworkResult.AddInterceptResult interceptResult = driver.network().addIntercept(
-                    Collections.singletonList(AddInterceptParameters.InterceptPhase.RESPONSE_STARTED));
-            interceptId = interceptResult.getIntercept().value();
-            LOG.info("[NetworkIngestion] Intercept registered: " + interceptId);
-
-            // 3. Subscribe to responseStarted events (for intercept handling)
-            WDSubscriptionRequest startedSubReq = new WDSubscriptionRequest(
-                    Collections.singletonList(WDEventNames.RESPONSE_STARTED.getName()));
-            responseStartedListener = this::handleResponseStarted;
-            driver.addEventListener(startedSubReq, responseStartedListener);
-
-            // 4. Subscribe to responseCompleted events (for body fetching)
+            // 2. Subscribe to responseCompleted events (for relevance check + body fetching)
             WDSubscriptionRequest completedSubReq = new WDSubscriptionRequest(
                     Collections.singletonList(WDEventNames.RESPONSE_COMPLETED.getName()));
             responseCompletedListener = this::handleResponseCompleted;
             driver.addEventListener(completedSubReq, responseCompletedListener);
 
             active.set(true);
-            LOG.info("[NetworkIngestion] Intercept-based pipeline started for session " + session.getSessionId());
+            LOG.info("[NetworkIngestion] Passive pipeline started for session " + session.getSessionId());
 
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[NetworkIngestion] Failed to start pipeline", e);
@@ -202,28 +172,19 @@ public class NetworkIngestionPipeline {
     }
 
     /**
-     * Stop the pipeline: remove intercept, collector, and unsubscribe.
+     * Stop the pipeline: remove collector and unsubscribe from events.
      */
     public synchronized void stop() {
         if (!active.get()) return;
         active.set(false);
         cleanup();
         ingestionExecutor.shutdown();
-        pendingCaptures.clear();
         LOG.info("[NetworkIngestion] Pipeline stopped. Captured=" + capturedCount.get()
                 + " Skipped=" + skippedCount.get() + " Failed=" + failedCount.get());
     }
 
     private void cleanup() {
-        // Remove event listeners
-        try {
-            if (responseStartedListener != null) {
-                driver.removeEventListener(WDEventNames.RESPONSE_STARTED.getName(), responseStartedListener);
-                responseStartedListener = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] Error removing responseStarted listener: " + e.getMessage());
-        }
+        // Remove event listener
         try {
             if (responseCompletedListener != null) {
                 driver.removeEventListener(WDEventNames.RESPONSE_COMPLETED.getName(), responseCompletedListener);
@@ -233,15 +194,6 @@ public class NetworkIngestionPipeline {
             LOG.fine("[NetworkIngestion] Error removing responseCompleted listener: " + e.getMessage());
         }
 
-        // Remove intercept
-        try {
-            if (interceptId != null) {
-                driver.network().removeIntercept(interceptId);
-                interceptId = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] Error removing intercept: " + e.getMessage());
-        }
 
         // Remove data collector
         try {
@@ -255,83 +207,18 @@ public class NetworkIngestionPipeline {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  RESPONSE_STARTED handler (intercept decision point)
-    // ═══════════════════════════════════════════════════════════════
-
-    /**
-     * Called on every network.responseStarted event.
-     * Since we have an intercept on RESPONSE_STARTED, the response is BLOCKED.
-     * We must ALWAYS call continueResponse (or failRequest) to release it.
-     *
-     * Decision: if the response is relevant (capturable MIME, allowed URL, 2xx),
-     * we remember it for body capture on responseCompleted. Either way,
-     * we IMMEDIATELY call continueResponseFireAndForget to unblock the browser.
-     *
-     * Uses fire-and-forget (non-blocking send) to avoid deadlocks and request backlog.
-     */
-    private void handleResponseStarted(WDNetworkEvent.ResponseStarted event) {
-        if (event == null) return;
-
-        String requestId = null;
-        try {
-            WDNetworkEvent.ResponseStarted.ResponseStartedParametersWD params = event.getParams();
-            if (params == null || params.getRequest() == null) return;
-
-            WDRequestData requestData = params.getRequest();
-            WDResponseData response = params.getResponse();
-            requestId = requestData.getRequest() != null ? requestData.getRequest().value() : null;
-
-            if (requestId == null) return;
-
-            // Only handle if this event was actually blocked by our intercept
-            if (!params.isBlocked()) {
-                // Not blocked → no need to continue, just classify
-                classifyAndCount(response);
-                return;
-            }
-
-            String url = response != null ? response.getUrl() : requestData.getUrl();
-            String mimeType = response != null ? response.getMimeType() : null;
-            long status = response != null ? response.getStatus() : 0;
-
-            // Classify for DevTools-style counters
-            classifyAndCount(response);
-
-            // Check if this response is worth capturing
-            boolean shouldCapture = isRelevantResponse(url, mimeType, status);
-
-            if (shouldCapture) {
-                // Remember for body capture on responseCompleted
-                pendingCaptures.put(requestId, new PendingCapture(url, mimeType, status, response));
-                LOG.fine("[NetworkIngestion] Marked for capture: " + mimeType + " " + url);
-            } else {
-                skippedCount.incrementAndGet();
-            }
-
-            // ALWAYS continue the response immediately using fire-and-forget (non-blocking)
-            driver.network().continueResponseFireAndForget(requestId);
-
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[NetworkIngestion] Error in responseStarted handler", e);
-            // Safety: always try to continue to prevent browser deadlock
-            if (requestId != null) {
-                try {
-                    driver.network().continueResponseFireAndForget(requestId);
-                } catch (Exception e2) {
-                    LOG.warning("[NetworkIngestion] Failed to continueResponse on error: " + e2.getMessage());
-                }
-            }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  RESPONSE_COMPLETED handler (body fetching)
+    //  RESPONSE_COMPLETED handler (relevance check + body fetching)
     // ═══════════════════════════════════════════════════════════════
 
     /**
      * Called on every network.responseCompleted event.
-     * If this request was marked as relevant in responseStarted,
-     * fetch the body asynchronously via DataCollector + getData.
+     * Checks relevance directly from the event parameters (URL, MIME, status).
+     * <ul>
+     *   <li>Relevant → async fetch body via {@code getData(disown=true)}</li>
+     *   <li>Irrelevant → async {@code disownData} to free browser memory</li>
+     * </ul>
+     * All heavy work is offloaded to {@code ingestionExecutor} so the
+     * WebSocket event thread is never blocked.
      */
     private void handleResponseCompleted(WDNetworkEvent.ResponseCompleted event) {
         if (!active.get() || event == null) return;
@@ -341,20 +228,37 @@ public class NetworkIngestionPipeline {
             if (params == null || params.getRequest() == null) return;
 
             WDRequestData requestData = params.getRequest();
-            String requestId = requestData.getRequest() != null ? requestData.getRequest().value() : null;
-            if (requestId == null) return;
-
-            // Check if this was marked for capture
-            PendingCapture pending = pendingCaptures.remove(requestId);
-            if (pending == null) return; // Not relevant, skip
-
             WDResponseData response = params.getResponse();
             WDRequest requestRef = requestData.getRequest();
+            if (requestRef == null) return;
 
-            // Async: fetch body and store
-            ingestionExecutor.submit(() -> fetchAndStore(
-                    pending.url, pending.mimeType, pending.status,
-                    requestRef, response != null ? response : pending.response));
+            String url = response != null ? response.getUrl() : requestData.getUrl();
+            String mimeType = response != null ? response.getMimeType() : null;
+            long status = response != null ? response.getStatus() : 0;
+
+            // Classify for DevTools-style counters (lightweight, OK on event thread)
+            classifyAndCount(response);
+
+            // Check relevance
+            boolean shouldCapture = isRelevantResponse(url, mimeType, status);
+
+            if (shouldCapture) {
+                // Async: fetch body with disown=true (auto-frees browser memory) and store
+                ingestionExecutor.submit(() -> fetchAndStore(url, mimeType, status, requestRef, response));
+            } else {
+                skippedCount.incrementAndGet();
+                // Async: disown data to prevent DataCollector overflow
+                final WDCollector col = collector; // capture stable reference
+                ingestionExecutor.submit(() -> {
+                    try {
+                        if (col != null) {
+                            driver.network().disownData(WDDataType.RESPONSE, col, requestRef);
+                        }
+                    } catch (Exception e) {
+                        LOG.fine("[NetworkIngestion] disownData (skip) failed for " + url + ": " + e.getMessage());
+                    }
+                });
+            }
 
         } catch (Exception e) {
             LOG.log(Level.FINE, "[NetworkIngestion] Error handling responseCompleted", e);
@@ -369,11 +273,12 @@ public class NetworkIngestionPipeline {
                                WDRequest requestRef, WDResponseData response) {
         String bodyText = null;
 
-        // Retry loop: getData may not be ready immediately
+        // Retry loop: getData may not be ready immediately after responseCompleted
         for (int attempt = 1; attempt <= GET_DATA_MAX_RETRIES; attempt++) {
             try {
+                // disown=true: automatically frees browser memory after fetch
                 WDBytesValue bytesValue = driver.network().getData(
-                        WDDataType.RESPONSE, requestRef, collector, false);
+                        WDDataType.RESPONSE, requestRef, collector, true);
 
                 if (bytesValue != null && bytesValue.getValue() != null) {
                     bodyText = bytesValue.getValue();
@@ -392,15 +297,14 @@ public class NetworkIngestionPipeline {
                 } else {
                     LOG.fine("[NetworkIngestion] getData failed after " + GET_DATA_MAX_RETRIES
                             + " attempts for " + url + ": " + e.getMessage());
+                    // Safety: try to disown in case getData partially failed
+                    try {
+                        driver.network().disownData(WDDataType.RESPONSE, collector, requestRef);
+                    } catch (Exception disownEx) {
+                        LOG.fine("[NetworkIngestion] Safety disownData also failed for " + url);
+                    }
                 }
             }
-        }
-
-        // Disown the data to free browser memory
-        try {
-            driver.network().disownData(WDDataType.RESPONSE, collector, requestRef);
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] disownData failed for " + url + ": " + e.getMessage());
         }
 
         if (bodyText == null || bodyText.isEmpty()) {

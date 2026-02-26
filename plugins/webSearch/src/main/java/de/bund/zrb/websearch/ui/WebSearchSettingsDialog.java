@@ -270,7 +270,7 @@ public class WebSearchSettingsDialog extends JDialog {
         // ── Pipeline Status ─────────────────────────────────────────
         wsPipelineStatusLabel = createStatsLabel();
         gbc.gridx = 0; gbc.gridy = 15; gbc.weightx = 0;
-        form.add(new JLabel("Pipeline / Intercept:"), gbc);
+        form.add(new JLabel("Pipeline:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsPipelineStatusLabel, gbc);
 
@@ -278,11 +278,11 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.gridx = 0; gbc.gridy = 16; gbc.weightx = 0;
         form.add(new JLabel("Notfall:"), gbc);
 
-        wsKillInterceptsButton = new JButton("🚨 Alle Intercepts aufheben");
+        wsKillInterceptsButton = new JButton("🚨 Pipeline stoppen & zurücksetzen");
         wsKillInterceptsButton.setToolTipText(
-                "Stoppt die NetworkIngestionPipeline und entfernt ALLE registrierten Intercepts.\n"
-              + "Das gibt sämtliche blockierten Responses frei und kann den Browser-Freeze lösen.\n"
-              + "ACHTUNG: Die Pipeline muss danach neu gestartet werden (nächstes research_navigate).");
+                "Stoppt die NetworkIngestionPipeline und entfernt den DataCollector.\n"
+              + "Das gibt den Browser-Speicher frei und kann bei Problemen helfen.\n"
+              + "Die Pipeline wird beim nächsten research_navigate automatisch neu gestartet.");
         wsKillInterceptsButton.setForeground(new Color(180, 0, 0));
         wsKillInterceptsButton.addActionListener(e -> killAllIntercepts());
         gbc.gridx = 1; gbc.weightx = 1;
@@ -434,13 +434,13 @@ public class WebSearchSettingsDialog extends JDialog {
     }
 
     /**
-     * Emergency action: stops the NetworkIngestionPipeline and removes ALL intercepts.
-     * This releases all blocked responses and should unfreeze the browser.
-     * The pipeline must be restarted afterwards (next research_navigate will do it).
+     * Emergency action: stops the NetworkIngestionPipeline and removes the DataCollector.
+     * This frees browser memory and can help when the pipeline is stuck.
+     * The pipeline will be automatically restarted on the next research_navigate.
      */
     private void killAllIntercepts() {
         StringBuilder log = new StringBuilder();
-        log.append("🚨 Notfall-Intercept-Aufhebung gestartet...\n\n");
+        log.append("🚨 Pipeline-Reset gestartet...\n\n");
 
         try {
             // 1. Stop the pipeline (removes intercept, collector, event listeners)
@@ -448,7 +448,7 @@ public class WebSearchSettingsDialog extends JDialog {
             if (session == null || !session.isConnected()) {
                 JOptionPane.showMessageDialog(this,
                         "Keine aktive Browser-Session vorhanden.",
-                        "Intercept-Aufhebung", JOptionPane.WARNING_MESSAGE);
+                        "Pipeline-Reset", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
@@ -470,9 +470,8 @@ public class WebSearchSettingsDialog extends JDialog {
                 log.append("1. Keine aktive Pipeline gefunden.\n");
             }
 
-            // 2. As a safety measure, also try to remove ALL intercepts via session.end + new session
-            //    But that's too drastic. Instead, just log the state.
-            log.append("\n✅ Intercepts wurden aufgehoben.\n");
+            // 2. As a safety measure, log the state.
+            log.append("\n✅ Pipeline und DataCollector wurden zurückgesetzt.\n");
             log.append("Die Pipeline wird beim nächsten research_navigate automatisch neu gestartet.\n");
             log.append("\nFalls der Browser immer noch eingefroren ist, kann ein Seiten-Reload helfen.");
 
@@ -485,7 +484,7 @@ public class WebSearchSettingsDialog extends JDialog {
 
         JOptionPane.showMessageDialog(this,
                 log.toString(),
-                "Intercept-Aufhebung", JOptionPane.INFORMATION_MESSAGE);
+                "Pipeline-Reset", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private static String formatTimestamp(String epochMs) {
