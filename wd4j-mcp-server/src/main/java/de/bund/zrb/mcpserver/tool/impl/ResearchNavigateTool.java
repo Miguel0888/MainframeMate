@@ -508,15 +508,54 @@ public class ResearchNavigateTool implements McpServerTool {
             }
         }
 
-        // NOTE: NetworkIngestionPipeline is NOT started here.
-        // HTML is fetched directly from the DOM via script.evaluate after navigation.
+        // Start NetworkIngestionPipeline (intercept-based, non-blocking)
+        // This runs in the background and archives relevant HTML/JSON responses.
+        // HTML for link extraction is still fetched via DOM evaluate (more reliable).
+        if (session.getDriver() != null && rs.getNetworkPipeline() == null) {
+            try {
+                NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
+                NetworkIngestionPipeline.IngestionCallback cb =
+                        NetworkIngestionPipeline.getGlobalDefaultCallback();
+                if (cb == null) {
+                    // Fallback: logging only
+                    cb = (runId, url, mimeType, statusCode, bodyText, headers, capturedAt) -> {
+                        LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
+                        return "net-" + Long.toHexString(capturedAt);
+                    };
+                }
+                pipeline.start(cb);
+                rs.setNetworkPipeline(pipeline);
+                LOG.info("[research_navigate] Intercept-based pipeline started");
+            } catch (Exception e) {
+                LOG.warning("[research_navigate] Failed to start pipeline: " + e.getMessage());
+            }
+        } else if (rs.getNetworkPipeline() != null && !rs.getNetworkPipeline().isActive()
+                && session.getDriver() != null) {
+            // Pipeline exists but is inactive (e.g. after browser restart) – restart it
+            try {
+                NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
+                NetworkIngestionPipeline.IngestionCallback cb =
+                        NetworkIngestionPipeline.getGlobalDefaultCallback();
+                if (cb == null) {
+                    cb = (runId, url, mimeType, statusCode, bodyText, headers, capturedAt) -> {
+                        LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
+                        return "net-" + Long.toHexString(capturedAt);
+                    };
+                }
+                pipeline.start(cb);
+                rs.setNetworkPipeline(pipeline);
+                LOG.info("[research_navigate] Pipeline restarted after browser restart");
+            } catch (Exception e) {
+                LOG.warning("[research_navigate] Failed to restart pipeline: " + e.getMessage());
+            }
+        }
 
         LOG.info("[research_navigate] Session ready: " + rs.getSessionId());
         return rs;
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Pipeline management (DISABLED – HTML fetched from DOM directly)
+    //  Pipeline management
     // ═══════════════════════════════════════════════════════════════
 
 

@@ -76,7 +76,8 @@ public class WDEventDispatcher {
                         // Comment: Deliver DTO to context-scoped listener
                         l.accept(event);
                     } catch (Throwable t) {
-                        // Comment: Do not break dispatch chain
+                        // Log but do not break dispatch chain
+                        System.err.println("[WARN] Context event listener threw exception for " + eventEnum.getName() + ": " + t.getMessage());
                     }
                 }
             }
@@ -90,7 +91,8 @@ public class WDEventDispatcher {
                     // Comment: Deliver DTO to global listener
                     listener.accept(event);
                 } catch (Throwable t) {
-                    // Comment: Do not break dispatch chain
+                    // Log but do not break dispatch chain
+                    System.err.println("[WARN] Event listener threw exception for " + eventEnum.getName() + ": " + t.getMessage());
                 }
             }
         }
