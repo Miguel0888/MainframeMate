@@ -186,7 +186,6 @@ public class BrowserToolAdapter implements McpTool {
                 }
                 response.addProperty("result", text.toString());
             }
-            response.add("raw", contentJson);
             return new McpToolResponse(response, resultVar, null);
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - startTime;

@@ -346,7 +346,6 @@ public class ResearchNavigateTool implements McpServerTool {
                 linksArray.add(link);
             }
             linksJson.add("links", linksArray);
-            linksJson.addProperty("hint", "Wähle eine URL aus 'links' und rufe research_navigate damit auf.");
             result.addText(linksJson.toString());
         }
 
@@ -354,35 +353,25 @@ public class ResearchNavigateTool implements McpServerTool {
     }
 
     private String buildResponseText(MenuView view, ResearchSession rs, NetworkIngestionPipeline pipeline) {
-        StringBuilder sb = new StringBuilder(view.toCompactText());
+        StringBuilder sb = new StringBuilder();
 
-        // Archived docs
-        List<String> newDocs = rs.drainNewArchivedDocIds();
-        if (!newDocs.isEmpty()) {
-            sb.append("\n── Archiviert (").append(newDocs.size()).append(") ──\n");
-            for (String docId : newDocs) {
-                sb.append("  ").append(docId).append("\n");
+        // Page title and URL
+        sb.append("Du bist auf: ").append(view.getTitle() != null ? view.getTitle() : "(no title)");
+        sb.append(" (").append(view.getUrl() != null ? view.getUrl() : "unknown").append(")\n");
+
+        // Page excerpt
+        String excerpt = view.getExcerpt();
+        if (excerpt != null && !excerpt.isEmpty()) {
+            sb.append("\n── Seiteninhalt ──\n");
+            sb.append(excerpt);
+            if (excerpt.length() >= 480) {
+                sb.append("\n[… truncated]");
             }
+            sb.append("\n");
         }
 
-        // Network traffic (compact)
-        if (pipeline != null) {
-            Map<String, Integer> cats = pipeline.getCategoryCounts();
-            if (!cats.isEmpty()) {
-                sb.append("\n── Netzwerk ──\n  ");
-                boolean first = true;
-                for (Map.Entry<String, Integer> e : cats.entrySet()) {
-                    if (!first) sb.append(", ");
-                    sb.append(e.getKey()).append(":").append(e.getValue());
-                    first = false;
-                }
-                sb.append("\n");
-            }
-        }
-
-        sb.append("\n── Nächster Schritt ──\n");
-        sb.append("Wähle eine URL aus der Liste oben und rufe research_navigate damit auf.");
-        sb.append(" Bevorzuge Navigations-/Sektionslinks vor einzelnen Artikeln.\n");
+        // Drain archived docs (side-effect needed) but don't bloat the response
+        rs.drainNewArchivedDocIds();
 
         return sb.toString();
     }
