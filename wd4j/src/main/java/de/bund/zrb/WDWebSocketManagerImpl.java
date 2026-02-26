@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
@@ -26,6 +28,18 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
     private final Gson gson = GsonMapperFactory.getGson(); // ✅ Nutzt zentrale Fabrik
 
     private final WDWebSocket webSocket;
+
+    /**
+     * Dedicated single-thread executor for dispatching events and command-response callbacks.
+     * This decouples all listener processing from the WebSocket receive thread, preventing
+     * browser freezes caused by slow or blocking listeners (e.g. continueResponse in intercept
+     * handlers, heavy JSON parsing, network ingestion). A single thread preserves message order.
+     */
+    private final ExecutorService dispatchExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "WDWebSocket-dispatch");
+        t.setDaemon(true);
+        return t;
+    });
 
     // Retry-Regeln nun dynamisch über System Properties:
     //  - wd4j.command.retry.maxCount  (int)   Anzahl Versuche
@@ -292,8 +306,18 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
                             };
                         }
 
-                        // Übergabe an den für diese id registrierten Handler
-                        callback.accept(response);
+                        // Übergabe an den für diese id registrierten Handler (async, um WebSocket-Thread nicht zu blockieren)
+                        final WDCommandResponse<?> finalResponse = response;
+                        dispatchExecutor.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    callback.accept(finalResponse);
+                                } catch (Exception e) {
+                                    System.err.println("[ERROR] Command callback error for id " + id + ": " + e.getMessage());
+                                }
+                            }
+                        });
 
                     } catch (JsonSyntaxException e) {
                         System.out.println("[ERROR] JSON Parsing-Fehler: " + e.getMessage());
@@ -321,7 +345,19 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
                     if (Boolean.getBoolean("wd4j.debug")) {
                         System.out.println("[DEBUG] WebSocketManager detected event: " + json.get("method").getAsString());
                     }
-                    eventDispatcher.processEvent(json); // 🔥 Event an Dispatcher weitergeben
+                    // Dispatch asynchronously to free the WebSocket thread immediately.
+                    // This prevents browser freezes when event handlers (e.g. intercept
+                    // continueResponse) take time or trigger further WebSocket sends.
+                    dispatchExecutor.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                eventDispatcher.processEvent(json);
+                            } catch (Exception e) {
+                                System.err.println("[ERROR] Event dispatch error: " + e.getMessage());
+                            }
+                        }
+                    });
                 }
             } catch (JsonSyntaxException e) {
                 System.err.println("[ERROR] Failed to parse WebSocket event: " + e.getMessage());
