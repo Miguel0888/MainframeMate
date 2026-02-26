@@ -30,10 +30,16 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
     private final WDWebSocket webSocket;
 
     /**
-     * Dedicated single-thread executor for dispatching events and command-response callbacks.
-     * This decouples all listener processing from the WebSocket receive thread, preventing
-     * browser freezes caused by slow or blocking listeners (e.g. continueResponse in intercept
-     * handlers, heavy JSON parsing, network ingestion). A single thread preserves message order.
+     * Dedicated single-thread executor for dispatching <b>events only</b>.
+     * This decouples event listener processing from the WebSocket receive thread, preventing
+     * browser freezes caused by slow or blocking event listeners (e.g. heavy JSON parsing,
+     * network ingestion). A single thread preserves event order.
+     *
+     * <p><b>Important:</b> Command-response callbacks are NOT dispatched through this executor.
+     * They run directly on the WebSocket receive thread because they only perform a fast,
+     * non-blocking {@code future.complete()} call. Routing them through this executor would
+     * cause deadlocks when the event queue is saturated (e.g. 50+ network intercept events
+     * from a heavy page load blocking getData responses indefinitely).</p>
      */
     private final ExecutorService dispatchExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "WDWebSocket-dispatch");
@@ -306,18 +312,17 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
                             };
                         }
 
-                        // Übergabe an den für diese id registrierten Handler (async, um WebSocket-Thread nicht zu blockieren)
-                        final WDCommandResponse<?> finalResponse = response;
-                        dispatchExecutor.execute(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    callback.accept(finalResponse);
-                                } catch (Exception e) {
-                                    System.err.println("[ERROR] Command callback error for id " + id + ": " + e.getMessage());
-                                }
-                            }
-                        });
+                        // Execute command-response callback DIRECTLY on the WebSocket thread.
+                        // These callbacks only do fast, non-blocking future.complete() calls.
+                        // Routing through dispatchExecutor would cause deadlocks: when 50+
+                        // network events saturate the single-thread event queue, command
+                        // responses (e.g. getData replies) get stuck behind pending events,
+                        // causing timeouts and browser freezes.
+                        try {
+                            callback.accept(response);
+                        } catch (Exception e) {
+                            System.err.println("[ERROR] Command callback error for id " + id + ": " + e.getMessage());
+                        }
 
                     } catch (JsonSyntaxException e) {
                         System.out.println("[ERROR] JSON Parsing-Fehler: " + e.getMessage());
