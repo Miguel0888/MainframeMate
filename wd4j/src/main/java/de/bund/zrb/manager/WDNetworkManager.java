@@ -118,17 +118,6 @@ public class WDNetworkManager implements WDModule {
     }
 
     /**
-     * Removes a previously added network request interception rule without waiting for acknowledgement.
-     * Used in emergency situations (e.g. browser freeze) where the WebSocket connection may be
-     * congested and blocking would make things worse.
-     *
-     * @param interceptId The ID of the intercept to remove.
-     */
-    public void removeInterceptFireAndForget(String interceptId) {
-        WDWebSocketManager.sendFireAndForget(new WDNetworkRequest.RemoveIntercept(interceptId));
-    }
-
-    /**
      * Sets the cache behavior for the given context.
      *
      * @param cacheBehavior The cache behavior to set.

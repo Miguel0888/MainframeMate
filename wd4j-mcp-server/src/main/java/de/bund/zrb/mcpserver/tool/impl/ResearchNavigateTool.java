@@ -294,16 +294,6 @@ public class ResearchNavigateTool implements McpServerTool {
 
     private ToolResult doNavigate(String url, ResearchSession rs, BrowserSession session) {
         try {
-            // Clear pipeline cache from previous navigation so stale HTML doesn't linger.
-            // Also clears pending captures – old intercepted responses become irrelevant
-            // after navigating away and would otherwise never complete, potentially causing
-            // the browser to freeze when it waits for continueResponse on stale requests.
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            if (pipeline != null) {
-                pipeline.clearNavigationCache();
-                pipeline.clearPendingCaptures();
-            }
-
             // Use NONE readiness to avoid freezing on pages with endless resource loading
             // (ads, tracking scripts, etc.). A fixed delay afterwards lets the page render.
             WDBrowsingContextResult.NavigateResult nav =
@@ -324,6 +314,7 @@ public class ResearchNavigateTool implements McpServerTool {
 
             // Get HTML from the NetworkIngestionPipeline cache (NO evaluate!)
             // The pipeline captures text/html responses via intercept and caches them.
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
             String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
 
             if (html == null) {

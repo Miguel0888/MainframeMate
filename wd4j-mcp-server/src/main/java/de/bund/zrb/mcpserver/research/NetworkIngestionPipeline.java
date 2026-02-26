@@ -213,60 +213,6 @@ public class NetworkIngestionPipeline {
                 + " Skipped=" + skippedCount.get() + " Failed=" + failedCount.get());
     }
 
-    /**
-     * Emergency stop: disables the pipeline and sends fire-and-forget commands to remove
-     * intercepts and collectors. Does NOT block on WebSocket responses.
-     * <p>
-     * Use this when the WebSocket connection is congested and the regular {@link #stop()}
-     * would hang because {@code sendAndWaitForResponse} never gets a reply.
-     * The browser-side intercept removal may or may not succeed, but at minimum the
-     * local state is cleaned up so that no new events are processed.
-     */
-    public synchronized void emergencyStop() {
-        if (!active.get()) return;
-        active.set(false);
-
-        // 1. Remove event listeners (local only, no WebSocket commands)
-        try {
-            if (responseStartedListener != null) {
-                driver.removeEventListener(WDEventNames.RESPONSE_STARTED.getName(), responseStartedListener);
-                responseStartedListener = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] emergencyStop: Error removing responseStarted listener: " + e.getMessage());
-        }
-        try {
-            if (responseCompletedListener != null) {
-                driver.removeEventListener(WDEventNames.RESPONSE_COMPLETED.getName(), responseCompletedListener);
-                responseCompletedListener = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] emergencyStop: Error removing responseCompleted listener: " + e.getMessage());
-        }
-
-        // 2. Fire-and-forget: remove intercept (may unblock the browser even if we don't get the ACK)
-        try {
-            if (interceptId != null) {
-                driver.network().removeInterceptFireAndForget(interceptId);
-                LOG.info("[NetworkIngestion] emergencyStop: Sent removeIntercept (fire-and-forget) for " + interceptId);
-                interceptId = null;
-            }
-        } catch (Exception e) {
-            LOG.fine("[NetworkIngestion] emergencyStop: Error sending removeIntercept: " + e.getMessage());
-            interceptId = null; // clear anyway
-        }
-
-        // 3. Fire-and-forget: remove data collector
-        // Note: removeDataCollector is also blocking in WDNetworkManager, so we skip it
-        // and just null out the reference. The browser will clean up when the session ends.
-        collector = null;
-
-        ingestionExecutor.shutdown();
-        pendingCaptures.clear();
-        LOG.info("[NetworkIngestion] Pipeline emergency-stopped. Captured=" + capturedCount.get()
-                + " Skipped=" + skippedCount.get() + " Failed=" + failedCount.get());
-    }
-
     private void cleanup() {
         // Remove event listeners
         try {
@@ -584,21 +530,6 @@ public class NetworkIngestionPipeline {
     public void clearNavigationCache() {
         lastNavigationHtml = null;
         lastNavigationUrl = null;
-    }
-
-    /**
-     * Discards all pending captures from the previous page.
-     * Call this BEFORE navigating to a new URL so that stale intercept state
-     * from the old page doesn't interfere with the new page load.
-     * Old intercepted responses become irrelevant after a navigation and would
-     * otherwise accumulate without ever completing their body fetch.
-     */
-    public void clearPendingCaptures() {
-        int cleared = pendingCaptures.size();
-        pendingCaptures.clear();
-        if (cleared > 0) {
-            LOG.fine("[NetworkIngestion] Cleared " + cleared + " pending captures before navigation");
-        }
     }
 
     // ── Resource category counters ──────────────────────────────────

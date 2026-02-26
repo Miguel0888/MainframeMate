@@ -319,7 +319,7 @@ public class WebSearchSettingsDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
 
         pack();
-        setMinimumSize(new Dimension(550, 750));
+        setMinimumSize(new Dimension(550, 650));
         setLocationRelativeTo(context.getMainFrame());
 
         // ---- Lifecycle: Start/Stop stats timer based on dialog visibility ----
@@ -437,79 +437,55 @@ public class WebSearchSettingsDialog extends JDialog {
      * Emergency action: stops the NetworkIngestionPipeline and removes ALL intercepts.
      * This releases all blocked responses and should unfreeze the browser.
      * The pipeline must be restarted afterwards (next research_navigate will do it).
-     *
-     * Runs in a background thread (SwingWorker) to prevent the EDT from freezing
-     * when the WebSocket connection is congested and commands don't get responses.
      */
     private void killAllIntercepts() {
-        // Disable button immediately to prevent double-click
-        wsKillInterceptsButton.setEnabled(false);
-        wsKillInterceptsButton.setText("⏳ Aufhebung läuft...");
+        StringBuilder log = new StringBuilder();
+        log.append("🚨 Notfall-Intercept-Aufhebung gestartet...\n\n");
 
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() {
-                StringBuilder log = new StringBuilder();
-                log.append("🚨 Notfall-Intercept-Aufhebung gestartet...\n\n");
-
-                try {
-                    BrowserSession session = browserManager != null ? browserManager.getExistingSession() : null;
-                    if (session == null || !session.isConnected()) {
-                        return "⚠ Keine aktive Browser-Session vorhanden.";
-                    }
-
-                    ResearchSessionManager rsm = ResearchSessionManager.getInstance();
-                    ResearchSession rs = rsm != null ? rsm.get(session) : null;
-                    NetworkIngestionPipeline pipeline = rs != null ? rs.getNetworkPipeline() : null;
-
-                    if (pipeline != null && pipeline.isActive()) {
-                        log.append("1. Pipeline emergency-stop... ");
-                        try {
-                            // Use emergencyStop which sends fire-and-forget commands
-                            // and does NOT block on WebSocket responses.
-                            pipeline.emergencyStop();
-                            log.append("✅ OK\n");
-                        } catch (Exception e) {
-                            log.append("⚠ Fehler: ").append(e.getMessage()).append("\n");
-                        }
-                        // Detach pipeline from session so next navigate creates a fresh one
-                        rs.setNetworkPipeline(null);
-                    } else {
-                        log.append("1. Keine aktive Pipeline gefunden.\n");
-                    }
-
-                    log.append("\n✅ Intercepts wurden aufgehoben (fire-and-forget).\n");
-                    log.append("Die Pipeline wird beim nächsten research_navigate automatisch neu gestartet.\n");
-                    log.append("\nFalls der Browser immer noch eingefroren ist, kann ein Seiten-Reload helfen.");
-
-                } catch (Exception e) {
-                    log.append("\n❌ Fehler: ").append(e.getMessage());
-                }
-
-                return log.toString();
+        try {
+            // 1. Stop the pipeline (removes intercept, collector, event listeners)
+            BrowserSession session = browserManager != null ? browserManager.getExistingSession() : null;
+            if (session == null || !session.isConnected()) {
+                JOptionPane.showMessageDialog(this,
+                        "Keine aktive Browser-Session vorhanden.",
+                        "Intercept-Aufhebung", JOptionPane.WARNING_MESSAGE);
+                return;
             }
 
-            @Override
-            protected void done() {
-                // Restore button
-                wsKillInterceptsButton.setText("🚨 Alle Intercepts aufheben");
-                // Re-enable will be handled by the next stats update (updatePipelineStatus)
+            ResearchSessionManager rsm = ResearchSessionManager.getInstance();
+            ResearchSession rs = rsm != null ? rsm.get(session) : null;
+            NetworkIngestionPipeline pipeline = rs != null ? rs.getNetworkPipeline() : null;
 
-                // Force an immediate stats update
-                updatePipelineStatus();
-
+            if (pipeline != null && pipeline.isActive()) {
+                log.append("1. Pipeline stoppen... ");
                 try {
-                    String result = get();
-                    JOptionPane.showMessageDialog(WebSearchSettingsDialog.this,
-                            result,
-                            "Intercept-Aufhebung", JOptionPane.INFORMATION_MESSAGE);
+                    pipeline.stop();
+                    log.append("✅ OK\n");
                 } catch (Exception e) {
-                    JOptionPane.showMessageDialog(WebSearchSettingsDialog.this,
-                            "Fehler: " + e.getMessage(),
-                            "Intercept-Aufhebung", JOptionPane.ERROR_MESSAGE);
+                    log.append("⚠ Fehler: ").append(e.getMessage()).append("\n");
                 }
+                // Detach pipeline from session so next navigate creates a fresh one
+                rs.setNetworkPipeline(null);
+            } else {
+                log.append("1. Keine aktive Pipeline gefunden.\n");
             }
-        }.execute();
+
+            // 2. As a safety measure, also try to remove ALL intercepts via session.end + new session
+            //    But that's too drastic. Instead, just log the state.
+            log.append("\n✅ Intercepts wurden aufgehoben.\n");
+            log.append("Die Pipeline wird beim nächsten research_navigate automatisch neu gestartet.\n");
+            log.append("\nFalls der Browser immer noch eingefroren ist, kann ein Seiten-Reload helfen.");
+
+            // Force an immediate stats update
+            updatePipelineStatus();
+
+        } catch (Exception e) {
+            log.append("\n❌ Fehler: ").append(e.getMessage());
+        }
+
+        JOptionPane.showMessageDialog(this,
+                log.toString(),
+                "Intercept-Aufhebung", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private static String formatTimestamp(String epochMs) {
