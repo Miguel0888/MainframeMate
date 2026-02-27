@@ -565,6 +565,13 @@ public class SearchTab extends JPanel implements FtpTab {
         }
 
         try {
+            // ARCHIVE results use docId (UUID) — not a filesystem path.
+            // Load content from the archive repository and open directly.
+            if (result.getSource() == SearchResult.SourceType.ARCHIVE) {
+                openArchiveResult(result);
+                return;
+            }
+
             // Build prefixed path based on source type so the routing in
             // MainFrame.openFileOrDirectory() can dispatch to the correct backend
             String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.buildPrefixedPath(
@@ -577,6 +584,63 @@ public class SearchTab extends JPanel implements FtpTab {
             JOptionPane.showMessageDialog(this,
                     "Fehler beim \u00d6ffnen:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Open an ARCHIVE search result by loading the document content from H2 + Data Lake
+     * and displaying it in a new file tab.
+     */
+    private void openArchiveResult(SearchResult result) {
+        String docId = result.getDocumentId();
+        try {
+            de.bund.zrb.archive.store.ArchiveRepository repo =
+                    de.bund.zrb.archive.store.ArchiveRepository.getInstance();
+            de.bund.zrb.archive.model.ArchiveDocument doc = repo.findDocumentById(docId);
+
+            if (doc == null) {
+                JOptionPane.showMessageDialog(this,
+                        "Archiv-Dokument nicht gefunden: " + docId,
+                        "Archiv-Fehler", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Load text content from Data Lake storage
+            String content = null;
+            if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
+                de.bund.zrb.archive.service.ArchiveService archiveService =
+                        de.bund.zrb.archive.service.ArchiveService.getInstance();
+                content = archiveService.getStorageService().readContent(doc.getTextContentPath());
+            }
+
+            if (content == null || content.isEmpty()) {
+                // Fallback: show excerpt if no full content available
+                content = doc.getExcerpt() != null ? doc.getExcerpt() : "(Kein Inhalt verfügbar)";
+            }
+
+            // Build a display title
+            String title = doc.getTitle() != null && !doc.getTitle().isEmpty()
+                    ? doc.getTitle()
+                    : result.getDocumentName();
+            String url = doc.getCanonicalUrl() != null ? doc.getCanonicalUrl() : "";
+
+            // Open as a virtual file tab
+            String sourceName = "📦 " + title;
+            if (!url.isEmpty()) {
+                sourceName += " (" + url + ")";
+            }
+
+            de.bund.zrb.ui.VirtualResource resource = new de.bund.zrb.ui.VirtualResource(
+                    de.bund.zrb.files.path.VirtualResourceRef.of(sourceName),
+                    de.bund.zrb.ui.VirtualResourceKind.FILE,
+                    null,
+                    true);
+
+            tabManager.openFileTab(resource, content, null, lastQuery, false);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Fehler beim Laden des Archiv-Dokuments:\n" + e.getMessage(),
+                    "Archiv-Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 
