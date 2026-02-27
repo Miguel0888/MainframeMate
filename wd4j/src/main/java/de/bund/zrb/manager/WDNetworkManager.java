@@ -163,18 +163,23 @@ public class WDNetworkManager implements WDModule {
         return result.getBytes();
     }
 
-    /** Disown previously collected data for a given request and collector. */
+    /**
+     * Disown previously collected data for a given request and collector.
+     * Uses fire-and-forget because:
+     * 1. The response is always empty ({}) – there is nothing to process.
+     * 2. Blocking here caused browser deadlocks: when a navigation occurs while
+     *    disownData is pending, Firefox cannot answer because it is mid-navigation,
+     *    and the navigation cannot complete because the WebSocket pipeline is stuck
+     *    waiting for the disownData response.
+     */
     public void disownData(de.bund.zrb.type.network.WDDataType dataType,
                            de.bund.zrb.type.network.WDCollector collector,
                            de.bund.zrb.type.network.WDRequest request) {
-        long t0 = System.currentTimeMillis();
-        System.out.println("[TRACE] M2-enter disownData request=" + (request != null ? request.value() : "null") + " thread=" + Thread.currentThread().getName());
-        WDWebSocketManager.sendAndWaitForResponse(
-                new de.bund.zrb.command.request.WDNetworkRequest.DisownData(dataType, collector, request),
-                de.bund.zrb.command.response.WDEmptyResult.class
+        System.out.println("[TRACE] M2-fireAndForget disownData request=" + (request != null ? request.value() : "null") + " thread=" + Thread.currentThread().getName());
+        WDWebSocketManager.sendFireAndForget(
+                new de.bund.zrb.command.request.WDNetworkRequest.DisownData(dataType, collector, request)
         );
-        long dt = System.currentTimeMillis() - t0;
-        System.out.println("[TRACE] M3-exit disownData took=" + dt + "ms");
+        System.out.println("[TRACE] M3-disownData sent (fire-and-forget)");
     }
 
     /** Remove a data collector. */
