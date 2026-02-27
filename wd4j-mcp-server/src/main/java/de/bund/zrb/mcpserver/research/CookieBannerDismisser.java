@@ -1,9 +1,11 @@
 package de.bund.zrb.mcpserver.research;
 
 import de.bund.zrb.mcpserver.browser.BrowserSession;
+import de.bund.zrb.support.ScriptHelper;
 import de.bund.zrb.type.script.WDEvaluateResult;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -15,18 +17,22 @@ import java.util.logging.Logger;
  * This runs after navigation and before the DOM snapshot so the snapshot captures
  * the page content without the cookie overlay.
  * <p>
- * The approach is best-effort: if no banner is found, nothing happens.
- * If clicking fails, it's silently ignored.
+ * Selectors and dismiss script are configurable via {@link #setSelectors(List)} and
+ * {@link #setDismissScript(String)}. Defaults are loaded from the classpath resource
+ * {@code scripts/cookie-banner-dismiss.js}.
  */
 public class CookieBannerDismisser {
 
     private static final Logger LOG = Logger.getLogger(CookieBannerDismisser.class.getName());
 
+    /** JS template loaded from classpath (contains %SELECTORS_JSON% placeholder). */
+    private static final String DEFAULT_SCRIPT_TEMPLATE = ScriptHelper.loadScript("scripts/cookie-banner-dismiss.js");
+
     /**
-     * CSS selectors for common cookie consent "Accept All" buttons.
+     * Default CSS selectors for common cookie consent "Accept All" buttons.
      * Ordered by specificity – most common frameworks first.
      */
-    private static final List<String> CONSENT_SELECTORS = Arrays.asList(
+    public static final List<String> DEFAULT_SELECTORS = Collections.unmodifiableList(Arrays.asList(
             // OneTrust (very common)
             "#onetrust-accept-btn-handler",
             // Cookiebot
@@ -56,11 +62,43 @@ public class CookieBannerDismisser {
             "[class*='consent-banner'] button:first-of-type",
             "[id*='cookie-banner'] button:first-of-type",
             "[id*='consent-banner'] button:first-of-type"
-    );
+    ));
+
+    // ── Configurable state (singleton-style for plugin settings) ──
+
+    private static volatile List<String> customSelectors = null;
+    private static volatile String customDismissScript = null;
+
+    /**
+     * Override the default CSS selectors.
+     * Pass {@code null} to revert to defaults.
+     */
+    public static void setSelectors(List<String> selectors) {
+        customSelectors = selectors;
+    }
+
+    /**
+     * Override the default dismiss JS template.
+     * Must contain {@code %SELECTORS_JSON%} placeholder.
+     * Pass {@code null} to revert to default template.
+     */
+    public static void setDismissScript(String script) {
+        customDismissScript = script;
+    }
+
+    /** Get the currently active selectors (custom or default). */
+    public static List<String> getActiveSelectors() {
+        return customSelectors != null ? customSelectors : DEFAULT_SELECTORS;
+    }
+
+    /** Get the currently active script template (custom or default). */
+    public static String getActiveScriptTemplate() {
+        return customDismissScript != null ? customDismissScript : DEFAULT_SCRIPT_TEMPLATE;
+    }
 
     /**
      * Try to dismiss a cookie banner by clicking the first matching accept button.
-     * Waits briefly for the banner to appear, then tries each selector.
+     * Uses the configured (or default) selectors and script.
      *
      * @param session the browser session
      * @return true if a button was clicked, false otherwise
@@ -71,39 +109,21 @@ public class CookieBannerDismisser {
         }
 
         try {
-            // Build a JS snippet that tries each selector and clicks the first visible match
-            StringBuilder js = new StringBuilder();
-            js.append("(function() {\n");
-            js.append("  var selectors = [\n");
-            for (int i = 0; i < CONSENT_SELECTORS.size(); i++) {
-                js.append("    '").append(escapeJs(CONSENT_SELECTORS.get(i))).append("'");
-                if (i < CONSENT_SELECTORS.size() - 1) js.append(",");
-                js.append("\n");
-            }
-            js.append("  ];\n");
-            js.append("  for (var i = 0; i < selectors.length; i++) {\n");
-            js.append("    try {\n");
-            js.append("      var el = document.querySelector(selectors[i]);\n");
-            js.append("      if (el && el.offsetParent !== null) {\n");
-            js.append("        el.click();\n");
-            js.append("        return 'clicked:' + selectors[i];\n");
-            js.append("      }\n");
-            js.append("    } catch(e) {}\n");
-            js.append("  }\n");
-            // Fallback: look for buttons with accept-related text
-            js.append("  var buttons = document.querySelectorAll('button, a[role=button], [class*=btn]');\n");
-            js.append("  for (var j = 0; j < buttons.length && j < 50; j++) {\n");
-            js.append("    var txt = (buttons[j].innerText || '').toLowerCase().trim();\n");
-            js.append("    if ((txt.indexOf('accept') >= 0 || txt.indexOf('akzeptier') >= 0 || txt.indexOf('agree') >= 0 || txt.indexOf('alle annehmen') >= 0 || txt.indexOf('zustimmen') >= 0) ");
-            js.append("        && buttons[j].offsetParent !== null) {\n");
-            js.append("      buttons[j].click();\n");
-            js.append("      return 'clicked-text:' + txt;\n");
-            js.append("    }\n");
-            js.append("  }\n");
-            js.append("  return 'none';\n");
-            js.append("})();\n");
+            List<String> selectors = getActiveSelectors();
+            String template = getActiveScriptTemplate();
 
-            WDEvaluateResult result = session.evaluate(js.toString(), false);
+            // Build selectors JSON array
+            StringBuilder jsonArr = new StringBuilder("[");
+            for (int i = 0; i < selectors.size(); i++) {
+                if (i > 0) jsonArr.append(",");
+                jsonArr.append("'").append(escapeJs(selectors.get(i))).append("'");
+            }
+            jsonArr.append("]");
+
+            // Inject selectors into template
+            String js = template.replace("%SELECTORS_JSON%", jsonArr.toString());
+
+            WDEvaluateResult result = session.evaluate(js, false);
 
             if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
                 String value = ((WDEvaluateResult.WDEvaluateResultSuccess) result)
@@ -130,4 +150,3 @@ public class CookieBannerDismisser {
         return s.replace("\\", "\\\\").replace("'", "\\'");
     }
 }
-

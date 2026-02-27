@@ -5,11 +5,14 @@ import com.google.gson.JsonObject;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.mcpserver.tool.McpServerTool;
 import de.bund.zrb.mcpserver.tool.ToolResult;
+import de.bund.zrb.support.ScriptHelper;
 
 /**
  * Type text into an element identified by a NodeRef ID.
  */
 public class BrowseTypeTool implements McpServerTool {
+
+    private static final String JS_SUBMIT = ScriptHelper.loadScript("scripts/submit-form.js");
 
     @Override
     public String name() {
@@ -77,22 +80,16 @@ public class BrowseTypeTool implements McpServerTool {
             session.typeNodeRef(ref, text, clearFirst);
 
             if (submit) {
-                // Submit by dispatching Enter keypress + form submit
+                // Submit by dispatching Enter keypress + form submit via this-binding
                 de.bund.zrb.mcpserver.browser.NodeRefRegistry.Entry entry =
                         session.getNodeRefRegistry().resolve(ref);
                 de.bund.zrb.type.script.WDTarget target =
                         new de.bund.zrb.type.script.WDTarget.ContextTarget(
                                 new de.bund.zrb.type.browsingContext.WDBrowsingContext(session.getContextId()));
-                java.util.List<de.bund.zrb.type.script.WDLocalValue> args =
-                        java.util.Collections.<de.bund.zrb.type.script.WDLocalValue>singletonList(entry.sharedRef);
                 session.getDriver().script().callFunction(
-                        "function(el){"
-                      + "el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}));"
-                      + "el.dispatchEvent(new KeyboardEvent('keypress',{key:'Enter',code:'Enter',bubbles:true}));"
-                      + "el.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true}));"
-                      + "var f=el.closest('form');if(f)f.submit();"
-                      + "}",
-                        true, target, args);
+                        JS_SUBMIT, true, target,
+                        java.util.Collections.<de.bund.zrb.type.script.WDLocalValue>emptyList(),
+                        entry.sharedRef);
 
                 // Wait for navigation/response
                 try { Thread.sleep(500); } catch (InterruptedException ignored) {}

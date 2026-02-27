@@ -1,6 +1,7 @@
 package de.bund.zrb.mcpserver.research;
 
 import de.bund.zrb.mcpserver.browser.BrowserSession;
+import de.bund.zrb.support.ScriptHelper;
 import de.bund.zrb.type.script.WDEvaluateResult;
 
 import java.util.ArrayList;
@@ -11,16 +12,11 @@ import java.util.logging.Logger;
 /**
  * Extracts interactive form elements from the current page via browser JS.
  * Returns elements with their NodeRef IDs so the bot can use web_type / web_click.
- * <p>
- * Runs after navigation + cookie dismissal, captures:
- * - Text inputs, search fields, password fields
- * - Textareas
- * - Buttons (submit, button type)
- * - Select dropdowns
  */
 public class InteractiveElementExtractor {
 
     private static final Logger LOG = Logger.getLogger(InteractiveElementExtractor.class.getName());
+    private static final String JS_EXTRACT = ScriptHelper.loadScript("scripts/interactive-element-extract.js");
 
     /**
      * Extract visible interactive elements from the current page.
@@ -34,8 +30,7 @@ public class InteractiveElementExtractor {
         if (session == null || session.getDriver() == null) return elements;
 
         try {
-            String js = buildExtractionScript();
-            WDEvaluateResult result = session.evaluate(js, false);
+            WDEvaluateResult result = session.evaluate(JS_EXTRACT, false);
 
             if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
                 String json = ((WDEvaluateResult.WDEvaluateResultSuccess) result)
@@ -52,45 +47,6 @@ public class InteractiveElementExtractor {
         return elements;
     }
 
-    private static String buildExtractionScript() {
-        return "(function() {\n"
-             + "  var results = [];\n"
-             + "  var selector = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]),"
-             + "textarea, button, [type=submit], select';\n"
-             + "  var els = document.querySelectorAll(selector);\n"
-             + "  for (var i = 0; i < els.length && results.length < 20; i++) {\n"
-             + "    var el = els[i];\n"
-             + "    if (el.offsetParent === null && el.style.display !== 'contents') continue;\n" // not visible
-             + "    var tag = el.tagName.toLowerCase();\n"
-             + "    var type = (el.type || '').toLowerCase();\n"
-             + "    var name = el.name || '';\n"
-             + "    var placeholder = el.placeholder || '';\n"
-             + "    var ariaLabel = el.getAttribute('aria-label') || '';\n"
-             + "    var label = '';\n"
-             // Try to find associated label
-             + "    if (el.id) {\n"
-             + "      var lbl = document.querySelector('label[for=\"'+el.id+'\"]');\n"
-             + "      if (lbl) label = lbl.innerText || '';\n"
-             + "    }\n"
-             + "    if (!label && el.closest('label')) label = el.closest('label').innerText || '';\n"
-             + "    var text = (tag === 'button' || type === 'submit') ? (el.innerText || el.value || '') : '';\n"
-             + "    var elType = tag;\n"
-             + "    if (tag === 'input') elType = type || 'text';\n"
-             + "    results.push({\n"
-             + "      idx: i,\n"
-             + "      tag: tag,\n"
-             + "      elType: elType,\n"
-             + "      name: name.substring(0, 50),\n"
-             + "      placeholder: placeholder.substring(0, 80),\n"
-             + "      ariaLabel: ariaLabel.substring(0, 80),\n"
-             + "      label: (label || '').trim().substring(0, 80),\n"
-             + "      text: (text || '').trim().substring(0, 80),\n"
-             + "      value: (el.value || '').substring(0, 30)\n"
-             + "    });\n"
-             + "  }\n"
-             + "  return JSON.stringify(results);\n"
-             + "})();\n";
-    }
 
     /**
      * Register each extracted element in the NodeRefRegistry using locateNodes

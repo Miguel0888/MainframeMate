@@ -2,6 +2,7 @@ package de.bund.zrb.websearch.ui;
 
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.mcpserver.browser.BrowserLauncher;
+import de.bund.zrb.mcpserver.research.CookieBannerDismisser;
 import de.bund.zrb.mcpserver.research.NetworkIngestionPipeline;
 import de.bund.zrb.mcpserver.research.ResearchSession;
 import de.bund.zrb.mcpserver.research.ResearchSessionManager;
@@ -42,6 +43,8 @@ public class WebSearchSettingsDialog extends JDialog {
     private final JSpinner debugPortSpinner;
     private final JTextArea whitelistArea;
     private final JTextArea blacklistArea;
+    private final JTextArea cookieSelectorsArea;
+    private final JTextArea cookieScriptArea;
 
     // ---- WebSocket Logging & Live Stats ----
     private final JCheckBox wsLoggingCheckbox;
@@ -216,19 +219,66 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.fill = GridBagConstraints.BOTH;
         form.add(blacklistScroll, gbc);
 
+        // ── Cookie-Banner Selektoren ─────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 8; gbc.gridwidth = 1; gbc.weightx = 0;
+        gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        JLabel cookieLabel = new JLabel("<html>Cookie-Banner<br><small>(CSS-Selektoren)</small>:</html>");
+        cookieLabel.setToolTipText("CSS-Selektoren für Cookie-Accept-Buttons (einer pro Zeile). Leer = Defaults.");
+        form.add(cookieLabel, gbc);
+
+        String defaultSelectorsText = String.join("\n", CookieBannerDismisser.DEFAULT_SELECTORS);
+        String savedSelectors = settings.getOrDefault("cookieSelectors", defaultSelectorsText);
+        cookieSelectorsArea = new JTextArea(savedSelectors, 4, 30);
+        cookieSelectorsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        cookieSelectorsArea.setToolTipText("CSS-Selektoren für Cookie-Consent-Buttons.\nEin Selektor pro Zeile. Leer = Defaults verwenden.");
+        JScrollPane cookieSelScroll = new JScrollPane(cookieSelectorsArea);
+        gbc.gridx = 1; gbc.weightx = 1; gbc.weighty = 0.2;
+        gbc.fill = GridBagConstraints.BOTH;
+        form.add(cookieSelScroll, gbc);
+
+        // ── Cookie-Banner Script ─────────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 9; gbc.weightx = 0; gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        JLabel cookieScriptLabel = new JLabel("<html>Cookie-Dismiss<br><small>(JS-Script)</small>:</html>");
+        cookieScriptLabel.setToolTipText("Custom JS-Script zur Cookie-Banner-Dismissal. Muss %SELECTORS_JSON% Platzhalter enthalten. Leer = Default.");
+        form.add(cookieScriptLabel, gbc);
+
+        String savedScript = settings.getOrDefault("cookieDismissScript", "");
+        cookieScriptArea = new JTextArea(savedScript, 3, 30);
+        cookieScriptArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        cookieScriptArea.setToolTipText("Benutzerdefiniertes JS. Muss %SELECTORS_JSON% enthalten.\nLeer = Standard-Script verwenden.");
+        JScrollPane cookieScriptScroll = new JScrollPane(cookieScriptArea);
+        gbc.gridx = 1; gbc.weightx = 1; gbc.weighty = 0.15;
+        gbc.fill = GridBagConstraints.BOTH;
+        form.add(cookieScriptScroll, gbc);
+
+        JPanel cookieResetPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        JButton resetSelectorsBtn = new JButton("↺ Selektoren zurücksetzen");
+        resetSelectorsBtn.addActionListener(e -> cookieSelectorsArea.setText(defaultSelectorsText));
+        JButton resetScriptBtn = new JButton("↺ Script zurücksetzen");
+        resetScriptBtn.addActionListener(e -> cookieScriptArea.setText(""));
+        cookieResetPanel.add(resetSelectorsBtn);
+        cookieResetPanel.add(Box.createHorizontalStrut(8));
+        cookieResetPanel.add(resetScriptBtn);
+        gbc.gridx = 1; gbc.gridy = 10; gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        form.add(cookieResetPanel, gbc);
+
         // ── Debug: WebSocket-Logging & Live-Stats ───────────────────
-        gbc.gridx = 0; gbc.gridy = 8; gbc.gridwidth = 2; gbc.weightx = 1;
+        gbc.gridx = 0; gbc.gridy = 11; gbc.gridwidth = 2; gbc.weightx = 1;
         gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.WEST;
         JSeparator sep = new JSeparator();
         form.add(sep, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 9; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 12; gbc.gridwidth = 2;
         JLabel debugSectionLabel = new JLabel("Debug / WebSocket");
         debugSectionLabel.setFont(debugSectionLabel.getFont().deriveFont(Font.BOLD, 12f));
         form.add(debugSectionLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 10; gbc.gridwidth = 1; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 13; gbc.gridwidth = 1; gbc.weightx = 0;
         form.add(new JLabel("WS-Logging:"), gbc);
 
         wsLoggingCheckbox = new JCheckBox("WebSocket-Frame-Logging aktivieren");
@@ -247,35 +297,35 @@ public class WebSearchSettingsDialog extends JDialog {
         wsLastRxLabel = createStatsLabel();
         wsCongestionLabel = createStatsLabel();
 
-        gbc.gridx = 0; gbc.gridy = 11; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 14; gbc.weightx = 0;
         form.add(new JLabel("Empfangene Frames:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsRxCountLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 12; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 15; gbc.weightx = 0;
         form.add(new JLabel("Gesendete Frames:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsTxCountLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 13; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 16; gbc.weightx = 0;
         form.add(new JLabel("Letzte Nachricht:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsLastRxLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 14; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 17; gbc.weightx = 0;
         form.add(new JLabel("Congestion-Status:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsCongestionLabel, gbc);
 
         // ── Pipeline Status ─────────────────────────────────────────
         wsPipelineStatusLabel = createStatsLabel();
-        gbc.gridx = 0; gbc.gridy = 15; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 18; gbc.weightx = 0;
         form.add(new JLabel("Pipeline:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsPipelineStatusLabel, gbc);
 
         // ── Kill Intercepts Button ──────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 16; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 19; gbc.weightx = 0;
         form.add(new JLabel("Notfall:"), gbc);
 
         wsKillInterceptsButton = new JButton("🚨 Pipeline stoppen & zurücksetzen");
@@ -513,6 +563,13 @@ public class WebSearchSettingsDialog extends JDialog {
         settings.put("debugPort", String.valueOf(debugPortSpinner.getValue()));
         settings.put("urlWhitelist", whitelistArea.getText());
         settings.put("urlBlacklist", blacklistArea.getText());
+
+        // Cookie-Banner settings
+        String selectors = cookieSelectorsArea.getText().trim();
+        settings.put("cookieSelectors", selectors);
+        String script = cookieScriptArea.getText().trim();
+        settings.put("cookieDismissScript", script);
+
         context.savePluginSettings(PLUGIN_KEY, settings);
 
         // Apply timeout to system properties so tools pick it up immediately
@@ -520,6 +577,27 @@ public class WebSearchSettingsDialog extends JDialog {
 
         // Reload URL boundary checker with new settings
         BrowserToolAdapter.reloadBoundaries(settings);
+
+        // Apply Cookie-Banner settings to CookieBannerDismisser
+        applyCookieBannerSettings(selectors, script);
+    }
+
+    /** Apply cookie-banner configuration from saved settings. */
+    public static void applyCookieBannerSettings(String selectors, String script) {
+        if (selectors != null && !selectors.isEmpty()) {
+            java.util.List<String> list = new java.util.ArrayList<>();
+            for (String line : selectors.split("\\n")) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    list.add(trimmed);
+                }
+            }
+            CookieBannerDismisser.setSelectors(list.isEmpty() ? null : list);
+        } else {
+            CookieBannerDismisser.setSelectors(null);
+        }
+        CookieBannerDismisser.setDismissScript(
+                script != null && !script.isEmpty() ? script : null);
     }
 
     /**

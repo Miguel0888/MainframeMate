@@ -46,6 +46,17 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         registerSnapshotArchivingCallback();
         // Register run lifecycle callback for Data Lake run management
         registerRunLifecycleCallback();
+
+        // Load and apply cookie-banner settings
+        try {
+            java.util.Map<String, String> settings = mainFrame.loadPluginSettings("webSearch");
+            de.bund.zrb.websearch.ui.WebSearchSettingsDialog.applyCookieBannerSettings(
+                    settings.getOrDefault("cookieSelectors", ""),
+                    settings.getOrDefault("cookieDismissScript", ""));
+        } catch (Exception e) {
+            LOG.fine("[WebSearchPlugin] No saved cookie-banner settings – using defaults");
+        }
+
         LOG.info("[WebSearchPlugin] Initialized with " + tools.size() + " tools");
     }
 

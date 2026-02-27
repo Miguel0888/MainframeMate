@@ -10,6 +10,7 @@ import de.bund.zrb.type.browsingContext.WDBrowsingContext;
 import de.bund.zrb.type.browsingContext.WDLocator;
 import de.bund.zrb.type.browsingContext.WDReadinessState;
 import de.bund.zrb.type.script.*;
+import de.bund.zrb.support.ScriptHelper;
 
 import de.bund.zrb.type.log.WDLogEntry;
 import de.bund.zrb.type.session.WDSubscriptionRequest;
@@ -30,6 +31,13 @@ import java.util.logging.Logger;
 public class BrowserSession {
 
     private static final Logger LOG = Logger.getLogger(BrowserSession.class.getName());
+
+    // ── Cached external JS scripts (loaded once from classpath) ──
+    private static final String JS_CLICK_NODE = ScriptHelper.loadScript("scripts/click-node.js");
+    private static final String JS_TYPE_NODE = ScriptHelper.loadScript("scripts/type-node.js");
+    private static final String JS_SELECT_OPTION = ScriptHelper.loadScript("scripts/select-option-node.js");
+    private static final String JS_ENRICH_NODE = ScriptHelper.loadScript("scripts/enrich-node.js");
+    private static final String JS_SCROLL_INTO_VIEW = ScriptHelper.loadScript("scripts/scroll-into-view.js");
 
     private WDWebSocket webSocket;
     private WebDriver driver;
@@ -281,7 +289,6 @@ public class BrowserSession {
 
     public void clickElement(String cssSelector, String ctxId) {
         String ctx = resolveContext(ctxId);
-        // Locate the element
         WDBrowsingContextResult.LocateNodesResult nodes = locateNodes(cssSelector, 1, ctx);
         if (nodes.getNodes() == null || nodes.getNodes().isEmpty()) {
             throw new RuntimeException("No element found for selector: " + cssSelector);
@@ -289,23 +296,16 @@ public class BrowserSession {
         WDRemoteValue.NodeRemoteValue node = nodes.getNodes().get(0);
         WDRemoteReference.SharedReference sharedRef = node.getSharedIdReference();
 
-        // Click via callFunction with the element as argument
         WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
-        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(sharedRef);
         driver.script().callFunction(
-                "function(el) { el.click(); }",
-                true,
-                target,
-                args
-        );
+                JS_CLICK_NODE, true, target,
+                Collections.<WDLocalValue>emptyList(), sharedRef);
     }
 
     // ── Type into element ───────────────────────────────────────────
 
     public void typeIntoElement(String cssSelector, String text, boolean clearFirst, String ctxId) {
         String ctx = resolveContext(ctxId);
-
-        // Locate the element
         WDBrowsingContextResult.LocateNodesResult nodes = locateNodes(cssSelector, 1, ctx);
         if (nodes.getNodes() == null || nodes.getNodes().isEmpty()) {
             throw new RuntimeException("No element found for selector: " + cssSelector);
@@ -314,22 +314,11 @@ public class BrowserSession {
         WDRemoteReference.SharedReference sharedRef = node.getSharedIdReference();
         WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
 
-        // Focus + optional clear + set value via JS
-        StringBuilder js = new StringBuilder();
-        js.append("function(el, text, clear) { ");
-        js.append("  el.focus(); ");
-        js.append("  if (clear) { el.value = ''; } ");
-        js.append("  el.value += text; ");
-        js.append("  el.dispatchEvent(new Event('input', {bubbles: true})); ");
-        js.append("  el.dispatchEvent(new Event('change', {bubbles: true})); ");
-        js.append("}");
-
         List<WDLocalValue> args = new java.util.ArrayList<WDLocalValue>();
-        args.add(sharedRef);
         args.add(new WDPrimitiveProtocolValue.StringValue(text));
         args.add(new WDPrimitiveProtocolValue.BooleanValue(clearFirst));
 
-        driver.script().callFunction(js.toString(), true, target, args);
+        driver.script().callFunction(JS_TYPE_NODE, true, target, args, sharedRef);
     }
 
     // ── Close ───────────────────────────────────────────────────────
@@ -642,33 +631,9 @@ public class BrowserSession {
             try {
                 NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(ref.getId());
                 WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(ctx));
-                List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
                 WDEvaluateResult result = driver.script().callFunction(
-                        "function(el){"
-                      + "var tag=el.tagName.toLowerCase();"
-                      + "var al=el.getAttribute('aria-label')||'';"
-                      + "var ph=el.getAttribute('placeholder')||'';"
-                      + "var tt=el.getAttribute('title')||'';"
-                      + "var tp=el.getAttribute('type')||'';"
-                      + "var nm=el.getAttribute('name')||'';"
-                      + "var hr='';"
-                      + "try{var rawHr=el.getAttribute('href')||'';"
-                      + "if(tag==='a'&&el.href){hr=el.href;}"
-                      + "else if(rawHr&&rawHr.length>0){try{hr=new URL(rawHr,window.location.href).href;}catch(ue){hr=rawHr;}}"
-                      + "}catch(e){}"
-                      + "var vl=(el.value||'').substring(0,20);"
-                      + "var tx=(el.innerText||el.textContent||'').trim().substring(0,50).replace(/\\n/g,' ');"
-                      + "var d=tp?tag+'['+tp+']':tag;"
-                      + "if(nm)d+='[name='+nm+']';"
-                      + "if(al)d+=' \"'+al+'\"';"
-                      + "else if(ph)d+=' \"'+ph+'\"';"
-                      + "else if(tt)d+=' \"'+tt+'\"';"
-                      + "else if(tx.length>0)d+=' \"'+tx.substring(0,40)+'\"';"
-                      + "if(hr&&hr.indexOf('javascript:')<0)d+=' ->'+(hr.length>200?hr.substring(0,200):hr);"
-                      + "if(vl&&(tag==='input'||tag==='textarea'))d+=' val=\"'+vl+'\"';"
-                      + "return d;"
-                      + ";}",
-                        true, target, args);
+                        JS_ENRICH_NODE, true, target,
+                        Collections.<WDLocalValue>emptyList(), entry.sharedRef);
                 if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
                     String desc = ((WDEvaluateResult.WDEvaluateResultSuccess) result).getResult().asString();
                     if (desc != null && !desc.isEmpty() && !desc.startsWith("[Object:")) {
@@ -692,10 +657,9 @@ public class BrowserSession {
     public void clickNodeRef(String nodeRefId) {
         NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
         WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
-        List<WDLocalValue> args = Collections.<WDLocalValue>singletonList(entry.sharedRef);
         driver.script().callFunction(
-                "function(el) { el.scrollIntoView({block:'center'}); el.click(); }",
-                true, target, args);
+                JS_CLICK_NODE, true, target,
+                Collections.<WDLocalValue>emptyList(), entry.sharedRef);
     }
 
     /**
@@ -705,14 +669,9 @@ public class BrowserSession {
         NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
         WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
         List<WDLocalValue> args = new ArrayList<WDLocalValue>();
-        args.add(entry.sharedRef);
         args.add(new WDPrimitiveProtocolValue.StringValue(text));
         args.add(new WDPrimitiveProtocolValue.BooleanValue(clearFirst));
-        driver.script().callFunction(
-                "function(el,text,clear){el.focus();if(clear){el.value='';}el.value+=text;"
-              + "el.dispatchEvent(new Event('input',{bubbles:true}));"
-              + "el.dispatchEvent(new Event('change',{bubbles:true}));}",
-                true, target, args);
+        driver.script().callFunction(JS_TYPE_NODE, true, target, args, entry.sharedRef);
     }
 
     /**
@@ -722,37 +681,14 @@ public class BrowserSession {
         NodeRefRegistry.Entry entry = nodeRefRegistry.resolve(nodeRefId);
         WDTarget target = new WDTarget.ContextTarget(new WDBrowsingContext(resolveContext(null)));
 
-        String jsValue;
-        if (value != null) {
-            jsValue = "'" + value.replace("'", "\\'") + "'";
-        } else if (label != null) {
-            jsValue = "'" + label.replace("'", "\\'") + "'";
-        } else if (index != null) {
-            jsValue = String.valueOf(index);
-        } else {
-            throw new IllegalArgumentException("Provide value, label, or index for select");
-        }
-
-        String mode = value != null ? "value" : label != null ? "label" : "index";
+        String modeStr = value != null ? "value" : label != null ? "label" : "index";
+        String valStr = value != null ? value : label != null ? label : (index != null ? String.valueOf(index) : "0");
 
         List<WDLocalValue> args = new ArrayList<WDLocalValue>();
-        args.add(entry.sharedRef);
-        args.add(new WDPrimitiveProtocolValue.StringValue(mode));
-        args.add(new WDPrimitiveProtocolValue.StringValue(jsValue));
+        args.add(new WDPrimitiveProtocolValue.StringValue(modeStr));
+        args.add(new WDPrimitiveProtocolValue.StringValue(valStr));
 
-        driver.script().callFunction(
-                "function(el,mode,val){"
-              + "var opts=el.options;"
-              + "for(var i=0;i<opts.length;i++){"
-              + "  if((mode==='value'&&opts[i].value===val)"
-              + "  ||(mode==='label'&&opts[i].text===val)"
-              + "  ||(mode==='index'&&i===parseInt(val))){"
-              + "    el.selectedIndex=i;break;"
-              + "  }"
-              + "}"
-              + "el.dispatchEvent(new Event('change',{bubbles:true}));"
-              + "}",
-                true, target, args);
+        driver.script().callFunction(JS_SELECT_OPTION, true, target, args, entry.sharedRef);
     }
 
     // ── Internal ────────────────────────────────────────────────────

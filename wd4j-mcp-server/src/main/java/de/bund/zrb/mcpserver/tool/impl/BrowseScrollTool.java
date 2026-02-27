@@ -4,11 +4,14 @@ import com.google.gson.JsonObject;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.mcpserver.tool.McpServerTool;
 import de.bund.zrb.mcpserver.tool.ToolResult;
+import de.bund.zrb.support.ScriptHelper;
 
 /**
  * Scroll the page or to a specific element.
  */
 public class BrowseScrollTool implements McpServerTool {
+
+    private static final String JS_SCROLL_INTO_VIEW = ScriptHelper.loadScript("scripts/scroll-into-view.js");
 
     @Override
     public String name() {
@@ -48,17 +51,16 @@ public class BrowseScrollTool implements McpServerTool {
 
         try {
             if (ref != null) {
-                // Scroll element into view
+                // Scroll element into view via this-binding
                 de.bund.zrb.mcpserver.browser.NodeRefRegistry.Entry entry =
                         session.getNodeRefRegistry().resolve(ref);
                 de.bund.zrb.type.script.WDTarget target =
                         new de.bund.zrb.type.script.WDTarget.ContextTarget(
                                 new de.bund.zrb.type.browsingContext.WDBrowsingContext(session.getContextId()));
-                java.util.List<de.bund.zrb.type.script.WDLocalValue> args =
-                        java.util.Collections.<de.bund.zrb.type.script.WDLocalValue>singletonList(entry.sharedRef);
                 session.getDriver().script().callFunction(
-                        "function(el){el.scrollIntoView({behavior:'smooth',block:'center'});}",
-                        true, target, args);
+                        JS_SCROLL_INTO_VIEW, true, target,
+                        java.util.Collections.<de.bund.zrb.type.script.WDLocalValue>emptyList(),
+                        entry.sharedRef);
                 return ToolResult.text("Scrolled " + ref + " into view.");
             } else {
                 String script;
