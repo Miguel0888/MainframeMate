@@ -155,35 +155,35 @@ public class NetworkIngestionPipeline {
      * No intercepts are used – the browser is never blocked.
      */
     public synchronized void start(IngestionCallback callback) {
-        if (active.get()) {
-            LOG.fine("[NetworkIngestion] Already active for session " + session.getSessionId());
-            return;
-        }
-
-        this.callback = callback;
-
-        try {
-            // 1. Register a response body collector (for getData after responseCompleted)
-            int maxSize = session.getMaxBytesPerDoc();
-            collector = driver.network().addResponseBodyCollector(maxSize);
-            LOG.info("[NetworkIngestion] DataCollector registered: " + collector.value()
-                    + " (maxSize=" + maxSize + ")");
-
-            // 2. Subscribe to responseCompleted events (for relevance check + body fetching)
-            WDSubscriptionRequest completedSubReq = new WDSubscriptionRequest(
-                    Collections.singletonList(WDEventNames.RESPONSE_COMPLETED.getName()));
-            responseCompletedListener = this::handleResponseCompleted;
-            driver.addEventListener(completedSubReq, responseCompletedListener);
-
-            active.set(true);
-            startIngestionWatchdog();
-            LOG.info("[NetworkIngestion] Passive pipeline started for session " + session.getSessionId());
-
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[NetworkIngestion] Failed to start pipeline", e);
-            // Cleanup partial state
-            cleanup();
-        }
+//        if (active.get()) {
+//            LOG.fine("[NetworkIngestion] Already active for session " + session.getSessionId());
+//            return;
+//        }
+//
+//        this.callback = callback;
+//
+//        try {
+//            // 1. Register a response body collector (for getData after responseCompleted)
+//            int maxSize = session.getMaxBytesPerDoc();
+//            collector = driver.network().addResponseBodyCollector(maxSize);
+//            LOG.info("[NetworkIngestion] DataCollector registered: " + collector.value()
+//                    + " (maxSize=" + maxSize + ")");
+//
+//            // 2. Subscribe to responseCompleted events (for relevance check + body fetching)
+//            WDSubscriptionRequest completedSubReq = new WDSubscriptionRequest(
+//                    Collections.singletonList(WDEventNames.RESPONSE_COMPLETED.getName()));
+//            responseCompletedListener = this::handleResponseCompleted;
+//            driver.addEventListener(completedSubReq, responseCompletedListener);
+//
+//            active.set(true);
+//            startIngestionWatchdog();
+//            LOG.info("[NetworkIngestion] Passive pipeline started for session " + session.getSessionId());
+//
+//        } catch (Exception e) {
+//            LOG.log(Level.WARNING, "[NetworkIngestion] Failed to start pipeline", e);
+//            // Cleanup partial state
+//            cleanup();
+//        }
     }
 
     /**
