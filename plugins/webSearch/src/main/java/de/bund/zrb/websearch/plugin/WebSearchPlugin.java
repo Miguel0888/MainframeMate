@@ -125,12 +125,12 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
         // ── Archive/Search/Queue tools (direct McpTool, no browser needed) ──
         list.add(new ResearchDocGetTool());
-        list.add(new ResearchResourceGetTool());
-        list.add(new ResearchSearchTool());
+        list.add(new ResearchResourceGetTool());list.add(new ResearchSearchTool());
         list.add(new ResearchQueueAddTool());
         list.add(new ResearchQueueStatusTool());
 
         // ── Utility tools (no research equivalent, kept as-is) ──
+        list.add(new BrowserToolAdapter(new BrowseClickTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseTypeTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseSelectTool(), browserManager));
         list.add(new BrowserToolAdapter(new BrowseScrollTool(), browserManager));

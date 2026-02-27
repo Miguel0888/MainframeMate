@@ -260,6 +260,23 @@ public class BrowserSession {
         return driver.browsingContext().locateNodes(ctx, locator, maxCount);
     }
 
+    /**
+     * Locate a single element by CSS selector and register it as a NodeRef.
+     * Returns the NodeRef ID (e.g. "n5") or null if not found.
+     */
+    public String registerNodeRef(String cssSelector) {
+        WDBrowsingContextResult.LocateNodesResult nodes = locateNodes(cssSelector, 1);
+        if (nodes.getNodes() == null || nodes.getNodes().isEmpty()) {
+            return null;
+        }
+        WDRemoteValue.NodeRemoteValue node = nodes.getNodes().get(0);
+        WDRemoteReference.SharedReference sharedRef = node.getSharedIdReference();
+        if (sharedRef == null) return null;
+
+        NodeRef ref = nodeRefRegistry.register(cssSelector, "", "", "", true, sharedRef);
+        return ref.getId();
+    }
+
     // ── Click via JS ────────────────────────────────────────────────
 
     public void clickElement(String cssSelector, String ctxId) {

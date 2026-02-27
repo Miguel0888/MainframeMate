@@ -12,12 +12,15 @@ public final class ToolAccessTypeDefaults {
         }
         String n = toolName.toLowerCase();
 
-        // Explicit READ tools (search, navigation, doc retrieval)
+        // Explicit READ tools (search, navigation, doc retrieval, browser interaction)
         if (n.equals("search_index") || n.equals("search_file")
                 || n.equals("research_search") || n.equals("research_doc_get")
                 || n.equals("research_resource_get") || n.equals("research_navigate")
                 || n.equals("research_back") || n.equals("research_forward")
                 || n.equals("research_reload") || n.equals("web_cache_status")
+                || n.equals("web_click") || n.equals("web_type")
+                || n.equals("web_scroll") || n.equals("web_select")
+                || n.equals("web_eval") || n.equals("web_screenshot")
                 || n.equals("grep_search") || n.equals("read_file")
                 || n.equals("stat_path") || n.equals("describe_tool")
                 || n.equals("list_attachments") || n.equals("search_attachments")

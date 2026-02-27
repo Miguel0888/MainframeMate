@@ -155,6 +155,10 @@ public class ResearchNavigateTool implements McpServerTool {
                 rs.setLastNavigationUrl(currentUrl);
             }
 
+            // Extract interactive elements
+            java.util.List<InteractiveElementExtractor.InteractiveElement> interactiveElements =
+                    InteractiveElementExtractor.extract(session);
+
             // Archive the snapshot
             archiveSnapshot(rs, currentUrl != null ? currentUrl : "", html);
 
@@ -162,7 +166,7 @@ public class ResearchNavigateTool implements McpServerTool {
             builder.setHtmlOverride(html, currentUrl != null ? currentUrl : "");
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
-            return buildResponse(view, rs);
+            return buildResponse(view, rs, interactiveElements);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] History action failed", e);
             return ToolResult.error("Action '" + action + "' failed: " + e.getMessage());
@@ -304,7 +308,7 @@ public class ResearchNavigateTool implements McpServerTool {
                         StringBuilder sb = new StringBuilder();
                         sb.append("⚠️ Page loading timed out after ").append(timeoutSeconds)
                           .append("s, showing available content.\n\n");
-                        sb.append(buildResponseText(view, rs));
+                        sb.append(buildResponseText(view, rs, java.util.Collections.<InteractiveElementExtractor.InteractiveElement>emptyList()));
                         return ToolResult.text(sb.toString());
                     }
                 }
@@ -350,6 +354,10 @@ public class ResearchNavigateTool implements McpServerTool {
                 LOG.warning("[research_navigate] DOM snapshot returned null for: " + finalUrl);
             }
 
+            // Extract interactive elements (inputs, buttons) and register as NodeRefs
+            java.util.List<InteractiveElementExtractor.InteractiveElement> interactiveElements =
+                    InteractiveElementExtractor.extract(session);
+
             // Archive the snapshot asynchronously via the callback
             archiveSnapshot(rs, finalUrl != null ? finalUrl : url, html);
 
@@ -357,7 +365,7 @@ public class ResearchNavigateTool implements McpServerTool {
             builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
-            return buildResponse(view, rs);
+            return buildResponse(view, rs, interactiveElements);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] doNavigate failed", e);
             return ToolResult.error("Navigation failed: " + e.getMessage());
@@ -369,8 +377,9 @@ public class ResearchNavigateTool implements McpServerTool {
     //  Response builder
     // ═══════════════════════════════════════════════════════════════
 
-    private ToolResult buildResponse(MenuView view, ResearchSession rs) {
-        ToolResult result = ToolResult.text(buildResponseText(view, rs));
+    private ToolResult buildResponse(MenuView view, ResearchSession rs,
+                                     java.util.List<InteractiveElementExtractor.InteractiveElement> interactiveElements) {
+        ToolResult result = ToolResult.text(buildResponseText(view, rs, interactiveElements));
 
         // Add links as structured JSON so the bot can reliably pick a URL
         if (view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
@@ -390,12 +399,29 @@ public class ResearchNavigateTool implements McpServerTool {
         return result;
     }
 
-    private String buildResponseText(MenuView view, ResearchSession rs) {
+    private String buildResponseText(MenuView view, ResearchSession rs,
+                                     java.util.List<InteractiveElementExtractor.InteractiveElement> interactiveElements) {
         StringBuilder sb = new StringBuilder();
 
         // Page title and URL
         sb.append("Du bist auf: ").append(view.getTitle() != null ? view.getTitle() : "(no title)");
         sb.append(" (").append(view.getUrl() != null ? view.getUrl() : "unknown").append(")\n");
+
+        // Interactive elements (inputs, buttons)
+        if (interactiveElements != null && !interactiveElements.isEmpty()) {
+            sb.append("\n── Interaktive Elemente ──\n");
+            for (InteractiveElementExtractor.InteractiveElement elem : interactiveElements) {
+                if (elem.isInput) {
+                    sb.append("📝 ").append(elem.nodeRefId).append(" [").append(elem.type).append("] ")
+                      .append(elem.description)
+                      .append("  → web_type mit ref=\"").append(elem.nodeRefId).append("\"\n");
+                } else {
+                    sb.append("🔘 ").append(elem.nodeRefId).append(" [").append(elem.type).append("] ")
+                      .append(elem.description)
+                      .append("  → web_click mit ref=\"").append(elem.nodeRefId).append("\"\n");
+                }
+            }
+        }
 
         // Page excerpt
         String excerpt = view.getExcerpt();
