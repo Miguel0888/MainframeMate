@@ -101,21 +101,16 @@ public class NetworkIngestionPipeline {
     private volatile long ingestionWorkerStateTimestamp = 0;
 
     // Async ingestion (single-threaded to avoid overwhelming the browser)
-    // Use a ThreadPoolExecutor so we can query the queue depth for diagnostics.
-    // NOT final: may be replaced after forced shutdown during navigation.
-    private volatile ThreadPoolExecutor ingestionExecutor = createIngestionExecutor();
-
-    private static ThreadPoolExecutor createIngestionExecutor() {
-        return new ThreadPoolExecutor(
-                1, 1, 0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<Runnable>(),
-                r -> {
-                    Thread t = new Thread(r, "NetworkIngestion-worker");
-                    t.setDaemon(true);
-                    return t;
-                }
-        );
-    }
+    // Use a ThreadPoolExecutor so we can query the queue depth for diagnostics
+    private final ThreadPoolExecutor ingestionExecutor = new ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<Runnable>(),
+            r -> {
+                Thread t = new Thread(r, "NetworkIngestion-worker");
+                t.setDaemon(true);
+                return t;
+            }
+    );
 
     // Periodic watchdog for ingestion pipeline – detects stuck getData/disownData calls
     private final ScheduledExecutorService ingestionWatchdog = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -540,22 +535,14 @@ public class NetworkIngestionPipeline {
 
     /**
      * Must be called BEFORE sending a browsingContext.navigate command.
-     * <ol>
-     *   <li>Sets the {@code navigating} flag so new handleResponseCompleted calls are silently dropped.</li>
-     *   <li>Drains queued (not yet started) ingestion tasks.</li>
-     *   <li><b>Waits up to 5 seconds for the currently running ingestion task to finish.</b>
-     *       This is critical: if a {@code getData} call is currently blocking on Firefox,
-     *       sending a {@code browsingContext.navigate} simultaneously causes a browser-internal
-     *       deadlock (Firefox cannot serve both the old-page getData and the navigation).</li>
-     *   <li>If the worker does not finish in time, interrupts it so it aborts its retry loop.</li>
-     *   <li>Removes the DataCollector from the browser to release all buffered response data
-     *       for the old page, preventing memory pressure and stale-data errors.</li>
-     * </ol>
+     * Drains the ingestion queue and sets a flag so that new work items
+     * (getData / disownData for the OLD page) are silently dropped.
+     * This prevents the browser-side deadlock where Firefox cannot
+     * answer old-page network commands while executing a navigation.
      */
     public void prepareForNavigation() {
         navigating = true;
-
-        // 1. Clear queued tasks that haven't started yet (getData/disown for old page)
+        // Clear queued tasks that haven't started yet (getData/disown for old page)
         int drained = 0;
         Runnable task;
         while ((task = ((ThreadPoolExecutor) ingestionExecutor).getQueue().poll()) != null) {
@@ -564,90 +551,15 @@ public class NetworkIngestionPipeline {
         if (drained > 0) {
             System.out.println("[NetworkIngestion] Drained " + drained + " queued tasks before navigation");
         }
-
-        // 2. Wait for the currently active worker to finish (or interrupt it)
-        //    A running getData/disownData call blocks on the WebSocket response from Firefox.
-        //    If we send navigate while Firefox is processing that, the browser deadlocks.
-        long waitStart = System.currentTimeMillis();
-        long maxWaitMs = Long.getLong("websearch.prepareNav.maxWaitMs", 5000);
-        boolean workerFinished = false;
-
-        // Submit a sentinel task – when it runs, we know the previous task has completed
-        final CountDownLatch sentinel = new CountDownLatch(1);
-        try {
-            ingestionExecutor.submit(sentinel::countDown);
-            workerFinished = sentinel.await(maxWaitMs, TimeUnit.MILLISECONDS);
-        } catch (RejectedExecutionException e) {
-            // Executor shut down – nothing to wait for
-            workerFinished = true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        long waitedMs = System.currentTimeMillis() - waitStart;
-
-        if (!workerFinished) {
-            System.err.println("[NetworkIngestion] ⚠️ Ingestion worker did not finish within "
-                    + maxWaitMs + "ms (state='" + ingestionWorkerState + "'), interrupting...");
-            // Drain again (the sentinel + anything new)
-            while ((task = ((ThreadPoolExecutor) ingestionExecutor).getQueue().poll()) != null) {
-                drained++;
-            }
-            // Interrupt the thread pool to abort any blocking getData call
-            ingestionExecutor.shutdownNow();
-            try {
-                ingestionExecutor.awaitTermination(2000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            // Re-create the executor for post-navigation use
-            recreateIngestionExecutor();
-        }
-
-        // 3. Remove the DataCollector to free browser-side memory for the old page.
-        //    This prevents stale getData errors and reduces Firefox's internal bookkeeping
-        //    during the navigation transition.
-        try {
-            if (collector != null) {
-                System.out.println("[TRACE] P-removing DataCollector before navigation");
-                driver.network().removeDataCollector(collector);
-                collector = null;
-            }
-        } catch (Exception e) {
-            System.out.println("[TRACE] P-removeDataCollector failed: " + e.getMessage());
-            collector = null; // Clear reference anyway
-        }
-
-        System.out.println("[TRACE] P-prepareForNavigation drained=" + drained
-                + " workerFinished=" + workerFinished + " waitedMs=" + waitedMs);
+        System.out.println("[TRACE] P-prepareForNavigation drained=" + drained);
     }
 
     /**
      * Called after a navigation is complete and events for the new page should be processed.
-     * Re-creates the DataCollector so that response bodies for the new page are captured.
      */
     public void navigationDone() {
-        // Re-create the DataCollector for the new page
-        try {
-            if (collector == null && active.get()) {
-                int maxSize = session.getMaxBytesPerDoc();
-                collector = driver.network().addResponseBodyCollector(maxSize);
-                System.out.println("[TRACE] P-navigationDone new DataCollector=" + collector.value());
-            }
-        } catch (Exception e) {
-            System.out.println("[TRACE] P-navigationDone DataCollector creation failed: " + e.getMessage());
-        }
-
         navigating = false;
         System.out.println("[TRACE] P-navigationDone");
-    }
-
-    /**
-     * Re-creates the ingestion executor after a forced shutdown during prepareForNavigation.
-     */
-    private void recreateIngestionExecutor() {
-        ingestionExecutor = createIngestionExecutor();
-        System.out.println("[NetworkIngestion] Ingestion executor re-created after forced shutdown.");
     }
 
     // ── Resource category counters ──────────────────────────────────

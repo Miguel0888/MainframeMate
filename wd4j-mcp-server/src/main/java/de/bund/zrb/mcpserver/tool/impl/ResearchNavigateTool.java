@@ -275,11 +275,6 @@ public class ResearchNavigateTool implements McpServerTool {
         } catch (TimeoutException e) {
             System.out.println("[TRACE] N-TIMEOUT url=" + url + " after " + timeoutSeconds + "s");
             LOG.severe("[research_navigate] Timeout after " + timeoutSeconds + "s for: " + url);
-            // Safety: resume pipeline so it doesn't stay stuck in "navigating" mode
-            try {
-                NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-                if (pipeline != null) pipeline.navigationDone();
-            } catch (Exception ignored) {}
             // Try to build menu from whatever HTML the pipeline has cached
             try {
                 NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
@@ -300,14 +295,10 @@ public class ResearchNavigateTool implements McpServerTool {
             session.killBrowserProcess();
             return ToolResult.error("Navigation timeout after " + timeoutSeconds + "s. Browser restarted. Try again.");
         } catch (ExecutionException e) {
-            // Safety: resume pipeline
-            try { NetworkIngestionPipeline p = rs.getNetworkPipeline(); if (p != null) p.navigationDone(); } catch (Exception ignored) {}
             String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
             LOG.warning("[research_navigate] Failed: " + msg);
             return ToolResult.error("Navigation failed: " + msg);
         } catch (InterruptedException e) {
-            // Safety: resume pipeline
-            try { NetworkIngestionPipeline p = rs.getNetworkPipeline(); if (p != null) p.navigationDone(); } catch (Exception ignored) {}
             Thread.currentThread().interrupt();
             return ToolResult.error("Navigation interrupted.");
         } finally {
