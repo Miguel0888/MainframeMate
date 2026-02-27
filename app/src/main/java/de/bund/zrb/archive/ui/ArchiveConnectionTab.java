@@ -1,7 +1,8 @@
 package de.bund.zrb.archive.ui;
 
-import de.bund.zrb.archive.model.ArchiveEntry;
-import de.bund.zrb.archive.model.ArchiveEntryStatus;
+import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.service.ArchiveService;
+import de.bund.zrb.archive.service.ResourceStorageService;
 import de.bund.zrb.archive.store.ArchiveRepository;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -9,33 +10,36 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Connection tab for the Archive system.
- * Shows all archived documents (web snapshots + manually imported files)
- * with a preview panel.
+ * Shows all archived documents (web snapshots) with a preview panel.
+ * Delete: checkboxes in first column; if nothing checked, asks to delete all.
  */
 public class ArchiveConnectionTab implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final ArchiveRepository repo;
-    private final ArchiveTableModel tableModel;
+    private final ResourceStorageService storageService;
+    private final DocumentTableModel tableModel;
     private final JTable archiveTable;
     private final JTextArea previewArea;
     private final JTextField searchField;
     private final JLabel statusLabel;
     private final TabbedPaneManager tabbedPaneManager;
 
+    private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+    static {
+        DATE_FMT.setTimeZone(TimeZone.getTimeZone("Europe/Berlin"));
+    }
+
     public ArchiveConnectionTab(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.repo = ArchiveRepository.getInstance();
+        this.storageService = ArchiveService.getInstance().getStorageService();
         this.mainPanel = new JPanel(new BorderLayout(4, 4));
 
         // ── Toolbar ──
@@ -48,16 +52,11 @@ public class ArchiveConnectionTab implements ConnectionTab {
         searchField.setToolTipText("Archiv durchsuchen...");
         searchField.addActionListener(e -> filterEntries());
 
-        JButton importBtn = new JButton("📥 Import");
-        importBtn.setToolTipText("Datei ins Archiv importieren");
-        importBtn.addActionListener(e -> importFile());
-
         JButton deleteBtn = new JButton("🗑 Löschen");
         deleteBtn.setToolTipText("Markierte oder alle Einträge löschen");
         deleteBtn.addActionListener(e -> deleteEntries());
 
         JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
-        rightButtons.add(importBtn);
         rightButtons.add(deleteBtn);
 
         toolbar.add(refreshBtn, BorderLayout.WEST);
@@ -66,16 +65,16 @@ public class ArchiveConnectionTab implements ConnectionTab {
         mainPanel.add(toolbar, BorderLayout.NORTH);
 
         // ── Table ──
-        tableModel = new ArchiveTableModel();
+        tableModel = new DocumentTableModel();
         archiveTable = new JTable(tableModel);
         archiveTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         // Checkbox column
         archiveTable.getColumnModel().getColumn(0).setMaxWidth(30);
         archiveTable.getColumnModel().getColumn(0).setMinWidth(30);
-        // Icon column
-        archiveTable.getColumnModel().getColumn(1).setMaxWidth(40);
-        // Status column
-        archiveTable.getColumnModel().getColumn(3).setMaxWidth(80);
+        // Kind column
+        archiveTable.getColumnModel().getColumn(2).setMaxWidth(80);
+        // Date column
+        archiveTable.getColumnModel().getColumn(3).setMaxWidth(130);
         archiveTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showPreview();
         });
@@ -102,9 +101,9 @@ public class ArchiveConnectionTab implements ConnectionTab {
     }
 
     private void loadEntries() {
-        List<ArchiveEntry> entries = repo.findAll();
-        tableModel.setEntries(entries);
-        updateStatus(entries);
+        List<ArchiveDocument> docs = repo.findAllDocuments();
+        tableModel.setDocuments(docs);
+        statusLabel.setText(docs.size() + " Dokumente im Archiv");
     }
 
     private void filterEntries() {
@@ -113,17 +112,9 @@ public class ArchiveConnectionTab implements ConnectionTab {
             loadEntries();
             return;
         }
-        String lower = query.toLowerCase();
-        List<ArchiveEntry> all = repo.findAll();
-        List<ArchiveEntry> filtered = new ArrayList<ArchiveEntry>();
-        for (ArchiveEntry e : all) {
-            if (e.getTitle().toLowerCase().contains(lower)
-                    || e.getUrl().toLowerCase().contains(lower)) {
-                filtered.add(e);
-            }
-        }
-        tableModel.setEntries(filtered);
-        updateStatus(filtered);
+        List<ArchiveDocument> docs = repo.searchDocuments(query.trim(), null, 500);
+        tableModel.setDocuments(docs);
+        statusLabel.setText(docs.size() + " Dokumente gefunden");
     }
 
     private void showPreview() {
@@ -132,33 +123,35 @@ public class ArchiveConnectionTab implements ConnectionTab {
             previewArea.setText("");
             return;
         }
-        ArchiveEntry entry = tableModel.getEntry(row);
-        if (entry.getSnapshotPath() != null && !entry.getSnapshotPath().isEmpty()) {
-            try {
-                String home = System.getProperty("user.home");
-                File snapshotFile = new File(home + File.separator + ".mainframemate"
-                        + File.separator + "archive" + File.separator + "snapshots"
-                        + File.separator + entry.getSnapshotPath());
-                if (snapshotFile.exists()) {
-                    byte[] bytes = Files.readAllBytes(snapshotFile.toPath());
-                    previewArea.setText(new String(bytes, StandardCharsets.UTF_8));
-                    previewArea.setCaretPosition(0);
-                    return;
-                }
-            } catch (Exception ex) {
-                previewArea.setText("Fehler: " + ex.getMessage());
-                return;
+        ArchiveDocument doc = tableModel.getDocument(row);
+        StringBuilder sb = new StringBuilder();
+        sb.append("Titel:    ").append(doc.getTitle()).append("\n");
+        sb.append("URL:      ").append(doc.getCanonicalUrl()).append("\n");
+        sb.append("Typ:      ").append(doc.getKind()).append("\n");
+        sb.append("Host:     ").append(doc.getHost()).append("\n");
+        sb.append("Sprache:  ").append(doc.getLanguage()).append("\n");
+        sb.append("Wörter:   ").append(doc.getWordCount()).append("\n");
+        sb.append("Erstellt: ").append(formatTime(doc.getCreatedAt())).append("\n");
+        sb.append("Doc-ID:   ").append(doc.getDocId()).append("\n\n");
+
+        if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
+            sb.append("── Excerpt ──\n").append(doc.getExcerpt()).append("\n\n");
+        }
+
+        // Load full text from stored file
+        if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
+            String text = storageService.readContent(doc.getTextContentPath(), 10000);
+            if (text != null) {
+                sb.append("── Text ──\n").append(text);
             }
         }
-        previewArea.setText("Titel: " + entry.getTitle()
-                + "\nURL: " + entry.getUrl()
-                + "\nStatus: " + entry.getStatus()
-                + "\nMIME: " + entry.getMimeType()
-                + "\n\n(Kein Snapshot gefunden)");
+
+        previewArea.setText(sb.toString());
+        previewArea.setCaretPosition(0);
     }
 
     private void deleteEntries() {
-        List<ArchiveEntry> selected = tableModel.getSelectedEntries();
+        List<ArchiveDocument> selected = tableModel.getSelectedDocuments();
         if (selected.isEmpty()) {
             // Nichts markiert → alles löschen?
             int count = tableModel.getRowCount();
@@ -167,7 +160,7 @@ public class ArchiveConnectionTab implements ConnectionTab {
                     "Es sind keine Einträge markiert.\nAlle " + count + " Einträge löschen?",
                     "Archiv leeren", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result == JOptionPane.YES_OPTION) {
-                repo.deleteAll();
+                repo.deleteAllDocuments();
                 loadEntries();
                 previewArea.setText("");
             }
@@ -176,8 +169,8 @@ public class ArchiveConnectionTab implements ConnectionTab {
                     selected.size() + " markierte Einträge löschen?",
                     "Einträge löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result == JOptionPane.YES_OPTION) {
-                for (ArchiveEntry entry : selected) {
-                    repo.delete(entry.getEntryId());
+                for (ArchiveDocument doc : selected) {
+                    repo.deleteDocument(doc.getDocId());
                 }
                 loadEntries();
                 previewArea.setText("");
@@ -185,115 +178,22 @@ public class ArchiveConnectionTab implements ConnectionTab {
         }
     }
 
-    private void importFile() {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setMultiSelectionEnabled(true);
-        chooser.setDialogTitle("Dateien ins Archiv importieren");
-        int result = chooser.showOpenDialog(mainPanel);
-        if (result == JFileChooser.APPROVE_OPTION) {
-            for (File file : chooser.getSelectedFiles()) {
-                try {
-                    byte[] bytes = Files.readAllBytes(file.toPath());
-                    String content = new String(bytes, StandardCharsets.UTF_8);
-
-                    // Copy file to archive/snapshots/manual/
-                    String home = System.getProperty("user.home");
-                    File manualDir = new File(home + File.separator + ".mainframemate"
-                            + File.separator + "archive" + File.separator + "snapshots" + File.separator + "manual");
-                    if (!manualDir.exists()) manualDir.mkdirs();
-
-                    File target = new File(manualDir, file.getName());
-                    Files.copy(file.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-
-                    ArchiveEntry entry = new ArchiveEntry();
-                    entry.setTitle(file.getName());
-                    entry.setMimeType(guessMimeType(file.getName()));
-                    entry.setSnapshotPath("manual" + File.separator + file.getName());
-                    entry.setContentLength(content.length());
-                    entry.setFileSizeBytes(file.length());
-                    entry.setCrawlTimestamp(System.currentTimeMillis());
-                    entry.setLastIndexed(System.currentTimeMillis());
-                    entry.setStatus(ArchiveEntryStatus.INDEXED);
-                    repo.save(entry);
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(mainPanel,
-                            "Import fehlgeschlagen: " + file.getName() + "\n" + ex.getMessage(),
-                            "Fehler", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-            loadEntries();
-        }
+    private static String formatTime(long epochMillis) {
+        if (epochMillis <= 0) return "–";
+        return DATE_FMT.format(new Date(epochMillis));
     }
 
-    private String guessMimeType(String filename) {
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".pdf")) return "application/pdf";
-        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
-        if (lower.endsWith(".md")) return "text/markdown";
-        if (lower.endsWith(".txt")) return "text/plain";
-        if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        return "application/octet-stream";
-    }
+    // ── ConnectionTab interface ──
 
-    private void updateStatus(List<ArchiveEntry> entries) {
-        long totalSize = 0;
-        for (ArchiveEntry e : entries) totalSize += e.getFileSizeBytes();
-        statusLabel.setText(entries.size() + " Dokumente │ " + formatSize(totalSize));
-    }
-
-    private String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
-        return (bytes / (1024 * 1024)) + " MB";
-    }
-
-
-    // ── ConnectionTab / FtpTab interface ──
-
-    @Override
-    public String getTitle() {
-        return "📦 Archiv";
-    }
-
-    @Override
-    public String getTooltip() {
-        return "Archivierte Webseiten und Dokumente";
-    }
-
-    @Override
-    public JComponent getComponent() {
-        return mainPanel;
-    }
-
-    @Override
-    public void onClose() {
-        // nothing to clean up
-    }
-
-    @Override
-    public void saveIfApplicable() {
-        // read-only tab
-    }
-
-    @Override
-    public String getContent() {
-        return "";
-    }
-
-    @Override
-    public void markAsChanged() {
-        // not applicable
-    }
-
-    @Override
-    public String getPath() {
-        return "archive://";
-    }
-
-    @Override
-    public Type getType() {
-        return Type.CONNECTION;
-    }
+    @Override public String getTitle() { return "📦 Archiv"; }
+    @Override public String getTooltip() { return "Archivierte Webseiten und Dokumente"; }
+    @Override public JComponent getComponent() { return mainPanel; }
+    @Override public void onClose() { /* nothing */ }
+    @Override public void saveIfApplicable() { /* read-only */ }
+    @Override public String getContent() { return ""; }
+    @Override public void markAsChanged() { /* not applicable */ }
+    @Override public String getPath() { return "archive://"; }
+    @Override public Type getType() { return Type.CONNECTION; }
 
     @Override
     public void focusSearchField() {
@@ -308,32 +208,32 @@ public class ArchiveConnectionTab implements ConnectionTab {
 
     // ═══════════════════════════════════════════════════════════
 
-    private static class ArchiveTableModel extends AbstractTableModel {
-        private List<ArchiveEntry> entries = new ArrayList<ArchiveEntry>();
+    private static class DocumentTableModel extends AbstractTableModel {
+        private List<ArchiveDocument> docs = new ArrayList<ArchiveDocument>();
         private final Set<Integer> selectedRows = new HashSet<Integer>();
-        private final String[] COLUMNS = {"✓", "", "Titel", "Status", "URL"};
+        private final String[] COLUMNS = {"✓", "Titel", "Typ", "Erstellt", "Host"};
 
-        void setEntries(List<ArchiveEntry> entries) {
-            this.entries = entries != null ? entries : new ArrayList<ArchiveEntry>();
+        void setDocuments(List<ArchiveDocument> docs) {
+            this.docs = docs != null ? docs : new ArrayList<ArchiveDocument>();
             this.selectedRows.clear();
             fireTableDataChanged();
         }
 
-        ArchiveEntry getEntry(int row) {
-            return entries.get(row);
+        ArchiveDocument getDocument(int row) {
+            return docs.get(row);
         }
 
-        List<ArchiveEntry> getSelectedEntries() {
-            List<ArchiveEntry> result = new ArrayList<ArchiveEntry>();
+        List<ArchiveDocument> getSelectedDocuments() {
+            List<ArchiveDocument> result = new ArrayList<ArchiveDocument>();
             for (int row : selectedRows) {
-                if (row < entries.size()) {
-                    result.add(entries.get(row));
+                if (row < docs.size()) {
+                    result.add(docs.get(row));
                 }
             }
             return result;
         }
 
-        @Override public int getRowCount() { return entries.size(); }
+        @Override public int getRowCount() { return docs.size(); }
         @Override public int getColumnCount() { return COLUMNS.length; }
         @Override public String getColumnName(int col) { return COLUMNS[col]; }
 
@@ -362,15 +262,13 @@ public class ArchiveConnectionTab implements ConnectionTab {
 
         @Override
         public Object getValueAt(int row, int col) {
-            ArchiveEntry e = entries.get(row);
+            ArchiveDocument d = docs.get(row);
             switch (col) {
-                case 0:
-                    return selectedRows.contains(row);
-                case 1:
-                    return e.getUrl() != null && !e.getUrl().isEmpty() ? "🌐" : "📄";
-                case 2: return e.getTitle();
-                case 3: return e.getStatus().name();
-                case 4: return e.getUrl();
+                case 0: return selectedRows.contains(row);
+                case 1: return d.getTitle();
+                case 2: return d.getKind();
+                case 3: return formatTime(d.getCreatedAt());
+                case 4: return d.getHost();
                 default: return "";
             }
         }

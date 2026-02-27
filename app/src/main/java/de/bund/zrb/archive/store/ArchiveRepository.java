@@ -779,6 +779,48 @@ public class ArchiveRepository {
         return r;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Bulk queries for Documents
+    // ═══════════════════════════════════════════════════════════
+
+    public List<ArchiveDocument> findAllDocuments() {
+        List<ArchiveDocument> list = new ArrayList<ArchiveDocument>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_documents ORDER BY created_at DESC");
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) { list.add(mapDocument(rs)); }
+            rs.close(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findAllDocuments failed", e);
+        }
+        return list;
+    }
+
+    public void deleteDocument(String docId) {
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "DELETE FROM archive_documents WHERE doc_id=?");
+            ps.setString(1, docId);
+            ps.executeUpdate(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] deleteDocument failed: " + docId, e);
+        }
+    }
+
+    public void deleteAllDocuments() {
+        try {
+            Statement stmt = getConnection().createStatement();
+            stmt.executeUpdate("DELETE FROM archive_documents");
+            stmt.executeUpdate("DELETE FROM archive_resources");
+            stmt.executeUpdate("DELETE FROM archive_runs");
+            stmt.close();
+            LOG.info("[Archive] All documents, resources and runs deleted");
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] deleteAllDocuments failed", e);
+        }
+    }
+
     public void close() {
         try {
             if (connection != null && !connection.isClosed()) {
