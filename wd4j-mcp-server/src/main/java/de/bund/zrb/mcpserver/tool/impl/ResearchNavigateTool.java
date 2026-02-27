@@ -256,10 +256,14 @@ public class ResearchNavigateTool implements McpServerTool {
         long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
+            System.out.println("[TRACE] N-submitting doNavigate url=" + url + " timeout=" + timeoutSeconds + "s thread=" + Thread.currentThread().getName());
             Future<ToolResult> future = executor.submit(() ->
                     doNavigate(url, rs, session));
-            return future.get(timeoutSeconds, TimeUnit.SECONDS);
+            ToolResult result = future.get(timeoutSeconds, TimeUnit.SECONDS);
+            System.out.println("[TRACE] N1-doNavigate completed url=" + url);
+            return result;
         } catch (TimeoutException e) {
+            System.out.println("[TRACE] N-TIMEOUT url=" + url + " after " + timeoutSeconds + "s");
             LOG.severe("[research_navigate] Timeout after " + timeoutSeconds + "s for: " + url);
             // Try to build menu from whatever HTML the pipeline has cached
             try {
@@ -294,11 +298,13 @@ public class ResearchNavigateTool implements McpServerTool {
 
     private ToolResult doNavigate(String url, ResearchSession rs, BrowserSession session) {
         try {
+            System.out.println("[TRACE] H-enter doNavigate url=" + url + " thread=" + Thread.currentThread().getName());
             // Use NONE readiness to avoid freezing on pages with endless resource loading
             // (ads, tracking scripts, etc.). A fixed delay afterwards lets the page render.
             WDBrowsingContextResult.NavigateResult nav =
                     session.getDriver().browsingContext().navigate(
                             url, session.getContextId(), WDReadinessState.NONE);
+            System.out.println("[TRACE] H1-navigate returned url=" + url);
             String finalUrl = nav.getUrl();
             LOG.info("[research_navigate] Landed on: " + finalUrl);
 
@@ -308,9 +314,11 @@ public class ResearchNavigateTool implements McpServerTool {
             // Fixed delay to let the page load and the NetworkIngestionPipeline
             // intercept + cache the HTML response body. 3s is enough because the
             // pipeline captures via intercept (blocks response, reads body, continues).
+            System.out.println("[TRACE] H2-sleeping 3s for pipeline");
             try { Thread.sleep(3000); } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
+            System.out.println("[TRACE] H3-sleep done, checking pipeline cache");
 
             // Get HTML from the NetworkIngestionPipeline cache (NO evaluate!)
             // The pipeline captures text/html responses via intercept and caches them.
@@ -321,12 +329,15 @@ public class ResearchNavigateTool implements McpServerTool {
                 LOG.warning("[research_navigate] No HTML cached by pipeline for: " + finalUrl);
             }
 
+            System.out.println("[TRACE] H4-building menu view html=" + (html != null ? html.length() + " chars" : "null"));
             MenuViewBuilder builder = new MenuViewBuilder(rs, null);
             builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
+            System.out.println("[TRACE] H5-doNavigate returning");
             return buildResponse(view, rs, null);
         } catch (Exception e) {
+            System.out.println("[TRACE] H-EXCEPTION doNavigate: " + e.getMessage());
             LOG.log(Level.WARNING, "[research_navigate] doNavigate failed", e);
             return ToolResult.error("Navigation failed: " + e.getMessage());
         }
