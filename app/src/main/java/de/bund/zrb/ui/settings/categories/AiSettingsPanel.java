@@ -12,6 +12,7 @@ import java.awt.*;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class AiSettingsPanel extends AbstractSettingsPanel {
@@ -267,6 +268,22 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         s.aiConfig.put("toolPostfix." + selectedMode.name(), aiToolPostfix.getText().trim());
         ModeToolsetDialog.setToolsetSwitchingEnabled(s.aiConfig, selectedMode, toolsetSwitchBox.isSelected());
         s.aiConfig.remove("toolPrefix"); s.aiConfig.remove("toolPostfix");
+
+        // Persist all toolset.* and toolsetSwitch.* keys from the in-memory config
+        // (these are set by ModeToolsetDialog.show() and setToolsetSwitchingEnabled())
+        for (Map.Entry<String, String> entry : settings.aiConfig.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("toolset.") || key.startsWith("toolsetSwitch.")
+                    || key.startsWith("toolPrefix.") || key.startsWith("toolPostfix.")) {
+                // Don't overwrite the currently selected mode's prefix/postfix
+                // (those are taken from the text fields above)
+                if ((key.startsWith("toolPrefix.") || key.startsWith("toolPostfix."))
+                        && key.endsWith("." + selectedMode.name())) {
+                    continue;
+                }
+                s.aiConfig.put(key, entry.getValue());
+            }
+        }
         String selectedLanguage = Objects.toString(aiLanguageCombo.getSelectedItem(), "Deutsch (Standard)");
         if ("Keine Vorgabe".equals(selectedLanguage)) s.aiConfig.put("assistant.language", "none");
         else if ("Englisch".equals(selectedLanguage)) s.aiConfig.put("assistant.language", "en");

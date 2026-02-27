@@ -41,13 +41,20 @@ public class ModeToolsetDialog {
         for (ToolSpec spec : allTools) {
             String name = spec.getName();
             String desc = spec.getDescription();
-            String tooltip = desc != null && desc.length() > 80 ? desc.substring(0, 80) + "…" : desc;
+            String shortDesc = desc != null && desc.length() > 90 ? desc.substring(0, 90) + "…" : desc;
 
-            JCheckBox cb = new JCheckBox(name);
+            // Show name + short description in the checkbox label
+            String label = name + (shortDesc != null && !shortDesc.isEmpty() ? "  –  " + shortDesc : "");
+            JCheckBox cb = new JCheckBox("<html><b>" + name + "</b>"
+                    + (shortDesc != null && !shortDesc.isEmpty()
+                        ? "<br><font color='gray' size='-2'>" + escHtml(shortDesc) + "</font>"
+                        : "")
+                    + "</html>");
             cb.setSelected(enabledTools.isEmpty() || enabledTools.contains(name));
-            cb.setToolTipText(tooltip);
+            cb.setToolTipText(desc != null ? desc : name);
             checkboxes.add(cb);
             checkboxPanel.add(cb);
+            checkboxPanel.add(Box.createVerticalStrut(2));
         }
 
         // Select all / deselect all buttons
@@ -78,7 +85,7 @@ public class ModeToolsetDialog {
         JPanel container = new JPanel(new BorderLayout(0, 4));
         container.add(infoLabel, BorderLayout.NORTH);
         JScrollPane scrollPane = new JScrollPane(checkboxPanel);
-        scrollPane.setPreferredSize(new Dimension(450, 350));
+        scrollPane.setPreferredSize(new Dimension(600, 450));
         container.add(scrollPane, BorderLayout.CENTER);
         container.add(buttonBar, BorderLayout.SOUTH);
 
@@ -151,5 +158,10 @@ public class ModeToolsetDialog {
      */
     public static void setToolsetSwitchingEnabled(Map<String, String> config, ChatMode mode, boolean enabled) {
         config.put("toolsetSwitch." + mode.name(), String.valueOf(enabled));
+    }
+
+    private static String escHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
