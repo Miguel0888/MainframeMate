@@ -121,9 +121,7 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
 //            registerEventListener(eventDispatcher);
         }
         String jsonCommand = gson.toJson(command);
-        System.out.println("[TRACE] K-send cmd=" + command.getName() + " id=" + command.getId() + " thread=" + Thread.currentThread().getName());
         webSocket.send(jsonCommand); // Nachricht senden
-        System.out.println("[TRACE] K1-sent cmd=" + command.getName() + " id=" + command.getId());
     }
 
     /**
@@ -135,7 +133,6 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
      */
     @Override
     public void sendFireAndForget(WDCommand command) {
-        System.out.println("[TRACE] K2-fireAndForget cmd=" + command.getName() + " id=" + command.getId() + " thread=" + Thread.currentThread().getName());
         send(command);
     }
 
@@ -151,8 +148,6 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
     public <T> T sendAndWaitForResponse(final WDCommand command, final Type responseType) {
         final CompletableFuture<WDCommandResponse<?>> future = new CompletableFuture<WDCommandResponse<?>>();
 
-        System.out.println("[TRACE] D-enter sendAndWait cmd=" + command.getName() + " id=" + command.getId() + " thread=" + Thread.currentThread().getName());
-
         // Lambda, die auf die finale Antwort reagiert (wird von receive/Dispatcher aufgerufen)
         receive(command, new Consumer<WDCommandResponse<?>>() {
             @Override
@@ -165,12 +160,10 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
 
         // Befehl senden
         send(command);
-        System.out.println("[TRACE] D1-sent cmd=" + command.getName() + " id=" + command.getId() + ", now waiting...");
 
         try {
             long timeoutSeconds = Long.getLong("wd4j.command.timeout.seconds", 45);
             WDCommandResponse<?> response = future.get(timeoutSeconds, TimeUnit.SECONDS);
-            System.out.println("[TRACE] D2-got response cmd=" + command.getName() + " id=" + command.getId());
 
             // Fehler: hier prüfen und ggf. Exception werfen
             if (response instanceof WDErrorResponse) {
@@ -197,16 +190,13 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
             return gson.fromJson(gson.toJson(result), responseType);
 
         } catch (TimeoutException e) {
-            System.out.println("[TRACE] D-TIMEOUT cmd=" + command.getName() + " id=" + command.getId() + " thread=" + Thread.currentThread().getName());
             responseDispatcher.remove(command.getId());
             throw new RuntimeException("Timeout while waiting for response.", e);
         } catch (InterruptedException e) {
-            System.out.println("[TRACE] D-INTERRUPTED cmd=" + command.getName() + " id=" + command.getId());
             Thread.currentThread().interrupt();
             responseDispatcher.remove(command.getId());
             throw new RuntimeException("Interrupted while waiting for response.", e);
         } catch (ExecutionException e) {
-            System.out.println("[TRACE] D-EXEC_ERROR cmd=" + command.getName() + " id=" + command.getId() + ": " + e.getMessage());
             responseDispatcher.remove(command.getId());
             if (e.getCause() instanceof WDErrorResponse) {
                 throw (WDErrorResponse) e.getCause();
@@ -242,7 +232,6 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
         Consumer<WDCommandResponse<?>> dispatcherCallback = new Consumer<WDCommandResponse<?>>() {
             @Override
             public void accept(WDCommandResponse<?> response) {
-                System.out.println("[TRACE] L-receive callback id=" + commandId + " isError=" + (response instanceof WDErrorResponse) + " thread=" + Thread.currentThread().getName());
                 // Retry-Handling nur für Errors und nur wenn aktiviert
                 if (response instanceof WDErrorResponse && retryEnabled()) {
                     long now = System.currentTimeMillis();
@@ -310,10 +299,8 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
                         }
 
                         int id = json.get("id").getAsInt();
-                        System.out.println("[TRACE] B-enter response-dispatch id=" + id);
                         Consumer<WDCommandResponse<?>> callback = responseDispatcher.get(id);
                         if (callback == null) {
-                            System.out.println("[TRACE] B1-no callback for id=" + id);
                             // Kein wartender Empfänger für diese id
                             return;
                         }
@@ -354,9 +341,7 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
                         // responses (e.g. getData replies) get stuck behind pending events,
                         // causing timeouts and browser freezes.
                         try {
-                            System.out.println("[TRACE] B2-calling callback for id=" + id);
                             callback.accept(response);
-                            System.out.println("[TRACE] B3-callback returned for id=" + id);
                         } catch (Exception e) {
                             System.err.println("[ERROR] Command callback error for id " + id + ": " + e.getMessage());
                         }
@@ -384,27 +369,22 @@ public class WDWebSocketManagerImpl implements WDWebSocketManager {
 
                 // Prüfen, ob es sich um ein Event handelt (kein "id"-Feld)
                 if (json.has("method")) {
-                    String methodName = json.get("method").getAsString();
                     if (Boolean.getBoolean("wd4j.debug")) {
-                        System.out.println("[DEBUG] WebSocketManager detected event: " + methodName);
+                        System.out.println("[DEBUG] WebSocketManager detected event: " + json.get("method").getAsString());
                     }
-                    System.out.println("[TRACE] C-enter event-dispatch method=" + methodName);
                     // Dispatch asynchronously to free the WebSocket thread immediately.
                     // This prevents browser freezes when event handlers (e.g. intercept
                     // continueResponse) take time or trigger further WebSocket sends.
                     dispatchExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
-                            System.out.println("[TRACE] C1-dispatchExecutor running event=" + methodName + " thread=" + Thread.currentThread().getName());
                             try {
                                 eventDispatcher.processEvent(json);
-                                System.out.println("[TRACE] C2-dispatchExecutor done event=" + methodName);
                             } catch (Exception e) {
                                 System.err.println("[ERROR] Event dispatch error: " + e.getMessage());
                             }
                         }
                     });
-                    System.out.println("[TRACE] C3-event queued to executor method=" + methodName);
                 }
             } catch (JsonSyntaxException e) {
                 System.err.println("[ERROR] Failed to parse WebSocket event: " + e.getMessage());

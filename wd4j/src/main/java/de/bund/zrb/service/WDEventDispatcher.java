@@ -47,15 +47,12 @@ public class WDEventDispatcher {
         final String method = jsonMessage.get("method").getAsString();
         final JsonObject params = jsonMessage.has("params") ? jsonMessage.getAsJsonObject("params") : new JsonObject();
 
-        System.out.println("[TRACE] E-enter processEvent method=" + method + " thread=" + Thread.currentThread().getName());
-
         final WDEventNames eventEnum = WDEventNames.fromName(method);
         if (eventEnum == null) {
             System.err.println("[WARN] No event mapping found for event: " + method);
             return;
         }
         dispatchEvent(eventEnum, params);
-        System.out.println("[TRACE] E1-exit processEvent method=" + method);
     }
 
     /**
@@ -76,12 +73,8 @@ public class WDEventDispatcher {
             if (ctxQueue != null && !ctxQueue.isEmpty()) {
                 for (Consumer<Object> l : ctxQueue) {
                     try {
-                        System.out.println("[TRACE] E2-ctx-listener " + eventEnum.getName() + " ctx=" + ctxId + " listener=" + l.getClass().getSimpleName());
-                        long t0 = System.currentTimeMillis();
                         // Comment: Deliver DTO to context-scoped listener
                         l.accept(event);
-                        long dt = System.currentTimeMillis() - t0;
-                        System.out.println("[TRACE] E3-ctx-listener done " + eventEnum.getName() + " (" + dt + " ms)");
                     } catch (Throwable t) {
                         // Log but do not break dispatch chain
                         System.err.println("[WARN] Context event listener threw exception for " + eventEnum.getName() + ": " + t.getMessage());
@@ -95,12 +88,8 @@ public class WDEventDispatcher {
         if (globals != null && !globals.isEmpty()) {
             for (Consumer<Object> listener : globals) {
                 try {
-                    System.out.println("[TRACE] E4-global-listener " + eventEnum.getName() + " listener=" + listener.getClass().getSimpleName());
-                    long t0 = System.currentTimeMillis();
                     // Comment: Deliver DTO to global listener
                     listener.accept(event);
-                    long dt = System.currentTimeMillis() - t0;
-                    System.out.println("[TRACE] E5-global-listener done " + eventEnum.getName() + " (" + dt + " ms)");
                 } catch (Throwable t) {
                     // Log but do not break dispatch chain
                     System.err.println("[WARN] Event listener threw exception for " + eventEnum.getName() + ": " + t.getMessage());

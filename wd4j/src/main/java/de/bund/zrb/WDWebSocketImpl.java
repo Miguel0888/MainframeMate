@@ -141,7 +141,6 @@ public class WDWebSocketImpl implements WDWebSocket {
 
             @Override
             public void onMessage(String message) {
-                System.out.println("[TRACE] A-enter onMessage");
                 long msgNum = messagesReceived.incrementAndGet();
                 long now = System.currentTimeMillis();
                 lastMessageReceivedTimestamp = now;
@@ -161,20 +160,10 @@ public class WDWebSocketImpl implements WDWebSocket {
                 try {
                     WebSocketFrameImpl frame = new WebSocketFrameImpl(message);
 
-                    System.out.println("[TRACE] A1-before listeners (" + onFrameReceivedListeners.size() + " listeners)");
-                    int listenerIdx = 0;
-                    for (Consumer<WebSocketFrame> listener : onFrameReceivedListeners) {
-                        System.out.println("[TRACE] A2-calling listener[" + listenerIdx + "] " + listener.getClass().getSimpleName());
-                        listener.accept(frame);
-                        System.out.println("[TRACE] A3-returned listener[" + listenerIdx + "]");
-                        listenerIdx++;
-                    }
-                    System.out.println("[TRACE] A4-all listeners done");
+                    onFrameReceivedListeners.forEach(listener -> listener.accept(frame));
                 } catch (Exception e) {
-                    System.out.println("[TRACE] A-ERR onMessage: " + e.getMessage());
                     onSocketErrorListeners.forEach(listener -> listener.accept("Error processing WebSocket message: " + e.getMessage()));
                 }
-                System.out.println("[TRACE] A-exit onMessage");
             }
 
             @Override
@@ -208,9 +197,7 @@ public class WDWebSocketImpl implements WDWebSocket {
                             : message;
                     System.out.println("[WebSocket] → OUT #" + msgNum + " (" + message.length() + " chars): " + preview);
                 }
-                System.out.println("[TRACE] I-send #" + msgNum + " thread=" + Thread.currentThread().getName());
                 super.send(message); // Die Nachricht wirklich senden
-                System.out.println("[TRACE] I1-sent #" + msgNum);
 
                 WebSocketFrameImpl frame = new WebSocketFrameImpl(message);
 

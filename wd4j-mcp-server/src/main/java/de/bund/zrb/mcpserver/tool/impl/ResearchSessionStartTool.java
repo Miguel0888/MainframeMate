@@ -188,38 +188,8 @@ public class ResearchSessionStartTool implements McpServerTool {
                 LOG.fine("[research_session_start] Could not update run policy: " + e.getMessage());
             }
 
-            // ── Start Network Ingestion Pipeline (research mode only, once) ──
-            if (mode == ResearchSession.Mode.RESEARCH && session.getDriver() != null
-                    && rs.getNetworkPipeline() == null) {
-                try {
-                    NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(
-                            session.getDriver(), rs);
-
-                    // Use global callback (registered by WebSearchPlugin) or fallback
-                    NetworkIngestionPipeline.IngestionCallback cb =
-                            NetworkIngestionPipeline.getGlobalDefaultCallback();
-                    if (cb == null) {
-                        // Fallback: logging only (no persistence)
-                        cb = new NetworkIngestionPipeline.IngestionCallback() {
-                            @Override
-                            public String onBodyCaptured(String runId, String url, String mimeType, long status,
-                                                         String bodyText, java.util.Map<String, String> headers,
-                                                         long capturedAt) {
-                                LOG.fine("[NetworkIngestion] Captured (no persister): " + url
-                                        + " (" + mimeType + ", " + bodyText.length() + " chars)");
-                                return "net-" + Long.toHexString(capturedAt);
-                            }
-                        };
-                    }
-
-                    pipeline.start(cb);
-                    rs.setNetworkPipeline(pipeline);
-                    LOG.info("[research_session_start] Network ingestion pipeline started");
-                } catch (Exception e) {
-                    LOG.warning("[research_session_start] Network pipeline failed to start: "
-                            + e.getMessage());
-                }
-            }
+            // NetworkIngestionPipeline is no longer used – DOM snapshots are taken
+            // after each navigation by the tools themselves (DomSnapshotFetcher).
 
             return buildSuccessResponse(rs, session.getContextId());
         } catch (Exception e) {
@@ -232,8 +202,6 @@ public class ResearchSessionStartTool implements McpServerTool {
      * Build a consistent success response for an existing or new session.
      */
     private ToolResult buildSuccessResponse(ResearchSession rs, String contextId) {
-        boolean hasPipeline = rs.getNetworkPipeline() != null && rs.getNetworkPipeline().isActive();
-
         StringBuilder text = new StringBuilder();
         text.append("Research session started.\n");
         text.append("  sessionId: ").append(rs.getSessionId()).append("\n");
@@ -243,9 +211,7 @@ public class ResearchSessionStartTool implements McpServerTool {
             text.append("  userContextId: ").append(rs.getUserContextId()).append("\n");
         }
         text.append("  contextId: ").append(contextId).append("\n");
-        if (hasPipeline) {
-            text.append("  networkIngestion: active (auto-archiving HTTP responses)\n");
-        }
+        text.append("  archiving: DOM snapshots (after each navigation)\n");
         text.append("\nSession is ready. NEXT STEP: Call research_navigate with a URL.\n");
         text.append("STOP: Do NOT call research_session_start again.");
 

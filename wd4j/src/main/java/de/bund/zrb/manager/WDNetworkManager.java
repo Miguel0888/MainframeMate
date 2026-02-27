@@ -149,8 +149,6 @@ public class WDNetworkManager implements WDModule {
                                                          de.bund.zrb.type.network.WDRequest request,
                                                          de.bund.zrb.type.network.WDCollector collector,
                                                          java.lang.Boolean disown) {
-        long t0 = System.currentTimeMillis();
-        System.out.println("[TRACE] M-enter getData request=" + (request != null ? request.value() : "null") + " thread=" + Thread.currentThread().getName());
         de.bund.zrb.command.response.WDNetworkGetDataResult result =
                 WDWebSocketManager.sendAndWaitForResponse(
                         new de.bund.zrb.command.request.WDNetworkRequest.GetData(
@@ -158,8 +156,6 @@ public class WDNetworkManager implements WDModule {
                         ),
                         de.bund.zrb.command.response.WDNetworkGetDataResult.class
                 );
-        long dt = System.currentTimeMillis() - t0;
-        System.out.println("[TRACE] M1-exit getData took=" + dt + "ms request=" + (request != null ? request.value() : "null"));
         return result.getBytes();
     }
 
@@ -167,14 +163,10 @@ public class WDNetworkManager implements WDModule {
     public void disownData(de.bund.zrb.type.network.WDDataType dataType,
                            de.bund.zrb.type.network.WDCollector collector,
                            de.bund.zrb.type.network.WDRequest request) {
-        long t0 = System.currentTimeMillis();
-        System.out.println("[TRACE] M2-enter disownData request=" + (request != null ? request.value() : "null") + " thread=" + Thread.currentThread().getName());
         WDWebSocketManager.sendAndWaitForResponse(
                 new de.bund.zrb.command.request.WDNetworkRequest.DisownData(dataType, collector, request),
                 de.bund.zrb.command.response.WDEmptyResult.class
         );
-        long dt = System.currentTimeMillis() - t0;
-        System.out.println("[TRACE] M3-exit disownData took=" + dt + "ms");
     }
 
     /** Remove a data collector. */

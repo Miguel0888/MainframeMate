@@ -78,6 +78,35 @@ public class ResearchSession {
     public String getLastNavigationUrl() { return lastNavigationUrl; }
     public void setLastNavigationUrl(String url) { this.lastNavigationUrl = url; }
 
+    // ── Browser History Tracking ─────────────────────────────────
+    // Tracks the position in the browser's history stack to prevent
+    // traverseHistory(-1) when already at the beginning (which freezes the browser).
+
+    private int historyIndex = 0;   // current position (0 = first page)
+    private int historySize  = 0;   // total entries in history
+
+    /** Called after a successful URL navigation (not back/forward). */
+    public void historyPush() {
+        // New navigation truncates any forward entries
+        historyIndex++;
+        historySize = historyIndex + 1;
+    }
+
+    /** @return true if back is possible (historyIndex > 0) */
+    public boolean canGoBack() { return historyIndex > 0; }
+
+    /** @return true if forward is possible (entries ahead of current position) */
+    public boolean canGoForward() { return historyIndex < historySize - 1; }
+
+    /** Called after a successful back navigation. */
+    public void historyBack() { if (historyIndex > 0) historyIndex--; }
+
+    /** Called after a successful forward navigation. */
+    public void historyForward() { if (historyIndex < historySize - 1) historyIndex++; }
+
+    /** Reset history tracking (e.g. on browser restart). */
+    public void historyReset() { historyIndex = 0; historySize = 0; }
+
     // ── Constructor ─────────────────────────────────────────────────
 
     public ResearchSession(String sessionId, Mode mode) {

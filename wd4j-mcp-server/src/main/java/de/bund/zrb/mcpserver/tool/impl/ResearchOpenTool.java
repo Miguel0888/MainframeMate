@@ -30,44 +30,11 @@ public class ResearchOpenTool implements McpServerTool {
     private static final Logger LOG = Logger.getLogger(ResearchOpenTool.class.getName());
 
     /**
-     * Ensure the NetworkIngestionPipeline is running.
-     * After a browser kill+restart, the pipeline is gone because a new session was created.
-     * This method auto-starts it so research_open works without requiring research_session_start again.
+     * @deprecated Pipeline is no longer used – HTML is fetched via DOM snapshots.
      */
+    @Deprecated
     private void ensurePipeline(ResearchSession rs, BrowserSession session) {
-        NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-        if (pipeline != null && pipeline.isActive()) return;
-
-        if (session.getDriver() == null) return;
-
-        try {
-            NetworkIngestionPipeline newPipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
-
-            NetworkIngestionPipeline.IngestionCallback cb =
-                    NetworkIngestionPipeline.getGlobalDefaultCallback();
-            if (cb == null) {
-                cb = (runId, url, mimeType, status, bodyText, headers, capturedAt) -> {
-                    LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
-                    return "net-" + Long.toHexString(capturedAt);
-                };
-            }
-
-            // Ensure runId exists
-            if (rs.getRunId() == null) {
-                RunLifecycleCallback runCallback = ResearchSessionManager.getRunLifecycleCallback();
-                if (runCallback != null) {
-                    rs.setRunId(runCallback.startRun(rs.getMode().name(), null));
-                } else {
-                    rs.setRunId(java.util.UUID.randomUUID().toString());
-                }
-            }
-
-            newPipeline.start(cb);
-            rs.setNetworkPipeline(newPipeline);
-            LOG.info("[research_open] Auto-started network ingestion pipeline after browser restart");
-        } catch (Exception e) {
-            LOG.warning("[research_open] Failed to auto-start pipeline: " + e.getMessage());
-        }
+        // No-op: NetworkIngestionPipeline has been replaced by DomSnapshotFetcher
     }
 
     @Override
@@ -133,8 +100,9 @@ public class ResearchOpenTool implements McpServerTool {
             // Don't kill browser – try to build menu from current page state instead
             try {
                 ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
-                NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-                MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
+                String html = DomSnapshotFetcher.fetchHtml(session, 0);
+                MenuViewBuilder builder = new MenuViewBuilder(rs);
+                builder.setHtmlOverride(html, url);
                 MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
                 if (view != null && view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
                     LOG.info("[research_open] Timeout recovery: built menu from current page state");
@@ -182,29 +150,16 @@ public class ResearchOpenTool implements McpServerTool {
             String ctx = session.getContextId();
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
 
-            // Ensure pipeline is running (auto-start after browser restart)
-            ensurePipeline(rs, session);
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-
-            // ── Same-URL detection (no JS) ──
-            if (pipeline != null) {
-                String cachedUrl = pipeline.getLastNavigationUrl();
-                if (cachedUrl != null && isSameUrl(cachedUrl, url)) {
-                    LOG.warning("[research_open] REJECTED: Already on " + cachedUrl
-                            + " – bot tried to navigate to same URL again.");
-                    return ToolResult.error(
-                            "BLOCKED: Du bist bereits auf " + cachedUrl
-                          + ". Wähle eine ANDERE URL aus der letzten Antwort.");
-                }
+            // ── Same-URL detection ──
+            String lastUrl = rs.getLastNavigationUrl();
+            if (lastUrl != null && isSameUrl(lastUrl, url)) {
+                LOG.warning("[research_open] REJECTED: Already on " + lastUrl);
+                return ToolResult.error(
+                        "BLOCKED: Du bist bereits auf " + lastUrl
+                      + ". Wähle eine ANDERE URL aus der letzten Antwort.");
             }
 
-            // Clear HTML cache before new navigation
-            if (pipeline != null) {
-                pipeline.clearNavigationCache();
-                // Pre-set the target URL so that after a timeout, same-URL detection
-                // prevents the bot from re-navigating to the same URL endlessly.
-                pipeline.setLastNavigationUrl(url);
-            }
+            rs.setLastNavigationUrl(url);
 
             // Navigate via address bar (URL-based, no JS)
             WDBrowsingContextResult.NavigateResult nav =
@@ -212,10 +167,19 @@ public class ResearchOpenTool implements McpServerTool {
             String finalUrl = nav.getUrl();
             LOG.info("[research_open] Navigation response. Final URL: " + finalUrl);
 
-            // Build menu view from captured HTML via Jsoup (no JS injection)
-            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
-            MenuView view = builder.buildWithSettle(policy,
-                    rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+            // Dismiss cookie banners + fetch DOM snapshot
+            CookieBannerDismisser.tryDismiss(session);
+            String html = DomSnapshotFetcher.fetchHtml(session);
+
+            if (finalUrl != null && !finalUrl.isEmpty()) {
+                rs.setLastNavigationUrl(finalUrl);
+            }
+            rs.historyPush();
+
+            // Build menu view from DOM snapshot via Jsoup
+            MenuViewBuilder builder = new MenuViewBuilder(rs);
+            builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
+            MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
             // Append newly archived doc IDs
             List<String> newDocs = rs.drainNewArchivedDocIds();
@@ -227,16 +191,6 @@ public class ResearchOpenTool implements McpServerTool {
                 }
             }
 
-            // Network traffic summary
-            if (pipeline != null) {
-                Map<String, Integer> cats = pipeline.getCategoryCounts();
-                if (!cats.isEmpty()) {
-                    sb.append("\n── Network traffic ──\n");
-                    for (Map.Entry<String, Integer> e : cats.entrySet()) {
-                        sb.append("  ").append(e.getKey()).append(": ").append(e.getValue()).append("\n");
-                    }
-                }
-            }
 
             sb.append("\n── Next step ──\n");
             sb.append("Read the excerpt above. To follow a link, use research_navigate with the URL. ")

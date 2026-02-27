@@ -6,9 +6,9 @@ import java.util.logging.Logger;
 /**
  * Builds a {@link MenuView} from captured HTML using Jsoup (server-side).
  *
- * <p><b>No browser JS injection.</b> Instead, the HTML body is obtained from
- * {@link NetworkIngestionPipeline}'s cache (the last navigation response)
- * and parsed with {@link HtmlLinkExtractor} to extract links, title, and excerpt.
+ * <p><b>No browser JS injection.</b> Instead, the HTML body is obtained via
+ * DOM snapshot ({@code document.documentElement.outerHTML}) and parsed with
+ * {@link HtmlLinkExtractor} to extract links, title, and excerpt.
  *
  * <p>The bot navigates exclusively via URLs (address bar). The only browser-side
  * interaction is cookie-banner dismissal via CSS selectors.
@@ -18,12 +18,27 @@ public class MenuViewBuilder {
     private static final Logger LOG = Logger.getLogger(MenuViewBuilder.class.getName());
 
     private final ResearchSession researchSession;
+    @Deprecated
     private final NetworkIngestionPipeline pipeline;
 
     // Direct HTML override (bypasses pipeline)
     private String htmlOverride;
     private String urlOverride;
 
+    /**
+     * Create a MenuViewBuilder that works purely with HTML overrides (DOM snapshots).
+     * This is the preferred constructor for the snapshot-based architecture.
+     */
+    public MenuViewBuilder(ResearchSession researchSession) {
+        this.researchSession = researchSession;
+        this.pipeline = null;
+    }
+
+    /**
+     * @deprecated Use {@link #MenuViewBuilder(ResearchSession)} instead.
+     * The pipeline-based approach is no longer active.
+     */
+    @Deprecated
     public MenuViewBuilder(ResearchSession researchSession, NetworkIngestionPipeline pipeline) {
         this.researchSession = researchSession;
         this.pipeline = pipeline;

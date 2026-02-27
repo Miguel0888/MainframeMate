@@ -41,36 +41,32 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         this.browserManager = new WebSearchBrowserManager(mainFrame);
         this.tools = createTools();
 
-        // Register global NetworkIngestionPipeline callback:
-        // captured HTTP response bodies → Data Lake + Catalog via ArchiveService
-        registerNetworkIngestionCallback();
+        // Register snapshot archiving callback:
+        // DOM snapshots → Data Lake + Catalog via ArchiveService
+        registerSnapshotArchivingCallback();
         // Register run lifecycle callback for Data Lake run management
         registerRunLifecycleCallback();
         LOG.info("[WebSearchPlugin] Initialized with " + tools.size() + " tools");
     }
 
     /**
-     * Connects the NetworkIngestionPipeline (wd4j-mcp-server) to the
+     * Connects the DOM snapshot archiving (wd4j-mcp-server) to the
      * ArchiveService (app) for persistent storage via Data Lake + Catalog.
+     * Replaces the old NetworkIngestionPipeline callback.
      */
-    private void registerNetworkIngestionCallback() {
+    private void registerSnapshotArchivingCallback() {
         try {
             de.bund.zrb.archive.service.ArchiveService archiveService =
                     de.bund.zrb.archive.service.ArchiveService.getInstance();
 
-            de.bund.zrb.mcpserver.research.NetworkIngestionPipeline.setGlobalDefaultCallback(
-                    new de.bund.zrb.mcpserver.research.NetworkIngestionPipeline.IngestionCallback() {
-                        @Override
-                        public String onBodyCaptured(String runId, String url, String mimeType, long status,
-                                                     String bodyText, java.util.Map<String, String> headers,
-                                                     long capturedAt) {
-                            // Use new Data Lake ingestion pipeline
-                            return archiveService.ingestNetworkResponse(
-                                    runId, url, mimeType, status, bodyText, headers, capturedAt);
-                        }
-                    });
+            de.bund.zrb.mcpserver.research.ResearchSessionManager.setSnapshotArchivingCallback(
+                    (runId, url, mimeType, statusCode, bodyText, capturedAt) ->
+                            archiveService.ingestNetworkResponse(
+                                    runId, url, mimeType, statusCode, bodyText,
+                                    java.util.Collections.emptyMap(), capturedAt)
+            );
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[WebSearchPlugin] Could not register network ingestion callback: " + e.getMessage(), e);
+            LOG.log(Level.WARNING, "[WebSearchPlugin] Could not register snapshot archiving callback: " + e.getMessage(), e);
         }
     }
 
@@ -125,10 +121,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
         List<McpTool> list = new ArrayList<>();
 
         // ── Research-mode tools (bot-friendly menu-based navigation) ──
-        list.add(new BrowserToolAdapter(new ResearchNavigateTool(), browserManager));   // THE navigation tool
-        list.add(new BrowserToolAdapter(new ResearchBackTool(), browserManager));       // Browser back
-        list.add(new BrowserToolAdapter(new ResearchForwardTool(), browserManager));    // Browser forward
-        list.add(new BrowserToolAdapter(new ResearchReloadTool(), browserManager));     // Browser reload
+        list.add(new BrowserToolAdapter(new ResearchNavigateTool(), browserManager));
 
         // ── Archive/Search/Queue tools (direct McpTool, no browser needed) ──
         list.add(new ResearchDocGetTool());
