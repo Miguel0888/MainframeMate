@@ -351,6 +351,141 @@ public class ChatFormatter {
         return request;
     }
 
+    /**
+     * Show navigation approval UI with extended dropdown: session allow/block, permanent whitelist/blacklist.
+     */
+    public ToolApprovalRequest requestNavigationApproval(String url, String domain) {
+        ToolApprovalRequest request = new ToolApprovalRequest();
+        JPanel wrapper = createMessagePanelWrapper(Role.TOOL);
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setOpaque(false);
+
+        String title = "🌐 Navigation: " + (domain != null ? domain : url);
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        header.add(titleLabel);
+        header.add(Box.createHorizontalGlue());
+
+        JButton allowButton = new JButton("Erlauben");
+        allowButton.setFocusable(false);
+
+        JButton dropdownButton = new JButton("▾");
+        dropdownButton.setFocusable(false);
+        dropdownButton.setMargin(new Insets(2, 2, 2, 2));
+        dropdownButton.setPreferredSize(new Dimension(20, allowButton.getPreferredSize().height));
+
+        JButton blockButton = new JButton("Verbieten");
+        blockButton.setFocusable(false);
+
+        header.add(Box.createHorizontalStrut(6));
+        header.add(allowButton);
+        header.add(dropdownButton);
+        header.add(Box.createHorizontalStrut(4));
+        header.add(blockButton);
+
+        // URL info label
+        JLabel urlLabel = new JLabel("<html><small>URL: " + (url != null ? url : "") + "</small></html>");
+        urlLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        urlLabel.setForeground(Color.GRAY);
+
+        java.util.concurrent.atomic.AtomicBoolean decided = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        // "Erlauben" = einmal erlauben
+        allowButton.addActionListener(e -> {
+            if (decided.compareAndSet(false, true)) {
+                allowButton.setEnabled(false);
+                dropdownButton.setEnabled(false);
+                blockButton.setEnabled(false);
+                titleLabel.setText(title + " ✅");
+                request.approve();
+            }
+        });
+
+        // "Verbieten" = einmal verbieten (cancel)
+        blockButton.addActionListener(e -> {
+            if (decided.compareAndSet(false, true)) {
+                allowButton.setEnabled(false);
+                dropdownButton.setEnabled(false);
+                blockButton.setEnabled(false);
+                titleLabel.setText(title + " ❌");
+                request.cancel();
+            }
+        });
+
+        // Dropdown: extended options
+        dropdownButton.addActionListener(e -> {
+            JPopupMenu popup = new JPopupMenu();
+
+            JMenuItem sessionAllow = new JMenuItem("Für Session erlauben");
+            sessionAllow.setToolTipText("Domain '" + domain + "' für diese Chat-Session erlauben");
+            sessionAllow.addActionListener(ev -> {
+                if (decided.compareAndSet(false, true)) {
+                    allowButton.setEnabled(false);
+                    dropdownButton.setEnabled(false);
+                    blockButton.setEnabled(false);
+                    titleLabel.setText(title + " ✅ (Session)");
+                    request.approveForSession();
+                }
+            });
+            popup.add(sessionAllow);
+
+            JMenuItem sessionBlock = new JMenuItem("Für Session verbieten");
+            sessionBlock.setToolTipText("Domain '" + domain + "' für diese Chat-Session blockieren");
+            sessionBlock.addActionListener(ev -> {
+                if (decided.compareAndSet(false, true)) {
+                    allowButton.setEnabled(false);
+                    dropdownButton.setEnabled(false);
+                    blockButton.setEnabled(false);
+                    titleLabel.setText(title + " ❌ (Session)");
+                    request.setDecision(ToolApprovalDecision.BLOCKED_FOR_SESSION);
+                }
+            });
+            popup.add(sessionBlock);
+
+            popup.addSeparator();
+
+            JMenuItem alwaysAllow = new JMenuItem("Immer erlauben (Whitelist)");
+            alwaysAllow.setToolTipText("Domain '" + domain + "' permanent auf die Whitelist setzen");
+            alwaysAllow.addActionListener(ev -> {
+                if (decided.compareAndSet(false, true)) {
+                    allowButton.setEnabled(false);
+                    dropdownButton.setEnabled(false);
+                    blockButton.setEnabled(false);
+                    titleLabel.setText(title + " ✅ (Whitelist)");
+                    request.setDecision(ToolApprovalDecision.ALWAYS_ALLOW);
+                }
+            });
+            popup.add(alwaysAllow);
+
+            JMenuItem alwaysBlock = new JMenuItem("Immer verbieten (Blacklist)");
+            alwaysBlock.setToolTipText("Domain '" + domain + "' permanent auf die Blacklist setzen");
+            alwaysBlock.addActionListener(ev -> {
+                if (decided.compareAndSet(false, true)) {
+                    allowButton.setEnabled(false);
+                    dropdownButton.setEnabled(false);
+                    blockButton.setEnabled(false);
+                    titleLabel.setText(title + " ❌ (Blacklist)");
+                    request.setDecision(ToolApprovalDecision.ALWAYS_BLOCK);
+                }
+            });
+            popup.add(alwaysBlock);
+
+            popup.show(dropdownButton, 0, dropdownButton.getHeight());
+        });
+
+        wrapper.add(header);
+        wrapper.add(Box.createVerticalStrut(2));
+        wrapper.add(urlLabel);
+
+        messageContainer.add(wrapper);
+        messageContainer.add(Box.createVerticalStrut(6));
+        scrollToBottom();
+        return request;
+    }
+
     private JTextPane createConfiguredTextPane() {
         JTextPane pane = new JTextPane();
         pane.setName("contentPane");

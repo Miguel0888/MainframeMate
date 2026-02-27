@@ -1809,6 +1809,56 @@ public class ChatSession extends JPanel {
                 }
             }
 
+            // ── Navigation gating for research_navigate ──
+            if ("research_navigate".equalsIgnoreCase(toolName)) {
+                JsonObject input = call.has("input") && call.get("input").isJsonObject()
+                        ? call.getAsJsonObject("input") : null;
+                String targetUrl = null;
+                if (input != null) {
+                    if (input.has("target") && !input.get("target").isJsonNull())
+                        targetUrl = input.get("target").getAsString();
+                    else if (input.has("url") && !input.get("url").isJsonNull())
+                        targetUrl = input.get("url").getAsString();
+                }
+                if (targetUrl != null && !targetUrl.isEmpty()) {
+                    de.bund.zrb.tools.NavigationPolicy navPolicy = de.bund.zrb.tools.NavigationPolicy.getInstance();
+                    String domain = de.bund.zrb.tools.NavigationPolicy.extractDomain(targetUrl);
+                    de.bund.zrb.tools.NavigationPolicy.Decision navDecision = navPolicy.check(targetUrl);
+
+                    if (navDecision == de.bund.zrb.tools.NavigationPolicy.Decision.BLOCKED) {
+                        return createBlockedResult(toolName,
+                                "Navigation zu '" + domain + "' ist blockiert (Blacklist/Session)", call);
+                    }
+
+                    if (navDecision == de.bund.zrb.tools.NavigationPolicy.Decision.ASK) {
+                        ToolApprovalDecision decision = requestNavigationApproval(targetUrl, domain);
+                        switch (decision) {
+                            case APPROVED:
+                                break; // einmal erlaubt
+                            case APPROVED_FOR_SESSION:
+                                navPolicy.allowForSession(domain);
+                                break;
+                            case ALWAYS_ALLOW:
+                                navPolicy.addToWhitelist(domain);
+                                break;
+                            case ALWAYS_BLOCK:
+                                navPolicy.addToBlacklist(domain);
+                                return createBlockedResult(toolName,
+                                        "Navigation zu '" + domain + "' wurde permanent verboten (Blacklist)", call);
+                            case BLOCKED_FOR_SESSION:
+                                navPolicy.blockForSession(domain);
+                                return createBlockedResult(toolName,
+                                        "Navigation zu '" + domain + "' für diese Session blockiert", call);
+                            case CANCELLED:
+                            default:
+                                return createBlockedResult(toolName,
+                                        "Navigation zu '" + domain + "' wurde vom Nutzer abgelehnt", call);
+                        }
+                    }
+                    // ALLOWED → proceed
+                }
+            }
+
             JsonObject result = isSystemTool(toolName)
                     ? executeSystemTool(toolName, call)
                     : mcpService.executeToolCall(call, null);
@@ -1979,6 +2029,27 @@ public class ChatSession extends JPanel {
                 "Tool ausführen?\n\n" + toolName + (isWrite ? " (WRITE)" : " (READ)"),
                 "Tool-Freigabe", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
         return option == JOptionPane.OK_OPTION ? ToolApprovalDecision.APPROVED : ToolApprovalDecision.CANCELLED;
+    }
+
+    private ToolApprovalDecision requestNavigationApproval(String url, String domain) {
+        final ToolApprovalRequest[] requestHolder = new ToolApprovalRequest[1];
+        Runnable createUi = () -> requestHolder[0] = formatter.requestNavigationApproval(url, domain);
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            createUi.run();
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(createUi);
+            } catch (Exception e) {
+                return ToolApprovalDecision.CANCELLED;
+            }
+        }
+
+        ToolApprovalRequest request = requestHolder[0];
+        if (request == null) {
+            return ToolApprovalDecision.CANCELLED;
+        }
+        return request.awaitDecision();
     }
 
     private JsonObject createBlockedResult(String toolName, String message, JsonObject call) {

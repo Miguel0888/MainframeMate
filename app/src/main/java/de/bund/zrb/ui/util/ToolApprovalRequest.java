@@ -23,6 +23,12 @@ public class ToolApprovalRequest {
         latch.countDown();
     }
 
+    /** Set an arbitrary decision (for extended navigation options). */
+    public void setDecision(ToolApprovalDecision d) {
+        decision = d;
+        latch.countDown();
+    }
+
     public ToolApprovalDecision awaitDecision() {
         try {
             latch.await();
