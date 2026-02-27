@@ -1821,41 +1821,60 @@ public class ChatSession extends JPanel {
                         targetUrl = input.get("url").getAsString();
                 }
                 if (targetUrl != null && !targetUrl.isEmpty()) {
-                    de.bund.zrb.tools.NavigationPolicy navPolicy = de.bund.zrb.tools.NavigationPolicy.getInstance();
                     String domain = de.bund.zrb.tools.NavigationPolicy.extractDomain(targetUrl);
-                    de.bund.zrb.tools.NavigationPolicy.Decision navDecision = navPolicy.check(targetUrl);
+                    // Only gate absolute URLs with a resolvable domain.
+                    // Relative URLs (e.g. "/page") stay on the same domain → no gating needed.
+                    if (domain != null) {
+                        de.bund.zrb.tools.NavigationPolicy navPolicy = de.bund.zrb.tools.NavigationPolicy.getInstance();
+                        de.bund.zrb.tools.NavigationPolicy.Decision navDecision = navPolicy.checkDomain(domain);
 
-                    if (navDecision == de.bund.zrb.tools.NavigationPolicy.Decision.BLOCKED) {
-                        return createBlockedResult(toolName,
-                                "Navigation zu '" + domain + "' ist blockiert (Blacklist/Session)", call);
-                    }
-
-                    if (navDecision == de.bund.zrb.tools.NavigationPolicy.Decision.ASK) {
-                        ToolApprovalDecision decision = requestNavigationApproval(targetUrl, domain);
-                        switch (decision) {
-                            case APPROVED:
-                                break; // einmal erlaubt
-                            case APPROVED_FOR_SESSION:
-                                navPolicy.allowForSession(domain);
-                                break;
-                            case ALWAYS_ALLOW:
-                                navPolicy.addToWhitelist(domain);
-                                break;
-                            case ALWAYS_BLOCK:
-                                navPolicy.addToBlacklist(domain);
-                                return createBlockedResult(toolName,
-                                        "Navigation zu '" + domain + "' wurde permanent verboten (Blacklist)", call);
-                            case BLOCKED_FOR_SESSION:
-                                navPolicy.blockForSession(domain);
-                                return createBlockedResult(toolName,
-                                        "Navigation zu '" + domain + "' für diese Session blockiert", call);
-                            case CANCELLED:
-                            default:
-                                return createBlockedResult(toolName,
-                                        "Navigation zu '" + domain + "' wurde vom Nutzer abgelehnt", call);
+                        if (navDecision == de.bund.zrb.tools.NavigationPolicy.Decision.BLOCKED) {
+                            return createBlockedResult(toolName,
+                                    "Navigation zu '" + domain + "' ist blockiert (Blacklist/Session)", call);
                         }
+
+                        if (navDecision == de.bund.zrb.tools.NavigationPolicy.Decision.ASK) {
+                            ToolApprovalDecision decision = requestNavigationApproval(targetUrl, domain);
+                            String wildcard = de.bund.zrb.tools.NavigationPolicy.toWildcard(domain);
+                            switch (decision) {
+                                case APPROVED:
+                                    break; // einmal erlaubt
+                                case APPROVED_FOR_SESSION:
+                                    navPolicy.allowForSession(domain);
+                                    break;
+                                case ALWAYS_ALLOW:
+                                    navPolicy.addToWhitelist(domain);
+                                    break;
+                                case APPROVED_FOR_SESSION_SUBDOMAIN:
+                                    navPolicy.allowForSession(wildcard);
+                                    break;
+                                case ALWAYS_ALLOW_SUBDOMAIN:
+                                    navPolicy.addToWhitelist(wildcard);
+                                    break;
+                                case ALWAYS_BLOCK:
+                                    navPolicy.addToBlacklist(domain);
+                                    return createBlockedResult(toolName,
+                                            "Navigation zu '" + domain + "' wurde permanent verboten (Blacklist)", call);
+                                case ALWAYS_BLOCK_SUBDOMAIN:
+                                    navPolicy.addToBlacklist(wildcard);
+                                    return createBlockedResult(toolName,
+                                            "Navigation zu '" + wildcard + "' wurde permanent verboten (Blacklist)", call);
+                                case BLOCKED_FOR_SESSION:
+                                    navPolicy.blockForSession(domain);
+                                    return createBlockedResult(toolName,
+                                            "Navigation zu '" + domain + "' für diese Session blockiert", call);
+                                case BLOCKED_FOR_SESSION_SUBDOMAIN:
+                                    navPolicy.blockForSession(wildcard);
+                                    return createBlockedResult(toolName,
+                                            "Navigation zu '" + wildcard + "' für diese Session blockiert", call);
+                                case CANCELLED:
+                                default:
+                                    return createBlockedResult(toolName,
+                                            "Navigation zu '" + domain + "' wurde vom Nutzer abgelehnt", call);
+                            }
+                        }
+                        // ALLOWED → proceed
                     }
-                    // ALLOWED → proceed
                 }
             }
 

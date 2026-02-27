@@ -12,19 +12,22 @@ import java.util.*;
 
 /**
  * Manages navigation whitelist/blacklist for external URL access.
- * Persisted in ~/.mainframemate/navigation-policy.json.
+ * All checks are domain-based (never path-based).
  * <p>
- * Entries are domain-based (e.g. "www.bundestag.de", "*.wikipedia.org").
+ * Entries are domains (e.g. "www.bundestag.de") or wildcard patterns
+ * (e.g. "*.wikipedia.org" which matches de.wikipedia.org, en.wikipedia.org, etc.).
+ * <p>
+ * Persisted in ~/.mainframemate/navigation-policy.json.
  */
 public class NavigationPolicy {
 
     private static final File POLICY_FILE = new File(SettingsHelper.getSettingsFolder(), "navigation-policy.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Type LIST_TYPE = new TypeToken<PolicyData>() {}.getType();
+    private static final Type DATA_TYPE = new TypeToken<PolicyData>() {}.getType();
 
     /** In-memory session-level grants/blocks (cleared on session reset). */
-    private final Set<String> sessionAllowed = new LinkedHashSet<String>();
-    private final Set<String> sessionBlocked = new LinkedHashSet<String>();
+    private final List<String> sessionAllowed = new ArrayList<String>();
+    private final List<String> sessionBlocked = new ArrayList<String>();
 
     private static volatile NavigationPolicy instance;
 
@@ -39,14 +42,19 @@ public class NavigationPolicy {
 
     // ── Session-level ──
 
-    public void allowForSession(String domain) {
-        sessionAllowed.add(normalizeDomain(domain));
-        sessionBlocked.remove(normalizeDomain(domain));
+    /**
+     * Allow a domain (or wildcard pattern like "*.example.com") for this session.
+     */
+    public void allowForSession(String domainOrPattern) {
+        String d = normalize(domainOrPattern);
+        sessionBlocked.remove(d);
+        if (!sessionAllowed.contains(d)) sessionAllowed.add(d);
     }
 
-    public void blockForSession(String domain) {
-        sessionBlocked.add(normalizeDomain(domain));
-        sessionAllowed.remove(normalizeDomain(domain));
+    public void blockForSession(String domainOrPattern) {
+        String d = normalize(domainOrPattern);
+        sessionAllowed.remove(d);
+        if (!sessionBlocked.contains(d)) sessionBlocked.add(d);
     }
 
     public void clearSession() {
@@ -56,17 +64,17 @@ public class NavigationPolicy {
 
     // ── Persistent whitelist/blacklist ──
 
-    public void addToWhitelist(String domain) {
+    public void addToWhitelist(String domainOrPattern) {
         PolicyData data = loadData();
-        String d = normalizeDomain(domain);
+        String d = normalize(domainOrPattern);
         if (!data.whitelist.contains(d)) data.whitelist.add(d);
         data.blacklist.remove(d);
         saveData(data);
     }
 
-    public void addToBlacklist(String domain) {
+    public void addToBlacklist(String domainOrPattern) {
         PolicyData data = loadData();
-        String d = normalizeDomain(domain);
+        String d = normalize(domainOrPattern);
         if (!data.blacklist.contains(d)) data.blacklist.add(d);
         data.whitelist.remove(d);
         saveData(data);
@@ -80,19 +88,23 @@ public class NavigationPolicy {
         return Collections.unmodifiableList(loadData().blacklist);
     }
 
+    // ── Check ──
+
     /**
-     * Check a URL against the policy.
-     * @return ALLOWED, BLOCKED, or ASK (needs user decision)
+     * Check a DOMAIN (not URL!) against the policy.
+     * Use {@link #extractDomain(String)} first to get the domain from a URL.
+     *
+     * @param domain the domain to check (e.g. "www.bundestag.de")
+     * @return ALLOWED, BLOCKED, or ASK
      */
-    public Decision check(String url) {
-        String domain = extractDomain(url);
+    public Decision checkDomain(String domain) {
         if (domain == null || domain.isEmpty()) return Decision.ASK;
 
-        String normalized = normalizeDomain(domain);
+        String normalized = normalize(domain);
 
         // 1. Session overrides first
-        if (sessionBlocked.contains(normalized)) return Decision.BLOCKED;
-        if (sessionAllowed.contains(normalized)) return Decision.ALLOWED;
+        if (matchesList(normalized, sessionBlocked)) return Decision.BLOCKED;
+        if (matchesList(normalized, sessionAllowed)) return Decision.ALLOWED;
 
         // 2. Persistent blacklist (takes priority)
         PolicyData data = loadData();
@@ -105,22 +117,38 @@ public class NavigationPolicy {
         return Decision.ASK;
     }
 
-    private boolean matchesList(String domain, List<String> list) {
-        for (String pattern : list) {
+    /**
+     * Matches a domain against a list of patterns.
+     * Supports exact match and wildcard "*.example.com" which matches
+     * "sub.example.com", "de.sub.example.com", and "example.com" itself.
+     */
+    private boolean matchesList(String domain, List<String> patterns) {
+        for (String pattern : patterns) {
             if (pattern.equals(domain)) return true;
             if (pattern.startsWith("*.")) {
-                String suffix = pattern.substring(1); // ".example.com"
-                if (domain.endsWith(suffix) || domain.equals(pattern.substring(2))) return true;
+                String baseDomain = pattern.substring(2); // "example.com"
+                // matches "example.com" itself and any subdomain
+                if (domain.equals(baseDomain) || domain.endsWith("." + baseDomain)) {
+                    return true;
+                }
             }
         }
         return false;
     }
 
+    // ── Domain extraction ──
+
+    /**
+     * Extract the domain (host) from a URL. Returns null for relative URLs
+     * or unparseable input.
+     */
     public static String extractDomain(String url) {
-        if (url == null) return null;
+        if (url == null || url.trim().isEmpty()) return null;
+        String u = url.trim();
+        // Relative URL → no domain
+        if (u.startsWith("/") || u.startsWith("#") || u.startsWith("?")) return null;
+        if (!u.contains("://")) u = "https://" + u;
         try {
-            String u = url.trim();
-            if (!u.contains("://")) u = "https://" + u;
             java.net.URI uri = new java.net.URI(u);
             String host = uri.getHost();
             return host != null ? host.toLowerCase() : null;
@@ -129,8 +157,28 @@ public class NavigationPolicy {
         }
     }
 
-    private static String normalizeDomain(String domain) {
-        return domain != null ? domain.toLowerCase().trim() : "";
+    /**
+     * Derive the parent domain suitable for a "including subdomains" wildcard.
+     * E.g. "www.bundestag.de" → "*.bundestag.de",
+     *      "de.wikipedia.org" → "*.wikipedia.org",
+     *      "bundestag.de"     → "*.bundestag.de"
+     */
+    public static String toWildcard(String domain) {
+        if (domain == null) return null;
+        String d = normalize(domain);
+        // Find the registrable domain (last two parts, or three for co.uk etc.)
+        // Simple heuristic: strip the first label if there are 3+ labels
+        int firstDot = d.indexOf('.');
+        if (firstDot > 0 && d.indexOf('.', firstDot + 1) > 0) {
+            // Has at least 3 labels (e.g. www.bundestag.de) → wildcard on bundestag.de
+            return "*." + d.substring(firstDot + 1);
+        }
+        // Only 2 labels (e.g. bundestag.de) → wildcard as-is
+        return "*." + d;
+    }
+
+    private static String normalize(String s) {
+        return s != null ? s.toLowerCase().trim() : "";
     }
 
     // ── Persistence ──
@@ -138,7 +186,7 @@ public class NavigationPolicy {
     private PolicyData loadData() {
         if (!POLICY_FILE.exists()) return new PolicyData();
         try (Reader reader = new InputStreamReader(new FileInputStream(POLICY_FILE), StandardCharsets.UTF_8)) {
-            PolicyData data = GSON.fromJson(reader, LIST_TYPE);
+            PolicyData data = GSON.fromJson(reader, DATA_TYPE);
             return data != null ? data : new PolicyData();
         } catch (Exception e) {
             return new PolicyData();

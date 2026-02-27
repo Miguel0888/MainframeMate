@@ -352,18 +352,23 @@ public class ChatFormatter {
     }
 
     /**
-     * Show navigation approval UI with extended dropdown: session allow/block, permanent whitelist/blacklist.
+     * Show navigation approval UI with extended dropdown:
+     * session allow/block, permanent whitelist/blacklist, subdomain variants.
+     * The title shows the DOMAIN, the URL is shown as a detail line below.
      */
     public ToolApprovalRequest requestNavigationApproval(String url, String domain) {
         ToolApprovalRequest request = new ToolApprovalRequest();
         JPanel wrapper = createMessagePanelWrapper(Role.TOOL);
+
+        String safeDomain = domain != null ? domain : "(unbekannt)";
+        String wildcard = de.bund.zrb.tools.NavigationPolicy.toWildcard(domain);
 
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
         header.setOpaque(false);
 
-        String title = "🌐 Navigation: " + (domain != null ? domain : url);
+        String title = "\uD83C\uDF10 Navigation: " + safeDomain;
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
         header.add(titleLabel);
@@ -372,7 +377,7 @@ public class ChatFormatter {
         JButton allowButton = new JButton("Erlauben");
         allowButton.setFocusable(false);
 
-        JButton dropdownButton = new JButton("▾");
+        JButton dropdownButton = new JButton("\u25BE");
         dropdownButton.setFocusable(false);
         dropdownButton.setMargin(new Insets(2, 2, 2, 2));
         dropdownButton.setPreferredSize(new Dimension(20, allowButton.getPreferredSize().height));
@@ -386,20 +391,23 @@ public class ChatFormatter {
         header.add(Box.createHorizontalStrut(4));
         header.add(blockButton);
 
-        // URL info label
-        JLabel urlLabel = new JLabel("<html><small>URL: " + (url != null ? url : "") + "</small></html>");
+        // URL detail (smaller, gray)
+        JLabel urlLabel = new JLabel("<html><small style='color:gray;'>URL: "
+                + (url != null ? url : "") + "</small></html>");
         urlLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        urlLabel.setForeground(Color.GRAY);
 
         java.util.concurrent.atomic.AtomicBoolean decided = new java.util.concurrent.atomic.AtomicBoolean(false);
+        Runnable disableAll = () -> {
+            allowButton.setEnabled(false);
+            dropdownButton.setEnabled(false);
+            blockButton.setEnabled(false);
+        };
 
         // "Erlauben" = einmal erlauben
         allowButton.addActionListener(e -> {
             if (decided.compareAndSet(false, true)) {
-                allowButton.setEnabled(false);
-                dropdownButton.setEnabled(false);
-                blockButton.setEnabled(false);
-                titleLabel.setText(title + " ✅");
+                disableAll.run();
+                titleLabel.setText(title + " \u2705");
                 request.approve();
             }
         });
@@ -407,10 +415,8 @@ public class ChatFormatter {
         // "Verbieten" = einmal verbieten (cancel)
         blockButton.addActionListener(e -> {
             if (decided.compareAndSet(false, true)) {
-                allowButton.setEnabled(false);
-                dropdownButton.setEnabled(false);
-                blockButton.setEnabled(false);
-                titleLabel.setText(title + " ❌");
+                disableAll.run();
+                titleLabel.setText(title + " \u274C");
                 request.cancel();
             }
         });
@@ -419,59 +425,55 @@ public class ChatFormatter {
         dropdownButton.addActionListener(e -> {
             JPopupMenu popup = new JPopupMenu();
 
-            JMenuItem sessionAllow = new JMenuItem("Für Session erlauben");
-            sessionAllow.setToolTipText("Domain '" + domain + "' für diese Chat-Session erlauben");
-            sessionAllow.addActionListener(ev -> {
-                if (decided.compareAndSet(false, true)) {
-                    allowButton.setEnabled(false);
-                    dropdownButton.setEnabled(false);
-                    blockButton.setEnabled(false);
-                    titleLabel.setText(title + " ✅ (Session)");
-                    request.approveForSession();
-                }
-            });
-            popup.add(sessionAllow);
+            // ── Session: domain only ──
+            addMenuItem(popup, "F\u00fcr Session erlauben (" + safeDomain + ")",
+                    "Domain '" + safeDomain + "' f\u00fcr diese Chat-Session erlauben",
+                    decided, disableAll, titleLabel, title + " \u2705 (Session: " + safeDomain + ")",
+                    request, ToolApprovalDecision.APPROVED_FOR_SESSION);
 
-            JMenuItem sessionBlock = new JMenuItem("Für Session verbieten");
-            sessionBlock.setToolTipText("Domain '" + domain + "' für diese Chat-Session blockieren");
-            sessionBlock.addActionListener(ev -> {
-                if (decided.compareAndSet(false, true)) {
-                    allowButton.setEnabled(false);
-                    dropdownButton.setEnabled(false);
-                    blockButton.setEnabled(false);
-                    titleLabel.setText(title + " ❌ (Session)");
-                    request.setDecision(ToolApprovalDecision.BLOCKED_FOR_SESSION);
-                }
-            });
-            popup.add(sessionBlock);
+            addMenuItem(popup, "F\u00fcr Session verbieten (" + safeDomain + ")",
+                    "Domain '" + safeDomain + "' f\u00fcr diese Chat-Session blockieren",
+                    decided, disableAll, titleLabel, title + " \u274C (Session: " + safeDomain + ")",
+                    request, ToolApprovalDecision.BLOCKED_FOR_SESSION);
+
+            // ── Session: with subdomains ──
+            if (wildcard != null) {
+                addMenuItem(popup, "F\u00fcr Session erlauben (" + wildcard + ")",
+                        "Domain '" + wildcard + "' inkl. Subdomains f\u00fcr Session erlauben",
+                        decided, disableAll, titleLabel, title + " \u2705 (Session: " + wildcard + ")",
+                        request, ToolApprovalDecision.APPROVED_FOR_SESSION_SUBDOMAIN);
+
+                addMenuItem(popup, "F\u00fcr Session verbieten (" + wildcard + ")",
+                        "Domain '" + wildcard + "' inkl. Subdomains f\u00fcr Session blockieren",
+                        decided, disableAll, titleLabel, title + " \u274C (Session: " + wildcard + ")",
+                        request, ToolApprovalDecision.BLOCKED_FOR_SESSION_SUBDOMAIN);
+            }
 
             popup.addSeparator();
 
-            JMenuItem alwaysAllow = new JMenuItem("Immer erlauben (Whitelist)");
-            alwaysAllow.setToolTipText("Domain '" + domain + "' permanent auf die Whitelist setzen");
-            alwaysAllow.addActionListener(ev -> {
-                if (decided.compareAndSet(false, true)) {
-                    allowButton.setEnabled(false);
-                    dropdownButton.setEnabled(false);
-                    blockButton.setEnabled(false);
-                    titleLabel.setText(title + " ✅ (Whitelist)");
-                    request.setDecision(ToolApprovalDecision.ALWAYS_ALLOW);
-                }
-            });
-            popup.add(alwaysAllow);
+            // ── Permanent: domain only ──
+            addMenuItem(popup, "Immer erlauben (" + safeDomain + ")",
+                    "Domain '" + safeDomain + "' permanent auf die Whitelist setzen",
+                    decided, disableAll, titleLabel, title + " \u2705 (Whitelist: " + safeDomain + ")",
+                    request, ToolApprovalDecision.ALWAYS_ALLOW);
 
-            JMenuItem alwaysBlock = new JMenuItem("Immer verbieten (Blacklist)");
-            alwaysBlock.setToolTipText("Domain '" + domain + "' permanent auf die Blacklist setzen");
-            alwaysBlock.addActionListener(ev -> {
-                if (decided.compareAndSet(false, true)) {
-                    allowButton.setEnabled(false);
-                    dropdownButton.setEnabled(false);
-                    blockButton.setEnabled(false);
-                    titleLabel.setText(title + " ❌ (Blacklist)");
-                    request.setDecision(ToolApprovalDecision.ALWAYS_BLOCK);
-                }
-            });
-            popup.add(alwaysBlock);
+            addMenuItem(popup, "Immer verbieten (" + safeDomain + ")",
+                    "Domain '" + safeDomain + "' permanent auf die Blacklist setzen",
+                    decided, disableAll, titleLabel, title + " \u274C (Blacklist: " + safeDomain + ")",
+                    request, ToolApprovalDecision.ALWAYS_BLOCK);
+
+            // ── Permanent: with subdomains ──
+            if (wildcard != null) {
+                addMenuItem(popup, "Immer erlauben (" + wildcard + ")",
+                        "'" + wildcard + "' inkl. Subdomains permanent erlauben",
+                        decided, disableAll, titleLabel, title + " \u2705 (Whitelist: " + wildcard + ")",
+                        request, ToolApprovalDecision.ALWAYS_ALLOW_SUBDOMAIN);
+
+                addMenuItem(popup, "Immer verbieten (" + wildcard + ")",
+                        "'" + wildcard + "' inkl. Subdomains permanent blockieren",
+                        decided, disableAll, titleLabel, title + " \u274C (Blacklist: " + wildcard + ")",
+                        request, ToolApprovalDecision.ALWAYS_BLOCK_SUBDOMAIN);
+            }
 
             popup.show(dropdownButton, 0, dropdownButton.getHeight());
         });
@@ -484,6 +486,23 @@ public class ChatFormatter {
         messageContainer.add(Box.createVerticalStrut(6));
         scrollToBottom();
         return request;
+    }
+
+    /** Helper to add a menu item that sets a decision on click. */
+    private void addMenuItem(JPopupMenu popup, String label, String tooltip,
+                             java.util.concurrent.atomic.AtomicBoolean decided,
+                             Runnable disableAll, JLabel titleLabel, String newTitle,
+                             ToolApprovalRequest request, ToolApprovalDecision decision) {
+        JMenuItem item = new JMenuItem(label);
+        item.setToolTipText(tooltip);
+        item.addActionListener(ev -> {
+            if (decided.compareAndSet(false, true)) {
+                disableAll.run();
+                titleLabel.setText(newTitle);
+                request.setDecision(decision);
+            }
+        });
+        popup.add(item);
     }
 
     private JTextPane createConfiguredTextPane() {
