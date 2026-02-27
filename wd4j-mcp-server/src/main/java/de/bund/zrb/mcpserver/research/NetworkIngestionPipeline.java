@@ -1,6 +1,7 @@
 package de.bund.zrb.mcpserver.research;
 
 import de.bund.zrb.WebDriver;
+import de.bund.zrb.event.WDBrowsingContextEvent;
 import de.bund.zrb.event.WDNetworkEvent;
 import de.bund.zrb.type.network.*;
 import de.bund.zrb.type.network.WDCollector;
@@ -121,6 +122,7 @@ public class NetworkIngestionPipeline {
 
     // Event listener reference (for cleanup)
     private Consumer<WDNetworkEvent.ResponseCompleted> responseCompletedListener;
+    private Consumer<WDBrowsingContextEvent.NavigationStarted> navigationStartedListener;
 
     /**
      * Callback interface for the captured network data.
@@ -175,6 +177,12 @@ public class NetworkIngestionPipeline {
             responseCompletedListener = this::handleResponseCompleted;
             driver.addEventListener(completedSubReq, responseCompletedListener);
 
+            // 3. Subscribe to NavigationStarted to drain queue + reset collector before navigation
+            WDSubscriptionRequest navStartReq = new WDSubscriptionRequest(
+                    Collections.singletonList(WDEventNames.NAVIGATION_STARTED.getName()));
+            navigationStartedListener = this::handleNavigationStarted;
+            driver.addEventListener(navStartReq, navigationStartedListener);
+
             active.set(true);
             startIngestionWatchdog();
             LOG.info("[NetworkIngestion] Passive pipeline started for session " + session.getSessionId());
@@ -200,7 +208,7 @@ public class NetworkIngestionPipeline {
     }
 
     private void cleanup() {
-        // Remove event listener
+        // Remove event listeners
         try {
             if (responseCompletedListener != null) {
                 driver.removeEventListener(WDEventNames.RESPONSE_COMPLETED.getName(), responseCompletedListener);
@@ -208,6 +216,15 @@ public class NetworkIngestionPipeline {
             }
         } catch (Exception e) {
             LOG.fine("[NetworkIngestion] Error removing responseCompleted listener: " + e.getMessage());
+        }
+
+        try {
+            if (navigationStartedListener != null) {
+                driver.removeEventListener(WDEventNames.NAVIGATION_STARTED.getName(), navigationStartedListener);
+                navigationStartedListener = null;
+            }
+        } catch (Exception e) {
+            LOG.fine("[NetworkIngestion] Error removing navigationStarted listener: " + e.getMessage());
         }
 
 
@@ -220,6 +237,72 @@ public class NetworkIngestionPipeline {
         } catch (Exception e) {
             LOG.fine("[NetworkIngestion] Error removing collector: " + e.getMessage());
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  NAVIGATION_STARTED handler (drain queue + reset collector)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Called on every browsingContext.navigationStarted event.
+     * <p>
+     * This is the critical cleanup point: when a new navigation begins, all
+     * pending getData/disownData tasks from the OLD page are invalid (the
+     * browser may not honour them or may block). So we:
+     * <ol>
+     *   <li>Drain the ingestion queue (cancel all pending tasks)</li>
+     *   <li>Remove the old DataCollector (frees all buffered data in the browser)</li>
+     *   <li>Create a fresh DataCollector for the new page</li>
+     *   <li>Clear the HTML cache</li>
+     * </ol>
+     * All with sout for tracing.
+     */
+    private void handleNavigationStarted(WDBrowsingContextEvent.NavigationStarted event) {
+        if (!active.get() || event == null) return;
+
+        String navUrl = event.getParams() != null ? event.getParams().getUrl() : "?";
+        String navUrlShort = navUrl != null && navUrl.length() > 80 ? navUrl.substring(0, 80) : navUrl;
+
+        System.out.println("[NAV-CLEANUP] ══════════════════════════════════════════════════════════");
+        System.out.println("[NAV-CLEANUP] NavigationStarted → " + navUrlShort);
+        System.out.println("[NAV-CLEANUP]   thread=" + Thread.currentThread().getName());
+
+        // 1. Drain the ingestion queue – all pending getData/disownData are for the OLD page
+        int drained = ingestionExecutor.getQueue().size();
+        ingestionExecutor.getQueue().clear();
+        System.out.println("[NAV-CLEANUP]   Drained " + drained + " pending ingestion tasks from queue");
+
+        // 2. Clear the HTML cache (old page)
+        clearNavigationCache();
+        System.out.println("[NAV-CLEANUP]   Cleared HTML cache");
+
+        // 3. Remove old DataCollector and create a fresh one
+        //    This releases ALL buffered response data in the browser at once
+        //    (no need to disown individual requests)
+        WDCollector oldCollector = collector;
+        if (oldCollector != null) {
+            try {
+                System.out.println("[NAV-CLEANUP]   Removing old DataCollector: " + oldCollector.value());
+                driver.network().removeDataCollector(oldCollector);
+                System.out.println("[NAV-CLEANUP]   Old DataCollector removed OK");
+            } catch (Exception e) {
+                System.out.println("[NAV-CLEANUP]   ⚠️ removeDataCollector failed: " + e.getMessage());
+                LOG.fine("[NetworkIngestion] removeDataCollector failed during nav: " + e.getMessage());
+            }
+            collector = null;
+        }
+
+//        try {
+//            int maxSize = session.getMaxBytesPerDoc();
+//            collector = driver.network().addResponseBodyCollector(maxSize);
+//            System.out.println("[NAV-CLEANUP]   New DataCollector registered: " + collector.value()
+//                    + " (maxSize=" + maxSize + ")");
+//        } catch (Exception e) {
+//            System.out.println("[NAV-CLEANUP]   ❌ Failed to create new DataCollector: " + e.getMessage());
+//            LOG.log(Level.WARNING, "[NetworkIngestion] Failed to create new collector during nav", e);
+//        }
+
+        System.out.println("[NAV-CLEANUP] ══════════════════════════════════════════════════════════");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -277,7 +360,8 @@ public class NetworkIngestionPipeline {
                     ingestionWorkerState = "fetchAndStore:" + fUrlShort;
                     ingestionWorkerStateTimestamp = System.currentTimeMillis();
                     try {
-                        fetchAndStore(fUrl, mimeType, status, requestRef, response);
+                        // ToDo: Fix getData after navigate started event (old request objects cannot be usede anymore)
+//                        fetchAndStore(fUrl, mimeType, status, requestRef, response);
                     } finally {
                         ingestionWorkerState = "idle";
                         ingestionWorkerStateTimestamp = System.currentTimeMillis();
