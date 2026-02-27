@@ -90,6 +90,24 @@ public class RightDrawer extends JPanel {
             state.put("chat.keepAlive", String.valueOf(keepAliveCheckbox.isSelected()));
             state.put("chat.rememberContext", String.valueOf(contextMemoryCheckbox.isSelected()));
         }
+        // Persist selected tab index
+        state.put("drawer.right.selectedTab", String.valueOf(tabbedPane.getSelectedIndex()));
+    }
+
+    /**
+     * Restore previously persisted state (e.g. selected tab).
+     */
+    public void restoreApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        String tabIdx = state.get("drawer.right.selectedTab");
+        if (tabIdx != null) {
+            try {
+                int idx = Integer.parseInt(tabIdx);
+                if (idx >= 0 && idx < tabbedPane.getTabCount()) {
+                    tabbedPane.setSelectedIndex(idx);
+                }
+            } catch (NumberFormatException ignored) { /* keep default */ }
+        }
     }
 
     /**

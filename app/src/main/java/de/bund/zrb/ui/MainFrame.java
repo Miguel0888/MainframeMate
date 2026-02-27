@@ -332,10 +332,14 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
         rightDrawer = new RightDrawer(this, chatManager, toolRegistry, mcpService, chatEventBridge);
 
+        Settings settings = SettingsHelper.load();
+
+        // Restore persisted tab selection
+        rightDrawer.restoreApplicationState(settings.applicationState);
+
         rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, content, rightDrawer);
         int defaultDivider = content.getPreferredSize().width - 300;
 
-        Settings settings = SettingsHelper.load();
         String dividerValue = settings.applicationState.get("drawer.chat.divider");
 
         int divider = tryParseInt(dividerValue, defaultDivider);
