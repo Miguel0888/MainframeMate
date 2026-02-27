@@ -1,19 +1,22 @@
 package de.bund.zrb.ui.components;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.runtime.ToolRegistryImpl;
+import de.bund.zrb.tools.ToolCategory;
 import de.bund.zrb.tools.ToolPolicy;
 import de.bund.zrb.tools.ToolPolicyRepository;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.settings.McpRegistryBrowserDialog;
+import de.bund.zrb.ui.settings.ModeToolsetDialog;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Displays the full chat tab with session tabs and controls.
@@ -113,7 +116,7 @@ public class Chat extends JPanel {
             // Visual feedback
             String orig = source.getText();
             source.setText("✅");
-            Timer timer = new Timer(1500, ev -> source.setText(orig));
+            javax.swing.Timer timer = new javax.swing.Timer(1500, ev -> source.setText(orig));
             timer.setRepeats(false);
             timer.start();
         }
@@ -130,33 +133,82 @@ public class Chat extends JPanel {
             policyMap.put(p.getToolName(), p);
         }
 
-        List<McpTool> allTools = new java.util.ArrayList<>(
-                ToolRegistryImpl.getInstance().getAllTools());
+        // Determine active mode toolset (if configured)
+        Set<String> modeToolset = null;
+        ChatMode activeMode = null;
+        Component selected = chatTabs.getSelectedComponent();
+        if (selected instanceof ChatSession) {
+            activeMode = ((ChatSession) selected).getCurrentMode();
+        }
+        if (activeMode != null) {
+            try {
+                Settings s = SettingsHelper.load();
+                if (ModeToolsetDialog.isToolsetSwitchingEnabled(s.aiConfig, activeMode)) {
+                    modeToolset = ModeToolsetDialog.loadToolset(s.aiConfig, activeMode);
+                }
+            } catch (Exception ignored) {}
+        }
+
+        List<McpTool> allTools = new ArrayList<>(ToolRegistryImpl.getInstance().getAllTools());
 
         if (allTools.isEmpty()) {
             JMenuItem empty = new JMenuItem("(keine Tools registriert)");
             empty.setEnabled(false);
             popup.add(empty);
         } else {
-            for (final McpTool tool : allTools) {
-                String name = tool.getSpec().getName();
-                ToolPolicy policy = policyMap.get(name);
-                boolean enabled = policy == null || policy.isEnabled();
+            // Group tools by category
+            Map<String, List<McpTool>> grouped = new LinkedHashMap<>();
+            for (String cat : ToolCategory.ORDERED_CATEGORIES) {
+                grouped.put(cat, new ArrayList<>());
+            }
+            for (McpTool tool : allTools) {
+                String cat = ToolCategory.getCategory(tool.getSpec().getName());
+                grouped.computeIfAbsent(cat, k -> new ArrayList<>()).add(tool);
+            }
 
-                JCheckBoxMenuItem item = new JCheckBoxMenuItem(name, enabled);
-                item.setToolTipText(tool.getSpec().getDescription());
-                item.addActionListener(e -> {
-                    ToolPolicy p = policyMap.get(name);
-                    if (p == null) {
-                        p = new ToolPolicy(name, !enabled, false,
-                                de.bund.zrb.tools.ToolAccessTypeDefaults.resolveDefault(name));
-                        policyMap.put(name, p);
-                    } else {
-                        p.setEnabled(!p.isEnabled());
+            boolean first = true;
+            for (Map.Entry<String, List<McpTool>> entry : grouped.entrySet()) {
+                List<McpTool> tools = entry.getValue();
+                if (tools.isEmpty()) continue;
+                tools.sort(Comparator.comparing(t -> t.getSpec().getName(), String.CASE_INSENSITIVE_ORDER));
+
+                if (!first) popup.addSeparator();
+                first = false;
+
+                // Category header (non-clickable)
+                JMenuItem header = new JMenuItem(entry.getKey());
+                header.setFont(header.getFont().deriveFont(Font.BOLD, 11f));
+                header.setEnabled(false);
+                popup.add(header);
+
+                for (final McpTool tool : tools) {
+                    String name = tool.getSpec().getName();
+                    ToolPolicy policy = policyMap.get(name);
+                    boolean enabled = policy == null || policy.isEnabled();
+
+                    // If mode-toolset filtering is active, show tools not in the set as disabled
+                    final boolean inModeToolset = modeToolset == null || modeToolset.isEmpty()
+                            || modeToolset.contains(name);
+
+                    JCheckBoxMenuItem item = new JCheckBoxMenuItem(name, enabled && inModeToolset);
+                    item.setToolTipText(tool.getSpec().getDescription());
+                    if (!inModeToolset) {
+                        item.setForeground(Color.GRAY);
+                        item.setToolTipText("[Nicht im Mode-Toolset] " + (tool.getSpec().getDescription() != null ? tool.getSpec().getDescription() : ""));
                     }
-                    policyRepo.saveAll(new java.util.ArrayList<>(policyMap.values()));
-                });
-                popup.add(item);
+                    item.addActionListener(e -> {
+                        ToolPolicy p = policyMap.get(name);
+                        if (p == null) {
+                            p = new ToolPolicy(name, !enabled, false,
+                                    de.bund.zrb.tools.ToolAccessTypeDefaults.resolveDefault(name));
+                            policyMap.put(name, p);
+                        } else {
+                            p.setEnabled(!p.isEnabled());
+                        }
+                        policyRepo.saveAll(new ArrayList<>(policyMap.values()));
+                    });
+                    popup.add(item);
+                }
             }
         }
 

@@ -1292,6 +1292,11 @@ public class ChatSession extends JPanel {
         return sessionId;
     }
 
+    /** Returns the currently selected ChatMode in this session. */
+    public ChatMode getCurrentMode() {
+        return modeComboBox != null ? (ChatMode) modeComboBox.getSelectedItem() : ChatMode.AGENT;
+    }
+
     /**
      * Export the entire chat history as Markdown text.
      */

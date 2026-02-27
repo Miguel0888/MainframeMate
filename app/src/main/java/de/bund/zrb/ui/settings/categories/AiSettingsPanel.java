@@ -11,11 +11,19 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public class AiSettingsPanel extends AbstractSettingsPanel {
+
+    /**
+     * In-memory buffer for aiConfig keys that are edited via sub-dialogs
+     * (ModeToolsetDialog, mode prefix/postfix) and must survive the
+     * {@code settings = SettingsHelper.load()} in {@code apply()}.
+     */
+    private final Map<String, String> pendingAiConfig = new LinkedHashMap<>();
 
     private final JComboBox<ChatMode> aiModeCombo;
     private final JTextArea aiToolPrefix, aiToolPostfix;
@@ -43,6 +51,17 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
 
     public AiSettingsPanel() {
         super("ai", "KI");
+
+        // Seed pendingAiConfig with all existing toolset/toolsetSwitch/prefix/postfix keys
+        // so they survive the SettingsHelper.load() in apply()
+        for (Map.Entry<String, String> entry : settings.aiConfig.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("toolset.") || key.startsWith("toolsetSwitch.")
+                    || key.startsWith("toolPrefix.") || key.startsWith("toolPostfix.")) {
+                pendingAiConfig.put(key, entry.getValue());
+            }
+        }
+
         FormBuilder fb = new FormBuilder();
 
         aiModeCombo = new JComboBox<>(ChatMode.values());
@@ -58,7 +77,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         toolsetButton.addActionListener(e -> {
             ChatMode mode = (ChatMode) aiModeCombo.getSelectedItem();
             if (mode != null) {
-                ModeToolsetDialog.show(toolsetButton, mode, settings.aiConfig);
+                ModeToolsetDialog.show(toolsetButton, mode, pendingAiConfig);
             }
         });
         // Enable/disable button based on checkbox
@@ -66,7 +85,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
             toolsetButton.setEnabled(toolsetSwitchBox.isSelected());
             ChatMode mode = (ChatMode) aiModeCombo.getSelectedItem();
             if (mode != null) {
-                ModeToolsetDialog.setToolsetSwitchingEnabled(settings.aiConfig, mode, toolsetSwitchBox.isSelected());
+                ModeToolsetDialog.setToolsetSwitchingEnabled(pendingAiConfig, mode, toolsetSwitchBox.isSelected());
             }
         });
         JPanel toolsetRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
@@ -113,9 +132,9 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         aiModeCombo.addActionListener(e -> {
             ChatMode newMode = (ChatMode) aiModeCombo.getSelectedItem();
             if (previousMode[0] != null) {
-                settings.aiConfig.put("toolPrefix." + previousMode[0].name(), aiToolPrefix.getText().trim());
-                settings.aiConfig.put("toolPostfix." + previousMode[0].name(), aiToolPostfix.getText().trim());
-                ModeToolsetDialog.setToolsetSwitchingEnabled(settings.aiConfig, previousMode[0], toolsetSwitchBox.isSelected());
+                pendingAiConfig.put("toolPrefix." + previousMode[0].name(), aiToolPrefix.getText().trim());
+                pendingAiConfig.put("toolPostfix." + previousMode[0].name(), aiToolPostfix.getText().trim());
+                ModeToolsetDialog.setToolsetSwitchingEnabled(pendingAiConfig, previousMode[0], toolsetSwitchBox.isSelected());
             }
             loadModeToolContract(newMode);
             loadToolsetState(newMode);
@@ -269,9 +288,9 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         ModeToolsetDialog.setToolsetSwitchingEnabled(s.aiConfig, selectedMode, toolsetSwitchBox.isSelected());
         s.aiConfig.remove("toolPrefix"); s.aiConfig.remove("toolPostfix");
 
-        // Persist all toolset.* and toolsetSwitch.* keys from the in-memory config
-        // (these are set by ModeToolsetDialog.show() and setToolsetSwitchingEnabled())
-        for (Map.Entry<String, String> entry : settings.aiConfig.entrySet()) {
+        // Persist all toolset/toolsetSwitch/toolPrefix/toolPostfix keys
+        // from the pendingAiConfig buffer (survives SettingsHelper.load() in apply())
+        for (Map.Entry<String, String> entry : pendingAiConfig.entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("toolset.") || key.startsWith("toolsetSwitch.")
                     || key.startsWith("toolPrefix.") || key.startsWith("toolPostfix.")) {
@@ -323,12 +342,19 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
 
     private void loadModeToolContract(ChatMode mode) {
         ChatMode resolved = mode != null ? mode : ChatMode.AGENT;
-        aiToolPrefix.setText(settings.aiConfig.getOrDefault("toolPrefix." + resolved.name(), resolved.getDefaultToolPrefix()));
-        aiToolPostfix.setText(settings.aiConfig.getOrDefault("toolPostfix." + resolved.name(), resolved.getDefaultToolPostfix()));
+        String prefixKey = "toolPrefix." + resolved.name();
+        String postfixKey = "toolPostfix." + resolved.name();
+        aiToolPrefix.setText(pendingAiConfig.containsKey(prefixKey)
+                ? pendingAiConfig.get(prefixKey)
+                : settings.aiConfig.getOrDefault(prefixKey, resolved.getDefaultToolPrefix()));
+        aiToolPostfix.setText(pendingAiConfig.containsKey(postfixKey)
+                ? pendingAiConfig.get(postfixKey)
+                : settings.aiConfig.getOrDefault(postfixKey, resolved.getDefaultToolPostfix()));
     }
 
     private void loadToolsetState(ChatMode mode) {
-        boolean enabled = ModeToolsetDialog.isToolsetSwitchingEnabled(settings.aiConfig, mode);
+        boolean enabled = ModeToolsetDialog.isToolsetSwitchingEnabled(pendingAiConfig, mode)
+                || ModeToolsetDialog.isToolsetSwitchingEnabled(settings.aiConfig, mode);
         toolsetSwitchBox.setSelected(enabled);
         toolsetButton.setEnabled(enabled);
     }
