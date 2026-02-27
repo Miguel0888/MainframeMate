@@ -277,7 +277,8 @@ public class NetworkIngestionPipeline {
                     ingestionWorkerState = "fetchAndStore:" + fUrlShort;
                     ingestionWorkerStateTimestamp = System.currentTimeMillis();
                     try {
-                        fetchAndStore(fUrl, mimeType, status, requestRef, response);
+                        // ToDo: Fix getData after navigate started event (old request objects cannot be usede anymore)
+//                        fetchAndStore(fUrl, mimeType, status, requestRef, response);  
                     } finally {
                         ingestionWorkerState = "idle";
                         ingestionWorkerStateTimestamp = System.currentTimeMillis();
@@ -292,23 +293,23 @@ public class NetworkIngestionPipeline {
                 final String dUrl = url;
                 final String dUrlShort = urlShort;
                 ingestionExecutor.submit(() -> {
-                    try {
-                        System.out.println("[TRACE] F4-disown START url=" + dUrlShort
-                                + " thread=" + Thread.currentThread().getName()
-                                + " queueBehind=" + ingestionExecutor.getQueue().size());
-                        ingestionWorkerState = "disown:" + dUrlShort;
-                        ingestionWorkerStateTimestamp = System.currentTimeMillis();
-                        if (col != null) {
-                            driver.network().disownData(WDDataType.RESPONSE, col, requestRef);
-                        }
-                        System.out.println("[TRACE] F5-disown END url=" + dUrlShort);
-                    } catch (Exception e) {
-                        System.out.println("[TRACE] F5-disown FAILED url=" + dUrlShort + " err=" + e.getMessage());
-                        LOG.fine("[NetworkIngestion] disownData (skip) failed for " + dUrl + ": " + e.getMessage());
-                    } finally {
-                        ingestionWorkerState = "idle";
-                        ingestionWorkerStateTimestamp = System.currentTimeMillis();
-                    }
+//                    try {
+//                        System.out.println("[TRACE] F4-disown START url=" + dUrlShort
+//                                + " thread=" + Thread.currentThread().getName()
+//                                + " queueBehind=" + ingestionExecutor.getQueue().size());
+//                        ingestionWorkerState = "disown:" + dUrlShort;
+//                        ingestionWorkerStateTimestamp = System.currentTimeMillis();
+//                        if (col != null) {
+//                            driver.network().disownData(WDDataType.RESPONSE, col, requestRef);
+//                        }
+//                        System.out.println("[TRACE] F5-disown END url=" + dUrlShort);
+//                    } catch (Exception e) {
+//                        System.out.println("[TRACE] F5-disown FAILED url=" + dUrlShort + " err=" + e.getMessage());
+//                        LOG.fine("[NetworkIngestion] disownData (skip) failed for " + dUrl + ": " + e.getMessage());
+//                    } finally {
+//                        ingestionWorkerState = "idle";
+//                        ingestionWorkerStateTimestamp = System.currentTimeMillis();
+//                    }
                 });
             }
             System.out.println("[TRACE] F6-exit handleResponseCompleted url=" + urlShort
