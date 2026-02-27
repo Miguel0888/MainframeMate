@@ -39,6 +39,11 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
 
     // Ollama
     private final JTextField ollamaUrlField, ollamaModelField, ollamaKeepAliveField;
+    // Ollama Proxy Auth & E2E (optional)
+    private final JTextField ollamaProxyUsernameField;
+    private final JPasswordField ollamaProxyPasswordField;
+    private final JPasswordField ollamaE2ePasswordField;
+    private final JCheckBox ollamaProxyAuthBox, ollamaE2eBox;
     // Cloud
     private final JComboBox<String> cloudProviderField;
     private final JTextField cloudApiKeyField, cloudApiUrlField, cloudModelField;
@@ -180,6 +185,61 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         ollamaUrlField = new JTextField(30); fbOllama.addRow("URL:", ollamaUrlField);
         ollamaModelField = new JTextField(20); fbOllama.addRow("Modellname:", ollamaModelField);
         ollamaKeepAliveField = new JTextField(20); fbOllama.addRow("Beibehalten für:", ollamaKeepAliveField);
+
+        // Proxy Auth (optional)
+        fbOllama.addSection("Proxy-Authentifizierung (optional)");
+        fbOllama.addInfo("Basic-Auth für den HTTPS-Proxy. Leer lassen, wenn kein Auth benötigt wird.");
+        ollamaProxyAuthBox = new JCheckBox("Proxy-Authentifizierung aktivieren");
+        ollamaProxyAuthBox.setSelected(!settings.aiConfig.getOrDefault("ollama.proxy.username", "").isEmpty());
+        fbOllama.addWide(ollamaProxyAuthBox);
+        ollamaProxyUsernameField = new JTextField(20);
+        fbOllama.addRow("Benutzername:", ollamaProxyUsernameField);
+        ollamaProxyPasswordField = new JPasswordField(20);
+        JButton proxyPwToggle = createPasswordToggle(ollamaProxyPasswordField);
+        fbOllama.addRowWithButton("Passwort:", ollamaProxyPasswordField, proxyPwToggle);
+
+        // E2E Encryption (optional)
+        fbOllama.addSection("Ende-zu-Ende-Verschlüsselung (optional)");
+        fbOllama.addInfo("AES-256-GCM Verschlüsselung unabhängig von TLS. "
+                + "Das Passwort muss auf beiden Seiten (Client &amp; Proxy) identisch sein "
+                + "und wird nie über das Netzwerk übertragen.");
+        ollamaE2eBox = new JCheckBox("E2E-Verschlüsselung aktivieren");
+        ollamaE2eBox.setSelected(!settings.aiConfig.getOrDefault("ollama.e2e.password", "").isEmpty());
+        fbOllama.addWide(ollamaE2eBox);
+        ollamaE2ePasswordField = new JPasswordField(30);
+        JButton e2ePwToggle = createPasswordToggle(ollamaE2ePasswordField);
+        fbOllama.addRowWithButton("E2E-Passwort:", ollamaE2ePasswordField, e2ePwToggle);
+
+        // Proxy scripts & documentation button
+        fbOllama.addSeparator();
+        JButton proxyDocsButton = new JButton("Proxy-Scripte & Dokumentation anzeigen…");
+        proxyDocsButton.setToolTipText("Zeigt die README und alle Proxy-Scripte (JS) in einem Dialog an");
+        proxyDocsButton.addActionListener(e -> {
+            Window win = SwingUtilities.getWindowAncestor(this);
+            new de.bund.zrb.ui.settings.ProxyScriptsDialog(win).setVisible(true);
+        });
+        fbOllama.addWide(proxyDocsButton);
+
+        // Enable/disable auth fields based on checkbox
+        ollamaProxyAuthBox.addActionListener(e -> {
+            boolean en = ollamaProxyAuthBox.isSelected();
+            ollamaProxyUsernameField.setEnabled(en);
+            ollamaProxyPasswordField.setEnabled(en);
+            proxyPwToggle.setEnabled(en);
+        });
+        ollamaProxyUsernameField.setEnabled(ollamaProxyAuthBox.isSelected());
+        ollamaProxyPasswordField.setEnabled(ollamaProxyAuthBox.isSelected());
+        proxyPwToggle.setEnabled(ollamaProxyAuthBox.isSelected());
+
+        // Enable/disable E2E field based on checkbox
+        ollamaE2eBox.addActionListener(e -> {
+            boolean en = ollamaE2eBox.isSelected();
+            ollamaE2ePasswordField.setEnabled(en);
+            e2ePwToggle.setEnabled(en);
+        });
+        ollamaE2ePasswordField.setEnabled(ollamaE2eBox.isSelected());
+        e2ePwToggle.setEnabled(ollamaE2eBox.isSelected());
+
         providerOptionsPanel.add(fbOllama.getPanel(), AiProvider.OLLAMA.name());
 
         // CLOUD
@@ -250,6 +310,9 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/chat"));
         ollamaModelField.setText(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
         ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
+        ollamaProxyUsernameField.setText(settings.aiConfig.getOrDefault("ollama.proxy.username", ""));
+        ollamaProxyPasswordField.setText(settings.aiConfig.getOrDefault("ollama.proxy.password", ""));
+        ollamaE2ePasswordField.setText(settings.aiConfig.getOrDefault("ollama.e2e.password", ""));
 
         String initialCloudVendor = settings.aiConfig.getOrDefault("cloud.vendor", "OPENAI");
         if ("CLOUD".equalsIgnoreCase(initialCloudVendor)) initialCloudVendor = "CLAUDE";
@@ -311,6 +374,20 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         s.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
         s.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
         s.aiConfig.put("ollama.keepalive", ollamaKeepAliveField.getText().trim());
+        // Proxy Auth (optional — only save when enabled)
+        if (ollamaProxyAuthBox.isSelected()) {
+            s.aiConfig.put("ollama.proxy.username", ollamaProxyUsernameField.getText().trim());
+            s.aiConfig.put("ollama.proxy.password", new String(ollamaProxyPasswordField.getPassword()).trim());
+        } else {
+            s.aiConfig.put("ollama.proxy.username", "");
+            s.aiConfig.put("ollama.proxy.password", "");
+        }
+        // E2E Encryption (optional — only save when enabled)
+        if (ollamaE2eBox.isSelected()) {
+            s.aiConfig.put("ollama.e2e.password", new String(ollamaE2ePasswordField.getPassword()).trim());
+        } else {
+            s.aiConfig.put("ollama.e2e.password", "");
+        }
         s.aiConfig.put("cloud.vendor", Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI"));
         s.aiConfig.put("cloud.apikey", cloudApiKeyField.getText().trim());
         s.aiConfig.put("cloud.url", cloudApiUrlField.getText().trim());
@@ -395,6 +472,30 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         if ("authPrefix".equals(key)) return "Bearer";
         if ("anthropicVersion".equals(key)) return "2023-06-01";
         return "";
+    }
+
+    /**
+     * Creates a small toggle button that shows/hides the content of a JPasswordField.
+     * Default state: password hidden (echo char = '●').
+     */
+    private static JButton createPasswordToggle(JPasswordField field) {
+        final char defaultEcho = field.getEchoChar() != 0 ? field.getEchoChar() : '●';
+        JButton btn = new JButton("👁");
+        btn.setToolTipText("Passwort anzeigen/verbergen");
+        btn.setMargin(new Insets(1, 4, 1, 4));
+        btn.setFocusable(false);
+        btn.addActionListener(e -> {
+            if (field.getEchoChar() == 0) {
+                // Currently visible → hide
+                field.setEchoChar(defaultEcho);
+                btn.setText("👁");
+            } else {
+                // Currently hidden → show
+                field.setEchoChar((char) 0);
+                btn.setText("🔒");
+            }
+        });
+        return btn;
     }
 }
 

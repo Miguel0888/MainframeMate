@@ -1,4 +1,4 @@
-package de.bund.zrb.service;
+ package de.bund.zrb.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -16,6 +16,7 @@ import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.ToolSpec;
 import de.bund.zrb.net.ProxyResolver;
+import de.bund.zrb.net.E2ECrypto;
 import okhttp3.*;
 
 import java.io.BufferedReader;
@@ -163,16 +164,49 @@ public class OllamaChatManager implements ChatManager {
                     : userInput;
             jsonPayload = gson.toJson(new OllamaRequest(model, prompt, systemPrompt, keepAlive));
         }
-        Request request = new Request.Builder()
-                .url(url)
-                .post(RequestBody.create(jsonPayload, MediaType.get("application/json")))
-                .build();
+        // Optional Proxy Auth (Basic Auth)
+        String proxyUsername = settings.aiConfig.getOrDefault("ollama.proxy.username", "");
+        String proxyPassword = settings.aiConfig.getOrDefault("ollama.proxy.password", "");
+        // Optional E2E encryption
+        String e2ePassword = settings.aiConfig.getOrDefault("ollama.e2e.password", "");
+        boolean useE2E = !e2ePassword.isEmpty();
+
+        Request.Builder requestBuilder = new Request.Builder().url(url);
+
+        if (useE2E) {
+            // Encrypt the JSON payload
+            try {
+                byte[] encrypted = E2ECrypto.encrypt(jsonPayload.getBytes(java.nio.charset.StandardCharsets.UTF_8), e2ePassword);
+                requestBuilder
+                        .post(RequestBody.create(encrypted, MediaType.get("application/octet-stream")))
+                        .addHeader("X-E2E-Encrypted", "true")
+                        .addHeader("X-Original-Content-Type", "application/json");
+            } catch (Exception ex) {
+                throw new IOException("E2E encryption failed: " + ex.getMessage(), ex);
+            }
+        } else {
+            requestBuilder.post(RequestBody.create(jsonPayload, MediaType.get("application/json")));
+        }
+
+        // Add Basic Auth header if proxy auth is configured
+        if (!proxyUsername.isEmpty() && !proxyPassword.isEmpty()) {
+            String credentials = proxyUsername + ":" + proxyPassword;
+            String encoded = java.util.Base64.getEncoder().encodeToString(
+                    credentials.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            requestBuilder.addHeader("Authorization", "Basic " + encoded);
+        }
+
+        Request request = requestBuilder.build();
 
         if (LOG.isLoggable(java.util.logging.Level.FINE)) {
             LOG.fine("OLLAMA REQUEST to " + url);
             LOG.fine(jsonPayload);
             LOG.fine("END REQUEST");
         }
+
+        // Capture e2ePassword for use in callback (must be effectively final)
+        final String e2ePasswordFinal = e2ePassword;
+        final boolean useE2EFinal = useE2E;
 
         Call call = client.newCall(request);
         activeCalls.put(sessionId, call);
@@ -193,38 +227,81 @@ public class OllamaChatManager implements ChatManager {
                         return;
                     }
 
-                    BufferedReader reader = new BufferedReader(body.charStream());
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        OllamaChunk chunk = extractResponse(line);
-
-                        if (chunk.error != null && !chunk.error.trim().isEmpty()) {
-                            // Ollama tool-call parse errors are recoverable:
-                            // the LLM produced invalid JSON in its tool call.
-                            // Don't abort – let the ChatSession retry with a corrective prompt.
-                            if (chunk.error.contains("error parsing tool call")
-                                    || chunk.error.contains("invalid value after key value pair")
-                                    || chunk.error.contains("invalid character")) {
-                                System.err.println("[OllamaChatManager] Recoverable tool-parse error: " + chunk.error);
-                                // Signal as soft error via onError – ChatSession handles retry
+                    // Check if response is E2E encrypted
+                    String e2eHeader = response.header("X-E2E-Encrypted");
+                    if ("true".equals(e2eHeader) && !e2ePasswordFinal.isEmpty()) {
+                        // E2E mode: read entire body, decrypt, then parse
+                        byte[] encryptedBody = body.bytes();
+                        byte[] decrypted;
+                        try {
+                            decrypted = E2ECrypto.decrypt(encryptedBody, e2ePasswordFinal);
+                        } catch (Exception ex) {
+                            listener.onError(new IOException("E2E decryption failed: " + ex.getMessage(), ex));
+                            return;
+                        }
+                        String decryptedText = new String(decrypted, java.nio.charset.StandardCharsets.UTF_8);
+                        // Process decrypted response line by line
+                        for (String line : decryptedText.split("\\n")) {
+                            OllamaChunk chunk = extractResponse(line);
+                            if (chunk.error != null && !chunk.error.trim().isEmpty()) {
+                                if (chunk.error.contains("error parsing tool call")
+                                        || chunk.error.contains("invalid value after key value pair")
+                                        || chunk.error.contains("invalid character")) {
+                                    System.err.println("[OllamaChatManager] Recoverable tool-parse error: " + chunk.error);
+                                    listener.onError(new IOException("Ollama error: " + chunk.error));
+                                    return;
+                                }
                                 listener.onError(new IOException("Ollama error: " + chunk.error));
                                 return;
                             }
-                            listener.onError(new IOException("Ollama error: " + chunk.error));
-                            return;
+                            if (chunk.text != null && !chunk.text.isEmpty()) {
+                                listener.onStreamChunk(chunk.text);
+                            }
+                            if (chunk.done) break;
+                        }
+                        listener.onStreamEnd();
+                    } else if (useE2EFinal) {
+                        // E2E is enabled in settings but the response was NOT encrypted.
+                        // This is a security violation — refuse to process unencrypted data.
+                        listener.onError(new IOException(
+                                "E2E-Sicherheitsfehler: Verschlüsselung ist aktiviert, aber die Antwort vom Proxy "
+                                + "war nicht verschlüsselt (X-E2E-Encrypted Header fehlt). "
+                                + "Verbindung wird abgelehnt. Bitte prüfen Sie die Proxy-Konfiguration."));
+                    } else {
+                        // Standard mode: streaming line by line
+                        BufferedReader reader = new BufferedReader(body.charStream());
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            OllamaChunk chunk = extractResponse(line);
+
+                            if (chunk.error != null && !chunk.error.trim().isEmpty()) {
+                                // Ollama tool-call parse errors are recoverable:
+                                // the LLM produced invalid JSON in its tool call.
+                                // Don't abort – let the ChatSession retry with a corrective prompt.
+                                if (chunk.error.contains("error parsing tool call")
+                                        || chunk.error.contains("invalid value after key value pair")
+                                        || chunk.error.contains("invalid character")) {
+                                    System.err.println("[OllamaChatManager] Recoverable tool-parse error: " + chunk.error);
+                                    // Signal as soft error via onError – ChatSession handles retry
+                                    listener.onError(new IOException("Ollama error: " + chunk.error));
+                                    return;
+                                }
+                                listener.onError(new IOException("Ollama error: " + chunk.error));
+                                return;
+                            }
+
+                            if (chunk.text != null && !chunk.text.isEmpty()) {
+                                listener.onStreamChunk(chunk.text);
+                            }
+
+                            if (chunk.done) {
+                                // Stop reading once model signals generation completed
+                                break;
+                            }
                         }
 
-                        if (chunk.text != null && !chunk.text.isEmpty()) {
-                            listener.onStreamChunk(chunk.text);
-                        }
-
-                        if (chunk.done) {
-                            // Stop reading once model signals generation completed
-                            break;
-                        }
-                    }
-
-                    listener.onStreamEnd();
+                        listener.onStreamEnd();
+                    } // end E2E/standard branch
                 } catch (IOException e) {
                     listener.onError(e);
                 } finally {
