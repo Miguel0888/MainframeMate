@@ -106,9 +106,42 @@ public class ResearchNavigateTool implements McpServerTool {
         try {
             ResearchSession rs = ensureSession(session);
 
-            // Use BiDi-native traverseHistory instead of script.evaluate
-            int delta = "back".equalsIgnoreCase(action) ? -1 : 1;
-            session.getDriver().browsingContext().traverseHistory(session.getContextId(), delta);
+            boolean isBack = "back".equalsIgnoreCase(action);
+
+            // ── Guard: prevent traverseHistory when at boundary (freezes browser!) ──
+            if (isBack && !rs.canGoBack()) {
+                LOG.warning("[research_navigate] BLOCKED: Cannot go back – already at first page");
+                return ToolResult.error("Kann nicht weiter zurück – du bist bereits auf der ersten Seite. "
+                        + "Navigiere stattdessen zu einer URL.");
+            }
+            if (!isBack && !rs.canGoForward()) {
+                LOG.warning("[research_navigate] BLOCKED: Cannot go forward – no forward history");
+                return ToolResult.error("Kann nicht vorwärts – keine weiteren Seiten in der History. "
+                        + "Navigiere stattdessen zu einer URL.");
+            }
+
+            // ── Execute traverseHistory with timeout to catch unexpected freezes ──
+            int delta = isBack ? -1 : 1;
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> future = executor.submit(() ->
+                        session.getDriver().browsingContext().traverseHistory(session.getContextId(), delta));
+                future.get(10, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                LOG.severe("[research_navigate] traverseHistory TIMEOUT – browser may be frozen");
+                session.killBrowserProcess();
+                rs.historyReset();
+                return ToolResult.error("Browser-History-Navigation hat nicht reagiert. Browser wurde neu gestartet.");
+            } finally {
+                executor.shutdownNow();
+            }
+
+            // Update history tracking
+            if (isBack) {
+                rs.historyBack();
+            } else {
+                rs.historyForward();
+            }
 
             session.getNodeRefRegistry().invalidateAll();
             rs.invalidateView();
@@ -303,6 +336,9 @@ public class ResearchNavigateTool implements McpServerTool {
 
             // Update lastNavigationUrl for same-URL detection
             rs.setLastNavigationUrl(finalUrl != null && !finalUrl.isEmpty() ? finalUrl : url);
+
+            // Track history so back/forward knows the boundaries
+            rs.historyPush();
 
             // Try to dismiss cookie banners before taking the snapshot
             CookieBannerDismisser.tryDismiss(session);

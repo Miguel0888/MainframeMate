@@ -130,6 +130,7 @@ public class ResearchChooseTool implements McpServerTool {
             if (currentUrl != null && !currentUrl.isEmpty()) {
                 rs.setLastNavigationUrl(currentUrl);
             }
+            rs.historyPush();
 
             // Build menu from new page HTML
             MenuViewBuilder builder = new MenuViewBuilder(rs);

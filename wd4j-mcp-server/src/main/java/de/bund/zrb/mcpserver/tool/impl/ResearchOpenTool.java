@@ -174,6 +174,7 @@ public class ResearchOpenTool implements McpServerTool {
             if (finalUrl != null && !finalUrl.isEmpty()) {
                 rs.setLastNavigationUrl(finalUrl);
             }
+            rs.historyPush();
 
             // Build menu view from DOM snapshot via Jsoup
             MenuViewBuilder builder = new MenuViewBuilder(rs);
