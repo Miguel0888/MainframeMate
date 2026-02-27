@@ -663,6 +663,16 @@ public class ChatSession extends JPanel {
         boolean nativeToolCalling = isNativeToolCallingActive();
 
         java.util.List<ToolPolicy> policies = toolPolicyRepository.loadAll();
+
+        // ── Toolset filtering: if mode has a custom toolset configured, restrict tools ──
+        java.util.Set<String> modeToolset = null;
+        try {
+            Settings modeSettings = SettingsHelper.load();
+            if (de.bund.zrb.ui.settings.ModeToolsetDialog.isToolsetSwitchingEnabled(modeSettings.aiConfig, mode)) {
+                modeToolset = de.bund.zrb.ui.settings.ModeToolsetDialog.loadToolset(modeSettings.aiConfig, mode);
+            }
+        } catch (Exception ignored) {}
+
         StringBuilder sb = new StringBuilder();
         if (nativeToolCalling) {
             sb.append("Dir stehen Tools zur Verfügung (die Schemas werden nativ übergeben).\n");
@@ -673,6 +683,10 @@ public class ChatSession extends JPanel {
         boolean found = false;
         for (ToolPolicy policy : policies) {
             if (policy == null || !policy.isEnabled() || policy.getToolName() == null) {
+                continue;
+            }
+            // Skip tools not in mode-specific toolset (if configured)
+            if (modeToolset != null && !modeToolset.isEmpty() && !modeToolset.contains(policy.getToolName())) {
                 continue;
             }
             ToolAccessType accessType = policy.getAccessType() != null

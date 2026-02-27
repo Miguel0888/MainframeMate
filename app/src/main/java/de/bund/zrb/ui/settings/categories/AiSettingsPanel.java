@@ -4,6 +4,7 @@ import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.components.ChatMode;
 import de.bund.zrb.ui.settings.FormBuilder;
+import de.bund.zrb.ui.settings.ModeToolsetDialog;
 import de.bund.zrb.util.ExecutableLauncher;
 
 import javax.swing.*;
@@ -22,6 +23,10 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner aiEditorHeightSpinner;
     private final JCheckBox wrapJsonBox, prettyJsonBox;
     private final JComboBox<AiProvider> providerCombo;
+
+    // Toolset per mode
+    private final JCheckBox toolsetSwitchBox;
+    private final JButton toolsetButton;
 
     // Ollama
     private final JTextField ollamaUrlField, ollamaModelField, ollamaKeepAliveField;
@@ -43,15 +48,54 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         aiModeCombo.setSelectedItem(ChatMode.AGENT);
         fb.addRow("Mode für Tool-Contract:", aiModeCombo);
 
+        // ── Toolset switching per mode ──
+        toolsetSwitchBox = new JCheckBox("Tools beim Mode-Wechsel aktualisieren");
+        toolsetSwitchBox.setToolTipText("Wenn aktiviert, werden beim Umschalten in diesen Mode\n"
+                + "nur die ausgewählten Tools dem Bot zur Verfügung gestellt.");
+        toolsetButton = new JButton("🔧 Tools auswählen…");
+        toolsetButton.setToolTipText("Verfügbare Tools für diesen Mode konfigurieren");
+        toolsetButton.addActionListener(e -> {
+            ChatMode mode = (ChatMode) aiModeCombo.getSelectedItem();
+            if (mode != null) {
+                ModeToolsetDialog.show(toolsetButton, mode, settings.aiConfig);
+            }
+        });
+        // Enable/disable button based on checkbox
+        toolsetSwitchBox.addActionListener(e -> {
+            toolsetButton.setEnabled(toolsetSwitchBox.isSelected());
+            ChatMode mode = (ChatMode) aiModeCombo.getSelectedItem();
+            if (mode != null) {
+                ModeToolsetDialog.setToolsetSwitchingEnabled(settings.aiConfig, mode, toolsetSwitchBox.isSelected());
+            }
+        });
+        JPanel toolsetRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        toolsetRow.add(toolsetSwitchBox);
+        toolsetRow.add(toolsetButton);
+        fb.addWide(toolsetRow);
+
         aiToolPrefix = new JTextArea(3, 30);
         aiToolPrefix.setLineWrap(true); aiToolPrefix.setWrapStyleWord(true);
-        fb.addRow("KI-Prefix:", new JScrollPane(aiToolPrefix));
+        JButton prefixResetBtn = new JButton("↺");
+        prefixResetBtn.setToolTipText("Prefix auf Default zurücksetzen");
+        prefixResetBtn.setMargin(new Insets(2, 6, 2, 6));
+        prefixResetBtn.addActionListener(e -> {
+            ChatMode mode = (ChatMode) aiModeCombo.getSelectedItem();
+            if (mode != null) aiToolPrefix.setText(mode.getDefaultToolPrefix());
+        });
+        fb.addRowWithButton("KI-Prefix:", new JScrollPane(aiToolPrefix), prefixResetBtn);
 
         aiToolPostfix = new JTextArea(2, 30);
         aiToolPostfix.setLineWrap(true); aiToolPostfix.setWrapStyleWord(true);
-        fb.addRow("KI-Postfix:", new JScrollPane(aiToolPostfix));
+        JButton postfixResetBtn = new JButton("↺");
+        postfixResetBtn.setToolTipText("Postfix auf Default zurücksetzen");
+        postfixResetBtn.setMargin(new Insets(2, 6, 2, 6));
+        postfixResetBtn.addActionListener(e -> {
+            ChatMode mode = (ChatMode) aiModeCombo.getSelectedItem();
+            if (mode != null) aiToolPostfix.setText(mode.getDefaultToolPostfix());
+        });
+        fb.addRowWithButton("KI-Postfix:", new JScrollPane(aiToolPostfix), postfixResetBtn);
 
-        JButton aiResetButton = new JButton("Auf Default zurücksetzen");
+        JButton aiResetButton = new JButton("Alles auf Default zurücksetzen");
         aiResetButton.addActionListener(e -> resetModeToolContract((ChatMode) aiModeCombo.getSelectedItem()));
         fb.addButtons(aiResetButton);
 
@@ -64,13 +108,16 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
 
         final ChatMode[] previousMode = {(ChatMode) aiModeCombo.getSelectedItem()};
         loadModeToolContract(previousMode[0]);
+        loadToolsetState(previousMode[0]);
         aiModeCombo.addActionListener(e -> {
             ChatMode newMode = (ChatMode) aiModeCombo.getSelectedItem();
             if (previousMode[0] != null) {
                 settings.aiConfig.put("toolPrefix." + previousMode[0].name(), aiToolPrefix.getText().trim());
                 settings.aiConfig.put("toolPostfix." + previousMode[0].name(), aiToolPostfix.getText().trim());
+                ModeToolsetDialog.setToolsetSwitchingEnabled(settings.aiConfig, previousMode[0], toolsetSwitchBox.isSelected());
             }
             loadModeToolContract(newMode);
+            loadToolsetState(newMode);
             previousMode[0] = newMode;
         });
 
@@ -218,6 +265,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         s.aiConfig.put("editor.lines", aiEditorHeightSpinner.getValue().toString());
         s.aiConfig.put("toolPrefix." + selectedMode.name(), aiToolPrefix.getText().trim());
         s.aiConfig.put("toolPostfix." + selectedMode.name(), aiToolPostfix.getText().trim());
+        ModeToolsetDialog.setToolsetSwitchingEnabled(s.aiConfig, selectedMode, toolsetSwitchBox.isSelected());
         s.aiConfig.remove("toolPrefix"); s.aiConfig.remove("toolPostfix");
         String selectedLanguage = Objects.toString(aiLanguageCombo.getSelectedItem(), "Deutsch (Standard)");
         if ("Keine Vorgabe".equals(selectedLanguage)) s.aiConfig.put("assistant.language", "none");
@@ -260,6 +308,12 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         ChatMode resolved = mode != null ? mode : ChatMode.AGENT;
         aiToolPrefix.setText(settings.aiConfig.getOrDefault("toolPrefix." + resolved.name(), resolved.getDefaultToolPrefix()));
         aiToolPostfix.setText(settings.aiConfig.getOrDefault("toolPostfix." + resolved.name(), resolved.getDefaultToolPostfix()));
+    }
+
+    private void loadToolsetState(ChatMode mode) {
+        boolean enabled = ModeToolsetDialog.isToolsetSwitchingEnabled(settings.aiConfig, mode);
+        toolsetSwitchBox.setSelected(enabled);
+        toolsetButton.setEnabled(enabled);
     }
 
     private void applyCloudVendorDefaults(boolean clearOptionalFields) {
