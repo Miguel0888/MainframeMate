@@ -159,22 +159,62 @@ public class NavigationPolicy {
 
     /**
      * Derive the parent domain suitable for a "including subdomains" wildcard.
-     * E.g. "www.bundestag.de" → "*.bundestag.de",
-     *      "de.wikipedia.org" → "*.wikipedia.org",
-     *      "bundestag.de"     → "*.bundestag.de"
+     * Computes the registrable domain (eTLD+1) and prefixes with "*.".
+     * <p>
+     * Examples:
+     * <ul>
+     *   <li>"de.finance.yahoo.com" → "*.yahoo.com"</li>
+     *   <li>"www.bundestag.de"     → "*.bundestag.de"</li>
+     *   <li>"de.wikipedia.org"     → "*.wikipedia.org"</li>
+     *   <li>"news.bbc.co.uk"       → "*.bbc.co.uk"</li>
+     *   <li>"bundestag.de"         → "*.bundestag.de"</li>
+     * </ul>
      */
     public static String toWildcard(String domain) {
         if (domain == null) return null;
         String d = normalize(domain);
-        // Find the registrable domain (last two parts, or three for co.uk etc.)
-        // Simple heuristic: strip the first label if there are 3+ labels
-        int firstDot = d.indexOf('.');
-        if (firstDot > 0 && d.indexOf('.', firstDot + 1) > 0) {
-            // Has at least 3 labels (e.g. www.bundestag.de) → wildcard on bundestag.de
-            return "*." + d.substring(firstDot + 1);
+        String base = registrableDomain(d);
+        return "*." + base;
+    }
+
+    /**
+     * Heuristic to find the registrable domain (eTLD+1).
+     * Handles common compound TLDs like co.uk, com.au, co.jp, etc.
+     */
+    private static String registrableDomain(String domain) {
+        // Known compound TLDs (add more as needed)
+        String[] compoundTlds = {
+                "co.uk", "org.uk", "ac.uk", "gov.uk",
+                "com.au", "net.au", "org.au",
+                "co.jp", "or.jp", "ne.jp",
+                "co.nz", "net.nz", "org.nz",
+                "co.za", "org.za",
+                "com.br", "org.br", "net.br",
+                "co.in", "net.in", "org.in",
+                "co.kr", "or.kr",
+                "com.mx", "org.mx",
+                "com.cn", "net.cn", "org.cn"
+        };
+
+        // Check if domain ends with a compound TLD
+        for (String ctld : compoundTlds) {
+            if (domain.endsWith("." + ctld)) {
+                // Find one more label before the compound TLD
+                String prefix = domain.substring(0, domain.length() - ctld.length() - 1);
+                int lastDot = prefix.lastIndexOf('.');
+                if (lastDot >= 0) {
+                    return prefix.substring(lastDot + 1) + "." + ctld;
+                }
+                return prefix + "." + ctld; // already the registrable domain
+            }
         }
-        // Only 2 labels (e.g. bundestag.de) → wildcard as-is
-        return "*." + d;
+
+        // Standard TLD: take last two labels
+        String[] parts = domain.split("\\.");
+        if (parts.length <= 2) {
+            return domain; // already "example.com" or single label
+        }
+        return parts[parts.length - 2] + "." + parts[parts.length - 1];
     }
 
     private static String normalize(String s) {
