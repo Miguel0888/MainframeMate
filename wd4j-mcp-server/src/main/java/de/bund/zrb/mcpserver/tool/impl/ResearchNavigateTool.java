@@ -113,25 +113,23 @@ public class ResearchNavigateTool implements McpServerTool {
             session.getNodeRefRegistry().invalidateAll();
             rs.invalidateView();
 
-            // Wait for history navigation to settle
-            try { Thread.sleep(3000); } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-
-            // Get HTML from the NetworkIngestionPipeline cache (no evaluate!)
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
-            String currentUrl = pipeline != null ? pipeline.getLastNavigationUrl() : null;
+            // Dismiss cookie banners + fetch DOM snapshot
+            CookieBannerDismisser.tryDismiss(session);
+            String html = DomSnapshotFetcher.fetchHtml(session);
+            String currentUrl = DomSnapshotFetcher.fetchCurrentUrl(session);
 
             if (currentUrl != null) {
                 rs.setLastNavigationUrl(currentUrl);
             }
 
-            MenuViewBuilder builder = new MenuViewBuilder(rs, null);
+            // Archive the snapshot
+            archiveSnapshot(rs, currentUrl != null ? currentUrl : "", html);
+
+            MenuViewBuilder builder = new MenuViewBuilder(rs);
             builder.setHtmlOverride(html, currentUrl != null ? currentUrl : "");
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
-            return buildResponse(view, rs, null);
+            return buildResponse(view, rs);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] History action failed", e);
             return ToolResult.error("Action '" + action + "' failed: " + e.getMessage());
@@ -256,21 +254,19 @@ public class ResearchNavigateTool implements McpServerTool {
         long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            System.out.println("[TRACE] N-submitting doNavigate url=" + url + " timeout=" + timeoutSeconds + "s thread=" + Thread.currentThread().getName());
+            LOG.fine("[research_navigate] Submitting doNavigate url=" + url + " timeout=" + timeoutSeconds + "s");
             Future<ToolResult> future = executor.submit(() ->
                     doNavigate(url, rs, session));
             ToolResult result = future.get(timeoutSeconds, TimeUnit.SECONDS);
-            System.out.println("[TRACE] N1-doNavigate completed url=" + url);
+            LOG.fine("[research_navigate] doNavigate completed url=" + url);
             return result;
         } catch (TimeoutException e) {
-            System.out.println("[TRACE] N-TIMEOUT url=" + url + " after " + timeoutSeconds + "s");
             LOG.severe("[research_navigate] Timeout after " + timeoutSeconds + "s for: " + url);
-            // Try to build menu from whatever HTML the pipeline has cached
+            // On timeout, try a last-ditch DOM snapshot
             try {
-                NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-                String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
+                String html = DomSnapshotFetcher.fetchHtml(session, 0);
                 if (html != null) {
-                    MenuViewBuilder builder = new MenuViewBuilder(rs, null);
+                    MenuViewBuilder builder = new MenuViewBuilder(rs);
                     builder.setHtmlOverride(html, url);
                     MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
                     if (view != null && view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
@@ -298,46 +294,38 @@ public class ResearchNavigateTool implements McpServerTool {
 
     private ToolResult doNavigate(String url, ResearchSession rs, BrowserSession session) {
         try {
-            System.out.println("[TRACE] H-enter doNavigate url=" + url + " thread=" + Thread.currentThread().getName());
+            LOG.info("[research_navigate] doNavigate url=" + url);
             // Use NONE readiness to avoid freezing on pages with endless resource loading
             // (ads, tracking scripts, etc.). A fixed delay afterwards lets the page render.
             WDBrowsingContextResult.NavigateResult nav =
                     session.getDriver().browsingContext().navigate(
                             url, session.getContextId(), WDReadinessState.NONE);
-            System.out.println("[TRACE] H1-navigate returned url=" + url);
             String finalUrl = nav.getUrl();
             LOG.info("[research_navigate] Landed on: " + finalUrl);
 
             // Update lastNavigationUrl for same-URL detection
             rs.setLastNavigationUrl(finalUrl != null && !finalUrl.isEmpty() ? finalUrl : url);
 
-            // Fixed delay to let the page load and the NetworkIngestionPipeline
-            // intercept + cache the HTML response body. 3s is enough because the
-            // pipeline captures via intercept (blocks response, reads body, continues).
-            System.out.println("[TRACE] H2-sleeping 3s for pipeline");
-            try { Thread.sleep(3000); } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-            System.out.println("[TRACE] H3-sleep done, checking pipeline cache");
+            // Try to dismiss cookie banners before taking the snapshot
+            CookieBannerDismisser.tryDismiss(session);
 
-            // Get HTML from the NetworkIngestionPipeline cache (NO evaluate!)
-            // The pipeline captures text/html responses via intercept and caches them.
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
+            // Fetch DOM snapshot via script.evaluate (replaces old NetworkIngestionPipeline approach)
+            String html = DomSnapshotFetcher.fetchHtml(session);
 
             if (html == null) {
-                LOG.warning("[research_navigate] No HTML cached by pipeline for: " + finalUrl);
+                LOG.warning("[research_navigate] DOM snapshot returned null for: " + finalUrl);
             }
 
-            System.out.println("[TRACE] H4-building menu view html=" + (html != null ? html.length() + " chars" : "null"));
-            MenuViewBuilder builder = new MenuViewBuilder(rs, null);
+            // Archive the snapshot asynchronously via the callback
+            archiveSnapshot(rs, finalUrl != null ? finalUrl : url, html);
+
+            LOG.fine("[research_navigate] Building menu view, html=" + (html != null ? html.length() + " chars" : "null"));
+            MenuViewBuilder builder = new MenuViewBuilder(rs);
             builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
-            System.out.println("[TRACE] H5-doNavigate returning");
-            return buildResponse(view, rs, null);
+            return buildResponse(view, rs);
         } catch (Exception e) {
-            System.out.println("[TRACE] H-EXCEPTION doNavigate: " + e.getMessage());
             LOG.log(Level.WARNING, "[research_navigate] doNavigate failed", e);
             return ToolResult.error("Navigation failed: " + e.getMessage());
         }
@@ -348,7 +336,7 @@ public class ResearchNavigateTool implements McpServerTool {
     //  Response builder
     // ═══════════════════════════════════════════════════════════════
 
-    private ToolResult buildResponse(MenuView view, ResearchSession rs, NetworkIngestionPipeline pipeline) {
+    private ToolResult buildResponse(MenuView view, ResearchSession rs) {
         ToolResult result = ToolResult.text(buildResponseText(view, rs));
 
         // Add links as structured JSON so the bot can reliably pick a URL
@@ -399,7 +387,7 @@ public class ResearchNavigateTool implements McpServerTool {
 
     /**
      * Ensures a fully initialized ResearchSession exists for this BrowserSession.
-     * Creates UserContext, RunId, and NetworkIngestionPipeline on first call.
+     * Creates UserContext and RunId on first call.
      * Subsequent calls return the existing session immediately.
      */
     private ResearchSession ensureSession(BrowserSession session) {
@@ -450,50 +438,36 @@ public class ResearchNavigateTool implements McpServerTool {
             }
         }
 
-        // Start NetworkIngestionPipeline (intercept-based, non-blocking)
-        // This runs in the background and archives relevant HTML/JSON responses.
-        // HTML for link extraction comes from the pipeline's cache (lastNavigationHtml).
-        if (session.getDriver() != null && rs.getNetworkPipeline() == null) {
-            try {
-                NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
-                NetworkIngestionPipeline.IngestionCallback cb =
-                        NetworkIngestionPipeline.getGlobalDefaultCallback();
-                if (cb == null) {
-                    // Fallback: logging only
-                    cb = (runId, url, mimeType, statusCode, bodyText, headers, capturedAt) -> {
-                        LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
-                        return "net-" + Long.toHexString(capturedAt);
-                    };
-                }
-                pipeline.start(cb);
-                rs.setNetworkPipeline(pipeline);
-                LOG.info("[research_navigate] Intercept-based pipeline started");
-            } catch (Exception e) {
-                LOG.warning("[research_navigate] Failed to start pipeline: " + e.getMessage());
-            }
-        } else if (rs.getNetworkPipeline() != null && !rs.getNetworkPipeline().isActive()
-                && session.getDriver() != null) {
-            // Pipeline exists but is inactive (e.g. after browser restart) – restart it
-            try {
-                NetworkIngestionPipeline pipeline = new NetworkIngestionPipeline(session.getDriver(), rs);
-                NetworkIngestionPipeline.IngestionCallback cb =
-                        NetworkIngestionPipeline.getGlobalDefaultCallback();
-                if (cb == null) {
-                    cb = (runId, url, mimeType, statusCode, bodyText, headers, capturedAt) -> {
-                        LOG.fine("[NetworkIngestion] Captured (no persister): " + url);
-                        return "net-" + Long.toHexString(capturedAt);
-                    };
-                }
-                pipeline.start(cb);
-                rs.setNetworkPipeline(pipeline);
-                LOG.info("[research_navigate] Pipeline restarted after browser restart");
-            } catch (Exception e) {
-                LOG.warning("[research_navigate] Failed to restart pipeline: " + e.getMessage());
-            }
-        }
-
         LOG.info("[research_navigate] Session ready: " + rs.getSessionId());
         return rs;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Snapshot archiving (replaces NetworkIngestionPipeline)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Archive the DOM snapshot via the global ingestion callback.
+     * Uses the same callback interface as the old NetworkIngestionPipeline
+     * so the ArchiveService integration works unchanged.
+     */
+    private void archiveSnapshot(ResearchSession rs, String url, String html) {
+        if (html == null || html.isEmpty() || url == null || url.isEmpty()) return;
+
+        SnapshotArchivingCallback callback = ResearchSessionManager.getSnapshotArchivingCallback();
+        if (callback == null) return;
+
+        try {
+            String runId = rs.getRunId();
+            String docId = callback.onSnapshotCaptured(runId, url, "text/html", 200, html, System.currentTimeMillis());
+            if (docId != null) {
+                rs.addArchivedDocId(docId);
+                LOG.info("[research_navigate] ✅ Snapshot archived: " + url + " → id=" + docId
+                        + " (" + html.length() + " chars)");
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[research_navigate] Failed to archive snapshot for " + url, e);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -600,4 +574,3 @@ public class ResearchNavigateTool implements McpServerTool {
         return null;
     }
 }
-

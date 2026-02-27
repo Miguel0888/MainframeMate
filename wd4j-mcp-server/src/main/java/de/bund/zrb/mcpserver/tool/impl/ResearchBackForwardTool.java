@@ -11,9 +11,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Browser history navigation (back/forward/reload) with menu view result.
- * Returns a fresh menu view after the navigation action.
+ * @deprecated Use {@link ResearchBackTool}, {@link ResearchForwardTool},
+ * or {@link ResearchReloadTool} instead.
  */
+@Deprecated
 public class ResearchBackForwardTool implements McpServerTool {
 
     private static final Logger LOG = Logger.getLogger(ResearchBackForwardTool.class.getName());
@@ -25,7 +26,7 @@ public class ResearchBackForwardTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "[DEPRECATED – use research_navigate with target='back'/'forward'/'reload' instead] "
+        return "[DEPRECATED – use research_back / research_forward / research_reload instead] "
              + "Navigate browser history: action='back', 'forward', or 'reload'. "
              + "Returns a fresh link list after the action.";
     }
@@ -41,7 +42,6 @@ public class ResearchBackForwardTool implements McpServerTool {
         action.addProperty("description", "Navigation action: 'back', 'forward', or 'reload'");
         props.add("action", action);
 
-
         schema.add("properties", props);
         JsonArray required = new JsonArray();
         required.add("action");
@@ -56,13 +56,10 @@ public class ResearchBackForwardTool implements McpServerTool {
             return ToolResult.error("Missing required parameter 'action'. Use 'back', 'forward', or 'reload'.");
         }
 
-        SettlePolicy policy = SettlePolicy.fromString(
-                params.has("settlePolicy") ? params.get("settlePolicy").getAsString() : null);
-
-        LOG.info("[research_navigate] Action: " + action + " (settle=" + policy + ")");
+        LOG.info("[research_history] Action: " + action);
 
         try {
-            // Execute history action via BiDi-native commands (NO evaluate!)
+            // Execute history action via BiDi-native commands
             switch (action.toLowerCase()) {
                 case "back":
                     session.getDriver().browsingContext().traverseHistory(session.getContextId(), -1);
@@ -82,14 +79,22 @@ public class ResearchBackForwardTool implements McpServerTool {
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
             rs.invalidateView();
 
-            // Build fresh menu view
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
-            MenuView view = builder.buildWithSettle(policy, rs.getMaxMenuItems(), rs.getExcerptMaxLength());
+            // Dismiss cookie banners + fetch DOM snapshot
+            CookieBannerDismisser.tryDismiss(session);
+            String html = DomSnapshotFetcher.fetchHtml(session);
+            String currentUrl = DomSnapshotFetcher.fetchCurrentUrl(session);
+
+            if (currentUrl != null) {
+                rs.setLastNavigationUrl(currentUrl);
+            }
+
+            MenuViewBuilder builder = new MenuViewBuilder(rs);
+            builder.setHtmlOverride(html, currentUrl != null ? currentUrl : "");
+            MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
             return ToolResult.text(view.toCompactText());
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[research_navigate] Failed", e);
+            LOG.log(Level.WARNING, "[research_history] Failed", e);
             return ToolResult.error("Navigation action '" + action + "' failed: " + e.getMessage());
         }
     }

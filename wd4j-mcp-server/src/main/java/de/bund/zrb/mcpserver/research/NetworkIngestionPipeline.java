@@ -34,6 +34,15 @@ import java.util.logging.Logger;
  * intercept-based design, where a failed or slow {@code continueResponse}
  * would permanently block the browser.
  */
+/**
+ * @deprecated Replaced by {@link DomSnapshotFetcher} and {@link CookieBannerDismisser}.
+ * The passive event-based approach caused browser freezes. DOM snapshots are now
+ * fetched via {@code script.evaluate("document.documentElement.outerHTML")} after
+ * each navigation instead.
+ * <p>
+ * This class is retained for reference but all start() code is disabled.
+ */
+@Deprecated
 public class NetworkIngestionPipeline {
 
     private static final Logger LOG = Logger.getLogger(NetworkIngestionPipeline.class.getName());

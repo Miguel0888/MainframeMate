@@ -22,6 +22,9 @@ public class ResearchSessionManager {
     /** Global callback for Data Lake run lifecycle, registered by WebSearchPlugin. */
     private static volatile RunLifecycleCallback runLifecycleCallback;
 
+    /** Global callback for snapshot archiving, registered by WebSearchPlugin. */
+    private static volatile SnapshotArchivingCallback snapshotArchivingCallback;
+
     private ResearchSessionManager() {}
 
     public static ResearchSessionManager getInstance() {
@@ -42,6 +45,22 @@ public class ResearchSessionManager {
      */
     public static RunLifecycleCallback getRunLifecycleCallback() {
         return runLifecycleCallback;
+    }
+
+    /**
+     * Register a global callback for DOM snapshot archiving.
+     * Called once at plugin init time (e.g. from WebSearchPlugin).
+     */
+    public static void setSnapshotArchivingCallback(SnapshotArchivingCallback callback) {
+        snapshotArchivingCallback = callback;
+        LOG.info("[ResearchSessionManager] SnapshotArchivingCallback registered");
+    }
+
+    /**
+     * Get the global SnapshotArchivingCallback, or null if none registered.
+     */
+    public static SnapshotArchivingCallback getSnapshotArchivingCallback() {
+        return snapshotArchivingCallback;
     }
 
     /**
@@ -77,20 +96,11 @@ public class ResearchSessionManager {
 
     /**
      * Remove the ResearchSession for the given BrowserSession (e.g. on close).
-     * Stops the Network Ingestion Pipeline and ends the Data Lake run.
+     * Ends the Data Lake run.
      */
     public void remove(BrowserSession browserSession) {
         ResearchSession removed = sessions.remove(browserSession);
         if (removed != null) {
-            // Stop network pipeline
-            NetworkIngestionPipeline pipeline = removed.getNetworkPipeline();
-            if (pipeline != null && pipeline.isActive()) {
-                try {
-                    pipeline.stop();
-                } catch (Exception e) {
-                    LOG.warning("[ResearchSessionManager] Error stopping pipeline: " + e.getMessage());
-                }
-            }
             // End Data Lake run
             endRunForSession(removed);
             LOG.info("[ResearchSessionManager] Removed session " + removed.getSessionId());
@@ -99,18 +109,10 @@ public class ResearchSessionManager {
 
     /**
      * Clear all sessions (e.g. on app shutdown).
-     * Stops all active Network Ingestion Pipelines and ends Data Lake runs.
+     * Ends all Data Lake runs.
      */
     public void clear() {
         for (ResearchSession rs : sessions.values()) {
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            if (pipeline != null && pipeline.isActive()) {
-                try {
-                    pipeline.stop();
-                } catch (Exception e) {
-                    LOG.warning("[ResearchSessionManager] Error stopping pipeline: " + e.getMessage());
-                }
-            }
             endRunForSession(rs);
         }
         sessions.clear();

@@ -49,8 +49,13 @@ public class ResearchMenuTool implements McpServerTool {
 
         try {
             ResearchSession rs = ResearchSessionManager.getInstance().getOrCreate(session);
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            MenuViewBuilder builder = new MenuViewBuilder(rs, pipeline);
+
+            // Fetch fresh DOM snapshot for the current page
+            String html = DomSnapshotFetcher.fetchHtml(session, 0);
+            String currentUrl = DomSnapshotFetcher.fetchCurrentUrl(session);
+
+            MenuViewBuilder builder = new MenuViewBuilder(rs);
+            builder.setHtmlOverride(html, currentUrl != null ? currentUrl : "");
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
             // Append newly archived doc IDs
