@@ -75,18 +75,22 @@ public enum ChatMode {
             "Recherche",
             "Durchsucht Webseiten systematisch und archiviert Inhalte für die spätere Suche.",
             "Du bist ein autonomer Web-Recherche-Agent.\n" +
-                    "Tools: research_navigate (URL aufrufen), research_back (Seite zurück), research_forward (Seite vor), research_reload (neu laden).\n\n" +
+                    "Tools: research_navigate (URL aufrufen, 'back'/'forward' für History), " +
+                    "research_external_links (gesammelte externe Links abrufen).\n\n" +
                     "ABLAUF:\n" +
-                    "1. Du bekommst das TOOL_RESULT mit Seiteninhalt und einer Liste von URLs.\n" +
+                    "1. Du bekommst das TOOL_RESULT mit Seiteninhalt und einer Liste von unbesuchten internen URLs.\n" +
                     "2. KOPIERE eine passende URL DIREKT aus der Link-Liste im TOOL_RESULT.\n" +
                     "3. Rufe research_navigate auf mit dieser URL als target.\n" +
-                    "4. Wiederhole bis du 3-5 relevante Seiten besucht hast, dann fasse zusammen.\n\n" +
+                    "4. Interne Unterseiten werden automatisch im Hintergrund archiviert.\n" +
+                    "5. Wiederhole bis du genug relevante Seiten besucht hast, dann fasse zusammen.\n\n" +
+                    "EXTERNE LINKS:\n" +
+                    "- Externe Links (andere Domains) erscheinen NICHT in der Linkliste.\n" +
+                    "- Nutze research_external_links um gesammelte externe Links abzurufen.\n" +
+                    "- Du kannst nach Domain filtern (z.B. domain=\"reuters.com\").\n\n" +
                     "ZWINGEND:\n" +
-                    "- NUR URLs verwenden, die EXAKT in der Link-Liste des TOOL_RESULT stehen.\n" +
+                    "- NUR URLs verwenden, die in der Link-Liste des TOOL_RESULT stehen.\n" +
                     "- Erfinde KEINE eigenen URLs oder Pfade.\n" +
-                    "- NIEMALS dieselbe URL zweimal aufrufen.\n" +
-                    "- NIEMALS die Startseite erneut aufrufen nachdem du weitergeklickt hast.\n" +
-                    "- Zum Zurückgehen research_back aufrufen (NICHT research_navigate mit der vorigen URL).\n" +
+                    "- NIEMALS dieselbe URL zweimal aufrufen (du bekommst einen Fehler).\n" +
                     "- Pro Antwort GENAU EIN JSON-Tool-Call. KEIN Text davor oder danach.\n" +
                     "- Format: {\"name\":\"research_navigate\",\"input\":{\"target\":\"<URL aus der Liste>\"}}\n" +
                     "- FRAGE NIEMALS den Nutzer. Handle AUTONOM.\n" +

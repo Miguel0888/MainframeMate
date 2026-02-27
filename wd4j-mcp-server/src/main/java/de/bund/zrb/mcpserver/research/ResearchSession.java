@@ -71,6 +71,39 @@ public class ResearchSession {
     public NetworkIngestionPipeline getNetworkPipeline() { return networkPipeline; }
     public void setNetworkPipeline(NetworkIngestionPipeline pipeline) { this.networkPipeline = pipeline; }
 
+    // ── Visited URL tracking & Link classification ──────────────
+
+    private final VisitedUrlTracker visitedUrls = new VisitedUrlTracker();
+    private final ExternalLinkCollector externalLinks = new ExternalLinkCollector();
+    private volatile LinkClassifier linkClassifier; // set on first navigate (from seed URL)
+    private volatile String domainBoundary;         // base domain of the seed URL
+
+    public VisitedUrlTracker getVisitedUrls() { return visitedUrls; }
+    public ExternalLinkCollector getExternalLinks() { return externalLinks; }
+    public LinkClassifier getLinkClassifier() { return linkClassifier; }
+
+    /** Initialize link classifier from the seed URL (called once on first navigation). */
+    public void initDomainBoundary(String seedUrl) {
+        if (this.linkClassifier == null && seedUrl != null) {
+            this.domainBoundary = UrlCanonicalizer.extractBaseDomain(seedUrl);
+            this.linkClassifier = new LinkClassifier(seedUrl);
+            LOG.info("[ResearchSession " + sessionId + "] Domain boundary set: " + domainBoundary);
+        }
+    }
+
+    public String getDomainBoundary() { return domainBoundary; }
+
+    // ── Background crawl config ──────────────────────────────────
+
+    private int maxParallelTabs = Integer.getInteger("websearch.crawl.maxTabs", 3);
+    private volatile boolean historyNavigationEnabled =
+            !"false".equals(System.getProperty("websearch.history.enabled", "true"));
+
+    public int getMaxParallelTabs() { return maxParallelTabs; }
+    public void setMaxParallelTabs(int max) { this.maxParallelTabs = max; }
+    public boolean isHistoryNavigationEnabled() { return historyNavigationEnabled; }
+    public void setHistoryNavigationEnabled(boolean enabled) { this.historyNavigationEnabled = enabled; }
+
     // ── Last Navigation URL (for same-URL detection, no pipeline needed) ──
 
     private volatile String lastNavigationUrl;

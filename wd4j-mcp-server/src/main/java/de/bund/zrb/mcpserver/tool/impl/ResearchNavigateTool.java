@@ -106,6 +106,12 @@ public class ResearchNavigateTool implements McpServerTool {
         try {
             ResearchSession rs = ensureSession(session);
 
+            // ── Settings guard: check if history navigation is enabled ──
+            if (!rs.isHistoryNavigationEnabled()) {
+                return ToolResult.error("Back/Forward-Navigation ist deaktiviert. "
+                        + "Nutze die Linkliste aus der vorherigen Antwort oder den Chat-Kontext.");
+            }
+
             boolean isBack = "back".equalsIgnoreCase(action);
 
             // ── Guard: prevent traverseHistory when at boundary (freezes browser!) ──
@@ -246,7 +252,38 @@ public class ResearchNavigateTool implements McpServerTool {
     // ═══════════════════════════════════════════════════════════════
 
     private ToolResult navigateToUrl(String url, ResearchSession rs, BrowserSession session) {
-        // ── Same-URL guard ──
+        // ── Initialize domain boundary on first navigation ──
+        rs.initDomainBoundary(url);
+
+        // ── Visited-URL guard ──
+        if (rs.getVisitedUrls().isVisited(url)) {
+            LOG.warning("[research_navigate] BLOCKED: Already visited " + url);
+            int remaining = 0;
+            MenuView existingView = rs.getCurrentMenuView();
+            StringBuilder sb = new StringBuilder();
+            sb.append("FEHLER: Diese Seite wurde bereits besucht (").append(url).append(").\n");
+            sb.append("Bisher besucht: ").append(rs.getVisitedUrls().getVisitedCount()).append(" Seiten.\n\n");
+
+            if (existingView != null && existingView.getMenuItems() != null) {
+                sb.append("Verfügbare unbesuchte Links:\n");
+                for (MenuItem item : existingView.getMenuItems()) {
+                    if (item.getHref() != null && !item.getHref().isEmpty()
+                            && !rs.getVisitedUrls().isVisited(item.getHref())) {
+                        sb.append("  Für ").append(item.getLabel()).append(": ")
+                          .append(item.getRelativeHref(url)).append("\n");
+                        remaining++;
+                        if (remaining >= 8) break;
+                    }
+                }
+            }
+            if (remaining == 0) {
+                sb.append("Keine weiteren unbesuchten Links verfügbar.\n");
+            }
+            sb.append("\nWähle eine noch nicht besuchte URL.");
+            return ToolResult.error(sb.toString());
+        }
+
+        // ── Same-URL guard (current page, before navigation) ──
         String currentUrl = rs.getLastNavigationUrl();
 
         // Fallback: current MenuView URL
@@ -331,7 +368,6 @@ public class ResearchNavigateTool implements McpServerTool {
         try {
             LOG.info("[research_navigate] doNavigate url=" + url);
             // Use NONE readiness to avoid freezing on pages with endless resource loading
-            // (ads, tracking scripts, etc.). A fixed delay afterwards lets the page render.
             WDBrowsingContextResult.NavigateResult nav =
                     session.getDriver().browsingContext().navigate(
                             url, session.getContextId(), WDReadinessState.NONE);
@@ -341,20 +377,23 @@ public class ResearchNavigateTool implements McpServerTool {
             // Update lastNavigationUrl for same-URL detection
             rs.setLastNavigationUrl(finalUrl != null && !finalUrl.isEmpty() ? finalUrl : url);
 
+            // Mark as visited
+            rs.getVisitedUrls().markVisited(finalUrl != null ? finalUrl : url);
+
             // Track history so back/forward knows the boundaries
             rs.historyPush();
 
             // Try to dismiss cookie banners before taking the snapshot
             CookieBannerDismisser.tryDismiss(session);
 
-            // Fetch DOM snapshot via script.evaluate (replaces old NetworkIngestionPipeline approach)
+            // Fetch DOM snapshot via script.evaluate
             String html = DomSnapshotFetcher.fetchHtml(session);
 
             if (html == null) {
                 LOG.warning("[research_navigate] DOM snapshot returned null for: " + finalUrl);
             }
 
-            // Extract interactive elements (inputs, buttons) and register as NodeRefs
+            // Extract interactive elements (inputs, buttons)
             java.util.List<InteractiveElementExtractor.InteractiveElement> interactiveElements =
                     InteractiveElementExtractor.extract(session);
 
@@ -365,11 +404,74 @@ public class ResearchNavigateTool implements McpServerTool {
             builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
 
+            // ── Link classification & background crawling ──
+            classifyAndSubmitLinks(view, rs, session, finalUrl != null ? finalUrl : url);
+
             return buildResponse(view, rs, interactiveElements);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[research_navigate] doNavigate failed", e);
             return ToolResult.error("Navigation failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Classify links from the current page as internal/external,
+     * add external links to the collector, and submit unvisited internal links
+     * for background crawling.
+     */
+    private void classifyAndSubmitLinks(MenuView view, ResearchSession rs, BrowserSession session, String pageUrl) {
+        LinkClassifier classifier = rs.getLinkClassifier();
+        if (classifier == null || view == null || view.getMenuItems() == null) return;
+
+        java.util.List<ExternalLinkCollector.ExternalLink> externalLinks = new java.util.ArrayList<>();
+        java.util.List<String> internalUnvisited = new java.util.ArrayList<>();
+
+        for (MenuItem item : view.getMenuItems()) {
+            String href = item.getHref();
+            if (href == null || href.isEmpty()) continue;
+
+            if (classifier.isInternal(href)) {
+                if (!rs.getVisitedUrls().isVisited(href)) {
+                    internalUnvisited.add(href);
+                }
+            } else {
+                externalLinks.add(new ExternalLinkCollector.ExternalLink(href,
+                        item.getLabel() != null ? item.getLabel() : ""));
+            }
+        }
+
+        // Store external links
+        if (!externalLinks.isEmpty()) {
+            rs.getExternalLinks().addLinks(pageUrl, externalLinks);
+            LOG.fine("[research_navigate] Collected " + externalLinks.size() + " external links from " + pageUrl);
+        }
+
+        // Submit unvisited internal links for background crawling
+        BackgroundCrawlWorkerPool pool = getOrCreateWorkerPool(rs);
+        if (pool != null && !internalUnvisited.isEmpty()) {
+            int submitted = 0;
+            for (String internalUrl : internalUnvisited) {
+                if (submitted >= rs.getMaxParallelTabs() * 2) break; // Don't flood the queue
+                pool.submitCrawl(internalUrl, session, rs);
+                submitted++;
+            }
+            LOG.info("[research_navigate] Submitted " + submitted + " internal URLs for background crawling");
+        }
+    }
+
+    // ── Worker pool management ──
+    private static final java.util.Map<String, BackgroundCrawlWorkerPool> workerPools =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private BackgroundCrawlWorkerPool getOrCreateWorkerPool(ResearchSession rs) {
+        return workerPools.computeIfAbsent(rs.getSessionId(),
+                k -> new BackgroundCrawlWorkerPool(rs.getMaxParallelTabs()));
+    }
+
+    /** Shut down the worker pool for a session. */
+    public static void shutdownWorkerPool(String sessionId) {
+        BackgroundCrawlWorkerPool pool = workerPools.remove(sessionId);
+        if (pool != null) pool.shutdown();
     }
 
 
@@ -381,11 +483,21 @@ public class ResearchNavigateTool implements McpServerTool {
                                      java.util.List<InteractiveElementExtractor.InteractiveElement> interactiveElements) {
         ToolResult result = ToolResult.text(buildResponseText(view, rs, interactiveElements));
 
-        // Add links as structured JSON so the bot can reliably pick a URL
+        // Add links as structured JSON – only unvisited internal links
         if (view.getMenuItems() != null && !view.getMenuItems().isEmpty()) {
             JsonObject linksJson = new JsonObject();
             JsonArray linksArray = new JsonArray();
+            LinkClassifier classifier = rs.getLinkClassifier();
+
             for (MenuItem item : view.getMenuItems()) {
+                String href = item.getHref();
+                if (href == null || href.isEmpty()) continue;
+
+                // Skip visited URLs
+                if (rs.getVisitedUrls().isVisited(href)) continue;
+                // Skip external URLs (bot should use research_external_links for those)
+                if (classifier != null && classifier.isExternal(href)) continue;
+
                 JsonObject link = new JsonObject();
                 link.addProperty("label", item.getLabel() != null ? item.getLabel() : "");
                 String url = item.getRelativeHref(view.getUrl());
@@ -436,6 +548,20 @@ public class ResearchNavigateTool implements McpServerTool {
 
         // Drain archived docs (side-effect needed) but don't bloat the response
         rs.drainNewArchivedDocIds();
+
+        // ── Status info ──
+        sb.append("\n── Status ──\n");
+        sb.append("Besucht: ").append(rs.getVisitedUrls().getVisitedCount()).append(" Seiten");
+        int externalCount = rs.getExternalLinks().getTotalCount();
+        if (externalCount > 0) {
+            sb.append(" | ").append(externalCount).append(" externe Links gesammelt (research_external_links)");
+        }
+        BackgroundCrawlWorkerPool pool = workerPools.get(rs.getSessionId());
+        if (pool != null && (pool.getActiveCount() > 0 || pool.getPendingCount() > 0)) {
+            sb.append(" | Background: ").append(pool.getActiveCount()).append(" aktiv, ")
+              .append(pool.getPendingCount()).append(" wartend");
+        }
+        sb.append("\n");
 
         return sb.toString();
     }

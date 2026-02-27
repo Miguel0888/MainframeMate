@@ -31,6 +31,18 @@ public class DomSnapshotFetcher {
      * @return the outerHTML string, or null if fetching failed
      */
     public static String fetchHtml(BrowserSession session, long settleDelayMs) {
+        return fetchHtml(session, settleDelayMs, null);
+    }
+
+    /**
+     * Fetch the full DOM HTML from a specific browsing context (tab).
+     *
+     * @param session       the browser session
+     * @param settleDelayMs how long to wait for JS rendering before snapshot (0 = no wait)
+     * @param ctxId         browsing context ID (null = use default/main tab)
+     * @return the outerHTML string, or null if fetching failed
+     */
+    public static String fetchHtml(BrowserSession session, long settleDelayMs, String ctxId) {
         if (session == null || session.getDriver() == null) {
             LOG.warning("[DomSnapshot] No driver available");
             return null;
@@ -48,7 +60,7 @@ public class DomSnapshotFetcher {
 
         try {
             WDEvaluateResult result = session.evaluate(
-                    "document.documentElement.outerHTML", false);
+                    "document.documentElement.outerHTML", false, ctxId);
 
             if (result instanceof WDEvaluateResult.WDEvaluateResultSuccess) {
                 String html = ((WDEvaluateResult.WDEvaluateResultSuccess) result)

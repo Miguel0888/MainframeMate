@@ -42,6 +42,7 @@ public final class ToolCategory {
         cat("research_resource_get","Web-Research");
         cat("research_queue_add",   "Web-Research");
         cat("research_queue_status","Web-Research");
+        cat("research_external_links","Web-Research");
 
         // ── Browser-Interaktion ──
         cat("web_click",            "Browser-Interaktion");

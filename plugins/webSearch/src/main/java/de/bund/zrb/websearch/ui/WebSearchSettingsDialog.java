@@ -46,6 +46,11 @@ public class WebSearchSettingsDialog extends JDialog {
     private final JTextArea cookieSelectorsArea;
     private final JTextArea cookieScriptArea;
 
+    // ---- Research Settings ----
+    private final JCheckBox historyNavigationCheckbox;
+    private final JSpinner maxParallelTabsSpinner;
+    private final JComboBox<String> settleStrategyCombo;
+
     // ---- WebSocket Logging & Live Stats ----
     private final JCheckBox wsLoggingCheckbox;
     private final JLabel wsRxCountLabel;
@@ -169,8 +174,56 @@ public class WebSearchSettingsDialog extends JDialog {
         // Apply timeout to system properties immediately
         System.setProperty("websearch.navigate.timeout.seconds", String.valueOf(savedTimeout));
 
+        // ── Recherche-Einstellungen ───────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.weightx = 1;
+        JLabel rechercheHeader = new JLabel("── Recherche ──");
+        rechercheHeader.setFont(rechercheHeader.getFont().deriveFont(Font.BOLD));
+        rechercheHeader.setForeground(new Color(60, 60, 120));
+        form.add(rechercheHeader, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridx = 0; gbc.gridy = 6; gbc.weightx = 0;
+        form.add(new JLabel("Back/Forward:"), gbc);
+        historyNavigationCheckbox = new JCheckBox("Back/Forward-Navigation erlauben");
+        historyNavigationCheckbox.setSelected(!"false".equals(settings.getOrDefault("historyNavigationEnabled", "true")));
+        historyNavigationCheckbox.setToolTipText(
+                "Wenn deaktiviert, kann der Bot nur über Linklisten navigieren (kein back/forward).");
+        gbc.gridx = 1; gbc.weightx = 1;
+        form.add(historyNavigationCheckbox, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 7; gbc.weightx = 0;
+        form.add(new JLabel("Max. Hintergrund-Tabs:"), gbc);
+        int savedMaxTabs = 3;
+        try {
+            savedMaxTabs = Integer.parseInt(settings.getOrDefault("maxParallelTabs", "3"));
+        } catch (NumberFormatException ignored) {}
+        maxParallelTabsSpinner = new JSpinner(new SpinnerNumberModel(savedMaxTabs, 1, 10, 1));
+        maxParallelTabsSpinner.setToolTipText(
+                "Maximale Anzahl gleichzeitiger Hintergrund-Tabs für automatisches Crawling interner Seiten.");
+        gbc.gridx = 1; gbc.weightx = 1;
+        form.add(maxParallelTabsSpinner, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 20; gbc.weightx = 0;
+        form.add(new JLabel("Snapshot-Settling:"), gbc);
+        settleStrategyCombo = new JComboBox<>(new String[]{"FAST (500ms)", "NORMAL (2000ms)", "SLOW (5000ms)"});
+        String savedSettle = settings.getOrDefault("settleStrategy", "NORMAL");
+        if ("FAST".equals(savedSettle)) settleStrategyCombo.setSelectedIndex(0);
+        else if ("SLOW".equals(savedSettle)) settleStrategyCombo.setSelectedIndex(2);
+        else settleStrategyCombo.setSelectedIndex(1);
+        settleStrategyCombo.setToolTipText(
+                "Wartezeit nach Seitenladung bevor der DOM-Snapshot erstellt wird.\n"
+              + "FAST: 500ms – für schnelle/statische Seiten.\n"
+              + "NORMAL: 2000ms – Standard (empfohlen).\n"
+              + "SLOW: 5000ms – für langsame/JS-lastige Seiten.");
+        gbc.gridx = 1; gbc.weightx = 1;
+        form.add(settleStrategyCombo, gbc);
+
+        // Apply to system properties
+        System.setProperty("websearch.history.enabled", String.valueOf(historyNavigationCheckbox.isSelected()));
+        System.setProperty("websearch.crawl.maxTabs", String.valueOf(savedMaxTabs));
+
         // ── Info-Label ──────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 21; gbc.gridwidth = 2;
         JLabel infoLabel = new JLabel(
                 "<html><i>Die Browser-Tools (browser_navigate, browser_click_css, ...) werden "
                 + "automatisch in der Tool-Registry registriert und stehen im Chat zur Verfügung.</i></html>");
@@ -178,7 +231,7 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(infoLabel, gbc);
 
         // ── URL Whitelist ───────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 1; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 10; gbc.gridwidth = 1; gbc.weightx = 0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel whitelistLabel = new JLabel("<html>URL-Whitelist<br><small>(Regex, pro Zeile)</small>:</html>");
         whitelistLabel.setToolTipText("Nur URLs, die einem Pattern matchen, werden erlaubt. Leer = alle erlaubt.");
@@ -197,7 +250,7 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(whitelistScroll, gbc);
 
         // ── URL Blacklist ───────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 7; gbc.weightx = 0; gbc.weighty = 0;
+        gbc.gridx = 0; gbc.gridy = 23; gbc.weightx = 0; gbc.weighty = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel blacklistLabel = new JLabel("<html>URL-Blacklist<br><small>(Regex, pro Zeile)</small>:</html>");
@@ -220,7 +273,7 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(blacklistScroll, gbc);
 
         // ── Cookie-Banner Selektoren ─────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 8; gbc.gridwidth = 1; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 20; gbc.gridwidth = 1; gbc.weightx = 0;
         gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel cookieLabel = new JLabel("<html>Cookie-Banner<br><small>(CSS-Selektoren)</small>:</html>");
@@ -238,7 +291,7 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(cookieSelScroll, gbc);
 
         // ── Cookie-Banner Script ─────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 9; gbc.weightx = 0; gbc.weighty = 0;
+        gbc.gridx = 0; gbc.gridy = 21; gbc.weightx = 0; gbc.weighty = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel cookieScriptLabel = new JLabel("<html>Cookie-Dismiss<br><small>(JS-Script)</small>:</html>");
@@ -262,23 +315,23 @@ public class WebSearchSettingsDialog extends JDialog {
         cookieResetPanel.add(resetSelectorsBtn);
         cookieResetPanel.add(Box.createHorizontalStrut(8));
         cookieResetPanel.add(resetScriptBtn);
-        gbc.gridx = 1; gbc.gridy = 10; gbc.weighty = 0;
+        gbc.gridx = 1; gbc.gridy = 14; gbc.weighty = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         form.add(cookieResetPanel, gbc);
 
         // ── Debug: WebSocket-Logging & Live-Stats ───────────────────
-        gbc.gridx = 0; gbc.gridy = 11; gbc.gridwidth = 2; gbc.weightx = 1;
+        gbc.gridx = 0; gbc.gridy = 23; gbc.gridwidth = 2; gbc.weightx = 1;
         gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.WEST;
         JSeparator sep = new JSeparator();
         form.add(sep, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 12; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 20; gbc.gridwidth = 2;
         JLabel debugSectionLabel = new JLabel("Debug / WebSocket");
         debugSectionLabel.setFont(debugSectionLabel.getFont().deriveFont(Font.BOLD, 12f));
         form.add(debugSectionLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 13; gbc.gridwidth = 1; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 21; gbc.gridwidth = 1; gbc.weightx = 0;
         form.add(new JLabel("WS-Logging:"), gbc);
 
         wsLoggingCheckbox = new JCheckBox("WebSocket-Frame-Logging aktivieren");
@@ -297,35 +350,35 @@ public class WebSearchSettingsDialog extends JDialog {
         wsLastRxLabel = createStatsLabel();
         wsCongestionLabel = createStatsLabel();
 
-        gbc.gridx = 0; gbc.gridy = 14; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 22; gbc.weightx = 0;
         form.add(new JLabel("Empfangene Frames:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsRxCountLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 15; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 23; gbc.weightx = 0;
         form.add(new JLabel("Gesendete Frames:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsTxCountLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 16; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 20; gbc.weightx = 0;
         form.add(new JLabel("Letzte Nachricht:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsLastRxLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 17; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 21; gbc.weightx = 0;
         form.add(new JLabel("Congestion-Status:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsCongestionLabel, gbc);
 
         // ── Pipeline Status ─────────────────────────────────────────
         wsPipelineStatusLabel = createStatsLabel();
-        gbc.gridx = 0; gbc.gridy = 18; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 22; gbc.weightx = 0;
         form.add(new JLabel("Pipeline:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsPipelineStatusLabel, gbc);
 
         // ── Kill Intercepts Button ──────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 19; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 23; gbc.weightx = 0;
         form.add(new JLabel("Notfall:"), gbc);
 
         wsKillInterceptsButton = new JButton("🚨 Pipeline stoppen & zurücksetzen");
@@ -570,10 +623,25 @@ public class WebSearchSettingsDialog extends JDialog {
         String script = cookieScriptArea.getText().trim();
         settings.put("cookieDismissScript", script);
 
+        // Recherche settings
+        settings.put("historyNavigationEnabled", String.valueOf(historyNavigationCheckbox.isSelected()));
+        settings.put("maxParallelTabs", String.valueOf(maxParallelTabsSpinner.getValue()));
+        String settleSelected = (String) settleStrategyCombo.getSelectedItem();
+        String settleKey = "NORMAL";
+        long settleMs = 2000;
+        if (settleSelected != null && settleSelected.startsWith("FAST")) { settleKey = "FAST"; settleMs = 500; }
+        else if (settleSelected != null && settleSelected.startsWith("SLOW")) { settleKey = "SLOW"; settleMs = 5000; }
+        settings.put("settleStrategy", settleKey);
+
         context.savePluginSettings(PLUGIN_KEY, settings);
 
         // Apply timeout to system properties so tools pick it up immediately
         System.setProperty("websearch.navigate.timeout.seconds", timeoutVal);
+
+        // Apply Recherche system properties
+        System.setProperty("websearch.history.enabled", String.valueOf(historyNavigationCheckbox.isSelected()));
+        System.setProperty("websearch.crawl.maxTabs", String.valueOf(maxParallelTabsSpinner.getValue()));
+        System.setProperty("websearch.crawl.settleMs", String.valueOf(settleMs));
 
         // Reload URL boundary checker with new settings
         BrowserToolAdapter.reloadBoundaries(settings);
