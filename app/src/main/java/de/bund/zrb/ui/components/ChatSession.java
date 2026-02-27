@@ -13,6 +13,7 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.rag.usecase.RagContextBuilder;
 import de.bund.zrb.runtime.ToolRegistryImpl;
+import de.bund.zrb.service.McpServiceImpl;
 import de.bund.zrb.tools.ToolAccessType;
 import de.bund.zrb.tools.ToolAccessTypeDefaults;
 import de.bund.zrb.tools.ToolPolicy;
@@ -24,7 +25,6 @@ import de.bund.zrb.ui.util.ToolApprovalRequest;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.api.MainframeContext;
-import de.bund.zrb.service.McpServiceImpl;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.BorderFactory;
@@ -2112,9 +2112,14 @@ public class ChatSession extends JPanel {
                 bestPrefix = "research_menu";
             } else if (lower.equals("web_click") || lower.equals("click")) {
                 bestPrefix = "research_navigate";
-            } else if (lower.equals("web_history") || lower.equals("back") || lower.equals("forward")
-                    || lower.equals("research_history")) {
-                bestPrefix = "research_navigate";
+            } else if (lower.equals("web_history") || lower.equals("research_history")) {
+                bestPrefix = "research_back";
+            } else if (lower.equals("back")) {
+                bestPrefix = "research_back";
+            } else if (lower.equals("forward")) {
+                bestPrefix = "research_forward";
+            } else if (lower.equals("reload")) {
+                bestPrefix = "research_reload";
             }
         }
 

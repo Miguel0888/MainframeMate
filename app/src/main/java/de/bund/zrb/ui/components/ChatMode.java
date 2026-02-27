@@ -49,7 +49,7 @@ public enum ChatMode {
                     "REGELN:\n" +
                     "1. Nutze so viele Tool-Calls wie nötig, bis die Aufgabe erledigt ist. Höre NICHT nach einem Schritt auf.\n" +
                     "2. Erfinde NIEMALS Daten, Links oder Fakten. Nutze IMMER Tools, um echte Informationen zu bekommen.\n" +
-                    "3. Web-Recherche: Nutze research_navigate mit einer URL oder 'back'/'forward'.\n" +
+                    "3. Web-Recherche: Nutze research_navigate mit einer URL. Zum Zurückgehen: research_back. Zum Vorwärts: research_forward.\n" +
                     "4. Der Nutzer kann dich jederzeit unterbrechen. Bis dahin: arbeite weiter.\n" +
                     "5. Antworte dem Nutzer erst, wenn du ALLE nötigen Informationen gesammelt hast.\n" +
                     "6. Pro Antwort genau EINEN Tool-Call als reines JSON-Objekt. KEIN Text vor oder nach dem JSON.\n" +
@@ -74,7 +74,8 @@ public enum ChatMode {
     RECHERCHE(
             "Recherche",
             "Durchsucht Webseiten systematisch und archiviert Inhalte für die spätere Suche.",
-            "Du bist ein autonomer Web-Recherche-Agent. Du hast EIN Tool: research_navigate.\n\n" +
+            "Du bist ein autonomer Web-Recherche-Agent.\n" +
+                    "Tools: research_navigate (URL aufrufen), research_back (Seite zurück), research_forward (Seite vor), research_reload (neu laden).\n\n" +
                     "ABLAUF:\n" +
                     "1. Du bekommst das TOOL_RESULT mit Seiteninhalt und einer Liste von URLs.\n" +
                     "2. KOPIERE eine passende URL DIREKT aus der Link-Liste im TOOL_RESULT.\n" +
@@ -85,6 +86,7 @@ public enum ChatMode {
                     "- Erfinde KEINE eigenen URLs oder Pfade.\n" +
                     "- NIEMALS dieselbe URL zweimal aufrufen.\n" +
                     "- NIEMALS die Startseite erneut aufrufen nachdem du weitergeklickt hast.\n" +
+                    "- Zum Zurückgehen research_back aufrufen (NICHT research_navigate mit der vorigen URL).\n" +
                     "- Pro Antwort GENAU EIN JSON-Tool-Call. KEIN Text davor oder danach.\n" +
                     "- Format: {\"name\":\"research_navigate\",\"input\":{\"target\":\"<URL aus der Liste>\"}}\n" +
                     "- FRAGE NIEMALS den Nutzer. Handle AUTONOM.\n" +

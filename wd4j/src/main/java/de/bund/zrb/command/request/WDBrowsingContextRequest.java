@@ -192,6 +192,9 @@ public class WDBrowsingContextRequest {
     }
 
 
+    /*
+    CAUTION: CAUSES BROWSER TO FREEZE IF DELTA/LOCATION IS -1 (=ONE PAGE BACKWARDS) AND THE HISTORY ENTRY DOES NOT EXIST!
+     */
     public static class TraverseHistory extends WDCommandImpl<TraverseHistoryParameters> implements WDCommandData {
         public TraverseHistory(String contextId, int delta) {
             super("browsingContext.traverseHistory", new TraverseHistoryParameters(new WDBrowsingContext(contextId), delta));

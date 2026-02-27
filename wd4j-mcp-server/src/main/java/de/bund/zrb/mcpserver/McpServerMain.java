@@ -54,6 +54,9 @@ public class McpServerMain {
 
         // Research-mode tools (bot-friendly menu-based navigation)
         registry.register(new ResearchNavigateTool());
+        registry.register(new ResearchBackTool());
+        registry.register(new ResearchForwardTool());
+        registry.register(new ResearchReloadTool());
 
         // Utility tools (still useful alongside research tools)
         registry.register(new BrowseTypeTool());
@@ -88,4 +91,3 @@ public class McpServerMain {
         System.err.println("[MCP] Bye.");
     }
 }
-
