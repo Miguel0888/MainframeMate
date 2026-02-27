@@ -2,6 +2,7 @@ package de.bund.zrb.ui.search;
 
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
+import de.bund.zrb.search.SearchHighlighter;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
@@ -32,7 +33,7 @@ public class SearchTab extends JPanel implements FtpTab {
     private final JLabel statusLabel;
 
     // Source filter checkboxes
-    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail;
+    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbArchive;
     private final JLabel ragStatusLabel;
 
     // Sorting
@@ -120,6 +121,7 @@ public class SearchTab extends JPanel implements FtpTab {
         cbFtp = new JCheckBox("\uD83C\uDF10 FTP", true);
         cbNdv = new JCheckBox("\uD83D\uDD17 NDV", true);
         cbMail = new JCheckBox("\uD83D\uDCE7 Mail", true);
+        cbArchive = new JCheckBox("\uD83D\uDCE6 Archiv", true);
 
         int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
         ragStatusLabel = new JLabel(semSize > 0
@@ -134,6 +136,7 @@ public class SearchTab extends JPanel implements FtpTab {
         sourcePanel.add(cbFtp);
         sourcePanel.add(cbNdv);
         sourcePanel.add(cbMail);
+        sourcePanel.add(cbArchive);
         sourcePanel.add(Box.createHorizontalStrut(8));
         sourcePanel.add(ragStatusLabel);
 
@@ -452,6 +455,7 @@ public class SearchTab extends JPanel implements FtpTab {
         if (cbFtp.isSelected()) sources.add(SearchResult.SourceType.FTP);
         if (cbNdv.isSelected()) sources.add(SearchResult.SourceType.NDV);
         if (cbMail.isSelected()) sources.add(SearchResult.SourceType.MAIL);
+        if (cbArchive.isSelected()) sources.add(SearchResult.SourceType.ARCHIVE);
         return sources;
     }
 
@@ -604,6 +608,7 @@ public class SearchTab extends JPanel implements FtpTab {
             case FTP:   return "FTP";
             case NDV:   return "NDV";
             case MAIL:  return "MAIL";
+            case ARCHIVE: return "ARCHIVE";
             default:    return "LOCAL";
         }
     }
@@ -677,21 +682,11 @@ public class SearchTab extends JPanel implements FtpTab {
     // ═══════════════════════════════════════════════════════════════
 
     static String highlightTerms(String text, String query) {
-        if (text == null || query == null || query.isEmpty()) return text != null ? text : "";
-        String result = text;
-        for (String term : query.toLowerCase().split("\\s+")) {
-            if (term.length() < 2) continue;
-            try {
-                result = result.replaceAll("(?i)(" + java.util.regex.Pattern.quote(term) + ")",
-                        "<b style='background:#FFEB3B;color:#333;'>$1</b>");
-            } catch (Exception ignored) {}
-        }
-        return result;
+        return SearchHighlighter.highlightHtml(text, query);
     }
 
     private static String escHtml(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        return SearchHighlighter.escHtml(s);
     }
 
     private static String escJson(String s) {

@@ -797,6 +797,50 @@ public class ArchiveRepository {
         return list;
     }
 
+    public List<ArchiveDocument> findDocumentsByRunId(String runId) {
+        List<ArchiveDocument> list = new ArrayList<ArchiveDocument>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_documents WHERE run_id=? ORDER BY created_at DESC");
+            ps.setString(1, runId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) { list.add(mapDocument(rs)); }
+            rs.close(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findDocumentsByRunId failed: " + runId, e);
+        }
+        return list;
+    }
+
+    public List<ArchiveRun> findAllRuns() {
+        List<ArchiveRun> list = new ArrayList<ArchiveRun>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_runs ORDER BY created_at DESC");
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) { list.add(mapRun(rs)); }
+            rs.close(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findAllRuns failed", e);
+        }
+        return list;
+    }
+
+    private ArchiveRun mapRun(ResultSet rs) throws SQLException {
+        ArchiveRun r = new ArchiveRun();
+        r.setRunId(rs.getString("run_id"));
+        r.setMode(rs.getString("mode"));
+        r.setCreatedAt(rs.getLong("created_at"));
+        r.setEndedAt(rs.getLong("ended_at"));
+        r.setSeedUrls(rs.getString("seed_urls"));
+        r.setDomainPolicyJson(rs.getString("domain_policy_json"));
+        r.setStatus(rs.getString("status"));
+        r.setNotes(rs.getString("notes"));
+        r.setResourceCount(rs.getInt("resource_count"));
+        r.setDocumentCount(rs.getInt("document_count"));
+        return r;
+    }
+
     public void deleteDocument(String docId) {
         try {
             PreparedStatement ps = getConnection().prepareStatement(
@@ -805,6 +849,20 @@ public class ArchiveRepository {
             ps.executeUpdate(); ps.close();
         } catch (SQLException e) {
             LOG.log(Level.WARNING, "[Archive] deleteDocument failed: " + docId, e);
+        }
+    }
+
+    public void deleteRun(String runId) {
+        try {
+            Connection conn = getConnection();
+            PreparedStatement ps1 = conn.prepareStatement("DELETE FROM archive_documents WHERE run_id=?");
+            ps1.setString(1, runId); ps1.executeUpdate(); ps1.close();
+            PreparedStatement ps2 = conn.prepareStatement("DELETE FROM archive_resources WHERE run_id=?");
+            ps2.setString(1, runId); ps2.executeUpdate(); ps2.close();
+            PreparedStatement ps3 = conn.prepareStatement("DELETE FROM archive_runs WHERE run_id=?");
+            ps3.setString(1, runId); ps3.executeUpdate(); ps3.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] deleteRun failed: " + runId, e);
         }
     }
 

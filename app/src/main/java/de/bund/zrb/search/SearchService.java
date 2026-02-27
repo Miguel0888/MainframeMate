@@ -1,5 +1,7 @@
 package de.bund.zrb.search;
 
+import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.store.ArchiveRepository;
 import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
 import de.bund.zrb.rag.service.RagService;
@@ -88,6 +90,19 @@ public class SearchService {
                 }
             }
 
+            // Search the Archive (ArchiveDocuments) if ARCHIVE source is selected
+            if (sources.contains(SearchResult.SourceType.ARCHIVE)) {
+                try {
+                    List<SearchResult> archiveResults = searchArchive(query, maxResults);
+                    allResults.addAll(archiveResults);
+                    if (onResult != null && !archiveResults.isEmpty()) {
+                        onResult.accept(archiveResults);
+                    }
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[Search] Archive search failed", e);
+                }
+            }
+
             // Sort all results by score
             Collections.sort(allResults);
 
@@ -141,6 +156,43 @@ public class SearchService {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Search the Archive (ArchiveDocuments from H2 database).
+     * Converts matches to SearchResult with ARCHIVE source type.
+     */
+    private List<SearchResult> searchArchive(String query, int maxResults) {
+        List<SearchResult> results = new ArrayList<>();
+        try {
+            ArchiveRepository repo = ArchiveRepository.getInstance();
+            List<ArchiveDocument> docs = repo.searchDocuments(query, null, maxResults);
+            for (ArchiveDocument doc : docs) {
+                String snippet = doc.getExcerpt() != null ? doc.getExcerpt() : "";
+                if (snippet.length() > 300) snippet = snippet.substring(0, 300) + "…";
+                String title = doc.getTitle() != null ? doc.getTitle() : "(kein Titel)";
+                String host = doc.getHost() != null ? doc.getHost() : "";
+                // Score: simple relevance heuristic (title match > excerpt match)
+                float score = 1.0f;
+                String lq = query.toLowerCase();
+                if (title.toLowerCase().contains(lq)) score += 0.5f;
+                if (snippet.toLowerCase().contains(lq)) score += 0.3f;
+
+                results.add(new SearchResult(
+                        SearchResult.SourceType.ARCHIVE,
+                        doc.getDocId(),
+                        title,
+                        host,
+                        snippet,
+                        score,
+                        doc.getDocId(),
+                        doc.getKind()
+                ));
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Search] Archive search failed", e);
+        }
+        return results;
     }
 
     /**

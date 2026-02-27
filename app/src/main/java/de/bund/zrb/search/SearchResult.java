@@ -10,7 +10,8 @@ public class SearchResult implements Comparable<SearchResult> {
         FTP("🌐", "FTP"),
         NDV("🔗", "NDV"),
         MAIL("📧", "Mail"),
-        RAG("🤖", "RAG");
+        RAG("🤖", "RAG"),
+        ARCHIVE("📦", "Archiv");
 
         private final String icon;
         private final String label;
