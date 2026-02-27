@@ -86,9 +86,6 @@ public class NetworkIngestionPipeline {
     private final AtomicInteger skippedCount = new AtomicInteger(0);
     private final AtomicInteger failedCount = new AtomicInteger(0);
 
-    // Flag to suppress new ingestion work during navigation
-    private volatile boolean navigating = false;
-
     // ── HTML body cache for Jsoup-based link extraction ──
     private volatile String lastNavigationHtml;
     private volatile String lastNavigationUrl;
@@ -242,14 +239,6 @@ public class NetworkIngestionPipeline {
     private void handleResponseCompleted(WDNetworkEvent.ResponseCompleted event) {
         if (!active.get() || event == null) return;
 
-        // During navigation, skip all ingestion work for old-page requests.
-        // These requests refer to a browsing context that is being torn down,
-        // and sending getData/disownData for them deadlocks the browser.
-        if (navigating) {
-            skippedCount.incrementAndGet();
-            return;
-        }
-
         try {
             WDNetworkEvent.ResponseCompleted.ResponseCompletedParametersWD params = event.getParams();
             if (params == null || params.getRequest() == null) return;
@@ -304,11 +293,6 @@ public class NetworkIngestionPipeline {
                 final String dUrlShort = urlShort;
                 ingestionExecutor.submit(() -> {
                     try {
-                        // Skip if navigation started while we were queued
-                        if (navigating) {
-                            System.out.println("[TRACE] F4-disown SKIP (navigating) url=" + dUrlShort);
-                            return;
-                        }
                         System.out.println("[TRACE] F4-disown START url=" + dUrlShort
                                 + " thread=" + Thread.currentThread().getName()
                                 + " queueBehind=" + ingestionExecutor.getQueue().size());
@@ -344,21 +328,8 @@ public class NetworkIngestionPipeline {
         String bodyText = null;
         String urlShort = url != null && url.length() > 80 ? url.substring(0, 80) : url;
 
-        // Abort if navigation started while we were queued
-        if (navigating) {
-            System.out.println("[TRACE] G-SKIP getData (navigating) url=" + urlShort);
-            skippedCount.incrementAndGet();
-            return;
-        }
-
         // Retry loop: getData may not be ready immediately after responseCompleted
         for (int attempt = 1; attempt <= GET_DATA_MAX_RETRIES; attempt++) {
-            // Re-check navigating flag before each attempt
-            if (navigating) {
-                System.out.println("[TRACE] G-SKIP getData attempt=" + attempt + " (navigating) url=" + urlShort);
-                skippedCount.incrementAndGet();
-                return;
-            }
             try {
                 long t0 = System.currentTimeMillis();
                 System.out.println("[TRACE] G-getData attempt=" + attempt + " url=" + urlShort
@@ -531,35 +502,6 @@ public class NetworkIngestionPipeline {
     public void clearNavigationCache() {
         lastNavigationHtml = null;
         lastNavigationUrl = null;
-    }
-
-    /**
-     * Must be called BEFORE sending a browsingContext.navigate command.
-     * Drains the ingestion queue and sets a flag so that new work items
-     * (getData / disownData for the OLD page) are silently dropped.
-     * This prevents the browser-side deadlock where Firefox cannot
-     * answer old-page network commands while executing a navigation.
-     */
-    public void prepareForNavigation() {
-        navigating = true;
-        // Clear queued tasks that haven't started yet (getData/disown for old page)
-        int drained = 0;
-        Runnable task;
-        while ((task = ((ThreadPoolExecutor) ingestionExecutor).getQueue().poll()) != null) {
-            drained++;
-        }
-        if (drained > 0) {
-            System.out.println("[NetworkIngestion] Drained " + drained + " queued tasks before navigation");
-        }
-        System.out.println("[TRACE] P-prepareForNavigation drained=" + drained);
-    }
-
-    /**
-     * Called after a navigation is complete and events for the new page should be processed.
-     */
-    public void navigationDone() {
-        navigating = false;
-        System.out.println("[TRACE] P-navigationDone");
     }
 
     // ── Resource category counters ──────────────────────────────────

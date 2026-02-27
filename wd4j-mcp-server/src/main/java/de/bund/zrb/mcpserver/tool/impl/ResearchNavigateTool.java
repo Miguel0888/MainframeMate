@@ -106,12 +106,6 @@ public class ResearchNavigateTool implements McpServerTool {
         try {
             ResearchSession rs = ensureSession(session);
 
-            // Pause ingestion before history navigation
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            if (pipeline != null) {
-                pipeline.prepareForNavigation();
-            }
-
             // Use BiDi-native traverseHistory instead of script.evaluate
             int delta = "back".equalsIgnoreCase(action) ? -1 : 1;
             session.getDriver().browsingContext().traverseHistory(session.getContextId(), delta);
@@ -124,12 +118,8 @@ public class ResearchNavigateTool implements McpServerTool {
                 Thread.currentThread().interrupt();
             }
 
-            // Resume ingestion for new page
-            if (pipeline != null) {
-                pipeline.navigationDone();
-            }
-
             // Get HTML from the NetworkIngestionPipeline cache (no evaluate!)
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
             String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
             String currentUrl = pipeline != null ? pipeline.getLastNavigationUrl() : null;
 
@@ -309,14 +299,6 @@ public class ResearchNavigateTool implements McpServerTool {
     private ToolResult doNavigate(String url, ResearchSession rs, BrowserSession session) {
         try {
             System.out.println("[TRACE] H-enter doNavigate url=" + url + " thread=" + Thread.currentThread().getName());
-
-            // ── Pause ingestion pipeline BEFORE navigation ──
-            // Old-page getData/disownData calls deadlock Firefox during navigation.
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            if (pipeline != null) {
-                pipeline.prepareForNavigation();
-            }
-
             // Use NONE readiness to avoid freezing on pages with endless resource loading
             // (ads, tracking scripts, etc.). A fixed delay afterwards lets the page render.
             WDBrowsingContextResult.NavigateResult nav =
@@ -338,13 +320,9 @@ public class ResearchNavigateTool implements McpServerTool {
             }
             System.out.println("[TRACE] H3-sleep done, checking pipeline cache");
 
-            // ── Resume ingestion pipeline for the new page ──
-            if (pipeline != null) {
-                pipeline.navigationDone();
-            }
-
             // Get HTML from the NetworkIngestionPipeline cache (NO evaluate!)
             // The pipeline captures text/html responses via intercept and caches them.
+            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
             String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
 
             if (html == null) {
@@ -360,11 +338,6 @@ public class ResearchNavigateTool implements McpServerTool {
             return buildResponse(view, rs, null);
         } catch (Exception e) {
             System.out.println("[TRACE] H-EXCEPTION doNavigate: " + e.getMessage());
-            // Safety: ensure pipeline is resumed even on error
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            if (pipeline != null) {
-                pipeline.navigationDone();
-            }
             LOG.log(Level.WARNING, "[research_navigate] doNavigate failed", e);
             return ToolResult.error("Navigation failed: " + e.getMessage());
         }
