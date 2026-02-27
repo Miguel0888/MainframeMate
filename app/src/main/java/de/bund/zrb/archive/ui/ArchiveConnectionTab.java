@@ -11,6 +11,7 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -45,6 +46,7 @@ public class ArchiveConnectionTab implements ConnectionTab {
 
     /** Current search query – used for yellow highlighting in preview. */
     private String currentSearchQuery = null;
+    private final JToggleButton advancedToggle;
 
     private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
     static {
@@ -74,10 +76,21 @@ public class ArchiveConnectionTab implements ConnectionTab {
         leftPanel.add(refreshBtn);
         leftPanel.add(deleteBtn);
 
-        // Center: search
+        // Center: search + advanced toggle
+        JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
         searchField = new JTextField();
         searchField.setToolTipText("Katalog durchsuchen (Enter)…");
         searchField.addActionListener(e -> filterDocuments());
+        advancedToggle = new JToggleButton("\u2699");
+        advancedToggle.setToolTipText("Erweiterte Suche: AND OR NOT \"phrase\"\n\n"
+                + "Beispiele:\n"
+                + "  bundestag AND asyl  (beide Begriffe)\n"
+                + "  klima OR energie    (einer der Begriffe)\n"
+                + "  \"exakte phrase\"     (wörtlich)");
+        advancedToggle.setFocusable(false);
+        advancedToggle.setMargin(new Insets(2, 6, 2, 6));
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(advancedToggle, BorderLayout.EAST);
 
         // Right: filters
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -91,7 +104,7 @@ public class ArchiveConnectionTab implements ConnectionTab {
         filterPanel.add(kindFilter);
 
         toolbar.add(leftPanel, BorderLayout.WEST);
-        toolbar.add(searchField, BorderLayout.CENTER);
+        toolbar.add(searchPanel, BorderLayout.CENTER);
         toolbar.add(filterPanel, BorderLayout.EAST);
         mainPanel.add(toolbar, BorderLayout.NORTH);
 
@@ -134,6 +147,24 @@ public class ArchiveConnectionTab implements ConnectionTab {
         dataTable.getColumnModel().getColumn(0).setMinWidth(30);
         dataTable.getColumnModel().getColumn(2).setMaxWidth(80);
         dataTable.getColumnModel().getColumn(3).setMaxWidth(130);
+
+        // Highlighting renderer for Titel column (col 1)
+        dataTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                    boolean isSelected, boolean hasFocus, int row, int col) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
+                if (!isSelected) {
+                    setBackground(row % 2 == 0 ? Color.WHITE : new Color(245, 245, 250));
+                }
+                if (value != null && currentSearchQuery != null && !currentSearchQuery.isEmpty()) {
+                    setText("<html>" + SearchHighlighter.highlightHtml(
+                            SearchHighlighter.escHtml(value.toString()), currentSearchQuery) + "</html>");
+                }
+                return this;
+            }
+        });
+
         dataTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showDocPreview();
         });
@@ -215,15 +246,37 @@ public class ArchiveConnectionTab implements ConnectionTab {
         String selectedKind = (String) kindFilter.getSelectedItem();
 
         String host = "Alle Hosts".equals(selectedHost) ? null : selectedHost;
-        String titleFilter = (query != null && !query.trim().isEmpty()) ? query.trim() : null;
+        String rawQuery = (query != null && !query.trim().isEmpty()) ? query.trim() : null;
 
-        currentSearchQuery = titleFilter;
+        currentSearchQuery = rawQuery;
 
         List<ArchiveDocument> docs;
-        if (titleFilter != null || host != null) {
-            docs = repo.searchDocuments(titleFilter, host, 500);
+        if (rawQuery != null) {
+            // Extract actual search terms (strip AND/OR/NOT operators)
+            List<String> terms = SearchHighlighter.extractSearchTerms(rawQuery);
+
+            if (terms.isEmpty()) {
+                docs = host != null ? repo.searchDocuments(null, host, 500) : repo.findAllDocuments();
+            } else if (advancedToggle.isSelected() && terms.size() > 1) {
+                // Advanced mode: AND-logic – search for first term, then filter client-side
+                docs = repo.searchDocuments(terms.get(0), host, 2000);
+                for (int i = 1; i < terms.size(); i++) {
+                    final String term = terms.get(i).toLowerCase();
+                    List<ArchiveDocument> filtered = new ArrayList<ArchiveDocument>();
+                    for (ArchiveDocument d : docs) {
+                        boolean match = (d.getTitle() != null && d.getTitle().toLowerCase().contains(term))
+                                || (d.getExcerpt() != null && d.getExcerpt().toLowerCase().contains(term))
+                                || (d.getCanonicalUrl() != null && d.getCanonicalUrl().toLowerCase().contains(term));
+                        if (match) filtered.add(d);
+                    }
+                    docs = filtered;
+                }
+            } else {
+                // Simple mode: pass query to SQL LIKE
+                docs = repo.searchDocuments(rawQuery, host, 500);
+            }
         } else {
-            docs = repo.findAllDocuments();
+            docs = host != null ? repo.searchDocuments(null, host, 500) : repo.findAllDocuments();
         }
 
         // Additional kind filter (client-side)
@@ -239,7 +292,8 @@ public class ArchiveConnectionTab implements ConnectionTab {
         viewSelector.setSelectedIndex(1);
         cardLayout.show(tableCards, "DOCS");
         docTableModel.setDocuments(docs);
-        statusLabel.setText(docs.size() + " Dokumente gefunden");
+        statusLabel.setText(docs.size() + " Dokumente gefunden"
+                + (advancedToggle.isSelected() ? " (erweiterte Suche)" : ""));
     }
 
     private void updateHostFilter() {
