@@ -17,14 +17,16 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Unified navigation tool – the ONLY tool the bot needs for browsing.
+ * Unified URL navigation tool – the ONLY tool the bot needs for navigating to pages.
  * <p>
  * Accepts ONE parameter: {@code target}. The target can be:
  * <ul>
  *   <li>An absolute URL: {@code https://example.com/path/...}</li>
  *   <li>A relative path: {@code /path/subpath/} (resolved against current page)</li>
- *   <li>A history action: {@code back}, {@code forward}</li>
  * </ul>
+ * <p>
+ * For browser history navigation (back/forward/reload), use the dedicated tools:
+ * {@code research_back}, {@code research_forward}, {@code research_reload}.
  * <p>
  * Returns: page title, text excerpt, and a list of URLs with descriptions.
  * Each link uses the format "Für {description}: {url}" so the bot knows
@@ -45,9 +47,9 @@ public class ResearchNavigateTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "Navigate to a web page. "
+        return "Navigate to a web page URL. "
              + "Pass a URL as 'target': use a URL from the previous tool response. "
-             + "Or pass 'back'/'forward' for browser history. "
+             + "For browser history use research_back / research_forward / research_reload instead. "
              + "The response shows page content and a list of URLs you can visit next. "
              + "ALWAYS pick a URL from the response list. NEVER repeat the same URL.";
     }
@@ -61,7 +63,7 @@ public class ResearchNavigateTool implements McpServerTool {
         JsonObject target = new JsonObject();
         target.addProperty("type", "string");
         target.addProperty("description",
-                "A URL from the previous response, a relative path, or 'back'/'forward'. "
+                "A URL from the previous response or a relative path. "
                 + "MUST be different from the current page URL.");
         props.add("target", target);
 
@@ -80,62 +82,8 @@ public class ResearchNavigateTool implements McpServerTool {
         }
         target = target.trim();
 
-        // ── Classify the target ──
-        if (isHistoryAction(target)) {
-            return handleHistoryAction(target, session);
-        }
         // URL (absolute or relative)
         return handleUrlNavigation(target, session);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Target classification
-    // ═══════════════════════════════════════════════════════════════
-
-    private boolean isHistoryAction(String target) {
-        String lower = target.toLowerCase();
-        return "back".equals(lower) || "forward".equals(lower);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  History actions (back/forward)
-    // ═══════════════════════════════════════════════════════════════
-
-    private ToolResult handleHistoryAction(String action, BrowserSession session) {
-        LOG.info("[research_navigate] History action: " + action);
-        try {
-            ResearchSession rs = ensureSession(session);
-
-            // Use BiDi-native traverseHistory instead of script.evaluate
-            int delta = "back".equalsIgnoreCase(action) ? -1 : 1;
-            session.getDriver().browsingContext().traverseHistory(session.getContextId(), delta);
-
-            session.getNodeRefRegistry().invalidateAll();
-            rs.invalidateView();
-
-            // Wait for history navigation to settle
-            try { Thread.sleep(3000); } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-
-            // Get HTML from the NetworkIngestionPipeline cache (no evaluate!)
-            NetworkIngestionPipeline pipeline = rs.getNetworkPipeline();
-            String html = pipeline != null ? pipeline.getLastNavigationHtml() : null;
-            String currentUrl = pipeline != null ? pipeline.getLastNavigationUrl() : null;
-
-            if (currentUrl != null) {
-                rs.setLastNavigationUrl(currentUrl);
-            }
-
-            MenuViewBuilder builder = new MenuViewBuilder(rs, null);
-            builder.setHtmlOverride(html, currentUrl != null ? currentUrl : "");
-            MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
-
-            return buildResponse(view, rs, null);
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[research_navigate] History action failed", e);
-            return ToolResult.error("Action '" + action + "' failed: " + e.getMessage());
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -585,10 +533,6 @@ public class ResearchNavigateTool implements McpServerTool {
         // Fallback: "url" (backwards compat with old research_open calls)
         if (params.has("url") && params.get("url").isJsonPrimitive()) {
             return params.get("url").getAsString();
-        }
-        // Fallback: "action" (backwards compat)
-        if (params.has("action") && params.get("action").isJsonPrimitive()) {
-            return params.get("action").getAsString();
         }
         // Nested arguments (some LLMs wrap params)
         if (params.has("arguments") && params.get("arguments").isJsonObject()) {

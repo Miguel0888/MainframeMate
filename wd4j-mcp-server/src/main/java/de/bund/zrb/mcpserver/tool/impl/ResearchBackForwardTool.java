@@ -25,7 +25,7 @@ public class ResearchBackForwardTool implements McpServerTool {
 
     @Override
     public String description() {
-        return "[DEPRECATED – use research_navigate with target='back'/'forward'/'reload' instead] "
+        return "[DEPRECATED – use research_back, research_forward, or research_reload instead] "
              + "Navigate browser history: action='back', 'forward', or 'reload'. "
              + "Returns a fresh link list after the action.";
     }
@@ -94,4 +94,3 @@ public class ResearchBackForwardTool implements McpServerTool {
         }
     }
 }
-

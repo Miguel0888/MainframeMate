@@ -126,6 +126,9 @@ public class WebSearchPlugin implements MainframeMatePlugin {
 
         // ── Research-mode tools (bot-friendly menu-based navigation) ──
         list.add(new BrowserToolAdapter(new ResearchNavigateTool(), browserManager));   // THE navigation tool
+        list.add(new BrowserToolAdapter(new ResearchBackTool(), browserManager));       // Browser back
+        list.add(new BrowserToolAdapter(new ResearchForwardTool(), browserManager));    // Browser forward
+        list.add(new BrowserToolAdapter(new ResearchReloadTool(), browserManager));     // Browser reload
 
         // ── Archive/Search/Queue tools (direct McpTool, no browser needed) ──
         list.add(new ResearchDocGetTool());
