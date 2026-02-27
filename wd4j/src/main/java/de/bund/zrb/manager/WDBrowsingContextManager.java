@@ -83,18 +83,14 @@ public class WDBrowsingContextManager implements WDModule {
             throw new IllegalArgumentException("Cannot navigate: URL is null or empty!");
         }
 
-        System.out.println("[TRACE] J-enter browsingContext.navigate url=" + url + " ctx=" + contextId + " readiness=" + readinessState + " thread=" + Thread.currentThread().getName());
-
         WDBrowsingContextRequest.Navigate command = (readinessState != null)
                 ? new WDBrowsingContextRequest.Navigate(url, contextId, readinessState)
                 : new WDBrowsingContextRequest.Navigate(url, contextId);
 
-        WDBrowsingContextResult.NavigateResult result = webSocketManager.sendAndWaitForResponse(
+        return webSocketManager.sendAndWaitForResponse(
                 command,
                 WDBrowsingContextResult.NavigateResult.class
         );
-        System.out.println("[TRACE] J1-navigate returned url=" + url);
-        return result;
     }
 
 
@@ -323,12 +319,9 @@ public class WDBrowsingContextManager implements WDModule {
      * @throws RuntimeException if traversing history fails.
      */
     public WDBrowsingContextResult.TraverseHistoryResult traverseHistory(String contextId, int delta) {
-        System.out.println("[TRACE] J2-enter traverseHistory ctx=" + contextId + " delta=" + delta + " thread=" + Thread.currentThread().getName());
-        WDBrowsingContextResult.TraverseHistoryResult result = webSocketManager.sendAndWaitForResponse(
+        return webSocketManager.sendAndWaitForResponse(
                 new WDBrowsingContextRequest.TraverseHistory(contextId, delta),
                 WDBrowsingContextResult.TraverseHistoryResult.class
         );
-        System.out.println("[TRACE] J3-traverseHistory returned ctx=" + contextId + " delta=" + delta);
-        return result;
     }
 }
