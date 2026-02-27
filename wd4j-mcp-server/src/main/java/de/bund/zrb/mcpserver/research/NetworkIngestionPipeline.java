@@ -262,11 +262,6 @@ public class NetworkIngestionPipeline {
             long status = response != null ? response.getStatus() : 0;
 
             String urlShort = url != null && url.length() > 80 ? url.substring(0, 80) : url;
-            int queueDepth = ingestionExecutor.getQueue().size();
-            int activeWorkers = ingestionExecutor.getActiveCount();
-            System.out.println("[TRACE] F-enter handleResponseCompleted url=" + urlShort
-                    + " thread=" + Thread.currentThread().getName()
-                    + " queueDepth=" + queueDepth + " activeWorkers=" + activeWorkers);
 
             // Classify for DevTools-style counters (lightweight, OK on event thread)
             classifyAndCount(response);
@@ -275,14 +270,10 @@ public class NetworkIngestionPipeline {
             boolean shouldCapture = isRelevantResponse(url, mimeType, status);
 
             if (shouldCapture) {
-                System.out.println("[TRACE] F1-submitting fetchAndStore url=" + urlShort + " queueBefore=" + ingestionExecutor.getQueue().size());
                 // Async: fetch body with disown=true (auto-frees browser memory) and store
                 final String fUrl = url;
                 final String fUrlShort = urlShort;
                 ingestionExecutor.submit(() -> {
-                    System.out.println("[TRACE] F2-fetchAndStore START url=" + fUrlShort
-                            + " thread=" + Thread.currentThread().getName()
-                            + " queueBehind=" + ingestionExecutor.getQueue().size());
                     ingestionWorkerState = "fetchAndStore:" + fUrlShort;
                     ingestionWorkerStateTimestamp = System.currentTimeMillis();
                     try {
@@ -291,8 +282,6 @@ public class NetworkIngestionPipeline {
                         ingestionWorkerState = "idle";
                         ingestionWorkerStateTimestamp = System.currentTimeMillis();
                     }
-                    System.out.println("[TRACE] F3-fetchAndStore END url=" + fUrlShort
-                            + " queueRemaining=" + ingestionExecutor.getQueue().size());
                 });
             } else {
                 skippedCount.incrementAndGet();
@@ -302,17 +291,12 @@ public class NetworkIngestionPipeline {
                 final String dUrlShort = urlShort;
                 ingestionExecutor.submit(() -> {
                     try {
-                        System.out.println("[TRACE] F4-disown START url=" + dUrlShort
-                                + " thread=" + Thread.currentThread().getName()
-                                + " queueBehind=" + ingestionExecutor.getQueue().size());
                         ingestionWorkerState = "disown:" + dUrlShort;
                         ingestionWorkerStateTimestamp = System.currentTimeMillis();
                         if (col != null) {
                             driver.network().disownData(WDDataType.RESPONSE, col, requestRef);
                         }
-                        System.out.println("[TRACE] F5-disown END url=" + dUrlShort);
                     } catch (Exception e) {
-                        System.out.println("[TRACE] F5-disown FAILED url=" + dUrlShort + " err=" + e.getMessage());
                         LOG.fine("[NetworkIngestion] disownData (skip) failed for " + dUrl + ": " + e.getMessage());
                     } finally {
                         ingestionWorkerState = "idle";
@@ -320,8 +304,6 @@ public class NetworkIngestionPipeline {
                     }
                 });
             }
-            System.out.println("[TRACE] F6-exit handleResponseCompleted url=" + urlShort
-                    + " queueAfterSubmit=" + ingestionExecutor.getQueue().size());
 
         } catch (Exception e) {
             LOG.log(Level.FINE, "[NetworkIngestion] Error handling responseCompleted", e);
@@ -340,24 +322,15 @@ public class NetworkIngestionPipeline {
         // Retry loop: getData may not be ready immediately after responseCompleted
         for (int attempt = 1; attempt <= GET_DATA_MAX_RETRIES; attempt++) {
             try {
-                long t0 = System.currentTimeMillis();
-                System.out.println("[TRACE] G-getData attempt=" + attempt + " url=" + urlShort
-                        + " thread=" + Thread.currentThread().getName()
-                        + " queueBehind=" + ingestionExecutor.getQueue().size());
                 // disown=true: automatically frees browser memory after fetch
                 WDBytesValue bytesValue = driver.network().getData(
                         WDDataType.RESPONSE, requestRef, collector, true);
-                long dt = System.currentTimeMillis() - t0;
-                System.out.println("[TRACE] G1-getData returned attempt=" + attempt
-                        + " url=" + urlShort + " took=" + dt + "ms");
 
                 if (bytesValue != null && bytesValue.getValue() != null) {
                     bodyText = bytesValue.getValue();
                     break;
                 }
             } catch (Exception e) {
-                System.out.println("[TRACE] G-getData FAILED attempt=" + attempt
-                        + " url=" + urlShort + " err=" + e.getMessage());
                 if (attempt < GET_DATA_MAX_RETRIES) {
                     long delay = GET_DATA_RETRY_BASE_MS
                             + (long) (Math.random() * (GET_DATA_RETRY_MAX_MS - GET_DATA_RETRY_BASE_MS));
@@ -372,11 +345,8 @@ public class NetworkIngestionPipeline {
                             + " attempts for " + url + ": " + e.getMessage());
                     // Safety: try to disown in case getData partially failed
                     try {
-                        System.out.println("[TRACE] G2-safety disown START url=" + urlShort);
                         driver.network().disownData(WDDataType.RESPONSE, collector, requestRef);
-                        System.out.println("[TRACE] G3-safety disown END url=" + urlShort);
                     } catch (Exception disownEx) {
-                        System.out.println("[TRACE] G3-safety disown FAILED url=" + urlShort + " err=" + disownEx.getMessage());
                         LOG.fine("[NetworkIngestion] Safety disownData also failed for " + url);
                     }
                 }
@@ -555,14 +525,14 @@ public class NetworkIngestionPipeline {
                             ? System.currentTimeMillis() - ingestionWorkerStateTimestamp : 0;
 
                     if (activeCount > 0 && stateAge > 10_000) {
-                        System.err.println("[INGESTION WATCHDOG] ⚠️ Worker STUCK for " + stateAge + " ms!"
+                        LOG.warning("[INGESTION WATCHDOG] Worker STUCK for " + stateAge + " ms!"
                                 + " state='" + workerState + "'"
                                 + " queueDepth=" + queueSize
                                 + " captured=" + capturedCount.get()
                                 + " skipped=" + skippedCount.get()
                                 + " failed=" + failedCount.get());
                     } else if (queueSize > 5) {
-                        System.out.println("[INGESTION WATCHDOG] Queue building up: " + queueSize
+                        LOG.info("[INGESTION WATCHDOG] Queue building up: " + queueSize
                                 + " items, active=" + activeCount
                                 + " state='" + workerState + "'"
                                 + " stateAge=" + stateAge + "ms");

@@ -254,11 +254,9 @@ public class ResearchNavigateTool implements McpServerTool {
         long timeoutSeconds = Long.getLong("websearch.navigate.timeout.seconds", 30);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            LOG.fine("[research_navigate] Submitting doNavigate url=" + url + " timeout=" + timeoutSeconds + "s");
             Future<ToolResult> future = executor.submit(() ->
                     doNavigate(url, rs, session));
             ToolResult result = future.get(timeoutSeconds, TimeUnit.SECONDS);
-            LOG.fine("[research_navigate] doNavigate completed url=" + url);
             return result;
         } catch (TimeoutException e) {
             LOG.severe("[research_navigate] Timeout after " + timeoutSeconds + "s for: " + url);
@@ -319,7 +317,6 @@ public class ResearchNavigateTool implements McpServerTool {
             // Archive the snapshot asynchronously via the callback
             archiveSnapshot(rs, finalUrl != null ? finalUrl : url, html);
 
-            LOG.fine("[research_navigate] Building menu view, html=" + (html != null ? html.length() + " chars" : "null"));
             MenuViewBuilder builder = new MenuViewBuilder(rs);
             builder.setHtmlOverride(html, finalUrl != null ? finalUrl : url);
             MenuView view = builder.build(rs.getMaxMenuItems(), rs.getExcerptMaxLength());
