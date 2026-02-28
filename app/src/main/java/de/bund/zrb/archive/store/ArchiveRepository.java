@@ -879,6 +879,81 @@ public class ArchiveRepository {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Export / Import via live connection
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Export the complete database as an SQL script using the <b>already-open</b>
+     * connection.  This avoids opening a second connection that would compete
+     * for the H2 lock file on Windows.
+     *
+     * @return the SQL script as a String, or null on failure
+     */
+    public String exportDatabaseScript() {
+        try {
+            // Use SCRIPT TABLE … to get SQL text as a ResultSet
+            Statement stmt = getConnection().createStatement();
+            ResultSet rs = stmt.executeQuery("SCRIPT");
+
+            StringBuilder sb = new StringBuilder(64 * 1024);
+            while (rs.next()) {
+                sb.append(rs.getString(1));
+                sb.append('\n');
+            }
+            rs.close();
+            stmt.close();
+
+            LOG.info("[Archive] Database script exported (" + sb.length() + " chars)");
+            return sb.toString();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] exportDatabaseScript failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * Import an SQL dump into the database using the existing connection.
+     * Drops all existing objects first, then runs the script.
+     *
+     * @param sqlFile the temporary SQL file to import
+     */
+    public void importDatabaseScript(java.io.File sqlFile) throws java.io.IOException {
+        try {
+            Connection conn = getConnection();
+            Statement stmt = conn.createStatement();
+            stmt.execute("DROP ALL OBJECTS");
+            stmt.execute("RUNSCRIPT FROM '" + sqlFile.getAbsolutePath().replace("'", "''") + "'");
+            stmt.close();
+            LOG.info("[Archive] Database script imported from " + sqlFile.getName());
+
+            // Re-initialise tables (in case the script was empty or from an older version)
+            initDatabase();
+        } catch (SQLException e) {
+            throw new java.io.IOException("H2 import failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Find all ArchiveResources in the database.
+     */
+    public List<ArchiveResource> findAllResources() {
+        List<ArchiveResource> list = new ArrayList<ArchiveResource>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_resources ORDER BY captured_at DESC");
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                list.add(mapResource(rs));
+            }
+            rs.close();
+            ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findAllResources failed", e);
+        }
+        return list;
+    }
+
     public void close() {
         try {
             if (connection != null && !connection.isClosed()) {

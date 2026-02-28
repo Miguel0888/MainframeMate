@@ -434,6 +434,56 @@ public class LuceneLexicalIndex implements LexicalIndex {
     }
 
     /**
+     * Export all chunks stored in the index.
+     * Reads every document from the live Lucene reader – no filesystem access.
+     *
+     * @return list of all chunks, or empty list
+     */
+    public synchronized List<Chunk> exportAllChunks() {
+        List<Chunk> result = new ArrayList<>();
+        if (!available) return result;
+
+        try {
+            refreshReader();
+            if (searcher == null) return result;
+
+            int maxDoc = searcher.getIndexReader().maxDoc();
+            for (int i = 0; i < maxDoc; i++) {
+                try {
+                    Document doc = searcher.doc(i);
+                    Chunk chunk = chunkFromDocument(doc);
+                    if (chunk != null) {
+                        result.add(chunk);
+                    }
+                } catch (Exception e) {
+                    // skip deleted or unreadable docs
+                    LOG.fine("[Export] Skipping doc " + i + ": " + e.getMessage());
+                }
+            }
+            LOG.info("[Lucene] Exported " + result.size() + " chunks from index (maxDoc=" + maxDoc + ")");
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Failed to export chunks from index", e);
+        }
+        return result;
+    }
+
+    /**
+     * Flush/commit the index writer so that all pending changes are persisted
+     * to disk.  The writer stays open – this is intended for backup/export use
+     * where we need a consistent on-disk snapshot.
+     */
+    public synchronized void flush() {
+        try {
+            if (writer != null) {
+                writer.commit();
+                LOG.info("[Lucene] Writer committed/flushed for export");
+            }
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Failed to flush/commit Lucene writer", e);
+        }
+    }
+
+    /**
      * Close the index.
      */
     public synchronized void close() {

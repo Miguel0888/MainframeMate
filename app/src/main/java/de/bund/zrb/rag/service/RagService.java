@@ -317,6 +317,72 @@ public class RagService {
     }
 
     /**
+     * Flush/commit the Lucene index writer so all segments are persisted to disk.
+     * This does NOT close the writer – it just ensures a consistent on-disk state
+     * suitable for file-level backup/export.
+     */
+    public void flushIndex() {
+        if (lexicalIndex instanceof LuceneLexicalIndex) {
+            ((LuceneLexicalIndex) lexicalIndex).flush();
+        }
+    }
+
+    /**
+     * Export all chunks stored in the Lucene index.
+     * Used by the export service to serialise the index without touching files.
+     *
+     * @return list of all chunks (may be large), or empty list
+     */
+    public List<Chunk> exportAllChunks() {
+        if (lexicalIndex instanceof LuceneLexicalIndex) {
+            return ((LuceneLexicalIndex) lexicalIndex).exportAllChunks();
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Bulk-import chunks into the Lucene index.
+     * Used by the import service to restore a previously exported index.
+     *
+     * @param chunks list of chunks to index
+     */
+    public void importChunks(List<Chunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) return;
+        lexicalIndex.indexChunks(chunks);
+        // Also update in-memory tracking
+        for (Chunk c : chunks) {
+            chunkStore.put(c.getChunkId(), c);
+            List<String> ids = documentChunkIds.computeIfAbsent(
+                    c.getDocumentId(), k -> new java.util.ArrayList<>());
+            ids.add(c.getChunkId());
+            indexedDocuments.putIfAbsent(c.getDocumentId(),
+                    new IndexedDocument(c.getDocumentId(),
+                            c.getSourceName() != null ? c.getSourceName() : c.getDocumentId(), 1));
+        }
+        LOG.info("[RagService] Imported " + chunks.size() + " chunks");
+    }
+
+    /**
+     * Refresh the Lucene index after external modification (e.g. import).
+     * Closes the current index and re-opens from disk.
+     */
+    public void refreshIndex() {
+        if (lexicalIndex instanceof LuceneLexicalIndex) {
+            LuceneLexicalIndex lucene = (LuceneLexicalIndex) lexicalIndex;
+            try {
+                lucene.close();
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "Failed to close index for refresh", e);
+            }
+        }
+        // Re-create the singleton so a fresh index is opened on next access
+        synchronized (RagService.class) {
+            INSTANCE = new RagService();
+        }
+        LOG.info("[RagService] Index refreshed after import");
+    }
+
+    /**
      * List all documents stored in the persistent Lucene index.
      * Unlike getIndexedDocumentIds() this survives restarts.
      *

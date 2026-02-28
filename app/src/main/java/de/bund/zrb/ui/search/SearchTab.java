@@ -152,6 +152,27 @@ public class SearchTab extends JPanel implements FtpTab {
         maxResultsSpinner = new JSpinner(new SpinnerNumberModel(50, 10, 500, 10));
         sortPanel.add(maxResultsSpinner);
 
+        sortPanel.add(Box.createHorizontalStrut(12));
+        JButton exportBtn = new JButton("📤 Export");
+        exportBtn.setToolTipText("Index & Archiv als ZIP exportieren");
+        exportBtn.setMargin(new Insets(2, 6, 2, 6));
+        exportBtn.setFocusable(false);
+        exportBtn.addActionListener(e -> {
+            Window win = SwingUtilities.getWindowAncestor(this);
+            new SearchExportDialog(win).setVisible(true);
+        });
+        sortPanel.add(exportBtn);
+
+        JButton importBtn = new JButton("📥 Import");
+        importBtn.setToolTipText("Index & Archiv aus ZIP importieren");
+        importBtn.setMargin(new Insets(2, 6, 2, 6));
+        importBtn.setFocusable(false);
+        importBtn.addActionListener(e -> {
+            Window win = SwingUtilities.getWindowAncestor(this);
+            new SearchImportDialog(win).setVisible(true);
+        });
+        sortPanel.add(importBtn);
+
         filterRow.add(sourcePanel, BorderLayout.WEST);
         filterRow.add(sortPanel, BorderLayout.EAST);
         headerPanel.add(filterRow, BorderLayout.SOUTH);
