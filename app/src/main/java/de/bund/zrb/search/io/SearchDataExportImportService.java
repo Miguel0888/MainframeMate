@@ -10,6 +10,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.*;
@@ -38,6 +39,35 @@ public final class SearchDataExportImportService {
     private static final String CHUNKS_FILE = "chunks.jsonl";
 
     // ═══════════════════════════════════════════════════════════
+    //  Cancellation
+    // ═══════════════════════════════════════════════════════════
+
+    /** Thrown when the user cancels the export/import. */
+    public static class CancelledException extends IOException {
+        public CancelledException() { super("Vorgang vom Benutzer abgebrochen"); }
+    }
+
+    /**
+     * Token that can be shared with an export/import call to request
+     * cancellation from another thread.
+     */
+    public static class CancelToken {
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+        /** Request cancellation. Thread-safe. */
+        public void cancel() { cancelled.set(true); }
+
+        /** Check if cancelled. */
+        public boolean isCancelled() { return cancelled.get(); }
+    }
+
+    private static void checkCancelled(CancelToken token) throws CancelledException {
+        if (token != null && token.isCancelled()) {
+            throw new CancelledException();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  EXPORT
     // ═══════════════════════════════════════════════════════════
 
@@ -50,6 +80,15 @@ public final class SearchDataExportImportService {
     }
 
     /**
+     * Export selected source types to a ZIP file (non-cancellable overload
+     * kept for backward compatibility).
+     */
+    public static void exportToZip(File zipFile, Set<String> sourceTypes,
+                                   ProgressCallback callback) throws IOException {
+        exportToZip(zipFile, sourceTypes, callback, null);
+    }
+
+    /**
      * Export selected source types to a ZIP file.
      * All data is pulled from live service instances – no direct file I/O
      * on database or index files.
@@ -57,9 +96,11 @@ public final class SearchDataExportImportService {
      * @param zipFile     target ZIP file
      * @param sourceTypes set of source type names to include (LOCAL, FTP, NDV, MAIL, ARCHIVE)
      * @param callback    optional progress callback (may be null)
+     * @param cancelToken optional token to cancel from another thread (may be null)
      */
     public static void exportToZip(File zipFile, Set<String> sourceTypes,
-                                   ProgressCallback callback) throws IOException {
+                                   ProgressCallback callback,
+                                   CancelToken cancelToken) throws IOException {
         if (callback == null) callback = (p, m) -> {};
 
         callback.onProgress(0, "Export wird vorbereitet…");
@@ -68,8 +109,10 @@ public final class SearchDataExportImportService {
                 new BufferedOutputStream(new FileOutputStream(zipFile)))) {
             zos.setLevel(Deflater.DEFAULT_COMPRESSION);
 
-            // 1. Manifest
-            callback.onProgress(5, "Manifest schreiben…");
+            checkCancelled(cancelToken);
+
+            // 1. Manifest  (0–5 %)
+            callback.onProgress(2, "Manifest schreiben…");
             Properties manifest = new Properties();
             manifest.setProperty("version", "2");
             manifest.setProperty("exportDate",
@@ -77,24 +120,40 @@ public final class SearchDataExportImportService {
             manifest.setProperty("sourceTypes", String.join(",", sourceTypes));
             writeManifest(zos, manifest);
 
-            // 2. Lucene index – export all chunks as JSON lines via live service
-            callback.onProgress(10, "Lucene-Index exportieren…");
-            exportLuceneChunks(zos, callback);
+            checkCancelled(cancelToken);
 
-            // 3. H2 database dump via the existing ArchiveRepository connection
+            // 2. Lucene index – export all chunks as JSON lines  (5–40 %)
+            callback.onProgress(5, "Lucene-Index exportieren…");
+            exportLuceneChunks(zos, callback, cancelToken);
+
+            checkCancelled(cancelToken);
+
+            // 3. H2 database dump  (40–55 %)
             callback.onProgress(40, "Archiv-Datenbank exportieren…");
             if (sourceTypes.contains("ARCHIVE")) {
                 exportH2Dump(zos);
             }
+            callback.onProgress(55, "Datenbank exportiert.");
 
-            // 4. Archive snapshot files – read via ResourceStorageService
-            callback.onProgress(60, "Archiv-Snapshots exportieren…");
+            checkCancelled(cancelToken);
+
+            // 4. Archive snapshot files  (55–95 %)
+            callback.onProgress(55, "Archiv-Snapshots exportieren…");
             if (sourceTypes.contains("ARCHIVE")) {
-                exportSnapshotsViaService(zos, callback);
+                exportSnapshotsViaService(zos, callback, cancelToken);
             }
 
-            callback.onProgress(95, "ZIP wird finalisiert…");
+            checkCancelled(cancelToken);
+
+            callback.onProgress(96, "ZIP wird finalisiert…");
             zos.flush();
+        } catch (CancelledException ce) {
+            // Clean up partial ZIP file on cancel
+            LOG.info("[Export] Cancelled by user – deleting partial ZIP");
+            if (zipFile.exists() && !zipFile.delete()) {
+                zipFile.deleteOnExit();
+            }
+            throw ce;
         }
 
         callback.onProgress(100, "Export abgeschlossen: " + zipFile.getName());
@@ -105,9 +164,11 @@ public final class SearchDataExportImportService {
     /**
      * Export all Lucene chunks as JSON-lines through the live RagService /
      * LuceneLexicalIndex.  No file-system access on the index directory.
+     * Progress range: 5 % → 40 %
      */
     private static void exportLuceneChunks(ZipOutputStream zos,
-                                           ProgressCallback callback) throws IOException {
+                                           ProgressCallback callback,
+                                           CancelToken cancelToken) throws IOException {
         RagService rag = RagService.getInstance();
         if (rag == null) {
             LOG.warning("[Export] RagService not available – skipping Lucene export");
@@ -120,26 +181,29 @@ public final class SearchDataExportImportService {
             return;
         }
 
-        callback.onProgress(15, "Schreibe " + allChunks.size() + " Chunks…");
+        callback.onProgress(8, "Schreibe " + allChunks.size() + " Chunks…");
 
         zos.putNextEntry(new ZipEntry(CHUNKS_FILE));
         Writer writer = new OutputStreamWriter(zos, StandardCharsets.UTF_8);
 
-        for (int i = 0; i < allChunks.size(); i++) {
+        int total = allChunks.size();
+        for (int i = 0; i < total; i++) {
+            checkCancelled(cancelToken);
+
             Chunk c = allChunks.get(i);
-            // Simple JSON serialisation – no external library required
             writer.write(chunkToJson(c));
             writer.write('\n');
 
-            if (i % 500 == 0) {
-                int pct = 15 + (int) (25.0 * i / allChunks.size());
-                callback.onProgress(pct, "Chunk " + i + " / " + allChunks.size());
+            // Report every 200 chunks or on the last one
+            if (i % 200 == 0 || i == total - 1) {
+                int pct = 8 + (int) (32.0 * i / total);   // 8 → 40
+                callback.onProgress(pct, "Chunk " + (i + 1) + " / " + total);
             }
         }
-        writer.flush();           // flush the writer but don't close (would close zos)
+        writer.flush();
         zos.closeEntry();
 
-        LOG.info("[Export] Exported " + allChunks.size() + " chunks to " + CHUNKS_FILE);
+        LOG.info("[Export] Exported " + total + " chunks to " + CHUNKS_FILE);
     }
 
     /** Minimal JSON serialisation for a Chunk – no dependency on Gson etc. */
@@ -218,72 +282,87 @@ public final class SearchDataExportImportService {
     // ── Snapshot export via ResourceStorageService ────────────
 
     /**
-     * Export archive snapshot files by iterating over ArchiveEntries and
-     * ArchiveResources from the repository and reading each file through
-     * {@link ResourceStorageService} rather than walking the filesystem
-     * directly.
+     * Export archive snapshot files.  Progress range: 55 % → 95 %.
+     * Reports progress per file so the bar never appears stuck.
      */
     private static void exportSnapshotsViaService(ZipOutputStream zos,
-                                                  ProgressCallback callback) throws IOException {
+                                                  ProgressCallback callback,
+                                                  CancelToken cancelToken) throws IOException {
         ArchiveRepository repo = ArchiveRepository.getInstance();
         ResourceStorageService storage = new ResourceStorageService();
-        File archiveBaseDir = storage.getArchiveBaseDir();
 
-        // Collect all referenced storage paths from DB objects
-        Set<String> exportedPaths = new HashSet<>();
+        // ── Phase 1: collect all file references from DB (fast, in-memory) ──
+        callback.onProgress(56, "Snapshot-Referenzen sammeln…");
 
-        // 1. Snapshot files from ArchiveEntries (legacy web-snapshots)
+        // List of (File, zipEntryName) pairs to export
+        List<String[]> filesToExport = new ArrayList<>();  // [0]=absolutePath, [1]=zipEntryName
+
         try {
             List<de.bund.zrb.archive.model.ArchiveEntry> entries = repo.findAll();
+            Set<String> seen = new HashSet<>();
             for (de.bund.zrb.archive.model.ArchiveEntry entry : entries) {
                 String sp = entry.getSnapshotPath();
-                if (sp != null && !sp.isEmpty() && !exportedPaths.contains(sp)) {
-                    File snapFile = resolveSnapshotFile(sp);
-                    if (snapFile != null && snapFile.exists() && snapFile.isFile()) {
-                        addFileToZip(zos, snapFile, "snapshots/snapshots/" + sp);
-                        exportedPaths.add(sp);
+                if (sp != null && !sp.isEmpty() && seen.add(sp)) {
+                    File f = resolveSnapshotFile(sp);
+                    if (f != null && f.exists() && f.isFile()) {
+                        filesToExport.add(new String[]{f.getAbsolutePath(), "snapshots/snapshots/" + sp});
                     }
                 }
             }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[Export] Error exporting ArchiveEntry snapshots", e);
-        }
 
-        // 2. Storage files from ArchiveResources + ArchiveDocuments (Data Lake)
-        try {
             List<de.bund.zrb.archive.model.ArchiveResource> resources = repo.findAllResources();
             for (de.bund.zrb.archive.model.ArchiveResource res : resources) {
                 String sp = res.getStoragePath();
-                if (sp != null && !sp.isEmpty() && !exportedPaths.contains(sp)) {
-                    File file = storage.getFile(sp);
-                    if (file != null && file.exists() && file.isFile()) {
-                        addFileToZip(zos, file, "snapshots/" + sp);
-                        exportedPaths.add(sp);
+                if (sp != null && !sp.isEmpty() && seen.add(sp)) {
+                    File f = storage.getFile(sp);
+                    if (f != null && f.exists() && f.isFile()) {
+                        filesToExport.add(new String[]{f.getAbsolutePath(), "snapshots/" + sp});
                     }
                 }
             }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[Export] Error exporting ArchiveResource storage files", e);
-        }
 
-        try {
             List<de.bund.zrb.archive.model.ArchiveDocument> docs = repo.findAllDocuments();
             for (de.bund.zrb.archive.model.ArchiveDocument doc : docs) {
                 String tp = doc.getTextContentPath();
-                if (tp != null && !tp.isEmpty() && !exportedPaths.contains(tp)) {
-                    File file = storage.getFile(tp);
-                    if (file != null && file.exists() && file.isFile()) {
-                        addFileToZip(zos, file, "snapshots/" + tp);
-                        exportedPaths.add(tp);
+                if (tp != null && !tp.isEmpty() && seen.add(tp)) {
+                    File f = storage.getFile(tp);
+                    if (f != null && f.exists() && f.isFile()) {
+                        filesToExport.add(new String[]{f.getAbsolutePath(), "snapshots/" + tp});
                     }
                 }
             }
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[Export] Error exporting ArchiveDocument text files", e);
+            LOG.log(Level.WARNING, "[Export] Error collecting snapshot references", e);
         }
 
-        callback.onProgress(85, exportedPaths.size() + " Snapshot-Dateien exportiert");
-        LOG.info("[Export] Exported " + exportedPaths.size() + " snapshot/storage files");
+        // ── Phase 2: write files into ZIP with per-file progress ──
+        int total = filesToExport.size();
+        if (total == 0) {
+            callback.onProgress(95, "Keine Snapshot-Dateien vorhanden.");
+            return;
+        }
+
+        callback.onProgress(58, total + " Snapshot-Dateien exportieren…");
+
+        int exported = 0;
+        int skipped = 0;
+        for (int i = 0; i < total; i++) {
+            checkCancelled(cancelToken);
+
+            String absPath = filesToExport.get(i)[0];
+            String entryName = filesToExport.get(i)[1];
+            File file = new File(absPath);
+
+            boolean ok = addFileToZip(zos, file, entryName);
+            if (ok) exported++; else skipped++;
+
+            // Progress: 58 → 95 spread evenly over all files
+            int pct = 58 + (int) (37.0 * (i + 1) / total);
+            callback.onProgress(pct, "Datei " + (i + 1) + " / " + total
+                    + ": " + file.getName());
+        }
+
+        LOG.info("[Export] Exported " + exported + " snapshot files, skipped " + skipped);
     }
 
     private static File resolveSnapshotFile(String snapshotPath) {
@@ -295,8 +374,9 @@ public final class SearchDataExportImportService {
 
     /**
      * Add a single file to the ZIP, with retry for transient lock issues.
+     * @return true if the file was added, false if skipped after retries
      */
-    private static void addFileToZip(ZipOutputStream zos, File file, String entryName) throws IOException {
+    private static boolean addFileToZip(ZipOutputStream zos, File file, String entryName) throws IOException {
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
                 zos.putNextEntry(new ZipEntry(entryName));
@@ -304,19 +384,20 @@ public final class SearchDataExportImportService {
                     copy(fis, zos);
                 }
                 zos.closeEntry();
-                return; // success
+                return true;
             } catch (IOException e) {
                 LOG.warning("[Export] Attempt " + attempt + "/3 failed for " + file + ": " + e.getMessage());
                 if (attempt == 3) {
                     LOG.warning("[Export] Skipping file after 3 attempts: " + entryName);
-                } else {
-                    try { Thread.sleep(200 * attempt); } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw e;
-                    }
+                    return false;
+                }
+                try { Thread.sleep(200 * attempt); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
                 }
             }
         }
+        return false;
     }
 
     private static void writeManifest(ZipOutputStream zos, Properties props) throws IOException {
@@ -356,7 +437,7 @@ public final class SearchDataExportImportService {
             this.size = size;
             this.targetFile = targetFile;
             this.exists = exists;
-            this.overwrite = exists ? null : true; // new files default to import
+            this.overwrite = exists ? null : true;
         }
     }
 
@@ -397,10 +478,6 @@ public final class SearchDataExportImportService {
     /**
      * Import from a ZIP file, restoring Lucene index (via service), H2 database,
      * and snapshots.
-     *
-     * @param zipFile            source ZIP
-     * @param resolvedEntries    entries with overwrite decisions (only for file conflicts)
-     * @param callback           optional progress callback
      */
     public static void importFromZip(File zipFile, List<ImportEntry> resolvedEntries,
                                      ProgressCallback callback) throws IOException {
@@ -413,7 +490,6 @@ public final class SearchDataExportImportService {
         File archiveDir = new File(System.getProperty("user.home"),
                 ".mainframemate" + File.separator + "archive");
 
-        // Build a set of paths to skip (user chose skip for conflicts)
         Set<String> skipPaths = new HashSet<String>();
         if (resolvedEntries != null) {
             for (ImportEntry e : resolvedEntries) {
@@ -432,46 +508,39 @@ public final class SearchDataExportImportService {
             while ((ze = zis.getNextEntry()) != null) {
                 String name = ze.getName();
 
-                // Lucene chunks – import via service
                 if (CHUNKS_FILE.equals(name)) {
                     callback.onProgress(10, "Lucene-Index importieren…");
                     importLuceneChunks(zis);
                     continue;
                 }
 
-                // H2 database restore via repository
                 if ("archive-db.sql".equals(name)) {
                     callback.onProgress(30, "Archiv-Datenbank importieren…");
                     importH2Dump(zis);
                     continue;
                 }
 
-                // Skip manifest
                 if (MANIFEST.equals(name) || ze.isDirectory()) continue;
 
-                // Skip files the user chose to not overwrite
                 if (skipPaths.contains(name)) {
                     count++;
                     continue;
                 }
 
-                // Resolve target file
                 File target = resolveTarget(name, settingsFolder, luceneDir, archiveDir);
                 if (target == null) {
                     count++;
                     continue;
                 }
 
-                // Create parent dirs
                 target.getParentFile().mkdirs();
 
-                // Write file
                 try (FileOutputStream fos = new FileOutputStream(target)) {
                     copy(zis, fos);
                 }
 
                 count++;
-                int pct = Math.min(95, (int) (count * 95.0 / Math.max(total, 1)));
+                int pct = 40 + Math.min(55, (int) (55.0 * count / Math.max(total, 1)));
                 callback.onProgress(pct, "Datei: " + name);
             }
         }
@@ -481,10 +550,6 @@ public final class SearchDataExportImportService {
 
     // ── Lucene import via service ────────────────────────────
 
-    /**
-     * Import Lucene chunks from a JSONL stream via the live RagService.
-     * Each line is a JSON object representing one Chunk.
-     */
     private static void importLuceneChunks(InputStream zis) {
         try {
             RagService rag = RagService.getInstance();
@@ -516,7 +581,6 @@ public final class SearchDataExportImportService {
                 }
             }
 
-            // Flush remaining
             if (!batch.isEmpty()) {
                 rag.importChunks(batch);
             }
@@ -527,7 +591,6 @@ public final class SearchDataExportImportService {
         }
     }
 
-    /** Minimal JSON parser for a single Chunk JSON object. */
     private static Chunk parseChunkJson(String json) {
         try {
             Chunk.Builder b = Chunk.builder();
@@ -554,21 +617,19 @@ public final class SearchDataExportImportService {
         }
     }
 
-    /** Extract a string value for a given key from a simple JSON object. */
     private static String extractJsonString(String json, String key) {
         String search = "\"" + key + "\":";
         int idx = json.indexOf(search);
         if (idx < 0) return null;
         int start = idx + search.length();
 
-        // skip whitespace
         while (start < json.length() && json.charAt(start) == ' ') start++;
         if (start >= json.length()) return null;
 
-        if (json.charAt(start) == 'n') return null; // null
+        if (json.charAt(start) == 'n') return null;
 
         if (json.charAt(start) != '"') return null;
-        start++; // skip opening quote
+        start++;
 
         StringBuilder sb = new StringBuilder();
         for (int i = start; i < json.length(); i++) {
@@ -599,7 +660,6 @@ public final class SearchDataExportImportService {
         return sb.toString();
     }
 
-    /** Extract a numeric value for a given key from a simple JSON object. */
     private static String extractJsonNumber(String json, String key) {
         String search = "\"" + key + "\":";
         int idx = json.indexOf(search);
@@ -620,13 +680,9 @@ public final class SearchDataExportImportService {
         return sb.length() > 0 ? sb.toString() : null;
     }
 
-    // ── H2 import via the live repository connection ─────────
+    // ── H2 import ────────────────────────────────────────────
 
-    /**
-     * Import the H2 database dump using the repository's existing connection.
-     */
     private static void importH2Dump(InputStream sqlStream) throws IOException {
-        // Read the SQL dump into a temp file (H2 RUNSCRIPT requires file path)
         File tempSql = File.createTempFile("archive_import_", ".sql");
         try {
             try (FileOutputStream fos = new FileOutputStream(tempSql)) {
@@ -647,7 +703,6 @@ public final class SearchDataExportImportService {
 
     private static File resolveTarget(String zipPath, File settingsFolder,
                                       File luceneDir, File archiveDir) {
-        // Legacy v1 format: lucene/ directory entries
         if (zipPath.startsWith("lucene/")) {
             String relative = zipPath.substring("lucene/".length());
             if (relative.isEmpty()) return null;
@@ -658,7 +713,6 @@ public final class SearchDataExportImportService {
             if (relative.isEmpty()) return null;
             return new File(archiveDir, relative);
         }
-        // archive-db.sql, chunks.jsonl, and manifest are handled separately
         return null;
     }
 
