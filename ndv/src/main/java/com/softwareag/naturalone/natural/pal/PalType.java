@@ -7,13 +7,13 @@ public abstract class PalType implements Serializable, IPalType {
 
     private static final long serialVersionUID = 1L;
 
-    private ArrayList datenpuffer;
-    protected int typSchluessel;
-    protected int lesePosition;
-    protected int pufferLaenge;
-    protected int protokollVersion;
-    protected int serverTyp;
-    protected String serverZeichensatz;
+    private ArrayList record;
+    protected int type;
+    protected int recordTail;
+    protected int recordLength;
+    protected int palVersion;
+    protected int ndvType;
+    protected String serverCodePage;
 
     public PalType() {
         setRecord(new ArrayList());
@@ -23,37 +23,37 @@ public abstract class PalType implements Serializable, IPalType {
 
     public final void setRecord(ArrayList buffer) {
         if (buffer == null) return;
-        this.lesePosition = 0;
-        this.pufferLaenge = buffer.size();
-        this.datenpuffer = buffer;
+        this.recordTail = 0;
+        this.recordLength = buffer.size();
+        this.record = buffer;
     }
 
     public final ArrayList getRecord() {
-        return datenpuffer;
+        return record;
     }
 
     public int get() {
-        return typSchluessel;
+        return type;
     }
 
     public void setPalVers(int version) {
-        this.protokollVersion = version;
+        this.palVersion = version;
     }
 
     public void setNdvType(int type) {
-        this.serverTyp = type;
+        this.ndvType = type;
     }
 
     public void setServerCodePage(String codePage) {
-        this.serverZeichensatz = codePage;
+        this.serverCodePage = codePage;
     }
 
     public final int intFromBuffer() {
         try {
             // 1. Determine length until null byte
             int len = 0;
-            int startPos = lesePosition;
-            while (startPos + len < datenpuffer.size() && (Byte) datenpuffer.get(startPos + len) != 0) {
+            int startPos = recordTail;
+            while (startPos + len < record.size() && (Byte) record.get(startPos + len) != 0) {
                 len++;
             }
 
@@ -62,14 +62,14 @@ public abstract class PalType implements Serializable, IPalType {
 
             // 3. Read bytes sequentially
             int i = 0;
-            while (i < len && lesePosition < datenpuffer.size() && (Byte) datenpuffer.get(lesePosition) != 0) {
-                bytes[i] = (Byte) datenpuffer.get(lesePosition);
-                lesePosition++;
+            while (i < len && recordTail < record.size() && (Byte) record.get(recordTail) != 0) {
+                bytes[i] = (Byte) record.get(recordTail);
+                recordTail++;
                 i++;
             }
 
             // 4. Skip null byte
-            lesePosition++;
+            recordTail++;
 
             // 5. Convert to integer
             return Integer.valueOf(new String(bytes, "ASCII"));
@@ -82,8 +82,8 @@ public abstract class PalType implements Serializable, IPalType {
         try {
             // 1. Determine length until null byte
             int len = 0;
-            int startPos = lesePosition;
-            while (startPos + len < datenpuffer.size() && (Byte) datenpuffer.get(startPos + len) != 0) {
+            int startPos = recordTail;
+            while (startPos + len < record.size() && (Byte) record.get(startPos + len) != 0) {
                 len++;
             }
 
@@ -92,14 +92,14 @@ public abstract class PalType implements Serializable, IPalType {
 
             // 3. Read bytes sequentially
             int i = 0;
-            while (i < len && lesePosition < datenpuffer.size() && (Byte) datenpuffer.get(lesePosition) != 0) {
-                bytes[i] = (Byte) datenpuffer.get(lesePosition);
-                lesePosition++;
+            while (i < len && recordTail < record.size() && (Byte) record.get(recordTail) != 0) {
+                bytes[i] = (Byte) record.get(recordTail);
+                recordTail++;
                 i++;
             }
 
             // 4. Skip null byte
-            lesePosition++;
+            recordTail++;
 
             // 5. Return as string
             return new String(bytes);
@@ -117,9 +117,9 @@ public abstract class PalType implements Serializable, IPalType {
     protected final void stringToBuffer(String text) {
         byte[] bytes = text.getBytes();
         for (byte b : bytes) {
-            datenpuffer.add(b);
+            record.add(b);
         }
-        datenpuffer.add((byte) 0);
+        record.add((byte) 0);
     }
 
     protected final void intToBuffer(int value) {
@@ -127,19 +127,19 @@ public abstract class PalType implements Serializable, IPalType {
     }
 
     protected final void byteToBuffer(byte value) {
-        datenpuffer.add(value);
+        record.add(value);
     }
 
     protected final void byteArrayToBuffer(byte[] data) {
         for (byte b : data) {
-            datenpuffer.add(b);
+            record.add(b);
         }
     }
 
     protected final byte byteFromBuffer() {
         try {
-            byte value = (Byte) datenpuffer.get(lesePosition);
-            lesePosition++;
+            byte value = (Byte) record.get(recordTail);
+            recordTail++;
             return value;
         } catch (Exception e) {
             return 0;
@@ -151,21 +151,21 @@ public abstract class PalType implements Serializable, IPalType {
     }
 
     protected final void booleanToBuffer(boolean value) {
-        datenpuffer.add(value ? (byte) 1 : (byte) 0);
+        record.add(value ? (byte) 1 : (byte) 0);
     }
 
     protected final char[] recordToCharArray() {
-        byte[] bytes = new byte[pufferLaenge];
-        for (int i = 0; i < pufferLaenge; i++) {
-            bytes[i] = (Byte) datenpuffer.get(i);
+        byte[] bytes = new byte[recordLength];
+        for (int i = 0; i < recordLength; i++) {
+            bytes[i] = (Byte) record.get(i);
         }
         return new String(bytes).toCharArray();
     }
 
     protected final byte[] recordToByteArray() {
-        byte[] bytes = new byte[pufferLaenge];
-        for (int i = 0; i < pufferLaenge; i++) {
-            bytes[i] = (Byte) datenpuffer.get(i);
+        byte[] bytes = new byte[recordLength];
+        for (int i = 0; i < recordLength; i++) {
+            bytes[i] = (Byte) record.get(i);
         }
         return bytes;
     }

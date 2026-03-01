@@ -22,11 +22,11 @@ public final class PalTypeStack extends PalType implements IPalTypeStack {
     private int dateiNummer;
 
     public PalTypeStack() {
-        super.typSchluessel = 9;
+        super.type = 9;
     }
 
     public PalTypeStack(String command) {
-        super.typSchluessel = 9;
+        super.type = 9;
         this.befehl = command;
     }
 

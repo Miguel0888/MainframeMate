@@ -25,7 +25,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    private int natTypeFlags;
 
    public PalTypeLibraryStatistics() {
-      super.typSchluessel = 4;
+      super.type = 4;
    }
 
    public void serialize() {
@@ -56,7 +56,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
       }
 
       this.modDate = new PalDate(this.intFromBuffer(), this.intFromBuffer(), this.intFromBuffer(), this.intFromBuffer(), this.intFromBuffer());
-      if (super.lesePosition < super.pufferLaenge) {
+      if (super.recordTail < super.recordLength) {
          this.flags = this.intFromBuffer();
       }
 
