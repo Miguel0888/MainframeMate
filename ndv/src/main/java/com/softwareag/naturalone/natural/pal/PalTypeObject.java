@@ -1,16 +1,18 @@
 package com.softwareag.naturalone.natural.pal;
 
 import com.softwareag.naturalone.natural.pal.external.IPalTypeObject;
+import com.softwareag.naturalone.natural.pal.external.ObjectKind;
+import com.softwareag.naturalone.natural.pal.external.ObjectType;
 import com.softwareag.naturalone.natural.pal.external.PalDate;
 import com.softwareag.naturalone.natural.paltransactions.internal.PalTimeStamp;
 
 import java.util.Set;
 
-public class PalTypeObject extends PalType implements IPalTypeObject {
+public final class PalTypeObject extends PalType implements IPalTypeObject {
     private static final long serialVersionUID = 1L;
-    private String name = "";
+    private String object = "";
     private String longName = "";
-    private String sourceUser = "";
+    private String user = "";
     private String gpUser = "";
     private String codePage = "";
     private int sourceSize;
@@ -19,58 +21,65 @@ public class PalTypeObject extends PalType implements IPalTypeObject {
     private int natType;
     private int databaseId;
     private int fileNumber;
-    private boolean structured;
+    private boolean isStructured;
     private PalDate sourceDate = new PalDate();
     private PalDate gpDate = new PalDate();
     private PalDate accessDate = new PalDate();
     private String internalLabelFirst = "";
-    private boolean insertLineNumber;
-    private boolean removeLineNumber;
+    private boolean isInsertLineNumber;
+    private boolean isRemoveLineNumber;
     private PalTimeStamp timeStamp;
-    private int extraFlags;
+    private int flags;
 
-    public PalTypeObject() { super(); type = 8; }
+    public PalTypeObject() { super.type = 8; }
 
-    public void serialize() { /* server-only */ }
+    public void serialize() { /* server-only type, not sent by client */ }
+
     public void restore() {
-        name = stringFromBuffer();
-        natKind = intFromBuffer();
-        natType = intFromBuffer();
+        object = stringFromBuffer();
+        longName = stringFromBuffer();
+        user = stringFromBuffer();
         sourceSize = intFromBuffer();
         gpSize = intFromBuffer();
-        sourceUser = stringFromBuffer();
-        sourceDate = readPalDate();
-        gpDate = readPalDate();
-        structured = booleanFromBuffer();
+        natKind = intFromBuffer();
+        natType = intFromBuffer();
         databaseId = intFromBuffer();
         fileNumber = intFromBuffer();
-        longName = stringFromBuffer();
-        internalLabelFirst = stringFromBuffer();
-        insertLineNumber = booleanFromBuffer();
-        removeLineNumber = booleanFromBuffer();
-        // optional fields
-        if (recordTail < recordLength) accessDate = readPalDate();
-        if (recordTail < recordLength) gpUser = stringFromBuffer();
-        if (recordTail < recordLength) codePage = stringFromBuffer();
-        if (recordTail < recordLength) extraFlags = intFromBuffer();
-        // timeStamp optional
-        if (recordTail < recordLength) {
-            String tsText = stringFromBuffer();
-            String tsUser = recordTail < recordLength ? stringFromBuffer() : "";
-            if (tsText != null && !tsText.isEmpty()) {
-                timeStamp = PalTimeStamp.get(tsText, tsUser);
+
+        // Language/error message special logic
+        if (natKind == 64 || natType == 32768) {
+            longName = (String) ObjectType.getUnmodifiableLanguageList().get(Integer.valueOf(object) - 1);
+            if (natKind == 0) {
+                natKind = 64;
             }
         }
+
+        // Resource special logic
+        if (natType == 65536 && natKind == 0) {
+            natKind = 16;
+        }
+
+        isStructured = intFromBuffer() != 0;
+        sourceDate = new PalDate(intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer());
+        gpDate = new PalDate(intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer());
+
+        if (recordTail < recordLength) {
+            accessDate = new PalDate(intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer());
+        }
+        if (recordTail < recordLength) gpUser = stringFromBuffer();
+        if (recordTail < recordLength) codePage = stringFromBuffer();
+        if (recordTail < recordLength) flags = intFromBuffer();
     }
 
-    private PalDate readPalDate() {
-        int day = intFromBuffer(); int month = intFromBuffer(); int year = intFromBuffer();
-        int hour = intFromBuffer(); int minute = intFromBuffer();
-        return new PalDate(day, month, year, hour, minute);
+    public String getName() { return object; }
+
+    public String getLongName() {
+        if (longName.compareTo("") == 0) {
+            longName = getName();
+        }
+        return longName;
     }
 
-    public String getName() { return name; }
-    public String getLongName() { return (longName != null && !longName.isEmpty()) ? longName : name; }
     public int getKind() { return natKind; }
     public void setKind(int k) { natKind = k; }
     public int getType() { return natType; }
@@ -81,7 +90,7 @@ public class PalTypeObject extends PalType implements IPalTypeObject {
     public int getFileNumber() { return fileNumber; }
     public int getFnr() { return fileNumber; }
     public void setFileNumber(int n) { fileNumber = n; }
-    public String getSourceUser() { return sourceUser; }
+    public String getSourceUser() { return user; }
     public String getGpUser() { return gpUser; }
     public String getCodePage() { return codePage; }
     public void setCodePage(String cp) { codePage = cp; }
@@ -90,39 +99,69 @@ public class PalTypeObject extends PalType implements IPalTypeObject {
     public PalDate getSourceDate() { return sourceDate; }
     public PalDate getGpDate() { return gpDate; }
     public PalDate getAccessDate() { return accessDate; }
-    public boolean isStructured() { return structured; }
-    public void setStructured(boolean s) { structured = s; }
+    public boolean isStructured() { return isStructured; }
+    public void setStructured(boolean s) { isStructured = s; }
 
     public String getUser() {
-        if (natKind == 1 || natKind == 16 || natKind == 64) return sourceUser;
-        return gpUser;
-    }
-    public PalDate getDate() {
-        if (natKind == 1 || natKind == 16 || natKind == 64) return sourceDate;
-        return gpDate;
-    }
-    public int getSize() {
-        if (natKind == 1 || natKind == 16 || natKind == 64) return sourceSize;
-        return gpSize;
+        return natKind != 1 && natKind != 16 && natKind != 64 ? gpUser : user;
     }
 
-    public boolean isInsertLineNumber() { return insertLineNumber; }
-    public void setInsertLineNumber(boolean f) { insertLineNumber = f; }
-    public boolean isRemoveLineNumber() { return removeLineNumber; }
-    public void setRemoveLineNumber(boolean f) { removeLineNumber = f; }
+    public PalDate getDate() {
+        return natKind != 1 && natKind != 16 && natKind != 64 ? gpDate : sourceDate;
+    }
+
+    public int getSize() {
+        return natKind != 1 && natKind != 16 && natKind != 64 ? gpSize : sourceSize;
+    }
+
+    public boolean isInsertLineNumber() { return isInsertLineNumber; }
+    public void setInsertLineNumber(boolean f) { isInsertLineNumber = f; }
+    public boolean isRemoveLineNumber() { return isRemoveLineNumber; }
+    public void setRemoveLineNumber(boolean f) { isRemoveLineNumber = f; }
     public String getInternalLabelFirst() { return internalLabelFirst; }
     public void setInternalLabelFirst(String l) { internalLabelFirst = l; }
     public Set getOptions() { return null; }
     public PalTimeStamp getTimeStamp() { return timeStamp; }
-    public boolean isLinkedDdm() { return natType == 8 && (extraFlags & FLAGS_IS_LINKED_DDM) != 0; }
+    public boolean isLinkedDdm() { return getType() == 8 && (flags & 1) == 1; }
 
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof PalTypeObject)) return false;
         PalTypeObject t = (PalTypeObject) o;
-        return natType == t.natType && natKind == t.natKind && sourceSize == t.sourceSize && gpSize == t.gpSize &&
-                name.equals(t.name) && longName.equals(t.longName);
+        return natType == t.natType && natKind == t.natKind
+                && sourceSize == t.sourceSize && gpSize == t.gpSize
+                && isStructured == t.isStructured
+                && object.equals(t.object) && longName.equals(t.longName)
+                && user.equals(t.user) && gpUser.equals(t.gpUser)
+                && gpDate.equals(t.gpDate) && sourceDate.equals(t.sourceDate)
+                && accessDate.equals(t.accessDate);
     }
-    public int hashCode() { int r = 17; r = 37 * r + natType; r = 37 * r + natKind; r = 37 * r + name.hashCode(); return r; }
-    public String toString() { return getLongName() + " [" + natKind + "]"; }
+
+    public int hashCode() {
+        int r = 17;
+        r = 37 * r + natType;
+        r = 37 * r + natKind;
+        r = 37 * r + sourceSize;
+        r = 37 * r + gpSize;
+        r = 37 * r + longName.hashCode();
+        r = 37 * r + object.hashCode();
+        return r;
+    }
+
+    public String toString() {
+        String displayName;
+        String detail;
+        if (longName != null && longName.length() > 0) {
+            displayName = longName;
+        } else {
+            displayName = object;
+        }
+        if (natKind == 1 || natKind == 2 || natKind == 3) {
+            String mode = isStructured ? "STRUCTURED" : "REPORTING";
+            detail = " [" + ObjectType.getInstanceIdName().get(natType) + " - " + ObjectKind.get(natKind) + " - " + mode + "]";
+        } else {
+            detail = " [" + ObjectKind.get(natKind) + "]";
+        }
+        return displayName + detail;
+    }
 }
