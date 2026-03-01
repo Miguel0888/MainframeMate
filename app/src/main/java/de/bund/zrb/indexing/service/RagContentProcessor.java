@@ -16,7 +16,7 @@ import java.util.logging.Logger;
  * the existing RAG infrastructure (Tika extraction → Chunking → Lucene).
  *
  * Flow per item:
- *   1. Receive raw bytes + MIME type from scanner
+ *   1. Receive raw bytes + MIME typSchluessel from scanner
  *   2. Extract text via Tika (ExtractTextFromDocumentUseCase)
  *   3. Build a Document from extracted text
  *   4. Index via RagService (chunk → Lucene + optional embeddings)

@@ -7,7 +7,7 @@ import java.util.function.Predicate;
 
 public interface LockerUi {
     /**
-     * Asks for HOST & USER
+     * Asks for SERVER_ADRESSE & USER
      *
      * @return new Credential Object
      */

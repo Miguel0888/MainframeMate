@@ -134,7 +134,7 @@ public class ReadFileTool implements McpTool {
         }
 
         response.addProperty("status", "success");
-        response.addProperty("type", "directory");
+        response.addProperty("typSchluessel", "directory");
         response.addProperty("path", resource.getResolvedPath());
         response.addProperty("local", resource.isLocal());
         response.addProperty("entryCount", entries.size());
@@ -173,7 +173,7 @@ public class ReadFileTool implements McpTool {
         }
 
         response.addProperty("status", "success");
-        response.addProperty("type", "file");
+        response.addProperty("typSchluessel", "file");
         response.addProperty("path", resource.getResolvedPath());
         response.addProperty("local", resource.isLocal());
         response.addProperty("encoding", charset.name());

@@ -779,8 +779,8 @@ public class ChatSession extends JPanel {
                 if (count >= 5) break; // Limit to avoid bloating system prompt
                 String paramName = entry.getKey();
                 String paramType = "any";
-                if (entry.getValue().isJsonObject() && entry.getValue().getAsJsonObject().has("type")) {
-                    paramType = entry.getValue().getAsJsonObject().get("type").getAsString();
+                if (entry.getValue().isJsonObject() && entry.getValue().getAsJsonObject().has("typSchluessel")) {
+                    paramType = entry.getValue().getAsJsonObject().get("typSchluessel").getAsString();
                 }
                 boolean isRequired = required.contains(paramName);
                 if (sb.length() > 0) sb.append(", ");
@@ -1622,7 +1622,7 @@ public class ChatSession extends JPanel {
 
             if (contextMemoryCheckbox != null && contextMemoryCheckbox.isSelected()) {
                 JsonObject aggregated = new JsonObject();
-                aggregated.addProperty("type", "tool_results");
+                aggregated.addProperty("typSchluessel", "tool_results");
                 aggregated.addProperty("count", results.size());
 
                 com.google.gson.JsonArray arr = new com.google.gson.JsonArray();

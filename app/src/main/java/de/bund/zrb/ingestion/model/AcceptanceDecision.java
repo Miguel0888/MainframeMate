@@ -36,7 +36,7 @@ public class AcceptanceDecision {
     }
 
     /**
-     * Create a REJECT decision with a reason (no MIME type known).
+     * Create a REJECT decision with a reason (no MIME typSchluessel known).
      */
     public static AcceptanceDecision reject(String reason) {
         return new AcceptanceDecision(Decision.REJECT, reason, null);

@@ -8,7 +8,7 @@ import de.bund.zrb.ingestion.port.DocumentAcceptancePolicy;
 
 /**
  * Default document acceptance policy implementation.
- * Evaluates documents based on size, MIME type, and other criteria.
+ * Evaluates documents based on size, MIME typSchluessel, and other criteria.
  */
 public class DefaultAcceptancePolicy implements DocumentAcceptancePolicy {
 

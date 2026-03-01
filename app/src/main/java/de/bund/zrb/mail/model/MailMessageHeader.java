@@ -109,7 +109,7 @@ public class MailMessageHeader {
     }
 
     /**
-     * Returns a display icon based on the item type.
+     * Returns a display icon based on the item typSchluessel.
      */
     public String getTypeIcon() {
         if (isAppointment()) return "📅";

@@ -47,7 +47,7 @@ public class IndexingPipeline {
          * @param source the source configuration
          * @param itemPath the item path
          * @param content raw content bytes
-         * @param mimeType detected MIME type (may be null)
+         * @param mimeType detected MIME typSchluessel (may be null)
          * @return number of chunks created
          * @throws Exception if processing fails
          */

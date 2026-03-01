@@ -226,8 +226,8 @@ public class NdvService implements Closeable {
      * Path format:
      * <ul>
      *   <li>{@code "LIBRARY"} &rarr; library (DIRECTORY)</li>
-     *   <li>{@code "LIBRARY/OBJECTNAME"} &rarr; object (FILE), type resolved from extension if present</li>
-     *   <li>{@code "LIBRARY/OBJECTNAME.EXT"} &rarr; object (FILE), type resolved from extension</li>
+     *   <li>{@code "LIBRARY/OBJECTNAME"} &rarr; object (FILE), typSchluessel resolved from extension if present</li>
+     *   <li>{@code "LIBRARY/OBJECTNAME.EXT"} &rarr; object (FILE), typSchluessel resolved from extension</li>
      * </ul>
      * <p>
      * This method does <b>not</b> contact the server. It is a pure string parse
@@ -270,14 +270,14 @@ public class NdvService implements Closeable {
     }
 
     /**
-     * Parse an NDV raw path with rich bookmark metadata (DBID/FNR, objectType, extension).
+     * Parse an NDV raw path with rich bookmark metadata (DATENBANK_NUMMER/DATEI_NUMMER, objectType, extension).
      * <p>
-     * If the bookmark carries valid DBID/FNR (&gt; 0), a concrete {@link NdvObjectInfo}
+     * If the bookmark carries valid DATENBANK_NUMMER/DATEI_NUMMER (&gt; 0), a concrete {@link NdvObjectInfo}
      * is created with those values. Otherwise a minimal NdvObjectInfo is built and
-     * DBID/FNR fallback resolution will happen inside {@link NdvClient#readSource}.
+     * DATENBANK_NUMMER/DATEI_NUMMER fallback resolution will happen inside {@link NdvClient#readSource}.
      *
      * @param rawPath          raw path from bookmark (e.g. "ABAK-T/#BHOBICP.NSP")
-     * @param ndvObjectType    Natural object type id (e.g. ObjectType.PROGRAM), or 0 for auto-detect
+     * @param ndvObjectType    Natural object typSchluessel id (e.g. ObjectType.PROGRAM), or 0 for auto-detect
      * @param ndvTypeExtension file extension (e.g. "NSP"), or null/empty for auto-detect
      * @param ndvDbid          Adabas database id from listing, or &le; 0 for unresolved
      * @param ndvFnr           Adabas file number from listing, or &le; 0 for unresolved

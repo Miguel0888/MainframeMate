@@ -307,7 +307,7 @@ public class MailSourceScanner implements SourceScanner {
             public void write(int b) {
                 if (b == '\n') {
                     String msg = line.toString().trim();
-                    if (!msg.startsWith("Unknown message type:")
+                    if (!msg.startsWith("Unknown message typSchluessel:")
                             && !msg.startsWith("---")
                             && !msg.isEmpty()) {
                         originalErr.println(msg);

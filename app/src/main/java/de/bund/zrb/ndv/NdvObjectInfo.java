@@ -48,7 +48,7 @@ public class NdvObjectInfo {
         int kind = obj.getKind();
         int type = obj.getType();
 
-        // Resolve type name and extension
+        // Resolve typSchluessel name and extension
         Hashtable idNames = ObjectType.getInstanceIdName();
         Hashtable idExts = ObjectType.getInstanceIdExtension();
         String typeName = idNames.containsKey(type) ? (String) idNames.get(type) : "Unknown";
@@ -64,7 +64,7 @@ public class NdvObjectInfo {
             dateStr = srcDate.toString();
         }
 
-        // Capture DBID/FNR for downloadSource (critical for Mainframe/Adabas)
+        // Capture DATENBANK_NUMMER/DATEI_NUMMER for downloadSource (critical for Mainframe/Adabas)
         int dbid = obj.getDatabaseId();
         int fnr = obj.getFileNumber();
 
@@ -84,14 +84,14 @@ public class NdvObjectInfo {
     public int getFileNumber() { return fileNumber; }
 
     /**
-     * Get display name: name (type).
+     * Get display name: name (typSchluessel).
      */
     public String getDisplayName() {
         return name + " (" + typeName + ")";
     }
 
     /**
-     * Get icon for this object type.
+     * Get icon for this object typSchluessel.
      */
     public String getIcon() {
         switch (type) {
@@ -125,7 +125,7 @@ public class NdvObjectInfo {
     }
 
     /**
-     * Resolve Natural object type from file extension (e.g. "NSP" → PROGRAM).
+     * Resolve Natural object typSchluessel from file extension (e.g. "NSP" → PROGRAM).
      * Used when reopening bookmarks where only the extension is known.
      *
      * @return the ObjectType id, or ObjectType.PROGRAM as fallback
@@ -144,8 +144,8 @@ public class NdvObjectInfo {
     }
 
     /**
-     * Create a minimal NdvObjectInfo for bookmark reopening (name + type from extension).
-     * DBID/FNR default to -1 (will trigger fallback resolution in NdvClient).
+     * Create a minimal NdvObjectInfo for bookmark reopening (name + typSchluessel from extension).
+     * DATENBANK_NUMMER/DATEI_NUMMER default to -1 (will trigger fallback resolution in NdvClient).
      */
     public static NdvObjectInfo forBookmark(String name, String extension) {
         int type = typeFromExtension(extension);

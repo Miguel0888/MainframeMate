@@ -39,7 +39,7 @@ public class InMemoryJavaCompiler {
         Object instance = clazz.newInstance();
 
         if (!expectedType.isInstance(instance)) {
-            throw new ClassCastException("Compiled class does not implement expected type: " + expectedType.getName());
+            throw new ClassCastException("Compiled class does not implement expected typSchluessel: " + expectedType.getName());
         }
 
         return expectedType.cast(instance);

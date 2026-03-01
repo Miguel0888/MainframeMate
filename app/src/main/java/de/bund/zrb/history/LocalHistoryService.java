@@ -61,7 +61,7 @@ public final class LocalHistoryService {
         return INSTANCE;
     }
 
-    // One index per backend type
+    // One index per backend typSchluessel
     private final Map<String, IndexHolder> indices = new ConcurrentHashMap<>();
     private volatile boolean shutdownHookRegistered = false;
 

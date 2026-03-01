@@ -96,7 +96,7 @@ public class ArchiveService {
      *
      * @param runId    the run this capture belongs to
      * @param url      the original URL
-     * @param mimeType the MIME type
+     * @param mimeType the MIME typSchluessel
      * @param status   HTTP status code
      * @param bodyText the response body text
      * @param headers  filtered response headers

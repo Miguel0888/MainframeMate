@@ -40,7 +40,7 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
             return;
         }
 
-        // Determine backend type
+        // Determine backend typSchluessel
         String backendType = "LOCAL";
         if (tab instanceof FileTabImpl) {
             FileTabImpl ft = (FileTabImpl) tab;

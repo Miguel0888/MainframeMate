@@ -3,8 +3,8 @@ package de.bund.zrb.files.impl.vfs.mvs;
 /**
  * Represents an MVS location with separate logical and query paths.
  *
- * - Logical Path: Display/State path (e.g., 'USERID')
- * - Query Path: Server query path (e.g., 'USERID.*' for listing)
+ * - Logical Path: Display/State path (e.g., 'BENUTZERKENNUNG')
+ * - Query Path: Server query path (e.g., 'BENUTZERKENNUNG.*' for listing)
  */
 public final class MvsLocation {
 
@@ -65,7 +65,7 @@ public final class MvsLocation {
     }
 
     /**
-     * Parse a path string and determine its location type.
+     * Parse a path string and determine its location typSchluessel.
      */
     public static MvsLocation parse(String path) {
         if (path == null || path.trim().isEmpty()) {
@@ -131,7 +131,7 @@ public final class MvsLocation {
     }
 
     /**
-     * Get the location type.
+     * Get the location typSchluessel.
      */
     public MvsLocationType getType() {
         return type;
@@ -220,7 +220,7 @@ public final class MvsLocation {
     @Override
     public String toString() {
         // Don't wrap logicalPath in quotes since it's already quoted internally
-        return "MvsLocation{type=" + type + ", logicalPath=" + logicalPath + ", displayName=" + displayName + "}";
+        return "MvsLocation{typSchluessel=" + type + ", logicalPath=" + logicalPath + ", displayName=" + displayName + "}";
     }
 
     @Override

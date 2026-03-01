@@ -163,7 +163,7 @@ public final class MvsQuoteNormalizer {
 
     /**
      * Extract the HLQ from a fully qualified dataset name.
-     * Example: 'USERID.DATA.SET' -> USERID
+     * Example: 'BENUTZERKENNUNG.DATA.SET' -> BENUTZERKENNUNG
      */
     public static String extractHlq(String datasetName) {
         String unquoted = unquote(datasetName);

@@ -15,7 +15,7 @@ import javax.swing.text.Segment;
  *   - Comments (lines starting with * or /*)
  *   - Strings (delimited by single quotes)
  *   - Numbers
- *   - System variables (*COUNTER, *ISN, *PF-KEY, etc.)
+ *   - System variables (*COUNTER, *ISN, *PF-KONFIGURATIONS_SCHLUESSEL, etc.)
  *   - Hash/at/dollar-prefixed variables (#VAR, @VAR, $VAR)
  */
 public class NaturalTokenMaker extends AbstractTokenMaker {
@@ -203,9 +203,9 @@ public class NaturalTokenMaker extends AbstractTokenMaker {
             keywords.put("IDENTICAL",        TT_KEYWORD);
             keywords.put("SUPPRESS",         TT_KEYWORD);
             keywords.put("SET",              TT_KEYWORD);
-            keywords.put("KEY",              TT_KEYWORD);
+            keywords.put("KONFIGURATIONS_SCHLUESSEL",              TT_KEYWORD);
             keywords.put("NAMED",            TT_KEYWORD);
-            keywords.put("STACK",            TT_KEYWORD);
+            keywords.put("STAPEL",            TT_KEYWORD);
             keywords.put("LIMIT",            TT_KEYWORD);
             keywords.put("NUMBER",           TT_KEYWORD);
         }

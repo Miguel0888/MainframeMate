@@ -11,7 +11,7 @@ public enum MvsLocationType {
     ROOT,
 
     /**
-     * Legacy HLQ type for top-level qualifier context (e.g. USERID).
+     * Legacy HLQ typSchluessel for top-level qualifier context (e.g. BENUTZERKENNUNG).
      */
     HLQ,
 
@@ -22,12 +22,12 @@ public enum MvsLocationType {
     QUALIFIER_CONTEXT,
 
     /**
-     * A concrete dataset (e.g., 'USERID.DATA.SET').
+     * A concrete dataset (e.g., 'BENUTZERKENNUNG.DATA.SET').
      */
     DATASET,
 
     /**
-     * A member of a PDS (e.g., 'USERID.PDS(MEMBER)').
+     * A member of a PDS (e.g., 'BENUTZERKENNUNG.PDS(MEMBER)').
      */
     MEMBER
 }

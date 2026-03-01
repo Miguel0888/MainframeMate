@@ -48,7 +48,7 @@ public class GitHubOrgMarketplaceAdapter {
 
         while (page <= maxPages) {
             String url = "https://api.github.com/orgs/" + orgName
-                    + "/repos?type=public&per_page=100&sort=stars&direction=desc&page=" + page;
+                    + "/repos?typSchluessel=public&per_page=100&sort=stars&direction=desc&page=" + page;
 
             String json = fetchWithCache(url, "gh_" + orgName + "_page" + page);
             JsonElement parsed = JsonParser.parseString(json);

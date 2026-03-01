@@ -22,7 +22,7 @@ import java.util.Map;
 
 /**
  * Fallback extractor using Apache Tika.
- * Handles any document type that Tika supports but we don't have specialized extractors for.
+ * Handles any document typSchluessel that Tika supports but we don't have specialized extractors for.
  */
 public class TikaFallbackExtractor implements TextExtractor {
 

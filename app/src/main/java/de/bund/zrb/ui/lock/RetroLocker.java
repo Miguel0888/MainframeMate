@@ -49,7 +49,7 @@ public class RetroLocker implements LockerUi {
         inputPanel.setOpaque(false);
         inputPanel.setLayout(new BoxLayout(inputPanel, BoxLayout.Y_AXIS));
         inputPanel.add(Box.createVerticalStrut(10));
-        inputPanel.add(new JLabel("HOST:")).setForeground(Color.GREEN);
+        inputPanel.add(new JLabel("SERVER_ADRESSE:")).setForeground(Color.GREEN);
         inputPanel.add(hostField);
         inputPanel.add(Box.createVerticalStrut(5));
         inputPanel.add(new JLabel("BENUTZER:")).setForeground(Color.GREEN);

@@ -15,7 +15,7 @@ public interface Chunker {
      * @param text the text to chunk
      * @param documentId the document ID
      * @param sourceName the source name
-     * @param mimeType the MIME type
+     * @param mimeType the MIME typSchluessel
      * @return list of chunks
      */
     List<Chunk> chunk(String text, String documentId, String sourceName, String mimeType);
@@ -26,7 +26,7 @@ public interface Chunker {
      * @param markdown the Markdown text
      * @param documentId the document ID
      * @param sourceName the source name
-     * @param mimeType the MIME type
+     * @param mimeType the MIME typSchluessel
      * @return list of chunks
      */
     List<Chunk> chunkMarkdown(String markdown, String documentId, String sourceName, String mimeType);

@@ -10,7 +10,7 @@ public enum IndexItemState {
     INDEXED,
     /** Processing failed (see error message in IndexItemStatus). */
     ERROR,
-    /** Skipped due to filter/size/type policy. */
+    /** Skipped due to filter/size/typSchluessel policy. */
     SKIPPED,
     /** Item was deleted from source → tombstone in index. */
     DELETED

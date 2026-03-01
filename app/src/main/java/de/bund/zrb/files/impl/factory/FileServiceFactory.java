@@ -38,7 +38,7 @@ public class FileServiceFactory {
     }
 
     /**
-     * Creates a FileService based on the VirtualResource backend type.
+     * Creates a FileService based on the VirtualResource backend typSchluessel.
      * For FTP, uses connectionId from FtpResourceState; credentials come from provider.
      */
     public FileService create(VirtualResource resource, CredentialsProvider credentialsProvider) throws FileServiceException {

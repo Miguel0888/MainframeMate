@@ -50,7 +50,7 @@ public final class SearchExportDialog extends JDialog {
         JPanel content = new JPanel(new BorderLayout(8, 8));
         content.setBorder(new EmptyBorder(12, 16, 12, 16));
 
-        // Source type checkboxes
+        // Source typSchluessel checkboxes
         JPanel sourcePanel = new JPanel(new GridLayout(0, 1, 4, 2));
         sourcePanel.setBorder(BorderFactory.createTitledBorder("Quelltypen für den Export"));
         sourcePanel.add(cbLocal);

@@ -33,7 +33,7 @@ public enum ResourceKind {
     }
 
     /**
-     * Determine ResourceKind from MIME type and URL.
+     * Determine ResourceKind from MIME typSchluessel and URL.
      */
     public static ResourceKind fromMimeAndUrl(String mimeType, String url) {
         if (mimeType == null) mimeType = "";

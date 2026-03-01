@@ -160,7 +160,7 @@ public class SearchService {
 
     /**
      * Search the Archive (ArchiveDocuments from H2 database).
-     * Converts matches to SearchResult with ARCHIVE source type.
+     * Converts matches to SearchResult with ARCHIVE source typSchluessel.
      */
     private List<SearchResult> searchArchive(String query, int maxResults) {
         List<SearchResult> results = new ArrayList<>();
@@ -237,7 +237,7 @@ public class SearchService {
             String docId = chunk.getDocumentId();
 
 
-            // Determine source type from documentId path
+            // Determine source typSchluessel from documentId path
             SearchResult.SourceType sourceType = detectSource(docId);
 
             // Extract snippet with context around query match
@@ -273,7 +273,7 @@ public class SearchService {
     }
 
     /**
-     * Detect source type from document ID / path.
+     * Detect source typSchluessel from document ID / path.
      */
     private SearchResult.SourceType detectSource(String docId) {
         if (docId == null) return SearchResult.SourceType.LOCAL;

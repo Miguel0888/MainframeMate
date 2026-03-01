@@ -52,12 +52,12 @@ public class ToolManifestBuilder {
      * Konvertiert Tool-Spezifikationen ins native Ollama/OpenAI Tool-Format für /api/chat.
      * <pre>
      * {
-     *   "type": "function",
+     *   "typSchluessel": "function",
      *   "function": {
      *     "name": "...",
      *     "description": "...",
      *     "parameters": {
-     *       "type": "object",
+     *       "typSchluessel": "object",
      *       "properties": { ... },
      *       "required": [ ... ]
      *     }
@@ -74,14 +74,14 @@ public class ToolManifestBuilder {
 
         for (ToolSpec tool : tools) {
             Map<String, Object> toolDef = new LinkedHashMap<>();
-            toolDef.put("type", "function");
+            toolDef.put("typSchluessel", "function");
 
             Map<String, Object> function = new LinkedHashMap<>();
             function.put("name", tool.getName());
             function.put("description", tool.getDescription() != null ? tool.getDescription() : "");
 
             Map<String, Object> parameters = new LinkedHashMap<>();
-            parameters.put("type", "object");
+            parameters.put("typSchluessel", "object");
 
             ToolSpec.InputSchema schema = tool.getInputSchema();
             if (schema != null) {
@@ -89,7 +89,7 @@ public class ToolManifestBuilder {
                 if (schema.getProperties() != null) {
                     for (Map.Entry<String, ToolSpec.Property> entry : schema.getProperties().entrySet()) {
                         Map<String, String> propDef = new LinkedHashMap<>();
-                        propDef.put("type", entry.getValue().getType() != null ? entry.getValue().getType() : "string");
+                        propDef.put("typSchluessel", entry.getValue().getType() != null ? entry.getValue().getType() : "string");
                         if (entry.getValue().getDescription() != null && !entry.getValue().getDescription().isEmpty()) {
                             propDef.put("description", entry.getValue().getDescription());
                         }

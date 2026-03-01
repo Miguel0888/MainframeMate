@@ -31,7 +31,7 @@ import java.util.Set;
  *
  * Architecture:
  * - RAW view: RSyntaxTextArea WITHOUT syntax highlighting (plain text view)
- * - RENDERED view depends on file type:
+ * - RENDERED view depends on file typSchluessel:
  *   - For source code files: RSyntaxTextArea WITH syntax highlighting (same content, just highlighted)
  *   - For documents (MD, HTML): JEditorPane with HTML/Markdown rendering
  *   - For binary docs (PDF, DOCX): JEditorPane showing extracted text as HTML
@@ -240,7 +240,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         if (ext != null && (HTML_RENDERED_EXTENSIONS.contains(ext) || BINARY_DOCUMENT_EXTENSIONS.contains(ext))) {
             return true;
         }
-        // Also check MIME type for binary documents
+        // Also check MIME typSchluessel for binary documents
         if (meta != null && meta.getMimeType() != null) {
             String mime = meta.getMimeType().toLowerCase();
             if (mime.contains("pdf") || mime.contains("msword") || mime.contains("officedocument")) {
@@ -257,7 +257,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
     protected boolean determineIfTextFile(String name, DocumentMetadata metadata) {
-        // Check MIME type first
+        // Check MIME typSchluessel first
         if (metadata != null && metadata.getMimeType() != null) {
             String mime = metadata.getMimeType().toLowerCase();
             if (mime.startsWith("text/")) return true;
@@ -518,7 +518,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         split.setLeftComponent(rawScrollPane);
 
-        // Right component depends on file type
+        // Right component depends on file typSchluessel
         if (needsHtmlRendering) {
             split.setRightComponent(htmlRenderedScrollPane);
         } else if (isSourceCode) {

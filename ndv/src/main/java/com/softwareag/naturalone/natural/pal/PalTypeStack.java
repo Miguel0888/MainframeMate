@@ -17,25 +17,25 @@ public final class PalTypeStack extends PalType implements IPalTypeStack {
     /** Quellcode speichern (ohne zu kompilieren). */
     public static final String SAVE = "SAVE";
 
-    private String command;
-    private int databaseId;
-    private int fileNumber;
+    private String befehl;
+    private int datenbankNummer;
+    private int dateiNummer;
 
     public PalTypeStack() {
-        super.type = 9;
+        super.typSchluessel = 9;
     }
 
     public PalTypeStack(String command) {
-        super.type = 9;
-        this.command = command;
+        super.typSchluessel = 9;
+        this.befehl = command;
     }
 
     @Override
     public void serialize() {
         try {
-            stringToBuffer(command);
-            intToBuffer(databaseId);
-            intToBuffer(fileNumber);
+            stringToBuffer(befehl);
+            intToBuffer(datenbankNummer);
+            intToBuffer(dateiNummer);
         } catch (NullPointerException e) {
             // Fehler wird still geschluckt (Befehl ist null)
         }

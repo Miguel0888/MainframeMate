@@ -94,7 +94,7 @@ public final class SearchDataExportImportService {
      * on database or index files.
      *
      * @param zipFile     target ZIP file
-     * @param sourceTypes set of source type names to include (LOCAL, FTP, NDV, MAIL, ARCHIVE)
+     * @param sourceTypes set of source typSchluessel names to include (LOCAL, FTP, NDV, MAIL, ARCHIVE)
      * @param callback    optional progress callback (may be null)
      * @param cancelToken optional token to cancel from another thread (may be null)
      */

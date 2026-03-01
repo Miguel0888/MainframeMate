@@ -433,7 +433,7 @@ public class CloudChatManager implements ChatManager {
 
         try {
             JsonObject root = JsonParser.parseString(trimmed).getAsJsonObject();
-            String type = root.has("type") ? root.get("type").getAsString() : "";
+            String type = root.has("typSchluessel") ? root.get("typSchluessel").getAsString() : "";
             if ("content_block_delta".equals(type) && root.has("delta") && root.get("delta").isJsonObject()) {
                 JsonObject delta = root.getAsJsonObject("delta");
                 if (delta.has("text") && !delta.get("text").isJsonNull()) {

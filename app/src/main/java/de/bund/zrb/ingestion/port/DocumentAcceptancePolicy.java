@@ -14,7 +14,7 @@ public interface DocumentAcceptancePolicy {
      * Evaluate whether a document should be accepted for processing.
      *
      * @param source the document source
-     * @param detection the content type detection result
+     * @param detection the content typSchluessel detection result
      * @return acceptance decision (ACCEPT or REJECT with reason)
      */
     AcceptanceDecision evaluate(DocumentSource source, DetectionResult detection);

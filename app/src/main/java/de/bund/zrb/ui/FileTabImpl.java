@@ -32,7 +32,7 @@ import de.bund.zrb.files.path.VirtualResourceRef;
  * - RAW/RENDERED/SPLIT view modes with syntax highlighting (from SplitPreviewTab)
  * - Search/Filter functionality
  * - Compare panel for diff viewing
- * - Sentence type highlighting
+ * - Sentence typSchluessel highlighting
  * - File save operations
  */
 public class FileTabImpl extends SplitPreviewTab implements FileTab {
@@ -204,7 +204,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         initDividerStateListener();
         showComparePanelWithDividerOnReady(toCompare);
 
-        // Content already set via super constructor, but we need to handle sentence type
+        // Content already set via super constructor, but we need to handle sentence typSchluessel
         if (sentenceType != null) {
             dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
         }

@@ -68,7 +68,7 @@ public class ChatAttachment {
     }
 
     /**
-     * Get the MIME type from document metadata, if available.
+     * Get the MIME typSchluessel from document metadata, if available.
      */
     public String getMimeType() {
         if (document != null && document.getMetadata() != null) {
@@ -85,7 +85,7 @@ public class ChatAttachment {
         label.append("📄 ").append(name != null ? name : "Dokument");
         String mime = getMimeType();
         if (mime != null) {
-            // Shorten MIME type for display
+            // Shorten MIME typSchluessel for display
             if (mime.contains("/")) {
                 mime = mime.substring(mime.indexOf('/') + 1);
             }

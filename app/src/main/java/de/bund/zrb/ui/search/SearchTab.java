@@ -101,7 +101,7 @@ public class SearchTab extends JPanel implements FtpTab {
                 + "Beispiele:\n"
                 + "  \"exakte phrase\"\n"
                 + "  hamburg~1 (Fuzzy)\n"
-                + "  type:pdf AND author:mueller");
+                + "  typSchluessel:pdf AND author:mueller");
         advancedToggle.setFocusable(false);
         advancedToggle.setMargin(new Insets(2, 6, 2, 6));
 
@@ -593,7 +593,7 @@ public class SearchTab extends JPanel implements FtpTab {
                 return;
             }
 
-            // Build prefixed path based on source type so the routing in
+            // Build prefixed path based on source typSchluessel so the routing in
             // MainFrame.openFileOrDirectory() can dispatch to the correct backend
             String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.buildPrefixedPath(
                     sourceTypeToBackend(result.getSource()), rawPath);

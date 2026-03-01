@@ -628,7 +628,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     /**
      * Open an NDV FILE bookmark directly: connect, read source, open FileTab.
-     * Uses the NDV metadata stored in the bookmark entry (objectName, type, dbid, fnr)
+     * Uses the NDV metadata stored in the bookmark entry (objectName, typSchluessel, dbid, fnr)
      * so no ConnectionTab is needed.
      * Falls back to directory flow if metadata is missing (legacy bookmarks).
      */
@@ -654,7 +654,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         if (entry.ndvLibrary != null && !entry.ndvLibrary.isEmpty()
                 && entry.ndvObjectName != null && !entry.ndvObjectName.isEmpty()) {
-            // Rich metadata from bookmark: use the full resolver with DBID/FNR
+            // Rich metadata from bookmark: use the full resolver with DATENBANK_NUMMER/DATEI_NUMMER
             resolved = tempResolver.resolvePath(
                     entry.ndvLibrary + "/" + entry.ndvObjectName
                             + (entry.ndvTypeExtension != null && !entry.ndvTypeExtension.isEmpty()

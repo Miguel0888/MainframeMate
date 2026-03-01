@@ -95,7 +95,7 @@ public class MvsBrowserController implements MvsLoadedModel.ModelListener, MvsPa
 
         if (location.getType() == MvsLocationType.ROOT) {
             model.clear();
-            notifyStatus("Bitte HLQ eingeben (z.B. USERID)");
+            notifyStatus("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)");
             notifyViewModelChanged();
             return;
         }

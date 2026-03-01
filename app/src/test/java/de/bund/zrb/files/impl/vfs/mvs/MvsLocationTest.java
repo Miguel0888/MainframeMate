@@ -22,83 +22,83 @@ class MvsLocationTest {
 
     @Test
     void parseHlqReturnsHlq() {
-        MvsLocation loc = MvsLocation.parse("USERID");
+        MvsLocation loc = MvsLocation.parse("BENUTZERKENNUNG");
         assertEquals(MvsLocationType.HLQ, loc.getType());
-        assertEquals("'USERID'", loc.getLogicalPath());
-        assertEquals("USERID", loc.getDisplayName());
+        assertEquals("'BENUTZERKENNUNG'", loc.getLogicalPath());
+        assertEquals("BENUTZERKENNUNG", loc.getDisplayName());
     }
 
     @Test
     void parseQuotedHlqReturnsHlq() {
-        MvsLocation loc = MvsLocation.parse("'USERID'");
+        MvsLocation loc = MvsLocation.parse("'BENUTZERKENNUNG'");
         assertEquals(MvsLocationType.HLQ, loc.getType());
-        assertEquals("'USERID'", loc.getLogicalPath());
+        assertEquals("'BENUTZERKENNUNG'", loc.getLogicalPath());
     }
 
     @Test
     void parseDatasetReturnsDataset() {
-        MvsLocation loc = MvsLocation.parse("USERID.DATA.SET");
+        MvsLocation loc = MvsLocation.parse("BENUTZERKENNUNG.DATA.SET");
         assertEquals(MvsLocationType.QUALIFIER_CONTEXT, loc.getType());
-        assertEquals("'USERID.DATA.SET'", loc.getLogicalPath());
+        assertEquals("'BENUTZERKENNUNG.DATA.SET'", loc.getLogicalPath());
         assertEquals("SET", loc.getDisplayName());
     }
 
     @Test
     void parseMemberReturnsMember() {
-        MvsLocation loc = MvsLocation.parse("USERID.PDS(MEMBER)");
+        MvsLocation loc = MvsLocation.parse("BENUTZERKENNUNG.PDS(MEMBER)");
         assertEquals(MvsLocationType.MEMBER, loc.getType());
-        assertEquals("'USERID.PDS(MEMBER)'", loc.getLogicalPath());
+        assertEquals("'BENUTZERKENNUNG.PDS(MEMBER)'", loc.getLogicalPath());
         assertEquals("MEMBER", loc.getDisplayName());
     }
 
     @Test
     void hlqQueryPathHasWildcard() {
-        MvsLocation loc = MvsLocation.hlq("USERID");
-        assertEquals("'USERID.*'", loc.getQueryPath());
+        MvsLocation loc = MvsLocation.hlq("BENUTZERKENNUNG");
+        assertEquals("'BENUTZERKENNUNG.*'", loc.getQueryPath());
     }
 
     @Test
     void qualifierContextQueryPathHasWildcard() {
-        MvsLocation loc = MvsLocation.qualifierContext("USERID.PDS");
-        assertEquals("'USERID.PDS.*'", loc.getQueryPath());
+        MvsLocation loc = MvsLocation.qualifierContext("BENUTZERKENNUNG.PDS");
+        assertEquals("'BENUTZERKENNUNG.PDS.*'", loc.getQueryPath());
     }
 
     @Test
     void hlqChildIsQualifierContext() {
-        MvsLocation parent = MvsLocation.hlq("USERID");
+        MvsLocation parent = MvsLocation.hlq("BENUTZERKENNUNG");
         MvsLocation child = parent.createChild("DATA.SET");
 
         assertEquals(MvsLocationType.QUALIFIER_CONTEXT, child.getType());
-        assertEquals("'USERID.DATA.SET'", child.getLogicalPath());
+        assertEquals("'BENUTZERKENNUNG.DATA.SET'", child.getLogicalPath());
     }
 
     @Test
     void hlqChildWithFullyQualifiedName() {
-        MvsLocation parent = MvsLocation.hlq("USERID");
+        MvsLocation parent = MvsLocation.hlq("BENUTZERKENNUNG");
         // Server returned fully qualified name
-        MvsLocation child = parent.createChild("USERID.DATA.SET");
+        MvsLocation child = parent.createChild("BENUTZERKENNUNG.DATA.SET");
 
         assertEquals(MvsLocationType.QUALIFIER_CONTEXT, child.getType());
-        assertEquals("'USERID.DATA.SET'", child.getLogicalPath());
+        assertEquals("'BENUTZERKENNUNG.DATA.SET'", child.getLogicalPath());
     }
 
     @Test
     void datasetChildIsMember() {
-        MvsLocation parent = MvsLocation.dataset("USERID.PDS");
+        MvsLocation parent = MvsLocation.dataset("BENUTZERKENNUNG.PDS");
         MvsLocation child = parent.createChild("MEMBER1");
 
         assertEquals(MvsLocationType.MEMBER, child.getType());
-        assertEquals("'USERID.PDS(MEMBER1)'", child.getLogicalPath());
+        assertEquals("'BENUTZERKENNUNG.PDS(MEMBER1)'", child.getLogicalPath());
         assertEquals("MEMBER1", child.getDisplayName());
     }
 
     @Test
     void isDirectoryForHlqAndDataset() {
         assertTrue(MvsLocation.root().isDirectory());
-        assertTrue(MvsLocation.hlq("USERID").isDirectory());
-        assertTrue(MvsLocation.qualifierContext("USERID.PDS").isDirectory());
-        assertTrue(MvsLocation.dataset("USERID.PDS").isDirectory());
-        assertFalse(MvsLocation.member("USERID.PDS(MEM)").isDirectory());
+        assertTrue(MvsLocation.hlq("BENUTZERKENNUNG").isDirectory());
+        assertTrue(MvsLocation.qualifierContext("BENUTZERKENNUNG.PDS").isDirectory());
+        assertTrue(MvsLocation.dataset("BENUTZERKENNUNG.PDS").isDirectory());
+        assertFalse(MvsLocation.member("BENUTZERKENNUNG.PDS(MEM)").isDirectory());
     }
 }
 
