@@ -393,23 +393,64 @@ public class DownloadService {
      *   3. commit
      *   4. Notify-Antwort (Typ 19) empfangen
      *   5. Fehler pruefen und Notify zurueckgeben
+     *
+     * Rekonstruiert aus Bytecode: Bei Notification==9 wird der Fehler
+     * als 'terminated' markiert. Bei Fehler UND keinem Transaktionskontext
+     * wird automatisch fileOperationAbort aufgerufen.
      */
     private IPalTypeNotify dateiBeschreibungSenden(PalTypeFileId dateiId,
                                                      ITransactionContext txCtx)
             throws IOException, PalResultException {
         Pal pal = ctx.getPal();
 
-        // Notify(4) = "Beschreibung folgt" an Server senden
-        pal.add((IPalType) new PalTypeNotify(4));
-        // Datei-Beschreibung senden
-        pal.add((IPalType) dateiId);
-        pal.commit();
+        ITransactionContextDownload dlCtx = null;
+        if (txCtx instanceof ITransactionContextDownload) {
+            dlCtx = (ITransactionContextDownload) txCtx;
+        }
 
-        // Antwort empfangen
-        IPalTypeNotify[] benachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
+        IPalTypeNotify[] benachrichtigungen = null;
+        boolean fehlerAufgetreten = false;
 
-        PalResultException ex = ctx.getResultException();
-        dateiOperationBenachrichtigungPruefen(benachrichtigungen, ex);
+        try {
+            // Notify(4) = "Beschreibung folgt" an Server senden
+            pal.add((IPalType) new PalTypeNotify(4));
+            // Datei-Beschreibung senden
+            pal.add((IPalType) dateiId);
+            pal.commit();
+
+            // Antwort empfangen
+            benachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
+
+            PalResultException ex = ctx.getResultException();
+            dateiOperationBenachrichtigungPruefen(benachrichtigungen, ex);
+
+            // Notification 9 = Server signalisiert Fehler/Abbruch
+            if (benachrichtigungen[0].getNotification() == 9) {
+                fehlerAufgetreten = true;
+                if (ex != null) {
+                    throw ex;
+                }
+            }
+
+            // Normaler Fehler
+            if (ex != null) {
+                fehlerAufgetreten = true;
+                throw ex;
+            }
+        } finally {
+            if (fehlerAufgetreten) {
+                // Bei Fehler: wenn kein Transaktionskontext, Abort senden
+                if (dlCtx != null) {
+                    // Kontext vorhanden - Abort ueber Kontext-Logik
+                } else {
+                    try {
+                        dateiOperationAbbrechen(java.util.EnumSet.of(EDownLoadOption.NONE));
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
+
         return benachrichtigungen[0];
     }
 
