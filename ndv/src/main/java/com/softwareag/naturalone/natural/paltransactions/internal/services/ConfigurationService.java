@@ -111,11 +111,15 @@ public class ConfigurationService {
     }
 
     public Object createTransactionContext(Class contextClass) {
-        throw new UnsupportedOperationException("ConfigurationService.createTransactionContext not yet implemented");
+        if (contextClass == ITransactionContextDownload.class) {
+            return new DownloadService.ContextDownload();
+        }
+        throw new UnsupportedOperationException(
+                "Unbekannter Transaktionskontext-Typ: " + contextClass.getName());
     }
 
     public void disposeTransactionContext(ITransactionContext ctx) {
-        // Stub
+        // Keine Ressourcen freizugeben
     }
 }
 
