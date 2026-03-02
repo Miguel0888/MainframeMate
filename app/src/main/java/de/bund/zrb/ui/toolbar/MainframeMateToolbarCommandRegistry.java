@@ -1,7 +1,7 @@
 package de.bund.zrb.ui.toolbar;
 
-import com.example.toolbarkit.command.ToolbarCommand;
-import com.example.toolbarkit.command.ToolbarCommandRegistry;
+import de.example.toolbarkit.command.ToolbarCommand;
+import de.example.toolbarkit.command.ToolbarCommandRegistry;
 import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
 import de.zrb.bund.api.MenuCommand;
 

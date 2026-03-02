@@ -34,10 +34,10 @@ import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
-import com.example.toolbarkit.command.ToolbarCommandRegistry;
-import com.example.toolbarkit.config.JsonToolbarConfigRepository;
-import com.example.toolbarkit.config.ToolbarConfigRepository;
-import com.example.toolbarkit.toolbar.ConfigurableCommandToolbar;
+import de.example.toolbarkit.command.ToolbarCommandRegistry;
+import de.example.toolbarkit.config.JsonToolbarConfigRepository;
+import de.example.toolbarkit.config.ToolbarConfigRepository;
+import de.example.toolbarkit.toolbar.ConfigurableCommandToolbar;
 
 import javax.annotation.Nullable;
 import javax.swing.*;

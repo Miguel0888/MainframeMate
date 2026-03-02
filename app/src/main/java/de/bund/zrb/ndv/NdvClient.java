@@ -1,8 +1,8 @@
 package de.bund.zrb.ndv;
 
-import com.softwareag.naturalone.natural.pal.external.*;
-import com.softwareag.naturalone.natural.paltransactions.external.*;
-import com.softwareag.naturalone.natural.paltransactions.internal.PalTransactions;
+import de.bund.zrb.ndv.core.api.*;
+import de.bund.zrb.ndv.transaction.api.*;
+import de.bund.zrb.ndv.transaction.internal.PalTransactions;
 
 import java.io.Closeable;
 import java.io.IOException;

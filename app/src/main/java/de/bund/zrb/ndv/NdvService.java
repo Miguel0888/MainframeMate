@@ -1,6 +1,8 @@
 package de.bund.zrb.ndv;
 
-import com.softwareag.naturalone.natural.pal.external.IPalTypeSystemFile;
+import de.bund.zrb.ndv.core.api.IPalTypeSystemFile;
+import de.bund.zrb.ndv.core.api.ObjectKind;
+import de.bund.zrb.ndv.core.api.ObjectType;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -315,12 +317,12 @@ public class NdvService implements Closeable {
         int type = ndvObjectType > 0 ? ndvObjectType : NdvObjectInfo.typeFromExtension(ext);
 
         java.util.Hashtable<Integer, String> idNames =
-                com.softwareag.naturalone.natural.pal.external.ObjectType.getInstanceIdName();
+                ObjectType.getInstanceIdName();
         String typeName = idNames.containsKey(type) ? (String) idNames.get(type) : "Unknown";
 
         NdvObjectInfo objInfo = new NdvObjectInfo(
                 objectName, objectName,
-                com.softwareag.naturalone.natural.pal.external.ObjectKind.SOURCE,
+                ObjectKind.SOURCE,
                 type, typeName, ext,
                 0, "", "",
                 ndvDbid, ndvFnr

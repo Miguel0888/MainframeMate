@@ -1,9 +1,9 @@
 package de.bund.zrb.ndv;
 
-import com.softwareag.naturalone.natural.pal.external.IPalTypeObject;
-import com.softwareag.naturalone.natural.pal.external.ObjectKind;
-import com.softwareag.naturalone.natural.pal.external.ObjectType;
-import com.softwareag.naturalone.natural.pal.external.PalDate;
+import de.bund.zrb.ndv.core.api.IPalTypeObject;
+import de.bund.zrb.ndv.core.api.ObjectKind;
+import de.bund.zrb.ndv.core.api.ObjectType;
+import de.bund.zrb.ndv.core.api.PalDate;
 
 import java.util.Hashtable;
 
