@@ -1,6 +1,6 @@
 package com.softwareag.naturalone.natural.pal.type;
 
-import com.softwareag.naturalone.natural.pal.ICUCharsetCoder;
+import com.softwareag.naturalone.natural.pal.util.ICUCharsetCoder;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeStream;
 
 import java.io.IOException;

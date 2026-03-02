@@ -1,9 +1,9 @@
 package com.softwareag.naturalone.natural.pal.type;
 
-import com.softwareag.naturalone.natural.pal.util.Base64Coder;
-import com.softwareag.naturalone.natural.pal.ICUCharsetCoder;
+import com.softwareag.naturalone.natural.pal.util.ICUCharsetCoder;
 
 import java.io.*;
+import java.util.Base64;
 import java.util.ArrayList;
 
 public abstract class PalType implements Serializable, IPalType {
@@ -194,7 +194,9 @@ public abstract class PalType implements Serializable, IPalType {
         try {
             int[] encoded = utf16ToCharset(text, targetCharset, withNullTerminator);
             if (encoded == null) return null;
-            return Base64Coder.encode(encoded, (byte) 3);
+            byte[] bytes = new byte[encoded.length];
+            for (int i = 0; i < encoded.length; i++) bytes[i] = (byte) (encoded[i] & 0xFF);
+            return Base64.getMimeEncoder().encodeToString(bytes).toCharArray();
         } catch (Exception e) {
             return null;
         }

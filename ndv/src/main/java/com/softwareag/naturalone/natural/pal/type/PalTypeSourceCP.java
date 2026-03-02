@@ -1,8 +1,9 @@
 package com.softwareag.naturalone.natural.pal.type;
 
-import com.softwareag.naturalone.natural.pal.util.Base64Coder;
 import com.softwareag.naturalone.natural.pal.ConversionErrorInfo;
-import com.softwareag.naturalone.natural.pal.ICUCharsetCoder;
+
+import java.util.Base64;
+import com.softwareag.naturalone.natural.pal.util.ICUCharsetCoder;
 import com.softwareag.naturalone.natural.pal.PalUnmappableCodePointException;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeSourceCP;
 
@@ -44,7 +45,7 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
 
     public void restore() {
         if (super.palVersion <= 35) {
-            ebcdicRecord = Base64Coder.decode(this.recordToCharArray(), (byte) 3);
+            ebcdicRecord = Base64.getMimeDecoder().decode(new String(this.recordToCharArray()));
         } else {
             ebcdicRecord = this.recordToByteArray();
             ebcdicRecord = PalTypeStream.Palstob(ebcdicRecord);

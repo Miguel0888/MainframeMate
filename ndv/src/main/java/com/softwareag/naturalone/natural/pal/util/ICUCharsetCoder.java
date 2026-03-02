@@ -1,7 +1,7 @@
-package com.softwareag.naturalone.natural.pal;
+package com.softwareag.naturalone.natural.pal.util;
 
 import com.ibm.icu.charset.CharsetICU;
-import com.softwareag.naturalone.natural.pal.util.CharsetInfo;
+import com.softwareag.naturalone.natural.pal.ConversionErrorInfo;
 
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
