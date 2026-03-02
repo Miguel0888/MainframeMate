@@ -56,7 +56,8 @@ public class PalTransactions implements IPalTransactions {
     // Connection & Session
     // ========================================================
 
-    public More connect(Map params) throws IOException, PalConnectResultException {
+    @Override
+    public void connect(Map<String, String> params) throws IOException, PalConnectResultException {
         if (isConnected) {
             throw new IllegalStateException("Already connected");
         }
@@ -216,9 +217,6 @@ public class PalTransactions implements IPalTransactions {
 
         isConnected = true;
         isdisconnected = false;
-
-        More more = new More();
-        return more;
     }
 
     public void close() throws IOException, PalResultException {
@@ -401,7 +399,8 @@ public class PalTransactions implements IPalTransactions {
         throw new UnsupportedOperationException("read not yet implemented");
     }
 
-    public IDownloadResult downloadSource(ITransactionContext ctx, IPalTypeSystemFile sysFile, String library, IFileProperties props, Set options) throws IOException, PalResultException {
+    @Override
+    public IDownloadResult downloadSource(ITransactionContextDownload ctx, IPalTypeSystemFile sysFile, String library, IFileProperties props, Set<EDownLoadOption> options) throws IOException, PalResultException {
         requireConnected();
         throw new UnsupportedOperationException("downloadSource not yet implemented");
     }
@@ -845,7 +844,8 @@ public class PalTransactions implements IPalTransactions {
     // Transaction Context
     // ========================================================
 
-    public Object createTransactionContext(Class contextClass) {
+    @Override
+    public ITransactionContext createTransactionContext(Class<?> contextClass) {
         if (contextClass == null) throw new NullPointerException("contextClass must not be null");
         if (!ITransactionContextDownload.class.equals(contextClass)) {
             throw new IllegalStateException("Only ITransactionContextDownload is supported");

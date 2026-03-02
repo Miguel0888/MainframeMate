@@ -16,6 +16,18 @@ public class PalResultException extends Exception {
     private String shortText;
     private String[] longText;
 
+    public PalResultException() {
+        super();
+    }
+
+    public PalResultException(String message) {
+        super(message);
+    }
+
+    public PalResultException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
     public PalResultException(int errorNumber, int errorKind, String shortText) {
         super(shortText);
         this.errorNumber = errorNumber;

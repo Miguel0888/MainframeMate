@@ -14,7 +14,7 @@ public class PalTransactionsFactory {
      * Erzeugt eine neue IPalTransactions-Instanz.
      */
     public static IPalTransactions newInstance() {
-        return new PalTransactions(null, null);
+        return new PalTransactions((IPalClientIdentification) null, (IPalPreferences) null);
     }
 }
 
