@@ -1,6 +1,6 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-import com.softwareag.naturalone.natural.pal.PalTypeSystemFile;
+import com.softwareag.naturalone.natural.pal.type.PalTypeSystemFile;
 
 public final class PalTypeSystemFileFactory {
     private PalTypeSystemFileFactory() {

@@ -2,6 +2,7 @@ package com.softwareag.naturalone.natural.paltransactions.internal.services;
 
 import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
+import com.softwareag.naturalone.natural.pal.type.*;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
 import com.softwareag.naturalone.natural.paltransactions.internal.NatParm;
 import com.softwareag.naturalone.natural.paltransactions.internal.PassWord;

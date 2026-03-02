@@ -1,7 +1,7 @@
 package com.softwareag.naturalone.natural.paltransactions.external;
 
-import com.softwareag.naturalone.natural.pal.PalTypeDbgNatStack;
-import com.softwareag.naturalone.natural.pal.PalTypeDbgStackFrame;
+import com.softwareag.naturalone.natural.pal.type.PalTypeDbgNatStack;
+import com.softwareag.naturalone.natural.pal.type.PalTypeDbgStackFrame;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeDbgSpy;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeDbgStatus;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeNotify;

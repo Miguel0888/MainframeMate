@@ -1,7 +1,7 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-import com.softwareag.naturalone.natural.pal.IPalType;
-import com.softwareag.naturalone.natural.pal.PalTypeNatParm;
+import com.softwareag.naturalone.natural.pal.type.IPalType;
+import com.softwareag.naturalone.natural.pal.type.PalTypeNatParm;
 
 public interface IPalTypeNatParm extends IPalType {
    int P_COPT_CC = 1;

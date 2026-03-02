@@ -3,12 +3,12 @@ package com.softwareag.naturalone.natural.paltransactions.internal.services;
 import com.softwareag.naturalone.natural.auxiliary.renumber.internal.RenumberSource;
 import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
+import com.softwareag.naturalone.natural.pal.type.*;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
 import com.softwareag.naturalone.natural.paltransactions.internal.PalTimeStamp;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Set;

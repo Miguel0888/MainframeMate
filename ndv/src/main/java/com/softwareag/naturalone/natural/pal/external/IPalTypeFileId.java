@@ -1,6 +1,6 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-import com.softwareag.naturalone.natural.pal.IPalType;
+import com.softwareag.naturalone.natural.pal.type.IPalType;
 
 public interface IPalTypeFileId extends IPalType {
    int SRC_OPTION_OLD_DATAAREA_FORMAT = 1;

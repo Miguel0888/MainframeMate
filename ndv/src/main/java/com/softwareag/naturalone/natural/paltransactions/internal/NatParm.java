@@ -1,6 +1,6 @@
 package com.softwareag.naturalone.natural.paltransactions.internal;
 
-import com.softwareag.naturalone.natural.pal.PalTypeNatParm;
+import com.softwareag.naturalone.natural.pal.type.PalTypeNatParm;
 import com.softwareag.naturalone.natural.pal.external.*;
 import com.softwareag.naturalone.natural.paltransactions.external.INatParm;
 

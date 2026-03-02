@@ -1,7 +1,9 @@
 package com.softwareag.naturalone.natural.paltransactions.internal.services;
 
-import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
+import com.softwareag.naturalone.natural.pal.type.IPalType;
+import com.softwareag.naturalone.natural.pal.type.PalTypeOperation;
+import com.softwareag.naturalone.natural.pal.type.PalTypeStack;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
 
 import java.io.IOException;

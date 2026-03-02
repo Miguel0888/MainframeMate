@@ -1,6 +1,6 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-import com.softwareag.naturalone.natural.pal.IPalType;
+import com.softwareag.naturalone.natural.pal.type.IPalType;
 
 public interface IPalTypeDbmsInfo extends IPalType {
    int ADABAS = 1;

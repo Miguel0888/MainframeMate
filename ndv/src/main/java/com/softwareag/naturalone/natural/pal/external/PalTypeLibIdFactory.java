@@ -1,6 +1,6 @@
 package com.softwareag.naturalone.natural.pal.external;
 
-import com.softwareag.naturalone.natural.pal.PalTypeLibId;
+import com.softwareag.naturalone.natural.pal.type.PalTypeLibId;
 
 public final class PalTypeLibIdFactory {
     private PalTypeLibIdFactory() {

@@ -1,6 +1,7 @@
 package com.softwareag.naturalone.natural.pal;
 
 import com.softwareag.naturalone.natural.pal.external.*;
+import com.softwareag.naturalone.natural.pal.type.*;
 
 import java.io.*;
 import java.net.InetAddress;

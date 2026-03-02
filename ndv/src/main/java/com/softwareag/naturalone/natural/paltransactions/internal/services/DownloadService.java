@@ -2,6 +2,7 @@ package com.softwareag.naturalone.natural.paltransactions.internal.services;
 
 import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
+import com.softwareag.naturalone.natural.pal.type.*;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
 import com.softwareag.naturalone.natural.paltransactions.internal.PalTimeStamp;
 import com.softwareag.naturalone.natural.auxiliary.renumber.internal.IInsertLabels;
@@ -10,7 +11,6 @@ import com.softwareag.naturalone.natural.auxiliary.renumber.internal.RenumberSou
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.nio.ByteBuffer;
 import java.util.EnumSet;
 import java.util.Set;
 
