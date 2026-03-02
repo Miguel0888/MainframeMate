@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import de.bund.zrb.ndv.core.impl.Pal;
+import de.bund.zrb.ndv.core.impl.Ndv;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.*;
 import de.bund.zrb.ndv.transaction.api.EDownLoadOption;
@@ -18,9 +18,9 @@ import java.util.EnumSet;
  */
 public class ObjectManagementService {
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
-    public ObjectManagementService(PalSessionContext ctx) {
+    public ObjectManagementService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 
@@ -229,8 +229,8 @@ public class ObjectManagementService {
     private void sperreVerwalten(int operationsCode, IPalTypeSystemFile sysFile,
                                   String library, String name, int kind, int type)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
-        pal.add((IPalType) new PalTypeOperation(operationsCode, 0));
+        Ndv ndv = ctx.getPal();
+        ndv.add((IPalType) new PalTypeOperation(operationsCode, 0));
 
         String effektiveLib = library;
         if (type == 8 && ctx.getPalProperties().getNdvType() == 1) {
@@ -239,11 +239,11 @@ public class ObjectManagementService {
 
         PalTypeLibId libId = new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
                 effektiveLib, sysFile.getPassword(), sysFile.getCipher(), 6);
-        pal.add((IPalType) libId);
+        ndv.add((IPalType) libId);
 
         PalTypeObjDesc objDesc = new PalTypeObjDesc(type, kind, name);
-        pal.add((IPalType) objDesc);
-        pal.commit();
+        ndv.add((IPalType) objDesc);
+        ndv.commit();
 
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;
@@ -297,16 +297,16 @@ public class ObjectManagementService {
         if (srcSysFile == null || dstSysFile == null) {
             throw new IllegalArgumentException("systemFileKey must not be null");
         }
-        Pal pal = ctx.getPal();
-        pal.add((IPalType) new PalTypeOperation(operationsCode));
+        Ndv ndv = ctx.getPal();
+        ndv.add((IPalType) new PalTypeOperation(operationsCode));
         PalTypeLibId[] libs = new PalTypeLibId[]{
             new PalTypeLibId(srcSysFile.getDatabaseId(), srcSysFile.getFileNumber(),
                     srcLib, srcSysFile.getPassword(), srcSysFile.getCipher(), 6),
             new PalTypeLibId(dstSysFile.getDatabaseId(), dstSysFile.getFileNumber(),
                     dstLib, dstSysFile.getPassword(), dstSysFile.getCipher(), 6)
         };
-        pal.add((IPalType[]) libs);
-        pal.commit();
+        ndv.add((IPalType[]) libs);
+        ndv.commit();
 
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;

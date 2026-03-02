@@ -1,10 +1,10 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import de.bund.zrb.ndv.core.impl.Pal;
+import de.bund.zrb.ndv.core.impl.Ndv;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.*;
 import de.bund.zrb.ndv.transaction.api.*;
-import de.bund.zrb.ndv.transaction.impl.NatParm;
+import de.bund.zrb.ndv.transaction.impl.NaturalParameter;
 import de.bund.zrb.ndv.transaction.impl.Password;
 
 import java.io.IOException;
@@ -19,9 +19,9 @@ import java.util.Map;
  */
 public class ConnectionService {
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
-    public ConnectionService(PalSessionContext ctx) {
+    public ConnectionService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 
@@ -87,21 +87,21 @@ public class ConnectionService {
         try {
             PalTrace.header("connect");
             IPalPreferences prefs = ctx.getPalPreferences();
-            Pal pal = new Pal(prefs != null ? prefs.getTimeOut() : 0, ctx.getTimeoutHandler());
-            pal.connect(ctx.getHost(), ctx.getPort());
-            ctx.setPal(pal);
+            Ndv ndv = new Ndv(prefs != null ? prefs.getTimeOut() : 0, ctx.getTimeoutHandler());
+            ndv.connect(ctx.getHost(), ctx.getPort());
+            ctx.setPal(ndv);
 
             PalTypeOperation op = new PalTypeOperation(18);
-            pal.setUserId(userId);
+            ndv.setUserId(userId);
             op.setUserId(userId);
-            pal.add((IPalType) op);
+            ndv.add((IPalType) op);
 
             String encodedPw = Password.encode(userId, password, "", newPassword);
             if (internalParm != null) {
                 sessionParm = String.format("%s %s", internalParm, sessionParm);
             }
             PalTypeConnect connectRec = new PalTypeConnect(userId, encodedPw, sessionParm.trim());
-            pal.add((IPalType) connectRec);
+            ndv.add((IPalType) connectRec);
 
             PalTypeEnviron envRec = new PalTypeEnviron(Integer.valueOf(logonCounter));
             envRec.setRichGui(richGuiFlag);
@@ -115,20 +115,20 @@ public class ConnectionService {
                 envRec.setNdvClientClientId(ctx.getIdentification().getNdvClientId());
                 envRec.setNdvClientClientVersion(ctx.getIdentification().getNdvClientVersion());
             }
-            pal.add((IPalType) envRec);
+            ndv.add((IPalType) envRec);
 
             PalTypeCP cpRec = new PalTypeCP(Charset.defaultCharset().displayName());
-            pal.add((IPalType) cpRec);
+            ndv.add((IPalType) cpRec);
 
             if (monitorSessionId != null) {
                 PalTypeMonitorInfo monRec = new PalTypeMonitorInfo(monitorSessionId);
                 if (monitorEventFilter != null) {
                     monRec.setEventFilter(monitorEventFilter);
                 }
-                pal.add((IPalType) monRec);
+                ndv.add((IPalType) monRec);
             }
 
-            pal.commit();
+            ndv.commit();
 
             int secErrorKind = 0;
             int errorNum = ctx.getError();
@@ -152,8 +152,8 @@ public class ConnectionService {
                 verbindungsFehler.setShortText(shortText);
             }
 
-            IPalTypeEnviron[] envResults = (IPalTypeEnviron[]) pal.retrieve(0);
-            IPalTypeStream[] streamResults = (IPalTypeStream[]) pal.retrieve(13);
+            IPalTypeEnviron[] envResults = (IPalTypeEnviron[]) ndv.retrieve(0);
+            IPalTypeStream[] streamResults = (IPalTypeStream[]) ndv.retrieve(13);
             if (streamResults != null) {
                 throw new PalConnectResultException(9999, "invalid I/O performed on server", 3, 0);
             }
@@ -175,12 +175,12 @@ public class ConnectionService {
                 logonCount = envResults[0].getLogonCounter();
                 timeStampChecks = envResults[0].performsTimeStampChecks();
                 attachType = envResults[0].getAttachSessionType();
-                pal.setNdvType(ndvType);
-                pal.setPalVersion(palVersion);
-                pal.setSessionId(sessionId);
+                ndv.setNdvType(ndvType);
+                ndv.setPalVersion(palVersion);
+                ndv.setSessionId(sessionId);
             }
 
-            IPalTypeDevEnv[] devEnvResults = (IPalTypeDevEnv[]) pal.retrieve(52);
+            IPalTypeDevEnv[] devEnvResults = (IPalTypeDevEnv[]) ndv.retrieve(52);
             if (devEnvResults != null) {
                 devEnv = devEnvResults[0].isDevEnv();
                 devEnvPath = devEnvResults[0].getDevEnvPath();
@@ -308,7 +308,7 @@ public class ConnectionService {
         if (ex != null) throw ex;
 
         IPalTypeNatParm[] natParms = (IPalTypeNatParm[]) ctx.getPal().retrieve(25);
-        ctx.setNaturalParameters(new NatParm(natParms));
+        ctx.setNaturalParameters(new NaturalParameter(natParms));
         ctx.setClientConfig((PalTypeClientConfig[]) ctx.getPal().retrieve(50));
         ctx.setDbmsInfo((IPalTypeDbmsInfo[]) ctx.getPal().retrieve(49));
         ctx.setSystemVariables((IPalTypeSysVar[]) ctx.getPal().retrieve(28));

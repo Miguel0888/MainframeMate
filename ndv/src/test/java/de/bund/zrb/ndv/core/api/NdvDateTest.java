@@ -9,7 +9,7 @@ import java.io.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class PalDateTest {
+class NdvDateTest {
 
     @Test
     void defaultConstructorAllZero() {

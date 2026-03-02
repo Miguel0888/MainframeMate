@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import de.bund.zrb.ndv.core.impl.Pal;
+import de.bund.zrb.ndv.core.impl.Ndv;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.IPalType;
 import de.bund.zrb.ndv.core.impl.type.PalTypeOperation;
@@ -14,9 +14,9 @@ import java.io.IOException;
  */
 public class ConfigurationService {
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
-    public ConfigurationService(PalSessionContext ctx) {
+    public ConfigurationService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 
@@ -57,8 +57,8 @@ public class ConfigurationService {
     }
 
     public String getSessionId() {
-        Pal pal = ctx.getPal();
-        return pal != null ? pal.getSessionId() : null;
+        Ndv ndv = ctx.getPal();
+        return ndv != null ? ndv.getSessionId() : null;
     }
 
     // ── Noch nicht implementierte Methoden (Stubs) ──

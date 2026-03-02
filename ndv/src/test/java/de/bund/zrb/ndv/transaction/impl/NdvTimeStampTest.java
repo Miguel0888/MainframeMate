@@ -259,7 +259,7 @@ class NdvTimeStampTest {
     // ── Factory: get(PalDate, String) ──────────────────────────────────
 
     @Nested
-    class FactoryPalDateTest {
+    class FactoryNdvDateTest {
 
         @Test
         void fromPalDate() {

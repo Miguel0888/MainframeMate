@@ -12,7 +12,7 @@ import java.util.ArrayList;
  * Aggregiert die einzelnen NatParm-Datensätze und bietet
  * Lazy-Zugriff auf die verschiedenen Parameter-Gruppen.
  */
-public class NatParm implements INatParm, Serializable {
+public class NaturalParameter implements INatParm, Serializable {
 
     private static final long serialVersionUID = 1L;
 
@@ -27,7 +27,7 @@ public class NatParm implements INatParm, Serializable {
     private IErr fehlerBehandlung = null;
     private IBuffSize pufferGroesse = null;
 
-    public NatParm(IPalTypeNatParm[] datensaetze) {
+    public NaturalParameter(IPalTypeNatParm[] datensaetze) {
         this.parameterDatensaetze = datensaetze;
     }
 

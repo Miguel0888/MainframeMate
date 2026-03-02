@@ -23,7 +23,7 @@ public class LibraryBrowseService {
     private static final int KEINE_ABFRAGE = 0;
     private static final int BIBLIOTHEKS_ABFRAGE = 1;
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
     /** Aktueller Benachrichtigungscode vom Server (0=nicht aktiv, 6=weiter, 7=fertig) */
     private int aktuellerBenachrichtigungscode = 0;
@@ -37,7 +37,7 @@ public class LibraryBrowseService {
     /** Menge bereits gelieferter Bibliotheksnamen zur Duplikat-Erkennung */
     private Set<String> bereitsGeliefert = new TreeSet<>();
 
-    public LibraryBrowseService(PalSessionContext ctx) {
+    public LibraryBrowseService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 

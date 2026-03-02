@@ -19,9 +19,9 @@ import java.util.Map;
  */
 public class DebugService {
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
-    public DebugService(PalSessionContext ctx) {
+    public DebugService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 

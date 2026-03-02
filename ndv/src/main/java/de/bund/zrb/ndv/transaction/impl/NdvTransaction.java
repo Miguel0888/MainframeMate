@@ -18,7 +18,7 @@ import java.util.Set;
  */
 public class NdvTransaction implements IPalTransactions {
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
     private final ConnectionService connectionService;
     private final ConfigurationService configurationService;
     private final LibraryBrowseService libraryBrowseService;
@@ -31,7 +31,7 @@ public class NdvTransaction implements IPalTransactions {
     // ── Konstruktoren ──
 
     public NdvTransaction() {
-        this.ctx = new PalSessionContext();
+        this.ctx = new NdvSessionContext();
         this.connectionService = new ConnectionService(ctx);
         this.configurationService = new ConfigurationService(ctx);
         this.libraryBrowseService = new LibraryBrowseService(ctx);

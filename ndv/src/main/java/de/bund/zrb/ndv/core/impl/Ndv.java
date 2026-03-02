@@ -16,7 +16,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-public final class Pal {
+public final class Ndv {
 
     // --- Paketstruktur-Abmessungen ---
     private static final int TRANSAKTIONSGROESSE_LAENGE = 12;
@@ -143,7 +143,7 @@ public final class Pal {
     // =================================================================
     //  Konstruktor
     // =================================================================
-    public Pal(int wartezeitInSekunden, IPalTimeoutHandler zeitRueckruf) {
+    public Ndv(int wartezeitInSekunden, IPalTimeoutHandler zeitRueckruf) {
         this.socketWartezeit = wartezeitInSekunden * 1000;
         this.wartezeitRueckruf = zeitRueckruf;
     }

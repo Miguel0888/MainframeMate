@@ -1,10 +1,10 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
+import de.bund.zrb.ndv.core.impl.Ndv;
 import de.bund.zrb.ndv.util.IInsertLabels;
 import de.bund.zrb.ndv.util.RenumberSource;
 
 import de.bund.zrb.ndv.core.impl.ConversionResult;
-import de.bund.zrb.ndv.core.impl.Pal;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.*;
 import de.bund.zrb.ndv.transaction.api.*;
@@ -26,9 +26,9 @@ public class DownloadService {
 
     private static final String[] NULL_STRING_ARRAY = new String[0];
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
-    public DownloadService(PalSessionContext ctx) {
+    public DownloadService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 
@@ -346,8 +346,8 @@ public class DownloadService {
                                           IPalTypeSystemFile sysFile, String library,
                                           String basisBibliothek)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
-        pal.add((IPalType) new PalTypeOperation(operationsTyp));
+        Ndv ndv = ctx.getPal();
+        ndv.add((IPalType) new PalTypeOperation(operationsTyp));
 
         if (operationsTyp == 1 && ctx.isMainframe()) {
             PalTypeLibId[] libs = new PalTypeLibId[]{
@@ -356,21 +356,21 @@ public class DownloadService {
                     new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
                             library, sysFile.getPassword(), sysFile.getCipher(), 6)
             };
-            pal.add((IPalType[]) libs);
+            ndv.add((IPalType[]) libs);
         } else {
             PalTypeLibId lib = new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), library,
                     sysFile.getPassword(), sysFile.getCipher(), 6);
-            pal.add((IPalType) lib);
+            ndv.add((IPalType) lib);
         }
 
         if (basisBibliothek != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), basisBibliothek,
                     sysFile.getPassword(), sysFile.getCipher(), 30));
         }
 
-        pal.commit();
+        ndv.commit();
         PalResultException ex = ctx.getResultException();
         if (ex != null) {
             throw ex;
@@ -392,7 +392,7 @@ public class DownloadService {
     private IPalTypeNotify dateiBeschreibungSenden(PalTypeFileId dateiId,
                                                      ITransactionContext txCtx)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
 
         ITransactionContextDownload dlCtx = null;
         if (txCtx instanceof ITransactionContextDownload) {
@@ -404,13 +404,13 @@ public class DownloadService {
 
         try {
             // Notify(4) = "Beschreibung folgt" an Server senden
-            pal.add((IPalType) new PalTypeNotify(4));
+            ndv.add((IPalType) new PalTypeNotify(4));
             // Datei-Beschreibung senden
-            pal.add((IPalType) dateiId);
-            pal.commit();
+            ndv.add((IPalType) dateiId);
+            ndv.commit();
 
             // Antwort empfangen
-            benachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
+            benachrichtigungen = (IPalTypeNotify[]) ndv.retrieve(19);
 
             PalResultException ex = ctx.getResultException();
             dateiOperationBenachrichtigungPruefen(benachrichtigungen, ex);
@@ -488,16 +488,16 @@ public class DownloadService {
                                                boolean hatZeilennummernVerweise,
                                                boolean ibm420)
             throws UnsupportedEncodingException, IOException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         int zeilenNr = 0;
 
         try {
             // Quellcode-Datensaetze in verschiedenen Formaten empfangen
-            Object quellDaten = (PalTypeSourceUnicode[]) pal.retrieve(42);
+            Object quellDaten = (PalTypeSourceUnicode[]) ndv.retrieve(42);
             if (quellDaten == null) {
-                quellDaten = (PalTypeSourceCodePage[]) pal.retrieve(12);
+                quellDaten = (PalTypeSourceCodePage[]) ndv.retrieve(12);
                 if (quellDaten == null) {
-                    quellDaten = (PalTypeSourceCP[]) pal.retrieve(48);
+                    quellDaten = (PalTypeSourceCP[]) ndv.retrieve(48);
                     if (quellDaten != null) {
                         String zeichensatz = zeichensatzNameErmitteln();
                         for (int i = 0; i < ((Object[]) quellDaten).length; i++) {

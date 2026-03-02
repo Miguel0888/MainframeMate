@@ -1,9 +1,9 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
+import de.bund.zrb.ndv.core.impl.Ndv;
 import de.bund.zrb.ndv.util.RenumberSource;
 
 import de.bund.zrb.ndv.core.impl.ConversionResult;
-import de.bund.zrb.ndv.core.impl.Pal;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.*;
 import de.bund.zrb.ndv.transaction.api.*;
@@ -24,9 +24,9 @@ import java.util.Set;
  */
 public class UploadService {
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
-    public UploadService(PalSessionContext ctx) {
+    public UploadService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 
@@ -247,7 +247,7 @@ public class UploadService {
         if (!ObjectType.getInstanceIdExtension().containsKey(typ))
             throw new IllegalArgumentException("type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
 
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         byte operationsUnterTyp = 28;
 
         // Auto-Logon
@@ -269,7 +269,7 @@ public class UploadService {
                 sourceToPal(quellZeilen, zeilenInkrement, ctx.getInternalLabelPrefix(),
                         effZeichensatz, true, objectHasLineNumberReferences(typ));
             } catch (SourceConversionException e) {
-                pal.init();
+                ndv.init();
                 ConversionResult r = e.getConversionResult();
                 throw new PalCompileResultException(3422, 3, r.getMessage(),
                         r.getRow(), r.getColumn(), typ, objektName, library,
@@ -279,7 +279,7 @@ public class UploadService {
             if (effZeichensatz != null) {
                 PalTypeCP cp = new PalTypeCP();
                 cp.setCodePage(effZeichensatz);
-                pal.add((IPalType) cp);
+                ndv.add((IPalType) cp);
             }
             operationsUnterTyp = 2;
         } else if (typ == 8) {
@@ -297,7 +297,7 @@ public class UploadService {
                     sourceToPal(ddmZeilen, zeilenInkrement, ctx.getInternalLabelPrefix(),
                             null, false, objectHasLineNumberReferences(typ));
                 } catch (SourceConversionException e) {
-                    pal.init();
+                    ndv.init();
                     ConversionResult r = e.getConversionResult();
                     throw new PalCompileResultException(3422, 3, r.getMessage(),
                             r.getRow(), r.getColumn(), typ, objektName, library,
@@ -310,13 +310,13 @@ public class UploadService {
             operationsUnterTyp = 4;
         }
 
-        pal.add((IPalType) new PalTypeOperation(2, operationsUnterTyp));
-        pal.add((IPalType) new PalTypeStack(kommando));
-        pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+        ndv.add((IPalType) new PalTypeOperation(2, operationsUnterTyp));
+        ndv.add((IPalType) new PalTypeStack(kommando));
+        ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                 sysFile.getFileNumber(), library,
                 sysFile.getPassword(), sysFile.getCipher(), 6));
         if (basisBibliothek != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), basisBibliothek,
                     sysFile.getPassword(), sysFile.getCipher(), 30));
         }
@@ -324,13 +324,13 @@ public class UploadService {
         PalTypeSrcDesc beschreibung = (typ == 8)
                 ? new PalTypeSrcDesc(typ, objektName, strukturiert, dbId, fnr)
                 : new PalTypeSrcDesc(typ, objektName, strukturiert, altesFormat ? 1 : 0);
-        pal.add((IPalType) beschreibung);
+        ndv.add((IPalType) beschreibung);
 
         if (zeitstempel != null) {
             zeitstempelAnServerSenden(zeitstempel);
         }
 
-        pal.commit();
+        ndv.commit();
         PalCompileResultException kompilierFehler = getCompileResultException();
         if (zeitstempel != null) {
             zeitstempel.copy(zeitstempelVomServerLesen());
@@ -347,7 +347,7 @@ public class UploadService {
     String[] readInternal(IPalTypeSystemFile sysFile, String library,
                           String name, Set<EReadOption> options, boolean mitLogon)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
 
         if (mitLogon && ctx.isAutomaticLogon() && library.length() > 0) {
             ctx.logon(library);
@@ -374,24 +374,24 @@ public class UploadService {
             unterTyp = 21;
         }
 
-        pal.add((IPalType) new PalTypeOperation(2, unterTyp));
-        pal.add((IPalType) new PalTypeStack("READ " + name + " " + library));
-        pal.commit();
+        ndv.add((IPalType) new PalTypeOperation(2, unterTyp));
+        ndv.add((IPalType) new PalTypeStack("READ " + name + " " + library));
+        ndv.commit();
 
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;
 
         // Quellcode empfangen (sourceFromPal-Logik)
-        IPalTypeSource[] quellen = (IPalTypeSource[]) pal.retrieve(42); // PalTypeSourceUnicode
+        IPalTypeSource[] quellen = (IPalTypeSource[]) ndv.retrieve(42); // PalTypeSourceUnicode
         if (quellen == null) {
-            quellen = (IPalTypeSource[]) pal.retrieve(12); // PalTypeSourceCodePage
+            quellen = (IPalTypeSource[]) ndv.retrieve(12); // PalTypeSourceCodePage
         }
         if (quellen == null) {
-            quellen = (IPalTypeSource[]) pal.retrieve(48); // PalTypeSourceCP
+            quellen = (IPalTypeSource[]) ndv.retrieve(48); // PalTypeSourceCP
             if (quellen != null) {
                 // PalTypeSourceCP benötigt Charset-Konvertierung
                 String charsetName = ctx.getPalProperties().getDefaultCodePage();
-                IPalTypeCP[] cp = (IPalTypeCP[]) pal.retrieve(45);
+                IPalTypeCP[] cp = (IPalTypeCP[]) ndv.retrieve(45);
                 if (cp != null) {
                     String cpName = cp[0].getCodePage();
                     if (cpName != null && cpName.trim().length() > 0) {
@@ -422,7 +422,7 @@ public class UploadService {
                              String labelPraefix, String zeichensatz,
                              boolean mitZeilenNummern, boolean hatVerweise)
             throws IOException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         PalTypeSource[] datensaetze = new PalTypeSource[zeilen.length];
 
         try {
@@ -471,12 +471,12 @@ public class UploadService {
                 }
             }
 
-            pal.add((IPalType[]) datensaetze);
+            ndv.add((IPalType[]) datensaetze);
 
             // Konvertierungsergebnis prüfen (nur PalTypeSourceCP liefert Fehler)
             ConversionResult fehler = pruefeKonvertierungsFehler(datensaetze);
             if (fehler != null) {
-                pal.init();
+                ndv.init();
                 throw new SourceConversionException(fehler);
             }
         } catch (InstantiationException e) {
@@ -486,7 +486,7 @@ public class UploadService {
         } catch (SourceConversionException e) {
             throw e;
         } catch (Throwable e) {
-            pal.init();
+            ndv.init();
             if (e instanceof IOException) throw (IOException) e;
             throw new IOException("Error serializing source", e);
         }
@@ -500,7 +500,7 @@ public class UploadService {
                             IFileProperties props, Set<EUploadOption> options,
                             String[] sourceLines)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         PalTrace.header("uploadSource");
 
         PalTypeFileId dateiId = new PalTypeFileId();
@@ -524,7 +524,7 @@ public class UploadService {
                                     IFileProperties props, Set<EUploadOption> options,
                                     String[] sourceLines)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         PalTrace.header("uploadSource (error message)");
 
         PalTypeFileId dateiId = new PalTypeFileId();
@@ -553,7 +553,7 @@ public class UploadService {
                                            String[] zeilen, IFileProperties props,
                                            Set<EUploadOption> options)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         PalResultException gesamtFehler = null;
 
         try {
@@ -575,7 +575,7 @@ public class UploadService {
                             !options.contains(EUploadOption.SOURCE_UNCHANGED),
                             objectHasLineNumberReferences(props.getType()));
                 } catch (SourceConversionException e) {
-                    pal.init();
+                    ndv.init();
                     ConversionResult r = e.getConversionResult();
                     throw new PalCompileResultException(3422, 3, r.getMessage(),
                             r.getRow(), r.getColumn(), dateiId.getNatType(), dateiId.getObject(),
@@ -585,15 +585,15 @@ public class UploadService {
                 if (props.getCodePage() != null) {
                     PalTypeCP cp = new PalTypeCP();
                     cp.setCodePage(props.getCodePage());
-                    pal.add((IPalType) cp);
+                    ndv.add((IPalType) cp);
                 }
 
                 if (props.getTimeStamp() != null) {
                     zeitstempelAnServerSenden(props.getTimeStamp());
                 }
 
-                pal.commit();
-                IPalTypeNotify[] endBenachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
+                ndv.commit();
+                IPalTypeNotify[] endBenachrichtigungen = (IPalTypeNotify[]) ndv.retrieve(19);
                 if (props.getTimeStamp() != null) {
                     props.getTimeStamp().copy(zeitstempelVomServerLesen());
                 }
@@ -621,20 +621,20 @@ public class UploadService {
                                         Set<EUploadOption> options,
                                         NdvTimeStamp zeitstempel)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
 
         // Datei-Operation einleiten
         int opTyp = options.contains(EUploadOption.DELETE_ON_TARGET) ? 43 : 11;
-        pal.add((IPalType) new PalTypeOperation(opTyp));
-        pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+        ndv.add((IPalType) new PalTypeOperation(opTyp));
+        ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                 sysFile.getFileNumber(), library,
                 sysFile.getPassword(), sysFile.getCipher(), 6));
         if (basisBibliothek != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), basisBibliothek,
                     sysFile.getPassword(), sysFile.getCipher(), 30));
         }
-        pal.commit();
+        ndv.commit();
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;
 
@@ -643,11 +643,11 @@ public class UploadService {
             if (datei instanceof String[]) {
                 // Quellcode
                 dateiId.setSourceSize(calculateSourceSize((String[]) datei));
-                pal.add((IPalType) dateiId);
-                pal.add((IPalType) new PalTypeNotify(6));
-                pal.commit();
+                ndv.add((IPalType) dateiId);
+                ndv.add((IPalType) new PalTypeNotify(6));
+                ndv.commit();
                 ex = ctx.getResultException();
-                IPalTypeNotify[] notify = (IPalTypeNotify[]) pal.retrieve(19);
+                IPalTypeNotify[] notify = (IPalTypeNotify[]) ndv.retrieve(19);
                 if (notify == null) {
                     if (ex != null) { ex.setErrorKind(4); throw ex; }
                     throw new IllegalArgumentException();
@@ -658,8 +658,8 @@ public class UploadService {
                             objectHasLineNumberReferences(dateiId.getNatType()));
 
                     if (zeitstempel != null) zeitstempelAnServerSenden(zeitstempel);
-                    pal.add((IPalType) new PalTypeNotify(5));
-                    pal.commit();
+                    ndv.add((IPalType) new PalTypeNotify(5));
+                    ndv.commit();
                     ex = ctx.getResultException();
                     if (zeitstempel != null) zeitstempel.copy(zeitstempelVomServerLesen());
                 }
@@ -667,17 +667,17 @@ public class UploadService {
                 // Binaerdaten
                 binaryToPal((ByteArrayOutputStream) datei);
                 if (zeitstempel != null) zeitstempelAnServerSenden(zeitstempel);
-                pal.add((IPalType) new PalTypeNotify(5));
-                pal.commit();
+                ndv.add((IPalType) new PalTypeNotify(5));
+                ndv.commit();
                 ex = ctx.getResultException();
                 if (zeitstempel != null) zeitstempel.copy(zeitstempelVomServerLesen());
             }
         }
 
         // Abschluss
-        pal.add((IPalType) new PalTypeNotify(
+        ndv.add((IPalType) new PalTypeNotify(
                 options.contains(EUploadOption.DELETE_ON_TARGET) ? 12 : 5));
-        pal.commit();
+        ndv.commit();
         ex = ctx.getResultException();
         if (ex != null) throw ex;
     }
@@ -687,26 +687,26 @@ public class UploadService {
                                              PalTypeFileId dateiId, String[] zeilen,
                                              NdvTimeStamp zeitstempel)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
 
-        pal.add((IPalType) new PalTypeOperation(11));
-        pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+        ndv.add((IPalType) new PalTypeOperation(11));
+        ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                 sysFile.getFileNumber(), library,
                 sysFile.getPassword(), sysFile.getCipher(), 6));
         if (basisBibliothek != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), basisBibliothek,
                     sysFile.getPassword(), sysFile.getCipher(), 30));
         }
-        pal.commit();
+        ndv.commit();
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;
 
-        pal.add((IPalType) dateiId);
-        pal.add((IPalType) new PalTypeNotify(6));
-        pal.commit();
+        ndv.add((IPalType) dateiId);
+        ndv.add((IPalType) new PalTypeNotify(6));
+        ndv.commit();
         ex = ctx.getResultException();
-        IPalTypeNotify[] notify = (IPalTypeNotify[]) pal.retrieve(19);
+        IPalTypeNotify[] notify = (IPalTypeNotify[]) ndv.retrieve(19);
         if (notify == null) {
             if (ex != null) { ex.setErrorKind(4); throw ex; }
             throw new IllegalArgumentException();
@@ -715,17 +715,17 @@ public class UploadService {
         if (notify[0].getNotification() == 6) {
             // Fehlermeldungs-Zeilen als Quellcode-Datensaetze senden
             for (String zeile : zeilen) {
-                pal.add((IPalType) new PalTypeSourceCodePage(zeile));
+                ndv.add((IPalType) new PalTypeSourceCodePage(zeile));
             }
             if (zeitstempel != null) zeitstempelAnServerSenden(zeitstempel);
-            pal.add((IPalType) new PalTypeNotify(5));
-            pal.commit();
+            ndv.add((IPalType) new PalTypeNotify(5));
+            ndv.commit();
             ex = ctx.getResultException();
             if (zeitstempel != null) zeitstempel.copy(zeitstempelVomServerLesen());
         }
 
-        pal.add((IPalType) new PalTypeNotify(5));
-        pal.commit();
+        ndv.add((IPalType) new PalTypeNotify(5));
+        ndv.commit();
         ex = ctx.getResultException();
         if (ex != null) throw ex;
     }
@@ -736,26 +736,26 @@ public class UploadService {
                                            NdvTimeStamp zeitstempel,
                                            String basisBibliothek)
             throws IOException, PalResultException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
 
-        pal.add((IPalType) new PalTypeOperation(11));
-        pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+        ndv.add((IPalType) new PalTypeOperation(11));
+        ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                 sysFile.getFileNumber(), library,
                 sysFile.getPassword(), sysFile.getCipher(), 6));
         if (basisBibliothek != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), basisBibliothek,
                     sysFile.getPassword(), sysFile.getCipher(), 30));
         }
-        pal.commit();
+        ndv.commit();
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;
 
-        pal.add((IPalType) dateiId);
-        pal.add((IPalType) new PalTypeNotify(6));
-        pal.commit();
+        ndv.add((IPalType) dateiId);
+        ndv.add((IPalType) new PalTypeNotify(6));
+        ndv.commit();
         ex = ctx.getResultException();
-        IPalTypeNotify[] notify = (IPalTypeNotify[]) pal.retrieve(19);
+        IPalTypeNotify[] notify = (IPalTypeNotify[]) ndv.retrieve(19);
         if (notify == null) {
             if (ex != null) { ex.setErrorKind(4); throw ex; }
             throw new IllegalArgumentException();
@@ -764,14 +764,14 @@ public class UploadService {
         if (notify[0].getNotification() == 6) {
             binaryToPal(data);
             if (zeitstempel != null) zeitstempelAnServerSenden(zeitstempel);
-            pal.add((IPalType) new PalTypeNotify(5));
-            pal.commit();
+            ndv.add((IPalType) new PalTypeNotify(5));
+            ndv.commit();
             ex = ctx.getResultException();
             if (zeitstempel != null) zeitstempel.copy(zeitstempelVomServerLesen());
         }
 
-        pal.add((IPalType) new PalTypeNotify(5));
-        pal.commit();
+        ndv.add((IPalType) new PalTypeNotify(5));
+        ndv.commit();
         ex = ctx.getResultException();
         if (ex != null) throw ex;
     }
@@ -781,14 +781,14 @@ public class UploadService {
     // ══════════════════════════════════════════════════════════════
 
     private void binaryToPal(ByteArrayOutputStream data) throws IOException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         byte[] bytes = data.toByteArray();
         int offset = 0;
         while (offset < bytes.length) {
             int chunkSize = Math.min(253, bytes.length - offset);
             byte[] chunk = new byte[chunkSize];
             System.arraycopy(bytes, offset, chunk, 0, chunkSize);
-            pal.add((IPalType) new PalTypeStream(chunk, ctx.getPalProperties().getNdvType()));
+            ndv.add((IPalType) new PalTypeStream(chunk, ctx.getPalProperties().getNdvType()));
             offset += chunkSize;
         }
     }
@@ -849,10 +849,10 @@ public class UploadService {
     }
 
     private PalCompileResultException getCompileResultException() throws IOException {
-        Pal pal = ctx.getPal();
+        Ndv ndv = ctx.getPal();
         PalResultException ex = ctx.getResultException();
         if (ex != null) {
-            PalTypeSrcDesc[] beschr = (PalTypeSrcDesc[]) pal.retrieve(15);
+            PalTypeSrcDesc[] beschr = (PalTypeSrcDesc[]) ndv.retrieve(15);
             if (beschr != null) {
                 return new PalCompileResultException(
                         ex.getErrorNumber(), ex.getErrorKind(), ex.getMessage(),

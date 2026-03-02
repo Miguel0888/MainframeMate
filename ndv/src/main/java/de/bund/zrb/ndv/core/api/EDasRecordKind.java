@@ -1,4 +1,4 @@
-package de.bund.zrb.ndv.core.impl;
+package de.bund.zrb.ndv.core.api;
 
 public enum EDasRecordKind {
     INIT {

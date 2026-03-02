@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import de.bund.zrb.ndv.core.impl.Pal;
+import de.bund.zrb.ndv.core.impl.Ndv;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.*;
 import de.bund.zrb.ndv.transaction.api.*;
@@ -17,10 +17,10 @@ import java.util.regex.Pattern;
  * Enthaelt die Pal-Verbindung, gecachte Serverdaten und
  * zentrale Hilfsroutinen (Fehlerauswertung, Properties-Erzeugung).
  */
-public class PalSessionContext {
+public class NdvSessionContext {
 
     // ── Netzwerk-Primitive ──
-    private Pal pal;
+    private Ndv ndv;
 
     // ── Identifikation / Preferences ──
     private IPalClientIdentification identification;
@@ -60,11 +60,11 @@ public class PalSessionContext {
     //  Zugriff auf Pal
     // ══════════════════════════════════════════════════════════════
 
-    public Pal getPal() { return pal; }
-    public void setPal(Pal pal) { this.pal = pal; }
+    public Ndv getPal() { return ndv; }
+    public void setPal(Ndv ndv) { this.ndv = ndv; }
 
     public void requirePal() {
-        if (this.pal == null) {
+        if (this.ndv == null) {
             throw new IllegalStateException("connection to ndv server not available");
         }
     }
@@ -123,7 +123,7 @@ public class PalSessionContext {
     //  Verbindungsflags
     // ══════════════════════════════════════════════════════════════
 
-    public boolean isConnected() { return isConnected && pal != null && !pal.isConnectionLost(); }
+    public boolean isConnected() { return isConnected && ndv != null && !ndv.isConnectionLost(); }
     public void setConnected(boolean v) { this.isConnected = v; }
 
     public boolean isDisconnected() { return isDisconnected; }
@@ -167,12 +167,12 @@ public class PalSessionContext {
     public int getError() throws IOException {
         int result = 0;
         this.errorKind = 0;
-        IPalTypeResult[] res = (IPalTypeResult[]) pal.retrieve(10);
+        IPalTypeResult[] res = (IPalTypeResult[]) ndv.retrieve(10);
         if (res != null) {
             result = res[0].getNaturalResult();
         }
         if (result == 0) {
-            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) pal.retrieve(11);
+            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) ndv.retrieve(11);
             if (resEx != null) {
                 String shortText = resEx[0].getShortText();
                 if (shortText.length() > 0) {
@@ -199,7 +199,7 @@ public class PalSessionContext {
      */
     public String getErrorText() throws IOException {
         String text = null;
-        IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) pal.retrieve(11);
+        IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) ndv.retrieve(11);
         if (resEx != null) {
             text = resEx[0].getShortText();
         }
@@ -211,7 +211,7 @@ public class PalSessionContext {
      */
     public String[] getErrorTextLong() throws IOException {
         String[] lines = null;
-        PalTypeSourceCodePage[] src = (PalTypeSourceCodePage[]) pal.retrieve(12);
+        PalTypeSourceCodePage[] src = (PalTypeSourceCodePage[]) ndv.retrieve(12);
         if (src != null) {
             lines = new String[src.length];
             for (int i = 0; i < src.length; i++) {
@@ -258,7 +258,7 @@ public class PalSessionContext {
         PalResultException ex = null;
         int errNum = this.getError();
         if (errNum != 0) {
-            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) pal.retrieve(11);
+            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) ndv.retrieve(11);
             if (resEx != null) {
                 String shortText = resEx[0].getShortText();
                 if (shortText.length() == 0) {
@@ -319,10 +319,10 @@ public class PalSessionContext {
         stepLibs[0] = PalTypeLibIdFactory.newInstance();
 
         PalTrace.header("logon");
-        pal.add((IPalType) new PalTypeOperation(2, 12));
-        pal.add((IPalType) new PalTypeStack("LOGON " + library));
-        pal.add((IPalType[]) stepLibs);
-        pal.commit();
+        ndv.add((IPalType) new PalTypeOperation(2, 12));
+        ndv.add((IPalType) new PalTypeStack("LOGON " + library));
+        ndv.add((IPalType[]) stepLibs);
+        ndv.commit();
         PalResultException ex = getResultException();
         if (ex != null) throw ex;
     }
@@ -368,7 +368,7 @@ public class PalSessionContext {
     public void fileOperationInitiate(int opTyp, IPalTypeSystemFile sysFile,
                                       String library, String basisBibliothek)
             throws IOException, PalResultException {
-        pal.add((IPalType) new PalTypeOperation(opTyp));
+        ndv.add((IPalType) new PalTypeOperation(opTyp));
         if (opTyp == 1 && ndvProperties.getNdvType() == 1) {
             PalTypeLibId[] libs = new PalTypeLibId[]{
                 new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
@@ -376,19 +376,19 @@ public class PalSessionContext {
                 new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
                         library, sysFile.getPassword(), sysFile.getCipher(), 6)
             };
-            pal.add((IPalType[]) libs);
+            ndv.add((IPalType[]) libs);
         } else {
             PalTypeLibId lib = new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), library,
                     sysFile.getPassword(), sysFile.getCipher(), 6);
-            pal.add((IPalType) lib);
+            ndv.add((IPalType) lib);
         }
         if (basisBibliothek != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
                     sysFile.getFileNumber(), basisBibliothek,
                     sysFile.getPassword(), sysFile.getCipher(), 30));
         }
-        pal.commit();
+        ndv.commit();
         PalResultException ex = getResultException();
         if (ex != null) throw ex;
     }
@@ -400,11 +400,11 @@ public class PalSessionContext {
      */
     public IPalTypeNotify fileOperationSendDescription(PalTypeFileId dateiId)
             throws IOException, PalResultException {
-        pal.add((IPalType) dateiId);
-        pal.add((IPalType) new PalTypeNotify(6));
-        pal.commit();
+        ndv.add((IPalType) dateiId);
+        ndv.add((IPalType) new PalTypeNotify(6));
+        ndv.commit();
         PalResultException ex = getResultException();
-        IPalTypeNotify[] notify = (IPalTypeNotify[]) pal.retrieve(19);
+        IPalTypeNotify[] notify = (IPalTypeNotify[]) ndv.retrieve(19);
         if (notify == null) {
             if (ex != null) {
                 ex.setErrorKind(4);
@@ -436,10 +436,10 @@ public class PalSessionContext {
             throws IOException, PalResultException {
         PalTypeNotify notify = new PalTypeNotify(
                 options.contains(EDownLoadOption.DELETE_ON_TARGET) ? 12 : 5);
-        pal.add((IPalType) notify);
-        pal.commit();
+        ndv.add((IPalType) notify);
+        ndv.commit();
         PalResultException ex = getResultException();
-        IPalTypeNotify[] result = (IPalTypeNotify[]) pal.retrieve(19);
+        IPalTypeNotify[] result = (IPalTypeNotify[]) ndv.retrieve(19);
         fileOperationNotifyNull(result, ex);
         result[0].getNotification();
     }

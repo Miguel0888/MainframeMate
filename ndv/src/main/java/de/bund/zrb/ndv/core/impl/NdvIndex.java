@@ -4,7 +4,7 @@ import de.bund.zrb.ndv.core.api.IPalIndices;
 
 import java.io.Serializable;
 
-public class PalIndices implements IPalIndices, Serializable {
+public class NdvIndex implements IPalIndices, Serializable {
     private static final long serialVersionUID = 1L;
 
     private int anzahlDimensionen;
@@ -16,14 +16,14 @@ public class PalIndices implements IPalIndices, Serializable {
     private int indexArt;
     private int erweiterungsDimension;
 
-    public PalIndices() {
+    public NdvIndex() {
     }
 
-    PalIndices(IPalIndices a, IPalIndices b) {
+    NdvIndex(IPalIndices a, IPalIndices b) {
         // empty by design
     }
 
-    public PalIndices(int[] lower, int[] upper, int numberDimensions, int indexType) {
+    public NdvIndex(int[] lower, int[] upper, int numberDimensions, int indexType) {
         if (lower != null) {
             System.arraycopy(lower, 0, this.untergrenzen, 0, Math.min(lower.length, 3));
         }
@@ -76,10 +76,10 @@ public class PalIndices implements IPalIndices, Serializable {
         if (other == null) {
             return true;
         }
-        if (!(other instanceof PalIndices)) {
+        if (!(other instanceof NdvIndex)) {
             return false;
         }
-        PalIndices o = (PalIndices) other;
+        NdvIndex o = (NdvIndex) other;
         if (this.anzahlDimensionen != o.anzahlDimensionen) {
             return false;
         }
@@ -118,8 +118,8 @@ public class PalIndices implements IPalIndices, Serializable {
     public boolean equals(Object other) {
         if (other == this) return true;
         if (other == null) return false;
-        if (!(other instanceof PalIndices)) return false;
-        PalIndices o = (PalIndices) other;
+        if (!(other instanceof NdvIndex)) return false;
+        NdvIndex o = (NdvIndex) other;
         if (this.anzahlDimensionen != o.anzahlDimensionen) return false;
         if (this.markierungen != o.markierungen) return false;
         if (this.indexArt != o.indexArt) return false;

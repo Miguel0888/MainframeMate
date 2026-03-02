@@ -19,7 +19,7 @@ public class ObjectBrowseService {
     private static final IPalTypeObject[] LEERES_OBJEKT_ARRAY = new IPalTypeObject[0];
     private static final int OBJEKT_ABFRAGE = 2;
 
-    private final PalSessionContext ctx;
+    private final NdvSessionContext ctx;
 
     /** Aktueller Benachrichtigungscode (0=nicht aktiv, 6=weiter, 7=fertig) */
     private int aktuellerBenachrichtigungscode = 0;
@@ -30,7 +30,7 @@ public class ObjectBrowseService {
     /** Bereits gelieferte Objektnamen zur Duplikat-Erkennung */
     private Set<String> bereitsGeliefert = new TreeSet<>();
 
-    public ObjectBrowseService(PalSessionContext ctx) {
+    public ObjectBrowseService(NdvSessionContext ctx) {
         this.ctx = ctx;
     }
 
