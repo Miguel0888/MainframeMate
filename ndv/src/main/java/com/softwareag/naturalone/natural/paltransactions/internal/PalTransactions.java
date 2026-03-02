@@ -279,7 +279,7 @@ public class PalTransactions implements IPalTransactions {
     public Object[] receiveFiles(IPalTypeSystemFile sysFile, String library,
                                  IFileProperties props, Set<EDownLoadOption> options)
             throws IOException, PalResultException {
-        return uploadService.receiveFiles(sysFile, library, props, options);
+        return downloadService.receiveFiles(sysFile, library, props, options);
     }
 
     @Override

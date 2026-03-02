@@ -30,6 +30,10 @@ public class PalCompileResultException extends PalResultException {
         this.fileNumber = fileNumber;
     }
 
+    public PalCompileResultException(int errorNumber, int errorKind, String shortText) {
+        super(errorNumber, errorKind, shortText);
+    }
+
     public final int getRow() {
         return this.row;
     }

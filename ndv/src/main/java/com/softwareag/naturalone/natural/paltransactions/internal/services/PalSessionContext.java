@@ -301,5 +301,36 @@ public class PalSessionContext {
         }
         return library;
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Logon (von UploadService und DownloadService benoetigt)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Auto-Logon in eine Bibliothek (nur wenn isAutomaticLogon aktiv).
+     */
+    public void logon(String library) throws IOException, PalResultException {
+        requirePal();
+        if (library == null || library.isEmpty()) return;
+
+        IPalTypeLibId[] stepLibs = new IPalTypeLibId[1];
+        stepLibs[0] = PalTypeLibIdFactory.newInstance();
+
+        PalTrace.header("logon");
+        pal.add((IPalType) new PalTypeOperation(2, 12));
+        pal.add((IPalType) new PalTypeStack("LOGON " + library));
+        pal.add((IPalType[]) stepLibs);
+        pal.commit();
+        PalResultException ex = getResultException();
+        if (ex != null) throw ex;
+    }
+
+    /**
+     * Internes Label-Praefix (fuer renumber/label-Umwandlung).
+     */
+    public String getInternalLabelPrefix() {
+        // Im Original: wird aus ServerConfiguration gelesen, falls vorhanden
+        return null;
+    }
 }
 

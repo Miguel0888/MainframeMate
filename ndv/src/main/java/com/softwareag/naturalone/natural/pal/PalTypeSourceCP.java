@@ -10,6 +10,11 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     private byte[] ebcdicRecord;
 
     public PalTypeSourceCP() { super(); type = 48; }
+    public PalTypeSourceCP(String sourceRecord, String codePage) {
+        this();
+        this.sourceLine = sourceRecord;
+        this.charSetName = codePage;
+    }
 
     public void serialize() {
         if (sourceLine == null || charSetName == null) return;

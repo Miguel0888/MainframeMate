@@ -119,6 +119,45 @@ public class DownloadService {
         }
     }
 
+    /**
+     * Dateien vom Server empfangen (Multi-File-Download).
+     * Hinweis: fileOperationReceiveFiles konnte im Original nicht dekompiliert werden.
+     * Stub, bis der Bytecode rekonstruiert wird.
+     */
+    public Object[] receiveFiles(IPalTypeSystemFile sysFile, String library,
+                                 IFileProperties props, Set<EDownLoadOption> options)
+            throws IOException, PalResultException {
+        ctx.requirePal();
+        if (sysFile == null) throw new IllegalArgumentException("systemFileKey must not be null");
+        if (library == null) throw new IllegalArgumentException("library must not be null");
+        if (props == null) throw new IllegalArgumentException("properties must not be null");
+
+        PalTrace.header("receiveFiles");
+        PalTypeFileId dateiId = new PalTypeFileId();
+        dateiId.setObject(props.getName());
+        dateiId.setNewObject(props.getLongName());
+        if (props.getType() == 32768) {
+            dateiId.setNatKind(0);
+        } else {
+            dateiId.setNatKind(props.getKind());
+        }
+        dateiId.setNatType(props.getType());
+
+        if (sysFile.getKind() == 6) {
+            dateiId.setNatKind(props.getKind());
+            dateiId.setNatType(8);
+        }
+
+        // fileOperationReceiveFiles konnte nicht dekompiliert werden —
+        // Minimale Implementierung: einzelne Datei als Array zurueckgeben
+        IDownloadResult result = dateiOperationQuellcodeLaden(
+                null, sysFile, ctx.getLibrary(sysFile, library), props, options);
+        if (result != null && result.getSource() != null) {
+            return new Object[]{ result };
+        }
+        return new Object[0];
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  Kern-Protokolllogik: Quellcode-Download
     // ══════════════════════════════════════════════════════════════

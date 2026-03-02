@@ -13,6 +13,8 @@ public class PalTypeSrcDesc extends PalType implements IPalTypeSrcDesc {
     private int databaseId;
     private int fileNumber;
     private int options;
+    private int errorLine;
+    private int errorColumn;
 
     public PalTypeSrcDesc() { super(); type = 15; }
     public PalTypeSrcDesc(int natType, String sourceName, boolean isSaved, int options) {
@@ -39,4 +41,10 @@ public class PalTypeSrcDesc extends PalType implements IPalTypeSrcDesc {
     }
 
     public String getSourceLongName() { return longName; }
+    public void setType(int natType) { this.natType = natType; }
+    public int getType() { return natType; }
+    public void setObject(String name) { this.shortName = name != null ? name : ""; this.longName = this.shortName; }
+    public String getObject() { return shortName; }
+    public int getErrorLine() { return errorLine; }
+    public int getErrorColumn() { return errorColumn; }
 }
