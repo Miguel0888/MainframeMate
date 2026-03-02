@@ -12,19 +12,12 @@ import java.util.Set;
  * downloadSource, receiveFiles, uploadSource, sendFiles, abortFileOperation,
  * downloadBinary, uploadBinary, read, catalog, check, stow, save.
  */
-public class SourceTransferService {
+public class UploadService {
 
     private final PalSessionContext ctx;
 
-    public SourceTransferService(PalSessionContext ctx) {
+    public UploadService(PalSessionContext ctx) {
         this.ctx = ctx;
-    }
-
-    public IDownloadResult downloadSource(ITransactionContext txCtx,
-                                          IPalTypeSystemFile sysFile, String library,
-                                          IFileProperties props, Set<EDownLoadOption> options)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("SourceTransferService.downloadSource not yet implemented");
     }
 
     public Object[] receiveFiles(IPalTypeSystemFile sysFile, String library,
@@ -43,35 +36,6 @@ public class SourceTransferService {
                           ObjectProperties objProps, Set<EUploadOption> options, Object[] data)
             throws IOException, PalResultException {
         throw new UnsupportedOperationException("SourceTransferService.sendFiles not yet implemented");
-    }
-
-    public void abortFileOperation(Set<EDownLoadOption> options)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("SourceTransferService.abortFileOperation not yet implemented");
-    }
-
-    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
-                                                 String name, String longName, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("SourceTransferService.downloadBinary not yet implemented");
-    }
-
-    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
-                                                 String name, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("SourceTransferService.downloadBinary not yet implemented");
-    }
-
-    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
-                                                 IFileProperties props)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("SourceTransferService.downloadBinary not yet implemented");
-    }
-
-    public ByteArrayOutputStream downloadBinary(ITransactionContext txCtx, IPalTypeSystemFile sysFile,
-                                                 String library, IFileProperties props)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("SourceTransferService.downloadBinary not yet implemented");
     }
 
     public void uploadBinary(IPalTypeSystemFile sysFile, String library,

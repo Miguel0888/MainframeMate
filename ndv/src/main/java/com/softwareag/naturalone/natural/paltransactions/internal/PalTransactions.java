@@ -23,7 +23,7 @@ public class PalTransactions implements IPalTransactions {
     private final ConfigurationService configurationService;
     private final LibraryBrowseService libraryBrowseService;
     private final ObjectBrowseService objectBrowseService;
-    private final SourceTransferService sourceTransferService;
+    private final UploadService uploadService;
     private final DownloadService downloadService;
     private final ObjectManagementService objectManagementService;
     private final DebugService debugService;
@@ -36,7 +36,7 @@ public class PalTransactions implements IPalTransactions {
         this.configurationService = new ConfigurationService(ctx);
         this.libraryBrowseService = new LibraryBrowseService(ctx);
         this.objectBrowseService = new ObjectBrowseService(ctx);
-        this.sourceTransferService = new SourceTransferService(ctx);
+        this.uploadService = new UploadService(ctx);
         this.downloadService = new DownloadService(ctx);
         this.objectManagementService = new ObjectManagementService(ctx);
         this.debugService = new DebugService(ctx);
@@ -279,21 +279,21 @@ public class PalTransactions implements IPalTransactions {
     public Object[] receiveFiles(IPalTypeSystemFile sysFile, String library,
                                  IFileProperties props, Set<EDownLoadOption> options)
             throws IOException, PalResultException {
-        return sourceTransferService.receiveFiles(sysFile, library, props, options);
+        return uploadService.receiveFiles(sysFile, library, props, options);
     }
 
     @Override
     public void uploadSource(IPalTypeSystemFile sysFile, String library,
                              IFileProperties props, Set<EUploadOption> options, String[] sourceLines)
             throws IOException, PalResultException {
-        sourceTransferService.uploadSource(sysFile, library, props, options, sourceLines);
+        uploadService.uploadSource(sysFile, library, props, options, sourceLines);
     }
 
     @Override
     public void sendFiles(IPalTypeSystemFile sysFile, String library,
                           ObjectProperties objProps, Set<EUploadOption> options, Object[] data)
             throws IOException, PalResultException {
-        sourceTransferService.sendFiles(sysFile, library, objProps, options, data);
+        uploadService.sendFiles(sysFile, library, objProps, options, data);
     }
 
     @Override
@@ -334,7 +334,7 @@ public class PalTransactions implements IPalTransactions {
     public void uploadBinary(IPalTypeSystemFile sysFile, String library,
                              IFileProperties props, ByteArrayOutputStream data)
             throws IOException, PalResultException {
-        sourceTransferService.uploadBinary(sysFile, library, props, data);
+        uploadService.uploadBinary(sysFile, library, props, data);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -345,35 +345,35 @@ public class PalTransactions implements IPalTransactions {
     public void catalog(IPalTypeSystemFile sysFile, String library,
                         IFileProperties props, String[] sourceLines)
             throws IOException, PalResultException, PalCompileResultException {
-        sourceTransferService.catalog(sysFile, library, props, sourceLines);
+        uploadService.catalog(sysFile, library, props, sourceLines);
     }
 
     @Override
     public void check(IPalTypeSystemFile sysFile, String library,
                       IFileProperties props, String[] sourceLines)
             throws IOException, PalResultException, PalCompileResultException {
-        sourceTransferService.check(sysFile, library, props, sourceLines);
+        uploadService.check(sysFile, library, props, sourceLines);
     }
 
     @Override
     public void stow(IPalTypeSystemFile sysFile, String library,
                      IFileProperties props, String[] sourceLines)
             throws IOException, PalResultException, PalCompileResultException {
-        sourceTransferService.stow(sysFile, library, props, sourceLines);
+        uploadService.stow(sysFile, library, props, sourceLines);
     }
 
     @Override
     public void save(IPalTypeSystemFile sysFile, String library,
                      IFileProperties props, String[] sourceLines)
             throws IOException, PalResultException, PalCompileResultException {
-        sourceTransferService.save(sysFile, library, props, sourceLines);
+        uploadService.save(sysFile, library, props, sourceLines);
     }
 
     @Override
     public String[] read(IPalTypeSystemFile sysFile, String library,
                          String name, Set<EReadOption> options)
             throws IOException, PalResultException {
-        return sourceTransferService.read(sysFile, library, name, options);
+        return uploadService.read(sysFile, library, name, options);
     }
 
     // ══════════════════════════════════════════════════════════════
