@@ -111,15 +111,38 @@ public class ConfigurationService {
     }
 
     public Object createTransactionContext(Class contextClass) {
-        if (contextClass == ITransactionContextDownload.class) {
-            return new DownloadService.ContextDownload();
+        if (this.ctx.getTransactionContext() != null) {
+            throw new IllegalStateException(
+                    "The transaction context cannot be created since there is still another transaction context in use");
         }
-        throw new UnsupportedOperationException(
-                "Unbekannter Transaktionskontext-Typ: " + contextClass.getName());
+        if (ITransactionContextDownload.class.equals(contextClass)) {
+            DownloadService.ContextDownload dlCtx = new DownloadService.ContextDownload();
+            this.ctx.setTransactionContext(dlCtx);
+            return dlCtx;
+        }
+        throw new IllegalStateException(
+                "The transaction context " + contextClass.getCanonicalName() + " is illegal");
     }
 
-    public void disposeTransactionContext(ITransactionContext ctx) {
-        // Keine Ressourcen freizugeben
+    public void disposeTransactionContext(ITransactionContext txCtx) {
+        if (txCtx != this.ctx.getTransactionContext()) {
+            throw new IllegalStateException("The transaction context is not active");
+        }
+        if (txCtx instanceof ITransactionContextDownload) {
+            DownloadService.ContextDownload dlCtx = (DownloadService.ContextDownload) txCtx;
+            if (dlCtx.isStarted() && !dlCtx.isTerminated()) {
+                try {
+                    // Offene Datei-Operation am Server abbrechen
+                    new DownloadService(this.ctx)
+                            .dateiOperationAbbrechen(dlCtx.getInitOptions());
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException("connection broken", e);
+                } catch (PalResultException e) {
+                    throw new IllegalStateException(e.getMessage(), e);
+                }
+            }
+        }
+        this.ctx.setTransactionContext(null);
     }
 }
 

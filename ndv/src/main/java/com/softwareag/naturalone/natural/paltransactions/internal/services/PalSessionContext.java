@@ -122,7 +122,7 @@ public class PalSessionContext {
     //  Verbindungsflags
     // ══════════════════════════════════════════════════════════════
 
-    public boolean isConnected() { return isConnected; }
+    public boolean isConnected() { return isConnected && pal != null && !pal.isConnectionLost(); }
     public void setConnected(boolean v) { this.isConnected = v; }
 
     public boolean isDisconnected() { return isDisconnected; }
