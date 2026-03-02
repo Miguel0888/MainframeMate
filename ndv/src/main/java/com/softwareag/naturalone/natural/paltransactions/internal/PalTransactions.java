@@ -107,7 +107,7 @@ public class PalTransactions implements IPalTransactions {
 
     @Override
     public void terminateRetrieval() throws IOException, PalResultException {
-        // Stub
+        libraryBrowseService.terminateRetrieval();
     }
 
     // ══════════════════════════════════════════════════════════════
