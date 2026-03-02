@@ -119,7 +119,7 @@ public final class PassWord {
         hexBibliothek = bytesZuHexZeichen(arbeitsPuffer);
 
         // Neues Passwort verwürfeln (falls vorhanden)
-        if (neuesPasswortBytes.length > 0) {
+        if (newPassword != null && !newPassword.isEmpty()) {
             System.arraycopy(neuesPasswortBytes, 0, arbeitsPuffer, 0, 8);
             zeitVerwuerfeln(arbeitsPuffer, zeitBytes);
             hexNeuesPasswort = bytesZuHexZeichen(arbeitsPuffer);
@@ -148,8 +148,8 @@ public final class PassWord {
         // Position 41..56: Bibliothek-Hex
         System.arraycopy(hexBibliothek, 0, ergebnis, 41, 16);
 
-        if (neuesPasswortBytes.length == 0) {
-            ergebnis[57] = 255;
+        if (newPassword == null || newPassword.isEmpty()) {
+            ergebnis[57] = (char) 255;
         } else {
             System.arraycopy(hexNeuesPasswort, 0, ergebnis, 57, 16);
             ergebnis[73] = 255;
