@@ -62,26 +62,26 @@ public class PalTransactions implements IPalTransactions {
             throw new IllegalStateException("Already connected");
         }
 
-        String host = (String) params.get("host");
-        String port = (String) params.get("port");
-        String userId = (String) params.get("user id");
-        String password = (String) params.get("password");
+        String host = params.get(ConnectKey.HOST);
+        String port = params.get(ConnectKey.PORT);
+        String userId = params.get(ConnectKey.USERID);
+        String password = params.get(ConnectKey.PASSWORD);
 
-        if (host == null) throw new IllegalArgumentException("host must not be null");
-        if (port == null) throw new IllegalArgumentException("port must not be null");
-        if (userId == null) throw new IllegalArgumentException("user id must not be null");
+        if (host == null) throw new IllegalArgumentException("HOST value must not be null");
+        if (port == null) throw new IllegalArgumentException("PORT value must not be null");
+        if (userId == null) throw new IllegalArgumentException("USERID value must not be null");
         if (password != null && password.length() > 8) {
             throw new IllegalArgumentException("password must not exceed 8 characters");
         }
         if (password == null) password = "";
 
-        String sessionParams = (String) params.get("session parameters");
-        String internalSessionParams = (String) params.get("internal session parameters");
-        String newPassword = (String) params.get("new password");
-        String richGui = (String) params.get("rich gui");
-        String webioVersion = (String) params.get("webio version");
-        String nfnPrivateMode = (String) params.get("nfn private mode");
-        String logonCounter = (String) params.get("logon counter");
+        String sessionParams = params.get(ConnectKey.PARM);
+        String internalSessionParams = params.get(ConnectKey.INTERNAL_PARM);
+        String newPassword = params.get(ConnectKey.NEW_PASSWORD);
+        String richGui = params.get(ConnectKey.RICH_GUI);
+        String webioVersion = params.get(ConnectKey.WEBIO_VERSION);
+        String nfnPrivateMode = params.get(ConnectKey.NFN_PRIVATE_MODE);
+        String logonCounter = params.get(ConnectKey.LOGON_COUNTER);
 
         if (sessionParams == null) sessionParams = "";
         if (internalSessionParams != null && !internalSessionParams.isEmpty()) {
