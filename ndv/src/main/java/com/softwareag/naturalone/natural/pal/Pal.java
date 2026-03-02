@@ -433,14 +433,8 @@ public final class Pal {
         }
 
         if (this.aktuellerRecordTyp != TRANSAKTION_ENDE && this.empfangsZwischenspeicher[gesuchterTyp] == null) {
-            // Kopfzeile nur lesen wenn ein neuer Block vom Netz noetig ist.
-            // Andernfalls hat datensaetzeEinlesen() in Phase 3 den Typ bereits
-            // gelesen und empfangsKopfVerarbeiten() in der while-Schleife die
-            // Anzahl bereits konsumiert — ein erneuter Aufruf wuerde die
-            // schreibPosition in die Record-Daten verschieben.
-            if (this.naechsterBlockNoetig) {
+            // position(gesuchterTyp): readHeader() + Schleife
                 empfangsKopfVerarbeiten();
-            }
             if (this.empfangsThreadFehler == null) {
             while (this.aktuellerRecordTyp != gesuchterTyp && this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
                 datensaetzeEinlesen(gesuchterTyp);
@@ -637,9 +631,8 @@ public final class Pal {
     private void empfangsphaseDrainieren() throws IOException {
         if (this.empfangsphaseAktiv) {
             if (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
-                if (this.naechsterBlockNoetig) {
+                // position(TRANSAKTION_ENDE): readHeader() + Schleife
                     empfangsKopfVerarbeiten();
-                }
                 if (this.empfangsThreadFehler == null) {
                 while (this.aktuellerRecordTyp != TRANSAKTION_ENDE) {
                     datensaetzeEinlesen(TRANSAKTION_ENDE);
