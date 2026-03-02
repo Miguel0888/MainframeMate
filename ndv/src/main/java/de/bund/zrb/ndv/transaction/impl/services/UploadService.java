@@ -1,10 +1,7 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import de.bund.zrb.ndv.auxiliary.renumber.internal.RenumberSource;
-import com.softwareag.naturalone.natural.pal.*;
-import com.softwareag.naturalone.natural.pal.external.*;
-import com.softwareag.naturalone.natural.pal.type.*;
-import com.softwareag.naturalone.natural.paltransactions.external.*;
+import de.bund.zrb.ndv.util.RenumberSource;
+
 import de.bund.zrb.ndv.core.impl.ConversionResult;
 import de.bund.zrb.ndv.core.impl.Pal;
 import de.bund.zrb.ndv.core.api.*;

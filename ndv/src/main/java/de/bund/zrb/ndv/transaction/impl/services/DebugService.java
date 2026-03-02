@@ -1,11 +1,9 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import com.softwareag.naturalone.natural.pal.external.*;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.IPalType;
 import de.bund.zrb.ndv.core.impl.type.PalTypeOperation;
 import de.bund.zrb.ndv.core.impl.type.PalTypeStack;
-import com.softwareag.naturalone.natural.paltransactions.external.*;
 import de.bund.zrb.ndv.transaction.api.IDebugAttachWaitCallBack;
 import de.bund.zrb.ndv.transaction.api.ISuspendResult;
 import de.bund.zrb.ndv.transaction.api.PalResultException;

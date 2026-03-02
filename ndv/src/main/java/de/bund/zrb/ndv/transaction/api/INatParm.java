@@ -1,6 +1,5 @@
 package de.bund.zrb.ndv.transaction.api;
 
-import com.softwareag.naturalone.natural.pal.external.*;
 import de.bund.zrb.ndv.core.api.*;
 
 import java.io.Serializable;

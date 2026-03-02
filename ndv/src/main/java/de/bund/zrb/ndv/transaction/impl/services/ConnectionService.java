@@ -1,9 +1,5 @@
 package de.bund.zrb.ndv.transaction.impl.services;
 
-import com.softwareag.naturalone.natural.pal.*;
-import com.softwareag.naturalone.natural.pal.external.*;
-import com.softwareag.naturalone.natural.pal.type.*;
-import com.softwareag.naturalone.natural.paltransactions.external.*;
 import de.bund.zrb.ndv.core.impl.Pal;
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.core.impl.type.*;
