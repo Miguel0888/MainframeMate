@@ -13,7 +13,7 @@ dependencies {
     // NDV Server Access – proprietäres JAR, wird transitiv an Konsumenten weitergereicht.
     // Eigene Klassen im selben Package (z.B. Pal.java) überschreiben die JAR-Version,
     // weil Gradle Projekt-Klassen VOR JAR-Klassen in den Classpath legt.
-//    api files('../lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar')
+    api files('../lib/com.softwareag.naturalone.natural.ndvserveraccess_8.4.1.0000-0251.jar')
 
     // ICU4J – aus dem ndvserveraccess-Bundle extrahiert (Charset-Konvertierung)
     api files('../lib/icu4j-4_8_1.jar')

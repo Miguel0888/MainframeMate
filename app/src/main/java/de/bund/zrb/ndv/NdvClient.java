@@ -371,12 +371,8 @@ public class NdvClient implements Closeable {
                 + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
 
         // ── Step 2: Create download transaction context ──
-        ITransactionContextDownload ctx;
-        try {
-            ctx = (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
-        } catch (PalResultException e) {
-            throw new NdvException("Transaktionskontext konnte nicht erstellt werden: " + e.getMessage(), e);
-        }
+        ITransactionContextDownload ctx =
+                (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
             IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();

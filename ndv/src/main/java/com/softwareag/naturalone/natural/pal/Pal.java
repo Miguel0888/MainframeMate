@@ -684,8 +684,8 @@ public final class Pal {
         if (this.empfangsThreadFehler != null) {
             if (this.empfangsThreadFehler instanceof IOException)
                 throw (IOException) this.empfangsThreadFehler;
-            if (this.empfangsThreadFehler instanceof RuntimeException)
-                throw (RuntimeException) this.empfangsThreadFehler;
+            if (this.empfangsThreadFehler instanceof PalTimeoutException)
+                throw (PalTimeoutException) this.empfangsThreadFehler;
         }
     }
 
@@ -949,12 +949,12 @@ public final class Pal {
                 if (this.wartezeitRueckruf == null) {
                     weiter = false;
                     empfangsThreadBeenden(
-                            new IOException("Timeout occured while waiting for Ndv server reply", e));
+                            new PalTimeoutException("Timeout occured while waiting for Ndv server reply", e));
                 } else {
                     weiter = this.wartezeitRueckruf.continueOperation();
                     if (!weiter) {
                         empfangsThreadBeenden(
-                                new IOException("Timeout occured while waiting for Ndv server reply", e));
+                                new PalTimeoutException("Timeout occured while waiting for Ndv server reply", e));
                     }
                 }
             } catch (IOException e) {
