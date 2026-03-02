@@ -97,13 +97,10 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public void restore() {
-      try {
-         this.allowedInfo1 = this.intFromBuffer();
-         this.allowedInfo2 = this.intFromBuffer();
-         this.allowedInfo3 = this.intFromBuffer();
-         this.allowedInfo4 = this.intFromBuffer();
-      } catch (RuntimeException var1) {
-      }
+      this.allowedInfo1 = this.intFromBuffer();
+      this.allowedInfo2 = this.intFromBuffer();
+      this.allowedInfo3 = this.intFromBuffer();
+      this.allowedInfo4 = this.intFromBuffer();
    }
 
    public int getInfo1() {
@@ -123,35 +120,19 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isCatalogAllowed() {
-      try {
-         return (this.allowedInfo2 & 1) == 1;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 1) == 1;
    }
 
    public boolean isSaveAllowed() {
-      try {
-         return (this.allowedInfo2 & 16) == 16;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 16) == 16;
    }
 
    public boolean isCheckAllowed() {
-      try {
-         return (this.allowedInfo2 & 4) == 4;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 4) == 4;
    }
 
    public boolean isStowAllowed() {
-      try {
-         return (this.allowedInfo2 & 8) == 8;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 8) == 8;
    }
 
    public boolean isReadAllowed() {
@@ -159,35 +140,19 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isListDdmAllowed() {
-      try {
-         return (this.allowedInfo1 & 131072) == 131072;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo1 & 131072) == 131072;
    }
 
    public boolean isCatalogDdmAllowed() {
-      try {
-         return (this.allowedInfo1 & 524288) == 524288;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo1 & 524288) == 524288;
    }
 
    public boolean isCopyAllowed() {
-      try {
-         return (this.allowedInfo2 & 32768) == 32768;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 32768) == 32768;
    }
 
    public boolean isCutAllowed() {
-      try {
-         return (this.allowedInfo2 & 16384) == 16384;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 16384) == 16384;
    }
 
    public boolean isCopyDdmAllowed() {
@@ -195,19 +160,11 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isCutDdmAllowed() {
-      try {
-         return (this.allowedInfo1 & 4194304) == 4194304;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo1 & 4194304) == 4194304;
    }
 
    public boolean isPasteAllowed() {
-      try {
-         return (this.allowedInfo2 & 65536) == 65536;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 65536) == 65536;
    }
 
    public boolean isPasteDdmAllowed() {
@@ -219,11 +176,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isRenameLibraryAllowed() {
-      try {
-         return (this.allowedInfo2 & 131072) == 131072;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo2 & 131072) == 131072;
    }
 
    public boolean isRenameDdmAllowed() {
@@ -231,19 +184,11 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isDeleteAllowed() {
-      try {
-         return (this.allowedInfo3 & 1) == 1;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo3 & 1) == 1;
    }
 
    public boolean isDeleteLibraryAllowed() {
-      try {
-         return (this.allowedInfo3 & 2048) == 2048;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo3 & 2048) == 2048;
    }
 
    public boolean isDeleteDdmAllowed() {
@@ -263,11 +208,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isUnlockForcedAllowed() {
-      try {
-         return (this.allowedInfo3 & 32768) == 32768;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.allowedInfo3 & 32768) == 32768;
    }
 
    public boolean isPrivate() {
@@ -275,44 +216,40 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isEditAllowed(int var1) {
-      try {
-         boolean var2 = true;
-         if (var1 == 2097152) {
-            var2 = (this.allowedInfo1 & 268435456) == 268435456;
-         } else if (var1 == 1024) {
-            var2 = (this.allowedInfo1 & 512) == 512;
-         } else if (var1 == 128) {
-            var2 = (this.allowedInfo1 & 256) == 256;
-         } else if (var1 == 8) {
-            var2 = (this.allowedInfo1 & 4096) == 4096;
-         } else if (var1 == 2048) {
-            var2 = (this.allowedInfo1 & 32768) == 32768;
-         } else if (var1 == 524288) {
-            var2 = (this.allowedInfo1 & 16384) == 16384;
-         } else if (var1 == 1) {
-            var2 = (this.allowedInfo1 & 65536) == 65536;
-         } else if (var1 == 512) {
-            var2 = (this.allowedInfo1 & 8192) == 8192;
-         } else if (var1 == 2) {
-            var2 = (this.allowedInfo1 & 2048) == 2048;
-         } else if (var1 == 64) {
-            var2 = (this.allowedInfo1 & 64) == 64;
-         } else if (var1 == 4) {
-            var2 = (this.allowedInfo1 & 1024) == 1024;
-         } else if (var1 == 16) {
-            var2 = (this.allowedInfo1 & 8) == 8;
-         } else if (var1 == 32) {
-            var2 = (this.allowedInfo1 & 16) == 16;
-         } else if (var1 == 256) {
-            var2 = (this.allowedInfo1 & 128) == 128;
-         } else if (var1 == 4096) {
-            var2 = (this.allowedInfo1 & 32) == 32;
-         }
-
-         return var2;
-      } catch (RuntimeException var3) {
-         return false;
+      boolean var2 = true;
+      if (var1 == 2097152) {
+         var2 = (this.allowedInfo1 & 268435456) == 268435456;
+      } else if (var1 == 1024) {
+         var2 = (this.allowedInfo1 & 512) == 512;
+      } else if (var1 == 128) {
+         var2 = (this.allowedInfo1 & 256) == 256;
+      } else if (var1 == 8) {
+         var2 = (this.allowedInfo1 & 4096) == 4096;
+      } else if (var1 == 2048) {
+         var2 = (this.allowedInfo1 & 32768) == 32768;
+      } else if (var1 == 524288) {
+         var2 = (this.allowedInfo1 & 16384) == 16384;
+      } else if (var1 == 1) {
+         var2 = (this.allowedInfo1 & 65536) == 65536;
+      } else if (var1 == 512) {
+         var2 = (this.allowedInfo1 & 8192) == 8192;
+      } else if (var1 == 2) {
+         var2 = (this.allowedInfo1 & 2048) == 2048;
+      } else if (var1 == 64) {
+         var2 = (this.allowedInfo1 & 64) == 64;
+      } else if (var1 == 4) {
+         var2 = (this.allowedInfo1 & 1024) == 1024;
+      } else if (var1 == 16) {
+         var2 = (this.allowedInfo1 & 8) == 8;
+      } else if (var1 == 32) {
+         var2 = (this.allowedInfo1 & 16) == 16;
+      } else if (var1 == 256) {
+         var2 = (this.allowedInfo1 & 128) == 128;
+      } else if (var1 == 4096) {
+         var2 = (this.allowedInfo1 & 32) == 32;
       }
+
+      return var2;
    }
 
    public boolean isEditForAllAllowed(boolean var1) {
@@ -332,13 +269,9 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public boolean isSharedModeMandatory() {
-      try {
-         boolean var1 = (this.allowedInfo3 & 262144) == 262144;
-         boolean var2 = (this.allowedInfo3 & 524288) == 524288;
-         return !var1 && var2;
-      } catch (RuntimeException var3) {
-         return false;
-      }
+      boolean var1 = (this.allowedInfo3 & 262144) == 262144;
+      boolean var2 = (this.allowedInfo3 & 524288) == 524288;
+      return !var1 && var2;
    }
 
    public int getInfo3() {

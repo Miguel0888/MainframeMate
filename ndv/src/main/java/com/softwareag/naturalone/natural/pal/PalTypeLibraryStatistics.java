@@ -137,155 +137,79 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    }
 
    public boolean hasAdapter() {
-      try {
-         return (this.natTypeFlags & 2097152) == 2097152;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 2097152) == 2097152;
    }
 
    public boolean hasGda() {
-      try {
-         return (this.natTypeFlags & 1) == 1;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 1) == 1;
    }
 
    public boolean hasLda() {
-      try {
-         return (this.natTypeFlags & 2) == 2;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 2) == 2;
    }
 
    public boolean hasPda() {
-      try {
-         return (this.natTypeFlags & 4) == 4;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 4) == 4;
    }
 
    public boolean hasDdm() {
-      try {
-         return (this.natTypeFlags & 8) == 8;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 8) == 8;
    }
 
    public boolean hasProgram() {
-      try {
-         return (this.natTypeFlags & 16) == 16;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 16) == 16;
    }
 
    public boolean hasSubProgram() {
-      try {
-         return (this.natTypeFlags & 32) == 32;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 32) == 32;
    }
 
    public boolean hasSubRoutine() {
-      try {
-         return (this.natTypeFlags & 256) == 256;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 256) == 256;
    }
 
    public boolean hasMap() {
-      try {
-         return (this.natTypeFlags & 64) == 64;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 64) == 64;
    }
 
    public boolean hasCopyCode() {
-      try {
-         return (this.natTypeFlags & 128) == 128;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 128) == 128;
    }
 
    public boolean hasHelpRoutine() {
-      try {
-         return (this.natTypeFlags & 512) == 512;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 512) == 512;
    }
 
    public boolean hasClass() {
-      try {
-         return (this.natTypeFlags & 1024) == 1024;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 1024) == 1024;
    }
 
    public boolean hasDialog() {
-      try {
-         return (this.natTypeFlags & 2048) == 2048;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 2048) == 2048;
    }
 
    public boolean hasText() {
-      try {
-         return (this.natTypeFlags & 4096) == 4096;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 4096) == 4096;
    }
 
    public boolean hasNaturalCommandProcessor() {
-      try {
-         return (this.natTypeFlags & 8192) == 8192;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 8192) == 8192;
    }
 
    public boolean hasAdaptView() {
-      try {
-         return (this.natTypeFlags & 16384) == 16384;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 16384) == 16384;
    }
 
    public boolean hasErrorMessage() {
-      try {
-         return (this.natTypeFlags & 32768) == 32768;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 32768) == 32768;
    }
 
    public boolean hasResource() {
-      try {
-         return (this.natTypeFlags & 65536) == 65536;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 65536) == 65536;
    }
 
    public boolean hasFunction() {
-      try {
-         return (this.natTypeFlags & 524288) == 524288;
-      } catch (RuntimeException var1) {
-         return false;
-      }
+      return (this.natTypeFlags & 524288) == 524288;
    }
 
    public final int getFlags() {
@@ -371,31 +295,23 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    }
 
    public boolean equals(Object var1) {
-      try {
-         if (var1 == this) {
-            return true;
-         } else if (!(var1 instanceof PalTypeLibraryStatistics)) {
-            return false;
-         } else {
-            PalTypeLibraryStatistics var2 = (PalTypeLibraryStatistics)var1;
-            return this.library.equals(var2.library) && this.numberSources == var2.numberSources && this.sizeSources == var2.sizeSources && this.numberGPs == var2.numberGPs && this.sizeGPs == var2.sizeGPs && this.numberResources == var2.numberResources && this.sizeResources == var2.sizeResources && this.numberErrorMessages == var2.numberErrorMessages && this.sizeErrorMessages == var2.sizeErrorMessages && this.numberObjs == var2.numberObjs && this.numberBytes == var2.numberBytes && this.natTypeFlags == var2.natTypeFlags;
-         }
-      } catch (RuntimeException var3) {
+      if (var1 == this) {
+         return true;
+      } else if (!(var1 instanceof PalTypeLibraryStatistics)) {
          return false;
+      } else {
+         PalTypeLibraryStatistics var2 = (PalTypeLibraryStatistics)var1;
+         return this.library.equals(var2.library) && this.numberSources == var2.numberSources && this.sizeSources == var2.sizeSources && this.numberGPs == var2.numberGPs && this.sizeGPs == var2.sizeGPs && this.numberResources == var2.numberResources && this.sizeResources == var2.sizeResources && this.numberErrorMessages == var2.numberErrorMessages && this.sizeErrorMessages == var2.sizeErrorMessages && this.numberObjs == var2.numberObjs && this.numberBytes == var2.numberBytes && this.natTypeFlags == var2.natTypeFlags;
       }
    }
 
    public int hashCode() {
-      try {
-         int var1 = 17;
-         var1 = 37 * var1 + this.numberObjs;
-         var1 = 37 * var1 + this.numberGPs;
-         var1 = 37 * var1 + this.numberSources;
-         var1 = 37 * var1 + this.library.hashCode();
-         return var1;
-      } catch (RuntimeException var2) {
-         return 0;
-      }
+      int var1 = 17;
+      var1 = 37 * var1 + this.numberObjs;
+      var1 = 37 * var1 + this.numberGPs;
+      var1 = 37 * var1 + this.numberSources;
+      var1 = 37 * var1 + this.library.hashCode();
+      return var1;
    }
 
    public String toString() {

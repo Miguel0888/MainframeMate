@@ -61,13 +61,9 @@ public class NatParm implements INatParm, Serializable {
     public IFldApp getFldApp() {
         if (this.feldanwendung == null) {
             for (IPalTypeNatParm eintrag : this.parameterDatensaetze) {
-                try {
-                    if (eintrag.getFldApp() != null) {
-                        this.feldanwendung = eintrag.getFldApp();
-                        break;
-                    }
-                } catch (Exception ignoriert) {
-                    return null;
+                if (eintrag.getFldApp() != null) {
+                    this.feldanwendung = eintrag.getFldApp();
+                    break;
                 }
             }
         }
@@ -104,13 +100,9 @@ public class NatParm implements INatParm, Serializable {
     public ICompOpt getCompOpt() {
         if (this.kompilierungsOptionen == null) {
             for (IPalTypeNatParm eintrag : this.parameterDatensaetze) {
-                try {
-                    if (eintrag.getCompOpt() != null) {
-                        this.kompilierungsOptionen = eintrag.getCompOpt();
-                        break;
-                    }
-                } catch (Exception ignoriert) {
-                    return null;
+                if (eintrag.getCompOpt() != null) {
+                    this.kompilierungsOptionen = eintrag.getCompOpt();
+                    break;
                 }
             }
         }
@@ -121,13 +113,9 @@ public class NatParm implements INatParm, Serializable {
     public ILimit getLimit() {
         if (this.grenzwerte == null) {
             for (IPalTypeNatParm eintrag : this.parameterDatensaetze) {
-                try {
-                    if (eintrag.getLimit() != null) {
-                        this.grenzwerte = eintrag.getLimit();
-                        break;
-                    }
-                } catch (Exception ignoriert) {
-                    return null;
+                if (eintrag.getLimit() != null) {
+                    this.grenzwerte = eintrag.getLimit();
+                    break;
                 }
             }
         }
@@ -138,13 +126,9 @@ public class NatParm implements INatParm, Serializable {
     public IBuffSize getBuffSize() {
         if (this.pufferGroesse == null) {
             for (IPalTypeNatParm eintrag : this.parameterDatensaetze) {
-                try {
-                    if (eintrag.getBuffSize() != null) {
-                        this.pufferGroesse = eintrag.getBuffSize();
-                        break;
-                    }
-                } catch (Exception ignoriert) {
-                    return null;
+                if (eintrag.getBuffSize() != null) {
+                    this.pufferGroesse = eintrag.getBuffSize();
+                    break;
                 }
             }
         }
@@ -155,13 +139,9 @@ public class NatParm implements INatParm, Serializable {
     public IErr getErr() {
         if (this.fehlerBehandlung == null) {
             for (IPalTypeNatParm eintrag : this.parameterDatensaetze) {
-                try {
-                    if (eintrag.getErr() != null) {
-                        this.fehlerBehandlung = eintrag.getErr();
-                        break;
-                    }
-                } catch (Exception ignoriert) {
-                    return null;
+                if (eintrag.getErr() != null) {
+                    this.fehlerBehandlung = eintrag.getErr();
+                    break;
                 }
             }
         }
