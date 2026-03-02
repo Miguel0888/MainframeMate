@@ -7,6 +7,7 @@ import com.softwareag.naturalone.natural.pal.external.IPalTypeDbgStatus;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeNotify;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeStream;
 import com.softwareag.naturalone.natural.paltransactions.external.ISuspendResult;
+import com.softwareag.naturalone.natural.paltransactions.external.PalResultException;
 
 public final class SuspendResult implements ISuspendResult {
     private IPalTypeDbgStatus debugZustand;
@@ -15,13 +16,13 @@ public final class SuspendResult implements ISuspendResult {
     private IPalTypeStream bildschirmInhalt;
     private IPalTypeNotify benachrichtigung;
     private byte dezimalZeichen;
-    private RuntimeException fehler;
+    private PalResultException fehler;
     private PalTypeDbgNatStack[] naturalStapelEintraege;
 
     public SuspendResult(IPalTypeDbgStatus status, PalTypeDbgStackFrame[] stackFrames,
                          IPalTypeDbgSpy spy, IPalTypeStream screen,
                          IPalTypeNotify notify, byte decimalCharacter,
-                         RuntimeException exception, PalTypeDbgNatStack[] natStackEntries) {
+                         PalResultException exception, PalTypeDbgNatStack[] natStackEntries) {
         this.debugZustand = status;
         this.aufrufStapelRahmen = stackFrames != null ? stackFrames.clone() : null;
         this.ueberwachung = spy;
@@ -62,11 +63,11 @@ public final class SuspendResult implements ISuspendResult {
         return debugZustand;
     }
 
-    public RuntimeException getException() {
+    public PalResultException getException() {
         return fehler;
     }
 
-    public void setException(RuntimeException exception) {
+    public void setException(PalResultException exception) {
         this.fehler = exception;
     }
 
