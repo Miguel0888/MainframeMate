@@ -148,14 +148,19 @@ public final class PassWord {
         // Position 41..56: Bibliothek-Hex
         System.arraycopy(hexBibliothek, 0, ergebnis, 41, 16);
 
+        // toUpperCase() MUSS VOR dem Setzen des Sentinels erfolgen,
+        // da (char)255 = 'ÿ' durch toUpperCase() zu 'Ÿ' (U+0178) verfälscht wird.
+        String tokenText = (new String(ergebnis)).toUpperCase();
+        char[] tokenChars = tokenText.toCharArray();
+
         if (newPassword == null || newPassword.isEmpty()) {
-            ergebnis[57] = (char) 255;
+            tokenChars[57] = (char) 255;
         } else {
-            System.arraycopy(hexNeuesPasswort, 0, ergebnis, 57, 16);
-            ergebnis[73] = 255;
+            System.arraycopy(hexNeuesPasswort, 0, tokenChars, 57, 16);
+            tokenChars[73] = (char) 255;
         }
 
-        return (new String(ergebnis)).toUpperCase();
+        return new String(tokenChars);
     }
 
     // =================================================================
