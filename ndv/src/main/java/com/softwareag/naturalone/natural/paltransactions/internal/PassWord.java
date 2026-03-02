@@ -4,65 +4,67 @@ import java.text.SimpleDateFormat;
 import java.util.GregorianCalendar;
 
 /**
- * NDV password encoding.
+ * Verschlüsselung der Anmeldedaten für das NDV-Protokoll.
  * <p>
- * Encodes user-id, password, library and (optional) new-password into a single
- * hex-encoded token that is sent to the NDV server during connect.
- * The algorithm uses BCD (Binary Coded Decimal) arithmetic to scramble
- * the credential bytes with a time-derived key.
- * </p>
+ * Kodiert Benutzerkennung, Passwort, Bibliothek und (optionales) neues Passwort
+ * zu einem einzelnen hex-kodierten Token, das beim Verbindungsaufbau zum
+ * NDV-Server gesendet wird.
+ * <p>
+ * Der Algorithmus verwendet BCD-Arithmetik (Binary Coded Decimal), um die
+ * Anmeldebytes mit einem zeitbasierten Schlüssel zu verwürfeln.
  */
 public final class PassWord {
 
-    // --- platform identifiers ---
-    private static final int ASCII_HOST = 1;
-    private static final int EBCDIC_HOST = 2;
+    // --- Plattform-Kennungen ---
+    private static final int PLATTFORM_ASCII = 1;
+    private static final int PLATTFORM_EBCDIC = 2;
 
-    // --- BCD helpers ---
-    private static final int BCD_L_MASK = 15;
-    private static final int BCD_U_MASK = 240;
-    private static final int BCD_OK = 0;
-    private static final int BCD_OVERFLOW = 1305;
-    private static final int BCD_DIVISION_BY_ZERO = 1302;
-    private static final int BCD_P_MINUS = 13;
-    private static final int BCD_P_PLUS = 12;
+    // --- BCD-Konstanten ---
+    private static final int HALBBYTE_UNTERE_MASKE = 0x0F;  // 15
+    private static final int HALBBYTE_OBERE_MASKE = 0xF0;   // 240
+    private static final int BCD_ERFOLG = 0;
+    private static final int BCD_UEBERLAUF = 1305;
+    private static final int BCD_DIVISION_DURCH_NULL = 1302;
+    private static final int BCD_VORZEICHEN_MINUS = 13;
+    private static final int BCD_VORZEICHEN_PLUS = 12;
 
-    private static int host;
+    /** Erkannte Plattform (ASCII oder EBCDIC). */
+    private static int erkannePlattform;
 
     private PassWord() {
     }
 
     // =================================================================
-    //  Public API
+    //  Öffentliche Schnittstelle
     // =================================================================
 
     /**
-     * Encode credentials for the NDV connect handshake.
+     * Kodiert die Anmeldedaten für den NDV-Verbindungsaufbau.
      *
-     * @param userId      user id (max 8 chars)
-     * @param password    password (max 8 chars)
-     * @param library     library name (max 8 chars)
-     * @param newPassword new password (may be empty)
-     * @return upper-case hex-encoded token (74 or 57 chars + sentinel)
+     * @param userId      Benutzerkennung (max. 8 Zeichen)
+     * @param password    Passwort (max. 8 Zeichen)
+     * @param library     Bibliotheksname (max. 8 Zeichen)
+     * @param newPassword neues Passwort (darf leer sein)
+     * @return hex-kodiertes Token in Großbuchstaben
      */
     public static String encode(String userId, String password, String library, String newPassword) {
-        char[] hexUser = new char[17];
-        char[] hexPassword = new char[17];
-        char[] hexLibrary = new char[17];
-        char[] hexNewPw = new char[17];
-        char[] result = new char[74];
-        byte[] work = new byte[9];
-        byte[] userBytes = new byte[9];
-        byte[] pwBytes = new byte[9];
-        byte[] timeBytes = new byte[9];
-        byte[] libBytes = new byte[9];
-        byte[] newPwBytes = new byte[9];
+        char[] hexBenutzer = new char[17];
+        char[] hexPasswort = new char[17];
+        char[] hexBibliothek = new char[17];
+        char[] hexNeuesPasswort = new char[17];
+        char[] ergebnis = new char[74];
+        byte[] arbeitsPuffer = new byte[9];
+        byte[] benutzerBytes = new byte[9];
+        byte[] passwortBytes = new byte[9];
+        byte[] zeitBytes = new byte[9];
+        byte[] bibliothekBytes = new byte[9];
+        byte[] neuesPasswortBytes = new byte[9];
 
-        // Current time as scramble key – format "HH0mm0ss"
-        String timeStr = (new SimpleDateFormat("HH0mm0ss"))
+        // Aktuelle Uhrzeit als Verwürfelungsschlüssel – Format "HH0mm0ss"
+        String zeitText = (new SimpleDateFormat("HH0mm0ss"))
                 .format((new GregorianCalendar()).getTime());
 
-        determinePlatform();
+        plattformErkennen();
 
         if (userId.length() > 8) {
             throw new IllegalArgumentException("the user id " + userId + " exceeds 8 bytes");
@@ -74,457 +76,490 @@ public final class PassWord {
             throw new IllegalArgumentException("the library " + library + " exceeds 8 bytes");
         }
 
-        // Fill result with spaces
+        // Ergebnis mit Leerzeichen füllen
         for (int i = 0; i < 74; i++) {
-            result[i] = ' ';
+            ergebnis[i] = ' ';
         }
 
-        // Initialise byte arrays (first byte 0, rest stays 0)
-        userBytes[0] = 0;
-        pwBytes[0] = 0;
-        libBytes[0] = 0;
-        newPwBytes[0] = 0;
+        // Byte-Felder initialisieren
+        benutzerBytes[0] = 0;
+        passwortBytes[0] = 0;
+        bibliothekBytes[0] = 0;
+        neuesPasswortBytes[0] = 0;
 
-        // Copy credential bytes into fixed-length buffers
-        byte[] tmp = userId.getBytes();
-        System.arraycopy(tmp, 0, userBytes, 0, tmp.length);
+        // Anmeldedaten in Festlängen-Puffer kopieren
+        byte[] zwischenspeicher = userId.getBytes();
+        System.arraycopy(zwischenspeicher, 0, benutzerBytes, 0, zwischenspeicher.length);
 
-        tmp = password.getBytes();
-        System.arraycopy(tmp, 0, pwBytes, 0, tmp.length);
+        zwischenspeicher = password.getBytes();
+        System.arraycopy(zwischenspeicher, 0, passwortBytes, 0, zwischenspeicher.length);
 
-        tmp = timeStr.getBytes();
-        System.arraycopy(tmp, 0, timeBytes, 0, tmp.length);
+        zwischenspeicher = zeitText.getBytes();
+        System.arraycopy(zwischenspeicher, 0, zeitBytes, 0, zwischenspeicher.length);
 
-        tmp = library.getBytes();
-        System.arraycopy(tmp, 0, libBytes, 0, tmp.length);
+        zwischenspeicher = library.getBytes();
+        System.arraycopy(zwischenspeicher, 0, bibliothekBytes, 0, zwischenspeicher.length);
 
-        tmp = newPassword.getBytes();
-        System.arraycopy(tmp, 0, newPwBytes, 0, tmp.length);
+        zwischenspeicher = newPassword.getBytes();
+        System.arraycopy(zwischenspeicher, 0, neuesPasswortBytes, 0, zwischenspeicher.length);
 
-        // Scramble user id
-        System.arraycopy(userBytes, 0, work, 0, 8);
-        nscConvert(work, timeBytes);
-        hexUser = convertHexChar(work);
+        // Benutzerkennung verwürfeln
+        System.arraycopy(benutzerBytes, 0, arbeitsPuffer, 0, 8);
+        zeitVerwuerfeln(arbeitsPuffer, zeitBytes);
+        hexBenutzer = bytesZuHexZeichen(arbeitsPuffer);
 
-        // Scramble password
-        System.arraycopy(pwBytes, 0, work, 0, 8);
-        work = nscConvert(work, timeBytes);
-        hexPassword = convertHexChar(work);
+        // Passwort verwürfeln
+        System.arraycopy(passwortBytes, 0, arbeitsPuffer, 0, 8);
+        arbeitsPuffer = zeitVerwuerfeln(arbeitsPuffer, zeitBytes);
+        hexPasswort = bytesZuHexZeichen(arbeitsPuffer);
 
-        // Scramble library
-        System.arraycopy(libBytes, 0, work, 0, 8);
-        work = nscConvert(work, timeBytes);
-        hexLibrary = convertHexChar(work);
+        // Bibliothek verwürfeln
+        System.arraycopy(bibliothekBytes, 0, arbeitsPuffer, 0, 8);
+        arbeitsPuffer = zeitVerwuerfeln(arbeitsPuffer, zeitBytes);
+        hexBibliothek = bytesZuHexZeichen(arbeitsPuffer);
 
-        // Scramble new password (if present)
-        if (newPwBytes.length > 0) {
-            System.arraycopy(newPwBytes, 0, work, 0, 8);
-            nscConvert(work, timeBytes);
-            hexNewPw = convertHexChar(work);
+        // Neues Passwort verwürfeln (falls vorhanden)
+        if (neuesPasswortBytes.length > 0) {
+            System.arraycopy(neuesPasswortBytes, 0, arbeitsPuffer, 0, 8);
+            zeitVerwuerfeln(arbeitsPuffer, zeitBytes);
+            hexNeuesPasswort = bytesZuHexZeichen(arbeitsPuffer);
         }
 
-        // Build result token
-        // Position 0: platform indicator
-        if (host == ASCII_HOST) {
-            result[0] = 'C';
+        // Token zusammenbauen
+        // Position 0: Plattform-Kennung
+        if (erkannePlattform == PLATTFORM_ASCII) {
+            ergebnis[0] = 'C';
         }
-        if (host == EBCDIC_HOST) {
-            result[0] = 'E';
+        if (erkannePlattform == PLATTFORM_EBCDIC) {
+            ergebnis[0] = 'E';
         }
 
-        // Position 1..8: time key
-        char[] timeChars = new char[9];
+        // Position 1..8: Zeitschlüssel
+        char[] zeitZeichen = new char[9];
         for (int i = 0; i < 8; i++) {
-            timeChars[i] = (char) timeBytes[i];
+            zeitZeichen[i] = (char) zeitBytes[i];
         }
-        System.arraycopy(timeChars, 0, result, 1, 8);
+        System.arraycopy(zeitZeichen, 0, ergebnis, 1, 8);
 
-        // Position  9..24: user hex
-        System.arraycopy(hexUser, 0, result, 9, 16);
-        // Position 25..40: password hex
-        System.arraycopy(hexPassword, 0, result, 25, 16);
-        // Position 41..56: library hex
-        System.arraycopy(hexLibrary, 0, result, 41, 16);
+        // Position 9..24: Benutzer-Hex
+        System.arraycopy(hexBenutzer, 0, ergebnis, 9, 16);
+        // Position 25..40: Passwort-Hex
+        System.arraycopy(hexPasswort, 0, ergebnis, 25, 16);
+        // Position 41..56: Bibliothek-Hex
+        System.arraycopy(hexBibliothek, 0, ergebnis, 41, 16);
 
-        if (newPwBytes.length == 0) {
-            result[57] = 255;
+        if (neuesPasswortBytes.length == 0) {
+            ergebnis[57] = 255;
         } else {
-            System.arraycopy(hexNewPw, 0, result, 57, 16);
-            result[73] = 255;
+            System.arraycopy(hexNeuesPasswort, 0, ergebnis, 57, 16);
+            ergebnis[73] = 255;
         }
 
-        return (new String(result)).toUpperCase();
+        return (new String(ergebnis)).toUpperCase();
     }
 
     // =================================================================
-    //  Platform detection
-    // =================================================================
-
-    private static void determinePlatform() {
-        byte space = 32;   // ASCII space = 0x20
-        host = 0;
-        if (space == 32) {
-            host = ASCII_HOST;
-        }
-        if (space == 64) {
-            host = EBCDIC_HOST;
-        }
-    }
-
-    // =================================================================
-    //  Core scramble – nscConvert
+    //  Plattformerkennung
     // =================================================================
 
     /**
-     * Scrambles 8 credential bytes with a time-derived BCD key.
-     * <p>Algorithm:
+     * Erkennt ob die aktuelle Laufzeitumgebung ASCII oder EBCDIC verwendet.
+     * Ein Leerzeichen ist in ASCII 0x20 (32), in EBCDIC 0x40 (64).
+     */
+    private static void plattformErkennen() {
+        byte leerzeichen = 32;
+        erkannePlattform = 0;
+        if (leerzeichen == 32) {
+            erkannePlattform = PLATTFORM_ASCII;
+        }
+        if (leerzeichen == 64) {
+            erkannePlattform = PLATTFORM_EBCDIC;
+        }
+    }
+
+    // =================================================================
+    //  Kern-Verwürfelung
+    // =================================================================
+
+    /**
+     * Verwürfelt 8 Anmeldebytes mit einem zeitbasierten BCD-Schlüssel.
+     * <p>
+     * Ablauf:
      * <ol>
-     *   <li>Re-order time digits to build a 6-digit integer seed.</li>
-     *   <li>For each of the 8 credential bytes:<br>
-     *       – Compute {@code seed = (seed * MULTIPLIER) mod MAX_INT}<br>
-     *       – Extract the remainder mod 1000<br>
-     *       – Add it to the credential byte.</li>
+     *   <li>Die Zeitstempel-Ziffern werden umgeordnet zu einem 6-stelligen Startwert.</li>
+     *   <li>Für jedes der 8 Anmeldebytes:<br>
+     *       – Berechne {@code startwert = (startwert × MULTIPLIKATOR) mod GANZZAHL_MAXIMUM}<br>
+     *       – Extrahiere den Rest modulo 1000<br>
+     *       – Addiere diesen Rest auf das Anmeldebyte.</li>
      * </ol>
+     *
+     * @param daten          die 8 Anmeldebytes (werden in-place überschrieben)
+     * @param zeitSchluessel der 8-Byte-Zeitstempel als Verwürfelungsbasis
+     * @return Referenz auf das modifizierte {@code daten}-Array
      */
-    private static byte[] nscConvert(byte[] data, byte[] timeKey) {
-        byte[] timeCopy = new byte[9];
-        byte[] dataCopy = new byte[9];
-        byte[] fillBuffer = new byte[]{32, 32, 32, 32, 32, 32, 32, 32, 32};
+    private static byte[] zeitVerwuerfeln(byte[] daten, byte[] zeitSchluessel) {
+        byte[] zeitKopie = new byte[9];
+        byte[] datenKopie = new byte[9];
+        byte[] fuellPuffer = new byte[]{32, 32, 32, 32, 32, 32, 32, 32, 32};
 
-        char[] seedChars = new char[6];
-        int dataLen = 7;    // index of last byte (0..7)
-        int bcdLen = 20;    // BCD working length
+        char[] startwertZiffern = new char[6];
+        int letzterIndex = 7;          // Index des letzten Bytes (0..7)
+        int bcdArbeitsLaenge = 20;     // BCD-Arbeitsbreite in Halbbytes
 
-        long seed;
-        long remainder;
-        long maxInt = 2147483647L;
+        long startwert;
+        long rest;
+        long ganzzahlMaximum = 2147483647L;
+        long multiplikator = 455470314L;
 
-        byte[] bcdThousand = new byte[20];
-        byte[] bcdMultiplier = new byte[20];
-        byte[] bcdSeed = new byte[20];
-        byte[] bcdMaxInt = new byte[20];
-        byte[] bcdWork1 = new byte[20];
-        byte[] bcdWork2 = new byte[20];
-        byte[] bcdWork3 = new byte[20];
-        byte[] bcdWork4 = new byte[20];
+        byte[] bcdTausend = new byte[20];
+        byte[] bcdMultiplikator = new byte[20];
+        byte[] bcdStartwert = new byte[20];
+        byte[] bcdMaximum = new byte[20];
+        byte[] bcdProdukt = new byte[20];
+        byte[] bcdQuotient = new byte[20];
+        byte[] bcdGanzteilRest = new byte[20];
+        byte[] bcdModuloRest = new byte[20];
 
-        System.arraycopy(data, 0, dataCopy, 0, dataLen + 1);
-        System.arraycopy(timeKey, 0, timeCopy, 0, dataLen + 1);
+        System.arraycopy(daten, 0, datenKopie, 0, letzterIndex + 1);
+        System.arraycopy(zeitSchluessel, 0, zeitKopie, 0, letzterIndex + 1);
 
-        // Re-order time digits to form seed
-        seedChars[0] = (char) timeCopy[4];
-        seedChars[1] = (char) timeCopy[1];
-        seedChars[2] = (char) timeCopy[3];
-        seedChars[3] = (char) timeCopy[6];
-        seedChars[4] = (char) timeCopy[7];
-        seedChars[5] = (char) timeCopy[0];
+        // Zeitstempel-Ziffern umordnen zum Startwert
+        startwertZiffern[0] = (char) zeitKopie[4];
+        startwertZiffern[1] = (char) zeitKopie[1];
+        startwertZiffern[2] = (char) zeitKopie[3];
+        startwertZiffern[3] = (char) zeitKopie[6];
+        startwertZiffern[4] = (char) zeitKopie[7];
+        startwertZiffern[5] = (char) zeitKopie[0];
 
-        String seedStr = new String(seedChars);
-        seed = (long) Integer.parseInt(seedStr);
+        startwert = (long) Integer.parseInt(new String(startwertZiffern));
 
-        // Initialise BCD constants
-        bcdCvd(bcdThousand, bcdLen, 1000L);
-        bcdCvd(bcdMultiplier, bcdLen, 455470314L);
-        bcdCvd(bcdSeed, bcdLen, seed);
-        bcdCvd(bcdMaxInt, bcdLen, maxInt);
+        // BCD-Konstanten initialisieren
+        ganzzahlNachBcd(bcdTausend, bcdArbeitsLaenge, 1000L);
+        ganzzahlNachBcd(bcdMultiplikator, bcdArbeitsLaenge, multiplikator);
+        ganzzahlNachBcd(bcdStartwert, bcdArbeitsLaenge, startwert);
+        ganzzahlNachBcd(bcdMaximum, bcdArbeitsLaenge, ganzzahlMaximum);
 
-        // Scramble each byte
-        for (int i = 0; i <= dataLen; i++) {
-            // work1 = multiplier * seed
-            System.arraycopy(bcdMultiplier, 0, bcdWork1, 0, 20);
-            bcdMp(bcdWork1, bcdLen, bcdSeed, bcdLen);
+        // Jedes Byte einzeln verwürfeln
+        for (int i = 0; i <= letzterIndex; i++) {
+            // produkt = multiplikator × startwert
+            System.arraycopy(bcdMultiplikator, 0, bcdProdukt, 0, 20);
+            bcdMultiplizieren(bcdProdukt, bcdArbeitsLaenge, bcdStartwert, bcdArbeitsLaenge);
 
-            // work2 = work1 / maxInt  (quotient)
-            System.arraycopy(bcdWork1, 0, bcdWork2, 0, 20);
-            bcdDp(bcdWork2, bcdLen, bcdMaxInt, bcdLen);
+            // quotient = produkt / maximum (ganzzahliger Quotient)
+            System.arraycopy(bcdProdukt, 0, bcdQuotient, 0, 20);
+            bcdDividieren(bcdQuotient, bcdArbeitsLaenge, bcdMaximum, bcdArbeitsLaenge);
 
-            // work2 = work2 * maxInt  →  floor(work1/maxInt) * maxInt
-            bcdMp(bcdWork2, bcdLen, bcdMaxInt, bcdLen);
+            // quotient = quotient × maximum → floor(produkt/maximum) × maximum
+            bcdMultiplizieren(bcdQuotient, bcdArbeitsLaenge, bcdMaximum, bcdArbeitsLaenge);
 
-            // seed = work1 - work2  →  (multiplier * seed) mod maxInt
-            System.arraycopy(bcdWork1, 0, bcdSeed, 0, 20);
-            bcdSp(bcdSeed, bcdLen, bcdWork2, bcdLen);
+            // startwert = produkt − quotient → (multiplikator × startwert) mod maximum
+            System.arraycopy(bcdProdukt, 0, bcdStartwert, 0, 20);
+            bcdSubtrahieren(bcdStartwert, bcdArbeitsLaenge, bcdQuotient, bcdArbeitsLaenge);
 
-            // work3 = seed / 1000  (quotient)
-            System.arraycopy(bcdSeed, 0, bcdWork3, 0, 20);
-            bcdDp(bcdWork3, bcdLen, bcdThousand, bcdLen);
+            // ganzteilRest = startwert / 1000 (ganzzahliger Quotient)
+            System.arraycopy(bcdStartwert, 0, bcdGanzteilRest, 0, 20);
+            bcdDividieren(bcdGanzteilRest, bcdArbeitsLaenge, bcdTausend, bcdArbeitsLaenge);
 
-            // work3 = work3 * 1000
-            bcdMp(bcdWork3, bcdLen, bcdThousand, bcdLen);
+            // ganzteilRest = ganzteilRest × 1000
+            bcdMultiplizieren(bcdGanzteilRest, bcdArbeitsLaenge, bcdTausend, bcdArbeitsLaenge);
 
-            // work4 = seed - work3  →  seed mod 1000
-            System.arraycopy(bcdSeed, 0, bcdWork4, 0, 20);
-            bcdSp(bcdWork4, bcdLen, bcdWork3, bcdLen);
+            // moduloRest = startwert − ganzteilRest → startwert mod 1000
+            System.arraycopy(bcdStartwert, 0, bcdModuloRest, 0, 20);
+            bcdSubtrahieren(bcdModuloRest, bcdArbeitsLaenge, bcdGanzteilRest, bcdArbeitsLaenge);
 
-            // Convert BCD remainder back to long
-            remainder = bcdCvb(bcdWork4, bcdLen);
+            // BCD-Rest zurück in Ganzzahl wandeln
+            rest = bcdNachGanzzahl(bcdModuloRest, bcdArbeitsLaenge);
 
-            // Add remainder to credential byte
-            long val = (long) dataCopy[i];
-            val += remainder;
-            fillBuffer[i] = (byte) ((int) val);
+            // Rest auf das Anmeldebyte addieren
+            long wert = (long) datenKopie[i];
+            wert += rest;
+            fuellPuffer[i] = (byte) ((int) wert);
         }
 
-        // Copy result back
-        for (int i = 0; i <= dataLen; i++) {
-            data[i] = fillBuffer[i];
+        // Ergebnis zurückkopieren
+        for (int i = 0; i <= letzterIndex; i++) {
+            daten[i] = fuellPuffer[i];
         }
 
-        return data;
+        return daten;
     }
 
     // =================================================================
-    //  BCD Arithmetic
+    //  BCD-Arithmetik
     // =================================================================
 
     /**
-     * BCD Multiply: var0 = var0 * var2  (packed decimal).
+     * BCD-Multiplikation: ergebnis = ergebnis × faktor (gepackte Dezimalzahl).
+     *
+     * @param ergebnis       Ziel-/Ergebnis-Array (wird in-place überschrieben)
+     * @param ergebnisLaenge Anzahl der Dezimalstellen im Ergebnis
+     * @param faktor         der zweite Faktor (nur gelesen)
+     * @param faktorLaenge   Anzahl der Dezimalstellen im Faktor
+     * @return {@link #BCD_ERFOLG} oder {@link #BCD_UEBERLAUF}
      */
-    private static int bcdMp(byte[] var0, int var1, byte[] var2, int var3) {
-        boolean overflow = false;
-        boolean sign0positive = false;
-        boolean sign2positive = false;
+    private static int bcdMultiplizieren(byte[] ergebnis, int ergebnisLaenge,
+                                         byte[] faktor, int faktorLaenge) {
+        boolean ueberlauf = false;
+        boolean vorzeichenErgebnisPositiv = false;
+        boolean vorzeichenFaktorPositiv = false;
 
-        int padA = 1 - var1 % 2;
-        int endA = var1 + padA;
-        int padB = 1 - var3 % 2;
-        int endB = var3 + padB;
+        int auffuellungA = 1 - ergebnisLaenge % 2;
+        int endeA = ergebnisLaenge + auffuellungA;
+        int auffuellungB = 1 - faktorLaenge % 2;
+        int endeB = faktorLaenge + auffuellungB;
 
-        // Count significant digits to detect potential overflow
-        int pos;
-        for (pos = padA; pos < endA && getBCD(var0, pos) == 0; ++pos) {
+        // Signifikante Stellen zählen um Überlauf vorherzusagen
+        int stelle;
+        for (stelle = auffuellungA; stelle < endeA && halbbyteAuslesen(ergebnis, stelle) == 0; ++stelle) {
         }
-        int significantDigits = var1 - pos;
+        int signifikanteStellen = ergebnisLaenge - stelle;
 
-        for (pos = padB; pos < endB && getBCD(var2, pos) == 0; ++pos) {
+        for (stelle = auffuellungB; stelle < endeB && halbbyteAuslesen(faktor, stelle) == 0; ++stelle) {
         }
-        significantDigits += var3 - pos;
+        signifikanteStellen += faktorLaenge - stelle;
 
-        if (significantDigits > var1 + 1) {
-            overflow = true;
+        if (signifikanteStellen > ergebnisLaenge + 1) {
+            ueberlauf = true;
         }
 
-        // Multiply digit-by-digit
-        for (int i = padA; i < endA; ++i) {
-            int sum = 0;
-            int a = i;
+        // Stellenweise Multiplikation
+        for (int i = auffuellungA; i < endeA; ++i) {
+            int summe = 0;
+            int posA = i;
 
-            for (int b = endB - 1; a < endA && b >= padB; --b) {
-                int digit = getBCD(var0, a);
-                digit *= getBCD(var2, b);
-                sum += digit;
-                ++a;
+            for (int posB = endeB - 1; posA < endeA && posB >= auffuellungB; --posB) {
+                int ziffer = halbbyteAuslesen(ergebnis, posA);
+                ziffer *= halbbyteAuslesen(faktor, posB);
+                summe += ziffer;
+                ++posA;
             }
 
-            int carry = sum / 10;
-            var0 = setBCD(var0, i, (long) (sum % 10));
+            int uebertrag = summe / 10;
+            ergebnis = halbbyteSchreiben(ergebnis, i, (long) (summe % 10));
 
-            if (carry > 0) {
-                for (int k = i - 1; k >= padA && carry != 0; --k) {
-                    sum = getBCD(var0, k) + carry;
-                    carry = sum / 10;
-                    var0 = setBCD(var0, k, (long) (sum % 10));
+            if (uebertrag > 0) {
+                for (int k = i - 1; k >= auffuellungA && uebertrag != 0; --k) {
+                    summe = halbbyteAuslesen(ergebnis, k) + uebertrag;
+                    uebertrag = summe / 10;
+                    ergebnis = halbbyteSchreiben(ergebnis, k, (long) (summe % 10));
                 }
-                if (carry != 0) {
-                    overflow = true;
+                if (uebertrag != 0) {
+                    ueberlauf = true;
                 }
             }
         }
 
-        if (overflow) {
-            return BCD_OVERFLOW;
+        if (ueberlauf) {
+            return BCD_UEBERLAUF;
         }
 
-        // Set result sign
-        int zeroA = bcdZero(var0, var1);
-        if (zeroA != 0 || isPPositive(getBCD(var0, endA))) {
-            sign0positive = true;
+        // Vorzeichen des Ergebnisses bestimmen
+        int nullPruefung = bcdIstNull(ergebnis, ergebnisLaenge);
+        if (nullPruefung != 0 || istVorzeichenPositiv(halbbyteAuslesen(ergebnis, endeA))) {
+            vorzeichenErgebnisPositiv = true;
         }
-        if (bcdZero(var2, var3) != 0 || isPPositive(getBCD(var2, endB))) {
-            sign2positive = true;
+        if (bcdIstNull(faktor, faktorLaenge) != 0 || istVorzeichenPositiv(halbbyteAuslesen(faktor, endeB))) {
+            vorzeichenFaktorPositiv = true;
         }
-        if (zeroA == 0 && sign0positive != sign2positive) {
-            setPNegative(var0, endA);
+        if (nullPruefung == 0 && vorzeichenErgebnisPositiv != vorzeichenFaktorPositiv) {
+            vorzeichenNegativSetzen(ergebnis, endeA);
         } else {
-            setPPositive(var0, endA);
+            vorzeichenPositivSetzen(ergebnis, endeA);
         }
 
-        return BCD_OK;
+        return BCD_ERFOLG;
     }
 
     /**
-     * BCD Divide: var0 = var0 / var2  (quotient, packed decimal).
+     * BCD-Division: dividend = dividend / divisor (ganzzahliger Quotient, gepackte Dezimalzahl).
+     *
+     * @param dividend       Ziel-/Ergebnis-Array (wird in-place überschrieben)
+     * @param dividendLaenge Anzahl der Dezimalstellen im Dividend
+     * @param divisor        der Divisor (nur gelesen)
+     * @param divisorLaenge  Anzahl der Dezimalstellen im Divisor
+     * @return {@link #BCD_ERFOLG} oder {@link #BCD_DIVISION_DURCH_NULL}
      */
-    private static int bcdDp(byte[] var0, int var1, byte[] var2, int var3) {
-        int firstDivisorDigit = 0;
+    private static int bcdDividieren(byte[] dividend, int dividendLaenge,
+                                     byte[] divisor, int divisorLaenge) {
+        int ersteDivisorZiffer = 0;
         byte[] quotient = new byte[21];
-        boolean sign0positive = false;
-        boolean sign2positive = false;
+        boolean vorzeichenDividendPositiv = false;
+        boolean vorzeichenDivisorPositiv = false;
 
-        int padA = 1 - var1 % 2;
-        int endA = var1 + padA;
-        int padB = 1 - var3 % 2;
-        int endB = var3 + padB;
+        int auffuellungA = 1 - dividendLaenge % 2;
+        int endeA = dividendLaenge + auffuellungA;
+        int auffuellungB = 1 - divisorLaenge % 2;
+        int endeB = divisorLaenge + auffuellungB;
 
-        // Find first non-zero divisor digit
-        int pos;
-        for (pos = padB; pos < endB; ++pos) {
-            firstDivisorDigit = getBCD(var2, pos);
-            if (firstDivisorDigit != 0) {
+        // Erste von Null verschiedene Divisor-Ziffer finden
+        int stelle;
+        for (stelle = auffuellungB; stelle < endeB; ++stelle) {
+            ersteDivisorZiffer = halbbyteAuslesen(divisor, stelle);
+            if (ersteDivisorZiffer != 0) {
                 break;
             }
         }
 
-        int divisorLen = endB - pos;
-        if (divisorLen == 0) {
-            return BCD_DIVISION_BY_ZERO;
+        int divisorStellen = endeB - stelle;
+        if (divisorStellen == 0) {
+            return BCD_DIVISION_DURCH_NULL;
         }
 
-        // Two-digit estimate of divisor
-        int twoDigitDivisor = 10 * firstDivisorDigit;
-        ++pos;
-        if (pos < endB) {
-            twoDigitDivisor += getBCD(var2, pos);
+        // Zweistellige Schätzung des Divisors
+        int zweistelligerDivisor = 10 * ersteDivisorZiffer;
+        ++stelle;
+        if (stelle < endeB) {
+            zweistelligerDivisor += halbbyteAuslesen(divisor, stelle);
         }
 
-        // Long division loop
-        for (int i = padA - 1; i < endA - divisorLen; ++i) {
-            int est1 = 0;
-            if (i >= padA) {
-                est1 = 10 * getBCD(var0, i);
+        // Schriftliche Division
+        for (int i = auffuellungA - 1; i < endeA - divisorStellen; ++i) {
+            int schaetzung1 = 0;
+            if (i >= auffuellungA) {
+                schaetzung1 = 10 * halbbyteAuslesen(dividend, i);
             }
-            if (i < endA - 1) {
-                est1 += getBCD(var0, i + 1);
-            }
-
-            int est2 = 10 * est1;
-            if (i < endA - 2) {
-                est2 += getBCD(var0, i + 2);
+            if (i < endeA - 1) {
+                schaetzung1 += halbbyteAuslesen(dividend, i + 1);
             }
 
-            // Estimate quotient digit
-            int q = est1 / firstDivisorDigit;
-            if (q > 9) {
-                q = 9;
+            int schaetzung2 = 10 * schaetzung1;
+            if (i < endeA - 2) {
+                schaetzung2 += halbbyteAuslesen(dividend, i + 2);
             }
 
-            // Correct overestimate
-            for (int check = est2 - q * twoDigitDivisor; check < 0; --q) {
-                check += twoDigitDivisor;
+            // Quotientenziffer schätzen
+            int quotientenZiffer = schaetzung1 / ersteDivisorZiffer;
+            if (quotientenZiffer > 9) {
+                quotientenZiffer = 9;
             }
 
-            // Subtract q * divisor from dividend
-            int borrow = 0;
-            if (q > 0) {
-                int a = i + divisorLen;
-                for (int b = endB - 1; a >= padA && a >= i && b >= padB; --b) {
-                    int d = 100 + getBCD(var0, a) + borrow;
-                    d -= q * getBCD(var2, b);
-                    borrow = d / 10 - 10;
-                    var0 = setBCD(var0, a, (long) (d % 10));
-                    --a;
+            // Überschätzung korrigieren
+            for (int probe = schaetzung2 - quotientenZiffer * zweistelligerDivisor;
+                 probe < 0; --quotientenZiffer) {
+                probe += zweistelligerDivisor;
+            }
+
+            // quotientenZiffer × Divisor vom Dividenden subtrahieren
+            int borger = 0;
+            if (quotientenZiffer > 0) {
+                int posA = i + divisorStellen;
+                for (int posB = endeB - 1; posA >= auffuellungA && posA >= i && posB >= auffuellungB; --posB) {
+                    int differenz = 100 + halbbyteAuslesen(dividend, posA) + borger;
+                    differenz -= quotientenZiffer * halbbyteAuslesen(divisor, posB);
+                    borger = differenz / 10 - 10;
+                    dividend = halbbyteSchreiben(dividend, posA, (long) (differenz % 10));
+                    --posA;
                 }
-                while (a >= padA && borrow < 0) {
-                    int d = 10 + getBCD(var0, a) + borrow;
-                    borrow = d / 10 - 1;
-                    var0 = setBCD(var0, a, (long) (d % 10));
-                    --a;
+                while (posA >= auffuellungA && borger < 0) {
+                    int differenz = 10 + halbbyteAuslesen(dividend, posA) + borger;
+                    borger = differenz / 10 - 1;
+                    dividend = halbbyteSchreiben(dividend, posA, (long) (differenz % 10));
+                    --posA;
                 }
             }
 
-            // Correct underestimate (add back)
-            if (borrow < 0) {
-                --q;
-                borrow = 0;
-                int a = i + divisorLen;
-                for (int b = endB - 1; a >= padA && a >= i && b >= padB; --b) {
-                    int d = getBCD(var0, a) + borrow;
-                    d += getBCD(var2, b);
-                    if (d > 9) {
-                        d -= 10;
-                        borrow = 1;
+            // Unterschätzung korrigieren (Divisor zurückaddieren)
+            if (borger < 0) {
+                --quotientenZiffer;
+                borger = 0;
+                int posA = i + divisorStellen;
+                for (int posB = endeB - 1; posA >= auffuellungA && posA >= i && posB >= auffuellungB; --posB) {
+                    int differenz = halbbyteAuslesen(dividend, posA) + borger;
+                    differenz += halbbyteAuslesen(divisor, posB);
+                    if (differenz > 9) {
+                        differenz -= 10;
+                        borger = 1;
                     } else {
-                        borrow = 0;
+                        borger = 0;
                     }
-                    var0 = setBCD(var0, a, (long) d);
-                    --a;
+                    dividend = halbbyteSchreiben(dividend, posA, (long) differenz);
+                    --posA;
                 }
-                while (a >= padA && borrow != 0) {
-                    int d = getBCD(var0, a) + borrow;
-                    borrow = d / 10;
-                    var0 = setBCD(var0, a, (long) (d % 10));
-                    --a;
+                while (posA >= auffuellungA && borger != 0) {
+                    int differenz = halbbyteAuslesen(dividend, posA) + borger;
+                    borger = differenz / 10;
+                    dividend = halbbyteSchreiben(dividend, posA, (long) (differenz % 10));
+                    --posA;
                 }
             }
 
-            quotient = setBCD(quotient, i + 1, (long) q);
+            quotient = halbbyteSchreiben(quotient, i + 1, (long) quotientenZiffer);
         }
 
-        // Copy quotient back into var0 (remainder is now in var0, overwrite with quotient)
-        pos = endA - 1;
-        for (int j = pos - divisorLen; j >= padA - 1; --j) {
-            var0 = setBCD(var0, pos, (long) getBCD(quotient, j + 1));
-            --pos;
+        // Quotienten in den Dividenden zurückkopieren
+        stelle = endeA - 1;
+        for (int j = stelle - divisorStellen; j >= auffuellungA - 1; --j) {
+            dividend = halbbyteSchreiben(dividend, stelle, (long) halbbyteAuslesen(quotient, j + 1));
+            --stelle;
         }
-        while (pos >= padA) {
-            var0 = setBCD(var0, pos, 0L);
-            --pos;
+        while (stelle >= auffuellungA) {
+            dividend = halbbyteSchreiben(dividend, stelle, 0L);
+            --stelle;
         }
 
-        // Set result sign
-        int zeroA = bcdZero(var0, var1);
-        if (zeroA != 0 || isPPositive(getBCD(var0, endA))) {
-            sign0positive = true;
+        // Vorzeichen des Ergebnisses bestimmen
+        int nullPruefung = bcdIstNull(dividend, dividendLaenge);
+        if (nullPruefung != 0 || istVorzeichenPositiv(halbbyteAuslesen(dividend, endeA))) {
+            vorzeichenDividendPositiv = true;
         }
-        if (bcdZero(var2, var3) != 0 || isPPositive(getBCD(var2, endB))) {
-            sign2positive = true;
+        if (bcdIstNull(divisor, divisorLaenge) != 0 || istVorzeichenPositiv(halbbyteAuslesen(divisor, endeB))) {
+            vorzeichenDivisorPositiv = true;
         }
-        if (zeroA == 0 && sign0positive != sign2positive) {
-            setPNegative(var0, endA);
+        if (nullPruefung == 0 && vorzeichenDividendPositiv != vorzeichenDivisorPositiv) {
+            vorzeichenNegativSetzen(dividend, endeA);
         } else {
-            setPPositive(var0, endA);
+            vorzeichenPositivSetzen(dividend, endeA);
         }
 
-        return BCD_OK;
+        return BCD_ERFOLG;
     }
 
     /**
-     * BCD Subtract: var0 = var0 - var2  (packed decimal).
+     * BCD-Subtraktion: minuend = minuend − subtrahend (gepackte Dezimalzahl).
+     *
+     * @param minuend          Ziel-/Ergebnis-Array (wird in-place überschrieben)
+     * @param minuendLaenge    Anzahl der Dezimalstellen im Minuend
+     * @param subtrahend       der Subtrahend (nur gelesen)
+     * @param subtrahendLaenge Anzahl der Dezimalstellen im Subtrahend
+     * @return {@link #BCD_ERFOLG} oder {@link #BCD_UEBERLAUF}
      */
-    private static int bcdSp(byte[] var0, int var1, byte[] var2, int var3) {
-        byte carry = 0;
-        int maxLen = var1 < var3 ? var3 : var1;
-        int padA = 1 - var1 % 2;
-        int posA = var1 + padA;
-        int padB = 1 - var3 % 2;
-        int posB = var3 + padB;
-        boolean overflowDetected = false;
+    private static int bcdSubtrahieren(byte[] minuend, int minuendLaenge,
+                                       byte[] subtrahend, int subtrahendLaenge) {
+        byte uebertrag = 0;
+        int restlicheStellen = minuendLaenge < subtrahendLaenge ? subtrahendLaenge : minuendLaenge;
+        int auffuellungA = 1 - minuendLaenge % 2;
+        int posA = minuendLaenge + auffuellungA;
+        int auffuellungB = 1 - subtrahendLaenge % 2;
+        int posB = subtrahendLaenge + auffuellungB;
+        boolean ueberlaufErkannt = false;
 
-        if (isPNegative(getBCD(var0, posA)) != isPNegative(getBCD(var2, posB))) {
-            // Different signs → actually add magnitudes
-            carry = 0;
+        if (istVorzeichenNegativ(halbbyteAuslesen(minuend, posA))
+                != istVorzeichenNegativ(halbbyteAuslesen(subtrahend, posB))) {
+            // Unterschiedliche Vorzeichen → Beträge addieren
+            uebertrag = 0;
 
             while (true) {
-                --maxLen;
-                if (maxLen < 0) {
-                    // Propagate carry
-                    int d;
-                    for (; posA > padA && carry != 0; var0 = setBCD(var0, posA, (long) d)) {
+                --restlicheStellen;
+                if (restlicheStellen < 0) {
+                    // Übertrag propagieren
+                    int ziffer;
+                    for (; posA > auffuellungA && uebertrag != 0;
+                         minuend = halbbyteSchreiben(minuend, posA, (long) ziffer)) {
                         --posA;
-                        d = getBCD(var0, posA) + carry;
-                        if (d > 9) {
-                            d -= 10;
-                            carry = 1;
+                        ziffer = halbbyteAuslesen(minuend, posA) + uebertrag;
+                        if (ziffer > 9) {
+                            ziffer -= 10;
+                            uebertrag = 1;
                         } else {
-                            carry = 0;
+                            uebertrag = 0;
                         }
                     }
 
-                    // Check if var2 still has non-zero digits
-                    while (posB > padB) {
+                    // Prüfen ob der Subtrahend noch Nicht-Null-Stellen hat
+                    while (posB > auffuellungB) {
                         --posB;
-                        if (getBCD(var2, posB) != 0) {
-                            overflowDetected = true;
+                        if (halbbyteAuslesen(subtrahend, posB) != 0) {
+                            ueberlaufErkannt = true;
                             break;
                         }
                     }
@@ -533,65 +568,67 @@ public final class PassWord {
 
                 --posA;
                 --posB;
-                int d = getBCD(var0, posA) + carry;
-                d += getBCD(var2, posB);
-                if (d > 9) {
-                    d -= 10;
-                    carry = 1;
+                int ziffer = halbbyteAuslesen(minuend, posA) + uebertrag;
+                ziffer += halbbyteAuslesen(subtrahend, posB);
+                if (ziffer > 9) {
+                    ziffer -= 10;
+                    uebertrag = 1;
                 } else {
-                    carry = 0;
+                    uebertrag = 0;
                 }
-                var0 = setBCD(var0, posA, (long) d);
+                minuend = halbbyteSchreiben(minuend, posA, (long) ziffer);
             }
         } else {
-            // Same signs → subtract magnitudes
-            byte borrow = 0;
+            // Gleiche Vorzeichen → Beträge subtrahieren
+            byte borger = 0;
 
             while (true) {
-                --maxLen;
-                if (maxLen < 0) {
-                    // Propagate borrow
-                    int d;
-                    for (; posA > padA && borrow != 0; var0 = setBCD(var0, posA, (long) d)) {
+                --restlicheStellen;
+                if (restlicheStellen < 0) {
+                    // Borger propagieren
+                    int ziffer;
+                    for (; posA > auffuellungA && borger != 0;
+                         minuend = halbbyteSchreiben(minuend, posA, (long) ziffer)) {
                         --posA;
-                        d = getBCD(var0, posA) + borrow;
-                        if (d < 0) {
-                            d += 10;
-                            borrow = 1;
+                        ziffer = halbbyteAuslesen(minuend, posA) + borger;
+                        if (ziffer < 0) {
+                            ziffer += 10;
+                            borger = 1;
                         } else {
-                            borrow = 0;
+                            borger = 0;
                         }
                     }
 
-                    // If still borrowing, negate result and flip sign
-                    if (borrow != 0) {
-                        borrow = 0;
-                        padA = 1 - var1 % 2;
-                        posA = var1 + padA;
-                        if (isPPositive(getBCD(var0, posA))) {
-                            var0 = setPNegative(var0, posA);
+                    // Falls noch Borger übrig: Ergebnis negieren und Vorzeichen umkehren
+                    if (borger != 0) {
+                        borger = 0;
+                        auffuellungA = 1 - minuendLaenge % 2;
+                        posA = minuendLaenge + auffuellungA;
+                        if (istVorzeichenPositiv(halbbyteAuslesen(minuend, posA))) {
+                            minuend = vorzeichenNegativSetzen(minuend, posA);
                         } else {
-                            var0 = setPPositive(var0, posA);
+                            minuend = vorzeichenPositivSetzen(minuend, posA);
                         }
 
-                        int digit;
-                        for (; posA > padA; var0 = setBCD(var0, posA, (long) digit)) {
+                        int negierteZiffer;
+                        for (; posA > auffuellungA;
+                             minuend = halbbyteSchreiben(minuend, posA, (long) negierteZiffer)) {
                             --posA;
-                            digit = -getBCD(var0, posA) - borrow;
-                            if (digit < 0) {
-                                digit += 10;
-                                borrow = 1;
+                            negierteZiffer = -halbbyteAuslesen(minuend, posA) - borger;
+                            if (negierteZiffer < 0) {
+                                negierteZiffer += 10;
+                                borger = 1;
                             } else {
-                                borrow = 0;
+                                borger = 0;
                             }
                         }
                     }
 
-                    // Check if var2 still has non-zero digits
-                    while (posB > padB) {
+                    // Prüfen ob der Subtrahend noch Nicht-Null-Stellen hat
+                    while (posB > auffuellungB) {
                         --posB;
-                        if (getBCD(var2, posB) != 0) {
-                            overflowDetected = true;
+                        if (halbbyteAuslesen(subtrahend, posB) != 0) {
+                            ueberlaufErkannt = true;
                             break;
                         }
                     }
@@ -600,162 +637,208 @@ public final class PassWord {
 
                 --posA;
                 --posB;
-                int d = getBCD(var0, posA) - borrow;
-                d -= getBCD(var2, posB);
-                if (d < 0) {
-                    d += 10;
-                    borrow = 1;
+                int ziffer = halbbyteAuslesen(minuend, posA) - borger;
+                ziffer -= halbbyteAuslesen(subtrahend, posB);
+                if (ziffer < 0) {
+                    ziffer += 10;
+                    borger = 1;
                 } else {
-                    borrow = 0;
+                    borger = 0;
                 }
-                var0 = setBCD(var0, posA, (long) d);
+                minuend = halbbyteSchreiben(minuend, posA, (long) ziffer);
             }
         }
 
-        if (carry != 0) {
-            overflowDetected = true;
+        if (uebertrag != 0) {
+            ueberlaufErkannt = true;
         }
 
-        if (bcdZero(var0, var1) != 0) {
-            setPPositive(var0, var1 + padA);
+        if (bcdIstNull(minuend, minuendLaenge) != 0) {
+            vorzeichenPositivSetzen(minuend, minuendLaenge + auffuellungA);
         }
 
-        return overflowDetected ? BCD_OVERFLOW : BCD_OK;
+        return ueberlaufErkannt ? BCD_UEBERLAUF : BCD_ERFOLG;
     }
 
     /**
-     * Convert long to BCD (packed decimal).
+     * Wandelt eine Ganzzahl in eine gepackte BCD-Darstellung.
+     *
+     * @param ziel   Ziel-Array für die BCD-Zahl
+     * @param laenge Anzahl der Dezimalstellen
+     * @param wert   die zu konvertierende Ganzzahl
+     * @return {@link #BCD_ERFOLG} oder {@link #BCD_UEBERLAUF}
      */
-    private static int bcdCvd(byte[] target, int length, long value) {
-        int pad = 1 - length % 2;
-        int end = length + pad;
-        long v = value;
-        target = setPPositive(target, end);
+    private static int ganzzahlNachBcd(byte[] ziel, int laenge, long wert) {
+        int auffuellung = 1 - laenge % 2;
+        int ende = laenge + auffuellung;
+        long restWert = wert;
+        ziel = vorzeichenPositivSetzen(ziel, ende);
 
-        while (end > pad) {
-            --end;
-            target = setBCD(target, end, v % 10L);
-            v /= 10L;
-            if (v == 0L) {
+        while (ende > auffuellung) {
+            --ende;
+            ziel = halbbyteSchreiben(ziel, ende, restWert % 10L);
+            restWert /= 10L;
+            if (restWert == 0L) {
                 break;
             }
         }
 
-        while (end > 0) {
-            --end;
-            target = setBCD(target, end, 0L);
+        while (ende > 0) {
+            --ende;
+            ziel = halbbyteSchreiben(ziel, ende, 0L);
         }
 
-        if (v != 0L) {
-            return BCD_OVERFLOW;
+        if (restWert != 0L) {
+            return BCD_UEBERLAUF;
         }
-        return BCD_OK;
+        return BCD_ERFOLG;
     }
 
     /**
-     * Convert BCD (packed decimal) to long.
+     * Wandelt eine gepackte BCD-Darstellung in eine Ganzzahl.
+     *
+     * @param quelle das BCD-Array
+     * @param laenge Anzahl der Dezimalstellen
+     * @return die konvertierte Ganzzahl, oder {@link #BCD_UEBERLAUF} bei Überlauf
      */
-    private static long bcdCvb(byte[] source, int length) {
-        int pad = 1 - length % 2;
-        int end = length + pad;
+    private static long bcdNachGanzzahl(byte[] quelle, int laenge) {
+        int auffuellung = 1 - laenge % 2;
+        int ende = laenge + auffuellung;
 
-        long result = 0L;
-        for (int i = pad; i < end; ++i) {
-            result *= 10L;
-            result += (long) getBCD(source, i);
-            if (result < 0L) {
-                return BCD_OVERFLOW;
+        long ganzzahl = 0L;
+        for (int i = auffuellung; i < ende; ++i) {
+            ganzzahl *= 10L;
+            ganzzahl += (long) halbbyteAuslesen(quelle, i);
+            if (ganzzahl < 0L) {
+                return BCD_UEBERLAUF;
             }
         }
 
-        if (isPNegative(getBCD(source, end))) {
-            result = -result;
+        if (istVorzeichenNegativ(halbbyteAuslesen(quelle, ende))) {
+            ganzzahl = -ganzzahl;
         }
 
-        return result;
+        return ganzzahl;
     }
 
     // =================================================================
-    //  BCD nibble access
+    //  Halbbyte-Zugriff (Nibble-Operationen)
     // =================================================================
 
-    private static int getBCD(byte[] data, int pos) {
-        return ((pos % 2 != 0) ? data[pos >> 1] : (data[pos >> 1] >> 4)) & BCD_L_MASK;
-    }
-
-    private static byte[] setBCD(byte[] data, int pos, long value) {
-        if (pos % 2 != 0) {
-            data[pos >> 1] = (byte) ((int) ((long) (data[pos >> 1] & BCD_U_MASK) | value & 15L));
-        } else {
-            data[pos >> 1] = (byte) ((int) (value << 4 & 240L | (long) (data[pos >> 1] & BCD_L_MASK)));
-        }
-        return data;
-    }
-
-    // =================================================================
-    //  BCD sign helpers
-    // =================================================================
-
-    private static boolean isPPositive(int nibble) {
-        return !isPNegative(nibble);
-    }
-
-    private static boolean isPNegative(int nibble) {
-        return (nibble & BCD_L_MASK) == BCD_P_MINUS || (nibble & BCD_L_MASK) == 11;
-    }
-
-    private static byte[] setPPositive(byte[] data, int pos) {
-        data[pos >> 1] = (byte) (BCD_P_PLUS | data[pos >> 1] & BCD_U_MASK);
-        return data;
-    }
-
-    private static byte[] setPNegative(byte[] data, int pos) {
-        data[pos >> 1] = (byte) (BCD_P_MINUS | data[pos >> 1] & BCD_U_MASK);
-        return data;
+    /**
+     * Liest ein einzelnes BCD-Halbbyte (4 Bit) an der gegebenen Nibble-Position.
+     *
+     * @param daten    das Byte-Array
+     * @param position die Nibble-Position (0-basiert)
+     * @return der Wert des Halbbytes (0..15)
+     */
+    private static int halbbyteAuslesen(byte[] daten, int position) {
+        return ((position % 2 != 0) ? daten[position >> 1] : (daten[position >> 1] >> 4))
+                & HALBBYTE_UNTERE_MASKE;
     }
 
     /**
-     * Check if a BCD number is zero (all digits zero).
-     * Returns 1 if zero, 0 otherwise.
+     * Schreibt einen Wert in ein einzelnes BCD-Halbbyte an der gegebenen Nibble-Position.
+     *
+     * @param daten    das Byte-Array
+     * @param position die Nibble-Position (0-basiert)
+     * @param wert     der zu schreibende Wert (nur untere 4 Bit relevant)
+     * @return Referenz auf das modifizierte Array
      */
-    private static int bcdZero(byte[] data, int length) {
-        int idx = 0;
-        if (length <= 0) {
+    private static byte[] halbbyteSchreiben(byte[] daten, int position, long wert) {
+        if (position % 2 != 0) {
+            daten[position >> 1] = (byte) ((int) ((long) (daten[position >> 1] & HALBBYTE_OBERE_MASKE)
+                    | wert & 15L));
+        } else {
+            daten[position >> 1] = (byte) ((int) (wert << 4 & 240L
+                    | (long) (daten[position >> 1] & HALBBYTE_UNTERE_MASKE)));
+        }
+        return daten;
+    }
+
+    // =================================================================
+    //  BCD-Vorzeichen-Hilfsmethoden
+    // =================================================================
+
+    /**
+     * Prüft ob das Vorzeichen-Halbbyte ein positives Vorzeichen kodiert.
+     */
+    private static boolean istVorzeichenPositiv(int halbbyte) {
+        return !istVorzeichenNegativ(halbbyte);
+    }
+
+    /**
+     * Prüft ob das Vorzeichen-Halbbyte ein negatives Vorzeichen kodiert.
+     * Negativ ist kodiert als 0xD (13) oder 0xB (11).
+     */
+    private static boolean istVorzeichenNegativ(int halbbyte) {
+        return (halbbyte & HALBBYTE_UNTERE_MASKE) == BCD_VORZEICHEN_MINUS
+                || (halbbyte & HALBBYTE_UNTERE_MASKE) == 11;
+    }
+
+    /**
+     * Setzt das Vorzeichen-Halbbyte auf positiv (0xC = 12).
+     */
+    private static byte[] vorzeichenPositivSetzen(byte[] daten, int position) {
+        daten[position >> 1] = (byte) (BCD_VORZEICHEN_PLUS | daten[position >> 1] & HALBBYTE_OBERE_MASKE);
+        return daten;
+    }
+
+    /**
+     * Setzt das Vorzeichen-Halbbyte auf negativ (0xD = 13).
+     */
+    private static byte[] vorzeichenNegativSetzen(byte[] daten, int position) {
+        daten[position >> 1] = (byte) (BCD_VORZEICHEN_MINUS | daten[position >> 1] & HALBBYTE_OBERE_MASKE);
+        return daten;
+    }
+
+    /**
+     * Prüft ob eine gepackte BCD-Zahl den Wert Null hat.
+     *
+     * @param daten  das BCD-Array
+     * @param laenge Anzahl der Dezimalstellen
+     * @return 1 wenn alle Ziffern null sind, sonst 0
+     */
+    private static int bcdIstNull(byte[] daten, int laenge) {
+        int index = 0;
+        if (laenge <= 0) {
             return 0;
         }
-        for (int count = length / 2; count > 0; --count) {
-            if (data[idx++] != 0) {
+        for (int anzahl = laenge / 2; anzahl > 0; --anzahl) {
+            if (daten[index++] != 0) {
                 return 0;
             }
         }
-        return (data[0] & BCD_U_MASK) != 0 ? 0 : 1;
+        return (daten[0] & HALBBYTE_OBERE_MASKE) != 0 ? 0 : 1;
     }
 
     // =================================================================
-    //  Hex conversion
+    //  Hex-Konvertierung
     // =================================================================
 
     /**
-     * Convert 8 bytes to 16 hex characters.
+     * Wandelt 8 Bytes in 16 Hex-Zeichen um.
+     *
+     * @param daten die 8 Eingabe-Bytes
+     * @return char-Array mit 16 Hex-Zeichen (+ 1 ungenutztes Sentinel-Zeichen)
      */
-    private static char[] convertHexChar(byte[] data) {
-        int len = 8;
-        char[] result = new char[17];
-        int pos = 0;
+    private static char[] bytesZuHexZeichen(byte[] daten) {
+        int anzahlBytes = 8;
+        char[] hexZeichen = new char[17];
+        int schreibPos = 0;
 
-        for (int i = 0; i < len; ++i) {
-            int val = data[i] & 255;
-            byte[] hexBytes = Integer.toHexString(val).getBytes();
-            if (hexBytes.length == 1) {
-                result[pos++] = '0';
-                result[pos++] = (char) hexBytes[0];
+        for (int i = 0; i < anzahlBytes; ++i) {
+            int byteWert = daten[i] & 255;
+            byte[] hexText = Integer.toHexString(byteWert).getBytes();
+            if (hexText.length == 1) {
+                hexZeichen[schreibPos++] = '0';
+                hexZeichen[schreibPos++] = (char) hexText[0];
             } else {
-                result[pos++] = (char) hexBytes[0];
-                result[pos++] = (char) hexBytes[1];
+                hexZeichen[schreibPos++] = (char) hexText[0];
+                hexZeichen[schreibPos++] = (char) hexText[1];
             }
         }
 
-        return result;
+        return hexZeichen;
     }
 }
-
