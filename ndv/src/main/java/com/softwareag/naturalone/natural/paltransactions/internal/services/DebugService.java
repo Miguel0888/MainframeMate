@@ -76,7 +76,7 @@ public class DebugService {
     private void doLogon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
         PalTrace.header("logon");
         ctx.getPal().add((IPalType) new PalTypeOperation(2, 12));
-        ctx.getPal().add((IPalType) new PalTypeStack("LOGON" + library));
+        ctx.getPal().add((IPalType) new PalTypeStack("LOGON " + library));
         ctx.getPal().add((IPalType[]) stepLibs);
         ctx.getPal().commit();
         PalResultException ex = ctx.getResultException();
