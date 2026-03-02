@@ -1,6 +1,7 @@
 package com.softwareag.naturalone.natural.pal.type;
 
 import com.softwareag.naturalone.natural.pal.ConversionErrorInfo;
+import com.softwareag.naturalone.natural.pal.ConversionResult;
 
 import java.util.Base64;
 import java.nio.charset.Charset;
@@ -9,7 +10,6 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.CharBuffer;
 import java.nio.ByteBuffer;
-import com.softwareag.naturalone.natural.pal.PalUnmappableCodePointException;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeSourceCP;
 
 import java.io.IOException;
@@ -18,6 +18,7 @@ import java.io.UnsupportedEncodingException;
 public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     private static final long serialVersionUID = 1L;
     private byte[] ebcdicRecord;
+    private ConversionResult lastConversionResult = ConversionResult.ok();
 
     public PalTypeSourceCP() { super(); type = 48; }
     public PalTypeSourceCP(String sourceRecord, String codePage) {
@@ -26,13 +27,20 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
         this.charSetName = codePage;
     }
 
+    /** Liefert das Ergebnis der letzten serialize()- oder convert()-Operation. */
+    public ConversionResult getLastConversionResult() {
+        return lastConversionResult;
+    }
+
     public void serialize() {
+        lastConversionResult = ConversionResult.ok();
         if (sourceLine == null || charSetName == null) return;
         try {
-            // check for unmappable code points
             int cp = findUnsupportedCodePoint(charSetName, sourceLine);
             if (cp != 0) {
-                throw new PalUnmappableCodePointException("Unmappable code point: " + cp, this, 0);
+                lastConversionResult = ConversionResult.error(
+                        "Unmappable code point: " + cp, this, 0);
+                return;
             }
             if (super.palVersion <= 35) {
                 char[] b64 = utf16ToCharsetToBase64(sourceLine + " ", charSetName, true);
@@ -41,8 +49,6 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
                 byte[] raw = encodeWithCharset(charSetName, sourceLine + " ");
                 byteArrayToBuffer(PalTypeStream.Palbtos(raw));
             }
-        } catch (PalUnmappableCodePointException e) {
-            throw e;
         } catch (Exception e) {
             // defensive
         }
@@ -58,6 +64,7 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     }
 
     public void convert(String charsetName) throws UnsupportedEncodingException, IOException {
+        lastConversionResult = ConversionResult.ok();
         if (ebcdicRecord == null) return;
         try {
             StringBuffer sb = getUtf16ICU(ebcdicRecord, charsetName);
@@ -67,7 +74,9 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
         } catch (Exception e) {
             ConversionErrorInfo err = findUnsupportedByteCodePoint(charsetName, ebcdicRecord);
             if (err != null) {
-                throw new PalUnmappableCodePointException(err.toString(), this, err.getOffset());
+                lastConversionResult = ConversionResult.error(
+                        err.toString(), this, err.getOffset());
+                return;
             }
             throw new IOException(e);
         }

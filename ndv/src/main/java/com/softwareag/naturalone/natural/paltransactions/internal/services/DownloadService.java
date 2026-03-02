@@ -51,15 +51,9 @@ public class DownloadService {
             dlCtx = (ITransactionContextDownload) txCtx;
         }
 
-        IDownloadResult result = null;
-        try {
-            PalTrace.header("downloadSource");
-            result = dateiOperationQuellcodeLaden(dlCtx, sysFile,
-                    ctx.getLibrary(sysFile, library), props, options);
-            return result;
-        } catch (InvalidSourceException e) {
-            throw e;
-        }
+        PalTrace.header("downloadSource");
+        return dateiOperationQuellcodeLaden(dlCtx, sysFile,
+                ctx.getLibrary(sysFile, library), props, options);
     }
 
     /**
@@ -248,7 +242,7 @@ public class DownloadService {
         } catch (NullPointerException e) {
             fehlerhaft = true;
             throw new NullPointerException();
-        } catch (PalUnmappableCodePointException e) {
+        } catch (IllegalStateException e) {
             if (dlCtx == null) {
                 ctx.getPal().init();
                 dateiOperationAbbrechen(options);
@@ -262,11 +256,6 @@ public class DownloadService {
         } catch (PalResultException e) {
             if (e.getErrorKind() == 4) {
                 fehlerhaft = true;
-            }
-            throw e;
-        } catch (InvalidSourceException e) {
-            if (dlCtx == null) {
-                dateiOperationAbbrechen(options);
             }
             throw e;
         } finally {
@@ -512,6 +501,17 @@ public class DownloadService {
                         for (int i = 0; i < ((Object[]) quellDaten).length; i++) {
                             ((IPalTypeSource) ((Object[]) quellDaten)[i]).convert(zeichensatz);
                             zeilenNr++;
+                            // Konvertierungsergebnis prüfen
+                            if (((Object[]) quellDaten)[i] instanceof PalTypeSourceCP) {
+                                ConversionResult r = ((PalTypeSourceCP) ((Object[]) quellDaten)[i])
+                                        .getLastConversionResult();
+                                if (r.hasError()) {
+                                    ctx.getPal().init();
+                                    throw new IllegalStateException(
+                                            String.format("Conversion error in line %d: %s",
+                                                    zeilenNr, r.getMessage()));
+                                }
+                            }
                         }
                     }
                 }
@@ -556,16 +556,10 @@ public class DownloadService {
                 return new DownloadResult(NULL_STRING_ARRAY, 0);
             }
 
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
-            if (e instanceof PalUnmappableCodePointException) {
-                ctx.getPal().init();
-                String meldung = String.format("Conversion error in line %d: %s",
-                        zeilenNr, e.getMessage());
-                throw new PalUnmappableCodePointException(meldung,
-                        ((PalUnmappableCodePointException) e).getPalTypeSource(),
-                        ((PalUnmappableCodePointException) e).getColumn());
-            }
-            throw new InvalidSourceException("illegal Natural source", e);
+            throw new IllegalStateException("illegal Natural source", e);
         }
     }
 

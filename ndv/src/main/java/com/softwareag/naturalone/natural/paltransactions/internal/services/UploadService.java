@@ -266,10 +266,11 @@ public class UploadService {
             try {
                 sourceToPal(quellZeilen, zeilenInkrement, ctx.getInternalLabelPrefix(),
                         effZeichensatz, true, objectHasLineNumberReferences(typ));
-            } catch (PalUnmappableCodePointException e) {
+            } catch (SourceConversionException e) {
                 pal.init();
-                throw new PalCompileResultException(3422, 3, e.getMessage(),
-                        e.getRow(), e.getColumn(), typ, objektName, library,
+                ConversionResult r = e.getConversionResult();
+                throw new PalCompileResultException(3422, 3, r.getMessage(),
+                        r.getRow(), r.getColumn(), typ, objektName, library,
                         sysFile.getDatabaseId(), sysFile.getFileNumber());
             }
 
@@ -293,10 +294,11 @@ public class UploadService {
                 try {
                     sourceToPal(ddmZeilen, zeilenInkrement, ctx.getInternalLabelPrefix(),
                             null, false, objectHasLineNumberReferences(typ));
-                } catch (PalUnmappableCodePointException e) {
+                } catch (SourceConversionException e) {
                     pal.init();
-                    throw new PalCompileResultException(3422, 3, e.getMessage(),
-                            e.getRow(), e.getColumn(), typ, objektName, library,
+                    ConversionResult r = e.getConversionResult();
+                    throw new PalCompileResultException(3422, 3, r.getMessage(),
+                            r.getRow(), r.getColumn(), typ, objektName, library,
                             sysFile.getDatabaseId(), sysFile.getFileNumber());
                 }
             }
@@ -468,19 +470,19 @@ public class UploadService {
             }
 
             pal.add((IPalType[]) datensaetze);
+
+            // Konvertierungsergebnis prüfen (nur PalTypeSourceCP liefert Fehler)
+            ConversionResult fehler = pruefeKonvertierungsFehler(datensaetze);
+            if (fehler != null) {
+                pal.init();
+                throw new SourceConversionException(fehler);
+            }
         } catch (InstantiationException e) {
             e.printStackTrace();
         } catch (IllegalAccessException e) {
             e.printStackTrace();
-        } catch (PalUnmappableCodePointException e) {
-            pal.init();
-            // Zeilennummer der fehlerhaften Zeile ermitteln
-            for (int i = 0; i < datensaetze.length; i++) {
-                if (datensaetze[i] == e.getPalTypeSource()) {
-                    e.setRow(i + 1);
-                    throw e;
-                }
-            }
+        } catch (SourceConversionException e) {
+            throw e;
         } catch (Throwable e) {
             pal.init();
             if (e instanceof IOException) throw (IOException) e;
@@ -570,10 +572,11 @@ public class UploadService {
                             props.getInternalLabelFirst(), props.getCodePage(),
                             !options.contains(EUploadOption.SOURCE_UNCHANGED),
                             objectHasLineNumberReferences(props.getType()));
-                } catch (PalUnmappableCodePointException e) {
+                } catch (SourceConversionException e) {
                     pal.init();
-                    throw new PalCompileResultException(3422, 3, e.getMessage(),
-                            e.getRow(), e.getColumn(), dateiId.getNatType(), dateiId.getObject(),
+                    ConversionResult r = e.getConversionResult();
+                    throw new PalCompileResultException(3422, 3, r.getMessage(),
+                            r.getRow(), r.getColumn(), dateiId.getNatType(), dateiId.getObject(),
                             library, sysFile.getDatabaseId(), sysFile.getFileNumber());
                 }
 
@@ -859,6 +862,39 @@ public class UploadService {
                     ex.getErrorNumber(), ex.getErrorKind(), ex.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Prüft die Datensätze auf Konvertierungsfehler (nur PalTypeSourceCP liefert diese).
+     * Gibt das erste fehlerhafte ConversionResult mit gesetzter Zeilennummer zurück, oder null.
+     */
+    private static ConversionResult pruefeKonvertierungsFehler(PalTypeSource[] datensaetze) {
+        for (int i = 0; i < datensaetze.length; i++) {
+            if (datensaetze[i] instanceof PalTypeSourceCP) {
+                ConversionResult r = ((PalTypeSourceCP) datensaetze[i]).getLastConversionResult();
+                if (r.hasError()) {
+                    r.setRow(i + 1);
+                    return r;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Interne IOException zum Transport eines ConversionResult durch die catch-Kette.
+     */
+    static class SourceConversionException extends IOException {
+        private final ConversionResult result;
+
+        SourceConversionException(ConversionResult result) {
+            super(result.getMessage());
+            this.result = result;
+        }
+
+        ConversionResult getConversionResult() {
+            return result;
+        }
     }
 }
 
