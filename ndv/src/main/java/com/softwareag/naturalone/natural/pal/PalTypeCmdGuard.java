@@ -102,7 +102,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
          this.allowedInfo2 = this.intFromBuffer();
          this.allowedInfo3 = this.intFromBuffer();
          this.allowedInfo4 = this.intFromBuffer();
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
       }
    }
 
@@ -125,7 +125,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isCatalogAllowed() {
       try {
          return (this.allowedInfo2 & 1) == 1;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -133,7 +133,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isSaveAllowed() {
       try {
          return (this.allowedInfo2 & 16) == 16;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -141,7 +141,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isCheckAllowed() {
       try {
          return (this.allowedInfo2 & 4) == 4;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -149,7 +149,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isStowAllowed() {
       try {
          return (this.allowedInfo2 & 8) == 8;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -161,7 +161,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isListDdmAllowed() {
       try {
          return (this.allowedInfo1 & 131072) == 131072;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -169,7 +169,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isCatalogDdmAllowed() {
       try {
          return (this.allowedInfo1 & 524288) == 524288;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -177,7 +177,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isCopyAllowed() {
       try {
          return (this.allowedInfo2 & 32768) == 32768;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -185,7 +185,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isCutAllowed() {
       try {
          return (this.allowedInfo2 & 16384) == 16384;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -197,7 +197,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isCutDdmAllowed() {
       try {
          return (this.allowedInfo1 & 4194304) == 4194304;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -205,7 +205,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isPasteAllowed() {
       try {
          return (this.allowedInfo2 & 65536) == 65536;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -221,7 +221,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isRenameLibraryAllowed() {
       try {
          return (this.allowedInfo2 & 131072) == 131072;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -233,7 +233,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isDeleteAllowed() {
       try {
          return (this.allowedInfo3 & 1) == 1;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -241,7 +241,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isDeleteLibraryAllowed() {
       try {
          return (this.allowedInfo3 & 2048) == 2048;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -265,7 +265,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    public boolean isUnlockForcedAllowed() {
       try {
          return (this.allowedInfo3 & 32768) == 32768;
-      } catch (PalTypeCmdGuard$IOException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -310,7 +310,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
          }
 
          return var2;
-      } catch (PalTypeCmdGuard$IOException var3) {
+      } catch (RuntimeException var3) {
          return false;
       }
    }
@@ -336,7 +336,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
          boolean var1 = (this.allowedInfo3 & 262144) == 262144;
          boolean var2 = (this.allowedInfo3 & 524288) == 524288;
          return !var1 && var2;
-      } catch (PalTypeCmdGuard$IOException var3) {
+      } catch (RuntimeException var3) {
          return false;
       }
    }
