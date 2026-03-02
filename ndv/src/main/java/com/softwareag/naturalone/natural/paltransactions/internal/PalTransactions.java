@@ -24,6 +24,7 @@ public class PalTransactions implements IPalTransactions {
     private final LibraryBrowseService libraryBrowseService;
     private final ObjectBrowseService objectBrowseService;
     private final SourceTransferService sourceTransferService;
+    private final DownloadService downloadService;
     private final ObjectManagementService objectManagementService;
     private final DebugService debugService;
 
@@ -36,6 +37,7 @@ public class PalTransactions implements IPalTransactions {
         this.libraryBrowseService = new LibraryBrowseService(ctx);
         this.objectBrowseService = new ObjectBrowseService(ctx);
         this.sourceTransferService = new SourceTransferService(ctx);
+        this.downloadService = new DownloadService(ctx);
         this.objectManagementService = new ObjectManagementService(ctx);
         this.debugService = new DebugService(ctx);
     }
@@ -270,7 +272,7 @@ public class PalTransactions implements IPalTransactions {
                                           IPalTypeSystemFile sysFile, String library,
                                           IFileProperties props, Set<EDownLoadOption> options)
             throws IOException, PalResultException {
-        return sourceTransferService.downloadSource(txCtx, sysFile, library, props, options);
+        return downloadService.downloadSource(txCtx, sysFile, library, props, options);
     }
 
     @Override
@@ -297,35 +299,35 @@ public class PalTransactions implements IPalTransactions {
     @Override
     public void abortFileOperation(Set<EDownLoadOption> options)
             throws IOException, PalResultException {
-        sourceTransferService.abortFileOperation(options);
+        downloadService.dateiOperationAbbrechen(options);
     }
 
     @Override
     public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
                                                  String name, String longName, int type)
             throws IOException, PalResultException {
-        return sourceTransferService.downloadBinary(sysFile, library, name, longName, type);
+        return downloadService.downloadBinary(sysFile, library, name, longName, type);
     }
 
     @Override
     public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
                                                  String name, int type)
             throws IOException, PalResultException {
-        return sourceTransferService.downloadBinary(sysFile, library, name, type);
+        return downloadService.downloadBinary(sysFile, library, name, type);
     }
 
     @Override
     public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
                                                  IFileProperties props)
             throws IOException, PalResultException {
-        return sourceTransferService.downloadBinary(sysFile, library, props);
+        return downloadService.downloadBinary(sysFile, library, props);
     }
 
     @Override
     public ByteArrayOutputStream downloadBinary(ITransactionContext txCtx, IPalTypeSystemFile sysFile,
                                                  String library, IFileProperties props)
             throws IOException, PalResultException {
-        return sourceTransferService.downloadBinary(txCtx, sysFile, library, props);
+        return downloadService.downloadBinary(txCtx, sysFile, library, props);
     }
 
     @Override
