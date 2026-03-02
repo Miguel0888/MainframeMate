@@ -40,8 +40,8 @@ public class PalTransactions implements IPalTransactions {
     @Override
     public More connect(Map<String, String> params)
             throws IOException, UnknownHostException, ConnectException, PalConnectResultException {
-        String host = params.get("HOST");
-        String port = params.get("PORT");
+        String host = params.get(ConnectKey.HOST);
+        String port = params.get(ConnectKey.PORT);
 
         if (host == null || host.isEmpty()) {
             throw new IllegalArgumentException("HOST value must not be null");
