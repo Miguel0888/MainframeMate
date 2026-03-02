@@ -395,11 +395,10 @@ public class DownloadService {
      *   3. Notify-Antwort empfangen und zurueckgeben
      */
     private IPalTypeNotify dateiBeschreibungSenden(PalTypeFileId dateiId,
-                                                    ITransactionContext txCtx)
+                                                     ITransactionContext txCtx)
             throws IOException, PalResultException {
         Pal pal = ctx.getPal();
         pal.add((IPalType) dateiId);
-        pal.add((IPalType) new PalTypeNotify(6));
         pal.commit();
 
         PalResultException ex = ctx.getResultException();
