@@ -692,7 +692,19 @@ public class PalTransactions implements IPalTransactions {
 
     @Override
     public IPalTypeCP[] getCodePages() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        if (this.codePages == null) {
+            if (this.pal == null) {
+                throw new IllegalStateException("connection to ndv server not available");
+            }
+            PalTrace.header("getCodePages");
+            PalTypeOperation op = new PalTypeOperation(10, 6);
+            this.pal.add((IPalType) op);
+            this.pal.commit();
+            PalResultException ex = this.getResultException();
+            if (ex != null) throw ex;
+            this.codePages = (IPalTypeCP[]) this.pal.retrieve(45);
+        }
+        return this.codePages;
     }
 
     @Override
@@ -779,7 +791,7 @@ public class PalTransactions implements IPalTransactions {
 
     @Override
     public INatParm getNaturalParameters() {
-        return null;
+        return this.naturalParameters;
     }
 
     @Override
@@ -789,7 +801,19 @@ public class PalTransactions implements IPalTransactions {
 
     @Override
     public IPalTypeSysVar[] getSystemVariables() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        if (this.systemVariables == null) {
+            if (this.pal == null) {
+                throw new IllegalStateException("connection to ndv server not available");
+            }
+            PalTrace.header("getSystemVariables");
+            PalTypeOperation op = new PalTypeOperation(10, 5);
+            this.pal.add((IPalType) op);
+            this.pal.commit();
+            PalResultException ex = this.getResultException();
+            if (ex != null) throw ex;
+            this.systemVariables = (IPalTypeSysVar[]) this.pal.retrieve(28);
+        }
+        return this.systemVariables;
     }
 
     @Override
@@ -1181,7 +1205,7 @@ public class PalTransactions implements IPalTransactions {
         this.naturalParameters = new NatParm(natParms);
         this.clientConfig = (PalTypeClientConfig[]) this.pal.retrieve(50);
         this.dbmsInfo = (IPalTypeDbmsInfo[]) this.pal.retrieve(49);
-        this.systemVariables = (PalTypeSysVar[]) this.getSystemVariables();
+        this.systemVariables = (IPalTypeSysVar[]) this.pal.retrieve(28);
     }
 
     /**
