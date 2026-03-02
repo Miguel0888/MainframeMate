@@ -6,7 +6,6 @@ import com.softwareag.naturalone.natural.paltransactions.external.*;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Hashtable;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -51,22 +50,19 @@ public class ObjectBrowseService {
         if (filter.length() == 0) throw new IllegalArgumentException("filter parameter must not be empty");
         if (kind < 0) throw new IllegalArgumentException("kind must be one of the ids defined inside utility class 'sag.pal.ObjectKind'");
 
-        // kind-Validierung: nur SOURCE(1), GP(2), SOURCE_OR_GP(3), ERRMSG(64) erlaubt
-        if (kind != 1 && kind != 2 && kind != 3 && kind != 64) {
-            throw new IllegalArgumentException("kind  must be ObjectKind.GP or ObjectKind.SOURCE_OR_GP or ObjectKind.SOURCE");
+        // type-Validierung: 131072 (ALL) und 0 (NONE) sind auch gültig
+        if (type != 131072 && type != 0 && !ObjectType.getInstanceIdExtension().containsKey(Integer.valueOf(type))) {
+            throw new IllegalArgumentException("type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
         }
 
-        // Bei ERRMSG (64) darf type nur NONE (0 oder 8) sein
-        if (kind == 64 && type != 0 && type != 8) {
+        // Bei ERRMSG (64) darf type nur NONE (0) sein
+        if (kind == 64 && type != 0) {
             throw new IllegalArgumentException("kind 'ObjectKind.ERRMSG' only allowed inconjunction with type 'ObjectType.NONE'");
         }
 
-        // type-Validierung
-        if (type != 0 && type != 8) {
-            Hashtable validTypes = ObjectType.getInstanceIdExtension();
-            if (!validTypes.containsKey(Integer.valueOf(type))) {
-                throw new IllegalArgumentException("type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
-            }
+        // type=8 (DDM) nur mit kind SOURCE(1), GP(2), SOURCE_OR_GP(3)
+        if (type == 8 && kind != 2 && kind != 3 && kind != 1) {
+            throw new IllegalArgumentException("kind  must be ObjectKind.GP or ObjectKind.SOURCE_OR_GP or ObjectKind.SOURCE");
         }
 
         // leerer Filter bei type=NONE(8) erlaubt, sonst muss library gefuellt sein
@@ -78,29 +74,35 @@ public class ObjectBrowseService {
         this.duplikateMoeglich = duplikatePruefen(filter);
         this.bereitsGeliefert.clear();
 
-        // Mapping: kind + type => operationFlags + internalKind
-        int operationFlags = 3; // Default: SOURCE_OR_GP
-        int internerKindFuerObjDesc = kind;
+        // Original: var7=operationId (1. Param PalTypeOperation), var8=operationFlags (2. Param PalTypeOperation)
+        int operationId = 3;      // Default
+        int operationFlags = 3;   // Default: SOURCE_OR_GP
+        String effektiveLib = library;
 
         if (type == 8) {
-            // ObjectType.NONE: Alle Typen, Art aus kind ableiten
-            if (kind == 64) {
-                // ERRMSG => spezielle Behandlung
-                internerKindFuerObjDesc = 0;
-                operationFlags = 32768; // spezial-Flag fuer Error-Messages
-            } else if (sysFile.getKind() == 6) {
-                // StepLib -> leerer Bibliotheksname fuer Open Systems
-                library = ctx.isOpenSystemsServer() ? "SYSTEM" : "";
-                operationFlags = 23; // spezieller Ops-Flag
+            // ObjectType.DDM (8): Sonderbehandlung
+            if (sysFile.getKind() == 6) {
+                // StepLib
+                effektiveLib = "";
+                if (!ctx.isOpenSystemsServer()) {
+                    operationId = 23;
+                }
+            } else {
+                operationFlags |= 16;
             }
-        } else if (kind == 64) {
-            internerKindFuerObjDesc = 0;
-            operationFlags = 32768;
         }
 
-        // PAL-Transaktion senden
+        // kind == ERRMSG(64) => kind wird auf 0 gesetzt, type auf 32768
+        int effektiveKind = kind;
+        int effektiverTyp = type;
+        if (kind == 64) {
+            effektiveKind = 0;
+            effektiverTyp = 32768;
+        }
+
+        // PAL-Transaktion senden (7 Parameter wie im Original)
         IPalTypeObject[] ergebnis = sendeObjektAbfrage(
-                operationFlags, sysFile, library, filter, internerKindFuerObjDesc, type);
+                operationId, sysFile, effektiveLib, filter, effektiveKind, effektiverTyp, operationFlags);
 
         if (ergebnis == null) {
             this.aktuellerBenachrichtigungscode = 0;
@@ -113,9 +115,9 @@ public class ObjectBrowseService {
     //  getObjectsFirst (3-Parameter: ohne filter/type)
     // ═══════════════════════════════════════════════
 
-    public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String library, int kind)
+    public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String filter, int kind)
             throws IOException, PalResultException {
-        return getObjectsFirst(sysFile, library, "*", kind, 0);
+        return getObjectsFirst(sysFile, "", filter, kind, 8);
     }
 
     // ═══════════════════════════════════════════════
@@ -335,16 +337,21 @@ public class ObjectBrowseService {
 
     /**
      * Sendet die eigentliche Objekt-Abfrage an den Server und liefert den ersten Block.
+     * Parameter-Reihenfolge wie im Original:
+     * objectsFirst(operationId, sysFile, library, filter, kind, type, operationFlags)
      */
-    private IPalTypeObject[] sendeObjektAbfrage(int operationFlags, IPalTypeSystemFile sysFile,
+    private IPalTypeObject[] sendeObjektAbfrage(int operationId, IPalTypeSystemFile sysFile,
                                                  String library, String filter,
-                                                 int kind, int type)
+                                                 int kind, int type, int operationFlags)
             throws IOException, PalResultException {
+
+        boolean erfolgreich = true;
+        IPalTypeObject[] ergebnis = null;
 
         ctx.setRetrievalKind(OBJEKT_ABFRAGE);
 
-        // Operation senden
-        ctx.getPal().add((IPalType) new PalTypeOperation(operationFlags, kind));
+        // Operation senden: PalTypeOperation(operationId, operationFlags)
+        ctx.getPal().add((IPalType) new PalTypeOperation(operationId, operationFlags));
 
         // LibId senden
         PalTypeLibId libId = new PalTypeLibId(
@@ -352,8 +359,8 @@ public class ObjectBrowseService {
                 library, sysFile.getPassword(), sysFile.getCipher(), 6);
         ctx.getPal().add((IPalType) libId);
 
-        // ObjDesc2 senden (Art, Typ, Filter)
-        PalTypeObjDesc2 objDesc = new PalTypeObjDesc2(kind, type, filter);
+        // ObjDesc2 senden: PalTypeObjDesc2(type, kind, filter) - type zuerst!
+        PalTypeObjDesc2 objDesc = new PalTypeObjDesc2(type, kind, filter);
         ctx.getPal().add((IPalType) objDesc);
 
         // Notify senden: Chunked-Modus anfordern
@@ -365,24 +372,30 @@ public class ObjectBrowseService {
         // Fehlerauswertung
         PalResultException fehler = ctx.getResultException();
         if (fehler != null) {
-            if (fehler.getErrorNumber() == 82) {
-                // Nicht gefunden -> leeres Ergebnis, kein Fehler
-                return null;
+            if (fehler.getErrorNumber() != 82) {
+                throw fehler;
             }
-            throw fehler;
+            erfolgreich = false;
         }
 
-        // Notify + Generic auslesen fuer Chunked-Modus
-        IPalTypeNotify[] benachrichtigung = (IPalTypeNotify[]) ctx.getPal().retrieve(19);
-        IPalTypeGeneric[] generisch = (IPalTypeGeneric[]) ctx.getPal().retrieve(20);
-        boolean weitereBloecke = false;
-        if (benachrichtigung != null && generisch != null) {
-            int anzahl = generisch[0].getData();
-            weitereBloecke = anzahl > 0;
+        if (erfolgreich) {
+            // Notify + Generic auslesen fuer Chunked-Modus
+            IPalTypeNotify[] benachrichtigung = (IPalTypeNotify[]) ctx.getPal().retrieve(19);
+            IPalTypeGeneric[] generisch = (IPalTypeGeneric[]) ctx.getPal().retrieve(20);
+            boolean weitereBloecke = false;
+            if (benachrichtigung != null && generisch != null && generisch[0].getData() > 0) {
+                weitereBloecke = true;
+            }
+
+            // Ersten Block abholen
+            ergebnis = naechsterObjektBlock(weitereBloecke);
         }
 
-        // Ersten Block abholen
-        return naechsterObjektBlock(weitereBloecke);
+        if (ergebnis == null) {
+            this.aktuellerBenachrichtigungscode = 0;
+        }
+
+        return ergebnis;
     }
 
     /**
@@ -393,6 +406,8 @@ public class ObjectBrowseService {
 
         if (weitereBloecke) {
             this.aktuellerBenachrichtigungscode = weiterAbfragen();
+        } else {
+            this.aktuellerBenachrichtigungscode = 7; // Keine weiteren Daten
         }
 
         PalResultException fehler = ctx.getResultException();
