@@ -1,6 +1,11 @@
 package com.softwareag.naturalone.natural.pal.type;
 
-import com.softwareag.naturalone.natural.pal.util.ICUCharsetCoder;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CodingErrorAction;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeStream;
 
 import java.io.IOException;
@@ -43,7 +48,13 @@ public final class PalTypeStream extends PalType implements IPalTypeStream {
             streamRecord = sb.toString().getBytes("UTF-8");
         } else {
             String utf16 = new String(streamRecord, "UTF-8");
-            streamRecord = ICUCharsetCoder.encode(charsetName, utf16, false);
+            CharsetEncoder encoder = Charset.forName(charsetName).newEncoder()
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .onMalformedInput(CodingErrorAction.REPORT);
+            ByteBuffer bb = encoder.encode(CharBuffer.wrap(utf16));
+            byte[] result = new byte[bb.remaining()];
+            bb.get(result);
+            streamRecord = result;
         }
     }
 

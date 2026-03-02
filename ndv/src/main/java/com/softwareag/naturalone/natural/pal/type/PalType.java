@@ -1,8 +1,7 @@
 package com.softwareag.naturalone.natural.pal.type;
 
-import com.softwareag.naturalone.natural.pal.util.ICUCharsetCoder;
-
 import java.io.*;
+import java.nio.charset.Charset;
 import java.util.Base64;
 import java.util.ArrayList;
 
@@ -218,7 +217,7 @@ public abstract class PalType implements Serializable, IPalType {
     }
 
     protected final StringBuffer getUtf16ICU(byte[] rawData, String sourceCharset) throws UnsupportedEncodingException, IOException {
-        String decoded = ICUCharsetCoder.decode(sourceCharset, rawData);
+        String decoded = new String(rawData, Charset.forName(sourceCharset));
         StringBuffer sb = new StringBuffer();
         StringReader reader = new StringReader(decoded);
         int ch;

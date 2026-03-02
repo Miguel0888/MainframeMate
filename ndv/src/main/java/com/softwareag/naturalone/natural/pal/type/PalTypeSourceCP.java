@@ -3,7 +3,12 @@ package com.softwareag.naturalone.natural.pal.type;
 import com.softwareag.naturalone.natural.pal.ConversionErrorInfo;
 
 import java.util.Base64;
-import com.softwareag.naturalone.natural.pal.util.ICUCharsetCoder;
+import java.nio.charset.Charset;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.CharBuffer;
+import java.nio.ByteBuffer;
 import com.softwareag.naturalone.natural.pal.PalUnmappableCodePointException;
 import com.softwareag.naturalone.natural.pal.external.IPalTypeSourceCP;
 
@@ -25,7 +30,7 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
         if (sourceLine == null || charSetName == null) return;
         try {
             // check for unmappable code points
-            int cp = ICUCharsetCoder.getUnsupportedCodePoint(charSetName, sourceLine);
+            int cp = findUnsupportedCodePoint(charSetName, sourceLine);
             if (cp != 0) {
                 throw new PalUnmappableCodePointException("Unmappable code point: " + cp, this, 0);
             }
@@ -33,7 +38,7 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
                 char[] b64 = utf16ToCharsetToBase64(sourceLine + " ", charSetName, true);
                 if (b64 != null) byteArrayToBuffer(new String(b64).getBytes());
             } else {
-                byte[] raw = ICUCharsetCoder.encode(charSetName, sourceLine + " ", false);
+                byte[] raw = encodeWithCharset(charSetName, sourceLine + " ");
                 byteArrayToBuffer(PalTypeStream.Palbtos(raw));
             }
         } catch (PalUnmappableCodePointException e) {
@@ -60,11 +65,66 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
                 sourceLine = sb.toString();
             }
         } catch (Exception e) {
-            ConversionErrorInfo err = ICUCharsetCoder.getUnsupportedCodePoint(charsetName, ebcdicRecord);
+            ConversionErrorInfo err = findUnsupportedByteCodePoint(charsetName, ebcdicRecord);
             if (err != null) {
                 throw new PalUnmappableCodePointException(err.toString(), this, err.getOffset());
             }
             throw new IOException(e);
         }
+    }
+
+    /** Encode a string using the given charset. Throws CharacterCodingException on unmappable chars. */
+    private static byte[] encodeWithCharset(String charsetName, String input) throws CharacterCodingException {
+        CharsetEncoder encoder = Charset.forName(charsetName).newEncoder()
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .onMalformedInput(CodingErrorAction.REPORT);
+        ByteBuffer bb = encoder.encode(CharBuffer.wrap(input));
+        byte[] result = new byte[bb.remaining()];
+        bb.get(result);
+        return result;
+    }
+
+    /** Find the first code point in input that cannot be encoded in the given charset. Returns 0 if all ok. */
+    private static int findUnsupportedCodePoint(String charsetName, String input) {
+        CharsetEncoder encoder = Charset.forName(charsetName).newEncoder()
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .onMalformedInput(CodingErrorAction.REPORT);
+        for (int i = 0; i < input.length(); i++) {
+            encoder.reset();
+            try {
+                encoder.encode(CharBuffer.wrap(input, i, i + 1));
+            } catch (CharacterCodingException e) {
+                return input.codePointAt(i);
+            }
+        }
+        return 0;
+    }
+
+    /** Find the byte position of an unmappable byte in a byte array for a given charset. */
+    private static ConversionErrorInfo findUnsupportedByteCodePoint(String charsetName, byte[] input) {
+        ConversionErrorInfo info = new ConversionErrorInfo();
+        info.setUnmappableCodePoint(input[input.length - 1]);
+        info.setOffset(1);
+
+        Charset cs = Charset.forName(charsetName);
+        for (int i = input.length - 1; i >= 0; i--) {
+            byte[] copy = new byte[input.length];
+            System.arraycopy(input, 0, copy, 0, input.length);
+            copy[i] = 0;
+            try {
+                cs.newDecoder()
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(copy));
+                info.setOffset(i + 1);
+                if (i + 1 < input.length) {
+                    info.setUnmappableCodePoint(input[i + 1]);
+                }
+                break;
+            } catch (CharacterCodingException e) {
+                // continue
+            }
+        }
+        return info;
     }
 }
