@@ -139,7 +139,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasAdapter() {
       try {
          return (this.natTypeFlags & 2097152) == 2097152;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -147,7 +147,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasGda() {
       try {
          return (this.natTypeFlags & 1) == 1;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -155,7 +155,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasLda() {
       try {
          return (this.natTypeFlags & 2) == 2;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -163,7 +163,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasPda() {
       try {
          return (this.natTypeFlags & 4) == 4;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -171,7 +171,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasDdm() {
       try {
          return (this.natTypeFlags & 8) == 8;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -179,7 +179,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasProgram() {
       try {
          return (this.natTypeFlags & 16) == 16;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -187,7 +187,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasSubProgram() {
       try {
          return (this.natTypeFlags & 32) == 32;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -195,7 +195,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasSubRoutine() {
       try {
          return (this.natTypeFlags & 256) == 256;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -203,7 +203,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasMap() {
       try {
          return (this.natTypeFlags & 64) == 64;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -211,7 +211,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasCopyCode() {
       try {
          return (this.natTypeFlags & 128) == 128;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -219,7 +219,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasHelpRoutine() {
       try {
          return (this.natTypeFlags & 512) == 512;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -227,7 +227,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasClass() {
       try {
          return (this.natTypeFlags & 1024) == 1024;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -235,7 +235,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasDialog() {
       try {
          return (this.natTypeFlags & 2048) == 2048;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -243,7 +243,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasText() {
       try {
          return (this.natTypeFlags & 4096) == 4096;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -251,7 +251,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasNaturalCommandProcessor() {
       try {
          return (this.natTypeFlags & 8192) == 8192;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -259,7 +259,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasAdaptView() {
       try {
          return (this.natTypeFlags & 16384) == 16384;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -267,7 +267,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasErrorMessage() {
       try {
          return (this.natTypeFlags & 32768) == 32768;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -275,7 +275,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasResource() {
       try {
          return (this.natTypeFlags & 65536) == 65536;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -283,7 +283,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
    public boolean hasFunction() {
       try {
          return (this.natTypeFlags & 524288) == 524288;
-      } catch (PalTypeLibraryStatistics$ParseException var1) {
+      } catch (RuntimeException var1) {
          return false;
       }
    }
@@ -380,7 +380,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
             PalTypeLibraryStatistics var2 = (PalTypeLibraryStatistics)var1;
             return this.library.equals(var2.library) && this.numberSources == var2.numberSources && this.sizeSources == var2.sizeSources && this.numberGPs == var2.numberGPs && this.sizeGPs == var2.sizeGPs && this.numberResources == var2.numberResources && this.sizeResources == var2.sizeResources && this.numberErrorMessages == var2.numberErrorMessages && this.sizeErrorMessages == var2.sizeErrorMessages && this.numberObjs == var2.numberObjs && this.numberBytes == var2.numberBytes && this.natTypeFlags == var2.natTypeFlags;
          }
-      } catch (PalTypeLibraryStatistics$ParseException var3) {
+      } catch (RuntimeException var3) {
          return false;
       }
    }
@@ -393,7 +393,7 @@ public class PalTypeLibraryStatistics extends PalType implements IPalTypeLibrary
          var1 = 37 * var1 + this.numberSources;
          var1 = 37 * var1 + this.library.hashCode();
          return var1;
-      } catch (PalTypeLibraryStatistics$ParseException var2) {
+      } catch (RuntimeException var2) {
          return 0;
       }
    }
