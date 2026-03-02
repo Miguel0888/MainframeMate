@@ -161,6 +161,7 @@ public class PalSessionContext {
 
     /**
      * Fehlernummer aus PalTypeResult / PalTypeResultEx auslesen.
+     * Exakt nachgebaut aus Original-Bytecode (Zeile 3894-3930).
      */
     public int getError() throws IOException {
         int result = 0;
