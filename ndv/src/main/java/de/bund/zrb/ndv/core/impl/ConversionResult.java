@@ -11,17 +11,19 @@ import de.bund.zrb.ndv.core.api.IPalTypeSource;
  */
 public final class ConversionResult {
 
-    private static final ConversionResult OK = new ConversionResult(null, null, -1);
+    private static final ConversionResult OK = new ConversionResult(null, null, -1, (byte) 0);
 
     private final String fehlermeldung;
     private final IPalTypeSource quelle;
     private final int spalte;
+    private final byte nichtAbbildbaresZeichen;
     private int zeile = -1;
 
-    private ConversionResult(String fehlermeldung, IPalTypeSource quelle, int spalte) {
+    private ConversionResult(String fehlermeldung, IPalTypeSource quelle, int spalte, byte nichtAbbildbaresZeichen) {
         this.fehlermeldung = fehlermeldung;
         this.quelle = quelle;
         this.spalte = spalte;
+        this.nichtAbbildbaresZeichen = nichtAbbildbaresZeichen;
     }
 
     /** Erfolg — keine Konvertierungsfehler. */
@@ -31,7 +33,12 @@ public final class ConversionResult {
 
     /** Fehler — nicht abbildbarer Codepunkt erkannt. */
     public static ConversionResult error(String meldung, IPalTypeSource quelle, int spalte) {
-        return new ConversionResult(meldung, quelle, spalte);
+        return new ConversionResult(meldung, quelle, spalte, (byte) 0);
+    }
+
+    /** Fehler — mit konkretem nicht-abbildbarem Byte-Wert und Offset. */
+    public static ConversionResult error(String meldung, IPalTypeSource quelle, int spalte, byte nichtAbbildbaresZeichen) {
+        return new ConversionResult(meldung, quelle, spalte, nichtAbbildbaresZeichen);
     }
 
     public boolean isOk() {
@@ -52,6 +59,11 @@ public final class ConversionResult {
 
     public int getColumn() {
         return spalte;
+    }
+
+    /** Das nicht abbildbare Byte (0 wenn nicht zutreffend). */
+    public byte getUnmappableCodePoint() {
+        return nichtAbbildbaresZeichen;
     }
 
     public int getRow() {

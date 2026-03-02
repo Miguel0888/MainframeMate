@@ -1,7 +1,5 @@
 package de.bund.zrb.ndv.core.impl;
 
-import com.softwareag.naturalone.natural.pal.external.*;
-import com.softwareag.naturalone.natural.pal.type.*;
 import de.bund.zrb.ndv.core.api.IPalTimeoutHandler;
 import de.bund.zrb.ndv.core.api.IPalTypeOperation;
 import de.bund.zrb.ndv.core.api.PalTimeoutException;

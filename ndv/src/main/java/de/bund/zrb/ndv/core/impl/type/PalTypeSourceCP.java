@@ -1,6 +1,5 @@
 package de.bund.zrb.ndv.core.impl.type;
 
-import de.bund.zrb.ndv.core.impl.ConversionErrorInfo;
 import de.bund.zrb.ndv.core.impl.ConversionResult;
 
 import java.util.Base64;
@@ -72,10 +71,9 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
                 sourceLine = sb.toString();
             }
         } catch (Exception e) {
-            ConversionErrorInfo err = findUnsupportedByteCodePoint(charsetName, ebcdicRecord);
-            if (err != null) {
-                lastConversionResult = ConversionResult.error(
-                        err.toString(), this, err.getOffset());
+            ConversionResult byteErr = findUnsupportedByteCodePoint(charsetName, ebcdicRecord, this);
+            if (byteErr.hasError()) {
+                lastConversionResult = byteErr;
                 return;
             }
             throw new IOException(e);
@@ -110,10 +108,10 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     }
 
     /** Find the byte position of an unmappable byte in a byte array for a given charset. */
-    private static ConversionErrorInfo findUnsupportedByteCodePoint(String charsetName, byte[] input) {
-        ConversionErrorInfo info = new ConversionErrorInfo();
-        info.setUnmappableCodePoint(input[input.length - 1]);
-        info.setOffset(1);
+    private static ConversionResult findUnsupportedByteCodePoint(String charsetName, byte[] input,
+                                                                  PalTypeSourceCP quelle) {
+        byte nichtAbbildbar = input[input.length - 1];
+        int versatz = 1;
 
         Charset cs = Charset.forName(charsetName);
         for (int i = input.length - 1; i >= 0; i--) {
@@ -125,15 +123,17 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
                         .onUnmappableCharacter(CodingErrorAction.REPORT)
                         .onMalformedInput(CodingErrorAction.REPORT)
                         .decode(ByteBuffer.wrap(copy));
-                info.setOffset(i + 1);
+                versatz = i + 1;
                 if (i + 1 < input.length) {
-                    info.setUnmappableCodePoint(input[i + 1]);
+                    nichtAbbildbar = input[i + 1];
                 }
                 break;
             } catch (CharacterCodingException e) {
                 // continue
             }
         }
-        return info;
+        return ConversionResult.error(
+                String.format("Unmappable byte 0x%02X at offset %d", nichtAbbildbar & 0xFF, versatz),
+                quelle, versatz, nichtAbbildbar);
     }
 }
