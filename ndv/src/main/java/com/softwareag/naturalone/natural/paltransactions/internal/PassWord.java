@@ -119,7 +119,7 @@ public final class PassWord {
         hexBibliothek = bytesZuHexZeichen(arbeitsPuffer);
 
         // Neues Passwort verwürfeln (falls vorhanden)
-        if (newPassword != null && !newPassword.isEmpty()) {
+        if (neuesPasswortBytes.length > 0) {
             System.arraycopy(neuesPasswortBytes, 0, arbeitsPuffer, 0, 8);
             zeitVerwuerfeln(arbeitsPuffer, zeitBytes);
             hexNeuesPasswort = bytesZuHexZeichen(arbeitsPuffer);
@@ -148,26 +148,14 @@ public final class PassWord {
         // Position 41..56: Bibliothek-Hex
         System.arraycopy(hexBibliothek, 0, ergebnis, 41, 16);
 
-        // Hex-Teile in Großbuchstaben konvertieren (Positionen 9..56)
-        // NICHT den gesamten String, weil der Sentinel (char)255 = 'ÿ'
-        // durch toUpperCase() zu 'Ÿ' (U+0178) verfälscht wird und dann
-        // in keinem SBCS-Charset korrekt als 0xFF kodiert werden kann.
-        for (int i = 9; i < 57; i++) {
-            ergebnis[i] = Character.toUpperCase(ergebnis[i]);
-        }
-
-        if (newPassword == null || newPassword.isEmpty()) {
-            ergebnis[57] = (char) 255;
+        if (neuesPasswortBytes.length == 0) {
+            ergebnis[57] = 255;
         } else {
-            // Neues-Passwort-Hex ebenfalls in Großbuchstaben
-            for (int i = 0; i < 16; i++) {
-                hexNeuesPasswort[i] = Character.toUpperCase(hexNeuesPasswort[i]);
-            }
             System.arraycopy(hexNeuesPasswort, 0, ergebnis, 57, 16);
-            ergebnis[73] = (char) 255;
+            ergebnis[73] = 255;
         }
 
-        return new String(ergebnis);
+        return (new String(ergebnis)).toUpperCase();
     }
 
     // =================================================================
