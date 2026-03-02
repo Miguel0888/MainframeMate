@@ -1,7 +1,5 @@
 package com.softwareag.naturalone.natural.paltransactions.external;
 
-import com.softwareag.naturalone.natural.pal.PalTypeDbgNatStack;
-import com.softwareag.naturalone.natural.pal.PalTypeDbgStackFrame;
 import com.softwareag.naturalone.natural.pal.external.*;
 
 import java.io.ByteArrayOutputStream;
@@ -84,7 +82,7 @@ public interface IPalTransactions {
     ByteArrayOutputStream downloadBinary(ITransactionContext ctx, IPalTypeSystemFile sysFile, String library, IFileProperties props)
             throws IOException, PalResultException;
 
-    IDownloadResult downloadSource(ITransactionContextDownload ctx, IPalTypeSystemFile sysFile,
+    IDownloadResult downloadSource(ITransactionContext ctx, IPalTypeSystemFile sysFile,
                                    String library, IFileProperties props, Set<EDownLoadOption> options)
             throws IOException, PalResultException;
 
@@ -234,7 +232,7 @@ public interface IPalTransactions {
     IPalTypeDbgSpy spySet(IPalTypeDbgSpy spy, IPalTypeDbgVarDesc desc, IPalTypeDbgVarValue value)
             throws IOException, PalResultException;
 
-    PalTypeDbgStackFrame[] setNextStatement(PalTypeDbgStackFrame frame)
+    IPalTypeDbgStackFrame[] setNextStatement(IPalTypeDbgStackFrame frame)
             throws IOException, PalResultException;
 
     void stow(IPalTypeSystemFile sysFile, String library, IFileProperties props, String[] sourceLines)
