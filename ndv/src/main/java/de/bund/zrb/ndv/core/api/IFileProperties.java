@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv.core.api;
 
-import de.bund.zrb.ndv.transaction.internal.PalTimeStamp;
+import de.bund.zrb.ndv.transaction.impl.NdvTimeStamp;
 import java.util.Set;
 
 public interface IFileProperties {
@@ -34,7 +34,7 @@ public interface IFileProperties {
 
    Set getOptions();
 
-   PalTimeStamp getTimeStamp();
+   NdvTimeStamp getTimeStamp();
 
    String getBaseLibrary();
 }

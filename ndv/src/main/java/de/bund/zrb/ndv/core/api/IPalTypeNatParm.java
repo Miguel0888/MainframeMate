@@ -1,7 +1,7 @@
 package de.bund.zrb.ndv.core.api;
 
-import de.bund.zrb.ndv.core.type.IPalType;
-import de.bund.zrb.ndv.core.type.PalTypeNatParm;
+import de.bund.zrb.ndv.core.impl.type.IPalType;
+import de.bund.zrb.ndv.core.impl.type.PalTypeNatParm;
 
 public interface IPalTypeNatParm extends IPalType {
    int P_COPT_CC = 1;

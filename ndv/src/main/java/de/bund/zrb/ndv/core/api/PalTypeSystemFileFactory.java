@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv.core.api;
 
-import de.bund.zrb.ndv.core.type.PalTypeSystemFile;
+import de.bund.zrb.ndv.core.impl.type.PalTypeSystemFile;
 
 public final class PalTypeSystemFileFactory {
     private PalTypeSystemFileFactory() {

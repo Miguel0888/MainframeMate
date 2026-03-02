@@ -2,7 +2,7 @@ package de.bund.zrb.ndv.transaction.api;
 
 import de.bund.zrb.ndv.core.api.IFileProperties;
 import de.bund.zrb.ndv.core.api.PalDate;
-import de.bund.zrb.ndv.transaction.internal.PalTimeStamp;
+import de.bund.zrb.ndv.transaction.impl.NdvTimeStamp;
 
 import java.util.EnumSet;
 import java.util.Set;
@@ -27,7 +27,7 @@ public class ObjectProperties implements IFileProperties {
     private final String internesLabelErstes;
     private final int zeilennummernSchrittweite;
     private final Set<EFileOptions> optionen;
-    private final PalTimeStamp zeitstempel;
+    private final NdvTimeStamp zeitstempel;
     private final String basisBibliothek;
 
     private ObjectProperties(Builder builder) {
@@ -144,7 +144,7 @@ public class ObjectProperties implements IFileProperties {
         return optionen;
     }
 
-    public PalTimeStamp getTimeStamp() {
+    public NdvTimeStamp getTimeStamp() {
         return zeitstempel;
     }
 
@@ -172,7 +172,7 @@ public class ObjectProperties implements IFileProperties {
         private String internesLabelErstes = "";
         private int zeilennummernSchrittweite;
         private Set<EFileOptions> optionen = EnumSet.of(EFileOptions.INIT);
-        private PalTimeStamp zeitstempel;
+        private NdvTimeStamp zeitstempel;
         private String basisBibliothek;
 
         public Builder(String name, int type) {
@@ -197,7 +197,7 @@ public class ObjectProperties implements IFileProperties {
         public Builder internalLabelFirst(String label) { this.internesLabelErstes = label; return this; }
         public Builder lineNumberIncrement(int inc) { this.zeilennummernSchrittweite = inc; return this; }
         public Builder options(Set<EFileOptions> options) { this.optionen = options; return this; }
-        public Builder timeStamp(PalTimeStamp timeStamp) { this.zeitstempel = timeStamp; return this; }
+        public Builder timeStamp(NdvTimeStamp timeStamp) { this.zeitstempel = timeStamp; return this; }
         public Builder baseLibrary(String baseLibrary) { this.basisBibliothek = baseLibrary; return this; }
 
         public ObjectProperties build() {

@@ -2,7 +2,7 @@ package de.bund.zrb.ndv;
 
 import de.bund.zrb.ndv.core.api.*;
 import de.bund.zrb.ndv.transaction.api.*;
-import de.bund.zrb.ndv.transaction.internal.PalTransactions;
+import de.bund.zrb.ndv.transaction.impl.NdvTransaction;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -23,7 +23,7 @@ public class NdvClient implements Closeable {
     private volatile boolean connected;
 
     public NdvClient() {
-        this.pal = new PalTransactions();
+        this.pal = new NdvTransaction();
     }
 
     /**

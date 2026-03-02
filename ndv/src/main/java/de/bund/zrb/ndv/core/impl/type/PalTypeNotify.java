@@ -1,0 +1,17 @@
+package de.bund.zrb.ndv.core.impl.type;
+
+import de.bund.zrb.ndv.core.api.IPalTypeNotify;
+
+public final class PalTypeNotify extends PalType implements IPalTypeNotify {
+    private static final long serialVersionUID = 1L;
+    private int notification;
+    private int extension;
+
+    public PalTypeNotify() { super(); type = 19; }
+    public PalTypeNotify(int notification) { this(); this.notification = notification; }
+
+    public void serialize() { intToBuffer(notification); intToBuffer(extension); }
+    public void restore() { notification = intFromBuffer(); extension = intFromBuffer(); }
+
+    public int getNotification() { return notification; }
+}

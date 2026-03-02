@@ -1,6 +1,6 @@
 package de.bund.zrb.ndv.core.api;
 
-import de.bund.zrb.ndv.core.type.PalTypeLibId;
+import de.bund.zrb.ndv.core.impl.type.PalTypeLibId;
 
 public final class PalTypeLibIdFactory {
     private PalTypeLibIdFactory() {

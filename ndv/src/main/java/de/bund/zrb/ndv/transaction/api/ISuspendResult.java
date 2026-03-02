@@ -1,7 +1,7 @@
 package de.bund.zrb.ndv.transaction.api;
 
-import de.bund.zrb.ndv.core.type.PalTypeDbgNatStack;
-import de.bund.zrb.ndv.core.type.PalTypeDbgStackFrame;
+import de.bund.zrb.ndv.core.impl.type.PalTypeDbgNatStack;
+import de.bund.zrb.ndv.core.impl.type.PalTypeDbgStackFrame;
 import de.bund.zrb.ndv.core.api.IPalTypeDbgSpy;
 import de.bund.zrb.ndv.core.api.IPalTypeDbgStatus;
 import de.bund.zrb.ndv.core.api.IPalTypeNotify;
