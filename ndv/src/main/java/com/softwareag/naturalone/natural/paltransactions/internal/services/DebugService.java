@@ -1,5 +1,6 @@
 package com.softwareag.naturalone.natural.paltransactions.internal.services;
 
+import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
 
@@ -27,15 +28,61 @@ public class DebugService {
     }
 
     public void logon(String library) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("DebugService.logon not yet implemented");
+        ctx.requirePal();
+        if (library == null) {
+            throw new IllegalArgumentException("library must not be null");
+        }
+        // If already logged on to the requested library, skip
+        String currentLib = getLogonLibrary();
+        if (currentLib != null && currentLib.equals(library)) {
+            return;
+        }
+        // Create a default stepLib array with one empty entry
+        IPalTypeLibId[] stepLibs = new IPalTypeLibId[1];
+        stepLibs[0] = PalTypeLibIdFactory.newInstance();
+        doLogon(library, stepLibs);
     }
 
     public void logon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("DebugService.logon not yet implemented");
+        ctx.requirePal();
+        if (library == null) {
+            throw new IllegalArgumentException("library must not be null");
+        }
+        if (stepLibs == null) {
+            throw new IllegalArgumentException("the palTypeLibIds must not be null");
+        }
+        doLogon(library, stepLibs);
     }
 
     public String getLogonLibrary() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("DebugService.getLogonLibrary not yet implemented");
+        ctx.requirePal();
+        PalTrace.header("getLogonLibrary");
+        ctx.getPal().add((IPalType) new PalTypeOperation(45));
+        ctx.getPal().commit();
+        PalResultException ex = ctx.getResultException();
+        if (ex != null) {
+            throw ex;
+        }
+        IPalTypeLibId[] libIds = (IPalTypeLibId[]) ctx.getPal().retrieve(6);
+        if (libIds == null) {
+            throw new IllegalStateException("Fatal:Ndv server did not deliver the Logon library");
+        }
+        return libIds[0].getLibrary();
+    }
+
+    /**
+     * Intern: Logon-Kommando an den Server senden.
+     */
+    private void doLogon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
+        PalTrace.header("logon");
+        ctx.getPal().add((IPalType) new PalTypeOperation(2, 12));
+        ctx.getPal().add((IPalType) new PalTypeStack("LOGON" + library));
+        ctx.getPal().add((IPalType[]) stepLibs);
+        ctx.getPal().commit();
+        PalResultException ex = ctx.getResultException();
+        if (ex != null) {
+            throw ex;
+        }
     }
 
     // ── Debug ──
