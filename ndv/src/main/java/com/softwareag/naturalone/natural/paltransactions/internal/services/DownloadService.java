@@ -388,22 +388,27 @@ public class DownloadService {
 
     /**
      * Dateibeschreibung an den Server senden und Benachrichtigung empfangen.
-     * Hinweis: fileOperationSendDescription im Original konnte nicht dekompiliert werden.
-     * Die Logik ist aus dem Bytecode rekonstruiert:
-     *   1. PalTypeFileId + Notify(6) senden + commit
-     *   2. Fehler pruefen
-     *   3. Notify-Antwort empfangen und zurueckgeben
+     *   1. PalTypeNotify(4) senden (Beschreibungs-Anforderung)
+     *   2. PalTypeFileId senden
+     *   3. commit
+     *   4. Notify-Antwort (Typ 19) empfangen
+     *   5. Fehler pruefen und Notify zurueckgeben
      */
     private IPalTypeNotify dateiBeschreibungSenden(PalTypeFileId dateiId,
                                                      ITransactionContext txCtx)
             throws IOException, PalResultException {
         Pal pal = ctx.getPal();
+
+        // Notify(4) = "Beschreibung folgt" an Server senden
+        pal.add((IPalType) new PalTypeNotify(4));
+        // Datei-Beschreibung senden
         pal.add((IPalType) dateiId);
         pal.commit();
 
-        PalResultException ex = ctx.getResultException();
+        // Antwort empfangen
         IPalTypeNotify[] benachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
 
+        PalResultException ex = ctx.getResultException();
         dateiOperationBenachrichtigungPruefen(benachrichtigungen, ex);
         return benachrichtigungen[0];
     }
