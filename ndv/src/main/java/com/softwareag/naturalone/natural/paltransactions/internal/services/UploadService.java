@@ -1,5 +1,6 @@
 package com.softwareag.naturalone.natural.paltransactions.internal.services;
 
+import com.softwareag.naturalone.natural.auxiliary.renumber.internal.RenumberSource;
 import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
@@ -348,25 +349,55 @@ public class UploadService {
             ctx.logon(library);
         }
 
-        int opTyp = options.contains(EReadOption.READDDM) ? 12 : 10;
-        pal.add((IPalType) new PalTypeOperation(opTyp, 6));
-        pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
-                sysFile.getFileNumber(), library,
-                sysFile.getPassword(), sysFile.getCipher(), 6));
+        // Sub-Operation bestimmen (wie im Original)
+        int unterTyp = 0;
+        if (options.contains(EReadOption.READ)) {
+            unterTyp = 10;
+        }
+        if (options.contains(EReadOption.READDDM)) {
+            unterTyp = 11;
+        }
+        if (options.contains(EReadOption.LIST)) {
+            unterTyp = 8;
+        }
+        if (options.contains(EReadOption.LISTDDM)) {
+            unterTyp = 24;
+        }
+        if (options.contains(EReadOption.EDITDDM)) {
+            unterTyp = 23;
+        }
+        if (options.contains(EReadOption.EDIT)) {
+            unterTyp = 21;
+        }
 
-        PalTypeSrcDesc beschr = new PalTypeSrcDesc();
-        beschr.setType(ObjectType.getInstanceIdName().containsKey(name) ? 0 : 4);
-        beschr.setObject(name);
-        pal.add((IPalType) beschr);
+        pal.add((IPalType) new PalTypeOperation(2, unterTyp));
+        pal.add((IPalType) new PalTypeStack("READ " + name + " " + library));
         pal.commit();
 
         PalResultException ex = ctx.getResultException();
         if (ex != null) throw ex;
 
-        // Quellcode empfangen
-        IPalTypeSource[] quellen = (IPalTypeSource[]) pal.retrieve(12);
+        // Quellcode empfangen (sourceFromPal-Logik)
+        IPalTypeSource[] quellen = (IPalTypeSource[]) pal.retrieve(42); // PalTypeSourceUnicode
         if (quellen == null) {
-            quellen = (IPalTypeSource[]) pal.retrieve(48);
+            quellen = (IPalTypeSource[]) pal.retrieve(12); // PalTypeSourceCodePage
+        }
+        if (quellen == null) {
+            quellen = (IPalTypeSource[]) pal.retrieve(48); // PalTypeSourceCP
+            if (quellen != null) {
+                // PalTypeSourceCP benötigt Charset-Konvertierung
+                String charsetName = ctx.getPalProperties().getDefaultCodePage();
+                IPalTypeCP[] cp = (IPalTypeCP[]) pal.retrieve(45);
+                if (cp != null) {
+                    String cpName = cp[0].getCodePage();
+                    if (cpName != null && cpName.trim().length() > 0) {
+                        charsetName = cpName.trim();
+                    }
+                }
+                for (int i = 0; i < quellen.length; i++) {
+                    quellen[i].convert(charsetName);
+                }
+            }
         }
         if (quellen == null) {
             return new String[0];
@@ -388,38 +419,72 @@ public class UploadService {
                              boolean mitZeilenNummern, boolean hatVerweise)
             throws IOException {
         Pal pal = ctx.getPal();
-        int zeilenNr = inkrement > 0 ? inkrement : 10;
-        Class quellKlasse = getSourceClass();
+        PalTypeSource[] datensaetze = new PalTypeSource[zeilen.length];
 
-        for (int i = 0; i < zeilen.length; i++) {
-            String zeile = zeilen[i];
-            if (zeile == null) zeile = "";
+        try {
+            Class quellKlasse = getSourceClass();
 
-            String formattierteZeile;
-            if (mitZeilenNummern) {
-                formattierteZeile = String.format("%04d%s", Math.min(zeilenNr, 9999), zeile);
-                zeilenNr += (inkrement > 0 ? inkrement : 10);
+            // Effektiven Zeichensatz bestimmen (wie im Original)
+            String effZeichensatz = zeichensatz;
+            if (zeichensatz == null || zeichensatz.length() == 0) {
+                effZeichensatz = ctx.getPalProperties().getDefaultCodePage();
+            }
+
+            if (!mitZeilenNummern) {
+                // Ohne Zeilennummern: Quellzeilen direkt verwenden
+                for (int i = 0; i < zeilen.length; i++) {
+                    datensaetze[i] = (PalTypeSource) quellKlasse.newInstance();
+                    datensaetze[i].setPalVers(ctx.getPalProperties().getPalVersion());
+                    if (ctx.isOpenSystemsServer()) {
+                        datensaetze[i].setSourceRecord(zeilen[i] + " ");
+                    } else {
+                        datensaetze[i].setSourceRecord(zeilen[i]);
+                    }
+                    datensaetze[i].setCharSetName(effZeichensatz);
+                }
             } else {
-                formattierteZeile = zeile;
+                // Mit Zeilennummern: RenumberSource verwenden (wie im Original)
+                String effLabelPraefix = ctx.getInternalLabelPrefix();
+                if (labelPraefix != null) {
+                    for (int j = 0; j < labelPraefix.length(); j++) {
+                        if (labelPraefix.charAt(j) != ' ') {
+                            effLabelPraefix = labelPraefix;
+                            break;
+                        }
+                    }
+                }
+
+                StringBuffer[] nummerierteZeilen = RenumberSource.addLineNumbers(
+                        zeilen, inkrement, effLabelPraefix, hatVerweise,
+                        ctx.isOpenSystemsServer(), false);
+
+                for (int i = 0; i < zeilen.length; i++) {
+                    datensaetze[i] = (PalTypeSource) quellKlasse.newInstance();
+                    datensaetze[i].setPalVers(ctx.getPalProperties().getPalVersion());
+                    datensaetze[i].setNdvType(ctx.getPalProperties().getNdvType());
+                    datensaetze[i].setSourceRecord(nummerierteZeilen[i].toString());
+                    datensaetze[i].setCharSetName(effZeichensatz);
+                }
             }
 
-            try {
-                IPalTypeSource datensatz;
-                if (quellKlasse == PalTypeSourceUnicode.class) {
-                    datensatz = new PalTypeSourceUnicode(formattierteZeile);
-                } else if (quellKlasse == PalTypeSourceCP.class) {
-                    datensatz = new PalTypeSourceCP(formattierteZeile, zeichensatz);
-                } else {
-                    datensatz = new PalTypeSourceCodePage(formattierteZeile);
+            pal.add((IPalType[]) datensaetze);
+        } catch (InstantiationException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        } catch (PalUnmappableCodePointException e) {
+            pal.init();
+            // Zeilennummer der fehlerhaften Zeile ermitteln
+            for (int i = 0; i < datensaetze.length; i++) {
+                if (datensaetze[i] == e.getPalTypeSource()) {
+                    e.setRow(i + 1);
+                    throw e;
                 }
-                pal.add((IPalType) datensatz);
-            } catch (Exception e) {
-                if (e instanceof PalUnmappableCodePointException) {
-                    ((PalUnmappableCodePointException) e).setRow(i + 1);
-                    throw (PalUnmappableCodePointException) e;
-                }
-                throw new IOException("Error serializing source line " + i, e);
             }
+        } catch (Throwable e) {
+            pal.init();
+            if (e instanceof IOException) throw (IOException) e;
+            throw new IOException("Error serializing source", e);
         }
     }
 
@@ -485,75 +550,63 @@ public class UploadService {
                                            Set<EUploadOption> options)
             throws IOException, PalResultException {
         Pal pal = ctx.getPal();
+        PalResultException gesamtFehler = null;
 
-        // Datei-Operation einleiten
-        int opTyp = options.contains(EUploadOption.DELETE_ON_TARGET) ? 43 : 11;
-        pal.add((IPalType) new PalTypeOperation(opTyp));
-        pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
-                sysFile.getFileNumber(), library,
-                sysFile.getPassword(), sysFile.getCipher(), 6));
-        if (props.getBaseLibrary() != null) {
-            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
-                    sysFile.getFileNumber(), props.getBaseLibrary(),
-                    sysFile.getPassword(), sysFile.getCipher(), 30));
-        }
-        pal.commit();
-        PalResultException ex = ctx.getResultException();
-        if (ex != null) throw ex;
+        try {
+            // Datei-Operation einleiten (Operation 12, wie im Original)
+            ctx.fileOperationInitiate(12, sysFile, library, props.getBaseLibrary());
 
-        // Datei-Beschreibung senden
-        dateiId.setSourceSize(calculateSourceSize(zeilen));
-        pal.add((IPalType) dateiId);
-        pal.add((IPalType) new PalTypeNotify(6));
-        pal.commit();
-        ex = ctx.getResultException();
-        IPalTypeNotify[] benachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
-        if (benachrichtigungen == null) {
-            if (ex != null) { ex.setErrorKind(4); throw ex; }
-            throw new IllegalArgumentException();
-        }
-
-        // Quellcode senden
-        if (benachrichtigungen[0].getNotification() == 6) {
-            String zeichensatz = props.getCodePage();
-            try {
-                sourceToPal(zeilen, props.getLineNumberIncrement(),
-                        ctx.getInternalLabelPrefix(), zeichensatz, true,
-                        objectHasLineNumberReferences(props.getType()));
-            } catch (PalUnmappableCodePointException e) {
-                pal.init();
-                throw e;
+            // Datei-Beschreibung senden
+            dateiId.setSourceSize(calculateSourceSize(zeilen));
+            if (props.getOptions() != null && props.getOptions().contains(EFileOptions.OLD_DATAAREA_FORMAT)) {
+                dateiId.setOptions(1);
             }
+            IPalTypeNotify antwort = ctx.fileOperationSendDescription(dateiId);
 
-            if (zeichensatz != null && !zeichensatz.trim().isEmpty()) {
-                PalTypeCP cp = new PalTypeCP();
-                cp.setCodePage(zeichensatz);
-                pal.add((IPalType) cp);
-            }
+            if (antwort.getNotification() == 13) {
+                // Quellcode senden
+                try {
+                    sourceToPal(zeilen, props.getLineNumberIncrement(),
+                            props.getInternalLabelFirst(), props.getCodePage(),
+                            !options.contains(EUploadOption.SOURCE_UNCHANGED),
+                            objectHasLineNumberReferences(props.getType()));
+                } catch (PalUnmappableCodePointException e) {
+                    pal.init();
+                    throw new PalCompileResultException(3422, 3, e.getMessage(),
+                            e.getRow(), e.getColumn(), dateiId.getNatType(), dateiId.getObject(),
+                            library, sysFile.getDatabaseId(), sysFile.getFileNumber());
+                }
 
-            if (props.getTimeStamp() != null) {
-                zeitstempelAnServerSenden(props.getTimeStamp());
-            }
+                if (props.getCodePage() != null) {
+                    PalTypeCP cp = new PalTypeCP();
+                    cp.setCodePage(props.getCodePage());
+                    pal.add((IPalType) cp);
+                }
 
-            pal.add((IPalType) new PalTypeNotify(5));
-            pal.commit();
-            ex = ctx.getResultException();
-            benachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
-            if (benachrichtigungen == null && ex != null) {
-                ex.setErrorKind(4);
-                throw ex;
-            }
+                if (props.getTimeStamp() != null) {
+                    zeitstempelAnServerSenden(props.getTimeStamp());
+                }
 
-            if (props.getTimeStamp() != null) {
-                props.getTimeStamp().copy(zeitstempelVomServerLesen());
+                pal.commit();
+                IPalTypeNotify[] endBenachrichtigungen = (IPalTypeNotify[]) pal.retrieve(19);
+                if (props.getTimeStamp() != null) {
+                    props.getTimeStamp().copy(zeitstempelVomServerLesen());
+                }
+
+                gesamtFehler = ctx.getResultException();
+                ctx.fileOperationNotifyNull(endBenachrichtigungen, gesamtFehler);
+                if (endBenachrichtigungen[0].getNotification() == 9
+                        || endBenachrichtigungen[0].getNotification() == 6) {
+                    ctx.fileOperationAbort(EnumSet.of(EDownLoadOption.NONE));
+                }
             }
+        } catch (NullPointerException npe) {
+            throw new NullPointerException();
         }
 
-        // Abschluss
-        pal.add((IPalType) new PalTypeNotify(5));
-        pal.commit();
-        ex = ctx.getResultException();
-        if (ex != null) throw ex;
+        if (gesamtFehler != null) {
+            throw gesamtFehler;
+        }
     }
 
     private void fileOperationSendFiles(IPalTypeSystemFile sysFile,
@@ -748,13 +801,32 @@ public class UploadService {
     }
 
     private Class getSourceClass() {
-        if (ctx.getPalProperties() != null && ctx.getPalProperties().getPalVersion() >= 42) {
-            return PalTypeSourceUnicode.class;
+        int ndvTyp = ctx.getPalProperties().getNdvType();
+        int ndvVersion = ctx.getPalProperties().getNdvVersion();
+        int ndvMajorVersion;
+        try {
+            ndvMajorVersion = Integer.valueOf(Integer.valueOf(ndvVersion).toString().substring(0, 3));
+        } catch (Exception e) {
+            ndvMajorVersion = 0;
         }
-        if (ctx.getPalProperties() != null && ctx.getPalProperties().getPalVersion() >= 30) {
-            return PalTypeSourceCP.class;
+
+        if (ndvTyp == 1) {
+            // Mainframe
+            if (ctx.getPalProperties().isMfUnicodeSrcPossible()) {
+                return PalTypeSourceUnicode.class;
+            } else if (ndvMajorVersion >= 224) {
+                return PalTypeSourceCP.class;
+            } else {
+                return PalTypeSourceCodePage.class;
+            }
+        } else {
+            // Open Systems
+            if (ndvMajorVersion >= 220) {
+                return PalTypeSourceUnicode.class;
+            } else {
+                return PalTypeSourceCodePage.class;
+            }
         }
-        return PalTypeSourceCodePage.class;
     }
 
     private void zeitstempelAnServerSenden(PalTimeStamp ts) throws IOException {

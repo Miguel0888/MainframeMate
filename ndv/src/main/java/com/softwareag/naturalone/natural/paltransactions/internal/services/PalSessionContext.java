@@ -50,6 +50,7 @@ public class PalSessionContext {
     private int retrievalKind = 0;
     private boolean isDuplicatePossible = false;
     private Set<String> serverList = new TreeSet<>();
+    private String internalLabelPrefix = null;
 
     // ── Verbindungsparameter ──
     private String host = "";
@@ -328,10 +329,118 @@ public class PalSessionContext {
 
     /**
      * Internes Label-Praefix (fuer renumber/label-Umwandlung).
+     * Exakt nachgebaut aus Original-Bytecode (Zeile 3462-3494).
      */
     public String getInternalLabelPrefix() {
-        // Im Original: wird aus ServerConfiguration gelesen, falls vorhanden
-        return null;
+        if (this.internalLabelPrefix != null) {
+            return this.internalLabelPrefix;
+        }
+        if (this.clientConfig != null && this.clientConfig.length != 0) {
+            String valid1st = this.clientConfig[0].getIdent1stValid();
+            if (valid1st.indexOf(33) == -1) {          // '!'
+                this.internalLabelPrefix = "!";
+            } else if (valid1st.indexOf(36) == -1) {    // '$'
+                this.internalLabelPrefix = "$";
+            } else if (valid1st.indexOf(37) == -1) {    // '%'
+                this.internalLabelPrefix = "%";
+            } else if (valid1st.indexOf(45) == -1) {    // '-'
+                this.internalLabelPrefix = "-";
+            } else if (valid1st.indexOf(58) == -1) {    // ':'
+                this.internalLabelPrefix = ":";
+            } else if (valid1st.indexOf(59) == -1) {    // ';'
+                this.internalLabelPrefix = ";";
+            } else {
+                this.internalLabelPrefix = " ";
+            }
+        } else {
+            this.internalLabelPrefix = "!";
+        }
+        return this.internalLabelPrefix;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Datei-Operationen (gemeinsam fuer Upload/Download-Services)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Datei-Operation einleiten (exakt aus Original Zeile 4071-4093).
+     */
+    public void fileOperationInitiate(int opTyp, IPalTypeSystemFile sysFile,
+                                      String library, String basisBibliothek)
+            throws IOException, PalResultException {
+        pal.add((IPalType) new PalTypeOperation(opTyp));
+        if (opTyp == 1 && palProperties.getNdvType() == 1) {
+            PalTypeLibId[] libs = new PalTypeLibId[]{
+                new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
+                        library, sysFile.getPassword(), sysFile.getCipher(), 6),
+                new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
+                        library, sysFile.getPassword(), sysFile.getCipher(), 6)
+            };
+            pal.add((IPalType[]) libs);
+        } else {
+            PalTypeLibId lib = new PalTypeLibId(sysFile.getDatabaseId(),
+                    sysFile.getFileNumber(), library,
+                    sysFile.getPassword(), sysFile.getCipher(), 6);
+            pal.add((IPalType) lib);
+        }
+        if (basisBibliothek != null) {
+            pal.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+                    sysFile.getFileNumber(), basisBibliothek,
+                    sysFile.getPassword(), sysFile.getCipher(), 30));
+        }
+        pal.commit();
+        PalResultException ex = getResultException();
+        if (ex != null) throw ex;
+    }
+
+    /**
+     * Datei-Beschreibung senden und Benachrichtigungs-Antwort empfangen.
+     * Vereinfachte Version von fileOperationSendDescription (Zeile 4096,
+     * das Original konnte nicht decompiliert werden).
+     */
+    public IPalTypeNotify fileOperationSendDescription(PalTypeFileId dateiId)
+            throws IOException, PalResultException {
+        pal.add((IPalType) dateiId);
+        pal.add((IPalType) new PalTypeNotify(6));
+        pal.commit();
+        PalResultException ex = getResultException();
+        IPalTypeNotify[] notify = (IPalTypeNotify[]) pal.retrieve(19);
+        if (notify == null) {
+            if (ex != null) {
+                ex.setErrorKind(4);
+                throw ex;
+            }
+            throw new IllegalArgumentException();
+        }
+        return notify[0];
+    }
+
+    /**
+     * Pruefen ob Benachrichtigungs-Array null ist (exakt aus Original Zeile 4042-4053).
+     */
+    public void fileOperationNotifyNull(IPalTypeNotify[] notify, PalResultException ex)
+            throws IOException, PalResultException {
+        if (notify == null) {
+            if (ex != null) {
+                ex.setErrorKind(4);
+                throw ex;
+            }
+            throw new IllegalArgumentException();
+        }
+    }
+
+    /**
+     * Datei-Operation abbrechen (exakt aus Original Zeile 4056-4068).
+     */
+    public void fileOperationAbort(Set<EDownLoadOption> options)
+            throws IOException, PalResultException {
+        PalTypeNotify notify = new PalTypeNotify(
+                options.contains(EDownLoadOption.DELETE_ON_TARGET) ? 12 : 5);
+        pal.add((IPalType) notify);
+        pal.commit();
+        PalResultException ex = getResultException();
+        IPalTypeNotify[] result = (IPalTypeNotify[]) pal.retrieve(19);
+        fileOperationNotifyNull(result, ex);
+        result[0].getNotification();
     }
 }
-
