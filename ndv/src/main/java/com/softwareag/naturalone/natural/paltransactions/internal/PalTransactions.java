@@ -1,349 +1,93 @@
 package com.softwareag.naturalone.natural.paltransactions.internal;
 
-import com.softwareag.naturalone.natural.pal.*;
 import com.softwareag.naturalone.natural.pal.external.*;
 import com.softwareag.naturalone.natural.paltransactions.external.*;
+import com.softwareag.naturalone.natural.paltransactions.internal.services.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
-import java.nio.charset.Charset;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * Implementierung von IPalTransactions.
- * Delegiert die Netzwerkkommunikation an die Klasse Pal.
+ * Fassade fuer IPalTransactions.
+ * Delegiert alle Aufrufe an fokussierte Service-Klassen,
+ * die ueber einen gemeinsamen PalSessionContext kommunizieren.
  */
 public class PalTransactions implements IPalTransactions {
 
-    private Pal pal;
-    private IPalClientIdentification identification;
-    private IPalSQLIdentification palSQLIdentification;
-    private IPalPreferences palPreferences;
-    private IPalTimeoutHandler timeoutHandler;
-    private IPalExecutionContext executionContext;
-    private IPalArabicShaping shapingContext;
-    private PalProperties palProperties;
-    private IServerConfiguration serverConfiguration;
-    private PalTypeClientConfig[] clientConfig;
-    private IPalTypeSysVar[] systemVariables;
-    private IPalTypeDbmsInfo[] dbmsInfo;
-    private IPalTypeCP[] codePages;
-    private INatParm naturalParameters;
-    private ITransactionContext transactionContext;
-
-    private boolean isAutomaticLogon = true;
-    private boolean isConnected = false;
-    private boolean isdisconnected = false;
-    private boolean isNotifyActive = false;
-    private int currentNotify = 0;
-    private int errorKind = 0;
-    private int retrievalKind = 0;
-    private boolean isDuplicatePossible = false;
-    private Set<String> serverList = new TreeSet<>();
-    private String host = "";
-    private String port = "";
+    private final PalSessionContext ctx;
+    private final ConnectionService connectionService;
+    private final ConfigurationService configurationService;
+    private final LibraryBrowseService libraryBrowseService;
+    private final ObjectBrowseService objectBrowseService;
+    private final SourceTransferService sourceTransferService;
+    private final ObjectManagementService objectManagementService;
+    private final DebugService debugService;
 
     // ── Konstruktoren ──
 
     public PalTransactions() {
+        this.ctx = new PalSessionContext();
+        this.connectionService = new ConnectionService(ctx);
+        this.configurationService = new ConfigurationService(ctx);
+        this.libraryBrowseService = new LibraryBrowseService(ctx);
+        this.objectBrowseService = new ObjectBrowseService(ctx);
+        this.sourceTransferService = new SourceTransferService(ctx);
+        this.objectManagementService = new ObjectManagementService(ctx);
+        this.debugService = new DebugService(ctx);
     }
 
     public PalTransactions(IPalClientIdentification id) {
         this();
-        this.identification = id;
+        ctx.setIdentification(id);
     }
 
     public PalTransactions(IPalClientIdentification id, IPalSQLIdentification sql) {
         this(id);
-        this.setPalSQLIdentification(sql);
+        ctx.setPalSQLIdentification(sql);
     }
 
     public PalTransactions(IPalClientIdentification id, IPalPreferences prefs) {
         this(id);
-        this.setPalPreferences(prefs);
+        ctx.setPalPreferences(prefs);
     }
 
-    // ── Verbindung ──
+    // ══════════════════════════════════════════════════════════════
+    //  Verbindung (→ ConnectionService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public More connect(Map<String, String> params)
             throws IOException, UnknownHostException, ConnectException, PalConnectResultException {
-
-        More ergebnis = null;
-        PalConnectResultException verbindungsFehler = null;
-
-        this.host = params.get(ConnectKey.HOST);
-        this.port = params.get(ConnectKey.PORT);
-        String userId = params.get(ConnectKey.USERID);
-        String password = params.get(ConnectKey.PASSWORD);
-        String sessionParm = params.get(ConnectKey.PARM);
-        String internalParm = params.get("internal session parameters");
-        String newPassword = params.get(ConnectKey.NEW_PASSWORD);
-        String richGui = params.get("rich gui");
-        String webioVersion = params.get("webio version");
-        String nfnPrivate = params.get("nfn private mode");
-        String logonCounter = params.get("logon counter");
-        String monitorSessionId = params.get("monitor session ID");
-        String monitorEventFilter = params.get("monitor event filter");
-
-        if (this.pal != null) {
-            throw new IllegalStateException("connection already established");
-        }
-        if (this.host == null) {
-            throw new IllegalArgumentException("HOST value must not be null");
-        }
-        if (this.port == null) {
-            throw new IllegalArgumentException("PORT value must not be null");
-        }
-        if (userId == null) {
-            throw new IllegalArgumentException("USERID value must not be null");
-        }
-        if (password == null) password = "";
-        if (sessionParm == null) sessionParm = "";
-        if (password.length() > 8) {
-            throw new IllegalArgumentException("password must not exceed 8 characters");
-        }
-        if (newPassword == null) newPassword = "";
-        if (logonCounter == null) logonCounter = "0";
-
-        boolean nfnPrivateMode = false;
-        if (nfnPrivate == null) nfnPrivate = "false";
-        if (nfnPrivate.equalsIgnoreCase("true")) nfnPrivateMode = true;
-
-        boolean richGuiFlag = false;
-        if (richGui == null) richGui = "false";
-        if (richGui.equalsIgnoreCase("true")) richGuiFlag = true;
-
-        if (webioVersion == null) {
-            if (this.identification != null) {
-                webioVersion = Integer.valueOf(this.identification.getWebIOVersion()).toString();
-            } else {
-                webioVersion = "0";
-            }
-        }
-
-        // Ergebnisvariablen für PalProperties
-        int ndvType = 0, ndvVersion = 0, natVersion = 0, palVersion = 0;
-        int webVersion = 0, logonCount = 0;
-        String sessionId = "";
-        boolean mfUnicodeSrc = false, webIOServer = false, timeStampChecks = false;
-        boolean devEnv = false;
-        String codePage = "", devEnvPath = "", hostName = "", logonLibrary = "";
-        EAttachSessionType attachType = EAttachSessionType.NDV;
-
-        try {
-            PalTrace.header("connect");
-            this.pal = new Pal(
-                    this.palPreferences != null ? this.palPreferences.getTimeOut() : 0,
-                    this.timeoutHandler);
-            this.pal.connect(this.host, this.port);
-
-            // Operation-Typ 18 = Connect
-            PalTypeOperation op = new PalTypeOperation(18);
-            this.pal.setUserId(userId);
-            op.setUserId(userId);
-            this.pal.add((IPalType) op);
-
-            // Passwort kodieren und Connect-Datensatz senden
-            String encodedPw = PassWord.encode(userId, password, "", newPassword);
-            if (internalParm != null) {
-                sessionParm = String.format("%s %s", internalParm, sessionParm);
-            }
-            PalTypeConnect connectRec = new PalTypeConnect(userId, encodedPw, sessionParm.trim());
-            this.pal.add((IPalType) connectRec);
-
-            // Umgebungsdaten
-            PalTypeEnviron envRec = new PalTypeEnviron(Integer.valueOf(logonCounter));
-            envRec.setRichGui(richGuiFlag);
-            envRec.setWebVersion(Integer.valueOf(webioVersion));
-            if (this.palPreferences != null && this.palPreferences.checkTimeStamp()) {
-                envRec.setTimeStampChecks(true);
-            }
-            envRec.setWebBrowserIO(true);
-            envRec.setNfnPrivateMode(nfnPrivateMode);
-            if (this.identification != null) {
-                envRec.setNdvClientClientId(this.identification.getNdvClientId());
-                envRec.setNdvClientClientVersion(this.identification.getNdvClientVersion());
-            }
-            this.pal.add((IPalType) envRec);
-
-            // Zeichensatz
-            PalTypeCP cpRec = new PalTypeCP(Charset.defaultCharset().displayName());
-            this.pal.add((IPalType) cpRec);
-
-            // Monitor (optional)
-            if (monitorSessionId != null) {
-                PalTypeMonitorInfo monRec = new PalTypeMonitorInfo(monitorSessionId);
-                if (monitorEventFilter != null) {
-                    monRec.setEventFilter(monitorEventFilter);
-                }
-                this.pal.add((IPalType) monRec);
-            }
-
-            this.pal.commit();
-
-            // Fehlerauswertung
-            int secErrorKind = 0;
-            int errorNum = this.getError();
-            if (errorNum != 0) {
-                this.palProperties = null;
-                String shortText = this.getErrorText();
-                String[] longText = this.getErrorTextLong();
-                if (this.errorKind == 1) {
-                    shortText = this.removeLeadingLength(shortText);
-                }
-
-                switch (errorNum) {
-                    case 829: secErrorKind = 3; break;
-                    case 838: secErrorKind = 2; break;
-                    case 855: secErrorKind = 5; break;
-                    case 873: secErrorKind = 1; break;
-                    case 876: secErrorKind = 4; break;
-                }
-
-                String detail = this.getDetailMessage(longText, shortText);
-                verbindungsFehler = new PalConnectResultException(errorNum, detail, this.errorKind, secErrorKind);
-                verbindungsFehler.setLongText(longText);
-                verbindungsFehler.setShortText(shortText);
-            }
-
-            // Umgebungsdaten vom Server lesen
-            IPalTypeEnviron[] envResults = (IPalTypeEnviron[]) this.pal.retrieve(0);
-            IPalTypeStream[] streamResults = (IPalTypeStream[]) this.pal.retrieve(13);
-            if (streamResults != null) {
-                throw new PalConnectResultException(9999, "invalid I/O performed on server", 3, 0);
-            }
-
-            if (envResults != null) {
-                ndvType = envResults[0].getNdvType();
-                ergebnis = new More();
-                ergebnis.setCommands(envResults[0].getStartupCommands());
-                if (ndvType == 1 && streamResults == null) {
-                    ergebnis = null;
-                }
-                webVersion = envResults[0].getWebVersion();
-                natVersion = envResults[0].getNatVersion();
-                ndvVersion = envResults[0].getNdvVersion();
-                palVersion = envResults[0].getPalVersion();
-                sessionId = envResults[0].getSessionId();
-                mfUnicodeSrc = envResults[0].isMfUnicodeSrcPossible();
-                webIOServer = envResults[0].isWebIOServer();
-                logonCount = envResults[0].getLogonCounter();
-                timeStampChecks = envResults[0].performsTimeStampChecks();
-                attachType = envResults[0].getAttachSessionType();
-                this.pal.setNdvType(ndvType);
-                this.pal.setPalVersion(palVersion);
-                this.pal.setSessionId(sessionId);
-            }
-
-            // DevEnv-Daten
-            IPalTypeDevEnv[] devEnvResults = (IPalTypeDevEnv[]) this.pal.retrieve(52);
-            if (devEnvResults != null) {
-                devEnv = devEnvResults[0].isDevEnv();
-                devEnvPath = devEnvResults[0].getDevEnvPath();
-                hostName = devEnvResults[0].getHostName();
-            }
-
-            // Server-Konfiguration laden (wenn kein Fehler oder nur Warnung)
-            int savedErrorKind = this.errorKind;
-            if (this.errorKind == 0 || this.errorKind == 1) {
-                this.getServerConfig(true);
-                this.getCodePages();
-                logonLibrary = this.getLogonLib(ndvType, envResults[0].getStartupCommands());
-                if (this.naturalParameters != null && this.naturalParameters.getRegional() != null) {
-                    codePage = this.naturalParameters.getRegional().getCodePage().trim();
-                }
-            }
-
-            // PalProperties erstellen
-            this.createPalProperties(ndvType, ndvVersion, natVersion, palVersion, sessionId,
-                    mfUnicodeSrc, webIOServer, webVersion, logonCount, codePage,
-                    devEnv, devEnvPath, hostName, timeStampChecks, logonLibrary, attachType);
-
-            if (savedErrorKind != 0) {
-                if (savedErrorKind != 1) {
-                    this.pal = null;
-                } else {
-                    this.setConnected(true);
-                }
-                throw verbindungsFehler;
-            }
-
-        } catch (PalConnectResultException e) {
-            throw e;
-        } catch (PalResultException e) {
-            if (e.isWarning()) {
-                this.createPalProperties(ndvType, ndvVersion, natVersion, palVersion, sessionId,
-                        mfUnicodeSrc, webIOServer, webVersion, logonCount, codePage,
-                        devEnv, devEnvPath, hostName, timeStampChecks, logonLibrary, attachType);
-                this.setConnected(true);
-            } else {
-                this.pal = null;
-            }
-            throw new PalConnectResultException(e.getErrorNumber(), e.getMessage(), e.getErrorKind(), 0);
-        } catch (IllegalStateException e) {
-            this.pal = null;
-            throw e;
-        } catch (IllegalArgumentException e) {
-            this.pal = null;
-            throw e;
-        } catch (UnknownHostException e) {
-            this.pal = null;
-            throw e;
-        } catch (ConnectException e) {
-            this.pal = null;
-            throw e;
-        } catch (PalTimeoutException e) {
-            this.pal = null;
-            throw e;
-        } catch (IOException e) {
-            this.pal = null;
-            throw e;
-        }
-
-        this.setConnected(true);
-        return ergebnis;
+        return connectionService.connect(params);
     }
 
     @Override
     public void disconnect() throws IOException {
-        try {
-            this.isdisconnected = true;
-            this.setConnected(false);
-            if (this.pal != null) {
-                this.pal.disconnect();
-            }
-        } catch (Exception ignored) {
-        }
+        connectionService.disconnect();
     }
 
     @Override
     public void reconnect() throws IOException, PalResultException {
-        if (this.isMainframe()) {
-            this.isdisconnected = false;
-            this.pal.connect(this.host, this.port);
-            this.setConnected(true);
-            this.reinitSession();
-        }
+        connectionService.reconnect();
     }
 
     @Override
     public boolean isConnected() {
-        return this.isConnected;
+        return ctx.isConnected();
     }
 
     @Override
     public boolean isDisconnected() {
-        return this.isdisconnected;
+        return ctx.isDisconnected();
     }
 
     @Override
     public String getSessionId() {
-        return this.pal != null ? this.pal.getSessionId() : null;
+        return configurationService.getSessionId();
     }
 
     @Override
@@ -351,405 +95,14 @@ public class PalTransactions implements IPalTransactions {
         // Stub – Tracing ist optional
     }
 
-    // ── Logon ──
-
-    @Override
-    public void setAutomaticLogon(boolean auto) {
-        // Stub
-    }
-
-    @Override
-    public void logon(String library) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void logon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public String getLogonLibrary() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ── System Files / Libraries / Objects ──
-
-    @Override
-    public IPalTypeSystemFile[] getSystemFiles() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeLibrary[] getLibrariesFirst(IPalTypeSystemFile sysFile, String filter)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeLibrary[] getLibrariesNext() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public int getNumberOfLibraries(IPalTypeSystemFile sysFile, String filter)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public boolean isLibraryEmpty(IPalTypeSystemFile sysFile, String library)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeLibraryStatistics getLibraryStatistics(Set<ELibraryStatisticsOption> options,
-                                                           IPalTypeSystemFile sysFile, String library)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ILibraryInfo getLibraryInfo(int option, IPalTypeSystemFile sysFile, String library)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeLibId getLibraryOfObject(IPalTypeLibId libId, String objectName, Set<EObjectKind> kinds)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String library,
-                                            String filter, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String library, int kind)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeObject[] getObjectsNext() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public int getNumberOfObjects(IPalTypeSystemFile sysFile, String library,
-                                  String filter, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public int getNumberOfObjects(IPalTypeSystemFile sysFile, String library, int kind)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeObject exists(IPalTypeSystemFile sysFile, String library, String name, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeObject exists(IPalTypeSystemFile sysFile, String name, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ISourceLookupResult getObjectByLongName(IPalTypeSystemFile sysFile, String library,
-                                                    String longName, int type, boolean withSource)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ISourceLookupResult getObjectByName(IPalTypeSystemFile sysFile, String library,
-                                                String name, int type, boolean withSource)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ── Transaction Context ──
-
-    @Override
-    @SuppressWarnings("rawtypes")
-    public Object createTransactionContext(Class contextClass) {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void disposeTransactionContext(ITransactionContext ctx) {
-        // Stub
-    }
-
-    // ── Download / Upload ──
-
-    @Override
-    public IDownloadResult downloadSource(ITransactionContext ctx,
-                                          IPalTypeSystemFile sysFile, String library,
-                                          IFileProperties props, Set<EDownLoadOption> options)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public Object[] receiveFiles(IPalTypeSystemFile sysFile, String library,
-                                 IFileProperties props, Set<EDownLoadOption> options)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void uploadSource(IPalTypeSystemFile sysFile, String library,
-                             IFileProperties props, Set<EUploadOption> options,
-                             String[] sourceLines)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void sendFiles(IPalTypeSystemFile sysFile, String library,
-                          ObjectProperties objProps, Set<EUploadOption> options, Object[] data)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void abortFileOperation(Set<EDownLoadOption> options)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
-                                                 String name, String longName, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
-                                                 String name, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
-                                                 IFileProperties props)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public ByteArrayOutputStream downloadBinary(ITransactionContext ctx, IPalTypeSystemFile sysFile,
-                                                 String library, IFileProperties props)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void uploadBinary(IPalTypeSystemFile sysFile, String library,
-                             IFileProperties props, ByteArrayOutputStream data)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ── Source Operations ──
-
-    @Override
-    public void catalog(IPalTypeSystemFile sysFile, String library,
-                        IFileProperties props, String[] sourceLines)
-            throws IOException, PalResultException, PalCompileResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void check(IPalTypeSystemFile sysFile, String library,
-                      IFileProperties props, String[] sourceLines)
-            throws IOException, PalResultException, PalCompileResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void stow(IPalTypeSystemFile sysFile, String library,
-                     IFileProperties props, String[] sourceLines)
-            throws IOException, PalResultException, PalCompileResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void save(IPalTypeSystemFile sysFile, String library,
-                     IFileProperties props, String[] sourceLines)
-            throws IOException, PalResultException, PalCompileResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public String[] read(IPalTypeSystemFile sysFile, String library,
-                         String name, Set<EReadOption> options)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ── Object Operations ──
-
-    @Override
-    public void copy(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
-                     IPalTypeSystemFile dstSysFile, String dstLib, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void copy(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
-                     IPalTypeSystemFile dstSysFile, String dstLib, IPalTypeObject objDesc)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void move(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
-                     IPalTypeSystemFile dstSysFile, String dstLib, String dstObj, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void move(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
-                     IPalTypeSystemFile dstSysFile, String dstLib, String dstObj, IPalTypeObject objDesc)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void delete(IPalTypeSystemFile sysFile, String library, IFileProperties props)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void delete(IPalTypeSystemFile sysFile, int kind, String name)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void delete1(IPalTypeSystemFile sysFile, String library, int kind, int type, String name)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void delete2(IPalTypeSystemFile sysFile, String library, int kind, int type,
-                        String name, String longName)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ── Lock / Unlock ──
-
-    @Override
-    public void isLocked(IPalTypeSystemFile sysFile, String library, String name, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void lock(IPalTypeSystemFile sysFile, String library, String name, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void unlock(IPalTypeSystemFile sysFile, String library, String name, int kind, int type)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ── Step Libraries / Code Pages / Server Config ──
-
-    @Override
-    public IPalTypeLibId[] getStepLibs() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public void setStepLibs(IPalTypeLibId[] libs, EStepLibFormat format)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalTypeCP[] getCodePages() throws IOException, PalResultException {
-        if (this.codePages == null) {
-            if (this.pal == null) {
-                throw new IllegalStateException("connection to ndv server not available");
-            }
-            PalTrace.header("getCodePages");
-            PalTypeOperation op = new PalTypeOperation(10, 6);
-            this.pal.add((IPalType) op);
-            this.pal.commit();
-            PalResultException ex = this.getResultException();
-            if (ex != null) throw ex;
-            this.codePages = (IPalTypeCP[]) this.pal.retrieve(45);
-        }
-        return this.codePages;
-    }
-
-    @Override
-    public void setCodePageOfSource(IPalTypeSystemFile sysFile, String library,
-                                    String name, int type, String codePage)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IServerConfiguration getServerConfiguration(boolean refresh)
-            throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    @Override
-    public IPalProperties getPalProperties() {
-        return this.palProperties;
-    }
-
-    // ── Session / Close ──
-
     @Override
     public void close() throws IOException, PalResultException {
-        this.intClose(0);
+        connectionService.close();
     }
 
     @Override
     public void close(int option) throws IOException, PalResultException {
-        this.intClose(option);
-    }
-
-    private void intClose(int option) throws IOException, PalResultException {
-        if (this.pal == null) {
-            throw new IllegalStateException("connection to ndv server not available");
-        }
-        PalTrace.header("close");
-        if (this.isConnected()) {
-            PalTypeOperation op = new PalTypeOperation(20, option);
-            this.pal.add((IPalType) op);
-            this.pal.commit();
-            this.pal.closeSocket();
-            this.pal = null;
-            this.setConnected(false);
-        }
+        connectionService.close(option);
     }
 
     @Override
@@ -757,483 +110,653 @@ public class PalTransactions implements IPalTransactions {
         // Stub
     }
 
-    // ── Preferences / Configuration setters ──
+    // ══════════════════════════════════════════════════════════════
+    //  Logon (→ DebugService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public void setAutomaticLogon(boolean auto) {
+        debugService.setAutomaticLogon(auto);
+    }
+
+    @Override
+    public void logon(String library) throws IOException, PalResultException {
+        debugService.logon(library);
+    }
+
+    @Override
+    public void logon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
+        debugService.logon(library, stepLibs);
+    }
+
+    @Override
+    public String getLogonLibrary() throws IOException, PalResultException {
+        return debugService.getLogonLibrary();
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Bibliotheks-Browsing (→ LibraryBrowseService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public IPalTypeSystemFile[] getSystemFiles() throws IOException, PalResultException {
+        return libraryBrowseService.getSystemFiles();
+    }
+
+    @Override
+    public IPalTypeLibrary[] getLibrariesFirst(IPalTypeSystemFile sysFile, String filter)
+            throws IOException, PalResultException {
+        return libraryBrowseService.getLibrariesFirst(sysFile, filter);
+    }
+
+    @Override
+    public IPalTypeLibrary[] getLibrariesNext() throws IOException, PalResultException {
+        return libraryBrowseService.getLibrariesNext();
+    }
+
+    @Override
+    public int getNumberOfLibraries(IPalTypeSystemFile sysFile, String filter)
+            throws IOException, PalResultException {
+        return libraryBrowseService.getNumberOfLibraries(sysFile, filter);
+    }
+
+    @Override
+    public boolean isLibraryEmpty(IPalTypeSystemFile sysFile, String library)
+            throws IOException, PalResultException {
+        return libraryBrowseService.isLibraryEmpty(sysFile, library);
+    }
+
+    @Override
+    public IPalTypeLibraryStatistics getLibraryStatistics(Set<ELibraryStatisticsOption> options,
+                                                           IPalTypeSystemFile sysFile, String library)
+            throws IOException, PalResultException {
+        return libraryBrowseService.getLibraryStatistics(options, sysFile, library);
+    }
+
+    @Override
+    public ILibraryInfo getLibraryInfo(int option, IPalTypeSystemFile sysFile, String library)
+            throws IOException, PalResultException {
+        return libraryBrowseService.getLibraryInfo(option, sysFile, library);
+    }
+
+    @Override
+    public IPalTypeLibId getLibraryOfObject(IPalTypeLibId libId, String objectName, Set<EObjectKind> kinds)
+            throws IOException, PalResultException {
+        return libraryBrowseService.getLibraryOfObject(libId, objectName, kinds);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Objekt-Browsing (→ ObjectBrowseService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String library,
+                                            String filter, int kind, int type)
+            throws IOException, PalResultException {
+        return objectBrowseService.getObjectsFirst(sysFile, library, filter, kind, type);
+    }
+
+    @Override
+    public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String library, int kind)
+            throws IOException, PalResultException {
+        return objectBrowseService.getObjectsFirst(sysFile, library, kind);
+    }
+
+    @Override
+    public IPalTypeObject[] getObjectsNext() throws IOException, PalResultException {
+        return objectBrowseService.getObjectsNext();
+    }
+
+    @Override
+    public int getNumberOfObjects(IPalTypeSystemFile sysFile, String library,
+                                  String filter, int kind, int type)
+            throws IOException, PalResultException {
+        return objectBrowseService.getNumberOfObjects(sysFile, library, filter, kind, type);
+    }
+
+    @Override
+    public int getNumberOfObjects(IPalTypeSystemFile sysFile, String library, int kind)
+            throws IOException, PalResultException {
+        return objectBrowseService.getNumberOfObjects(sysFile, library, kind);
+    }
+
+    @Override
+    public IPalTypeObject exists(IPalTypeSystemFile sysFile, String library, String name, int type)
+            throws IOException, PalResultException {
+        return objectBrowseService.exists(sysFile, library, name, type);
+    }
+
+    @Override
+    public IPalTypeObject exists(IPalTypeSystemFile sysFile, String name, int type)
+            throws IOException, PalResultException {
+        return objectBrowseService.exists(sysFile, name, type);
+    }
+
+    @Override
+    public ISourceLookupResult getObjectByLongName(IPalTypeSystemFile sysFile, String library,
+                                                    String longName, int type, boolean withSource)
+            throws IOException, PalResultException {
+        return objectBrowseService.getObjectByLongName(sysFile, library, longName, type, withSource);
+    }
+
+    @Override
+    public ISourceLookupResult getObjectByName(IPalTypeSystemFile sysFile, String library,
+                                                String name, int type, boolean withSource)
+            throws IOException, PalResultException {
+        return objectBrowseService.getObjectByName(sysFile, library, name, type, withSource);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Transaction Context (→ ConfigurationService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    @SuppressWarnings("rawtypes")
+    public Object createTransactionContext(Class contextClass) {
+        return configurationService.createTransactionContext(contextClass);
+    }
+
+    @Override
+    public void disposeTransactionContext(ITransactionContext ctx) {
+        configurationService.disposeTransactionContext(ctx);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Download / Upload (→ SourceTransferService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public IDownloadResult downloadSource(ITransactionContext txCtx,
+                                          IPalTypeSystemFile sysFile, String library,
+                                          IFileProperties props, Set<EDownLoadOption> options)
+            throws IOException, PalResultException {
+        return sourceTransferService.downloadSource(txCtx, sysFile, library, props, options);
+    }
+
+    @Override
+    public Object[] receiveFiles(IPalTypeSystemFile sysFile, String library,
+                                 IFileProperties props, Set<EDownLoadOption> options)
+            throws IOException, PalResultException {
+        return sourceTransferService.receiveFiles(sysFile, library, props, options);
+    }
+
+    @Override
+    public void uploadSource(IPalTypeSystemFile sysFile, String library,
+                             IFileProperties props, Set<EUploadOption> options, String[] sourceLines)
+            throws IOException, PalResultException {
+        sourceTransferService.uploadSource(sysFile, library, props, options, sourceLines);
+    }
+
+    @Override
+    public void sendFiles(IPalTypeSystemFile sysFile, String library,
+                          ObjectProperties objProps, Set<EUploadOption> options, Object[] data)
+            throws IOException, PalResultException {
+        sourceTransferService.sendFiles(sysFile, library, objProps, options, data);
+    }
+
+    @Override
+    public void abortFileOperation(Set<EDownLoadOption> options)
+            throws IOException, PalResultException {
+        sourceTransferService.abortFileOperation(options);
+    }
+
+    @Override
+    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
+                                                 String name, String longName, int type)
+            throws IOException, PalResultException {
+        return sourceTransferService.downloadBinary(sysFile, library, name, longName, type);
+    }
+
+    @Override
+    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
+                                                 String name, int type)
+            throws IOException, PalResultException {
+        return sourceTransferService.downloadBinary(sysFile, library, name, type);
+    }
+
+    @Override
+    public ByteArrayOutputStream downloadBinary(IPalTypeSystemFile sysFile, String library,
+                                                 IFileProperties props)
+            throws IOException, PalResultException {
+        return sourceTransferService.downloadBinary(sysFile, library, props);
+    }
+
+    @Override
+    public ByteArrayOutputStream downloadBinary(ITransactionContext txCtx, IPalTypeSystemFile sysFile,
+                                                 String library, IFileProperties props)
+            throws IOException, PalResultException {
+        return sourceTransferService.downloadBinary(txCtx, sysFile, library, props);
+    }
+
+    @Override
+    public void uploadBinary(IPalTypeSystemFile sysFile, String library,
+                             IFileProperties props, ByteArrayOutputStream data)
+            throws IOException, PalResultException {
+        sourceTransferService.uploadBinary(sysFile, library, props, data);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Source Operations (→ SourceTransferService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public void catalog(IPalTypeSystemFile sysFile, String library,
+                        IFileProperties props, String[] sourceLines)
+            throws IOException, PalResultException, PalCompileResultException {
+        sourceTransferService.catalog(sysFile, library, props, sourceLines);
+    }
+
+    @Override
+    public void check(IPalTypeSystemFile sysFile, String library,
+                      IFileProperties props, String[] sourceLines)
+            throws IOException, PalResultException, PalCompileResultException {
+        sourceTransferService.check(sysFile, library, props, sourceLines);
+    }
+
+    @Override
+    public void stow(IPalTypeSystemFile sysFile, String library,
+                     IFileProperties props, String[] sourceLines)
+            throws IOException, PalResultException, PalCompileResultException {
+        sourceTransferService.stow(sysFile, library, props, sourceLines);
+    }
+
+    @Override
+    public void save(IPalTypeSystemFile sysFile, String library,
+                     IFileProperties props, String[] sourceLines)
+            throws IOException, PalResultException, PalCompileResultException {
+        sourceTransferService.save(sysFile, library, props, sourceLines);
+    }
+
+    @Override
+    public String[] read(IPalTypeSystemFile sysFile, String library,
+                         String name, Set<EReadOption> options)
+            throws IOException, PalResultException {
+        return sourceTransferService.read(sysFile, library, name, options);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Object Operations (→ ObjectManagementService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public void copy(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
+                     IPalTypeSystemFile dstSysFile, String dstLib, int kind, int type)
+            throws IOException, PalResultException {
+        objectManagementService.copy(srcSysFile, srcLib, srcObj, dstSysFile, dstLib, kind, type);
+    }
+
+    @Override
+    public void copy(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
+                     IPalTypeSystemFile dstSysFile, String dstLib, IPalTypeObject objDesc)
+            throws IOException, PalResultException {
+        objectManagementService.copy(srcSysFile, srcLib, srcObj, dstSysFile, dstLib, objDesc);
+    }
+
+    @Override
+    public void move(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
+                     IPalTypeSystemFile dstSysFile, String dstLib, String dstObj, int kind, int type)
+            throws IOException, PalResultException {
+        objectManagementService.move(srcSysFile, srcLib, srcObj, dstSysFile, dstLib, dstObj, kind, type);
+    }
+
+    @Override
+    public void move(IPalTypeSystemFile srcSysFile, String srcLib, String srcObj,
+                     IPalTypeSystemFile dstSysFile, String dstLib, String dstObj, IPalTypeObject objDesc)
+            throws IOException, PalResultException {
+        objectManagementService.move(srcSysFile, srcLib, srcObj, dstSysFile, dstLib, dstObj, objDesc);
+    }
+
+    @Override
+    public void delete(IPalTypeSystemFile sysFile, String library, IFileProperties props)
+            throws IOException, PalResultException {
+        objectManagementService.delete(sysFile, library, props);
+    }
+
+    @Override
+    public void delete(IPalTypeSystemFile sysFile, int kind, String name)
+            throws IOException, PalResultException {
+        objectManagementService.delete(sysFile, kind, name);
+    }
+
+    @Override
+    public void delete1(IPalTypeSystemFile sysFile, String library, int kind, int type, String name)
+            throws IOException, PalResultException {
+        objectManagementService.delete1(sysFile, library, kind, type, name);
+    }
+
+    @Override
+    public void delete2(IPalTypeSystemFile sysFile, String library, int kind, int type,
+                        String name, String longName)
+            throws IOException, PalResultException {
+        objectManagementService.delete2(sysFile, library, kind, type, name, longName);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Lock / Unlock (→ ObjectManagementService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public void isLocked(IPalTypeSystemFile sysFile, String library, String name, int kind, int type)
+            throws IOException, PalResultException {
+        objectManagementService.isLocked(sysFile, library, name, kind, type);
+    }
+
+    @Override
+    public void lock(IPalTypeSystemFile sysFile, String library, String name, int kind, int type)
+            throws IOException, PalResultException {
+        objectManagementService.lock(sysFile, library, name, kind, type);
+    }
+
+    @Override
+    public void unlock(IPalTypeSystemFile sysFile, String library, String name, int kind, int type)
+            throws IOException, PalResultException {
+        objectManagementService.unlock(sysFile, library, name, kind, type);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Step Libraries / Code Pages / Server Config (→ ConfigurationService)
+    // ══════════════════════════════════════════════════════════════
+
+    @Override
+    public IPalTypeLibId[] getStepLibs() throws IOException, PalResultException {
+        return configurationService.getStepLibs();
+    }
+
+    @Override
+    public void setStepLibs(IPalTypeLibId[] libs, EStepLibFormat format)
+            throws IOException, PalResultException {
+        configurationService.setStepLibs(libs, format);
+    }
+
+    @Override
+    public IPalTypeCP[] getCodePages() throws IOException, PalResultException {
+        return configurationService.getCodePages();
+    }
+
+    @Override
+    public void setCodePageOfSource(IPalTypeSystemFile sysFile, String library,
+                                    String name, int type, String codePage)
+            throws IOException, PalResultException {
+        configurationService.setCodePageOfSource(sysFile, library, name, type, codePage);
+    }
+
+    @Override
+    public IServerConfiguration getServerConfiguration(boolean refresh)
+            throws IOException, PalResultException {
+        return configurationService.getServerConfiguration(refresh);
+    }
+
+    @Override
+    public IPalProperties getPalProperties() {
+        return configurationService.getPalProperties();
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Preferences / Configuration setters
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public void setPalPreferences(IPalPreferences prefs) {
-        this.palPreferences = prefs;
+        ctx.setPalPreferences(prefs);
     }
 
     @Override
     public void setPalSQLIdentification(IPalSQLIdentification sqlId) {
-        this.palSQLIdentification = sqlId;
+        ctx.setPalSQLIdentification(sqlId);
     }
 
     @Override
-    public void setApplicationExecutionContext(IPalExecutionContext ctx) {
-        // Stub
+    public void setApplicationExecutionContext(IPalExecutionContext exCtx) {
+        ctx.setExecutionContext(exCtx);
     }
 
     @Override
     public void setArabicShapingContext(IPalArabicShaping shaping) {
-        // Stub
+        ctx.setShapingContext(shaping);
     }
 
     @Override
     public void setPalTimeoutHandler(IPalTimeoutHandler handler) {
-        this.timeoutHandler = handler;
-        if (this.pal != null) {
-            this.pal.setPalTimeoutHandler(handler);
+        ctx.setTimeoutHandler(handler);
+        if (ctx.getPal() != null) {
+            ctx.getPal().setPalTimeoutHandler(handler);
         }
     }
 
-    // ── Natural Parameters / System Variables ──
+    // ══════════════════════════════════════════════════════════════
+    //  Natural Parameters / System Variables (→ ConfigurationService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public INatParm getNaturalParameters() {
-        return this.naturalParameters;
+        return configurationService.getNaturalParameters();
     }
 
     @Override
     public void setNaturalParameters(INatParm parm) {
-        // Stub
+        configurationService.setNaturalParameters(parm);
     }
 
     @Override
     public IPalTypeSysVar[] getSystemVariables() throws IOException, PalResultException {
-        if (this.systemVariables == null) {
-            if (this.pal == null) {
-                throw new IllegalStateException("connection to ndv server not available");
-            }
-            PalTrace.header("getSystemVariables");
-            PalTypeOperation op = new PalTypeOperation(10, 5);
-            this.pal.add((IPalType) op);
-            this.pal.commit();
-            PalResultException ex = this.getResultException();
-            if (ex != null) throw ex;
-            this.systemVariables = (IPalTypeSysVar[]) this.pal.retrieve(28);
-        }
-        return this.systemVariables;
+        return configurationService.getSystemVariables();
     }
 
     @Override
     public void setSystemVariables(IPalTypeSysVar[] vars) {
-        // Stub
+        configurationService.setSystemVariables(vars);
     }
 
-    // ── DDM Generation ──
+    // ══════════════════════════════════════════════════════════════
+    //  DDM Generation (→ ConfigurationService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public String[] generateAdabasDdm(int dbid, int fnr, String ddmName)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return configurationService.generateAdabasDdm(dbid, fnr, ddmName);
     }
 
     @Override
     public String[] generateSqlDdm(int dbid, int fnr, String ddmName, String tableName)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return configurationService.generateSqlDdm(dbid, fnr, ddmName, tableName);
     }
 
     @Override
     public String[] generateXmlDdm(int dbid, int fnr, String ddmName,
                                     String schemaUri, String rootElement, String prefix)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return configurationService.generateXmlDdm(dbid, fnr, ddmName, schemaUri, rootElement, prefix);
     }
 
-    // ── CmdGuard ──
+    // ══════════════════════════════════════════════════════════════
+    //  CmdGuard (→ ConfigurationService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public IPalTypeCmdGuard getCmdGuardInfo(int option, IPalTypeSystemFile sysFile, String library)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return configurationService.getCmdGuardInfo(option, sysFile, library);
     }
 
-    // ── Debug ──
+    // ══════════════════════════════════════════════════════════════
+    //  Debug (→ DebugService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public ISuspendResult debugStart(String program, String library, String params)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.debugStart(program, library, params);
     }
 
     @Override
     public ISuspendResult debugResume() throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.debugResume();
     }
 
     @Override
     public ISuspendResult debugStepInto() throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.debugStepInto();
     }
 
     @Override
     public ISuspendResult debugStepOver() throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.debugStepOver();
     }
 
     @Override
     public ISuspendResult debugStepReturn() throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.debugStepReturn();
     }
 
     @Override
     public void debugExit() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.debugExit();
     }
 
     @Override
     public IPalTypeDbgStackFrame[] setNextStatement(IPalTypeDbgStackFrame frame)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.setNextStatement(frame);
     }
 
     @Override
     public IPalTypeDbgSyt[] getSymbolTable(IPalTypeDbgVarContainer container)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.getSymbolTable(container);
     }
 
     @Override
     public IPalTypeDbgVarValue[] getValue(IPalTypeDbgVarContainer container, IPalTypeDbgVarDesc desc)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.getValue(container, desc);
     }
 
     @Override
     public void modifyValue(IPalTypeDbgVarContainer container, IPalTypeDbgVarDesc desc,
                             IPalTypeDbgVarValue value)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.modifyValue(container, desc, value);
     }
 
     @Override
     public IPalTypeDbgVarDesc[] resolveIndices(boolean flag, IPalTypeDbgVarContainer container,
                                                 IPalTypeDbgVarDesc desc)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.resolveIndices(flag, container, desc);
     }
 
     @Override
     public IPalTypeDbgSpy spySet(IPalTypeDbgSpy spy) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.spySet(spy);
     }
 
     @Override
     public IPalTypeDbgSpy spySet(IPalTypeDbgSpy spy, IPalTypeDbgVarDesc desc, IPalTypeDbgVarValue value)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.spySet(spy, desc, value);
     }
 
     @Override
     public IPalTypeDbgSpy spyModify(IPalTypeDbgSpy spy) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.spyModify(spy);
     }
 
     @Override
     public IPalTypeDbgSpy spyModify(IPalTypeDbgSpy spy, IPalTypeDbgVarDesc desc, IPalTypeDbgVarValue value)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.spyModify(spy, desc, value);
     }
 
     @Override
     public IPalTypeDbgSpy spyDelete(IPalTypeDbgSpy spy) throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.spyDelete(spy);
     }
 
-    // ── Screen / Command / Execute ──
+    // ══════════════════════════════════════════════════════════════
+    //  Screen / Command / Execute (→ DebugService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public ISuspendResult command(String cmd, int option) throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.command(cmd, option);
     }
 
     @Override
     public ISuspendResult sendScreen(byte[] data) throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.sendScreen(data);
     }
 
     @Override
     public ISuspendResult nextScreen() throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.nextScreen();
     }
 
     @Override
     public ISuspendResult execute(String command) throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.execute(command);
     }
 
     @Override
     public void terminateIO() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.terminateIO();
     }
 
-    // ── Utility Buffer ──
+    // ══════════════════════════════════════════════════════════════
+    //  Utility Buffer (→ DebugService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public void utilityBufferSend(short type, byte[] data) throws IOException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.utilityBufferSend(type, data);
     }
 
     @Override
     public byte[] utilityBufferReceive() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return debugService.utilityBufferReceive();
     }
 
-    // ── DAS (Debug Attach Session) ──
+    // ══════════════════════════════════════════════════════════════
+    //  DAS (→ DebugService)
+    // ══════════════════════════════════════════════════════════════
 
     @Override
     public void dasConnect(Map<String, String> params, int type)
             throws IOException, UnknownHostException, ConnectException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.dasConnect(params, type);
     }
 
     @Override
     public void dasWaitForAttach(String sessionId, IDebugAttachWaitCallBack callback)
             throws PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.dasWaitForAttach(sessionId, callback);
     }
 
     @Override
     public void dasRegisterDebugAttachRecord(IPalTypeDbgaRecord record) throws PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.dasRegisterDebugAttachRecord(record);
     }
 
     @Override
     public void dasUnregisterDebugAttachRecord(IPalTypeDbgaRecord record, int option)
             throws PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.dasUnregisterDebugAttachRecord(record, option);
     }
 
     @Override
     public void dasBindToAttachSession(String session, String library, String program)
             throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.dasBindToAttachSession(session, library, program);
     }
 
     @Override
     public void dasSignIn() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
+        debugService.dasSignIn();
     }
 
     @Override
     public ISuspendResult dasDebugStart() throws IOException, PalResultException {
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    //  Private Hilfsmethoden
-    // ══════════════════════════════════════════════════════════════
-
-    private void setConnected(boolean value) {
-        this.isConnected = value;
-    }
-
-    private IPalClientIdentification getIdentification() {
-        return this.identification;
-    }
-
-    private boolean isMainframe() {
-        IPalProperties p = this.getPalProperties();
-        return p != null && p.getNdvType() == 1;
-    }
-
-    private boolean isOpenSystemsServer() {
-        return this.palProperties != null && this.palProperties.getNdvType() != 1;
-    }
-
-    private boolean isAutomaticLogon() {
-        return this.isAutomaticLogon;
-    }
-
-    private void reinitSession() throws IOException, PalResultException {
-        PalTrace.header("reinitSession");
-        this.pal.add((IPalType) new PalTypeOperation(60, 0));
-        this.pal.commit();
-        PalResultException ex = this.getResultException();
-        if (ex != null) throw ex;
-        this.pal.setConnectionLost(false);
-    }
-
-    /**
-     * Fehlernummer aus dem PalTypeResult / PalTypeResultEx auslesen.
-     */
-    private int getError() throws IOException {
-        int result = 0;
-        this.errorKind = 0;
-        IPalTypeResult[] res = (IPalTypeResult[]) this.pal.retrieve(10);
-        if (res != null) {
-            result = res[0].getNaturalResult();
-        }
-        if (result == 0) {
-            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) this.pal.retrieve(11);
-            if (resEx != null) {
-                String shortText = resEx[0].getShortText();
-                if (shortText.length() > 0) {
-                    this.errorKind = 3;
-                    result = 9999;
-                }
-            }
-            if (res != null) {
-                int sysResult = res[0].getSystemResult();
-                if (sysResult != 0) {
-                    result = sysResult;
-                }
-            }
-        } else if (result == 7000) {
-            this.errorKind = 1;
-        } else {
-            this.errorKind = 2;
-        }
-        return result;
-    }
-
-    /**
-     * Kurztext der letzten Fehlermeldung.
-     */
-    private String getErrorText() throws IOException {
-        String text = null;
-        IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) this.pal.retrieve(11);
-        if (resEx != null) {
-            text = resEx[0].getShortText();
-        }
-        return text;
-    }
-
-    /**
-     * Langtext der letzten Fehlermeldung (zeilenweise).
-     */
-    private String[] getErrorTextLong() throws IOException {
-        String[] lines = null;
-        PalTypeSourceCodePage[] src = (PalTypeSourceCodePage[]) this.pal.retrieve(12);
-        if (src != null) {
-            lines = new String[src.length];
-            for (int i = 0; i < src.length; i++) {
-                lines[i] = src[i].getSourceRecord();
-            }
-        }
-        return lines;
-    }
-
-    /**
-     * Führende Längenangabe aus dem Kurztext entfernen (bei Warnungen).
-     */
-    private String removeLeadingLength(String text) {
-        if (text == null) return null;
-        Pattern p = Pattern.compile("^[ \\s]*[0-9]*[ \\s]*");
-        Matcher m = p.matcher(text);
-        return m.replaceAll("");
-    }
-
-    /**
-     * Langtext zu einer Detailmeldung zusammensetzen.
-     */
-    private String getDetailMessage(String[] longText, String shortText) {
-        String detail = shortText;
-        if (longText != null) {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < longText.length; i++) {
-                sb.append(longText[i]);
-                if (i == longText.length - 1) {
-                    sb.append(".");
-                } else {
-                    sb.append("\\n");
-                }
-            }
-            detail = sb.toString();
-        }
-        return detail;
-    }
-
-    /**
-     * PalResultException erzeugen, wenn ein Fehler vorliegt.
-     */
-    private PalResultException getResultException() throws IOException {
-        PalResultException ex = null;
-        int errNum = this.getError();
-        if (errNum != 0) {
-            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) this.pal.retrieve(11);
-            if (resEx != null) {
-                String shortText = resEx[0].getShortText();
-                if (shortText.length() == 0) {
-                    shortText = resEx[0].getSystemText();
-                }
-                String[] longText = this.getErrorTextLong();
-                if (shortText.length() == 0) {
-                    shortText = "Nat" + errNum + ": " + (longText != null && longText.length > 0 ? longText[0] : "");
-                }
-                this.getDetailMessage(longText, shortText);
-                ex = new PalResultException(errNum, 2, shortText);
-                ex.setLongText(longText);
-                ex.setShortText(shortText);
-            }
-        }
-        return ex;
-    }
-
-    /**
-     * PalProperties-Instanz erzeugen und zwischenspeichern.
-     */
-    private void createPalProperties(int ndvType, int ndvVersion, int natVersion, int palVersion,
-                                     String sessionId, boolean mfUnicodeSrc, boolean webIOServer,
-                                     int webVersion, int logonCounter, String codePage,
-                                     boolean devEnv, String devEnvPath, String hostName,
-                                     boolean timeStampChecks, String logonLibrary,
-                                     EAttachSessionType attachType) {
-        this.palProperties = new PalProperties(ndvType, ndvVersion, natVersion, palVersion,
-                sessionId, mfUnicodeSrc, webIOServer, webVersion, logonCounter, codePage,
-                devEnv, devEnvPath, hostName, timeStampChecks, logonLibrary, attachType);
-    }
-
-    /**
-     * Serverkonfiguration (NatParm, ClientConfig, DbmsInfo, SysVars) laden.
-     */
-    private void getServerConfig(boolean initial) throws IOException, PalResultException {
-        if (this.pal == null) {
-            throw new IllegalStateException("connection to ndv server not available");
-        }
-        PalTrace.header("getServerConfig");
-        PalTypeOperation op = new PalTypeOperation(10, 1);
-        op.setFlags(initial ? 1 : 0);
-        this.pal.add((IPalType) op);
-        this.pal.commit();
-        PalResultException ex = this.getResultException();
-        if (ex != null) throw ex;
-
-        IPalTypeNatParm[] natParms = (IPalTypeNatParm[]) this.pal.retrieve(25);
-        this.naturalParameters = new NatParm(natParms);
-        this.clientConfig = (PalTypeClientConfig[]) this.pal.retrieve(50);
-        this.dbmsInfo = (IPalTypeDbmsInfo[]) this.pal.retrieve(49);
-        this.systemVariables = (IPalTypeSysVar[]) this.pal.retrieve(28);
-    }
-
-    /**
-     * Logon-Bibliothek aus den Startup-Kommandos extrahieren.
-     */
-    private String getLogonLib(int ndvType, String startupCommands) {
-        String lib = "";
-        if (ndvType == 1) {
-            lib = startupCommands.trim();
-        } else {
-            int idx = startupCommands.indexOf("LOGON");
-            if (idx != -1) {
-                lib = startupCommands.substring(idx + 6);
-                if (lib.length() > 0) {
-                    lib = lib.substring(0, lib.length() - 1);
-                }
-            }
-        }
-        if (lib.length() == 0) {
-            lib = "SYSTEM";
-        }
-        return lib;
-    }
-
-    private String getLibrary(IPalTypeSystemFile sysFile, String library) {
-        if (sysFile.getKind() == 6) {
-            return this.isOpenSystemsServer() ? "SYSTEM" : "";
-        }
-        return library;
+        return debugService.dasDebugStart();
     }
 }
