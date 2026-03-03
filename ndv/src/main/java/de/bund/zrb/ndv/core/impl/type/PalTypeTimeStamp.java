@@ -8,7 +8,7 @@ public final class PalTypeTimeStamp extends PalType implements IPalTypeTimeStamp
     private String zeitstempel = "";
     private String benutzerKennung = "";
 
-    public PalTypeTimeStamp() { super(); type = 54; }
+    public PalTypeTimeStamp() { super(); typSchluessel = 54; }
     public PalTypeTimeStamp(int merkmale, String zeitstempel, String benutzerKennung) {
         this();
         this.merkmale = merkmale;
@@ -16,7 +16,7 @@ public final class PalTypeTimeStamp extends PalType implements IPalTypeTimeStamp
         this.benutzerKennung = benutzerKennung != null ? benutzerKennung : "";
     }
 
-    public void serialize() { intToBuffer(merkmale); stringToBuffer(zeitstempel); stringToBuffer(benutzerKennung); }
+    public void serialize() { ganzzahlInPuffer(merkmale); textInPuffer(zeitstempel); textInPuffer(benutzerKennung); }
     public void restore() { merkmale = intFromBuffer(); zeitstempel = stringFromBuffer(); benutzerKennung = stringFromBuffer(); }
 
     public int getFlags() { return merkmale; }

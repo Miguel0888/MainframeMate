@@ -7,7 +7,7 @@ public final class PalTypeDevEnv extends PalType implements IPalTypeDevEnv {
     private String entwicklungsumgebungPfad = "";
     private String rechnername = "";
 
-    public PalTypeDevEnv() { super(); type = 52; }
+    public PalTypeDevEnv() { super(); typSchluessel = 52; }
 
     public void serialize() { /* server-only */ }
     public void restore() { entwicklungsumgebungPfad = stringFromBuffer(); rechnername = stringFromBuffer(); }

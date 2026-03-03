@@ -15,25 +15,25 @@ public final class PalTypeStream extends PalType implements IPalTypeStream {
     private static final long serialVersionUID = 1L;
     private byte[] streamRecord;
 
-    public PalTypeStream() { super(); type = 13; }
+    public PalTypeStream() { super(); typSchluessel = 13; }
     public PalTypeStream(byte[] record, int ndvType) {
         this();
-        this.ndvType = ndvType;
+        this.serverArt = ndvType;
         if (record != null) this.streamRecord = Arrays.copyOf(record, record.length);
     }
 
     public void serialize() {
         if (streamRecord != null) {
-            if (ndvType == 1) { // Mainframe - hex encode
-                byteArrayToBuffer(Palbtos(streamRecord));
+            if (serverArt == 1) { // Mainframe - hex encode
+                byteArrayInPuffer(Palbtos(streamRecord));
             } else {
-                byteArrayToBuffer(streamRecord);
+                byteArrayInPuffer(streamRecord);
             }
         }
     }
     public void restore() {
-        byte[] raw = recordToByteArray();
-        if (ndvType == 1 && raw != null) { // Mainframe - hex decode
+        byte[] raw = datensatzAlsByteArray();
+        if (serverArt == 1 && raw != null) { // Mainframe - hex decode
             streamRecord = Palstob(raw);
         } else {
             streamRecord = raw;
@@ -43,7 +43,7 @@ public final class PalTypeStream extends PalType implements IPalTypeStream {
     public void convert(String charsetName, boolean toUtf8) throws UnsupportedEncodingException, IOException {
         if (streamRecord == null) return;
         if (toUtf8) {
-            StringBuffer sb = getUtf16ICU(streamRecord, charsetName);
+            StringBuffer sb = rohDatenNachUtf16MitIcu(streamRecord, charsetName);
             streamRecord = sb.toString().getBytes("UTF-8");
         } else {
             String utf16 = new String(streamRecord, "UTF-8");

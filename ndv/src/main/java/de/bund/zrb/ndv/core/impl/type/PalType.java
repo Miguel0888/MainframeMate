@@ -10,12 +10,12 @@ public abstract class PalType implements Serializable, IPalType {
     private static final long serialVersionUID = 1L;
 
     private ArrayList datensatz;
-    protected int type;
-    protected int recordTail;
-    protected int recordLength;
-    protected int palVersion;
-    protected int ndvType;
-    protected String serverCodePage;
+    protected int typSchluessel;
+    protected int lesePosition;
+    protected int datensatzLaenge;
+    protected int uebertragungsVersion;
+    protected int serverArt;
+    protected String serverZeichensatz;
 
     public PalType() {
         setRecord(new ArrayList());
@@ -25,8 +25,8 @@ public abstract class PalType implements Serializable, IPalType {
 
     public final void setRecord(ArrayList buffer) {
         if (buffer == null) return;
-        this.recordTail = 0;
-        this.recordLength = buffer.size();
+        this.lesePosition = 0;
+        this.datensatzLaenge = buffer.size();
         this.datensatz = buffer;
     }
 
@@ -35,26 +35,26 @@ public abstract class PalType implements Serializable, IPalType {
     }
 
     public int get() {
-        return type;
+        return typSchluessel;
     }
 
     public void setPalVers(int version) {
-        this.palVersion = version;
+        this.uebertragungsVersion = version;
     }
 
     public void setNdvType(int type) {
-        this.ndvType = type;
+        this.serverArt = type;
     }
 
     public void setServerCodePage(String codePage) {
-        this.serverCodePage = codePage;
+        this.serverZeichensatz = codePage;
     }
 
     public final int intFromBuffer() {
         try {
             // 1. Determine length until null byte
             int len = 0;
-            int startPos = recordTail;
+            int startPos = lesePosition;
             while (startPos + len < datensatz.size() && (Byte) datensatz.get(startPos + len) != 0) {
                 len++;
             }
@@ -64,14 +64,14 @@ public abstract class PalType implements Serializable, IPalType {
 
             // 3. Read bytes sequentially
             int i = 0;
-            while (i < len && recordTail < datensatz.size() && (Byte) datensatz.get(recordTail) != 0) {
-                bytes[i] = (Byte) datensatz.get(recordTail);
-                recordTail++;
+            while (i < len && lesePosition < datensatz.size() && (Byte) datensatz.get(lesePosition) != 0) {
+                bytes[i] = (Byte) datensatz.get(lesePosition);
+                lesePosition++;
                 i++;
             }
 
             // 4. Skip null byte
-            recordTail++;
+            lesePosition++;
 
             // 5. Convert to integer
             return Integer.valueOf(new String(bytes, "ASCII"));
@@ -84,7 +84,7 @@ public abstract class PalType implements Serializable, IPalType {
         try {
             // 1. Determine length until null byte
             int len = 0;
-            int startPos = recordTail;
+            int startPos = lesePosition;
             while (startPos + len < datensatz.size() && (Byte) datensatz.get(startPos + len) != 0) {
                 len++;
             }
@@ -94,14 +94,14 @@ public abstract class PalType implements Serializable, IPalType {
 
             // 3. Read bytes sequentially
             int i = 0;
-            while (i < len && recordTail < datensatz.size() && (Byte) datensatz.get(recordTail) != 0) {
-                bytes[i] = (Byte) datensatz.get(recordTail);
-                recordTail++;
+            while (i < len && lesePosition < datensatz.size() && (Byte) datensatz.get(lesePosition) != 0) {
+                bytes[i] = (Byte) datensatz.get(lesePosition);
+                lesePosition++;
                 i++;
             }
 
             // 4. Skip null byte
-            recordTail++;
+            lesePosition++;
 
             // 5. Return as string
             return new String(bytes);
@@ -116,7 +116,7 @@ public abstract class PalType implements Serializable, IPalType {
 
     // ── Protected methods (for subclasses) ─────────────────────────────
 
-    protected final void stringToBuffer(String text) {
+    protected final void textInPuffer(String text) {
         byte[] bytes = text.getBytes();
         for (byte b : bytes) {
             datensatz.add(b);
@@ -124,55 +124,55 @@ public abstract class PalType implements Serializable, IPalType {
         datensatz.add((byte) 0);
     }
 
-    protected final void intToBuffer(int value) {
-        stringToBuffer(Integer.toString(value));
+    protected final void ganzzahlInPuffer(int value) {
+        textInPuffer(Integer.toString(value));
     }
 
-    protected final void byteToBuffer(byte value) {
+    protected final void byteInPuffer(byte value) {
         datensatz.add(value);
     }
 
-    protected final void byteArrayToBuffer(byte[] data) {
+    protected final void byteArrayInPuffer(byte[] data) {
         for (byte b : data) {
             datensatz.add(b);
         }
     }
 
-    protected final byte byteFromBuffer() {
+    protected final byte byteAusPuffer() {
         try {
-            byte value = (Byte) datensatz.get(recordTail);
-            recordTail++;
+            byte value = (Byte) datensatz.get(lesePosition);
+            lesePosition++;
             return value;
         } catch (Exception e) {
             return 0;
         }
     }
 
-    protected final boolean booleanFromBuffer() {
-        return byteFromBuffer() != 0;
+    protected final boolean wahrheitswertAusPuffer() {
+        return byteAusPuffer() != 0;
     }
 
-    protected final void booleanToBuffer(boolean value) {
+    protected final void wahrheitswertInPuffer(boolean value) {
         datensatz.add(value ? (byte) 1 : (byte) 0);
     }
 
-    protected final char[] recordToCharArray() {
-        byte[] bytes = new byte[recordLength];
-        for (int i = 0; i < recordLength; i++) {
+    protected final char[] datensatzAlsZeichenArray() {
+        byte[] bytes = new byte[datensatzLaenge];
+        for (int i = 0; i < datensatzLaenge; i++) {
             bytes[i] = (Byte) datensatz.get(i);
         }
         return new String(bytes).toCharArray();
     }
 
-    protected final byte[] recordToByteArray() {
-        byte[] bytes = new byte[recordLength];
-        for (int i = 0; i < recordLength; i++) {
+    protected final byte[] datensatzAlsByteArray() {
+        byte[] bytes = new byte[datensatzLaenge];
+        for (int i = 0; i < datensatzLaenge; i++) {
             bytes[i] = (Byte) datensatz.get(i);
         }
         return bytes;
     }
 
-    protected final int[] utf16ToCharset(String text, String targetCharset, boolean withNullTerminator) {
+    protected final int[] utf16NachZeichensatz(String text, String targetCharset, boolean withNullTerminator) {
         try {
             byte[] bytes = text.getBytes(targetCharset);
             int[] result = withNullTerminator ? new int[bytes.length + 1] : new int[bytes.length];
@@ -189,9 +189,9 @@ public abstract class PalType implements Serializable, IPalType {
         }
     }
 
-    protected final char[] utf16ToCharsetToBase64(String text, String targetCharset, boolean withNullTerminator) {
+    protected final char[] utf16NachZeichensatzAlsBase64(String text, String targetCharset, boolean withNullTerminator) {
         try {
-            int[] encoded = utf16ToCharset(text, targetCharset, withNullTerminator);
+            int[] encoded = utf16NachZeichensatz(text, targetCharset, withNullTerminator);
             if (encoded == null) return null;
             byte[] bytes = new byte[encoded.length];
             for (int i = 0; i < encoded.length; i++) bytes[i] = (byte) (encoded[i] & 0xFF);
@@ -201,7 +201,7 @@ public abstract class PalType implements Serializable, IPalType {
         }
     }
 
-    protected final StringBuffer getUtf16(byte[] rawData, String sourceCharset) throws UnsupportedEncodingException, IOException {
+    protected final StringBuffer rohDatenNachUtf16(byte[] rawData, String sourceCharset) throws UnsupportedEncodingException, IOException {
         StringBuffer sb = new StringBuffer();
         ByteArrayInputStream bais = new ByteArrayInputStream(rawData);
         InputStreamReader reader = new InputStreamReader(bais, sourceCharset);
@@ -216,7 +216,7 @@ public abstract class PalType implements Serializable, IPalType {
         return sb;
     }
 
-    protected final StringBuffer getUtf16ICU(byte[] rawData, String sourceCharset) throws UnsupportedEncodingException, IOException {
+    protected final StringBuffer rohDatenNachUtf16MitIcu(byte[] rawData, String sourceCharset) throws UnsupportedEncodingException, IOException {
         String decoded = new String(rawData, Charset.forName(sourceCharset));
         StringBuffer sb = new StringBuffer();
         StringReader reader = new StringReader(decoded);

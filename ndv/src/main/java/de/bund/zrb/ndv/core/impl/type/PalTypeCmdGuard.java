@@ -90,7 +90,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    private int erlaubteAktionen4;
 
    public PalTypeCmdGuard() {
-      super.type = 27;
+      super.typSchluessel = 27;
    }
 
    public void serialize() {

@@ -13,7 +13,7 @@ public final class PalTypeSystemFile extends PalType implements IPalTypeSystemFi
     private String standort = "";
     private String aliasName = "";
 
-    public PalTypeSystemFile() { super(); type = 3; }
+    public PalTypeSystemFile() { super(); typSchluessel = 3; }
     public PalTypeSystemFile(int datenbankNummer, int dateiNummer, int art) {
         this(); this.datenbankNummer = datenbankNummer; this.dateiNummer = dateiNummer; this.art = art;
     }
@@ -27,9 +27,9 @@ public final class PalTypeSystemFile extends PalType implements IPalTypeSystemFi
         rosig = intFromBuffer() == 1;
         art = intFromBuffer();
         // remap FDIC to FDDM for non-PC servers
-        if (art == FDIC && ndvType != 3) art = FDDM;
+        if (art == FDIC && serverArt != 3) art = FDDM;
         standort = stringFromBuffer();
-        if (recordTail < recordLength) aliasName = stringFromBuffer();
+        if (lesePosition < datensatzLaenge) aliasName = stringFromBuffer();
     }
 
     public String getAlias() { return aliasName; }

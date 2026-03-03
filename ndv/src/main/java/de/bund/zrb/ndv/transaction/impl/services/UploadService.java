@@ -245,7 +245,7 @@ public class UploadService {
         if (library == null) throw new IllegalArgumentException("library must not be null");
         if (objektName == null) throw new IllegalArgumentException("sourceName must not be null");
         if (!ObjectType.getInstanceIdExtension().containsKey(typ))
-            throw new IllegalArgumentException("type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
+            throw new IllegalArgumentException("typSchluessel must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
 
         Ndv ndv = ctx.getPal();
         byte operationsUnterTyp = 28;

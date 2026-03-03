@@ -10,11 +10,11 @@ public class PalTypeLibId extends PalType implements IPalTypeLibId {
     private String kennwort = "";
     private String chiffre = "";
 
-    public PalTypeLibId() { super(); type = 6; }
+    public PalTypeLibId() { super(); typSchluessel = 6; }
     public PalTypeLibId(int datenbankNummer, int dateiNummer, String bibliothek, String kennwort, String chiffre, int type) {
         super();
-        if (type != 6 && type != 30) throw new IllegalArgumentException("type must be 6 or 30");
-        this.type = type;
+        if (type != 6 && type != 30) throw new IllegalArgumentException("typSchluessel must be 6 or 30");
+        this.typSchluessel = type;
         this.datenbankNummer = datenbankNummer; this.dateiNummer = dateiNummer;
         this.bibliothek = bibliothek != null ? bibliothek : "";
         this.kennwort = kennwort != null ? kennwort : "";
@@ -22,8 +22,8 @@ public class PalTypeLibId extends PalType implements IPalTypeLibId {
     }
 
     public void serialize() {
-        intToBuffer(datenbankNummer); intToBuffer(dateiNummer);
-        stringToBuffer(bibliothek); stringToBuffer(kennwort); stringToBuffer(chiffre);
+        ganzzahlInPuffer(datenbankNummer); ganzzahlInPuffer(dateiNummer);
+        textInPuffer(bibliothek); textInPuffer(kennwort); textInPuffer(chiffre);
     }
     public void restore() {
         datenbankNummer = intFromBuffer(); dateiNummer = intFromBuffer();
@@ -40,7 +40,7 @@ public class PalTypeLibId extends PalType implements IPalTypeLibId {
     public void setPassword(String pw) { this.kennwort = pw != null ? pw : ""; }
     public String getCipher() { return chiffre; }
     public void setCipher(String c) { this.chiffre = c != null ? c : ""; }
-    public void setType(int type) { this.type = type; }
+    public void setType(int type) { this.typSchluessel = type; }
 
     public boolean equals(Object o) {
         if (this == o) return true;

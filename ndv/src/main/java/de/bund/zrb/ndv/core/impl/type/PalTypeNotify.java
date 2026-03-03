@@ -7,10 +7,10 @@ public final class PalTypeNotify extends PalType implements IPalTypeNotify {
     private int benachrichtigung;
     private int erweiterung;
 
-    public PalTypeNotify() { super(); type = 19; }
+    public PalTypeNotify() { super(); typSchluessel = 19; }
     public PalTypeNotify(int benachrichtigung) { this(); this.benachrichtigung = benachrichtigung; }
 
-    public void serialize() { intToBuffer(benachrichtigung); intToBuffer(erweiterung); }
+    public void serialize() { ganzzahlInPuffer(benachrichtigung); ganzzahlInPuffer(erweiterung); }
     public void restore() { benachrichtigung = intFromBuffer(); erweiterung = intFromBuffer(); }
 
     public int getNotification() { return benachrichtigung; }

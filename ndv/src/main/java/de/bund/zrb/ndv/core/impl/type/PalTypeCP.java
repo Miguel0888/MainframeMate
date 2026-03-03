@@ -6,10 +6,10 @@ public final class PalTypeCP extends PalType implements IPalTypeCP {
     private static final long serialVersionUID = 1L;
     private String zeichensatzSeite = "";
 
-    public PalTypeCP() { super(); type = 45; }
+    public PalTypeCP() { super(); typSchluessel = 45; }
     public PalTypeCP(String zeichensatzSeite) { this(); this.zeichensatzSeite = zeichensatzSeite; }
 
-    public void serialize() { stringToBuffer(zeichensatzSeite); }
+    public void serialize() { textInPuffer(zeichensatzSeite); }
     public void restore() { zeichensatzSeite = stringFromBuffer(); }
 
     public String getCodePage() { return zeichensatzSeite; }

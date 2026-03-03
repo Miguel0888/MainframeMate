@@ -29,32 +29,32 @@ public final class PalTypeFileId extends PalType implements IPalTypeFileId {
     }
 
     public PalTypeFileId() {
-        super.type = 23;
+        super.typSchluessel = 23;
     }
 
     public void serialize() {
-        this.stringToBuffer(this.object);
-        this.stringToBuffer(this.newObject);
-        this.stringToBuffer(this.user);
-        this.intToBuffer(this.sourceSize);
-        this.intToBuffer(this.gpSize);
-        this.intToBuffer(this.natKind);
-        this.intToBuffer(this.natType);
-        this.intToBuffer(this.isStructured ? 1 : 0);
-        this.intToBuffer(this.sourceDate.getDay());
-        this.intToBuffer(this.sourceDate.getMonth());
-        this.intToBuffer(this.sourceDate.getYear());
-        this.intToBuffer(this.sourceDate.getHour());
-        this.intToBuffer(this.sourceDate.getMinute());
-        this.intToBuffer(this.gpDate.getDay());
-        this.intToBuffer(this.gpDate.getMonth());
-        this.intToBuffer(this.gpDate.getYear());
-        this.intToBuffer(this.gpDate.getHour());
-        this.intToBuffer(this.gpDate.getMinute());
-        this.stringToBuffer(this.gpUser);
-        this.intToBuffer(this.databaseId);
-        this.intToBuffer(this.fileNumber);
-        this.intToBuffer(this.options);
+        this.textInPuffer(this.object);
+        this.textInPuffer(this.newObject);
+        this.textInPuffer(this.user);
+        this.ganzzahlInPuffer(this.sourceSize);
+        this.ganzzahlInPuffer(this.gpSize);
+        this.ganzzahlInPuffer(this.natKind);
+        this.ganzzahlInPuffer(this.natType);
+        this.ganzzahlInPuffer(this.isStructured ? 1 : 0);
+        this.ganzzahlInPuffer(this.sourceDate.getDay());
+        this.ganzzahlInPuffer(this.sourceDate.getMonth());
+        this.ganzzahlInPuffer(this.sourceDate.getYear());
+        this.ganzzahlInPuffer(this.sourceDate.getHour());
+        this.ganzzahlInPuffer(this.sourceDate.getMinute());
+        this.ganzzahlInPuffer(this.gpDate.getDay());
+        this.ganzzahlInPuffer(this.gpDate.getMonth());
+        this.ganzzahlInPuffer(this.gpDate.getYear());
+        this.ganzzahlInPuffer(this.gpDate.getHour());
+        this.ganzzahlInPuffer(this.gpDate.getMinute());
+        this.textInPuffer(this.gpUser);
+        this.ganzzahlInPuffer(this.databaseId);
+        this.ganzzahlInPuffer(this.fileNumber);
+        this.ganzzahlInPuffer(this.options);
     }
 
     public void restore() {

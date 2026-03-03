@@ -8,7 +8,7 @@ public final class PalTypeDbmsInfo extends PalType implements IPalTypeDbmsInfo {
     private int datenbankTyp;
     private String parameter = "";
 
-    public PalTypeDbmsInfo() { super(); type = 49; }
+    public PalTypeDbmsInfo() { super(); typSchluessel = 49; }
 
     public void serialize() { /* server-only */ }
     public void restore() {

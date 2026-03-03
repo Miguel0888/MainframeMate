@@ -22,20 +22,20 @@ public final class PalTypeStack extends PalType implements IPalTypeStack {
     private int dateiNummer;
 
     public PalTypeStack() {
-        super.type = 9;
+        super.typSchluessel = 9;
     }
 
     public PalTypeStack(String command) {
-        super.type = 9;
+        super.typSchluessel = 9;
         this.befehl = command;
     }
 
     @Override
     public void serialize() {
         try {
-            stringToBuffer(befehl);
-            intToBuffer(datenbankNummer);
-            intToBuffer(dateiNummer);
+            textInPuffer(befehl);
+            ganzzahlInPuffer(datenbankNummer);
+            ganzzahlInPuffer(dateiNummer);
         } catch (NullPointerException e) {
             // Fehler wird still geschluckt (Befehl ist null)
         }

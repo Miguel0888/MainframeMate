@@ -8,25 +8,25 @@ public final class PalTypeObjDesc extends PalType implements IPalTypeObjDesc {
     private int objektTyp;
 
     public PalTypeObjDesc() {
-        super.type = 7;
+        super.typSchluessel = 7;
     }
 
     public PalTypeObjDesc(int objektTyp, int objektArt, String filterMuster) {
-        super.type = 7;
+        super.typSchluessel = 7;
         this.objektArt = objektArt;
         this.objektTyp = objektTyp;
         this.filterMuster = filterMuster;
     }
 
     public void serialize() {
-        this.stringToBuffer(this.filterMuster);
-        this.intToBuffer(this.objektTyp);
-        this.intToBuffer(this.objektArt);
-        this.intToBuffer(0);
-        this.intToBuffer(0);
-        this.intToBuffer(0);
-        this.intToBuffer(0);
-        this.intToBuffer(0);
+        this.textInPuffer(this.filterMuster);
+        this.ganzzahlInPuffer(this.objektTyp);
+        this.ganzzahlInPuffer(this.objektArt);
+        this.ganzzahlInPuffer(0);
+        this.ganzzahlInPuffer(0);
+        this.ganzzahlInPuffer(0);
+        this.ganzzahlInPuffer(0);
+        this.ganzzahlInPuffer(0);
     }
 
     public void restore() {

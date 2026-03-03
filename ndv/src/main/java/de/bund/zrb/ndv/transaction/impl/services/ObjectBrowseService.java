@@ -51,22 +51,22 @@ public class ObjectBrowseService {
         if (filter.length() == 0) throw new IllegalArgumentException("filter parameter must not be empty");
         if (kind < 0) throw new IllegalArgumentException("kind must be one of the ids defined inside utility class 'sag.pal.ObjectKind'");
 
-        // type-Validierung: 131072 (ALL) und 0 (NONE) sind auch gültig
+        // typSchluessel-Validierung: 131072 (ALL) und 0 (NONE) sind auch gültig
         if (type != 131072 && type != 0 && !ObjectType.getInstanceIdExtension().containsKey(Integer.valueOf(type))) {
-            throw new IllegalArgumentException("type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
+            throw new IllegalArgumentException("typSchluessel must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
         }
 
-        // Bei ERRMSG (64) darf type nur NONE (0) sein
+        // Bei ERRMSG (64) darf typSchluessel nur NONE (0) sein
         if (kind == 64 && type != 0) {
-            throw new IllegalArgumentException("kind 'ObjectKind.ERRMSG' only allowed inconjunction with type 'ObjectType.NONE'");
+            throw new IllegalArgumentException("kind 'ObjectKind.ERRMSG' only allowed inconjunction with typSchluessel 'ObjectType.NONE'");
         }
 
-        // type=8 (DDM) nur mit kind SOURCE(1), GP(2), SOURCE_OR_GP(3)
+        // typSchluessel=8 (DDM) nur mit kind SOURCE(1), GP(2), SOURCE_OR_GP(3)
         if (type == 8 && kind != 2 && kind != 3 && kind != 1) {
             throw new IllegalArgumentException("kind  must be ObjectKind.GP or ObjectKind.SOURCE_OR_GP or ObjectKind.SOURCE");
         }
 
-        // leerer Filter bei type=NONE(8) erlaubt, sonst muss library gefuellt sein
+        // leerer Filter bei typSchluessel=NONE(8) erlaubt, sonst muss library gefuellt sein
         if (library.length() == 0 && type != 8) {
             throw new IllegalArgumentException("library parameter must not be empty");
         }
@@ -93,7 +93,7 @@ public class ObjectBrowseService {
             }
         }
 
-        // kind == ERRMSG(64) => kind wird auf 0 gesetzt, type auf 32768
+        // kind == ERRMSG(64) => kind wird auf 0 gesetzt, typSchluessel auf 32768
         int effektiveKind = kind;
         int effektiverTyp = type;
         if (kind == 64) {
@@ -113,7 +113,7 @@ public class ObjectBrowseService {
     }
 
     // ═══════════════════════════════════════════════
-    //  getObjectsFirst (3-Parameter: ohne filter/type)
+    //  getObjectsFirst (3-Parameter: ohne filter/typSchluessel)
     // ═══════════════════════════════════════════════
 
     public IPalTypeObject[] getObjectsFirst(IPalTypeSystemFile sysFile, String filter, int kind)
@@ -339,7 +339,7 @@ public class ObjectBrowseService {
     /**
      * Sendet die eigentliche Objekt-Abfrage an den Server und liefert den ersten Block.
      * Parameter-Reihenfolge wie im Original:
-     * objectsFirst(operationId, sysFile, library, filter, kind, type, operationFlags)
+     * objectsFirst(operationId, sysFile, library, filter, kind, typSchluessel, operationFlags)
      */
     private IPalTypeObject[] sendeObjektAbfrage(int operationId, IPalTypeSystemFile sysFile,
                                                  String library, String filter,
@@ -360,7 +360,7 @@ public class ObjectBrowseService {
                 library, sysFile.getPassword(), sysFile.getCipher(), 6);
         ctx.getPal().add((IPalType) libId);
 
-        // ObjDesc2 senden: PalTypeObjDesc2(type, kind, filter) - type zuerst!
+        // ObjDesc2 senden: PalTypeObjDesc2(typSchluessel, kind, filter) - typSchluessel zuerst!
         PalTypeObjDesc2 objDesc = new PalTypeObjDesc2(type, kind, filter);
         ctx.getPal().add((IPalType) objDesc);
 

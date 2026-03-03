@@ -62,14 +62,14 @@ public final class PalTypeOperation extends PalType implements IPalTypeOperation
     public PalTypeOperation(int transaktionsNummer) {
         this.klientenKennung = "";
         this.benutzerKennung = "";
-        super.type = 2;
+        super.typSchluessel = 2;
         this.transaktionsNummer = transaktionsNummer;
     }
 
     public PalTypeOperation() {
         this.klientenKennung = "";
         this.benutzerKennung = "";
-        super.type = 2;
+        super.typSchluessel = 2;
     }
 
     public PalTypeOperation(int transaktionsNummer, int unterSchluessel) {
@@ -79,11 +79,11 @@ public final class PalTypeOperation extends PalType implements IPalTypeOperation
     }
 
     public void serialize() {
-        this.intToBuffer(this.transaktionsNummer);
-        this.intToBuffer(this.unterSchluessel);
-        this.intToBuffer(this.optionsBits);
-        this.stringToBuffer(this.klientenKennung);
-        this.stringToBuffer(this.benutzerKennung);
+        this.ganzzahlInPuffer(this.transaktionsNummer);
+        this.ganzzahlInPuffer(this.unterSchluessel);
+        this.ganzzahlInPuffer(this.optionsBits);
+        this.textInPuffer(this.klientenKennung);
+        this.textInPuffer(this.benutzerKennung);
     }
 
     public void restore() {

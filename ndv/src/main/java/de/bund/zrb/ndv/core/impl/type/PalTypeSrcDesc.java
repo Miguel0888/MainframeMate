@@ -16,7 +16,7 @@ public class PalTypeSrcDesc extends PalType implements IPalTypeSrcDesc {
     private int errorLine;
     private int errorColumn;
 
-    public PalTypeSrcDesc() { super(); type = 15; }
+    public PalTypeSrcDesc() { super(); typSchluessel = 15; }
     public PalTypeSrcDesc(int natType, String sourceName, boolean isSaved, int options) {
         this(); this.natType = natType;
         this.shortName = sourceName != null ? sourceName : "";
@@ -30,9 +30,9 @@ public class PalTypeSrcDesc extends PalType implements IPalTypeSrcDesc {
     }
 
     public void serialize() {
-        intToBuffer(lineCount); intToBuffer(sourceLength); intToBuffer(natType); intToBuffer(flags);
-        stringToBuffer(shortName); stringToBuffer(longName);
-        intToBuffer(databaseId); intToBuffer(fileNumber); intToBuffer(options);
+        ganzzahlInPuffer(lineCount); ganzzahlInPuffer(sourceLength); ganzzahlInPuffer(natType); ganzzahlInPuffer(flags);
+        textInPuffer(shortName); textInPuffer(longName);
+        ganzzahlInPuffer(databaseId); ganzzahlInPuffer(fileNumber); ganzzahlInPuffer(options);
     }
     public void restore() {
         lineCount = intFromBuffer(); sourceLength = intFromBuffer(); natType = intFromBuffer(); flags = intFromBuffer();

@@ -7,7 +7,7 @@ public final class PalTypeResult extends PalType implements IPalTypeResult {
     private int naturalErgebnis;
     private int systemErgebnis;
 
-    public PalTypeResult() { super(); type = 10; }
+    public PalTypeResult() { super(); typSchluessel = 10; }
 
     public void serialize() { /* server-only */ }
     public void restore() {

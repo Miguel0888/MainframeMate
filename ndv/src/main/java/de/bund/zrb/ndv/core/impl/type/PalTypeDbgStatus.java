@@ -6,7 +6,7 @@ import de.bund.zrb.ndv.core.api.IPalTypeDbgStatus;
 public final class PalTypeDbgStatus extends PalType implements IPalTypeDbgStatus {
     private int merkmale;
 
-    @Override public void serialize() { intToBuffer(merkmale); }
+    @Override public void serialize() { ganzzahlInPuffer(merkmale); }
     @Override public void restore()   { merkmale = intFromBuffer(); }
     @Override public int get()        { return 35; }
 

@@ -16,15 +16,15 @@ public final class PalTypeClientConfig extends PalType {
     private String bibErstesZeichenGueltig = "";
     private String bibFolgeZeichenGueltig = "";
 
-    public PalTypeClientConfig() { super(); type = 50; }
+    public PalTypeClientConfig() { super(); typSchluessel = 50; }
 
     public void serialize() { /* server-only */ }
     public void restore() {
-        nichtDbFeld = (char)(byteFromBuffer() & 0xFF);
-        sqlTrennzeichen = (char)(byteFromBuffer() & 0xFF);
-        dynamischeQuelle = (char)(byteFromBuffer() & 0xFF);
-        globaleVariable = (char)(byteFromBuffer() & 0xFF);
-        alternativerZeichensatz = (char)(byteFromBuffer() & 0xFF);
+        nichtDbFeld = (char)(byteAusPuffer() & 0xFF);
+        sqlTrennzeichen = (char)(byteAusPuffer() & 0xFF);
+        dynamischeQuelle = (char)(byteAusPuffer() & 0xFF);
+        globaleVariable = (char)(byteAusPuffer() & 0xFF);
+        alternativerZeichensatz = (char)(byteAusPuffer() & 0xFF);
         bezeichnerErstesZeichenGueltig = stringFromBuffer();
         bezeichnerFolgeZeichenGueltig = stringFromBuffer();
         objektErstesZeichenGueltig = stringFromBuffer();

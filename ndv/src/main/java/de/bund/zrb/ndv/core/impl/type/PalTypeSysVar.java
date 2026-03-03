@@ -7,22 +7,22 @@ public class PalTypeSysVar extends PalType implements IPalTypeSysVar {
     private int sprache;
     private int art;
 
-    public PalTypeSysVar() { super(); type = 28; }
+    public PalTypeSysVar() { super(); typSchluessel = 28; }
 
     public void serialize() {
-        byteToBuffer((byte) art);
-        if (ndvType == 1) { // Mainframe
-            intToBuffer(sprache);
+        byteInPuffer((byte) art);
+        if (serverArt == 1) { // Mainframe
+            ganzzahlInPuffer(sprache);
         } else {
-            byteToBuffer((byte) sprache);
+            byteInPuffer((byte) sprache);
         }
     }
     public void restore() {
-        art = byteFromBuffer() & 0xFF;
-        if (ndvType == 1) { // Mainframe
+        art = byteAusPuffer() & 0xFF;
+        if (serverArt == 1) { // Mainframe
             sprache = intFromBuffer();
         } else {
-            sprache = byteFromBuffer() & 0xFF;
+            sprache = byteAusPuffer() & 0xFF;
         }
     }
 

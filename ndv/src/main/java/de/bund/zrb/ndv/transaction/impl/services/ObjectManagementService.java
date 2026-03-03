@@ -153,7 +153,7 @@ public class ObjectManagementService {
         }
         if (!ObjectType.getInstanceIdExtension().containsKey(type)) {
             throw new IllegalArgumentException(
-                    "type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
+                    "typSchluessel must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
         }
         PalTrace.header("delete");
         dateiOperationLoeschen(sysFile, library, type, kind, name, longName);
@@ -205,7 +205,7 @@ public class ObjectManagementService {
         }
         if (type != 131072 && type != 0 && !ObjectType.getInstanceIdExtension().containsKey(type)) {
             throw new IllegalArgumentException(
-                    "type must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
+                    "typSchluessel must be one of the ids defined inside utility class 'sag.pal.ObjectType'");
         }
         if (type == 65536) return;
         if (sysFile == null) {

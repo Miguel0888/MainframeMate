@@ -7,14 +7,14 @@ public final class PalTypeGeneric extends PalType implements IPalTypeGeneric {
     private int datenTyp;
     private Object daten;
 
-    public PalTypeGeneric() { super(); type = 20; }
+    public PalTypeGeneric() { super(); typSchluessel = 20; }
     public PalTypeGeneric(int datenTyp, Object daten) { this(); this.datenTyp = datenTyp; this.daten = daten; }
 
     public void serialize() {
-        intToBuffer(datenTyp);
+        ganzzahlInPuffer(datenTyp);
         if (daten != null) {
-            if (datenTyp == TYPE_STRING) { stringToBuffer(daten.toString()); }
-            else { intToBuffer(((Number) daten).intValue()); }
+            if (datenTyp == TYPE_STRING) { textInPuffer(daten.toString()); }
+            else { ganzzahlInPuffer(((Number) daten).intValue()); }
         }
     }
     public void restore() {

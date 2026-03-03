@@ -16,7 +16,7 @@ public final class PalTypeResultEx extends PalType implements IPalTypeResultEx {
     private int dateiNummer;
     private int fehlerArt;
 
-    public PalTypeResultEx() { super(); type = 11; }
+    public PalTypeResultEx() { super(); typSchluessel = 11; }
 
     public void serialize() { /* server-only */ }
     public void restore() {
@@ -24,7 +24,7 @@ public final class PalTypeResultEx extends PalType implements IPalTypeResultEx {
         systemText = stringFromBuffer();    // 2 sys error text
         quellenName = stringFromBuffer();   // 3 source name
         bibliothek = stringFromBuffer();    // 4 library
-        naturalTyp = intFromBuffer();       // 5 nat type
+        naturalTyp = intFromBuffer();       // 5 nat typSchluessel
         zeile = intFromBuffer();            // 6 row
         intFromBuffer();                    // 7 reserved
         spalte = intFromBuffer();           // 8 column

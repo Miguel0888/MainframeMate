@@ -65,11 +65,11 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
     private int recordIndex;
 
     public PalTypeNatParm() {
-        super.type = 25;
+        super.typSchluessel = 25;
     }
 
     public PalTypeNatParm(IPalTypeNatParm source) {
-        super.type = 25;
+        super.typSchluessel = 25;
         this.setRecordIndex(source.getRecordIndex());
         switch (this.getRecordIndex()) {
             case 0: this.setReport(new Report(source.getReport())); break;
@@ -86,7 +86,7 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
 
     public void serialize() {
         if (this.recordIndex >= 0 && this.recordIndex <= 8) {
-            this.intToBuffer(this.recordIndex);
+            this.ganzzahlInPuffer(this.recordIndex);
             switch (this.recordIndex) {
                 case 0: this.report.serialize(); break;
                 case 1: this.limit.serialize(); break;
@@ -187,11 +187,11 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         }
 
         private void serialize() {
-            PalTypeNatParm.this.intToBuffer(this.edtSize);
-            PalTypeNatParm.this.intToBuffer(this.size2);
-            PalTypeNatParm.this.intToBuffer(this.size3);
-            PalTypeNatParm.this.intToBuffer(this.size4);
-            PalTypeNatParm.this.intToBuffer(this.size5);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.edtSize);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.size2);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.size3);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.size4);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.size5);
         }
 
         public final int getEdtSize() { return this.edtSize; }
@@ -231,21 +231,21 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         }
 
         private void restore() {
-            this.termCommandChar = PalTypeNatParm.this.byteFromBuffer();
-            this.decimalChar = PalTypeNatParm.this.byteFromBuffer();
-            this.inputAssignment = PalTypeNatParm.this.byteFromBuffer();
-            this.inputDelimiter = PalTypeNatParm.this.byteFromBuffer();
-            if (PalTypeNatParm.super.recordTail < PalTypeNatParm.super.recordLength) {
-                this.thousandSeperator = PalTypeNatParm.this.byteFromBuffer();
+            this.termCommandChar = PalTypeNatParm.this.byteAusPuffer();
+            this.decimalChar = PalTypeNatParm.this.byteAusPuffer();
+            this.inputAssignment = PalTypeNatParm.this.byteAusPuffer();
+            this.inputDelimiter = PalTypeNatParm.this.byteAusPuffer();
+            if (PalTypeNatParm.super.lesePosition < PalTypeNatParm.super.datensatzLaenge) {
+                this.thousandSeperator = PalTypeNatParm.this.byteAusPuffer();
             }
         }
 
         private void serialize() {
-            PalTypeNatParm.this.byteToBuffer(this.termCommandChar);
-            PalTypeNatParm.this.byteToBuffer(this.decimalChar);
-            PalTypeNatParm.this.byteToBuffer(this.inputAssignment);
-            PalTypeNatParm.this.byteToBuffer(this.inputDelimiter);
-            PalTypeNatParm.this.byteToBuffer(this.thousandSeperator);
+            PalTypeNatParm.this.byteInPuffer(this.termCommandChar);
+            PalTypeNatParm.this.byteInPuffer(this.decimalChar);
+            PalTypeNatParm.this.byteInPuffer(this.inputAssignment);
+            PalTypeNatParm.this.byteInPuffer(this.inputDelimiter);
+            PalTypeNatParm.this.byteInPuffer(this.thousandSeperator);
         }
 
         public final byte getDecimalChar() { return this.decimalChar; }
@@ -293,15 +293,15 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         private void restore() {
             this.flags = PalTypeNatParm.this.intFromBuffer();
             this.sourceLinelength = PalTypeNatParm.this.intFromBuffer();
-            if (PalTypeNatParm.super.recordTail < PalTypeNatParm.super.recordLength) {
+            if (PalTypeNatParm.super.lesePosition < PalTypeNatParm.super.datensatzLaenge) {
                 this.maxprec = PalTypeNatParm.this.intFromBuffer();
             }
         }
 
         private void serialize() {
-            PalTypeNatParm.this.intToBuffer(this.flags);
-            PalTypeNatParm.this.intToBuffer(this.sourceLinelength);
-            PalTypeNatParm.this.intToBuffer(this.maxprec);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.flags);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.sourceLinelength);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.maxprec);
         }
 
         public final int getFlags() { return this.flags; }
@@ -340,7 +340,7 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         }
 
         private void restore() { this.flags = PalTypeNatParm.this.intFromBuffer(); }
-        private void serialize() { PalTypeNatParm.this.intToBuffer(this.flags); }
+        private void serialize() { PalTypeNatParm.this.ganzzahlInPuffer(this.flags); }
 
         public final int getFlags() { return this.flags; }
 
@@ -383,26 +383,26 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
 
         private void restore() {
             this.flags = PalTypeNatParm.this.intFromBuffer();
-            this.dateFormatOutput = PalTypeNatParm.this.byteFromBuffer();
-            this.dateFormatStack = PalTypeNatParm.this.byteFromBuffer();
-            this.dateFormatTitle = PalTypeNatParm.this.byteFromBuffer();
-            this.printMode = PalTypeNatParm.this.byteFromBuffer();
-            if (PalTypeNatParm.super.recordTail < PalTypeNatParm.super.recordLength) {
-                this.dateFormat = PalTypeNatParm.this.byteFromBuffer();
+            this.dateFormatOutput = PalTypeNatParm.this.byteAusPuffer();
+            this.dateFormatStack = PalTypeNatParm.this.byteAusPuffer();
+            this.dateFormatTitle = PalTypeNatParm.this.byteAusPuffer();
+            this.printMode = PalTypeNatParm.this.byteAusPuffer();
+            if (PalTypeNatParm.super.lesePosition < PalTypeNatParm.super.datensatzLaenge) {
+                this.dateFormat = PalTypeNatParm.this.byteAusPuffer();
             }
-            if (PalTypeNatParm.super.recordTail < PalTypeNatParm.super.recordLength) {
+            if (PalTypeNatParm.super.lesePosition < PalTypeNatParm.super.datensatzLaenge) {
                 this.maxyear = PalTypeNatParm.this.intFromBuffer();
             }
         }
 
         private void serialize() {
-            PalTypeNatParm.this.intToBuffer(this.flags);
-            PalTypeNatParm.this.byteToBuffer(this.dateFormatOutput);
-            PalTypeNatParm.this.byteToBuffer(this.dateFormatStack);
-            PalTypeNatParm.this.byteToBuffer(this.dateFormatTitle);
-            PalTypeNatParm.this.byteToBuffer(this.printMode);
-            PalTypeNatParm.this.byteToBuffer(this.dateFormat);
-            PalTypeNatParm.this.intToBuffer(this.maxyear);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.flags);
+            PalTypeNatParm.this.byteInPuffer(this.dateFormatOutput);
+            PalTypeNatParm.this.byteInPuffer(this.dateFormatStack);
+            PalTypeNatParm.this.byteInPuffer(this.dateFormatTitle);
+            PalTypeNatParm.this.byteInPuffer(this.printMode);
+            PalTypeNatParm.this.byteInPuffer(this.dateFormat);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.maxyear);
         }
 
         public final byte getDateFormat() { return this.dateFormat; }
@@ -466,10 +466,10 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         }
 
         private void serialize() {
-            PalTypeNatParm.this.intToBuffer(this.flags);
-            PalTypeNatParm.this.intToBuffer(this.processingLoopLimit);
-            PalTypeNatParm.this.intToBuffer(this.maximumCPUTime);
-            PalTypeNatParm.this.intToBuffer(this.pageDataSet);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.flags);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.processingLoopLimit);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.maximumCPUTime);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.pageDataSet);
         }
 
         public final int getFlags() { return this.flags; }
@@ -509,17 +509,17 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         }
 
         private void restore() {
-            this.isUtf8 = PalTypeNatParm.this.booleanFromBuffer();
-            this.isRetain = PalTypeNatParm.this.booleanFromBuffer();
-            this.isConvErr = PalTypeNatParm.this.booleanFromBuffer();
+            this.isUtf8 = PalTypeNatParm.this.wahrheitswertAusPuffer();
+            this.isRetain = PalTypeNatParm.this.wahrheitswertAusPuffer();
+            this.isConvErr = PalTypeNatParm.this.wahrheitswertAusPuffer();
             this.codePage = PalTypeNatParm.this.stringFromBuffer();
         }
 
         private void serialize() {
-            PalTypeNatParm.this.booleanToBuffer(this.isUtf8);
-            PalTypeNatParm.this.booleanToBuffer(this.isRetain);
-            PalTypeNatParm.this.booleanToBuffer(this.isConvErr);
-            PalTypeNatParm.this.stringToBuffer(this.codePage);
+            PalTypeNatParm.this.wahrheitswertInPuffer(this.isUtf8);
+            PalTypeNatParm.this.wahrheitswertInPuffer(this.isRetain);
+            PalTypeNatParm.this.wahrheitswertInPuffer(this.isConvErr);
+            PalTypeNatParm.this.textInPuffer(this.codePage);
         }
 
         public final String getCodePage() { return this.codePage; }
@@ -561,15 +561,15 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
             this.lineSize = PalTypeNatParm.this.intFromBuffer();
             this.pageSize = PalTypeNatParm.this.intFromBuffer();
             this.spacingFactor = PalTypeNatParm.this.intFromBuffer();
-            this.terminalMode = PalTypeNatParm.this.byteFromBuffer();
+            this.terminalMode = PalTypeNatParm.this.byteAusPuffer();
         }
 
         private void serialize() {
-            PalTypeNatParm.this.intToBuffer(this.flags);
-            PalTypeNatParm.this.intToBuffer(this.lineSize);
-            PalTypeNatParm.this.intToBuffer(this.pageSize);
-            PalTypeNatParm.this.intToBuffer(this.spacingFactor);
-            PalTypeNatParm.this.byteToBuffer(this.terminalMode);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.flags);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.lineSize);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.pageSize);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.spacingFactor);
+            PalTypeNatParm.this.byteInPuffer(this.terminalMode);
         }
 
         public final int getFlags() { return this.flags; }
@@ -618,9 +618,9 @@ public final class PalTypeNatParm extends PalType implements IPalTypeNatParm {
         }
 
         private void serialize() {
-            PalTypeNatParm.this.intToBuffer(this.flags);
-            PalTypeNatParm.this.intToBuffer(this.compression);
-            PalTypeNatParm.this.intToBuffer(this.timeout);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.flags);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.compression);
+            PalTypeNatParm.this.ganzzahlInPuffer(this.timeout);
         }
 
         public final int getCompression() { return this.compression; }

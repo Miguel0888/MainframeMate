@@ -7,7 +7,7 @@ public final class PalTypeLibrary extends PalType implements IPalTypeLibrary {
     private String bibliothek = "";
     private int merkmale;
 
-    public PalTypeLibrary() { super(); type = 5; }
+    public PalTypeLibrary() { super(); typSchluessel = 5; }
 
     public void serialize() { /* server-only */ }
     public void restore() { bibliothek = stringFromBuffer(); merkmale = intFromBuffer(); }

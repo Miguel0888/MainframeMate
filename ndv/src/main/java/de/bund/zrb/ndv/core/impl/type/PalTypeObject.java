@@ -31,9 +31,9 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
     private NdvTimeStamp zeitstempel;
     private int markierungen;
 
-    public PalTypeObject() { super.type = 8; }
+    public PalTypeObject() { super.typSchluessel = 8; }
 
-    public void serialize() { /* server-only type, not sent by client */ }
+    public void serialize() { /* server-only typSchluessel, not sent by client */ }
 
     public void restore() {
         objektName = stringFromBuffer();
@@ -63,12 +63,12 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
         sourceDate = new PalDate(intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer());
         gpDate = new PalDate(intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer());
 
-        if (recordTail < recordLength) {
+        if (lesePosition < datensatzLaenge) {
             accessDate = new PalDate(intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer(), intFromBuffer());
         }
-        if (recordTail < recordLength) gpUser = stringFromBuffer();
-        if (recordTail < recordLength) codePage = stringFromBuffer();
-        if (recordTail < recordLength) markierungen = intFromBuffer();
+        if (lesePosition < datensatzLaenge) gpUser = stringFromBuffer();
+        if (lesePosition < datensatzLaenge) codePage = stringFromBuffer();
+        if (lesePosition < datensatzLaenge) markierungen = intFromBuffer();
     }
 
     public String getName() { return objektName; }

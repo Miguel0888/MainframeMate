@@ -28,7 +28,7 @@ public final class PalTypeEnviron extends PalType implements IPalTypeEnviron {
     }
 
     public PalTypeEnviron(int anmeldeZaehler) {
-        super.type = 0;
+        super.typSchluessel = 0;
         this.naturalVersion = 8380;
         this.betriebssystem = System.getProperty("os.name");
         String[] verParts = System.getProperty("os.version", "0").split("\\.");
@@ -53,18 +53,18 @@ public final class PalTypeEnviron extends PalType implements IPalTypeEnviron {
     }
 
     public void serialize() {
-        intToBuffer(naturalVersion);
-        intToBuffer(PAL_VERSION);
-        stringToBuffer(betriebssystem);
-        stringToBuffer(sitzungsKennung);
-        intToBuffer(betriebssystemVersion);
-        stringToBuffer(startBefehle);
-        intToBuffer(ndvVersion);
-        intToBuffer(terminalModell);
-        intToBuffer(anmeldeZaehler);
-        intToBuffer(merkmale);
-        intToBuffer(webSchichtVersion);
-        intToBuffer(ndvKlientVersion);
+        ganzzahlInPuffer(naturalVersion);
+        ganzzahlInPuffer(PAL_VERSION);
+        textInPuffer(betriebssystem);
+        textInPuffer(sitzungsKennung);
+        ganzzahlInPuffer(betriebssystemVersion);
+        textInPuffer(startBefehle);
+        ganzzahlInPuffer(ndvVersion);
+        ganzzahlInPuffer(terminalModell);
+        ganzzahlInPuffer(anmeldeZaehler);
+        ganzzahlInPuffer(merkmale);
+        ganzzahlInPuffer(webSchichtVersion);
+        ganzzahlInPuffer(ndvKlientVersion);
     }
 
     public void restore() {
@@ -83,12 +83,12 @@ public final class PalTypeEnviron extends PalType implements IPalTypeEnviron {
         }
         sitzungsKennung = stringFromBuffer();
         betriebssystemVersion = intFromBuffer();
-        if (recordTail < recordLength) startBefehle = stringFromBuffer();
-        if (recordTail < recordLength) ndvVersion = intFromBuffer();
-        if (recordTail < recordLength) terminalModell = intFromBuffer();
-        if (recordTail < recordLength) anmeldeZaehler = intFromBuffer();
-        if (recordTail < recordLength) merkmale = intFromBuffer();
-        if (recordTail < recordLength) webSchichtVersion = intFromBuffer();
+        if (lesePosition < datensatzLaenge) startBefehle = stringFromBuffer();
+        if (lesePosition < datensatzLaenge) ndvVersion = intFromBuffer();
+        if (lesePosition < datensatzLaenge) terminalModell = intFromBuffer();
+        if (lesePosition < datensatzLaenge) anmeldeZaehler = intFromBuffer();
+        if (lesePosition < datensatzLaenge) merkmale = intFromBuffer();
+        if (lesePosition < datensatzLaenge) webSchichtVersion = intFromBuffer();
     }
 
     public String getSessionId() { return sitzungsKennung; }

@@ -19,11 +19,11 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     private byte[] ebcdicDatensatz;
     private ConversionResult letztesKonvertierungsErgebnis = ConversionResult.ok();
 
-    public PalTypeSourceCP() { super(); type = 48; }
+    public PalTypeSourceCP() { super(); typSchluessel = 48; }
     public PalTypeSourceCP(String sourceRecord, String codePage) {
         this();
-        this.sourceLine = sourceRecord;
-        this.charSetName = codePage;
+        this.quellZeile = sourceRecord;
+        this.zeichensatzName = codePage;
     }
 
     /** Liefert das Ergebnis der letzten serialize()- oder convert()-Operation. */
@@ -33,20 +33,20 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
 
     public void serialize() {
         letztesKonvertierungsErgebnis = ConversionResult.ok();
-        if (sourceLine == null || charSetName == null) return;
+        if (quellZeile == null || zeichensatzName == null) return;
         try {
-            int cp = findUnsupportedCodePoint(charSetName, sourceLine);
+            int cp = findUnsupportedCodePoint(zeichensatzName, quellZeile);
             if (cp != 0) {
                 letztesKonvertierungsErgebnis = ConversionResult.error(
                         "Unmappable code point: " + cp, this, 0);
                 return;
             }
-            if (super.palVersion <= 35) {
-                char[] b64 = utf16ToCharsetToBase64(sourceLine + " ", charSetName, true);
-                if (b64 != null) byteArrayToBuffer(new String(b64).getBytes());
+            if (super.uebertragungsVersion <= 35) {
+                char[] b64 = utf16NachZeichensatzAlsBase64(quellZeile + " ", zeichensatzName, true);
+                if (b64 != null) byteArrayInPuffer(new String(b64).getBytes());
             } else {
-                byte[] raw = encodeWithCharset(charSetName, sourceLine + " ");
-                byteArrayToBuffer(PalTypeStream.Palbtos(raw));
+                byte[] raw = encodeWithCharset(zeichensatzName, quellZeile + " ");
+                byteArrayInPuffer(PalTypeStream.Palbtos(raw));
             }
         } catch (Exception e) {
             // defensive
@@ -54,10 +54,10 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     }
 
     public void restore() {
-        if (super.palVersion <= 35) {
-            ebcdicDatensatz = Base64.getMimeDecoder().decode(new String(this.recordToCharArray()));
+        if (super.uebertragungsVersion <= 35) {
+            ebcdicDatensatz = Base64.getMimeDecoder().decode(new String(this.datensatzAlsZeichenArray()));
         } else {
-            ebcdicDatensatz = this.recordToByteArray();
+            ebcdicDatensatz = this.datensatzAlsByteArray();
             ebcdicDatensatz = PalTypeStream.Palstob(ebcdicDatensatz);
         }
     }
@@ -66,9 +66,9 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
         letztesKonvertierungsErgebnis = ConversionResult.ok();
         if (ebcdicDatensatz == null) return;
         try {
-            StringBuffer sb = getUtf16ICU(ebcdicDatensatz, charsetName);
+            StringBuffer sb = rohDatenNachUtf16MitIcu(ebcdicDatensatz, charsetName);
             if (sb != null) {
-                sourceLine = sb.toString();
+                quellZeile = sb.toString();
             }
         } catch (Exception e) {
             ConversionResult byteErr = findUnsupportedByteCodePoint(charsetName, ebcdicDatensatz, this);
