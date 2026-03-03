@@ -209,6 +209,8 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
             try {
                 sentenceType = detectSentenceTypeByPath(
                         resource != null ? resource.getResolvedPath() : model.getFullPath());
+                System.out.println("[FileTabImpl] Auto-detected sentenceType: " + sentenceType
+                        + " for path: " + (resource != null ? resource.getResolvedPath() : model.getFullPath()));
             } catch (Exception e) {
                 System.err.println("[FileTabImpl] Auto-detect sentence type failed: " + e.getMessage());
             }
@@ -897,6 +899,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 if (meta != null && meta.getExtensions() != null) {
                     for (String ext : meta.getExtensions()) {
                         if (ext.equalsIgnoreCase(fileExt)) {
+                            System.out.println("[SentenceDetect] Extension match: '" + fileExt + "' → " + entry.getKey() + " (path: " + filePath + ")");
                             return entry.getKey();
                         }
                     }
@@ -933,6 +936,8 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
             }
         }
 
+        System.out.println("[SentenceDetect] No match for path: " + filePath
+                + " (ext: " + fileExt + ", definitions: " + definitions.size() + ")");
         return null;
     }
 }
