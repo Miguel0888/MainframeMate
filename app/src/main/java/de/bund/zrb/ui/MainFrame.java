@@ -299,6 +299,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
             // 2. Re-apply log levels
             de.bund.zrb.util.AppLogger.applySettings();
+
+            // 3. Apply global UI theme
+            de.bund.zrb.ui.theme.ThemeManager.getInstance().applyTheme(s.lockStyle);
         });
     }
 

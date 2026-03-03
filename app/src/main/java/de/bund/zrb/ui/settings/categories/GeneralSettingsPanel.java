@@ -34,6 +34,15 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         super("general", "Allgemein");
         FormBuilder fb = new FormBuilder();
 
+        // App-Design (steht oben, da es die gesamte App betrifft)
+        fb.addSection("App-Design");
+
+        lockStyleBox = new JComboBox<>(LockerStyle.values());
+        lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
+        fb.addRow("Design:", lockStyleBox);
+
+        fb.addSection("Editor");
+
         fontCombo = new JComboBox<>(new String[]{"Monospaced", "Consolas", "Courier New", "Menlo", "Dialog"});
         fontCombo.setSelectedItem(settings.editorFont);
         fb.addRowHelp("Editor-Schriftart:", fontCombo, HelpContentProvider.HelpTopic.SETTINGS_GENERAL);
@@ -104,9 +113,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         lockPre = new JSpinner(new SpinnerNumberModel(settings.lockPrenotification, 0, Integer.MAX_VALUE, 100));
         fb.addRow("Ankündigung (ms):", lockPre);
 
-        lockStyleBox = new JComboBox<>(LockerStyle.values());
-        lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
-        fb.addRow("Design:", lockStyleBox);
 
         fb.addSection("Lokale Historie");
 
@@ -168,6 +174,16 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.historyEnabled = historyEnabledBox.isSelected();
         s.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
         s.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();
+    }
+
+    @Override
+    protected void afterApply(Settings s) {
+        // Apply the global UI theme based on the selected design
+        try {
+            de.bund.zrb.ui.theme.ThemeManager.getInstance().applyTheme(s.lockStyle);
+        } catch (Exception e) {
+            System.err.println("[Theme] Failed to apply theme: " + e.getMessage());
+        }
     }
 }
 
