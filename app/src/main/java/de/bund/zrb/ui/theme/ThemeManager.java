@@ -136,7 +136,6 @@ public final class ThemeManager {
         ColorUIResource bg = c(t.bg);
         ColorUIResource surface = c(t.surface);
         ColorUIResource text = c(t.text);
-        ColorUIResource textSec = c(t.textSecondary);
         ColorUIResource accent = c(t.accent);
         ColorUIResource selBg = c(t.selection);
         ColorUIResource selFg = c(t.selectionText);
@@ -365,18 +364,25 @@ public final class ThemeManager {
      * Also applies theme to RSyntaxTextArea instances (which don't use UIManager defaults),
      * and forces dark background on JToolBar/JMenuBar.
      */
-    private void refreshAllWindows() {
+    public void refreshAllWindows() {
         for (Window window : Window.getWindows()) {
-            SwingUtilities.updateComponentTreeUI(window);
-            applyThemeToComponentTree(window);
-
-            // Apply Windows dark title bar if available
-            applyWindowsTitleBarTheme(window);
-
-            window.revalidate();
-            window.repaint();
+            refreshWindow(window);
         }
     }
+
+    /**
+     * Refresh a single window to apply the current theme.
+     * Call this after creating a new window/dialog if the theme was applied before the window existed.
+     */
+    public void refreshWindow(Window window) {
+        if (window == null) return;
+        SwingUtilities.updateComponentTreeUI(window);
+        applyThemeToComponentTree(window);
+        applyWindowsTitleBarTheme(window);
+        window.revalidate();
+        window.repaint();
+    }
+
 
     /**
      * Recursively apply theme colors to components that don't respect UIManager defaults.

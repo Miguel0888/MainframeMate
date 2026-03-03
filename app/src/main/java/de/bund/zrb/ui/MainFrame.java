@@ -178,6 +178,10 @@ public class MainFrame extends JFrame implements MainframeContext {
         restoreWindowState();
         initUI();
 
+        // Apply theme to this window (toolbar, menubar, title bar) –
+        // needed because ThemeManager.applyTheme() ran before this window existed
+        de.bund.zrb.ui.theme.ThemeManager.getInstance().refreshWindow(this);
+
         // Start enabled MCP servers (after plugins have registered via initUI → PluginManager)
         de.bund.zrb.mcp.registry.McpServerManager.getInstance().startEnabledServers();
     }
