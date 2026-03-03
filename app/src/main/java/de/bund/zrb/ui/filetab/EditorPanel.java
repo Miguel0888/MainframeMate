@@ -105,8 +105,6 @@ public class EditorPanel extends JPanel {
             textArea.setMarginLineEnabled(true);
             textArea.setMarginLinePosition(settings.marginColumn);
         }
-        // Apply current theme
-        de.bund.zrb.ui.theme.ThemeManager.getInstance().applyEditorTheme(textArea);
     }
 
     /** Re-apply font and margin settings from the current (fresh) settings. */

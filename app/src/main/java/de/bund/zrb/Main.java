@@ -8,7 +8,6 @@ import de.bund.zrb.ui.branding.IconThemeInstaller;
 import de.bund.zrb.ui.util.UnicodeFontFix;
 
 import de.bund.zrb.runtime.PluginManager;
-import de.bund.zrb.ui.theme.ThemeManager;
 
 import javax.swing.*;
 
@@ -19,14 +18,6 @@ public class Main {
 
         // Install branding icon theme (before any Swing window is created)
         IconThemeInstaller.install();
-
-        // Apply global UI theme from settings (before any Swing window is created)
-        try {
-            int lockStyle = de.bund.zrb.helper.SettingsHelper.load().lockStyle;
-            ThemeManager.getInstance().applyTheme(lockStyle);
-        } catch (Exception e) {
-            System.err.println("[Theme] Failed to apply initial theme: " + e.getMessage());
-        }
 
         // Apply log settings from preferences (before any logging happens)
         de.bund.zrb.util.AppLogger.applySettings();
@@ -53,9 +44,6 @@ public class Main {
         SwingUtilities.invokeLater(() -> {
             MainFrame gui = new MainFrame();
             gui.setVisible(true);
-
-            // Apply theme to title bar after window is visible (native HWND now exists)
-            de.bund.zrb.ui.theme.ThemeManager.getInstance().refreshWindow(gui);
         });
     }
 }

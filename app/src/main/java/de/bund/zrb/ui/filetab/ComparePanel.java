@@ -46,8 +46,6 @@ public class ComparePanel extends JPanel {
             originalArea.setMarginLineEnabled(true);
             originalArea.setMarginLinePosition(settings.marginColumn);
         }
-        // Apply current theme
-        de.bund.zrb.ui.theme.ThemeManager.getInstance().applyEditorTheme(originalArea);
     }
 
     public void setContent(String originalPath, String originalContent) {
