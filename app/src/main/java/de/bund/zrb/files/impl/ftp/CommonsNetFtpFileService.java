@@ -423,7 +423,7 @@ public class CommonsNetFtpFileService implements FileService {
     }
 
     /**
-     * Read a file in BINARY transfer mode (no ASCII/EBCDIC conversion).
+     * Read a file in BINARY transfer mode (no ASCII/EBCDIC conversion, no padding removal).
      * Temporarily switches to FTP.BINARY_FILE_TYPE, reads, then restores the original mode.
      * Required for binary document formats (PDF, DOCX, XLSX, etc.) on FTP/MVS servers.
      */
@@ -432,8 +432,6 @@ public class CommonsNetFtpFileService implements FileService {
         List<String> candidates = resolveReadCandidates(absolutePath);
         FileServiceException lastError = null;
 
-        // Save current settings
-        Integer originalFileType = settings.ftpFileType == null ? null : settings.ftpFileType.getCode();
         boolean originalRecordStructure = recordStructure;
 
         try {
@@ -446,7 +444,7 @@ public class CommonsNetFtpFileService implements FileService {
 
             for (String candidate : candidates) {
                 try {
-                    return readFileInternal(candidate);
+                    return readFileInternalBinary(candidate);
                 } catch (FileServiceException e) {
                     lastError = e;
                 }
@@ -469,6 +467,44 @@ public class CommonsNetFtpFileService implements FileService {
             throw lastError;
         }
         throw new FileServiceException(FileServiceErrorCode.NOT_FOUND, "FTP file not found (binary)");
+    }
+
+    /**
+     * Reads a file as raw binary bytes — no padding removal, no record structure decoding.
+     * Used exclusively by readFileBinary() for binary document formats.
+     */
+    private FilePayload readFileInternalBinary(String resolvedPath) throws FileServiceException {
+        InputStream in = null;
+        try {
+            long t0 = System.currentTimeMillis();
+            in = ftpClient.retrieveFileStream(resolvedPath);
+            if (in == null) {
+                throw new FileServiceException(FileServiceErrorCode.NOT_FOUND,
+                        "FTP file not found: " + resolvedPath + " reply=" + ftpClient.getReplyString());
+            }
+
+            // Read raw bytes — NO padding removal (padding removal corrupts binary data)
+            byte[] bytes = readAllBytesRaw(in);
+            long t1 = System.currentTimeMillis();
+            System.out.println("[FTP] readFileInternalBinary: " + bytes.length + " bytes in " + (t1 - t0) + "ms");
+
+            in.close();
+            in = null;
+
+            if (!ftpClient.completePendingCommand()) {
+                throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
+                        "FTP transfer incomplete: " + resolvedPath);
+            }
+
+            // Return raw bytes without any charset/text transformation
+            return FilePayload.fromBytes(bytes, null, false);
+        } catch (IOException e) {
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP binary read failed: " + resolvedPath, e);
+        } finally {
+            if (in != null) {
+                try { in.close(); } catch (IOException ignore) {}
+            }
+        }
     }
 
     private FilePayload readFileInternal(String resolvedPath) throws FileServiceException {
@@ -625,6 +661,20 @@ public class CommonsNetFtpFileService implements FileService {
             }
         }
 
+        return out.toByteArray();
+    }
+
+    /**
+     * Read all bytes from stream WITHOUT any padding removal.
+     * Used for binary file transfers where every byte must be preserved.
+     */
+    private byte[] readAllBytesRaw(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+        }
         return out.toByteArray();
     }
 

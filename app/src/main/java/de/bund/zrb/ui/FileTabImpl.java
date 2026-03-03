@@ -646,32 +646,42 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
      * Extracts text via PDFBox/POI, builds a Document model, renders to HTML.
      */
     private void renderBinaryContent(byte[] binaryData, String path, String fileType) {
-        try {
-            String fileName = path;
-            int lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            if (lastSep >= 0) fileName = path.substring(lastSep + 1);
+        String fileName = path;
+        int lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        if (lastSep >= 0) fileName = path.substring(lastSep + 1);
+        String sizeStr = formatFileSize(binaryData.length);
+        final String displayName = fileName;
 
+        // Show loading indicator immediately
+        SwingUtilities.invokeLater(() ->
+                htmlRenderedPane.setText("<html><body style='font-family: Segoe UI, sans-serif; padding: 20px;'>" +
+                        "<p>⏳ Extrahiere Text aus <b>" + escapeHtml(displayName) + "</b> (" + sizeStr + ")...</p>" +
+                        "</body></html>"));
+
+        de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase extractUseCase = null;
+        try {
             // Use ingestion pipeline: detect → extract → build → render
+            // Use executeSync to avoid nested timeout issues
             de.bund.zrb.ingestion.config.IngestionConfig config = new de.bund.zrb.ingestion.config.IngestionConfig()
-                    .setMaxFileSizeBytes(25 * 1024 * 1024)
-                    .setTimeoutPerExtractionMs(15000)
+                    .setMaxFileSizeBytes(50 * 1024 * 1024)   // 50 MB
+                    .setTimeoutPerExtractionMs(60000)          // 60 seconds
                     .setEnableFallbackOnExtractorFailure(true);
 
-            de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase extractUseCase =
-                    new de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase(config);
+            extractUseCase = new de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase(config);
 
             de.bund.zrb.ingestion.model.DocumentSource source =
-                    de.bund.zrb.ingestion.model.DocumentSource.fromBytes(binaryData, fileName);
+                    de.bund.zrb.ingestion.model.DocumentSource.fromBytes(binaryData, displayName);
 
-            de.bund.zrb.ingestion.model.ExtractionResult result = extractUseCase.execute(source);
-
-            extractUseCase.shutdown();
+            // Use executeSync — we're already in a background thread, so no need for the
+            // internal timeout executor (which was causing TimeoutException)
+            de.bund.zrb.ingestion.model.ExtractionResult result = extractUseCase.executeSync(source);
 
             if (!result.isSuccess()) {
+                final String errorMsg = result.getErrorMessage();
                 SwingUtilities.invokeLater(() ->
-                        htmlRenderedPane.setText("<html><body>" +
+                        htmlRenderedPane.setText("<html><body style='font-family: Segoe UI, sans-serif; padding: 20px;'>" +
                                 "<p style='color:orange;'>⚠ Text-Extraktion fehlgeschlagen: " +
-                                escapeHtml(result.getErrorMessage()) + "</p>" +
+                                escapeHtml(errorMsg) + "</p>" +
                                 "<p>Verwenden Sie <b>📥 Herunterladen</b> um die Originaldatei zu speichern.</p>" +
                                 "</body></html>"));
                 return;
@@ -683,13 +693,12 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
             String html = markdownFormatter.renderToHtml(extractedText);
 
             // Build header with document info
-            String sizeStr = formatFileSize(binaryData.length);
             String header = "<div style='background:#f0f0f0; padding:8px 12px; margin-bottom:12px; " +
                     "border-radius:4px; font-size:11px; color:#666;'>" +
-                    "📄 <b>" + escapeHtml(fileName) + "</b> | " + sizeStr + " | " +
+                    "📄 <b>" + escapeHtml(displayName) + "</b> | " + sizeStr + " | " +
                     fileType.toUpperCase() + " | ✅ Binär geladen</div>";
 
-            String fullHtml = "<html><body>" + header + html + "</body></html>";
+            String fullHtml = "<html><body style='font-family: Segoe UI, sans-serif;'>" + header + html + "</body></html>";
 
             SwingUtilities.invokeLater(() -> {
                 htmlRenderedPane.setText(fullHtml);
@@ -698,12 +707,17 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         } catch (Exception e) {
             System.err.println("[FileTabImpl] renderBinaryContent failed: " + e.getMessage());
+            e.printStackTrace();
             SwingUtilities.invokeLater(() ->
-                    htmlRenderedPane.setText("<html><body>" +
+                    htmlRenderedPane.setText("<html><body style='font-family: Segoe UI, sans-serif; padding: 20px;'>" +
                             "<p style='color:red;'>⚠ Rendering fehlgeschlagen: " +
                             escapeHtml(e.getMessage()) + "</p>" +
                             "<p>Verwenden Sie <b>📥 Herunterladen</b> um die Originaldatei zu speichern.</p>" +
                             "</body></html>"));
+        } finally {
+            if (extractUseCase != null) {
+                extractUseCase.shutdown();
+            }
         }
     }
 
