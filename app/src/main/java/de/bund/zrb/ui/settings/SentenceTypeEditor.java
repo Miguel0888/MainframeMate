@@ -21,9 +21,33 @@ public class SentenceTypeEditor extends JPanel {
     private final JTextField pathPatternField = new JTextField();
     private final JCheckBox appendCheckbox = new JCheckBox("An Inhalt anhängen");
 
+    private final JTextField extensionsField = new JTextField();
+    private final JComboBox<String> transferModeCombo = new JComboBox<>(new String[]{"ASCII", "Binary"});
+
     private final FieldTableModel fieldModel = new FieldTableModel();
     private final JTable fieldTable = new JTable(fieldModel);
     public String originalKey = ""; // wird extern gesetzt
+
+    private boolean fileTypeMode = false;
+    private JScrollPane fieldScrollPane;
+    private JPanel fieldButtonPanel;
+    private JLabel extensionsLabel;
+    private JLabel transferLabel;
+
+    /**
+     * Switches the editor between sentence type mode and file type mode.
+     * In file type mode, the field table is hidden and extensions/transfer fields are shown.
+     */
+    public void setFileTypeMode(boolean fileType) {
+        this.fileTypeMode = fileType;
+        if (fieldScrollPane != null) fieldScrollPane.setVisible(!fileType);
+        if (fieldButtonPanel != null) fieldButtonPanel.setVisible(!fileType);
+        if (extensionsLabel != null) extensionsLabel.setVisible(fileType);
+        if (extensionsField != null) extensionsField.setVisible(fileType);
+        if (transferLabel != null) transferLabel.setVisible(fileType);
+        if (transferModeCombo != null) transferModeCombo.setVisible(fileType);
+        appendCheckbox.setVisible(!fileType);
+    }
 
     public SentenceTypeEditor() {
         setLayout(new BorderLayout(8, 8));
@@ -41,12 +65,19 @@ public class SentenceTypeEditor extends JPanel {
                         "Hinweis: Doppelte Backslashes (\\) erforderlich für Punkte etc.</html>"
         );
 
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JPanel metaPanel = createMetaPanel(buttonPanel);
+        extensionsField.setToolTipText(
+                "<html>Dateiendungen (ohne Punkt), kommagetrennt, z.B.:<br>" +
+                        "<code>pdf</code> oder <code>doc, docx</code></html>"
+        );
+
+        fieldButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel metaPanel = createMetaPanel(fieldButtonPanel);
+
+        fieldScrollPane = new JScrollPane(fieldTable);
 
         add(metaPanel, BorderLayout.NORTH);
-        add(new JScrollPane(fieldTable), BorderLayout.CENTER);
-        add(buttonPanel, BorderLayout.SOUTH);
+        add(fieldScrollPane, BorderLayout.CENTER);
+        add(fieldButtonPanel, BorderLayout.SOUTH);
     }
 
     private @NotNull JPanel createMetaPanel(JPanel buttonPanel) {
@@ -136,6 +167,40 @@ public class SentenceTypeEditor extends JPanel {
         gbc.anchor = GridBagConstraints.WEST;
         metaPanel.add(appendCheckbox, gbc);
 
+        // Endungen (für Dateitypen)
+        row++;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.gridwidth = 1;
+        gbc.weightx = 0;
+        extensionsLabel = new JLabel("Endungen");
+        extensionsLabel.setVisible(false);
+        metaPanel.add(extensionsLabel, gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        extensionsField.setVisible(false);
+        metaPanel.add(extensionsField, gbc);
+
+        // Transfer-Modus (für Dateitypen)
+        row++;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0;
+        transferLabel = new JLabel("Transfer-Modus");
+        transferLabel.setVisible(false);
+        metaPanel.add(transferLabel, gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        transferModeCombo.setSelectedIndex(0); // ASCII default
+        transferModeCombo.setVisible(false);
+        transferModeCombo.setToolTipText(
+                "<html>ASCII: Textdateien (JCL, COBOL, MD, ...)<br>" +
+                        "Binary: Binärdateien (PDF, WORD, EXCEL, ...)</html>"
+        );
+        metaPanel.add(transferModeCombo, gbc);
+
         // Buttons für Felder
         JButton addFieldButton = new JButton("➕ Feld");
         addFieldButton.addActionListener(e -> {
@@ -216,6 +281,24 @@ public class SentenceTypeEditor extends JPanel {
         meta.setPathPattern(pathPatternField.getText().trim());
         meta.setAppend(appendCheckbox.isSelected());
 
+        // Extensions (for file types)
+        String extText = extensionsField.getText().trim();
+        if (!extText.isEmpty()) {
+            java.util.List<String> exts = new java.util.ArrayList<>();
+            for (String ext : extText.split("[,;\\s]+")) {
+                String cleaned = ext.trim().toLowerCase();
+                if (cleaned.startsWith(".")) cleaned = cleaned.substring(1);
+                if (!cleaned.isEmpty()) exts.add(cleaned);
+            }
+            meta.setExtensions(exts);
+        }
+
+        // Transfer mode (for file types)
+        if (fileTypeMode) {
+            String selected = (String) transferModeCombo.getSelectedItem();
+            meta.setTransferMode("Binary".equals(selected) ? "binary" : "ascii");
+        }
+
         def.setMeta(meta);
         def.setFields(fieldModel.getInternalMap());
 
@@ -266,6 +349,18 @@ public class SentenceTypeEditor extends JPanel {
             pathPatternField.setText(def.getMeta().getPathPattern());
             appendCheckbox.setSelected(Boolean.TRUE.equals(def.getMeta().isAppend()));
             pathsModel.setPaths(def.getMeta().getPaths());
+
+            // Extensions
+            if (def.getMeta().getExtensions() != null && !def.getMeta().getExtensions().isEmpty()) {
+                extensionsField.setText(String.join(", ", def.getMeta().getExtensions()));
+            }
+
+            // Transfer mode
+            if (def.getMeta().isBinaryTransfer()) {
+                transferModeCombo.setSelectedItem("Binary");
+            } else {
+                transferModeCombo.setSelectedItem("ASCII");
+            }
         }
 
         fieldModel.setFields(def.getFields());

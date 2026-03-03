@@ -47,7 +47,38 @@ public class SentenceTypeSettingsDialog {
 
                     if (exists) {
                         JOptionPane.showMessageDialog(parent,
-                                "Eine Satzart mit dem Namen \"" + newKey + "\" existiert bereits (Groß-/Kleinschreibung ignoriert).",
+                                "Ein Eintrag mit dem Namen \"" + newKey + "\" existiert bereits (Groß-/Kleinschreibung ignoriert).",
+                                "Fehler beim Speichern", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+
+                    sentenceTypeSpec.getDefinitions().put(newKey, def);
+                    tableModel.fireTableDataChanged();
+                    SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
+                }
+            }
+        });
+
+        JButton addFileTypeButton = new JButton("➕ Dateityp");
+        addFileTypeButton.addActionListener(e -> {
+            SentenceTypeEditor editor = new SentenceTypeEditor();
+            editor.originalKey = "";
+            editor.setFileTypeMode(true);
+
+            if (showEditorDialog(parent, editor, "Neuer Dateityp")) {
+                SentenceDefinition def = editor.getDefinition();
+                if (def != null) {
+                    def.setCategory("filetype");
+                }
+                String newKey = editor.getKey();
+
+                if (def != null && newKey != null && !newKey.isEmpty()) {
+                    boolean exists = sentenceTypeSpec.getDefinitions().keySet().stream()
+                            .anyMatch(existingKey -> existingKey.equalsIgnoreCase(newKey));
+
+                    if (exists) {
+                        JOptionPane.showMessageDialog(parent,
+                                "Ein Eintrag mit dem Namen \"" + newKey + "\" existiert bereits (Groß-/Kleinschreibung ignoriert).",
                                 "Fehler beim Speichern", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
@@ -64,15 +95,22 @@ public class SentenceTypeSettingsDialog {
             int selected = table.getSelectedRow();
             if (selected >= 0) {
                 String key = (String) tableModel.getValueAt(selected, 0);
+                SentenceDefinition existingDef = sentenceTypeSpec.getDefinitions().get(key);
                 SentenceTypeEditor editor = new SentenceTypeEditor();
-                editor.setData(key, sentenceTypeSpec.getDefinitions().get(key));
+                editor.setFileTypeMode(existingDef.isFileType());
+                editor.setData(key, existingDef);
                 editor.originalKey = key; // Originalschlüssel merken
 
-                if (showEditorDialog(parent, editor, "Satzart bearbeiten")) {
+                String title = existingDef.isFileType() ? "Dateityp bearbeiten" : "Satzart bearbeiten";
+                if (showEditorDialog(parent, editor, title)) {
                     String newKey = editor.getKey();
                     SentenceDefinition def = editor.getDefinition();
 
                     if (def != null && newKey != null && !newKey.isEmpty()) {
+                        // Preserve category
+                        if (existingDef.isFileType()) {
+                            def.setCategory("filetype");
+                        }
                         // Falls umbenannt, alten Key entfernen
                         if (!newKey.equals(editor.originalKey)) {
                             sentenceTypeSpec.getDefinitions().remove(editor.originalKey);
@@ -107,6 +145,7 @@ public class SentenceTypeSettingsDialog {
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         buttonPanel.add(addButton);
+        buttonPanel.add(addFileTypeButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
         buttonPanel.add(addFileTypesButton);
@@ -114,7 +153,7 @@ public class SentenceTypeSettingsDialog {
         JPanel container = new JPanel(new BorderLayout());
         container.add(new JScrollPane(table), BorderLayout.CENTER);
         container.add(buttonPanel, BorderLayout.SOUTH);
-        container.setPreferredSize(new Dimension(700, 400));
+        container.setPreferredSize(new Dimension(850, 400));
 
         int result = JOptionPane.showConfirmDialog(parent, container, "Verwaltung der Satzarten",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -139,20 +178,23 @@ public class SentenceTypeSettingsDialog {
      * Adds default file type definitions if they don't already exist.
      */
     private static void addDefaultFileTypes() {
+        // name, pathPattern, extensions (comma-sep), transferMode
         String[][] defaults = {
-                {"PDF",          ".*\\.pdf$"},
-                {"MD",           ".*\\.md$"},
-                {"JCL",          ".*\\.(jcl|proc|prc)$"},
-                {"COBOL",        ".*\\.(cbl|cob|cobol)$"},
-                {"NATURAL",      ""},
-                {"WORD",         ".*\\.(doc|docx)$"},
-                {"EXCEL",        ".*\\.(xls|xlsx)$"},
-                {"OUTLOOK MAIL", ".*\\.(msg|eml)$"},
+                {"PDF",          ".*\\.pdf$",              "pdf",           "binary"},
+                {"MD",           ".*\\.md$",               "md,markdown",   "ascii"},
+                {"JCL",          ".*\\.(jcl|proc|prc)$",   "jcl,proc,prc",  "ascii"},
+                {"COBOL",        ".*\\.(cbl|cob|cobol)$",  "cbl,cob,cobol", "ascii"},
+                {"NATURAL",      "",                        "",              "ascii"},
+                {"WORD",         ".*\\.(doc|docx)$",        "doc,docx",      "binary"},
+                {"EXCEL",        ".*\\.(xls|xlsx)$",        "xls,xlsx",      "binary"},
+                {"OUTLOOK MAIL", ".*\\.(msg|eml)$",         "msg,eml",       "binary"},
         };
 
         for (String[] def : defaults) {
             String key = def[0];
             String pattern = def[1];
+            String extensions = def[2];
+            String transfer = def[3];
 
             boolean exists = sentenceTypeSpec.getDefinitions().keySet().stream()
                     .anyMatch(existingKey -> existingKey.equalsIgnoreCase(key));
@@ -163,6 +205,16 @@ public class SentenceTypeSettingsDialog {
 
             SentenceMeta meta = new SentenceMeta();
             meta.setPathPattern(pattern);
+            meta.setTransferMode(transfer);
+
+            if (!extensions.isEmpty()) {
+                java.util.List<String> extList = new java.util.ArrayList<>();
+                for (String ext : extensions.split(",")) {
+                    extList.add(ext.trim());
+                }
+                meta.setExtensions(extList);
+            }
+
             sd.setMeta(meta);
 
             sentenceTypeSpec.getDefinitions().put(key, sd);
@@ -170,7 +222,7 @@ public class SentenceTypeSettingsDialog {
     }
 
     private static class SentenceTableModel extends AbstractTableModel {
-        private final String[] columns = {"Name", "Typ", "Pfade", "Pattern", "Feldzahl"};
+        private final String[] columns = {"Name", "Typ", "Endungen", "Transfer", "Pfade", "Pattern", "Feldzahl"};
 
         @Override
         public int getRowCount() {
@@ -199,23 +251,29 @@ public class SentenceTypeSettingsDialog {
             int index = 0;
             for (Map.Entry<String, SentenceDefinition> entry : sentenceTypeSpec.getDefinitions().entrySet()) {
                 if (index == row) {
+                    SentenceDefinition def = entry.getValue();
+                    SentenceMeta meta = def.getMeta();
                     switch (column) {
                         case 0: return entry.getKey();
-                        case 1: return entry.getValue().isFileType() ? "📁 Dateityp" : "📝 Satzart";
+                        case 1: return def.isFileType() ? "📁 Dateityp" : "📝 Satzart";
                         case 2:
-                            List<String> paths = entry.getValue().getMeta() != null
-                                    ? entry.getValue().getMeta().getPaths()
-                                    : null;
-                            return paths != null ? String.join(";", paths) : "";
+                            // Endungen
+                            if (meta != null && meta.getExtensions() != null && !meta.getExtensions().isEmpty()) {
+                                return String.join(", ", meta.getExtensions());
+                            }
+                            return "";
                         case 3:
-                            return entry.getValue().getMeta() != null
-                                    ? entry.getValue().getMeta().getPathPattern()
-                                    : "";
+                            // Transfer
+                            if (!def.isFileType()) return "—";
+                            return meta != null && meta.isBinaryTransfer() ? "Binary" : "ASCII";
                         case 4:
-                            if (entry.getValue().isFileType()) return "—";
-                            return entry.getValue().getFields() != null
-                                    ? entry.getValue().getFields().size()
-                                    : 0;
+                            List<String> paths = meta != null ? meta.getPaths() : null;
+                            return paths != null ? String.join(";", paths) : "";
+                        case 5:
+                            return meta != null ? meta.getPathPattern() : "";
+                        case 6:
+                            if (def.isFileType()) return "—";
+                            return def.getFields() != null ? def.getFields().size() : 0;
                         default: return "";
                     }
                 }

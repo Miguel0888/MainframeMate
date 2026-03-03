@@ -733,6 +733,25 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         SentenceTypeRegistry registry = getRegistry();
         Map<String, SentenceDefinition> definitions = registry.getSentenceTypeSpec().getDefinitions();
 
+        // 0. Erst Extension-Matching (für Dateitypen mit definierten Endungen)
+        String fileExt = null;
+        int dotIdx = filePath.lastIndexOf('.');
+        if (dotIdx > 0 && dotIdx < filePath.length() - 1) {
+            fileExt = filePath.substring(dotIdx + 1).toLowerCase();
+        }
+        if (fileExt != null && !fileExt.isEmpty()) {
+            for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
+                SentenceMeta meta = entry.getValue().getMeta();
+                if (meta != null && meta.getExtensions() != null) {
+                    for (String ext : meta.getExtensions()) {
+                        if (ext.equalsIgnoreCase(fileExt)) {
+                            return entry.getKey();
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Erst Pfad-Vergleich (startsWith)
         for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
             SentenceMeta meta = entry.getValue().getMeta();

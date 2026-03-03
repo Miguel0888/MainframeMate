@@ -5,18 +5,9 @@ import de.bund.zrb.ui.filetab.event.*;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
-
 public class FileTabEventManager {
 
     private final FileTabImpl fileTab;
-
-    /** File types that require binary transfer mode (no ASCII/EBCDIC conversion). */
-    private static final Set<String> BINARY_FILE_TYPES = new HashSet<>(Arrays.asList(
-            "PDF", "WORD", "EXCEL", "OUTLOOK MAIL"
-    ));
 
     public FileTabEventManager(FileTabImpl fileTab) {
         this.fileTab = fileTab;
@@ -38,14 +29,16 @@ public class FileTabEventManager {
             // Check if this is a file type definition
             java.util.Optional<SentenceDefinition> optDef = getRegistry().findDefinition(event.newType);
             if (optDef.isPresent() && optDef.get().isFileType()) {
+                SentenceDefinition fileDef = optDef.get();
                 // File type selected → switch to file type rendering, clear sentence highlights
                 fileTab.highlighter.clearHighlights(fileTab.getRawPane());
                 fileTab.highlighter.clearHighlights(fileTab.comparePanel.getOriginalTextArea());
                 fileTab.legendController.clearLegend();
                 fileTab.applyFileTypeRendering(event.newType);
 
-                // Binary file types on remote backends → reload in binary mode
-                if (isBinaryFileType(event.newType) && isRemoteResource()) {
+                // Binary transfer mode on remote backends → reload in binary mode
+                boolean needsBinary = fileDef.getMeta() != null && fileDef.getMeta().isBinaryTransfer();
+                if (needsBinary && isRemoteResource()) {
                     fileTab.reloadAsBinary(event.newType);
                 }
                 return;
@@ -117,9 +110,6 @@ public class FileTabEventManager {
         return fileTab.tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
     }
 
-    private boolean isBinaryFileType(String fileType) {
-        return fileType != null && BINARY_FILE_TYPES.contains(fileType.toUpperCase());
-    }
 
     private boolean isRemoteResource() {
         VirtualResource res = fileTab.getResource();
