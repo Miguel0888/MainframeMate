@@ -9,7 +9,7 @@ public abstract class PalType implements Serializable, IPalType {
 
     private static final long serialVersionUID = 1L;
 
-    private ArrayList record;
+    private ArrayList datensatz;
     protected int type;
     protected int recordTail;
     protected int recordLength;
@@ -27,11 +27,11 @@ public abstract class PalType implements Serializable, IPalType {
         if (buffer == null) return;
         this.recordTail = 0;
         this.recordLength = buffer.size();
-        this.record = buffer;
+        this.datensatz = buffer;
     }
 
     public final ArrayList getRecord() {
-        return record;
+        return datensatz;
     }
 
     public int get() {
@@ -55,7 +55,7 @@ public abstract class PalType implements Serializable, IPalType {
             // 1. Determine length until null byte
             int len = 0;
             int startPos = recordTail;
-            while (startPos + len < record.size() && (Byte) record.get(startPos + len) != 0) {
+            while (startPos + len < datensatz.size() && (Byte) datensatz.get(startPos + len) != 0) {
                 len++;
             }
 
@@ -64,8 +64,8 @@ public abstract class PalType implements Serializable, IPalType {
 
             // 3. Read bytes sequentially
             int i = 0;
-            while (i < len && recordTail < record.size() && (Byte) record.get(recordTail) != 0) {
-                bytes[i] = (Byte) record.get(recordTail);
+            while (i < len && recordTail < datensatz.size() && (Byte) datensatz.get(recordTail) != 0) {
+                bytes[i] = (Byte) datensatz.get(recordTail);
                 recordTail++;
                 i++;
             }
@@ -85,7 +85,7 @@ public abstract class PalType implements Serializable, IPalType {
             // 1. Determine length until null byte
             int len = 0;
             int startPos = recordTail;
-            while (startPos + len < record.size() && (Byte) record.get(startPos + len) != 0) {
+            while (startPos + len < datensatz.size() && (Byte) datensatz.get(startPos + len) != 0) {
                 len++;
             }
 
@@ -94,8 +94,8 @@ public abstract class PalType implements Serializable, IPalType {
 
             // 3. Read bytes sequentially
             int i = 0;
-            while (i < len && recordTail < record.size() && (Byte) record.get(recordTail) != 0) {
-                bytes[i] = (Byte) record.get(recordTail);
+            while (i < len && recordTail < datensatz.size() && (Byte) datensatz.get(recordTail) != 0) {
+                bytes[i] = (Byte) datensatz.get(recordTail);
                 recordTail++;
                 i++;
             }
@@ -119,9 +119,9 @@ public abstract class PalType implements Serializable, IPalType {
     protected final void stringToBuffer(String text) {
         byte[] bytes = text.getBytes();
         for (byte b : bytes) {
-            record.add(b);
+            datensatz.add(b);
         }
-        record.add((byte) 0);
+        datensatz.add((byte) 0);
     }
 
     protected final void intToBuffer(int value) {
@@ -129,18 +129,18 @@ public abstract class PalType implements Serializable, IPalType {
     }
 
     protected final void byteToBuffer(byte value) {
-        record.add(value);
+        datensatz.add(value);
     }
 
     protected final void byteArrayToBuffer(byte[] data) {
         for (byte b : data) {
-            record.add(b);
+            datensatz.add(b);
         }
     }
 
     protected final byte byteFromBuffer() {
         try {
-            byte value = (Byte) record.get(recordTail);
+            byte value = (Byte) datensatz.get(recordTail);
             recordTail++;
             return value;
         } catch (Exception e) {
@@ -153,13 +153,13 @@ public abstract class PalType implements Serializable, IPalType {
     }
 
     protected final void booleanToBuffer(boolean value) {
-        record.add(value ? (byte) 1 : (byte) 0);
+        datensatz.add(value ? (byte) 1 : (byte) 0);
     }
 
     protected final char[] recordToCharArray() {
         byte[] bytes = new byte[recordLength];
         for (int i = 0; i < recordLength; i++) {
-            bytes[i] = (Byte) record.get(i);
+            bytes[i] = (Byte) datensatz.get(i);
         }
         return new String(bytes).toCharArray();
     }
@@ -167,7 +167,7 @@ public abstract class PalType implements Serializable, IPalType {
     protected final byte[] recordToByteArray() {
         byte[] bytes = new byte[recordLength];
         for (int i = 0; i < recordLength; i++) {
-            bytes[i] = (Byte) record.get(i);
+            bytes[i] = (Byte) datensatz.get(i);
         }
         return bytes;
     }

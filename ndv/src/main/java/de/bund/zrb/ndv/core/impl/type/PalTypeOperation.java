@@ -53,60 +53,60 @@ public final class PalTypeOperation extends PalType implements IPalTypeOperation
     public static final int SUBKEY_SHAREDMODEFORMAT = 1;
     public static final int FLAG_INI = 0;
     public static final int FLAG_MAP = 1;
-    private int subKey;
-    private int flags;
-    private String clientId;
-    private String userId;
-    private int transactionId;
+    private int unterSchluessel;
+    private int optionsBits;
+    private String klientenKennung;
+    private String benutzerKennung;
+    private int transaktionsNummer;
 
-    public PalTypeOperation(int transactionId) {
-        this.clientId = "";
-        this.userId = "";
+    public PalTypeOperation(int transaktionsNummer) {
+        this.klientenKennung = "";
+        this.benutzerKennung = "";
         super.type = 2;
-        this.transactionId = transactionId;
+        this.transaktionsNummer = transaktionsNummer;
     }
 
     public PalTypeOperation() {
-        this.clientId = "";
-        this.userId = "";
+        this.klientenKennung = "";
+        this.benutzerKennung = "";
         super.type = 2;
     }
 
-    public PalTypeOperation(int transactionId, int subKey) {
+    public PalTypeOperation(int transaktionsNummer, int unterSchluessel) {
         this();
-        this.subKey = subKey;
-        this.transactionId = transactionId;
+        this.unterSchluessel = unterSchluessel;
+        this.transaktionsNummer = transaktionsNummer;
     }
 
     public void serialize() {
-        this.intToBuffer(this.transactionId);
-        this.intToBuffer(this.subKey);
-        this.intToBuffer(this.flags);
-        this.stringToBuffer(this.clientId);
-        this.stringToBuffer(this.userId);
+        this.intToBuffer(this.transaktionsNummer);
+        this.intToBuffer(this.unterSchluessel);
+        this.intToBuffer(this.optionsBits);
+        this.stringToBuffer(this.klientenKennung);
+        this.stringToBuffer(this.benutzerKennung);
     }
 
     public void restore() {
     }
 
-    public void setClientId(String clientId) {
-        this.clientId = clientId;
+    public void setClientId(String klientenKennung) {
+        this.klientenKennung = klientenKennung;
     }
 
-    public void setSubKey(int subKey) {
-        this.subKey = subKey;
+    public void setSubKey(int unterSchluessel) {
+        this.unterSchluessel = unterSchluessel;
     }
 
-    public void setUserId(String userId) {
-        this.userId = userId;
+    public void setUserId(String benutzerKennung) {
+        this.benutzerKennung = benutzerKennung;
     }
 
     public final int getFlags() {
-        return this.flags;
+        return this.optionsBits;
     }
 
-    public final void setFlags(int flags) {
-        this.flags |= flags;
+    public final void setFlags(int bits) {
+        this.optionsBits |= bits;
     }
 }
 

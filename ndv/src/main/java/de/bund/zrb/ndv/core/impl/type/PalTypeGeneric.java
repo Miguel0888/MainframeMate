@@ -4,27 +4,27 @@ import de.bund.zrb.ndv.core.api.IPalTypeGeneric;
 
 public final class PalTypeGeneric extends PalType implements IPalTypeGeneric {
     private static final long serialVersionUID = 1L;
-    private int dataType;
-    private Object data;
+    private int datenTyp;
+    private Object daten;
 
     public PalTypeGeneric() { super(); type = 20; }
-    public PalTypeGeneric(int dataType, Object data) { this(); this.dataType = dataType; this.data = data; }
+    public PalTypeGeneric(int datenTyp, Object daten) { this(); this.datenTyp = datenTyp; this.daten = daten; }
 
     public void serialize() {
-        intToBuffer(dataType);
-        if (data != null) {
-            if (dataType == TYPE_STRING) { stringToBuffer(data.toString()); }
-            else { intToBuffer(((Number) data).intValue()); }
+        intToBuffer(datenTyp);
+        if (daten != null) {
+            if (datenTyp == TYPE_STRING) { stringToBuffer(daten.toString()); }
+            else { intToBuffer(((Number) daten).intValue()); }
         }
     }
     public void restore() {
-        dataType = intFromBuffer();
-        if (dataType == TYPE_STRING) { data = stringFromBuffer(); }
-        else { data = intFromBuffer(); }
+        datenTyp = intFromBuffer();
+        if (datenTyp == TYPE_STRING) { daten = stringFromBuffer(); }
+        else { daten = intFromBuffer(); }
     }
 
-    public int getData() { return ((Number) data).intValue(); }
-    public Object getDataObject() { return data; }
-    public void setData(int dataType, int value) { this.dataType = dataType; this.data = value; }
-    public void setDataObject(int dataType, Object data) { this.dataType = dataType; this.data = data; }
+    public int getData() { return ((Number) daten).intValue(); }
+    public Object getDataObject() { return daten; }
+    public void setData(int datenTyp, int wert) { this.datenTyp = datenTyp; this.daten = wert; }
+    public void setDataObject(int datenTyp, Object daten) { this.datenTyp = datenTyp; this.daten = daten; }
 }

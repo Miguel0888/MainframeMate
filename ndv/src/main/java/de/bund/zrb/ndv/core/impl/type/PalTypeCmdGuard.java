@@ -33,7 +33,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    private static final int STOW_DDM = 67108864;
    private static final int NSC_INSTALLED = 134217728;
    private static final int EDT_ADAPTER = 268435456;
-   private int allowedInfo1;
+   private int erlaubteAktionen1;
    private static final int CAT = 1;
    private static final int UNCAT = 2;
    private static final int CHECK = 4;
@@ -65,7 +65,7 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    private static final int RETURN = 268435456;
    private static final int SETUP = 536870912;
    private static final int UPDATE = 1073741824;
-   private int allowedInfo2;
+   private int erlaubteAktionen2;
    private static final int DELETE = 1;
    private static final int INPL = 2;
    private static final int KEY = 4;
@@ -86,8 +86,8 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    private static final int FDIC = 131072;
    private static final int PRIVATEMODE_ALLOWED = 262144;
    private static final int SHAREDMODE_ALLOWED = 524288;
-   private int allowedInfo3;
-   private int allowedInfo4;
+   private int erlaubteAktionen3;
+   private int erlaubteAktionen4;
 
    public PalTypeCmdGuard() {
       super.type = 27;
@@ -97,156 +97,156 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
    }
 
    public void restore() {
-      this.allowedInfo1 = this.intFromBuffer();
-      this.allowedInfo2 = this.intFromBuffer();
-      this.allowedInfo3 = this.intFromBuffer();
-      this.allowedInfo4 = this.intFromBuffer();
+      this.erlaubteAktionen1 = this.intFromBuffer();
+      this.erlaubteAktionen2 = this.intFromBuffer();
+      this.erlaubteAktionen3 = this.intFromBuffer();
+      this.erlaubteAktionen4 = this.intFromBuffer();
    }
 
    public int getInfo1() {
-      return this.allowedInfo1;
+      return this.erlaubteAktionen1;
    }
 
    public boolean isNSCInstalled() {
-      return (this.allowedInfo1 & 134217728) != 134217728;
+      return (this.erlaubteAktionen1 & 134217728) != 134217728;
    }
 
    public boolean isFDICInstalled() {
-      return (this.allowedInfo3 & 131072) == 131072;
+      return (this.erlaubteAktionen3 & 131072) == 131072;
    }
 
    public boolean isListAllowed() {
-      return (this.allowedInfo2 & 32) == 32;
+      return (this.erlaubteAktionen2 & 32) == 32;
    }
 
    public boolean isCatalogAllowed() {
-      return (this.allowedInfo2 & 1) == 1;
+      return (this.erlaubteAktionen2 & 1) == 1;
    }
 
    public boolean isSaveAllowed() {
-      return (this.allowedInfo2 & 16) == 16;
+      return (this.erlaubteAktionen2 & 16) == 16;
    }
 
    public boolean isCheckAllowed() {
-      return (this.allowedInfo2 & 4) == 4;
+      return (this.erlaubteAktionen2 & 4) == 4;
    }
 
    public boolean isStowAllowed() {
-      return (this.allowedInfo2 & 8) == 8;
+      return (this.erlaubteAktionen2 & 8) == 8;
    }
 
    public boolean isReadAllowed() {
-      return (this.allowedInfo2 & 64) == 64;
+      return (this.erlaubteAktionen2 & 64) == 64;
    }
 
    public boolean isListDdmAllowed() {
-      return (this.allowedInfo1 & 131072) == 131072;
+      return (this.erlaubteAktionen1 & 131072) == 131072;
    }
 
    public boolean isCatalogDdmAllowed() {
-      return (this.allowedInfo1 & 524288) == 524288;
+      return (this.erlaubteAktionen1 & 524288) == 524288;
    }
 
    public boolean isCopyAllowed() {
-      return (this.allowedInfo2 & 32768) == 32768;
+      return (this.erlaubteAktionen2 & 32768) == 32768;
    }
 
    public boolean isCutAllowed() {
-      return (this.allowedInfo2 & 16384) == 16384;
+      return (this.erlaubteAktionen2 & 16384) == 16384;
    }
 
    public boolean isCopyDdmAllowed() {
-      return (this.allowedInfo1 & 8388608) == 8388608;
+      return (this.erlaubteAktionen1 & 8388608) == 8388608;
    }
 
    public boolean isCutDdmAllowed() {
-      return (this.allowedInfo1 & 4194304) == 4194304;
+      return (this.erlaubteAktionen1 & 4194304) == 4194304;
    }
 
    public boolean isPasteAllowed() {
-      return (this.allowedInfo2 & 65536) == 65536;
+      return (this.erlaubteAktionen2 & 65536) == 65536;
    }
 
    public boolean isPasteDdmAllowed() {
-      return (this.allowedInfo1 & 16777216) == 16777216;
+      return (this.erlaubteAktionen1 & 16777216) == 16777216;
    }
 
    public boolean isRenameAllowed() {
-      return (this.allowedInfo3 & 512) == 512;
+      return (this.erlaubteAktionen3 & 512) == 512;
    }
 
    public boolean isRenameLibraryAllowed() {
-      return (this.allowedInfo2 & 131072) == 131072;
+      return (this.erlaubteAktionen2 & 131072) == 131072;
    }
 
    public boolean isRenameDdmAllowed() {
-      return (this.allowedInfo1 & 1048576) == 1048576;
+      return (this.erlaubteAktionen1 & 1048576) == 1048576;
    }
 
    public boolean isDeleteAllowed() {
-      return (this.allowedInfo3 & 1) == 1;
+      return (this.erlaubteAktionen3 & 1) == 1;
    }
 
    public boolean isDeleteLibraryAllowed() {
-      return (this.allowedInfo3 & 2048) == 2048;
+      return (this.erlaubteAktionen3 & 2048) == 2048;
    }
 
    public boolean isDeleteDdmAllowed() {
-      return (this.allowedInfo1 & 2097152) == 2097152;
+      return (this.erlaubteAktionen1 & 2097152) == 2097152;
    }
 
    public boolean isSaveDdmAllowed() {
-      return (this.allowedInfo1 & 33554432) == 33554432;
+      return (this.erlaubteAktionen1 & 33554432) == 33554432;
    }
 
    public boolean isStowDdmAllowed() {
-      return (this.allowedInfo1 & 67108864) == 67108864;
+      return (this.erlaubteAktionen1 & 67108864) == 67108864;
    }
 
    public boolean isUnlockAllowed() {
-      return (this.allowedInfo3 & 16384) == 16384;
+      return (this.erlaubteAktionen3 & 16384) == 16384;
    }
 
    public boolean isUnlockForcedAllowed() {
-      return (this.allowedInfo3 & 32768) == 32768;
+      return (this.erlaubteAktionen3 & 32768) == 32768;
    }
 
    public boolean isPrivate() {
-      return (this.allowedInfo3 & 65536) != 65536;
+      return (this.erlaubteAktionen3 & 65536) != 65536;
    }
 
    public boolean isEditAllowed(int var1) {
       boolean var2 = true;
       if (var1 == 2097152) {
-         var2 = (this.allowedInfo1 & 268435456) == 268435456;
+         var2 = (this.erlaubteAktionen1 & 268435456) == 268435456;
       } else if (var1 == 1024) {
-         var2 = (this.allowedInfo1 & 512) == 512;
+         var2 = (this.erlaubteAktionen1 & 512) == 512;
       } else if (var1 == 128) {
-         var2 = (this.allowedInfo1 & 256) == 256;
+         var2 = (this.erlaubteAktionen1 & 256) == 256;
       } else if (var1 == 8) {
-         var2 = (this.allowedInfo1 & 4096) == 4096;
+         var2 = (this.erlaubteAktionen1 & 4096) == 4096;
       } else if (var1 == 2048) {
-         var2 = (this.allowedInfo1 & 32768) == 32768;
+         var2 = (this.erlaubteAktionen1 & 32768) == 32768;
       } else if (var1 == 524288) {
-         var2 = (this.allowedInfo1 & 16384) == 16384;
+         var2 = (this.erlaubteAktionen1 & 16384) == 16384;
       } else if (var1 == 1) {
-         var2 = (this.allowedInfo1 & 65536) == 65536;
+         var2 = (this.erlaubteAktionen1 & 65536) == 65536;
       } else if (var1 == 512) {
-         var2 = (this.allowedInfo1 & 8192) == 8192;
+         var2 = (this.erlaubteAktionen1 & 8192) == 8192;
       } else if (var1 == 2) {
-         var2 = (this.allowedInfo1 & 2048) == 2048;
+         var2 = (this.erlaubteAktionen1 & 2048) == 2048;
       } else if (var1 == 64) {
-         var2 = (this.allowedInfo1 & 64) == 64;
+         var2 = (this.erlaubteAktionen1 & 64) == 64;
       } else if (var1 == 4) {
-         var2 = (this.allowedInfo1 & 1024) == 1024;
+         var2 = (this.erlaubteAktionen1 & 1024) == 1024;
       } else if (var1 == 16) {
-         var2 = (this.allowedInfo1 & 8) == 8;
+         var2 = (this.erlaubteAktionen1 & 8) == 8;
       } else if (var1 == 32) {
-         var2 = (this.allowedInfo1 & 16) == 16;
+         var2 = (this.erlaubteAktionen1 & 16) == 16;
       } else if (var1 == 256) {
-         var2 = (this.allowedInfo1 & 128) == 128;
+         var2 = (this.erlaubteAktionen1 & 128) == 128;
       } else if (var1 == 4096) {
-         var2 = (this.allowedInfo1 & 32) == 32;
+         var2 = (this.erlaubteAktionen1 & 32) == 32;
       }
 
       return var2;
@@ -259,26 +259,26 @@ public final class PalTypeCmdGuard extends PalType implements IPalTypeCmdGuard {
          var2 |= 4096;
       }
 
-      return (this.allowedInfo1 & var2) == var2;
+      return (this.erlaubteAktionen1 & var2) == var2;
    }
 
    public boolean isPrivateModeMandatory() {
-      boolean var1 = (this.allowedInfo3 & 262144) == 262144;
-      boolean var2 = (this.allowedInfo3 & 524288) == 524288;
+      boolean var1 = (this.erlaubteAktionen3 & 262144) == 262144;
+      boolean var2 = (this.erlaubteAktionen3 & 524288) == 524288;
       return var1 && !var2;
    }
 
    public boolean isSharedModeMandatory() {
-      boolean var1 = (this.allowedInfo3 & 262144) == 262144;
-      boolean var2 = (this.allowedInfo3 & 524288) == 524288;
+      boolean var1 = (this.erlaubteAktionen3 & 262144) == 262144;
+      boolean var2 = (this.erlaubteAktionen3 & 524288) == 524288;
       return !var1 && var2;
    }
 
    public int getInfo3() {
-      return this.allowedInfo3;
+      return this.erlaubteAktionen3;
    }
 
    public int getInfo4() {
-      return this.allowedInfo4;
+      return this.erlaubteAktionen4;
    }
 }

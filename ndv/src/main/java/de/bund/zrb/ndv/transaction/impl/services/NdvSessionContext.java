@@ -41,20 +41,20 @@ public class NdvSessionContext {
     private ITransactionContext transactionContext;
 
     // ── Verbindungsflags ──
-    private boolean isConnected = false;
-    private boolean isDisconnected = false;
-    private boolean isAutomaticLogon = true;
-    private boolean isNotifyActive = false;
-    private int currentNotify = 0;
-    private int errorKind = 0;
-    private int retrievalKind = 0;
-    private boolean isDuplicatePossible = false;
-    private Set<String> serverList = new TreeSet<>();
-    private String internalLabelPrefix = null;
+    private boolean istVerbunden = false;
+    private boolean istGetrennt = false;
+    private boolean automatischeAnmeldung = true;
+    private boolean hinweisAktiv = false;
+    private int aktuellerHinweis = 0;
+    private int fehlerArt = 0;
+    private int abfrageArt = 0;
+    private boolean doppeltMoeglich = false;
+    private Set<String> serverListe = new TreeSet<>();
+    private String internesLabelPraefix = null;
 
     // ── Verbindungsparameter ──
-    private String host = "";
-    private String port = "";
+    private String rechnerAdresse = "";
+    private String portNummer = "";
 
     // ══════════════════════════════════════════════════════════════
     //  Zugriff auf Pal
@@ -123,26 +123,26 @@ public class NdvSessionContext {
     //  Verbindungsflags
     // ══════════════════════════════════════════════════════════════
 
-    public boolean isConnected() { return isConnected && ndv != null && !ndv.isConnectionLost(); }
-    public void setConnected(boolean v) { this.isConnected = v; }
+    public boolean isConnected() { return istVerbunden && ndv != null && !ndv.isConnectionLost(); }
+    public void setConnected(boolean v) { this.istVerbunden = v; }
 
-    public boolean isDisconnected() { return isDisconnected; }
-    public void setDisconnected(boolean v) { this.isDisconnected = v; }
+    public boolean isDisconnected() { return istGetrennt; }
+    public void setDisconnected(boolean v) { this.istGetrennt = v; }
 
-    public boolean isAutomaticLogon() { return isAutomaticLogon; }
-    public void setAutomaticLogon(boolean v) { this.isAutomaticLogon = v; }
+    public boolean isAutomaticLogon() { return automatischeAnmeldung; }
+    public void setAutomaticLogon(boolean v) { this.automatischeAnmeldung = v; }
 
-    public int getErrorKind() { return errorKind; }
-    public void setErrorKind(int kind) { this.errorKind = kind; }
+    public int getErrorKind() { return fehlerArt; }
+    public void setErrorKind(int kind) { this.fehlerArt = kind; }
 
-    public int getRetrievalKind() { return retrievalKind; }
-    public void setRetrievalKind(int kind) { this.retrievalKind = kind; }
+    public int getRetrievalKind() { return abfrageArt; }
+    public void setRetrievalKind(int kind) { this.abfrageArt = kind; }
 
-    public String getHost() { return host; }
-    public void setHost(String h) { this.host = h; }
+    public String getHost() { return rechnerAdresse; }
+    public void setHost(String h) { this.rechnerAdresse = h; }
 
-    public String getPort() { return port; }
-    public void setPort(String p) { this.port = p; }
+    public String getPort() { return portNummer; }
+    public void setPort(String p) { this.portNummer = p; }
 
     // ══════════════════════════════════════════════════════════════
     //  Hilfsmethode: Mainframe-Erkennung
@@ -166,7 +166,7 @@ public class NdvSessionContext {
      */
     public int getError() throws IOException {
         int result = 0;
-        this.errorKind = 0;
+        this.fehlerArt = 0;
         IPalTypeResult[] res = (IPalTypeResult[]) ndv.retrieve(10);
         if (res != null) {
             result = res[0].getNaturalResult();
@@ -176,7 +176,7 @@ public class NdvSessionContext {
             if (resEx != null) {
                 String shortText = resEx[0].getShortText();
                 if (shortText.length() > 0) {
-                    this.errorKind = 3;
+                    this.fehlerArt = 3;
                     result = 9999;
                 }
             }
@@ -187,9 +187,9 @@ public class NdvSessionContext {
                 }
             }
         } else if (result == 7000) {
-            this.errorKind = 1;
+            this.fehlerArt = 1;
         } else {
-            this.errorKind = 2;
+            this.fehlerArt = 2;
         }
         return result;
     }
@@ -332,30 +332,30 @@ public class NdvSessionContext {
      * Exakt nachgebaut aus Original-Bytecode (Zeile 3462-3494).
      */
     public String getInternalLabelPrefix() {
-        if (this.internalLabelPrefix != null) {
-            return this.internalLabelPrefix;
+        if (this.internesLabelPraefix != null) {
+            return this.internesLabelPraefix;
         }
         if (this.clientConfig != null && this.clientConfig.length != 0) {
             String valid1st = this.clientConfig[0].getIdent1stValid();
             if (valid1st.indexOf(33) == -1) {          // '!'
-                this.internalLabelPrefix = "!";
+                this.internesLabelPraefix = "!";
             } else if (valid1st.indexOf(36) == -1) {    // '$'
-                this.internalLabelPrefix = "$";
+                this.internesLabelPraefix = "$";
             } else if (valid1st.indexOf(37) == -1) {    // '%'
-                this.internalLabelPrefix = "%";
+                this.internesLabelPraefix = "%";
             } else if (valid1st.indexOf(45) == -1) {    // '-'
-                this.internalLabelPrefix = "-";
+                this.internesLabelPraefix = "-";
             } else if (valid1st.indexOf(58) == -1) {    // ':'
-                this.internalLabelPrefix = ":";
+                this.internesLabelPraefix = ":";
             } else if (valid1st.indexOf(59) == -1) {    // ';'
-                this.internalLabelPrefix = ";";
+                this.internesLabelPraefix = ";";
             } else {
-                this.internalLabelPrefix = " ";
+                this.internesLabelPraefix = " ";
             }
         } else {
-            this.internalLabelPrefix = "!";
+            this.internesLabelPraefix = "!";
         }
-        return this.internalLabelPrefix;
+        return this.internesLabelPraefix;
     }
 
     // ══════════════════════════════════════════════════════════════

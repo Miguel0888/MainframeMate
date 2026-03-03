@@ -4,30 +4,30 @@ import de.bund.zrb.ndv.core.api.IPalTypeTimeStamp;
 
 public final class PalTypeTimeStamp extends PalType implements IPalTypeTimeStamp {
     private static final long serialVersionUID = 1L;
-    private int flags;
-    private String timeStamp = "";
-    private String userId = "";
+    private int merkmale;
+    private String zeitstempel = "";
+    private String benutzerKennung = "";
 
     public PalTypeTimeStamp() { super(); type = 54; }
-    public PalTypeTimeStamp(int flags, String timeStamp, String userId) {
+    public PalTypeTimeStamp(int merkmale, String zeitstempel, String benutzerKennung) {
         this();
-        this.flags = flags;
-        this.timeStamp = timeStamp != null ? timeStamp : "";
-        this.userId = userId != null ? userId : "";
+        this.merkmale = merkmale;
+        this.zeitstempel = zeitstempel != null ? zeitstempel : "";
+        this.benutzerKennung = benutzerKennung != null ? benutzerKennung : "";
     }
 
-    public void serialize() { intToBuffer(flags); stringToBuffer(timeStamp); stringToBuffer(userId); }
-    public void restore() { flags = intFromBuffer(); timeStamp = stringFromBuffer(); userId = stringFromBuffer(); }
+    public void serialize() { intToBuffer(merkmale); stringToBuffer(zeitstempel); stringToBuffer(benutzerKennung); }
+    public void restore() { merkmale = intFromBuffer(); zeitstempel = stringFromBuffer(); benutzerKennung = stringFromBuffer(); }
 
-    public int getFlags() { return flags; }
-    public String getTimeStamp() { return timeStamp; }
-    public String getUserId() { return userId; }
+    public int getFlags() { return merkmale; }
+    public String getTimeStamp() { return zeitstempel; }
+    public String getUserId() { return benutzerKennung; }
 
     public int hashCode() {
         int r = 17;
-        r = 37 * r + flags;
-        r = 37 * r + (timeStamp != null ? timeStamp.hashCode() : 0);
-        r = 37 * r + (userId != null ? userId.hashCode() : 0);
+        r = 37 * r + merkmale;
+        r = 37 * r + (zeitstempel != null ? zeitstempel.hashCode() : 0);
+        r = 37 * r + (benutzerKennung != null ? benutzerKennung.hashCode() : 0);
         return r;
     }
 }

@@ -4,15 +4,15 @@ import de.bund.zrb.ndv.core.api.IPalTypeDevEnv;
 
 public final class PalTypeDevEnv extends PalType implements IPalTypeDevEnv {
     private static final long serialVersionUID = 1L;
-    private String devEnvPath = "";
-    private String hostName = "";
+    private String entwicklungsumgebungPfad = "";
+    private String rechnername = "";
 
     public PalTypeDevEnv() { super(); type = 52; }
 
     public void serialize() { /* server-only */ }
-    public void restore() { devEnvPath = stringFromBuffer(); hostName = stringFromBuffer(); }
+    public void restore() { entwicklungsumgebungPfad = stringFromBuffer(); rechnername = stringFromBuffer(); }
 
-    public String getDevEnvPath() { return devEnvPath; }
-    public boolean isDevEnv() { return devEnvPath != null && !devEnvPath.isEmpty(); }
-    public String getHostName() { return hostName; }
+    public String getDevEnvPath() { return entwicklungsumgebungPfad; }
+    public boolean isDevEnv() { return entwicklungsumgebungPfad != null && !entwicklungsumgebungPfad.isEmpty(); }
+    public String getHostName() { return rechnername; }
 }

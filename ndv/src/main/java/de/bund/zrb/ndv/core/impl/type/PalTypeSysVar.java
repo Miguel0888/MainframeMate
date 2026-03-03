@@ -4,30 +4,30 @@ import de.bund.zrb.ndv.core.api.IPalTypeSysVar;
 
 public class PalTypeSysVar extends PalType implements IPalTypeSysVar {
     private static final long serialVersionUID = 1L;
-    private int language;
-    private int kind;
+    private int sprache;
+    private int art;
 
     public PalTypeSysVar() { super(); type = 28; }
 
     public void serialize() {
-        byteToBuffer((byte) kind);
+        byteToBuffer((byte) art);
         if (ndvType == 1) { // Mainframe
-            intToBuffer(language);
+            intToBuffer(sprache);
         } else {
-            byteToBuffer((byte) language);
+            byteToBuffer((byte) sprache);
         }
     }
     public void restore() {
-        kind = byteFromBuffer() & 0xFF;
+        art = byteFromBuffer() & 0xFF;
         if (ndvType == 1) { // Mainframe
-            language = intFromBuffer();
+            sprache = intFromBuffer();
         } else {
-            language = byteFromBuffer() & 0xFF;
+            sprache = byteFromBuffer() & 0xFF;
         }
     }
 
-    public int getLanguage() { return language; }
-    public int getKind() { return kind; }
-    public void setLanguage(int language) { this.language = language; }
-    public String toString() { return "language (ULANG)= " + language; }
+    public int getLanguage() { return sprache; }
+    public int getKind() { return art; }
+    public void setLanguage(int sprache) { this.sprache = sprache; }
+    public String toString() { return "language (ULANG)= " + sprache; }
 }

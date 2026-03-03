@@ -16,8 +16,8 @@ import java.io.UnsupportedEncodingException;
 
 public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
     private static final long serialVersionUID = 1L;
-    private byte[] ebcdicRecord;
-    private ConversionResult lastConversionResult = ConversionResult.ok();
+    private byte[] ebcdicDatensatz;
+    private ConversionResult letztesKonvertierungsErgebnis = ConversionResult.ok();
 
     public PalTypeSourceCP() { super(); type = 48; }
     public PalTypeSourceCP(String sourceRecord, String codePage) {
@@ -28,16 +28,16 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
 
     /** Liefert das Ergebnis der letzten serialize()- oder convert()-Operation. */
     public ConversionResult getLastConversionResult() {
-        return lastConversionResult;
+        return letztesKonvertierungsErgebnis;
     }
 
     public void serialize() {
-        lastConversionResult = ConversionResult.ok();
+        letztesKonvertierungsErgebnis = ConversionResult.ok();
         if (sourceLine == null || charSetName == null) return;
         try {
             int cp = findUnsupportedCodePoint(charSetName, sourceLine);
             if (cp != 0) {
-                lastConversionResult = ConversionResult.error(
+                letztesKonvertierungsErgebnis = ConversionResult.error(
                         "Unmappable code point: " + cp, this, 0);
                 return;
             }
@@ -55,25 +55,25 @@ public class PalTypeSourceCP extends PalTypeSource implements IPalTypeSourceCP {
 
     public void restore() {
         if (super.palVersion <= 35) {
-            ebcdicRecord = Base64.getMimeDecoder().decode(new String(this.recordToCharArray()));
+            ebcdicDatensatz = Base64.getMimeDecoder().decode(new String(this.recordToCharArray()));
         } else {
-            ebcdicRecord = this.recordToByteArray();
-            ebcdicRecord = PalTypeStream.Palstob(ebcdicRecord);
+            ebcdicDatensatz = this.recordToByteArray();
+            ebcdicDatensatz = PalTypeStream.Palstob(ebcdicDatensatz);
         }
     }
 
     public void convert(String charsetName) throws UnsupportedEncodingException, IOException {
-        lastConversionResult = ConversionResult.ok();
-        if (ebcdicRecord == null) return;
+        letztesKonvertierungsErgebnis = ConversionResult.ok();
+        if (ebcdicDatensatz == null) return;
         try {
-            StringBuffer sb = getUtf16ICU(ebcdicRecord, charsetName);
+            StringBuffer sb = getUtf16ICU(ebcdicDatensatz, charsetName);
             if (sb != null) {
                 sourceLine = sb.toString();
             }
         } catch (Exception e) {
-            ConversionResult byteErr = findUnsupportedByteCodePoint(charsetName, ebcdicRecord, this);
+            ConversionResult byteErr = findUnsupportedByteCodePoint(charsetName, ebcdicDatensatz, this);
             if (byteErr.hasError()) {
-                lastConversionResult = byteErr;
+                letztesKonvertierungsErgebnis = byteErr;
                 return;
             }
             throw new IOException(e);

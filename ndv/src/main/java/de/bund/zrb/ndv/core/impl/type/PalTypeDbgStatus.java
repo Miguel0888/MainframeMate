@@ -4,14 +4,14 @@ import de.bund.zrb.ndv.core.api.IPalTypeDbgStatus;
 
 /** Stub — Debugger-Feature nicht implementiert. */
 public final class PalTypeDbgStatus extends PalType implements IPalTypeDbgStatus {
-    private int flags;
+    private int merkmale;
 
-    @Override public void serialize() { intToBuffer(flags); }
-    @Override public void restore()   { flags = intFromBuffer(); }
+    @Override public void serialize() { intToBuffer(merkmale); }
+    @Override public void restore()   { merkmale = intFromBuffer(); }
     @Override public int get()        { return 35; }
 
-    @Override public boolean isCtxModified() { return (flags & 4) != 0; }
-    @Override public boolean isAivModified() { return (flags & 2) != 0; }
-    @Override public boolean isGdaModified() { return (flags & 1) != 0; }
-    @Override public boolean isTerminated() { return (flags & 8) != 0; }
+    @Override public boolean isCtxModified() { return (merkmale & 4) != 0; }
+    @Override public boolean isAivModified() { return (merkmale & 2) != 0; }
+    @Override public boolean isGdaModified() { return (merkmale & 1) != 0; }
+    @Override public boolean isTerminated() { return (merkmale & 8) != 0; }
 }

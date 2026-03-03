@@ -6,25 +6,25 @@ import java.util.Arrays;
 
 public final class PalTypeUtility extends PalType implements IPalTypeUtility {
     private static final long serialVersionUID = 1L;
-    private byte[] utilityRecord;
+    private byte[] dienstprogrammDatensatz;
 
     public PalTypeUtility() { super(); type = 14; }
-    public PalTypeUtility(byte[] record) {
+    public PalTypeUtility(byte[] datensatz) {
         this();
-        if (record != null) this.utilityRecord = Arrays.copyOf(record, record.length);
+        if (datensatz != null) this.dienstprogrammDatensatz = Arrays.copyOf(datensatz, datensatz.length);
     }
 
     public void serialize() {
-        if (utilityRecord != null) byteArrayToBuffer(utilityRecord);
+        if (dienstprogrammDatensatz != null) byteArrayToBuffer(dienstprogrammDatensatz);
     }
-    public void restore() { utilityRecord = recordToByteArray(); }
+    public void restore() { dienstprogrammDatensatz = recordToByteArray(); }
 
     public byte[] getUtilityRecord() {
-        return utilityRecord != null ? Arrays.copyOf(utilityRecord, utilityRecord.length) : null;
+        return dienstprogrammDatensatz != null ? Arrays.copyOf(dienstprogrammDatensatz, dienstprogrammDatensatz.length) : null;
     }
-    public void setUtilityRecord(byte[] record) {
-        if (record != null) {
-            this.utilityRecord = Arrays.copyOf(record, record.length);
+    public void setUtilityRecord(byte[] datensatz) {
+        if (datensatz != null) {
+            this.dienstprogrammDatensatz = Arrays.copyOf(datensatz, datensatz.length);
         }
     }
 }

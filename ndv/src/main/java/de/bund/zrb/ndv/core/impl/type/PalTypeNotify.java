@@ -4,14 +4,14 @@ import de.bund.zrb.ndv.core.api.IPalTypeNotify;
 
 public final class PalTypeNotify extends PalType implements IPalTypeNotify {
     private static final long serialVersionUID = 1L;
-    private int notification;
-    private int extension;
+    private int benachrichtigung;
+    private int erweiterung;
 
     public PalTypeNotify() { super(); type = 19; }
-    public PalTypeNotify(int notification) { this(); this.notification = notification; }
+    public PalTypeNotify(int benachrichtigung) { this(); this.benachrichtigung = benachrichtigung; }
 
-    public void serialize() { intToBuffer(notification); intToBuffer(extension); }
-    public void restore() { notification = intFromBuffer(); extension = intFromBuffer(); }
+    public void serialize() { intToBuffer(benachrichtigung); intToBuffer(erweiterung); }
+    public void restore() { benachrichtigung = intFromBuffer(); erweiterung = intFromBuffer(); }
 
-    public int getNotification() { return notification; }
+    public int getNotification() { return benachrichtigung; }
 }

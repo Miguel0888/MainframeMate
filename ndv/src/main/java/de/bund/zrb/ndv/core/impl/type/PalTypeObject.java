@@ -10,8 +10,8 @@ import java.util.Set;
 
 public final class PalTypeObject extends PalType implements IPalTypeObject {
     private static final long serialVersionUID = 1L;
-    private String object = "";
-    private String longName = "";
+    private String objektName = "";
+    private String langName = "";
     private String user = "";
     private String gpUser = "";
     private String codePage = "";
@@ -28,16 +28,16 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
     private String internalLabelFirst = "";
     private boolean isInsertLineNumber;
     private boolean isRemoveLineNumber;
-    private NdvTimeStamp timeStamp;
-    private int flags;
+    private NdvTimeStamp zeitstempel;
+    private int markierungen;
 
     public PalTypeObject() { super.type = 8; }
 
     public void serialize() { /* server-only type, not sent by client */ }
 
     public void restore() {
-        object = stringFromBuffer();
-        longName = stringFromBuffer();
+        objektName = stringFromBuffer();
+        langName = stringFromBuffer();
         user = stringFromBuffer();
         sourceSize = intFromBuffer();
         gpSize = intFromBuffer();
@@ -48,7 +48,7 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
 
         // Language/error message special logic
         if (natKind == 64 || natType == 32768) {
-            longName = (String) ObjectType.getUnmodifiableLanguageList().get(Integer.valueOf(object) - 1);
+            langName = (String) ObjectType.getUnmodifiableLanguageList().get(Integer.valueOf(objektName) - 1);
             if (natKind == 0) {
                 natKind = 64;
             }
@@ -68,16 +68,16 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
         }
         if (recordTail < recordLength) gpUser = stringFromBuffer();
         if (recordTail < recordLength) codePage = stringFromBuffer();
-        if (recordTail < recordLength) flags = intFromBuffer();
+        if (recordTail < recordLength) markierungen = intFromBuffer();
     }
 
-    public String getName() { return object; }
+    public String getName() { return objektName; }
 
     public String getLongName() {
-        if (longName.compareTo("") == 0) {
-            longName = getName();
+        if (langName.compareTo("") == 0) {
+            langName = getName();
         }
-        return longName;
+        return langName;
     }
 
     public int getKind() { return natKind; }
@@ -121,8 +121,8 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
     public String getInternalLabelFirst() { return internalLabelFirst; }
     public void setInternalLabelFirst(String l) { internalLabelFirst = l; }
     public Set getOptions() { return null; }
-    public NdvTimeStamp getTimeStamp() { return timeStamp; }
-    public boolean isLinkedDdm() { return getType() == 8 && (flags & 1) == 1; }
+    public NdvTimeStamp getTimeStamp() { return zeitstempel; }
+    public boolean isLinkedDdm() { return getType() == 8 && (markierungen & 1) == 1; }
 
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -131,7 +131,7 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
         return natType == t.natType && natKind == t.natKind
                 && sourceSize == t.sourceSize && gpSize == t.gpSize
                 && isStructured == t.isStructured
-                && object.equals(t.object) && longName.equals(t.longName)
+                && objektName.equals(t.objektName) && langName.equals(t.langName)
                 && user.equals(t.user) && gpUser.equals(t.gpUser)
                 && gpDate.equals(t.gpDate) && sourceDate.equals(t.sourceDate)
                 && accessDate.equals(t.accessDate);
@@ -143,18 +143,18 @@ public final class PalTypeObject extends PalType implements IPalTypeObject {
         r = 37 * r + natKind;
         r = 37 * r + sourceSize;
         r = 37 * r + gpSize;
-        r = 37 * r + longName.hashCode();
-        r = 37 * r + object.hashCode();
+        r = 37 * r + langName.hashCode();
+        r = 37 * r + objektName.hashCode();
         return r;
     }
 
     public String toString() {
         String displayName;
         String detail;
-        if (longName != null && longName.length() > 0) {
-            displayName = longName;
+        if (langName != null && langName.length() > 0) {
+            displayName = langName;
         } else {
-            displayName = object;
+            displayName = objektName;
         }
         if (natKind == 1 || natKind == 2 || natKind == 3) {
             String mode = isStructured ? "STRUCTURED" : "REPORTING";

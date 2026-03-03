@@ -10,27 +10,27 @@ public final class PalTypeEnviron extends PalType implements IPalTypeEnviron {
     private static final long serialVersionUID = 1L;
     private static final int PAL_VERSION = 47;
 
-    private int ndvClientVersion;
-    private int natVersion;
-    private int palVersion;
-    private String opSys = "";
-    private String sessionId = "";
-    private int opsysVer;
-    private String startupCommands = "";
+    private int ndvKlientVersion;
+    private int naturalVersion;
+    private int protokollVersion;
+    private String betriebssystem = "";
+    private String sitzungsKennung = "";
+    private int betriebssystemVersion;
+    private String startBefehle = "";
     private int ndvVersion;
-    private int tModel;
-    private int logonCounter;
-    private int flags;
-    private int webVersion;
-    private int ndvType;
+    private int terminalModell;
+    private int anmeldeZaehler;
+    private int merkmale;
+    private int webSchichtVersion;
+    private int serverTyp;
 
     public PalTypeEnviron() {
     }
 
-    public PalTypeEnviron(int logonCounter) {
+    public PalTypeEnviron(int anmeldeZaehler) {
         super.type = 0;
-        this.natVersion = 8380;
-        this.opSys = System.getProperty("os.name");
+        this.naturalVersion = 8380;
+        this.betriebssystem = System.getProperty("os.name");
         String[] verParts = System.getProperty("os.version", "0").split("\\.");
         if (verParts != null) {
             String combined = "";
@@ -46,96 +46,96 @@ public final class PalTypeEnviron extends PalType implements IPalTypeEnviron {
                 }
             }
             if (!combined.isEmpty()) {
-                this.opsysVer = Integer.valueOf(combined);
+                this.betriebssystemVersion = Integer.valueOf(combined);
             }
         }
-        this.logonCounter = logonCounter;
+        this.anmeldeZaehler = anmeldeZaehler;
     }
 
     public void serialize() {
-        intToBuffer(natVersion);
+        intToBuffer(naturalVersion);
         intToBuffer(PAL_VERSION);
-        stringToBuffer(opSys);
-        stringToBuffer(sessionId);
-        intToBuffer(opsysVer);
-        stringToBuffer(startupCommands);
+        stringToBuffer(betriebssystem);
+        stringToBuffer(sitzungsKennung);
+        intToBuffer(betriebssystemVersion);
+        stringToBuffer(startBefehle);
         intToBuffer(ndvVersion);
-        intToBuffer(tModel);
-        intToBuffer(logonCounter);
-        intToBuffer(flags);
-        intToBuffer(webVersion);
-        intToBuffer(ndvClientVersion);
+        intToBuffer(terminalModell);
+        intToBuffer(anmeldeZaehler);
+        intToBuffer(merkmale);
+        intToBuffer(webSchichtVersion);
+        intToBuffer(ndvKlientVersion);
     }
 
     public void restore() {
-        natVersion = intFromBuffer();
-        palVersion = intFromBuffer();
-        opSys = stringFromBuffer();
-        ndvType = 1;
-        if (opSys.compareTo("OS/390") == 0) {
-            ndvType = 1;
-        } else if (opSys.compareTo("UNIX") == 0) {
-            ndvType = 2;
-        } else if (opSys.compareTo("PC") == 0) {
-            ndvType = 3;
-        } else if (opSys.compareTo("VMS") == 0) {
-            ndvType = 4;
+        naturalVersion = intFromBuffer();
+        protokollVersion = intFromBuffer();
+        betriebssystem = stringFromBuffer();
+        serverTyp = 1;
+        if (betriebssystem.compareTo("OS/390") == 0) {
+            serverTyp = 1;
+        } else if (betriebssystem.compareTo("UNIX") == 0) {
+            serverTyp = 2;
+        } else if (betriebssystem.compareTo("PC") == 0) {
+            serverTyp = 3;
+        } else if (betriebssystem.compareTo("VMS") == 0) {
+            serverTyp = 4;
         }
-        sessionId = stringFromBuffer();
-        opsysVer = intFromBuffer();
-        if (recordTail < recordLength) startupCommands = stringFromBuffer();
+        sitzungsKennung = stringFromBuffer();
+        betriebssystemVersion = intFromBuffer();
+        if (recordTail < recordLength) startBefehle = stringFromBuffer();
         if (recordTail < recordLength) ndvVersion = intFromBuffer();
-        if (recordTail < recordLength) tModel = intFromBuffer();
-        if (recordTail < recordLength) logonCounter = intFromBuffer();
-        if (recordTail < recordLength) flags = intFromBuffer();
-        if (recordTail < recordLength) webVersion = intFromBuffer();
+        if (recordTail < recordLength) terminalModell = intFromBuffer();
+        if (recordTail < recordLength) anmeldeZaehler = intFromBuffer();
+        if (recordTail < recordLength) merkmale = intFromBuffer();
+        if (recordTail < recordLength) webSchichtVersion = intFromBuffer();
     }
 
-    public String getSessionId() { return sessionId; }
-    public int getLogonCounter() { return logonCounter; }
-    public String getStartupCommands() { return startupCommands; }
-    public int getNatVersion() { return natVersion; }
+    public String getSessionId() { return sitzungsKennung; }
+    public int getLogonCounter() { return anmeldeZaehler; }
+    public String getStartupCommands() { return startBefehle; }
+    public int getNatVersion() { return naturalVersion; }
     public int getNdvVersion() { return ndvVersion; }
-    public int getPalVersion() { return palVersion; }
-    public int getNdvType() { return ndvType; }
-    public int getWebVersion() { return webVersion; }
-    public void setWebVersion(int v) { this.webVersion = v; }
+    public int getPalVersion() { return protokollVersion; }
+    public int getNdvType() { return serverTyp; }
+    public int getWebVersion() { return webSchichtVersion; }
+    public void setWebVersion(int v) { this.webSchichtVersion = v; }
 
-    public boolean isMfUnicodeSrcPossible() { return (flags & 8) == 8; }
-    public boolean isWebIOServer() { return (flags & 4) == 4; }
-    public boolean performsTimeStampChecks() { return (flags & 256) == 256; }
+    public boolean isMfUnicodeSrcPossible() { return (merkmale & 8) == 8; }
+    public boolean isWebIOServer() { return (merkmale & 4) == 4; }
+    public boolean performsTimeStampChecks() { return (merkmale & 256) == 256; }
 
     public void setRichGui(boolean e) {
-        if (e) { flags |= 16; }
+        if (e) { merkmale |= 16; }
     }
 
     public void setNdvClientClientId(int id) {
-        flags |= id;
+        merkmale |= id;
     }
 
     public void setNdvClientClientVersion(int v) {
-        ndvClientVersion = v;
+        ndvKlientVersion = v;
     }
 
     public void setWebBrowserIO(boolean e) {
-        if (e) { flags |= 4; }
+        if (e) { merkmale |= 4; }
     }
 
     public void setNfnPrivateMode(boolean e) {
-        if (e) { flags |= 64; }
+        if (e) { merkmale |= 64; }
     }
 
     public void setTimeStampChecks(boolean e) {
-        if (e) { flags |= 256; }
+        if (e) { merkmale |= 256; }
     }
 
     public EAttachSessionType getAttachSessionType() {
         EAttachSessionType result = EAttachSessionType.NDV;
-        if ((flags & 2048) == 2048) {
+        if ((merkmale & 2048) == 2048) {
             result = EAttachSessionType.NJX;
-        } else if ((flags & 512) == 512) {
+        } else if ((merkmale & 512) == 512) {
             result = EAttachSessionType.RPC;
-        } else if ((flags & 1024) == 1024) {
+        } else if ((merkmale & 1024) == 1024) {
             result = EAttachSessionType.NAT;
         }
         return result;

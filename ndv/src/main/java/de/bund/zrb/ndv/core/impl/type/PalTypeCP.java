@@ -4,22 +4,22 @@ import de.bund.zrb.ndv.core.api.IPalTypeCP;
 
 public final class PalTypeCP extends PalType implements IPalTypeCP {
     private static final long serialVersionUID = 1L;
-    private String codePage = "";
+    private String zeichensatzSeite = "";
 
     public PalTypeCP() { super(); type = 45; }
-    public PalTypeCP(String codePage) { this(); this.codePage = codePage; }
+    public PalTypeCP(String zeichensatzSeite) { this(); this.zeichensatzSeite = zeichensatzSeite; }
 
-    public void serialize() { stringToBuffer(codePage); }
-    public void restore() { codePage = stringFromBuffer(); }
+    public void serialize() { stringToBuffer(zeichensatzSeite); }
+    public void restore() { zeichensatzSeite = stringFromBuffer(); }
 
-    public String getCodePage() { return codePage; }
-    public void setCodePage(String codePage) { this.codePage = codePage; }
+    public String getCodePage() { return zeichensatzSeite; }
+    public void setCodePage(String seite) { this.zeichensatzSeite = seite; }
 
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof PalTypeCP)) return false;
-        return codePage != null ? codePage.equals(((PalTypeCP) o).codePage) : ((PalTypeCP) o).codePage == null;
+        return zeichensatzSeite != null ? zeichensatzSeite.equals(((PalTypeCP) o).zeichensatzSeite) : ((PalTypeCP) o).zeichensatzSeite == null;
     }
-    public int hashCode() { return codePage != null ? codePage.hashCode() : 0; }
-    public String toString() { return codePage; }
+    public int hashCode() { return zeichensatzSeite != null ? zeichensatzSeite.hashCode() : 0; }
+    public String toString() { return zeichensatzSeite; }
 }
