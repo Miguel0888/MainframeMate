@@ -150,6 +150,8 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected ViewMode currentMode;
     protected boolean sidebarVisible = false;
     protected boolean hasUnsavedChanges = false;
+    protected String activeFileType = null; // currently selected file type (null = sentence type or none)
+    protected JButton saveButton; // Save/Download button (can change label dynamically)
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
@@ -548,14 +550,21 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         toolbar.addSeparator(new Dimension(16, 0));
 
-        // Save button (only for text files)
-        if (isTextFile) {
-            JButton saveButton = new JButton("💾 Speichern");
-            saveButton.setToolTipText("Änderungen speichern");
-            saveButton.addActionListener(e -> saveIfApplicable());
-            toolbar.add(saveButton);
-            toolbar.addSeparator(new Dimension(8, 0));
+        // Save/Download button
+        saveButton = new JButton("💾 Speichern");
+        saveButton.setToolTipText("Änderungen speichern");
+        saveButton.addActionListener(e -> {
+            if (activeFileType != null && needsHtmlRendering) {
+                downloadContent();
+            } else {
+                saveIfApplicable();
+            }
+        });
+        if (!isTextFile && !needsHtmlRendering) {
+            saveButton.setVisible(false); // Hide if neither text nor renderable
         }
+        toolbar.add(saveButton);
+        toolbar.addSeparator(new Dimension(8, 0));
 
         // Copy Raw button
         JButton copyButton = new JButton("📋 Copy Raw");
@@ -873,6 +882,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         String type = fileType.trim().toUpperCase();
+        this.activeFileType = type;
 
         switch (type) {
             case "PDF":
@@ -884,6 +894,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 this.needsHtmlRendering = true;
                 renderHtmlContent();
                 applyViewMode(currentMode);
+                updateSaveDownloadButton(true);
                 break;
 
             case "MD":
@@ -892,6 +903,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 this.needsHtmlRendering = true;
                 renderHtmlContent();
                 applyViewMode(currentMode);
+                updateSaveDownloadButton(false);
                 break;
 
             case "JCL":
@@ -901,6 +913,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);
                 rawPane.setCodeFoldingEnabled(true);
                 applyViewMode(currentMode);
+                updateSaveDownloadButton(false);
                 break;
 
             case "COBOL":
@@ -910,6 +923,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
                 rawPane.setCodeFoldingEnabled(true);
                 applyViewMode(currentMode);
+                updateSaveDownloadButton(false);
                 break;
 
             case "NATURAL":
@@ -920,6 +934,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                         de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL);
                 rawPane.setCodeFoldingEnabled(true);
                 applyViewMode(currentMode);
+                updateSaveDownloadButton(false);
                 break;
 
             default:
@@ -933,6 +948,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      * Reset rendering to the auto-detected mode (based on file name/content).
      */
     public void resetFileTypeRendering() {
+        this.activeFileType = null;
         this.isSourceCode = isSourceCodeFile(sourceName);
         this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
         if (isSourceCode) {
@@ -944,6 +960,91 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             renderHtmlContent();
         }
         applyViewMode(currentMode);
+        updateSaveDownloadButton(false);
+    }
+
+    /**
+     * Switches the save button between "Speichern" and "Herunterladen" mode.
+     * When a non-text file type (PDF, WORD, EXCEL, OUTLOOK MAIL) is selected,
+     * the button becomes a download button.
+     *
+     * @param downloadMode true to show "Herunterladen", false for "Speichern"
+     */
+    protected void updateSaveDownloadButton(boolean downloadMode) {
+        if (saveButton == null) return;
+
+        if (downloadMode) {
+            saveButton.setText("📥 Herunterladen");
+            saveButton.setToolTipText("Inhalt als Datei herunterladen");
+            saveButton.setVisible(true);
+        } else {
+            saveButton.setText("💾 Speichern");
+            saveButton.setToolTipText("Änderungen speichern");
+            saveButton.setVisible(isTextFile);
+        }
+    }
+
+    /**
+     * Downloads the current content as a file using a file chooser dialog.
+     * Used when a binary/rendered file type (PDF, WORD, etc.) is selected.
+     */
+    protected void downloadContent() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Inhalt herunterladen");
+
+        // Suggest file name with appropriate extension
+        String suggestedName = sourceName != null ? sourceName : "download";
+        if (activeFileType != null) {
+            String ext = getDefaultExtension(activeFileType);
+            if (ext != null && !suggestedName.toLowerCase().endsWith("." + ext)) {
+                // Remove old extension if present, add new one
+                int dot = suggestedName.lastIndexOf('.');
+                if (dot > 0) {
+                    suggestedName = suggestedName.substring(0, dot);
+                }
+                suggestedName += "." + ext;
+            }
+        }
+        chooser.setSelectedFile(new File(suggestedName));
+
+        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File target = chooser.getSelectedFile();
+            if (target == null) return;
+
+            try {
+                java.nio.file.Files.write(target.toPath(),
+                        rawContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+                // Brief confirmation
+                String original = saveButton.getText();
+                saveButton.setText("✓ Gespeichert!");
+                Timer timer = new Timer(1500, evt -> saveButton.setText(original));
+                timer.setRepeats(false);
+                timer.start();
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this,
+                        "Fehler beim Herunterladen:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    /**
+     * Returns the default file extension for a given file type key.
+     */
+    private String getDefaultExtension(String fileType) {
+        if (fileType == null) return null;
+        switch (fileType.toUpperCase()) {
+            case "PDF":          return "pdf";
+            case "MD":           return "md";
+            case "JCL":          return "jcl";
+            case "COBOL":        return "cbl";
+            case "NATURAL":      return "nat";
+            case "WORD":         return "docx";
+            case "EXCEL":        return "xlsx";
+            case "OUTLOOK MAIL": return "eml";
+            default:             return "txt";
+        }
     }
 
     /**
