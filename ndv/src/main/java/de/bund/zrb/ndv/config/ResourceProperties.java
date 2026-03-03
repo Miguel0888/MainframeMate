@@ -1,7 +1,7 @@
 package de.bund.zrb.ndv.config;
 
 public final class ResourceProperties {
-   public static final String KONFIGURATIONS_SCHLUESSEL = "com.softwareag.naturalone.natural.execdebug.core.properties";
+   public static final String KONFIGURATIONS_SCHLUESSEL = "de.bund.zrb.ndv.execdebug.core.properties";
    public static final String SERVER_ADRESSE = "NDV_HOST";
    public static final String SERVER_PORT = "NDV_PORT";
    public static final String KENNWORT = "NDV_PWD";

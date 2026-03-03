@@ -1,6 +1,5 @@
 # Anforderungsspezifikation: Neuimplementierung der Klasse zur Zeilennummerierung von Natural-Quelltext
 
-**Paket:** com.softwareag.naturalone.natural.auxiliary.renumber.internal  
 **Datum:** 2026-02-21  
 **Status:** Entwurf
 

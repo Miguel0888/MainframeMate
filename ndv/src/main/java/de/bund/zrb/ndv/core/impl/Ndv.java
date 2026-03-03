@@ -48,7 +48,7 @@ public final class Ndv {
     private static final int ERSTE_SCHREIBPOSITION = 38;
 
     // --- Typ-Schlüssel-Tabelle (FQCN) ---
-    private static final String PAKET_PRAEFIX = "com.softwareag.naturalone.natural.pal.";
+    private static final String PAKET_PRAEFIX = "de.bund.zrb.ndv.core.";
     private static final String[] DATENSATZ_KLASSEN = {
             PAKET_PRAEFIX + "PalTypeEnviron",            // 0
             PAKET_PRAEFIX + "PalTypeConnect",            // 1
