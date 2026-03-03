@@ -25,6 +25,13 @@ public enum LockerStyle {
         public LockerUi createUi(Frame parent, LoginManager manager) {
             return new RetroLocker(parent, manager);
         }
+    },
+
+    CLASSIC_METAL("⚙ Classic Metal – Standard Java-Design") {
+        @Override
+        public LockerUi createUi(Frame parent, LoginManager manager) {
+            return new SwingLocker(parent, manager);
+        }
     };
 
     private final String description;

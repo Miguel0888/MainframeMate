@@ -8,6 +8,7 @@ import de.bund.zrb.ui.branding.IconThemeInstaller;
 import de.bund.zrb.ui.util.UnicodeFontFix;
 
 import de.bund.zrb.runtime.PluginManager;
+import de.bund.zrb.ui.theme.ThemeManager;
 
 import javax.swing.*;
 
@@ -42,8 +43,19 @@ public class Main {
         de.bund.zrb.archive.service.ArchiveService.getInstance().registerTools();
 
         SwingUtilities.invokeLater(() -> {
+            // Apply global UI theme (before creating any windows)
+            try {
+                int lockStyle = de.bund.zrb.helper.SettingsHelper.load().lockStyle;
+                ThemeManager.getInstance().applyTheme(lockStyle);
+            } catch (Exception e) {
+                System.err.println("[Theme] Failed to apply initial theme: " + e.getMessage());
+            }
+
             MainFrame gui = new MainFrame();
             gui.setVisible(true);
+
+            // Refresh after visible so title bar theming works (needs native HWND)
+            ThemeManager.getInstance().refreshWindow(gui);
         });
     }
 }
