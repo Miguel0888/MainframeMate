@@ -198,13 +198,21 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
         statusBarPanel.setSentenceTypesGrouped(registry.getSentenceTypeSpec().getDefinitions());
-        statusBarPanel.setSelectedSentenceType(sentenceType);
 
         restoreDividerLocation();
         initDividerStateListener();
         showComparePanelWithDividerOnReady(toCompare);
 
-        // Content already set via super constructor, but we need to handle sentence typSchluessel
+        // Content already set via super constructor, but we need to handle sentence type
+        // Auto-detect sentence type or file type by path if not explicitly provided
+        if (sentenceType == null) {
+            try {
+                sentenceType = detectSentenceTypeByPath(
+                        resource != null ? resource.getResolvedPath() : model.getFullPath());
+            } catch (Exception e) {
+                System.err.println("[FileTabImpl] Auto-detect sentence type failed: " + e.getMessage());
+            }
+        }
         if (sentenceType != null) {
             dispatcher.publish(new SentenceTypeChangedEvent(sentenceType));
         }
