@@ -890,10 +890,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             case "WORD":
             case "EXCEL":
             case "OUTLOOK MAIL":
-                // Binary document types → render as HTML (extracted text)
+                // Binary document types → show HTML pane, but do NOT render rawContent
+                // (it's corrupted ASCII text). Actual rendering happens in reloadAsBinary().
                 this.isSourceCode = false;
                 this.needsHtmlRendering = true;
-                renderHtmlContent();
+                htmlRenderedPane.setText("<html><body><p style='color:#888;'>⏳ Lade Dokument...</p></body></html>");
                 applyViewMode(currentMode);
                 updateSaveDownloadButton(true);
                 break;

@@ -577,8 +577,8 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     /**
      * Reloads the current file in BINARY transfer mode (for PDF, DOCX, etc.).
      * This is required because binary files get corrupted when transferred as ASCII.
-     * The binary bytes are stored for download, and a placeholder/extracted text
-     * is shown in the preview.
+     * The binary bytes are stored for download, and the extracted/rendered content
+     * is shown in the preview via the ingestion pipeline (PDFBox, POI, etc.).
      *
      * @param fileType the file type key (e.g., "PDF", "WORD")
      */
@@ -594,79 +594,109 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
             return;
         }
 
-        // Only FTP needs special binary re-read; local files are always read as bytes
-        SwingUtilities.invokeLater(() -> {
+        // Run in background to avoid blocking EDT
+        new Thread(() -> {
             try {
-                setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+                SwingUtilities.invokeLater(() ->
+                        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR)));
 
                 CredentialsProvider credentialsProvider = new InteractiveCredentialsProvider(
                         (host, user) -> LoginManager.getInstance().getPassword(host, user)
                 );
 
+                byte[] binaryData;
                 try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
                     FilePayload payload = fs.readFileBinary(resolvedPath);
-                    byte[] binaryData = payload.getBytes();
-
-                    // Store raw binary bytes for download
-                    this.rawBytes = binaryData;
-
-                    // Generate display text based on file type
-                    String displayHtml = generateBinaryPreviewHtml(fileType, binaryData, resolvedPath);
-
-                    // Set HTML content in the rendered pane
-                    htmlRenderedPane.setText(displayHtml);
-                    SwingUtilities.invokeLater(() -> htmlRenderedPane.setCaretPosition(0));
-
-                    System.out.println("[FileTabImpl] Reloaded as binary: " + resolvedPath +
-                            " (" + binaryData.length + " bytes)");
+                    binaryData = payload.getBytes();
                 }
+
+                // Store raw binary bytes for download
+                this.rawBytes = binaryData;
+
+                System.out.println("[FileTabImpl] Reloaded as binary: " + resolvedPath +
+                        " (" + binaryData.length + " bytes)");
+
+                // Use ingestion pipeline to extract text and render
+                renderBinaryContent(binaryData, resolvedPath, fileType);
+
             } catch (Exception e) {
                 System.err.println("[FileTabImpl] Failed to reload as binary: " + e.getMessage());
-                htmlRenderedPane.setText("<html><body><p style='color:red;'>⚠ Fehler beim binären Laden:<br>" +
-                        escapeHtml(e.getMessage()) + "</p>" +
-                        "<p>Der Inhalt wurde möglicherweise als Text (ASCII) übertragen " +
-                        "und ist daher beschädigt.</p></body></html>");
+                SwingUtilities.invokeLater(() ->
+                        htmlRenderedPane.setText("<html><body><p style='color:red;'>⚠ Fehler beim binären Laden:<br>" +
+                                escapeHtml(e.getMessage()) + "</p>" +
+                                "<p>Der Inhalt wurde möglicherweise als Text (ASCII) übertragen " +
+                                "und ist daher beschädigt.</p></body></html>"));
             } finally {
-                setCursor(java.awt.Cursor.getDefaultCursor());
+                SwingUtilities.invokeLater(() ->
+                        setCursor(java.awt.Cursor.getDefaultCursor()));
             }
-        });
+        }, "BinaryReload-" + resolvedPath).start();
     }
 
     /**
-     * Generates HTML preview content for binary files.
+     * Renders binary document content (PDF, DOCX, XLSX, etc.) using the ingestion pipeline.
+     * Extracts text via PDFBox/POI, builds a Document model, renders to HTML.
      */
-    private String generateBinaryPreviewHtml(String fileType, byte[] data, String path) {
-        String type = fileType != null ? fileType.toUpperCase() : "BINARY";
-        String sizeStr = formatFileSize(data.length);
+    private void renderBinaryContent(byte[] binaryData, String path, String fileType) {
+        try {
+            String fileName = path;
+            int lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            if (lastSep >= 0) fileName = path.substring(lastSep + 1);
 
-        StringBuilder html = new StringBuilder();
-        html.append("<html><body style='font-family: Segoe UI, sans-serif; margin: 20px;'>");
-        html.append("<h2>📄 ").append(type).append("-Dokument</h2>");
-        html.append("<table style='border-collapse: collapse; margin: 12px 0;'>");
-        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Datei:</td><td>").append(escapeHtml(path)).append("</td></tr>");
-        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Größe:</td><td>").append(sizeStr).append("</td></tr>");
-        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Typ:</td><td>").append(type).append("</td></tr>");
-        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Transfer:</td><td>✅ Binär (korrekt)</td></tr>");
-        html.append("</table>");
-        html.append("<p style='margin-top: 16px;'>💡 Verwenden Sie <b>📥 Herunterladen</b> um die Originaldatei zu speichern.</p>");
+            // Use ingestion pipeline: detect → extract → build → render
+            de.bund.zrb.ingestion.config.IngestionConfig config = new de.bund.zrb.ingestion.config.IngestionConfig()
+                    .setMaxFileSizeBytes(25 * 1024 * 1024)
+                    .setTimeoutPerExtractionMs(15000)
+                    .setEnableFallbackOnExtractorFailure(true);
 
-        // Show hex preview of first bytes
-        html.append("<h3>Hex-Vorschau (erste 256 Bytes)</h3>");
-        html.append("<pre style='background: #f5f5f5; padding: 12px; font-family: Consolas, monospace; font-size: 11px;'>");
-        int previewLen = Math.min(data.length, 256);
-        for (int i = 0; i < previewLen; i++) {
-            if (i > 0 && i % 16 == 0) html.append("\n");
-            else if (i > 0 && i % 8 == 0) html.append("  ");
-            else if (i > 0) html.append(" ");
-            html.append(String.format("%02X", data[i] & 0xFF));
+            de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase extractUseCase =
+                    new de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase(config);
+
+            de.bund.zrb.ingestion.model.DocumentSource source =
+                    de.bund.zrb.ingestion.model.DocumentSource.fromBytes(binaryData, fileName);
+
+            de.bund.zrb.ingestion.model.ExtractionResult result = extractUseCase.execute(source);
+
+            extractUseCase.shutdown();
+
+            if (!result.isSuccess()) {
+                SwingUtilities.invokeLater(() ->
+                        htmlRenderedPane.setText("<html><body>" +
+                                "<p style='color:orange;'>⚠ Text-Extraktion fehlgeschlagen: " +
+                                escapeHtml(result.getErrorMessage()) + "</p>" +
+                                "<p>Verwenden Sie <b>📥 Herunterladen</b> um die Originaldatei zu speichern.</p>" +
+                                "</body></html>"));
+                return;
+            }
+
+            String extractedText = result.getPlainText();
+
+            // Render extracted text as HTML
+            String html = markdownFormatter.renderToHtml(extractedText);
+
+            // Build header with document info
+            String sizeStr = formatFileSize(binaryData.length);
+            String header = "<div style='background:#f0f0f0; padding:8px 12px; margin-bottom:12px; " +
+                    "border-radius:4px; font-size:11px; color:#666;'>" +
+                    "📄 <b>" + escapeHtml(fileName) + "</b> | " + sizeStr + " | " +
+                    fileType.toUpperCase() + " | ✅ Binär geladen</div>";
+
+            String fullHtml = "<html><body>" + header + html + "</body></html>";
+
+            SwingUtilities.invokeLater(() -> {
+                htmlRenderedPane.setText(fullHtml);
+                htmlRenderedPane.setCaretPosition(0);
+            });
+
+        } catch (Exception e) {
+            System.err.println("[FileTabImpl] renderBinaryContent failed: " + e.getMessage());
+            SwingUtilities.invokeLater(() ->
+                    htmlRenderedPane.setText("<html><body>" +
+                            "<p style='color:red;'>⚠ Rendering fehlgeschlagen: " +
+                            escapeHtml(e.getMessage()) + "</p>" +
+                            "<p>Verwenden Sie <b>📥 Herunterladen</b> um die Originaldatei zu speichern.</p>" +
+                            "</body></html>"));
         }
-        if (data.length > 256) {
-            html.append("\n... (").append(sizeStr).append(" insgesamt)");
-        }
-        html.append("</pre>");
-
-        html.append("</body></html>");
-        return html.toString();
     }
 
     private String formatFileSize(long bytes) {

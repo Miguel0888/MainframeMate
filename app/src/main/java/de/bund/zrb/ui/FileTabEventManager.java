@@ -36,9 +36,9 @@ public class FileTabEventManager {
                 fileTab.legendController.clearLegend();
                 fileTab.applyFileTypeRendering(event.newType);
 
-                // Binary transfer mode on remote backends → reload in binary mode
+                // Binary file types need re-reading as bytes and ingestion-based rendering
                 boolean needsBinary = fileDef.getMeta() != null && fileDef.getMeta().isBinaryTransfer();
-                if (needsBinary && isRemoteResource()) {
+                if (needsBinary) {
                     fileTab.reloadAsBinary(event.newType);
                 }
                 return;
