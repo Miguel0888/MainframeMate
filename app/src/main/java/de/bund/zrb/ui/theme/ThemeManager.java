@@ -70,6 +70,14 @@ public final class ThemeManager {
         // Restore system L&F defaults by removing our overrides
         String[] keysToRemove = {
                 "Panel.background", "Panel.foreground",
+                "window", "control", "text", "textText", "controlText",
+                "infoText", "info",
+                "activeCaption", "activeCaptionText",
+                "inactiveCaption", "inactiveCaptionText",
+                "desktop",
+                "InternalFrame.activeTitleBackground", "InternalFrame.activeTitleForeground",
+                "InternalFrame.inactiveTitleBackground", "InternalFrame.inactiveTitleForeground",
+                "RootPane.background", "ContentPane.background",
                 "Label.foreground", "Label.disabledForeground",
                 "Button.background", "Button.foreground", "Button.select", "Button.focus",
                 "TextField.background", "TextField.foreground", "TextField.caretForeground",
@@ -161,9 +169,27 @@ public final class ThemeManager {
         ColorUIResource tblSelFg = c(t.tableSelectionFg);
         ColorUIResource tblGrid = c(t.tableGridColor);
 
-        // --- Panels / Frames ---
+        // --- Panels / Frames / Windows ---
         UIManager.put("Panel.background", bg);
         UIManager.put("Panel.foreground", text);
+        UIManager.put("window", bg);
+        UIManager.put("control", bg);
+        UIManager.put("text", inputBg);
+        UIManager.put("textText", inputText);
+        UIManager.put("controlText", text);
+        UIManager.put("infoText", text);
+        UIManager.put("info", surface);
+        UIManager.put("activeCaption", bg);
+        UIManager.put("activeCaptionText", text);
+        UIManager.put("inactiveCaption", bg);
+        UIManager.put("inactiveCaptionText", disabled);
+        UIManager.put("desktop", bg);
+        UIManager.put("InternalFrame.activeTitleBackground", bg);
+        UIManager.put("InternalFrame.activeTitleForeground", text);
+        UIManager.put("InternalFrame.inactiveTitleBackground", bg);
+        UIManager.put("InternalFrame.inactiveTitleForeground", disabled);
+        UIManager.put("RootPane.background", bg);
+        UIManager.put("ContentPane.background", bg);
 
         // --- Labels ---
         UIManager.put("Label.foreground", text);
@@ -309,12 +335,17 @@ public final class ThemeManager {
 
     /**
      * Refresh all open windows to reflect the new theme.
-     * Also applies theme to RSyntaxTextArea instances (which don't use UIManager defaults).
+     * Also applies theme to RSyntaxTextArea instances (which don't use UIManager defaults),
+     * and forces dark background on JToolBar/JMenuBar.
      */
     private void refreshAllWindows() {
         for (Window window : Window.getWindows()) {
             SwingUtilities.updateComponentTreeUI(window);
             applyThemeToComponentTree(window);
+
+            // Apply Windows dark title bar if available
+            applyWindowsTitleBarTheme(window);
+
             window.revalidate();
             window.repaint();
         }
@@ -322,7 +353,7 @@ public final class ThemeManager {
 
     /**
      * Recursively apply theme colors to components that don't respect UIManager defaults.
-     * This covers RSyntaxTextArea, JEditorPane (HTML preview), etc.
+     * This covers RSyntaxTextArea, JEditorPane (HTML preview), JToolBar, JMenuBar, etc.
      */
     private void applyThemeToComponentTree(Component root) {
         if (root instanceof org.fife.ui.rsyntaxtextarea.RSyntaxTextArea) {
@@ -330,6 +361,40 @@ public final class ThemeManager {
         }
         if (root instanceof JEditorPane && !(root instanceof javax.swing.JTextPane)) {
             applyThemeToEditorPane((JEditorPane) root);
+        }
+        // JToolBar often ignores UIManager defaults — force colors directly
+        if (root instanceof JToolBar) {
+            JToolBar tb = (JToolBar) root;
+            tb.setBackground(currentTheme.bg);
+            tb.setForeground(currentTheme.text);
+            tb.setOpaque(true);
+            // Also style buttons inside the toolbar
+            for (Component child : tb.getComponents()) {
+                if (child instanceof AbstractButton) {
+                    child.setBackground(currentTheme.bg);
+                    child.setForeground(currentTheme.text);
+                }
+            }
+        }
+        // JMenuBar often ignores UIManager defaults — force colors directly
+        if (root instanceof JMenuBar) {
+            JMenuBar mb = (JMenuBar) root;
+            mb.setBackground(currentTheme.bg);
+            mb.setForeground(currentTheme.text);
+            mb.setOpaque(true);
+            mb.setBorderPainted(currentTheme.isDark);
+            if (currentTheme.isDark) {
+                mb.setBorder(javax.swing.BorderFactory.createMatteBorder(
+                        0, 0, 1, 0, currentTheme.border));
+            }
+            for (int i = 0; i < mb.getMenuCount(); i++) {
+                JMenu menu = mb.getMenu(i);
+                if (menu != null) {
+                    menu.setBackground(currentTheme.bg);
+                    menu.setForeground(currentTheme.text);
+                    menu.setOpaque(true);
+                }
+            }
         }
         if (root instanceof Container) {
             for (Component child : ((Container) root).getComponents()) {
@@ -465,6 +530,107 @@ public final class ThemeManager {
      */
     private static ColorUIResource c(Color color) {
         return new ColorUIResource(color);
+    }
+
+    // ==================== Windows Dark Title Bar ====================
+
+    /**
+     * On Windows 10 (build 17763+) / Windows 11, uses DwmSetWindowAttribute
+     * to enable/disable the dark title bar for the given window.
+     * This is the official Microsoft API for dark mode title bars.
+     * Falls back gracefully on non-Windows or older Windows versions.
+     */
+    private void applyWindowsTitleBarTheme(Window window) {
+        if (!(window instanceof JFrame) && !(window instanceof JDialog)) return;
+
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (!os.contains("windows")) return;
+
+        try {
+            // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1+, Windows 11)
+            // Older Windows 10 builds use undocumented attribute 19
+            long hwnd = getWindowHandle(window);
+            if (hwnd == 0) return;
+
+            com.sun.jna.platform.win32.WinDef.HWND hWnd =
+                    new com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer.createConstant(hwnd));
+
+            // Try attribute 20 first (Windows 10 20H1+), fallback to 19
+            com.sun.jna.Memory darkMode = new com.sun.jna.Memory(4);
+            darkMode.setInt(0, currentTheme.isDark ? 1 : 0);
+
+            com.sun.jna.platform.win32.WinNT.HRESULT result =
+                    Dwmapi.INSTANCE.DwmSetWindowAttribute(hWnd, 20, darkMode, 4);
+
+            if (result != null && result.intValue() != 0) {
+                // Fallback to attribute 19 for older Windows 10 builds
+                Dwmapi.INSTANCE.DwmSetWindowAttribute(hWnd, 19, darkMode, 4);
+            }
+
+            // Force Windows to redraw the title bar
+            // Toggle visibility to trigger a non-client area repaint
+            if (window.isVisible()) {
+                Dimension size = window.getSize();
+                window.setSize(size.width, size.height + 1);
+                window.setSize(size.width, size.height);
+            }
+        } catch (Throwable t) {
+            // Not critical — fall back silently
+            System.err.println("[ThemeManager] Windows title bar dark mode not available: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Get the native window handle (HWND) from a Swing Window.
+     * Uses the sun.awt.windows.WComponentPeer internal API.
+     */
+    private long getWindowHandle(Window window) {
+        try {
+            // Access the peer's HWND via reflection (works on Oracle/OpenJDK on Windows)
+            if (window.isDisplayable()) {
+                // Java 8+: window peer has getHWnd()
+                Object peer = getComponentPeer(window);
+                if (peer != null) {
+                    java.lang.reflect.Method getHWnd = peer.getClass().getMethod("getHWnd");
+                    getHWnd.setAccessible(true);
+                    return (Long) getHWnd.invoke(peer);
+                }
+            }
+        } catch (Throwable t) {
+            // Fallback: try Native.getWindowID from JNA
+            try {
+                return com.sun.jna.Native.getWindowID(window);
+            } catch (Throwable t2) {
+                // not available
+            }
+        }
+        return 0;
+    }
+
+    @SuppressWarnings("deprecation")
+    private Object getComponentPeer(Window window) {
+        try {
+            // In Java 8, getPeer() is public but deprecated
+            java.lang.reflect.Method getPeer = Component.class.getDeclaredMethod("getPeer");
+            getPeer.setAccessible(true);
+            return getPeer.invoke(window);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * JNA interface for the Windows DWM (Desktop Window Manager) API.
+     */
+    private interface Dwmapi extends com.sun.jna.Library {
+        Dwmapi INSTANCE = com.sun.jna.Native.load("dwmapi", Dwmapi.class);
+
+        com.sun.jna.platform.win32.WinNT.HRESULT DwmSetWindowAttribute(
+                com.sun.jna.platform.win32.WinDef.HWND hwnd,
+                int dwAttribute,
+                com.sun.jna.Pointer pvAttribute,
+                int cbAttribute
+        );
     }
 }
 

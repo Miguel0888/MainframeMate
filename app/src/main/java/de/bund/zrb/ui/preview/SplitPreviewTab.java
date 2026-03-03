@@ -623,7 +623,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
         statusBar.setBorder(new EmptyBorder(4, 8, 4, 8));
-        statusBar.setBackground(new Color(245, 245, 245));
+        // Use theme-aware background
+        de.bund.zrb.ui.theme.AppTheme theme = de.bund.zrb.ui.theme.ThemeManager.getInstance().getCurrentTheme();
+        statusBar.setBackground(theme.isDark ? theme.surface : new Color(245, 245, 245));
 
         StringBuilder status = new StringBuilder();
         if (metadata != null && metadata.getMimeType() != null) {
@@ -639,7 +641,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
 
         JLabel statusLabel = new JLabel(status.toString());
-        statusLabel.setForeground(Color.GRAY);
+        statusLabel.setForeground(theme.textSecondary);
         statusLabel.setFont(statusLabel.getFont().deriveFont(11f));
         statusBar.add(statusLabel, BorderLayout.WEST);
 
