@@ -23,6 +23,12 @@ public class SentenceTypeEditor extends JPanel {
 
     private final JTextField extensionsField = new JTextField();
     private final JComboBox<String> transferModeCombo = new JComboBox<>(new String[]{"ASCII", "Binary"});
+    private final JComboBox<String> syntaxCombo = new JComboBox<>(new String[]{
+            "", "JCL", "COBOL", "NATURAL",
+            "Java", "Python", "JavaScript", "TypeScript", "JSON", "XML", "HTML", "CSS", "SQL",
+            "Markdown", "YAML", "Properties", "Shell", "Batch", "Groovy", "Kotlin", "Scala",
+            "C", "C++", "Go", "Rust", "Ruby", "PHP", "Perl", "Lua"
+    });
 
     private final FieldTableModel fieldModel = new FieldTableModel();
     private final JTable fieldTable = new JTable(fieldModel);
@@ -33,6 +39,7 @@ public class SentenceTypeEditor extends JPanel {
     private JPanel fieldButtonPanel;
     private JLabel extensionsLabel;
     private JLabel transferLabel;
+    private JLabel syntaxLabel;
 
     /**
      * Switches the editor between sentence type mode and file type mode.
@@ -46,6 +53,8 @@ public class SentenceTypeEditor extends JPanel {
         if (extensionsField != null) extensionsField.setVisible(fileType);
         if (transferLabel != null) transferLabel.setVisible(fileType);
         if (transferModeCombo != null) transferModeCombo.setVisible(fileType);
+        if (syntaxLabel != null) syntaxLabel.setVisible(fileType);
+        if (syntaxCombo != null) syntaxCombo.setVisible(fileType);
         appendCheckbox.setVisible(!fileType);
     }
 
@@ -201,6 +210,26 @@ public class SentenceTypeEditor extends JPanel {
         );
         metaPanel.add(transferModeCombo, gbc);
 
+        // Syntax-Highlighting (für Dateitypen / Programmiersprachen)
+        row++;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0;
+        syntaxLabel = new JLabel("Syntax-Highlighting");
+        syntaxLabel.setVisible(false);
+        metaPanel.add(syntaxLabel, gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        syntaxCombo.setVisible(false);
+        syntaxCombo.setEditable(true); // allow custom syntax styles
+        syntaxCombo.setToolTipText(
+                "<html>Syntax-Highlighting für Programmiersprachen.<br>" +
+                        "Leer = kein Highlighting (z.B. für PDF, WORD).<br>" +
+                        "Wählen Sie eine Sprache oder geben Sie einen eigenen RSyntaxTextArea-Style ein.</html>"
+        );
+        metaPanel.add(syntaxCombo, gbc);
+
         // Buttons für Felder
         JButton addFieldButton = new JButton("➕ Feld");
         addFieldButton.addActionListener(e -> {
@@ -297,6 +326,12 @@ public class SentenceTypeEditor extends JPanel {
         if (fileTypeMode) {
             String selected = (String) transferModeCombo.getSelectedItem();
             meta.setTransferMode("Binary".equals(selected) ? "binary" : "ascii");
+
+            // Syntax style (for programming language types)
+            Object syntaxVal = syntaxCombo.getSelectedItem();
+            if (syntaxVal != null && !syntaxVal.toString().trim().isEmpty()) {
+                meta.setSyntaxStyle(resolveSyntaxStyle(syntaxVal.toString().trim()));
+            }
         }
 
         def.setMeta(meta);
@@ -361,9 +396,77 @@ public class SentenceTypeEditor extends JPanel {
             } else {
                 transferModeCombo.setSelectedItem("ASCII");
             }
+
+            // Syntax style
+            if (def.getMeta().hasSyntaxStyle()) {
+                syntaxCombo.setSelectedItem(displaySyntaxStyle(def.getMeta().getSyntaxStyle()));
+            } else {
+                syntaxCombo.setSelectedIndex(0);
+            }
         }
 
         fieldModel.setFields(def.getFields());
+    }
+
+    /**
+     * Maps a user-friendly display name to an RSyntaxTextArea syntax constant.
+     */
+    private static String resolveSyntaxStyle(String displayName) {
+        if (displayName == null || displayName.isEmpty()) return null;
+        switch (displayName.toUpperCase()) {
+            case "JCL":        return "text/properties"; // best approximation
+            case "COBOL":      return "text/plain";
+            case "NATURAL":    return de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL;
+            case "JAVA":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JAVA;
+            case "PYTHON":     return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_PYTHON;
+            case "JAVASCRIPT": return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT;
+            case "TYPESCRIPT": return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT;
+            case "JSON":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JSON;
+            case "XML":        return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_XML;
+            case "HTML":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_HTML;
+            case "CSS":        return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_CSS;
+            case "SQL":        return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_SQL;
+            case "MARKDOWN":   return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+            case "YAML":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_YAML;
+            case "PROPERTIES": return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE;
+            case "SHELL":      return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL;
+            case "BATCH":      return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_WINDOWS_BATCH;
+            case "GROOVY":     return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_GROOVY;
+            case "KOTLIN":     return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_KOTLIN;
+            case "SCALA":      return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_SCALA;
+            case "C":          return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_C;
+            case "C++":        return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS;
+            case "GO":         return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_GO;
+            case "RUST":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE; // no native Rust support
+            case "RUBY":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_RUBY;
+            case "PHP":        return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_PHP;
+            case "PERL":       return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_PERL;
+            case "LUA":        return org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_LUA;
+            default:           return displayName; // allow raw RSyntaxTextArea style strings
+        }
+    }
+
+    /**
+     * Maps an RSyntaxTextArea syntax constant back to a user-friendly display name.
+     */
+    private static String displaySyntaxStyle(String syntaxStyle) {
+        if (syntaxStyle == null || syntaxStyle.isEmpty()) return "";
+        // Check known mappings in reverse
+        if (syntaxStyle.equals(de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL)) return "NATURAL";
+        if (syntaxStyle.equals("text/properties")) return "JCL";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JAVA)) return "Java";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_PYTHON)) return "Python";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT)) return "JavaScript";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT)) return "TypeScript";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JSON)) return "JSON";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_XML)) return "XML";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_HTML)) return "HTML";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_CSS)) return "CSS";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_SQL)) return "SQL";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) return "Markdown";
+        if (syntaxStyle.equals(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_YAML)) return "YAML";
+        // Fallback: return raw style
+        return syntaxStyle;
     }
 
     private FieldCoordinate generateFreeCoordinate() {

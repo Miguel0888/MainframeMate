@@ -984,6 +984,28 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
     /**
+     * Apply syntax highlighting for a programming language, using the given RSyntaxTextArea syntax style.
+     * This switches the view to source code mode with the specified syntax highlighting.
+     * Unlike applyFileTypeRendering (which uses a hardcoded switch), this method uses the
+     * syntaxStyle string directly from the SentenceDefinition's SentenceMeta.
+     *
+     * @param syntaxStyleConstant RSyntaxTextArea syntax style string (e.g. "text/java", "text/python")
+     */
+    public void applySyntaxStyleRendering(String syntaxStyleConstant) {
+        if (syntaxStyleConstant == null || syntaxStyleConstant.trim().isEmpty()) {
+            resetFileTypeRendering();
+            return;
+        }
+        this.isSourceCode = true;
+        this.needsHtmlRendering = false;
+        this.activeFileType = null; // not a document type
+        rawPane.setSyntaxEditingStyle(syntaxStyleConstant);
+        rawPane.setCodeFoldingEnabled(true);
+        applyViewMode(currentMode);
+        updateSaveDownloadButton(false);
+    }
+
+    /**
      * Switches the save button between "Speichern" and "Herunterladen" mode.
      * When a non-text file type (PDF, WORD, EXCEL, OUTLOOK MAIL) is selected,
      * the button becomes a download button and an upload button appears.

@@ -34,7 +34,15 @@ public class FileTabEventManager {
                 fileTab.highlighter.clearHighlights(fileTab.getRawPane());
                 fileTab.highlighter.clearHighlights(fileTab.comparePanel.getOriginalTextArea());
                 fileTab.legendController.clearLegend();
-                fileTab.applyFileTypeRendering(event.newType);
+
+                // Check if this file type has a syntaxStyle (programming language)
+                if (fileDef.getMeta() != null && fileDef.getMeta().hasSyntaxStyle()) {
+                    // Programming language → apply syntax highlighting directly
+                    fileTab.applySyntaxStyleRendering(fileDef.getMeta().getSyntaxStyle());
+                } else {
+                    // Document type (PDF, WORD, etc.) → use file type rendering
+                    fileTab.applyFileTypeRendering(event.newType);
+                }
 
                 // Binary file types need re-reading as bytes and ingestion-based rendering
                 boolean needsBinary = fileDef.getMeta() != null && fileDef.getMeta().isBinaryTransfer();

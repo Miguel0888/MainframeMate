@@ -176,18 +176,35 @@ public class SentenceTypeSettingsDialog {
 
     /**
      * Adds default file type definitions if they don't already exist.
+     * Includes document types (PDF, WORD, ...) and programming languages (JCL, COBOL, Java, ...).
      */
     private static void addDefaultFileTypes() {
-        // name, pathPattern, extensions (comma-sep), transferMode
+        // name, pathPattern, extensions (comma-sep), transferMode, syntaxStyle
         String[][] defaults = {
-                {"PDF",          ".*\\.pdf$",              "pdf",           "binary"},
-                {"MD",           ".*\\.md$",               "md,markdown",   "ascii"},
-                {"JCL",          ".*\\.(jcl|proc|prc)$",   "jcl,proc,prc",  "ascii"},
-                {"COBOL",        ".*\\.(cbl|cob|cobol)$",  "cbl,cob,cobol", "ascii"},
-                {"NATURAL",      "",                        "",              "ascii"},
-                {"WORD",         ".*\\.(doc|docx)$",        "doc,docx",      "binary"},
-                {"EXCEL",        ".*\\.(xls|xlsx)$",        "xls,xlsx",      "binary"},
-                {"OUTLOOK MAIL", ".*\\.(msg|eml)$",         "msg,eml",       "binary"},
+                // Document types (rendered)
+                {"PDF",          ".*\\.pdf$",              "pdf",           "binary",  ""},
+                {"MD",           ".*\\.md$",               "md,markdown",   "ascii",   ""},
+                {"WORD",         ".*\\.(doc|docx)$",        "doc,docx",      "binary",  ""},
+                {"EXCEL",        ".*\\.(xls|xlsx)$",        "xls,xlsx",      "binary",  ""},
+                {"OUTLOOK MAIL", ".*\\.(msg|eml)$",         "msg,eml",       "binary",  ""},
+                // Mainframe programming languages
+                {"JCL",          ".*\\.(jcl|proc|prc)$",   "jcl,proc,prc",  "ascii",   "text/properties"},
+                {"COBOL",        ".*\\.(cbl|cob|cobol)$",  "cbl,cob,cobol", "ascii",   "text/plain"},
+                {"NATURAL",      "",                        "",              "ascii",
+                        de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL},
+                // Common programming languages
+                {"Java",         ".*\\.java$",             "java",          "ascii",   "text/java"},
+                {"Python",       ".*\\.py$",               "py",            "ascii",   "text/python"},
+                {"JavaScript",   ".*\\.js$",               "js",            "ascii",   "text/javascript"},
+                {"TypeScript",   ".*\\.ts$",               "ts",            "ascii",   "text/typescript"},
+                {"JSON",         ".*\\.json$",             "json",          "ascii",   "text/json"},
+                {"XML",          ".*\\.xml$",              "xml",           "ascii",   "text/xml"},
+                {"HTML",         ".*\\.html?$",            "html,htm",      "ascii",   "text/html"},
+                {"SQL",          ".*\\.sql$",              "sql",           "ascii",   "text/sql"},
+                {"YAML",         ".*\\.ya?ml$",            "yaml,yml",      "ascii",   "text/yaml"},
+                {"Shell",        ".*\\.(sh|bash)$",        "sh,bash",       "ascii",   "text/unix"},
+                {"Batch",        ".*\\.(bat|cmd)$",        "bat,cmd",       "ascii",   "text/bat"},
+                {"Groovy",       ".*\\.(groovy|gradle)$",  "groovy,gradle", "ascii",   "text/groovy"},
         };
 
         for (String[] def : defaults) {
@@ -195,6 +212,7 @@ public class SentenceTypeSettingsDialog {
             String pattern = def[1];
             String extensions = def[2];
             String transfer = def[3];
+            String syntaxStyle = def[4];
 
             boolean exists = sentenceTypeSpec.getDefinitions().keySet().stream()
                     .anyMatch(existingKey -> existingKey.equalsIgnoreCase(key));
@@ -215,6 +233,10 @@ public class SentenceTypeSettingsDialog {
                 meta.setExtensions(extList);
             }
 
+            if (syntaxStyle != null && !syntaxStyle.isEmpty()) {
+                meta.setSyntaxStyle(syntaxStyle);
+            }
+
             sd.setMeta(meta);
 
             sentenceTypeSpec.getDefinitions().put(key, sd);
@@ -222,7 +244,7 @@ public class SentenceTypeSettingsDialog {
     }
 
     private static class SentenceTableModel extends AbstractTableModel {
-        private final String[] columns = {"Name", "Typ", "Endungen", "Transfer", "Pfade", "Pattern", "Feldzahl"};
+        private final String[] columns = {"Name", "Typ", "Endungen", "Transfer", "Syntax", "Pfade", "Pattern", "Feldzahl"};
 
         @Override
         public int getRowCount() {
@@ -255,7 +277,10 @@ public class SentenceTypeSettingsDialog {
                     SentenceMeta meta = def.getMeta();
                     switch (column) {
                         case 0: return entry.getKey();
-                        case 1: return def.isFileType() ? "📁 Dateityp" : "📝 Satzart";
+                        case 1:
+                            if (!def.isFileType()) return "📝 Satzart";
+                            if (meta != null && meta.hasSyntaxStyle()) return "💻 Sprache";
+                            return "📁 Dateityp";
                         case 2:
                             // Endungen
                             if (meta != null && meta.getExtensions() != null && !meta.getExtensions().isEmpty()) {
@@ -267,11 +292,15 @@ public class SentenceTypeSettingsDialog {
                             if (!def.isFileType()) return "—";
                             return meta != null && meta.isBinaryTransfer() ? "Binary" : "ASCII";
                         case 4:
+                            // Syntax
+                            if (meta != null && meta.hasSyntaxStyle()) return meta.getSyntaxStyle();
+                            return "";
+                        case 5:
                             List<String> paths = meta != null ? meta.getPaths() : null;
                             return paths != null ? String.join(";", paths) : "";
-                        case 5:
-                            return meta != null ? meta.getPathPattern() : "";
                         case 6:
+                            return meta != null ? meta.getPathPattern() : "";
+                        case 7:
                             if (def.isFileType()) return "—";
                             return def.getFields() != null ? def.getFields().size() : 0;
                         default: return "";

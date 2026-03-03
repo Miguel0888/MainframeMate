@@ -2,6 +2,7 @@ package de.bund.zrb.ui.filetab;
 
 import de.bund.zrb.ui.filetab.event.*;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
+import de.zrb.bund.newApi.sentence.SentenceMeta;
 
 import javax.swing.*;
 import java.awt.*;
@@ -110,11 +111,18 @@ public class StatusBarPanel extends JPanel {
             sentenceComboBox.addItem(""); // Leerer Eintrag
 
         java.util.List<String> sentenceKeys = new java.util.ArrayList<>();
-        java.util.List<String> fileTypeKeys = new java.util.ArrayList<>();
+        java.util.List<String> documentKeys = new java.util.ArrayList<>();
+        java.util.List<String> languageKeys = new java.util.ArrayList<>();
 
         for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
             if (entry.getValue().isFileType()) {
-                fileTypeKeys.add(entry.getKey());
+                // Split file types into documents (no syntaxStyle) and languages (with syntaxStyle)
+                SentenceMeta meta = entry.getValue().getMeta();
+                if (meta != null && meta.hasSyntaxStyle()) {
+                    languageKeys.add(entry.getKey());
+                } else {
+                    documentKeys.add(entry.getKey());
+                }
             } else {
                 sentenceKeys.add(entry.getKey());
             }
@@ -127,9 +135,16 @@ public class StatusBarPanel extends JPanel {
             }
         }
 
-        if (!fileTypeKeys.isEmpty()) {
+        if (!documentKeys.isEmpty()) {
             sentenceComboBox.addItem("── Dateitypen ──");
-            for (String key : fileTypeKeys) {
+            for (String key : documentKeys) {
+                sentenceComboBox.addItem(key);
+            }
+        }
+
+        if (!languageKeys.isEmpty()) {
+            sentenceComboBox.addItem("── Sprachen ──");
+            for (String key : languageKeys) {
                 sentenceComboBox.addItem(key);
             }
         }
