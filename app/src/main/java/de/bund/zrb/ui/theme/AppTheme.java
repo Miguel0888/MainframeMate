@@ -29,6 +29,8 @@ public enum AppTheme {
             new Color(204, 232, 255),    // tableSelectionBg
             new Color(51, 51, 51),       // tableSelectionFg
             new Color(230, 230, 230),    // tableGridColor
+            Color.WHITE,                 // editorBg (RSyntaxTextArea)
+            new Color(232, 242, 254),    // editorCurrentLineBg
             false                        // isDark
     ),
 
@@ -51,6 +53,8 @@ public enum AppTheme {
             new Color(80, 50, 0),        // tableSelectionBg
             new Color(255, 220, 180),    // tableSelectionFg
             new Color(55, 55, 55),       // tableGridColor
+            new Color(40, 40, 40),       // editorBg (dunkelgrau)
+            new Color(50, 50, 50),       // editorCurrentLineBg
             true                         // isDark
     ),
 
@@ -73,6 +77,8 @@ public enum AppTheme {
             new Color(0, 60, 15),        // tableSelectionBg
             new Color(0, 255, 65),       // tableSelectionFg
             new Color(0, 50, 12),        // tableGridColor
+            new Color(8, 8, 8),          // editorBg (anthrazit/fast-schwarz)
+            new Color(15, 20, 15),       // editorCurrentLineBg
             true                         // isDark
     );
 
@@ -94,6 +100,8 @@ public enum AppTheme {
     public final Color tableSelectionBg;
     public final Color tableSelectionFg;
     public final Color tableGridColor;
+    public final Color editorBg;            // RSyntaxTextArea background
+    public final Color editorCurrentLineBg; // RSyntaxTextArea current line highlight
     public final boolean isDark;
 
     AppTheme(String displayName,
@@ -101,7 +109,7 @@ public enum AppTheme {
              Color accent, Color accentHover, Color selection, Color selectionText,
              Color border, Color inputBg, Color inputText, Color disabledText, Color errorText,
              Color caretColor, Color tableSelectionBg, Color tableSelectionFg,
-             Color tableGridColor, boolean isDark) {
+             Color tableGridColor, Color editorBg, Color editorCurrentLineBg, boolean isDark) {
         this.displayName = displayName;
         this.bg = bg;
         this.surface = surface;
@@ -120,6 +128,8 @@ public enum AppTheme {
         this.tableSelectionBg = tableSelectionBg;
         this.tableSelectionFg = tableSelectionFg;
         this.tableGridColor = tableGridColor;
+        this.editorBg = editorBg;
+        this.editorCurrentLineBg = editorCurrentLineBg;
         this.isDark = isDark;
     }
 

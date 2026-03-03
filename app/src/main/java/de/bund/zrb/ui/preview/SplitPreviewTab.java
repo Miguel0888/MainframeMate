@@ -414,6 +414,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             public void changedUpdate(javax.swing.event.DocumentEvent e) { onRawContentChanged(); }
         });
 
+        // Apply current theme to the editor
+        de.bund.zrb.ui.theme.ThemeManager.getInstance().applyEditorTheme(area);
+
         return area;
     }
 
@@ -495,6 +498,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             public void removeUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { syncFromHighlighted(area); }
         });
+
+        // Apply current theme to the editor
+        de.bund.zrb.ui.theme.ThemeManager.getInstance().applyEditorTheme(area);
 
         return area;
     }

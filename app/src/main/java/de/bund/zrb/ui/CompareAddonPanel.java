@@ -91,5 +91,7 @@ public class CompareAddonPanel extends JPanel {
         editor.setMarginLinePosition(SettingsHelper.load().marginColumn);
         editor.setMarginLineColor(Color.RED);
         editor.setPaintTabLines(true);
+        // Apply current theme
+        de.bund.zrb.ui.theme.ThemeManager.getInstance().applyEditorTheme(editor);
     }
 }

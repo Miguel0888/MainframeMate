@@ -309,13 +309,155 @@ public final class ThemeManager {
 
     /**
      * Refresh all open windows to reflect the new theme.
+     * Also applies theme to RSyntaxTextArea instances (which don't use UIManager defaults).
      */
     private void refreshAllWindows() {
         for (Window window : Window.getWindows()) {
             SwingUtilities.updateComponentTreeUI(window);
+            applyThemeToComponentTree(window);
             window.revalidate();
             window.repaint();
         }
+    }
+
+    /**
+     * Recursively apply theme colors to components that don't respect UIManager defaults.
+     * This covers RSyntaxTextArea, JEditorPane (HTML preview), etc.
+     */
+    private void applyThemeToComponentTree(Component root) {
+        if (root instanceof org.fife.ui.rsyntaxtextarea.RSyntaxTextArea) {
+            applyEditorTheme((org.fife.ui.rsyntaxtextarea.RSyntaxTextArea) root);
+        }
+        if (root instanceof JEditorPane && !(root instanceof javax.swing.JTextPane)) {
+            applyThemeToEditorPane((JEditorPane) root);
+        }
+        if (root instanceof Container) {
+            for (Component child : ((Container) root).getComponents()) {
+                applyThemeToComponentTree(child);
+            }
+        }
+    }
+
+    /**
+     * Apply theme to RSyntaxTextArea – background, foreground, caret, selection, current line.
+     * RSyntaxTextArea uses its own color scheme and ignores UIManager text component defaults.
+     * Can be called directly when creating new editor instances.
+     */
+    public void applyEditorTheme(org.fife.ui.rsyntaxtextarea.RSyntaxTextArea area) {
+        AppTheme t = currentTheme;
+        area.setBackground(t.editorBg);
+        area.setForeground(t.text);
+        area.setCaretColor(t.caretColor);
+        area.setSelectionColor(t.selection);
+        area.setSelectedTextColor(t.selectionText);
+        area.setCurrentLineHighlightColor(t.editorCurrentLineBg);
+        area.setFadeCurrentLineHighlight(false);
+        area.setMarginLineColor(t.isDark ? t.border : Color.RED);
+
+        // RSyntaxTextArea gutter (line numbers)
+        Component parent = area.getParent();
+        if (parent != null) {
+            parent = parent.getParent(); // RTextScrollPane
+        }
+        if (parent instanceof org.fife.ui.rtextarea.RTextScrollPane) {
+            org.fife.ui.rtextarea.RTextScrollPane rsp = (org.fife.ui.rtextarea.RTextScrollPane) parent;
+            org.fife.ui.rtextarea.Gutter gutter = rsp.getGutter();
+            if (gutter != null) {
+                gutter.setBackground(t.isDark ? t.bg : new Color(245, 245, 245));
+                gutter.setLineNumberColor(t.isDark ? t.textSecondary : new Color(120, 120, 120));
+                gutter.setBorderColor(t.isDark ? t.border : new Color(220, 220, 220));
+            }
+        }
+
+        // Update syntax scheme colors for dark themes
+        if (t.isDark) {
+            org.fife.ui.rsyntaxtextarea.SyntaxScheme scheme = area.getSyntaxScheme();
+            if (scheme != null) {
+                // Make all token types use the theme's text color as baseline
+                for (int i = 0; i < scheme.getStyleCount(); i++) {
+                    org.fife.ui.rsyntaxtextarea.Style style = scheme.getStyle(i);
+                    if (style != null && style.foreground != null) {
+                        // Lighten dark foreground colors that would be invisible on dark bg
+                        if (isTooDark(style.foreground, t.editorBg)) {
+                            style.foreground = t.text;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Apply theme to JEditorPane (HTML preview pane).
+     */
+    private void applyThemeToEditorPane(JEditorPane pane) {
+        AppTheme t = currentTheme;
+        if (t.isDark) {
+            pane.setBackground(t.surface);
+            pane.setForeground(t.text);
+            pane.setCaretColor(t.caretColor);
+            // Update the HTML stylesheet for dark mode
+            if (pane.getEditorKit() instanceof javax.swing.text.html.HTMLEditorKit) {
+                javax.swing.text.html.HTMLEditorKit kit = (javax.swing.text.html.HTMLEditorKit) pane.getEditorKit();
+                javax.swing.text.html.StyleSheet ss = kit.getStyleSheet();
+                String bgHex = colorToHex(t.surface);
+                String fgHex = colorToHex(t.text);
+                String accentHex = colorToHex(t.accent);
+                String borderHex = colorToHex(t.border);
+                String codeBgHex = colorToHex(t.editorBg);
+                ss.addRule("body { background-color: " + bgHex + "; color: " + fgHex + "; }");
+                ss.addRule("a { color: " + accentHex + "; }");
+                ss.addRule("pre { background-color: " + codeBgHex + "; color: " + fgHex + "; }");
+                ss.addRule("code { background-color: " + codeBgHex + "; color: " + fgHex + "; }");
+                ss.addRule("th { background-color: " + colorToHex(t.bg) + "; color: " + fgHex + "; }");
+                ss.addRule("th, td { border-color: " + borderHex + "; }");
+                ss.addRule("blockquote { border-left-color: " + borderHex + "; color: " + colorToHex(t.textSecondary) + "; }");
+                ss.addRule("h1, h2, h3, h4, h5, h6 { color: " + accentHex + "; }");
+            }
+        } else {
+            // Reset to light defaults
+            pane.setBackground(Color.WHITE);
+            pane.setForeground(new Color(51, 51, 51));
+            if (pane.getEditorKit() instanceof javax.swing.text.html.HTMLEditorKit) {
+                javax.swing.text.html.HTMLEditorKit kit = (javax.swing.text.html.HTMLEditorKit) pane.getEditorKit();
+                javax.swing.text.html.StyleSheet ss = kit.getStyleSheet();
+                ss.addRule("body { background-color: #ffffff; color: #333333; }");
+                ss.addRule("a { color: #0078d7; }");
+                ss.addRule("pre { background-color: #f5f5f5; color: #333333; }");
+                ss.addRule("code { background-color: #f5f5f5; color: #333333; }");
+                ss.addRule("th { background-color: #f0f0f0; color: #333333; }");
+                ss.addRule("th, td { border-color: #ddd; }");
+                ss.addRule("blockquote { border-left-color: #ddd; color: #666; }");
+                ss.addRule("h1, h2, h3, h4, h5, h6 { color: #333333; }");
+            }
+        }
+    }
+
+    /**
+     * Check if a foreground color would be too dark (invisible) on the given background.
+     */
+    private boolean isTooDark(Color fg, Color bg) {
+        double fgLum = luminance(fg);
+        double bgLum = luminance(bg);
+        // Contrast ratio: if below 2:1, it's too hard to read
+        double lighter = Math.max(fgLum, bgLum);
+        double darker = Math.min(fgLum, bgLum);
+        double ratio = (lighter + 0.05) / (darker + 0.05);
+        return ratio < 2.0;
+    }
+
+    private double luminance(Color c) {
+        double r = c.getRed() / 255.0;
+        double g = c.getGreen() / 255.0;
+        double b = c.getBlue() / 255.0;
+        r = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+        g = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+        b = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    private static String colorToHex(Color c) {
+        return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
     }
 
     /**
