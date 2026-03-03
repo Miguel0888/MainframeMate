@@ -61,6 +61,12 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         enableSound.setSelected(settings.soundEnabled);
         fb.addWide(enableSound);
 
+        fb.addSection("App-Design");
+
+        lockStyleBox = new JComboBox<>(LockerStyle.values());
+        lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
+        fb.addRow("Design:", lockStyleBox);
+
         fb.addSection("Workflow");
 
         defaultWorkflow = new JTextField(settings.defaultWorkflow);
@@ -104,9 +110,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         lockPre = new JSpinner(new SpinnerNumberModel(settings.lockPrenotification, 0, Integer.MAX_VALUE, 100));
         fb.addRow("Ankündigung (ms):", lockPre);
 
-        lockStyleBox = new JComboBox<>(LockerStyle.values());
-        lockStyleBox.setSelectedIndex(Math.max(0, Math.min(LockerStyle.values().length - 1, settings.lockStyle)));
-        fb.addRow("Design:", lockStyleBox);
 
         fb.addSection("Lokale Historie");
 
