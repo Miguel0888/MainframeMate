@@ -1,6 +1,6 @@
 package de.bund.zrb.ui.toolbar;
 
-import com.example.toolbarkit.command.ToolbarCommand;
+import de.example.toolbarkit.command.ToolbarCommand;
 import de.zrb.bund.api.MenuCommand;
 
 import java.util.Collections;

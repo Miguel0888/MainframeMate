@@ -34,10 +34,10 @@ import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
-import com.example.toolbarkit.command.ToolbarCommandRegistry;
-import com.example.toolbarkit.config.JsonToolbarConfigRepository;
-import com.example.toolbarkit.config.ToolbarConfigRepository;
-import com.example.toolbarkit.toolbar.ConfigurableCommandToolbar;
+import de.example.toolbarkit.command.ToolbarCommandRegistry;
+import de.example.toolbarkit.config.JsonToolbarConfigRepository;
+import de.example.toolbarkit.config.ToolbarConfigRepository;
+import de.example.toolbarkit.toolbar.ConfigurableCommandToolbar;
 
 import javax.annotation.Nullable;
 import javax.swing.*;
@@ -628,7 +628,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     /**
      * Open an NDV FILE bookmark directly: connect, read source, open FileTab.
-     * Uses the NDV metadata stored in the bookmark entry (objectName, type, dbid, fnr)
+     * Uses the NDV metadata stored in the bookmark entry (objectName, typSchluessel, dbid, fnr)
      * so no ConnectionTab is needed.
      * Falls back to directory flow if metadata is missing (legacy bookmarks).
      */
@@ -654,7 +654,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         if (entry.ndvLibrary != null && !entry.ndvLibrary.isEmpty()
                 && entry.ndvObjectName != null && !entry.ndvObjectName.isEmpty()) {
-            // Rich metadata from bookmark: use the full resolver with DBID/FNR
+            // Rich metadata from bookmark: use the full resolver with DATENBANK_NUMMER/DATEI_NUMMER
             resolved = tempResolver.resolvePath(
                     entry.ndvLibrary + "/" + entry.ndvObjectName
                             + (entry.ndvTypeExtension != null && !entry.ndvTypeExtension.isEmpty()

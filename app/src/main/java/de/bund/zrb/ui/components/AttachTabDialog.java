@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * Dialog for selecting tabs to attach to the chat.
- * Groups tabs by type (Preview, File, Connection).
+ * Groups tabs by typSchluessel (Preview, File, Connection).
  */
 public class AttachTabDialog extends JDialog {
 
@@ -66,7 +66,7 @@ public class AttachTabDialog extends JDialog {
     private void buildTabList() {
         tabListPanel.removeAll();
 
-        // Group tabs by type
+        // Group tabs by typSchluessel
         List<FtpTab> previewTabs = new ArrayList<>();
         List<FtpTab> fileTabs = new ArrayList<>();
         List<FtpTab> otherTabs = new ArrayList<>();

@@ -17,7 +17,7 @@ public class BookmarkEntry {
     public String ndvObjectName;
     /** Natural library (e.g. "ABAK-T") */
     public String ndvLibrary;
-    /** Natural object type id (e.g. ObjectType.PROGRAM) */
+    /** Natural object typSchluessel id (e.g. ObjectType.PROGRAM) */
     public int ndvObjectType;
     /** File extension (e.g. "NSP") */
     public String ndvTypeExtension;
@@ -48,7 +48,7 @@ public class BookmarkEntry {
     }
 
     /**
-     * Build a protocol-prefixed bookmark path from backend type + raw path.
+     * Build a protocol-prefixed bookmark path from backend typSchluessel + raw path.
      */
     public static String buildPath(String backendType, String rawPath) {
         if (rawPath == null) return null;
@@ -74,7 +74,7 @@ public class BookmarkEntry {
     }
 
     /**
-     * Get the backend type string from the protocol prefix.
+     * Get the backend typSchluessel string from the protocol prefix.
      * Legacy bookmarks without prefix return "LOCAL".
      */
     public String getBackendType() {

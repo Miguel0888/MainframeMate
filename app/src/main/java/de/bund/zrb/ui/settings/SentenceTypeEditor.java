@@ -206,7 +206,7 @@ public class SentenceTypeEditor extends JPanel {
      * Creates a SentenceDefinition from the current editor state.
      * Validates the input and returns null if there are errors.
      *
-     * Method is required to save the sentence type configuration.
+     * Method is required to save the sentence typSchluessel configuration.
      */
     public SentenceDefinition getDefinition() {
         SentenceDefinition def = new SentenceDefinition();
@@ -252,10 +252,10 @@ public class SentenceTypeEditor extends JPanel {
     }
 
     /**
-     * Sets the editor fields with the given sentence type data.
+     * Sets the editor fields with the given sentence typSchluessel data.
      * This is used to load existing sentence definitions for editing.
      *
-     * @param name The name of the sentence type
+     * @param name The name of the sentence typSchluessel
      * @param def The SentenceDefinition containing the fields and metadata
      */
     public void setData(String name, SentenceDefinition def) {

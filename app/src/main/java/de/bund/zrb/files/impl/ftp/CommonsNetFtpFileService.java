@@ -143,7 +143,7 @@ public class CommonsNetFtpFileService implements FileService {
             String systemType = ftpClient.getSystemType();
             mvsMode = systemType != null && systemType.toUpperCase().contains("MVS");
 
-            // Configure FTP parser based on system type
+            // Configure FTP parser based on system typSchluessel
             if (mvsMode) {
                 System.out.println("[FTP] Detected MVS/zOS system, configuring MVS parser");
                 ftpClient.configure(new FTPClientConfig(FTPClientConfig.SYST_MVS));

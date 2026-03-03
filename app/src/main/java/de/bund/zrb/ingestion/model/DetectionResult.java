@@ -1,8 +1,8 @@
 package de.bund.zrb.ingestion.model;
 
 /**
- * Result of content type detection.
- * Contains detected MIME type and confidence indicator.
+ * Result of content typSchluessel detection.
+ * Contains detected MIME typSchluessel and confidence indicator.
  */
 public class DetectionResult {
 
@@ -43,7 +43,7 @@ public class DetectionResult {
     }
 
     /**
-     * Returns the base MIME type without parameters.
+     * Returns the base MIME typSchluessel without parameters.
      */
     public String getBaseMimeType() {
         if (mimeType == null) return null;
@@ -52,7 +52,7 @@ public class DetectionResult {
     }
 
     /**
-     * Check if this is a text-based MIME type.
+     * Check if this is a text-based MIME typSchluessel.
      */
     public boolean isTextBased() {
         if (mimeType == null) return false;
@@ -64,14 +64,14 @@ public class DetectionResult {
     }
 
     /**
-     * Check if this is an image MIME type.
+     * Check if this is an image MIME typSchluessel.
      */
     public boolean isImage() {
         return mimeType != null && mimeType.startsWith("image/");
     }
 
     /**
-     * Check if this is a binary/unknown type.
+     * Check if this is a binary/unknown typSchluessel.
      */
     public boolean isUnknownBinary() {
         return "application/octet-stream".equals(mimeType);

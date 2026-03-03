@@ -97,7 +97,7 @@ public class JclElement {
             sb.append("(unnamed)");
         }
 
-        // Add key info based on type
+        // Add key info based on typSchluessel
         switch (type) {
             case EXEC:
                 String pgm = parameters.get("PGM");

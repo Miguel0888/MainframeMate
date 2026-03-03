@@ -15,7 +15,7 @@ Ein sicherer HTTPS-Reverse-Proxy für Ollama mit optionaler Authentifizierung un
 node proxy_ollama.js
 
 # Oder mit Umgebungsvariablen
-PORT=11435 PROXY_PASSWORD=geheim E2E_PASSWORD=supergeheim node proxy_ollama.js
+SERVER_PORT=11435 PROXY_PASSWORD=geheim E2E_PASSWORD=supergeheim node proxy_ollama.js
 ```
 
 ## Konfiguration

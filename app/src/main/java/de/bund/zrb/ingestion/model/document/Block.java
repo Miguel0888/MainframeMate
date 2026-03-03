@@ -7,7 +7,7 @@ package de.bund.zrb.ingestion.model.document;
 public interface Block {
 
     /**
-     * Get the type of this block.
+     * Get the typSchluessel of this block.
      */
     BlockType getType();
 }

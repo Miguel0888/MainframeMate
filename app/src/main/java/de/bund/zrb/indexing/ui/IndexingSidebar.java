@@ -251,7 +251,7 @@ public class IndexingSidebar extends JPanel {
         source.setFulltextEnabled(true);
         source.setEmbeddingEnabled(false);
 
-        // Apply type-specific defaults
+        // Apply typSchluessel-specific defaults
         if (sourceType == SourceType.LOCAL) {
             source.setIncludePatterns(java.util.Arrays.asList(
                     "*.pdf", "*.docx", "*.doc", "*.xlsx", "*.xls", "*.pptx", "*.ppt",

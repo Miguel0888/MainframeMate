@@ -16,7 +16,7 @@ import java.util.Map;
 
 /**
  * MCP Tool for listing all current chat attachments.
- * Returns attachment metadata including ID, name, MIME type, and indexing status.
+ * Returns attachment metadata including ID, name, MIME typSchluessel, and indexing status.
  */
 public class ListAttachmentsTool implements McpTool {
 

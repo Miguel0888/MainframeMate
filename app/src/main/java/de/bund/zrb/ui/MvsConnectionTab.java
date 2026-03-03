@@ -173,7 +173,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         mainPanel.add(statusBar, BorderLayout.SOUTH);
 
         // Show initial hint
-        showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+        showOverlayMessage("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)", Color.GRAY);
         updateNavigationButtons();
     }
 
@@ -221,7 +221,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
     private void navigateBack() {
         if (!controller.canGoBack()) {
-            showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+            showOverlayMessage("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)", Color.GRAY);
             return;
         }
 

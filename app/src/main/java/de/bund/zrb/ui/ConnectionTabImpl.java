@@ -160,7 +160,7 @@ public class ConnectionTabImpl implements ConnectionTab {
             updateFileList();
         } else {
             // Show hint for MVS
-            showOverlayMessage("Bitte HLQ eingeben (z.B. USERID)", Color.GRAY);
+            showOverlayMessage("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)", Color.GRAY);
         }
 
         if (searchPattern != null && !searchPattern.trim().isEmpty()) {

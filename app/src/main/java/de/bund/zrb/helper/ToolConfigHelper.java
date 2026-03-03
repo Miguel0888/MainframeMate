@@ -46,7 +46,7 @@ public class ToolConfigHelper {
     }
 
     /**
-     * Load config for a specific tool as a JsonObject (for re-deserialization with correct type).
+     * Load config for a specific tool as a JsonObject (for re-deserialization with correct typSchluessel).
      */
     public static JsonObject getConfigJson(String toolName) {
         if (!CONFIG_FILE.exists()) return null;

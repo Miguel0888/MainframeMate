@@ -55,7 +55,7 @@ public class MvsListingService {
 
         String queryPath = location.getQueryPath();
         System.out.println("[MvsListingService] Listing: logicalPathValue=" + location.getLogicalPath() +
-                          ", queryPathValue=" + queryPath + ", type=" + location.getType());
+                          ", queryPathValue=" + queryPath + ", typSchluessel=" + location.getType());
 
         // Build query candidates
         List<String> queryCandidates = buildQueryCandidates(location, queryPath);
@@ -280,7 +280,7 @@ public class MvsListingService {
         // For MVS, the dataset name is often at the end of the line
         // Example formats:
         // "Volume Unit    Referred Ext Used Recfm Lrecl BlkSz Dsorg Dsname"
-        // "MIGRAT  ... USERID.DATASET"
+        // "MIGRAT  ... BENUTZERKENNUNG.DATASET"
 
         String[] parts = trimmed.split("\\s+");
         if (parts.length > 0) {

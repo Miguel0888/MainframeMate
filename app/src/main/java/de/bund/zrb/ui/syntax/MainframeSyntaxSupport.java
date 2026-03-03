@@ -17,7 +17,7 @@ import org.fife.ui.rsyntaxtextarea.TokenMakerFactory;
  */
 public final class MainframeSyntaxSupport {
 
-    /** MIME type for Natural syntax highlighting */
+    /** MIME typSchluessel for Natural syntax highlighting */
     public static final String SYNTAX_STYLE_NATURAL = "text/natural";
 
     private static boolean registered = false;

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Factory for creating the appropriate preview tab based on file type.
+ * Factory for creating the appropriate preview tab based on file typSchluessel.
  */
 public class PreviewTabFactory {
 
@@ -50,7 +50,7 @@ public class PreviewTabFactory {
      * Check if the file is a binary document format (PDF, DOC, etc.)
      */
     public static boolean isBinaryDocumentFormat(String fileName, DocumentMetadata metadata) {
-        // Check MIME type first
+        // Check MIME typSchluessel first
         if (metadata != null && metadata.getMimeType() != null) {
             String mime = metadata.getMimeType().toLowerCase();
             if (mime.contains("pdf") || mime.contains("msword") ||
@@ -79,7 +79,7 @@ public class PreviewTabFactory {
     }
 
     /**
-     * Get the appropriate content for indexing based on file type.
+     * Get the appropriate content for indexing based on file typSchluessel.
      * For text files, returns the raw content.
      * For binary formats, returns the extracted content.
      *

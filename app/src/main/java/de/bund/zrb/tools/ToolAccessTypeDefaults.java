@@ -1,6 +1,6 @@
 package de.bund.zrb.tools;
 
-/** Derive fallback access type for tools without explicit policy. */
+/** Derive fallback access typSchluessel for tools without explicit policy. */
 public final class ToolAccessTypeDefaults {
 
     private ToolAccessTypeDefaults() {

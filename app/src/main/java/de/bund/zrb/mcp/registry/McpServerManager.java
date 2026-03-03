@@ -217,7 +217,7 @@ public class McpServerManager {
             if (inputSchemaJson.has("properties")) {
                 for (Map.Entry<String, JsonElement> entry : inputSchemaJson.getAsJsonObject("properties").entrySet()) {
                     JsonObject propObj = entry.getValue().getAsJsonObject();
-                    String type = propObj.has("type") ? propObj.get("type").getAsString() : "string";
+                    String type = propObj.has("typSchluessel") ? propObj.get("typSchluessel").getAsString() : "string";
                     String desc = propObj.has("description") ? propObj.get("description").getAsString() : "";
                     props.put(entry.getKey(), new ToolSpec.Property(type, desc));
                 }
@@ -244,7 +244,7 @@ public class McpServerManager {
                     StringBuilder text = new StringBuilder();
                     for (JsonElement el : content) {
                         JsonObject c = el.getAsJsonObject();
-                        if ("text".equals(c.get("type").getAsString())) {
+                        if ("text".equals(c.get("typSchluessel").getAsString())) {
                             if (text.length() > 0) text.append("\n");
                             text.append(c.get("text").getAsString());
                         }

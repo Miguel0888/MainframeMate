@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * Registry for text extractors.
- * Routes documents to appropriate extractors based on MIME type and priority.
+ * Routes documents to appropriate extractors based on MIME typSchluessel and priority.
  */
 public class ExtractorRegistry {
 
@@ -53,10 +53,10 @@ public class ExtractorRegistry {
     }
 
     /**
-     * Find the best extractor for the given MIME type.
-     * Returns the highest-priority extractor that supports the MIME type.
+     * Find the best extractor for the given MIME typSchluessel.
+     * Returns the highest-priority extractor that supports the MIME typSchluessel.
      *
-     * @param mimeType the MIME type to find an extractor for
+     * @param mimeType the MIME typSchluessel to find an extractor for
      * @return the best matching extractor, or fallback if none found
      */
     public TextExtractor findExtractor(String mimeType) {
@@ -70,9 +70,9 @@ public class ExtractorRegistry {
     }
 
     /**
-     * Find all extractors that support the given MIME type.
+     * Find all extractors that support the given MIME typSchluessel.
      *
-     * @param mimeType the MIME type
+     * @param mimeType the MIME typSchluessel
      * @return list of supporting extractors, sorted by priority
      */
     public List<TextExtractor> findAllExtractors(String mimeType) {

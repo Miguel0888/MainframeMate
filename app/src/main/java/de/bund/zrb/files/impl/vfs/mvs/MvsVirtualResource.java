@@ -35,7 +35,7 @@ public final class MvsVirtualResource {
     }
 
     /**
-     * Get the location type (HLQ/DATASET/MEMBER).
+     * Get the location typSchluessel (HLQ/DATASET/MEMBER).
      */
     public MvsLocationType getType() {
         return location.getType();

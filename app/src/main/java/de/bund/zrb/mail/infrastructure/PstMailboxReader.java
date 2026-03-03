@@ -414,7 +414,7 @@ public class PstMailboxReader implements MailboxReader {
         MailMessageHeader header = new MailMessageHeader(
                 subject, from, to, date, folderPath, nodeId, hasAttachments, messageClass);
 
-        // Detect type – prefer instanceof but fall back to messageClass string
+        // Detect typSchluessel – prefer instanceof but fall back to messageClass string
         // (java-libpst doesn't always instantiate the correct subclass)
         boolean isAppointment = message instanceof PSTAppointment
                 || (messageClass != null && messageClass.toUpperCase().startsWith("IPM.APPOINTMENT"));

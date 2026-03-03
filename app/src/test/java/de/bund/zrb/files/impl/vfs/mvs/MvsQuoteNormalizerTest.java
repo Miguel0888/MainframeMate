@@ -86,9 +86,9 @@ class MvsQuoteNormalizerTest {
 
     @Test
     void extractHlqFromDataset() {
-        assertEquals("USERID", MvsQuoteNormalizer.extractHlq("USERID.DATA.SET"));
-        assertEquals("USERID", MvsQuoteNormalizer.extractHlq("'USERID.DATA.SET'"));
-        assertEquals("USERID", MvsQuoteNormalizer.extractHlq("'USERID.PDS(MEM)'"));
+        assertEquals("BENUTZERKENNUNG", MvsQuoteNormalizer.extractHlq("BENUTZERKENNUNG.DATA.SET"));
+        assertEquals("BENUTZERKENNUNG", MvsQuoteNormalizer.extractHlq("'BENUTZERKENNUNG.DATA.SET'"));
+        assertEquals("BENUTZERKENNUNG", MvsQuoteNormalizer.extractHlq("'BENUTZERKENNUNG.PDS(MEM)'"));
     }
 }
 

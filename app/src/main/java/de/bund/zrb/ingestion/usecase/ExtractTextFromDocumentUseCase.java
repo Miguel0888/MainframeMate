@@ -85,7 +85,7 @@ public class ExtractTextFromDocumentUseCase {
 
         try {
             // Stage A: Detection
-            LOG.fine("Stage A: Detecting content type...");
+            LOG.fine("Stage A: Detecting content typSchluessel...");
             DetectionResult detection = detector.detect(source);
             LOG.fine("Detected: " + detection);
 

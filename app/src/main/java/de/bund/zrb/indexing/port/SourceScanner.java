@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * Port interface for scanning a data source and discovering items to index.
  *
- * Each source type (LOCAL, FTP, MAIL, NDV, WEB) provides its own implementation.
+ * Each source typSchluessel (LOCAL, FTP, MAIL, NDV, WEB) provides its own implementation.
  * The scanner only discovers items and their metadata – it does NOT extract content.
  *
  * Two scan modes:

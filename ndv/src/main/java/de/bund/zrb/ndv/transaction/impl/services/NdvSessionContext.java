@@ -1,0 +1,446 @@
+package de.bund.zrb.ndv.transaction.impl.services;
+
+import de.bund.zrb.ndv.core.impl.Ndv;
+import de.bund.zrb.ndv.core.api.*;
+import de.bund.zrb.ndv.core.impl.type.*;
+import de.bund.zrb.ndv.transaction.api.*;
+import de.bund.zrb.ndv.transaction.impl.NdvProperties;
+
+import java.io.IOException;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Gemeinsamer Sitzungskontext fuer alle PalTransactions-Services.
+ * Enthaelt die Pal-Verbindung, gecachte Serverdaten und
+ * zentrale Hilfsroutinen (Fehlerauswertung, Properties-Erzeugung).
+ */
+public class NdvSessionContext {
+
+    // ── Netzwerk-Primitive ──
+    private Ndv ndv;
+
+    // ── Identifikation / Preferences ──
+    private IPalClientIdentification identification;
+    private IPalSQLIdentification palSQLIdentification;
+    private IPalPreferences palPreferences;
+    private IPalTimeoutHandler timeoutHandler;
+    private IPalExecutionContext executionContext;
+    private IPalArabicShaping shapingContext;
+
+    // ── Gecachte Serverdaten ──
+    private NdvProperties ndvProperties;
+    private IServerConfiguration serverConfiguration;
+    private PalTypeClientConfig[] clientConfig;
+    private IPalTypeSysVar[] systemVariables;
+    private IPalTypeDbmsInfo[] dbmsInfo;
+    private IPalTypeCP[] codePages;
+    private INatParm naturalParameters;
+    private ITransactionContext transactionContext;
+
+    // ── Verbindungsflags ──
+    private boolean istVerbunden = false;
+    private boolean istGetrennt = false;
+    private boolean automatischeAnmeldung = true;
+    private boolean hinweisAktiv = false;
+    private int aktuellerHinweis = 0;
+    private int fehlerArt = 0;
+    private int abfrageArt = 0;
+    private boolean doppeltMoeglich = false;
+    private Set<String> serverListe = new TreeSet<>();
+    private String internesLabelPraefix = null;
+
+    // ── Verbindungsparameter ──
+    private String rechnerAdresse = "";
+    private String portNummer = "";
+
+    // ══════════════════════════════════════════════════════════════
+    //  Zugriff auf Pal
+    // ══════════════════════════════════════════════════════════════
+
+    public Ndv getPal() { return ndv; }
+    public void setPal(Ndv ndv) { this.ndv = ndv; }
+
+    public void requirePal() {
+        if (this.ndv == null) {
+            throw new IllegalStateException("connection to ndv server not available");
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Identifikation / Preferences
+    // ══════════════════════════════════════════════════════════════
+
+    public IPalClientIdentification getIdentification() { return identification; }
+    public void setIdentification(IPalClientIdentification id) { this.identification = id; }
+
+    public IPalSQLIdentification getPalSQLIdentification() { return palSQLIdentification; }
+    public void setPalSQLIdentification(IPalSQLIdentification sql) { this.palSQLIdentification = sql; }
+
+    public IPalPreferences getPalPreferences() { return palPreferences; }
+    public void setPalPreferences(IPalPreferences prefs) { this.palPreferences = prefs; }
+
+    public IPalTimeoutHandler getTimeoutHandler() { return timeoutHandler; }
+    public void setTimeoutHandler(IPalTimeoutHandler handler) { this.timeoutHandler = handler; }
+
+    public IPalExecutionContext getExecutionContext() { return executionContext; }
+    public void setExecutionContext(IPalExecutionContext ctx) { this.executionContext = ctx; }
+
+    public IPalArabicShaping getShapingContext() { return shapingContext; }
+    public void setShapingContext(IPalArabicShaping shaping) { this.shapingContext = shaping; }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Gecachte Serverdaten
+    // ══════════════════════════════════════════════════════════════
+
+    public NdvProperties getPalProperties() { return ndvProperties; }
+    public void setPalProperties(NdvProperties p) { this.ndvProperties = p; }
+
+    public IServerConfiguration getServerConfiguration() { return serverConfiguration; }
+    public void setServerConfiguration(IServerConfiguration cfg) { this.serverConfiguration = cfg; }
+
+    public PalTypeClientConfig[] getClientConfig() { return clientConfig; }
+    public void setClientConfig(PalTypeClientConfig[] cfg) { this.clientConfig = cfg; }
+
+    public IPalTypeSysVar[] getSystemVariables() { return systemVariables; }
+    public void setSystemVariables(IPalTypeSysVar[] vars) { this.systemVariables = vars; }
+
+    public IPalTypeDbmsInfo[] getDbmsInfo() { return dbmsInfo; }
+    public void setDbmsInfo(IPalTypeDbmsInfo[] info) { this.dbmsInfo = info; }
+
+    public IPalTypeCP[] getCodePages() { return codePages; }
+    public void setCodePages(IPalTypeCP[] cp) { this.codePages = cp; }
+
+    public INatParm getNaturalParameters() { return naturalParameters; }
+    public void setNaturalParameters(INatParm parm) { this.naturalParameters = parm; }
+
+    public ITransactionContext getTransactionContext() { return transactionContext; }
+    public void setTransactionContext(ITransactionContext ctx) { this.transactionContext = ctx; }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Verbindungsflags
+    // ══════════════════════════════════════════════════════════════
+
+    public boolean isConnected() { return istVerbunden && ndv != null && !ndv.isConnectionLost(); }
+    public void setConnected(boolean v) { this.istVerbunden = v; }
+
+    public boolean isDisconnected() { return istGetrennt; }
+    public void setDisconnected(boolean v) { this.istGetrennt = v; }
+
+    public boolean isAutomaticLogon() { return automatischeAnmeldung; }
+    public void setAutomaticLogon(boolean v) { this.automatischeAnmeldung = v; }
+
+    public int getErrorKind() { return fehlerArt; }
+    public void setErrorKind(int kind) { this.fehlerArt = kind; }
+
+    public int getRetrievalKind() { return abfrageArt; }
+    public void setRetrievalKind(int kind) { this.abfrageArt = kind; }
+
+    public String getHost() { return rechnerAdresse; }
+    public void setHost(String h) { this.rechnerAdresse = h; }
+
+    public String getPort() { return portNummer; }
+    public void setPort(String p) { this.portNummer = p; }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Hilfsmethode: Mainframe-Erkennung
+    // ══════════════════════════════════════════════════════════════
+
+    public boolean isMainframe() {
+        return ndvProperties != null && ndvProperties.getNdvType() == 1;
+    }
+
+    public boolean isOpenSystemsServer() {
+        return ndvProperties != null && ndvProperties.getNdvType() != 1;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Zentrale Fehlerauswertung
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Fehlernummer aus PalTypeResult / PalTypeResultEx auslesen.
+     * Exakt nachgebaut aus Original-Bytecode (Zeile 3894-3930).
+     */
+    public int getError() throws IOException {
+        int result = 0;
+        this.fehlerArt = 0;
+        IPalTypeResult[] res = (IPalTypeResult[]) ndv.retrieve(10);
+        if (res != null) {
+            result = res[0].getNaturalResult();
+        }
+        if (result == 0) {
+            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) ndv.retrieve(11);
+            if (resEx != null) {
+                String shortText = resEx[0].getShortText();
+                if (shortText.length() > 0) {
+                    this.fehlerArt = 3;
+                    result = 9999;
+                }
+            }
+            if (res != null) {
+                int sysResult = res[0].getSystemResult();
+                if (sysResult != 0) {
+                    result = sysResult;
+                }
+            }
+        } else if (result == 7000) {
+            this.fehlerArt = 1;
+        } else {
+            this.fehlerArt = 2;
+        }
+        return result;
+    }
+
+    /**
+     * Kurztext der letzten Fehlermeldung.
+     */
+    public String getErrorText() throws IOException {
+        String text = null;
+        IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) ndv.retrieve(11);
+        if (resEx != null) {
+            text = resEx[0].getShortText();
+        }
+        return text;
+    }
+
+    /**
+     * Langtext der letzten Fehlermeldung (zeilenweise).
+     */
+    public String[] getErrorTextLong() throws IOException {
+        String[] lines = null;
+        PalTypeSourceCodePage[] src = (PalTypeSourceCodePage[]) ndv.retrieve(12);
+        if (src != null) {
+            lines = new String[src.length];
+            for (int i = 0; i < src.length; i++) {
+                lines[i] = src[i].getSourceRecord();
+            }
+        }
+        return lines;
+    }
+
+    /**
+     * Fuehrende Laengenangabe aus dem Kurztext entfernen (bei Warnungen).
+     */
+    public String removeLeadingLength(String text) {
+        if (text == null) return null;
+        Pattern p = Pattern.compile("^[ \\s]*[0-9]*[ \\s]*");
+        Matcher m = p.matcher(text);
+        return m.replaceAll("");
+    }
+
+    /**
+     * Langtext zu einer Detailmeldung zusammensetzen.
+     */
+    public String getDetailMessage(String[] longText, String shortText) {
+        String detail = shortText;
+        if (longText != null) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < longText.length; i++) {
+                sb.append(longText[i]);
+                if (i == longText.length - 1) {
+                    sb.append(".");
+                } else {
+                    sb.append("\\n");
+                }
+            }
+            detail = sb.toString();
+        }
+        return detail;
+    }
+
+    /**
+     * PalResultException erzeugen, wenn ein Fehler vorliegt.
+     */
+    public PalResultException getResultException() throws IOException {
+        PalResultException ex = null;
+        int errNum = this.getError();
+        if (errNum != 0) {
+            IPalTypeResultEx[] resEx = (IPalTypeResultEx[]) ndv.retrieve(11);
+            if (resEx != null) {
+                String shortText = resEx[0].getShortText();
+                if (shortText.length() == 0) {
+                    shortText = resEx[0].getSystemText();
+                }
+                String[] longText = this.getErrorTextLong();
+                if (shortText.length() == 0) {
+                    shortText = "Nat" + errNum + ": "
+                            + (longText != null && longText.length > 0 ? longText[0] : "");
+                }
+                this.getDetailMessage(longText, shortText);
+                ex = new PalResultException(errNum, 2, shortText);
+                ex.setLongText(longText);
+                ex.setShortText(shortText);
+            }
+        }
+        return ex;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  PalProperties-Erzeugung
+    // ══════════════════════════════════════════════════════════════
+
+    public void createPalProperties(int ndvType, int ndvVersion, int natVersion, int palVersion,
+                                    String sessionId, boolean mfUnicodeSrc, boolean webIOServer,
+                                    int webVersion, int logonCounter, String codePage,
+                                    boolean devEnv, String devEnvPath, String hostName,
+                                    boolean timeStampChecks, String logonLibrary,
+                                    EAttachSessionType attachType) {
+        this.ndvProperties = new NdvProperties(ndvType, ndvVersion, natVersion, palVersion,
+                sessionId, mfUnicodeSrc, webIOServer, webVersion, logonCounter, codePage,
+                devEnv, devEnvPath, hostName, timeStampChecks, logonLibrary, attachType);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Hilfsmethode: Bibliotheks-Aufloesung
+    // ══════════════════════════════════════════════════════════════
+
+    public String getLibrary(IPalTypeSystemFile sysFile, String library) {
+        if (sysFile.getKind() == 6) {
+            return this.isOpenSystemsServer() ? "SYSTEM" : "";
+        }
+        return library;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Logon (von UploadService und DownloadService benoetigt)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Auto-Logon in eine Bibliothek (nur wenn isAutomaticLogon aktiv).
+     */
+    public void logon(String library) throws IOException, PalResultException {
+        requirePal();
+        if (library == null || library.isEmpty()) return;
+
+        IPalTypeLibId[] stepLibs = new IPalTypeLibId[1];
+        stepLibs[0] = PalTypeLibIdFactory.newInstance();
+
+        PalTrace.header("logon");
+        ndv.add((IPalType) new PalTypeOperation(2, 12));
+        ndv.add((IPalType) new PalTypeStack("LOGON " + library));
+        ndv.add((IPalType[]) stepLibs);
+        ndv.commit();
+        PalResultException ex = getResultException();
+        if (ex != null) throw ex;
+    }
+
+    /**
+     * Internes Label-Praefix (fuer renumber/label-Umwandlung).
+     * Exakt nachgebaut aus Original-Bytecode (Zeile 3462-3494).
+     */
+    public String getInternalLabelPrefix() {
+        if (this.internesLabelPraefix != null) {
+            return this.internesLabelPraefix;
+        }
+        if (this.clientConfig != null && this.clientConfig.length != 0) {
+            String valid1st = this.clientConfig[0].getIdent1stValid();
+            if (valid1st.indexOf(33) == -1) {          // '!'
+                this.internesLabelPraefix = "!";
+            } else if (valid1st.indexOf(36) == -1) {    // '$'
+                this.internesLabelPraefix = "$";
+            } else if (valid1st.indexOf(37) == -1) {    // '%'
+                this.internesLabelPraefix = "%";
+            } else if (valid1st.indexOf(45) == -1) {    // '-'
+                this.internesLabelPraefix = "-";
+            } else if (valid1st.indexOf(58) == -1) {    // ':'
+                this.internesLabelPraefix = ":";
+            } else if (valid1st.indexOf(59) == -1) {    // ';'
+                this.internesLabelPraefix = ";";
+            } else {
+                this.internesLabelPraefix = " ";
+            }
+        } else {
+            this.internesLabelPraefix = "!";
+        }
+        return this.internesLabelPraefix;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Datei-Operationen (gemeinsam fuer Upload/Download-Services)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Datei-Operation einleiten (exakt aus Original Zeile 4071-4093).
+     */
+    public void fileOperationInitiate(int opTyp, IPalTypeSystemFile sysFile,
+                                      String library, String basisBibliothek)
+            throws IOException, PalResultException {
+        ndv.add((IPalType) new PalTypeOperation(opTyp));
+        if (opTyp == 1 && ndvProperties.getNdvType() == 1) {
+            PalTypeLibId[] libs = new PalTypeLibId[]{
+                new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
+                        library, sysFile.getPassword(), sysFile.getCipher(), 6),
+                new PalTypeLibId(sysFile.getDatabaseId(), sysFile.getFileNumber(),
+                        library, sysFile.getPassword(), sysFile.getCipher(), 6)
+            };
+            ndv.add((IPalType[]) libs);
+        } else {
+            PalTypeLibId lib = new PalTypeLibId(sysFile.getDatabaseId(),
+                    sysFile.getFileNumber(), library,
+                    sysFile.getPassword(), sysFile.getCipher(), 6);
+            ndv.add((IPalType) lib);
+        }
+        if (basisBibliothek != null) {
+            ndv.add((IPalType) new PalTypeLibId(sysFile.getDatabaseId(),
+                    sysFile.getFileNumber(), basisBibliothek,
+                    sysFile.getPassword(), sysFile.getCipher(), 30));
+        }
+        ndv.commit();
+        PalResultException ex = getResultException();
+        if (ex != null) throw ex;
+    }
+
+    /**
+     * Datei-Beschreibung senden und Benachrichtigungs-Antwort empfangen.
+     * Vereinfachte Version von fileOperationSendDescription (Zeile 4096,
+     * das Original konnte nicht decompiliert werden).
+     */
+    public IPalTypeNotify fileOperationSendDescription(PalTypeFileId dateiId)
+            throws IOException, PalResultException {
+        ndv.add((IPalType) dateiId);
+        ndv.add((IPalType) new PalTypeNotify(6));
+        ndv.commit();
+        PalResultException ex = getResultException();
+        IPalTypeNotify[] notify = (IPalTypeNotify[]) ndv.retrieve(19);
+        if (notify == null) {
+            if (ex != null) {
+                ex.setErrorKind(4);
+                throw ex;
+            }
+            throw new IllegalArgumentException();
+        }
+        return notify[0];
+    }
+
+    /**
+     * Pruefen ob Benachrichtigungs-Array null ist (exakt aus Original Zeile 4042-4053).
+     */
+    public void fileOperationNotifyNull(IPalTypeNotify[] notify, PalResultException ex)
+            throws IOException, PalResultException {
+        if (notify == null) {
+            if (ex != null) {
+                ex.setErrorKind(4);
+                throw ex;
+            }
+            throw new IllegalArgumentException();
+        }
+    }
+
+    /**
+     * Datei-Operation abbrechen (exakt aus Original Zeile 4056-4068).
+     */
+    public void fileOperationAbort(Set<EDownLoadOption> options)
+            throws IOException, PalResultException {
+        PalTypeNotify notify = new PalTypeNotify(
+                options.contains(EDownLoadOption.DELETE_ON_TARGET) ? 12 : 5);
+        ndv.add((IPalType) notify);
+        ndv.commit();
+        PalResultException ex = getResultException();
+        IPalTypeNotify[] result = (IPalTypeNotify[]) ndv.retrieve(19);
+        fileOperationNotifyNull(result, ex);
+        result[0].getNotification();
+    }
+}

@@ -88,7 +88,7 @@ public class FtpSettingsPanel extends AbstractSettingsPanel {
         fb.addWide(ftpUseLoginAsHlqBox);
 
         ftpCustomHlqField = new JTextField(settings.ftpCustomHlq != null ? settings.ftpCustomHlq : "", 20);
-        ftpCustomHlqField.setToolTipText("z.B. USERID oder PROD.DATA");
+        ftpCustomHlqField.setToolTipText("z.B. BENUTZERKENNUNG oder PROD.DATA");
         ftpCustomHlqField.setEnabled(!settings.ftpUseLoginAsHlq);
         fb.addRow("Benutzerdefinierter HLQ:", ftpCustomHlqField);
 

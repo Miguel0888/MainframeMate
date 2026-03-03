@@ -11,16 +11,16 @@ import de.bund.zrb.ingestion.model.ExtractionResult;
 public interface TextExtractor {
 
     /**
-     * Check if this extractor can handle the given MIME type.
+     * Check if this extractor can handle the given MIME typSchluessel.
      *
-     * @param mimeType the MIME type to check
-     * @return true if this extractor supports the MIME type
+     * @param mimeType the MIME typSchluessel to check
+     * @return true if this extractor supports the MIME typSchluessel
      */
     boolean supports(String mimeType);
 
     /**
      * Get the priority of this extractor (higher = preferred).
-     * Used when multiple extractors support the same MIME type.
+     * Used when multiple extractors support the same MIME typSchluessel.
      *
      * @return priority value (default: 0)
      */
@@ -39,7 +39,7 @@ public interface TextExtractor {
      * Extract plaintext from a document.
      *
      * @param source the document source
-     * @param detection the content type detection result
+     * @param detection the content typSchluessel detection result
      * @return extraction result containing plaintext or error
      */
     ExtractionResult extract(DocumentSource source, DetectionResult detection);

@@ -143,7 +143,7 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Determine the backend type string for a tab.
+     * Determine the backend typSchluessel string for a tab.
      */
     private String getBackendTypeForTab(FtpTab tab) {
         if (tab instanceof FileTabImpl) {

@@ -16,8 +16,8 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * Content type detector using Apache Tika.
- * Provides robust MIME type detection based on file content and hints.
+ * Content typSchluessel detector using Apache Tika.
+ * Provides robust MIME typSchluessel detection based on file content and hints.
  */
 public class TikaContentTypeDetector implements ContentTypeDetector {
 

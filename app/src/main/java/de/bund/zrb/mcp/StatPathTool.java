@@ -31,7 +31,7 @@ import java.util.Map;
 
 /**
  * MCP Tool that returns metadata about a file or directory without reading its contents.
- * Useful for existence checks, type detection, size limits, encoding/MIME hints.
+ * Useful for existence checks, typSchluessel detection, size limits, encoding/MIME hints.
  *
  * accessType: READ (always)
  */

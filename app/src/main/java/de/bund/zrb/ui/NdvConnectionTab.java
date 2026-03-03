@@ -3,10 +3,9 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ndv.NdvObjectInfo;
-import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
-import com.softwareag.naturalone.natural.pal.external.ObjectKind;
+import de.bund.zrb.ndv.core.api.ObjectKind;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 

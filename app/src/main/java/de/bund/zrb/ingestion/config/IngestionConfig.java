@@ -18,7 +18,7 @@ public class IngestionConfig {
     private boolean allowOctetStream = false;
     private boolean enableFallbackOnExtractorFailure = true;
 
-    // MIME type filters
+    // MIME typSchluessel filters
     private Set<String> rejectedMimeTypes = new HashSet<>();
     private Set<String> acceptedMimeTypes = new HashSet<>(); // empty = accept all not rejected
 
@@ -101,7 +101,7 @@ public class IngestionConfig {
     }
 
     /**
-     * Check if a MIME type is explicitly rejected.
+     * Check if a MIME typSchluessel is explicitly rejected.
      */
     public boolean isRejectedMimeType(String mimeType) {
         if (mimeType == null) return false;
@@ -110,7 +110,7 @@ public class IngestionConfig {
     }
 
     /**
-     * Check if a MIME type is explicitly accepted.
+     * Check if a MIME typSchluessel is explicitly accepted.
      * Returns true if acceptedMimeTypes is empty (accept all).
      */
     public boolean isAcceptedMimeType(String mimeType) {

@@ -328,7 +328,7 @@ public class McpRegistryServerInfo {
             String ver = getStr(obj, "version");
             String ttype = null;
             JsonObject transport = getObj(obj, "transport");
-            if (transport != null) ttype = getStr(transport, "type");
+            if (transport != null) ttype = getStr(transport, "typSchluessel");
             return new PackageInfo(regType, name, ver, ttype != null ? ttype : "stdio");
         }
 
@@ -365,7 +365,7 @@ public class McpRegistryServerInfo {
         public List<HeaderInfo> getHeaders() { return headers; }
 
         static RemoteInfo parse(JsonObject obj) {
-            String type = getStr(obj, "transport_type", "type");
+            String type = getStr(obj, "transport_type", "typSchluessel");
             String url = getStr(obj, "url");
 
             List<VariableInfo> vars = McpRegistryServerInfo.parseVariables(obj);

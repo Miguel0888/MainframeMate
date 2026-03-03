@@ -1,7 +1,8 @@
 package de.bund.zrb.ndv;
 
-import com.softwareag.naturalone.natural.pal.external.*;
-import com.softwareag.naturalone.natural.paltransactions.external.*;
+import de.bund.zrb.ndv.core.api.*;
+import de.bund.zrb.ndv.transaction.api.*;
+import de.bund.zrb.ndv.transaction.impl.NdvTransaction;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -22,7 +23,7 @@ public class NdvClient implements Closeable {
     private volatile boolean connected;
 
     public NdvClient() {
-        this.pal = PalTransactionsFactory.newInstance();
+        this.pal = new NdvTransaction();
     }
 
     /**
@@ -261,12 +262,12 @@ public class NdvClient implements Closeable {
     private volatile IPalTypeSystemFile cachedDownloadSysFile;
 
     /**
-     * Resolve a system file with real DBID/FNR for download operations.
+     * Resolve a system file with real DATENBANK_NUMMER/DATEI_NUMMER for download operations.
      * Listing operations tolerate (0,0,0) but downloadSource does NOT.
      * <p>
      * Strategy:
      * 1) Prefer FUSER (kind=2) from getSystemFiles()
-     * 2) Fall back to any system file with valid DBID/FNR > 0
+     * 2) Fall back to any system file with valid DATENBANK_NUMMER/DATEI_NUMMER > 0
      * 3) Fall back to first system file at all
      */
     private IPalTypeSystemFile resolveDownloadSystemFile() throws IOException, NdvException {
@@ -312,9 +313,9 @@ public class NdvClient implements Closeable {
             System.out.println("[NdvClient] No FUSER found, using first valid system file: dbid=" + chosen.getDatabaseId()
                     + ", fnr=" + chosen.getFileNumber() + ", kind=" + chosen.getKind());
         } else {
-            // Last resort: use sysFiles[0] even if DBID/FNR are 0 – let the server decide
+            // Last resort: use sysFiles[0] even if DATENBANK_NUMMER/DATEI_NUMMER are 0 – let the server decide
             chosen = sysFiles[0];
-            System.out.println("[NdvClient] WARNING: No system file with valid DBID/FNR found! Using sysFile[0]: dbid="
+            System.out.println("[NdvClient] WARNING: No system file with valid DATENBANK_NUMMER/DATEI_NUMMER found! Using sysFile[0]: dbid="
                     + chosen.getDatabaseId() + ", fnr=" + chosen.getFileNumber());
         }
 
@@ -337,13 +338,13 @@ public class NdvClient implements Closeable {
     /**
      * Download source code of a Natural object.
      * <p>
-     * Uses the DBID/FNR from the {@code NdvObjectInfo} (which came from the listing)
+     * Uses the DATENBANK_NUMMER/DATEI_NUMMER from the {@code NdvObjectInfo} (which came from the listing)
      * to create the correct {@code IPalTypeSystemFile} for this specific object.
      * {@code downloadSource()} requires the exact system file where the object resides;
      * a default (0/0/0) causes NAT3017, and a "global guess" can hit the wrong file.
      *
      * @param library library name
-     * @param objInfo object info (from listing, carries DBID/FNR)
+     * @param objInfo object info (from listing, carries DATENBANK_NUMMER/DATEI_NUMMER)
      * @return source code as string (lines joined with \n)
      */
     public String readSource(String library, NdvObjectInfo objInfo)
@@ -365,7 +366,7 @@ public class NdvClient implements Closeable {
         IPalTypeSystemFile sysFile = resolveSystemFileForObject(objInfo);
 
         System.out.println("[NdvClient] readSource: library=" + library
-                + ", obj=" + objInfo.getName() + ", type=" + objInfo.getType()
+                + ", obj=" + objInfo.getName() + ", typSchluessel=" + objInfo.getType()
                 + ", obj.dbid/fnr=" + objInfo.getDatabaseId() + "/" + objInfo.getFileNumber()
                 + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
                 + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
@@ -375,7 +376,7 @@ public class NdvClient implements Closeable {
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
-            IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+            IFileProperties props = new FileProperties.Builder(objInfo.getName(), objInfo.getType()).build();
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
 
             IDownloadResult result = pal.downloadSource(ctx, sysFile, library, props, options);
@@ -388,8 +389,8 @@ public class NdvClient implements Closeable {
             return "";
         } catch (PalResultException e) {
             throw new NdvException("Quellcode-Download fehlgeschlagen für '" + objInfo.getName()
-                    + "' in '" + library + "' (DBID=" + sysFile.getDatabaseId()
-                    + ", FNR=" + sysFile.getFileNumber() + "): " + e.getMessage(), e);
+                    + "' in '" + library + "' (DATENBANK_NUMMER=" + sysFile.getDatabaseId()
+                    + ", DATEI_NUMMER=" + sysFile.getFileNumber() + "): " + e.getMessage(), e);
         } finally {
             try {
                 pal.disposeTransactionContext(ctx);
@@ -401,11 +402,11 @@ public class NdvClient implements Closeable {
     /**
      * Resolve the correct IPalTypeSystemFile for a specific object.
      * <p>
-     * If the object carries valid DBID/FNR (from the listing), we build a concrete
+     * If the object carries valid DATENBANK_NUMMER/DATEI_NUMMER (from the listing), we build a concrete
      * system file with those exact values. The kind is looked up from the server's
      * system file list; if not found, FUSER is assumed as default.
      * <p>
-     * If the object has invalid DBID/FNR (≤ 0), we fall back to the global
+     * If the object has invalid DATENBANK_NUMMER/DATEI_NUMMER (≤ 0), we fall back to the global
      * resolveDownloadSystemFile() strategy (FUSER preference).
      */
     private IPalTypeSystemFile resolveSystemFileForObject(NdvObjectInfo objInfo)
@@ -414,21 +415,21 @@ public class NdvClient implements Closeable {
         int fnr = objInfo.getFileNumber();
 
         if (dbid > 0 && fnr > 0) {
-            // Object has concrete DBID/FNR from the listing – use them
+            // Object has concrete DATENBANK_NUMMER/DATEI_NUMMER from the listing – use them
             int kind = findKindByDbidFnr(dbid, fnr);
-            System.out.println("[NdvClient] resolveSystemFileForObject: using object's own DBID/FNR: "
+            System.out.println("[NdvClient] resolveSystemFileForObject: using object's own DATENBANK_NUMMER/DATEI_NUMMER: "
                     + dbid + "/" + fnr + ", kind=" + sysFileKindName(kind));
             return PalTypeSystemFileFactory.newInstance(dbid, fnr, kind);
         }
 
-        // Fallback: object didn't carry valid DBID/FNR – use global strategy
-        System.out.println("[NdvClient] resolveSystemFileForObject: obj DBID/FNR invalid ("
+        // Fallback: object didn't carry valid DATENBANK_NUMMER/DATEI_NUMMER – use global strategy
+        System.out.println("[NdvClient] resolveSystemFileForObject: obj DATENBANK_NUMMER/DATEI_NUMMER invalid ("
                 + dbid + "/" + fnr + "), falling back to global system file");
         return resolveDownloadSystemFile();
     }
 
     /**
-     * Look up the kind (FNAT/FUSER/FDIC/...) for a given DBID/FNR pair
+     * Look up the kind (FNAT/FUSER/FDIC/...) for a given DATENBANK_NUMMER/DATEI_NUMMER pair
      * by matching against the server's system files.
      *
      * @return the kind, or FUSER as default if no match found
@@ -478,7 +479,7 @@ public class NdvClient implements Closeable {
      * Upload (save) source code of a Natural object back to the server.
      *
      * @param library    library name
-     * @param objInfo    object info (carries name, type, DBID/FNR)
+     * @param objInfo    object info (carries name, typSchluessel, DATENBANK_NUMMER/DATEI_NUMMER)
      * @param sourceText source code as single string (lines separated by \n)
      */
     public void writeSource(String library, NdvObjectInfo objInfo, String sourceText)
@@ -506,13 +507,13 @@ public class NdvClient implements Closeable {
         String[] sourceLines = sourceText.split("\n", -1);
 
         System.out.println("[NdvClient] writeSource: library=" + library
-                + ", obj=" + objInfo.getName() + ", type=" + objInfo.getType()
+                + ", obj=" + objInfo.getName() + ", typSchluessel=" + objInfo.getType()
                 + ", lines=" + sourceLines.length
                 + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
                 + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
 
         try {
-            IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+            IFileProperties props = new FileProperties.Builder(objInfo.getName(), objInfo.getType()).build();
 
             // Use empty set for upload options (no special options needed for basic save)
             Set<EUploadOption> options = EnumSet.noneOf(EUploadOption.class);
