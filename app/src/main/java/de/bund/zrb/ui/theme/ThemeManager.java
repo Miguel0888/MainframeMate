@@ -87,45 +87,120 @@ public final class ThemeManager {
     }
 
     /**
-     * Classic theme: the system L&F has already been restored by switchLookAndFeel().
-     * We just need to remove any explicit overrides we set (borders, gradient nulls, etc.)
-     * that would persist across L&F changes.
+     * Classic theme: restore system L&F defaults for ALL keys we override in dark mode.
+     * UIManager.setLookAndFeel() alone does NOT clear previously put() values —
+     * we must explicitly restore each key from the fresh L&F defaults.
      */
     private void applyClassicTheme() {
-        // Remove our explicit overrides – the system L&F provides correct defaults
-        String[] keysToRemove = {
-                // Borders we set explicitly
+        // Every key that applyDarkTheme() touches must be restored here
+        String[] allOverriddenKeys = {
+                // Panels / Frames / Windows
+                "Panel.background", "Panel.foreground",
+                "window", "control", "text", "textText", "controlText",
+                "infoText", "info",
+                "activeCaption", "activeCaptionText",
+                "inactiveCaption", "inactiveCaptionText",
+                "desktop",
+                "InternalFrame.activeTitleBackground", "InternalFrame.activeTitleForeground",
+                "InternalFrame.inactiveTitleBackground", "InternalFrame.inactiveTitleForeground",
+                "RootPane.background", "ContentPane.background",
+                // Labels
+                "Label.foreground", "Label.disabledForeground",
+                // Buttons
+                "Button.background", "Button.foreground", "Button.select", "Button.focus",
+                "Button.shadow", "Button.darkShadow", "Button.light", "Button.highlight",
                 "Button.border", "Button.gradient",
+                "ToggleButton.background", "ToggleButton.foreground", "ToggleButton.select",
+                "ToggleButton.shadow", "ToggleButton.darkShadow", "ToggleButton.light", "ToggleButton.highlight",
                 "ToggleButton.border", "ToggleButton.gradient",
-                "TextField.border", "TextArea.border",
-                "PasswordField.border", "FormattedTextField.border",
-                "Spinner.border", "Spinner.arrowButtonBackground", "Spinner.arrowButtonBorder",
-                "ToolTip.border",
-                // SplitPane extras
+                // Text fields
+                "TextField.background", "TextField.foreground", "TextField.caretForeground",
+                "TextField.selectionBackground", "TextField.selectionForeground", "TextField.inactiveForeground",
+                "TextField.border",
+                "TextArea.background", "TextArea.foreground", "TextArea.caretForeground",
+                "TextArea.selectionBackground", "TextArea.selectionForeground", "TextArea.inactiveForeground",
+                "TextArea.border",
+                "TextPane.background", "TextPane.foreground", "TextPane.caretForeground",
+                "TextPane.selectionBackground", "TextPane.selectionForeground", "TextPane.inactiveForeground",
+                "EditorPane.background", "EditorPane.foreground", "EditorPane.caretForeground",
+                "EditorPane.selectionBackground", "EditorPane.selectionForeground", "EditorPane.inactiveForeground",
+                "PasswordField.background", "PasswordField.foreground", "PasswordField.caretForeground",
+                "PasswordField.selectionBackground", "PasswordField.selectionForeground", "PasswordField.inactiveForeground",
+                "PasswordField.border",
+                "FormattedTextField.background", "FormattedTextField.foreground", "FormattedTextField.caretForeground",
+                "FormattedTextField.selectionBackground", "FormattedTextField.selectionForeground", "FormattedTextField.inactiveForeground",
+                "FormattedTextField.border",
+                // Tables
+                "Table.background", "Table.foreground",
+                "Table.selectionBackground", "Table.selectionForeground",
+                "Table.gridColor", "Table.focusCellHighlightBorder",
+                "TableHeader.background", "TableHeader.foreground",
+                // Lists
+                "List.background", "List.foreground",
+                "List.selectionBackground", "List.selectionForeground",
+                // ComboBox
+                "ComboBox.background", "ComboBox.foreground",
+                "ComboBox.selectionBackground", "ComboBox.selectionForeground",
+                "ComboBox.buttonBackground", "ComboBox.buttonShadow", "ComboBox.buttonDarkShadow", "ComboBox.buttonHighlight",
+                // ScrollPane / Viewport
+                "ScrollPane.background",
+                "Viewport.background", "Viewport.foreground",
+                // TabbedPane
+                "TabbedPane.background", "TabbedPane.foreground",
+                "TabbedPane.selected", "TabbedPane.selectedForeground",
+                "TabbedPane.contentAreaColor", "TabbedPane.tabAreaBackground",
+                "TabbedPane.light", "TabbedPane.highlight",
+                "TabbedPane.shadow", "TabbedPane.darkShadow",
+                "TabbedPane.focus", "TabbedPane.unselectedBackground",
+                // Menus
+                "MenuBar.background", "MenuBar.foreground",
+                "Menu.background", "Menu.foreground",
+                "Menu.selectionBackground", "Menu.selectionForeground",
+                "MenuItem.background", "MenuItem.foreground",
+                "MenuItem.selectionBackground", "MenuItem.selectionForeground",
+                "PopupMenu.background", "PopupMenu.foreground",
+                "CheckBoxMenuItem.background", "CheckBoxMenuItem.foreground",
+                "CheckBoxMenuItem.selectionBackground", "CheckBoxMenuItem.selectionForeground",
+                "RadioButtonMenuItem.background", "RadioButtonMenuItem.foreground",
+                // Toolbar
+                "ToolBar.background", "ToolBar.foreground",
+                // Tooltips
+                "ToolTip.background", "ToolTip.foreground", "ToolTip.border",
+                // OptionPane
+                "OptionPane.background", "OptionPane.messageForeground",
+                // SplitPane
+                "SplitPane.background", "SplitPane.dividerFocusColor",
                 "SplitPane.darkShadow", "SplitPane.shadow", "SplitPane.highlight",
                 "SplitPaneDivider.draggingColor", "SplitPane.dividerSize",
-                // Button extras
-                "Button.shadow", "Button.darkShadow", "Button.light", "Button.highlight",
-                "ToggleButton.shadow", "ToggleButton.darkShadow", "ToggleButton.light", "ToggleButton.highlight",
-                // ComboBox extras
-                "ComboBox.buttonShadow", "ComboBox.buttonDarkShadow", "ComboBox.buttonHighlight",
-                // ScrollBar extras
-                "ScrollBar.thumbShadow", "ScrollBar.thumbDarkShadow", "ScrollBar.track",
-                "ScrollBar.trackHighlight", "ScrollBar.darkShadow", "ScrollBar.shadow", "ScrollBar.highlight",
-                // TabbedPane extras
-                "TabbedPane.tabAreaBackground", "TabbedPane.light", "TabbedPane.highlight",
-                "TabbedPane.shadow", "TabbedPane.darkShadow", "TabbedPane.focus",
-                "TabbedPane.unselectedBackground",
-                // FormattedTextField
-                "FormattedTextField.background", "FormattedTextField.foreground",
-                "FormattedTextField.caretForeground", "FormattedTextField.selectionBackground",
-                "FormattedTextField.selectionForeground", "FormattedTextField.inactiveForeground",
-                // ToggleButton
-                "ToggleButton.background", "ToggleButton.foreground", "ToggleButton.select",
+                // Tree
+                "Tree.background", "Tree.foreground", "Tree.textBackground", "Tree.textForeground",
+                "Tree.selectionBackground", "Tree.selectionForeground",
+                // ScrollBar
+                "ScrollBar.background", "ScrollBar.thumb", "ScrollBar.thumbHighlight",
+                "ScrollBar.thumbShadow", "ScrollBar.thumbDarkShadow",
+                "ScrollBar.track", "ScrollBar.trackHighlight",
+                "ScrollBar.darkShadow", "ScrollBar.shadow", "ScrollBar.highlight",
+                // Separators
+                "Separator.foreground", "Separator.background",
+                // CheckBox / RadioButton
+                "CheckBox.background", "CheckBox.foreground",
+                "RadioButton.background", "RadioButton.foreground",
+                // Spinner
+                "Spinner.background", "Spinner.foreground",
+                "Spinner.border", "Spinner.arrowButtonBackground", "Spinner.arrowButtonBorder",
+                // FileChooser
+                "FileChooser.listViewBackground",
+                // ProgressBar
+                "ProgressBar.background", "ProgressBar.foreground",
+                // TitledBorder
+                "TitledBorder.titleColor",
         };
 
-        for (String key : keysToRemove) {
-            UIManager.put(key, null);
+        // Get fresh defaults from the newly installed system L&F
+        UIDefaults freshDefaults = UIManager.getLookAndFeel().getDefaults();
+        for (String key : allOverriddenKeys) {
+            Object freshValue = freshDefaults.get(key);
+            UIManager.put(key, freshValue); // null is fine — removes the override
         }
     }
 
