@@ -387,6 +387,7 @@ public final class ThemeManager {
     /**
      * Recursively apply theme colors to components that don't respect UIManager defaults.
      * This covers RSyntaxTextArea, JEditorPane (HTML preview), JToolBar, JMenuBar, etc.
+     * For Classic theme this also RESETS manually set colors so the system L&F takes over again.
      */
     private void applyThemeToComponentTree(Component root) {
         if (root instanceof org.fife.ui.rsyntaxtextarea.RSyntaxTextArea) {
@@ -395,40 +396,68 @@ public final class ThemeManager {
         if (root instanceof JEditorPane && !(root instanceof javax.swing.JTextPane)) {
             applyThemeToEditorPane((JEditorPane) root);
         }
-        // JToolBar often ignores UIManager defaults — force colors directly
+
         if (root instanceof JToolBar) {
             JToolBar tb = (JToolBar) root;
-            tb.setBackground(currentTheme.bg);
-            tb.setForeground(currentTheme.text);
-            tb.setOpaque(true);
-            // Also style buttons inside the toolbar
-            for (Component child : tb.getComponents()) {
-                if (child instanceof AbstractButton) {
-                    child.setBackground(currentTheme.bg);
-                    child.setForeground(currentTheme.text);
+            if (currentTheme.isDark) {
+                tb.setBackground(currentTheme.bg);
+                tb.setForeground(currentTheme.text);
+                tb.setOpaque(true);
+                for (Component child : tb.getComponents()) {
+                    if (child instanceof AbstractButton) {
+                        child.setBackground(currentTheme.bg);
+                        child.setForeground(currentTheme.text);
+                    }
+                }
+            } else {
+                // Reset: let L&F decide
+                tb.setBackground(null);
+                tb.setForeground(null);
+                tb.setOpaque(false);
+                for (Component child : tb.getComponents()) {
+                    if (child instanceof AbstractButton) {
+                        child.setBackground(null);
+                        child.setForeground(null);
+                    }
                 }
             }
         }
-        // JMenuBar often ignores UIManager defaults — force colors directly
+
         if (root instanceof JMenuBar) {
             JMenuBar mb = (JMenuBar) root;
-            mb.setBackground(currentTheme.bg);
-            mb.setForeground(currentTheme.text);
-            mb.setOpaque(true);
-            mb.setBorderPainted(currentTheme.isDark);
             if (currentTheme.isDark) {
+                mb.setBackground(currentTheme.bg);
+                mb.setForeground(currentTheme.text);
+                mb.setOpaque(true);
+                mb.setBorderPainted(true);
                 mb.setBorder(javax.swing.BorderFactory.createMatteBorder(
                         0, 0, 1, 0, currentTheme.border));
-            }
-            for (int i = 0; i < mb.getMenuCount(); i++) {
-                JMenu menu = mb.getMenu(i);
-                if (menu != null) {
-                    menu.setBackground(currentTheme.bg);
-                    menu.setForeground(currentTheme.text);
-                    menu.setOpaque(true);
+                for (int i = 0; i < mb.getMenuCount(); i++) {
+                    JMenu menu = mb.getMenu(i);
+                    if (menu != null) {
+                        menu.setBackground(currentTheme.bg);
+                        menu.setForeground(currentTheme.text);
+                        menu.setOpaque(true);
+                    }
+                }
+            } else {
+                // Reset: let L&F decide
+                mb.setBackground(null);
+                mb.setForeground(null);
+                mb.setOpaque(false);
+                mb.setBorderPainted(false);
+                mb.setBorder(null);
+                for (int i = 0; i < mb.getMenuCount(); i++) {
+                    JMenu menu = mb.getMenu(i);
+                    if (menu != null) {
+                        menu.setBackground(null);
+                        menu.setForeground(null);
+                        menu.setOpaque(false);
+                    }
                 }
             }
         }
+
         if (root instanceof Container) {
             for (Component child : ((Container) root).getComponents()) {
                 applyThemeToComponentTree(child);
@@ -440,6 +469,8 @@ public final class ThemeManager {
      * Apply theme to RSyntaxTextArea – background, foreground, caret, selection, current line.
      * RSyntaxTextArea uses its own color scheme and ignores UIManager text component defaults.
      * Can be called directly when creating new editor instances.
+     *
+     * For Classic theme: resets all colors to RSyntaxTextArea defaults.
      */
     public void applyEditorTheme(org.fife.ui.rsyntaxtextarea.RSyntaxTextArea area) {
         AppTheme t = currentTheme;
@@ -467,20 +498,29 @@ public final class ThemeManager {
             }
         }
 
-        // Update syntax scheme colors for dark themes
-        if (t.isDark) {
-            org.fife.ui.rsyntaxtextarea.SyntaxScheme scheme = area.getSyntaxScheme();
-            if (scheme != null) {
-                // Make all token types use the theme's text color as baseline
+        // Restore or adjust syntax scheme colors
+        org.fife.ui.rsyntaxtextarea.SyntaxScheme scheme = area.getSyntaxScheme();
+        if (scheme != null) {
+            if (t.isDark) {
+                // Lighten dark foreground colors that would be invisible on dark bg
                 for (int i = 0; i < scheme.getStyleCount(); i++) {
                     org.fife.ui.rsyntaxtextarea.Style style = scheme.getStyle(i);
                     if (style != null && style.foreground != null) {
-                        // Lighten dark foreground colors that would be invisible on dark bg
                         if (isTooDark(style.foreground, t.editorBg)) {
                             style.foreground = t.text;
                         }
                     }
                 }
+            } else {
+                // Classic: restore the default syntax scheme
+                // Create a temporary RSyntaxTextArea to get a fresh default scheme
+                String syntaxStyle = area.getSyntaxEditingStyle();
+                try {
+                    org.fife.ui.rsyntaxtextarea.RSyntaxTextArea tmp = new org.fife.ui.rsyntaxtextarea.RSyntaxTextArea();
+                    area.setSyntaxScheme(tmp.getSyntaxScheme());
+                } catch (Exception ignored) {}
+                // Re-apply the syntax style to trigger re-tokenization
+                area.setSyntaxEditingStyle(syntaxStyle);
             }
         }
     }
