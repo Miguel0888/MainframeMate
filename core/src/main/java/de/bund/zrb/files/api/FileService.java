@@ -11,6 +11,15 @@ public interface FileService extends AutoCloseable {
 
     FilePayload readFile(String absolutePath) throws FileServiceException;
 
+     /**
+     * Read a file in binary mode (no ASCII/EBCDIC conversion).
+     * Required for binary formats (PDF, DOCX, XLSX, etc.) on FTP servers.
+     * Default implementation falls back to readFile().
+     */
+    default FilePayload readFileBinary(String absolutePath) throws FileServiceException {
+        return readFile(absolutePath);
+    }
+
     void writeFile(String absolutePath, FilePayload payload) throws FileServiceException;
 
     FileWriteResult writeIfUnchanged(String absolutePath, FilePayload payload, String expectedHash)

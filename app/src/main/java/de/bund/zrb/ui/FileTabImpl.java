@@ -574,6 +574,107 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         model.resetChanged();
     }
 
+    /**
+     * Reloads the current file in BINARY transfer mode (for PDF, DOCX, etc.).
+     * This is required because binary files get corrupted when transferred as ASCII.
+     * The binary bytes are stored for download, and a placeholder/extracted text
+     * is shown in the preview.
+     *
+     * @param fileType the file type key (e.g., "PDF", "WORD")
+     */
+    public void reloadAsBinary(String fileType) {
+        if (resource == null) {
+            System.err.println("[FileTabImpl] Cannot reload as binary: no resource");
+            return;
+        }
+
+        String resolvedPath = resource.getResolvedPath();
+        if (resolvedPath == null || resolvedPath.trim().isEmpty()) {
+            System.err.println("[FileTabImpl] Cannot reload as binary: no resolved path");
+            return;
+        }
+
+        // Only FTP needs special binary re-read; local files are always read as bytes
+        SwingUtilities.invokeLater(() -> {
+            try {
+                setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+
+                CredentialsProvider credentialsProvider = new InteractiveCredentialsProvider(
+                        (host, user) -> LoginManager.getInstance().getPassword(host, user)
+                );
+
+                try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
+                    FilePayload payload = fs.readFileBinary(resolvedPath);
+                    byte[] binaryData = payload.getBytes();
+
+                    // Store raw binary bytes for download
+                    this.rawBytes = binaryData;
+
+                    // Generate display text based on file type
+                    String displayHtml = generateBinaryPreviewHtml(fileType, binaryData, resolvedPath);
+
+                    // Set HTML content in the rendered pane
+                    htmlRenderedPane.setText(displayHtml);
+                    SwingUtilities.invokeLater(() -> htmlRenderedPane.setCaretPosition(0));
+
+                    System.out.println("[FileTabImpl] Reloaded as binary: " + resolvedPath +
+                            " (" + binaryData.length + " bytes)");
+                }
+            } catch (Exception e) {
+                System.err.println("[FileTabImpl] Failed to reload as binary: " + e.getMessage());
+                htmlRenderedPane.setText("<html><body><p style='color:red;'>⚠ Fehler beim binären Laden:<br>" +
+                        escapeHtml(e.getMessage()) + "</p>" +
+                        "<p>Der Inhalt wurde möglicherweise als Text (ASCII) übertragen " +
+                        "und ist daher beschädigt.</p></body></html>");
+            } finally {
+                setCursor(java.awt.Cursor.getDefaultCursor());
+            }
+        });
+    }
+
+    /**
+     * Generates HTML preview content for binary files.
+     */
+    private String generateBinaryPreviewHtml(String fileType, byte[] data, String path) {
+        String type = fileType != null ? fileType.toUpperCase() : "BINARY";
+        String sizeStr = formatFileSize(data.length);
+
+        StringBuilder html = new StringBuilder();
+        html.append("<html><body style='font-family: Segoe UI, sans-serif; margin: 20px;'>");
+        html.append("<h2>📄 ").append(type).append("-Dokument</h2>");
+        html.append("<table style='border-collapse: collapse; margin: 12px 0;'>");
+        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Datei:</td><td>").append(escapeHtml(path)).append("</td></tr>");
+        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Größe:</td><td>").append(sizeStr).append("</td></tr>");
+        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Typ:</td><td>").append(type).append("</td></tr>");
+        html.append("<tr><td style='padding: 4px 12px 4px 0; color: #666;'>Transfer:</td><td>✅ Binär (korrekt)</td></tr>");
+        html.append("</table>");
+        html.append("<p style='margin-top: 16px;'>💡 Verwenden Sie <b>📥 Herunterladen</b> um die Originaldatei zu speichern.</p>");
+
+        // Show hex preview of first bytes
+        html.append("<h3>Hex-Vorschau (erste 256 Bytes)</h3>");
+        html.append("<pre style='background: #f5f5f5; padding: 12px; font-family: Consolas, monospace; font-size: 11px;'>");
+        int previewLen = Math.min(data.length, 256);
+        for (int i = 0; i < previewLen; i++) {
+            if (i > 0 && i % 16 == 0) html.append("\n");
+            else if (i > 0 && i % 8 == 0) html.append("  ");
+            else if (i > 0) html.append(" ");
+            html.append(String.format("%02X", data[i] & 0xFF));
+        }
+        if (data.length > 256) {
+            html.append("\n... (").append(sizeStr).append(" insgesamt)");
+        }
+        html.append("</pre>");
+
+        html.append("</body></html>");
+        return html.toString();
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) return bytes + " Bytes";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024));
+    }
+
 
     @Override
     public void setContent(String content, String sentenceType) {

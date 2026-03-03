@@ -5,9 +5,18 @@ import de.bund.zrb.ui.filetab.event.*;
 import de.zrb.bund.api.SentenceTypeRegistry;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
 public class FileTabEventManager {
 
     private final FileTabImpl fileTab;
+
+    /** File types that require binary transfer mode (no ASCII/EBCDIC conversion). */
+    private static final Set<String> BINARY_FILE_TYPES = new HashSet<>(Arrays.asList(
+            "PDF", "WORD", "EXCEL", "OUTLOOK MAIL"
+    ));
 
     public FileTabEventManager(FileTabImpl fileTab) {
         this.fileTab = fileTab;
@@ -34,6 +43,11 @@ public class FileTabEventManager {
                 fileTab.highlighter.clearHighlights(fileTab.comparePanel.getOriginalTextArea());
                 fileTab.legendController.clearLegend();
                 fileTab.applyFileTypeRendering(event.newType);
+
+                // Binary file types on remote backends → reload in binary mode
+                if (isBinaryFileType(event.newType) && isRemoteResource()) {
+                    fileTab.reloadAsBinary(event.newType);
+                }
                 return;
             }
 
@@ -101,5 +115,16 @@ public class FileTabEventManager {
 
     private SentenceTypeRegistry getRegistry() {
         return fileTab.tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+    }
+
+    private boolean isBinaryFileType(String fileType) {
+        return fileType != null && BINARY_FILE_TYPES.contains(fileType.toUpperCase());
+    }
+
+    private boolean isRemoteResource() {
+        VirtualResource res = fileTab.getResource();
+        if (res == null) return false;
+        VirtualBackendType backend = res.getBackendType();
+        return backend == VirtualBackendType.FTP || backend == VirtualBackendType.NDV;
     }
 }

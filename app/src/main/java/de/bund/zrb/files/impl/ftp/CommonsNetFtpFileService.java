@@ -422,6 +422,55 @@ public class CommonsNetFtpFileService implements FileService {
         throw new FileServiceException(FileServiceErrorCode.NOT_FOUND, "FTP file not found");
     }
 
+    /**
+     * Read a file in BINARY transfer mode (no ASCII/EBCDIC conversion).
+     * Temporarily switches to FTP.BINARY_FILE_TYPE, reads, then restores the original mode.
+     * Required for binary document formats (PDF, DOCX, XLSX, etc.) on FTP/MVS servers.
+     */
+    @Override
+    public FilePayload readFileBinary(String absolutePath) throws FileServiceException {
+        List<String> candidates = resolveReadCandidates(absolutePath);
+        FileServiceException lastError = null;
+
+        // Save current settings
+        Integer originalFileType = settings.ftpFileType == null ? null : settings.ftpFileType.getCode();
+        boolean originalRecordStructure = recordStructure;
+
+        try {
+            // Switch to BINARY mode, FILE structure (no record markers for binary)
+            ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
+            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
+            recordStructure = false;
+
+            System.out.println("[FTP] readFileBinary: switched to BINARY mode for " + absolutePath);
+
+            for (String candidate : candidates) {
+                try {
+                    return readFileInternal(candidate);
+                } catch (FileServiceException e) {
+                    lastError = e;
+                }
+            }
+        } catch (IOException e) {
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
+                    "Failed to switch FTP to binary mode: " + e.getMessage(), e);
+        } finally {
+            // Restore original transfer settings
+            try {
+                applyTransferSettings(settings);
+                recordStructure = originalRecordStructure;
+                System.out.println("[FTP] readFileBinary: restored original transfer mode");
+            } catch (IOException e) {
+                System.err.println("[FTP] Warning: failed to restore transfer settings: " + e.getMessage());
+            }
+        }
+
+        if (lastError != null) {
+            throw lastError;
+        }
+        throw new FileServiceException(FileServiceErrorCode.NOT_FOUND, "FTP file not found (binary)");
+    }
+
     private FilePayload readFileInternal(String resolvedPath) throws FileServiceException {
         InputStream in = null;
         try {

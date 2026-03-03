@@ -152,6 +152,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected boolean hasUnsavedChanges = false;
     protected String activeFileType = null; // currently selected file type (null = sentence type or none)
     protected JButton saveButton; // Save/Download button (can change label dynamically)
+    protected byte[] rawBytes = null; // Binary content for download (set when reloaded as binary)
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
@@ -949,6 +950,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      */
     public void resetFileTypeRendering() {
         this.activeFileType = null;
+        this.rawBytes = null;
         this.isSourceCode = isSourceCodeFile(sourceName);
         this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
         if (isSourceCode) {
@@ -986,7 +988,8 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Downloads the current content as a file using a file chooser dialog.
-     * Used when a binary/rendered file type (PDF, WORD, etc.) is selected.
+     * Uses binary rawBytes when available (for PDF, DOCX, etc.),
+     * otherwise falls back to text rawContent.
      */
     protected void downloadContent() {
         JFileChooser chooser = new JFileChooser();
@@ -1012,8 +1015,14 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             if (target == null) return;
 
             try {
-                java.nio.file.Files.write(target.toPath(),
-                        rawContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                if (rawBytes != null) {
+                    // Binary content available → write raw bytes (preserves PDF/DOCX structure)
+                    java.nio.file.Files.write(target.toPath(), rawBytes);
+                } else {
+                    // Fallback: write text content
+                    java.nio.file.Files.write(target.toPath(),
+                            rawContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
 
                 // Brief confirmation
                 String original = saveButton.getText();
