@@ -469,6 +469,16 @@ public final class ThemeManager {
         if (window == null) return;
         SwingUtilities.updateComponentTreeUI(window);
         applyThemeToComponentTree(window);
+
+        // JMenuBar is NOT part of getComponents() — must be handled explicitly
+        if (window instanceof JFrame) {
+            JMenuBar mb = ((JFrame) window).getJMenuBar();
+            if (mb != null) {
+                SwingUtilities.updateComponentTreeUI(mb);
+                applyThemeToComponentTree(mb);
+            }
+        }
+
         applyWindowsTitleBarTheme(window);
         window.revalidate();
         window.repaint();
