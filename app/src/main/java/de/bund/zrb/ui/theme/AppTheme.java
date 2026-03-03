@@ -80,6 +80,30 @@ public enum AppTheme {
             new Color(8, 8, 8),          // editorBg (anthrazit/fast-schwarz)
             new Color(15, 20, 15),       // editorCurrentLineBg
             true                         // isDark
+    ),
+
+    CLASSIC_METAL(
+            "Classic (Metal)",
+            new Color(240, 240, 240),   // bg
+            Color.WHITE,                 // surface
+            new Color(51, 51, 51),       // text
+            new Color(100, 100, 100),    // textSecondary
+            new Color(0, 120, 215),      // accent (Windows blue)
+            new Color(0, 102, 204),      // accentHover
+            new Color(0, 120, 215),      // selection
+            Color.WHITE,                 // selectionText
+            new Color(200, 200, 200),    // border
+            Color.WHITE,                 // inputBg
+            new Color(51, 51, 51),       // inputText
+            new Color(160, 160, 160),    // disabledText
+            new Color(200, 0, 0),        // errorText
+            new Color(51, 51, 51),       // caretColor
+            new Color(204, 232, 255),    // tableSelectionBg
+            new Color(51, 51, 51),       // tableSelectionFg
+            new Color(230, 230, 230),    // tableGridColor
+            Color.WHITE,                 // editorBg (RSyntaxTextArea)
+            new Color(232, 242, 254),    // editorCurrentLineBg
+            false                        // isDark
     );
 
     private final String displayName;
@@ -143,9 +167,10 @@ public enum AppTheme {
     public static AppTheme fromLockerStyle(LockerStyle style) {
         if (style == null) return CLASSIC;
         switch (style) {
-            case MODERN: return MODERN;
-            case RETRO:  return RETRO;
-            default:     return CLASSIC;
+            case MODERN:        return MODERN;
+            case RETRO:         return RETRO;
+            case CLASSIC_METAL: return CLASSIC_METAL;
+            default:            return CLASSIC;
         }
     }
 

@@ -53,18 +53,24 @@ public final class ThemeManager {
 
     /**
      * Apply the given AppTheme to the entire application.
-     * For dark themes, switches to Metal L&F so UIManager defaults are fully honored
-     * (Windows L&F uses native rendering and ignores many color overrides).
+     * - CLASSIC:       System L&F (native Windows look), no color overrides.
+     * - CLASSIC_METAL: Metal L&F, reset to Metal defaults (light theme with Metal controls).
+     * - MODERN/RETRO:  Metal L&F with dark color overrides via UIManager.
      */
     public void applyTheme(AppTheme theme) {
         if (theme == null) theme = AppTheme.CLASSIC;
         this.currentTheme = theme;
 
         if (theme == AppTheme.CLASSIC) {
+            // Native Windows look
             switchLookAndFeel(systemLafClassName);
-            applyClassicTheme();
+            resetDarkOverrides();
+        } else if (theme == AppTheme.CLASSIC_METAL) {
+            // Metal L&F with its default light colors
+            switchLookAndFeel("javax.swing.plaf.metal.MetalLookAndFeel");
+            resetDarkOverrides();
         } else {
-            // Metal L&F respects all UIManager.put() color overrides
+            // Dark themes: Metal L&F + full color override
             switchLookAndFeel("javax.swing.plaf.metal.MetalLookAndFeel");
             applyDarkTheme(theme);
         }
@@ -87,11 +93,11 @@ public final class ThemeManager {
     }
 
     /**
-     * Classic theme: restore system L&F defaults for ALL keys we override in dark mode.
-     * UIManager.setLookAndFeel() alone does NOT clear previously put() values —
-     * we must explicitly restore each key from the fresh L&F defaults.
+     * Reset ALL UIManager keys that applyDarkTheme() overrides.
+     * Restores fresh defaults from the currently installed L&F (System or Metal).
+     * Called when switching to any light theme (CLASSIC or CLASSIC_METAL).
      */
-    private void applyClassicTheme() {
+    private void resetDarkOverrides() {
         // Every key that applyDarkTheme() touches must be restored here
         String[] allOverriddenKeys = {
                 // Panels / Frames / Windows
