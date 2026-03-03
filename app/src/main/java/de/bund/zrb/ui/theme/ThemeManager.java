@@ -202,11 +202,20 @@ public final class ThemeManager {
                 "TitledBorder.titleColor",
         };
 
-        // Get fresh defaults from the newly installed system L&F
+        // Get fresh defaults from the newly installed L&F
         UIDefaults freshDefaults = UIManager.getLookAndFeel().getDefaults();
         for (String key : allOverriddenKeys) {
             Object freshValue = freshDefaults.get(key);
             UIManager.put(key, freshValue); // null is fine — removes the override
+        }
+
+        // Restore default UI delegates that we replaced with custom accent versions
+        String[] uiDelegateKeys = {"ButtonUI", "ToggleButtonUI", "ScrollBarUI"};
+        for (String key : uiDelegateKeys) {
+            Object freshValue = freshDefaults.get(key);
+            if (freshValue != null) {
+                UIManager.put(key, freshValue);
+            }
         }
     }
 
@@ -255,25 +264,27 @@ public final class ThemeManager {
         UIManager.put("Label.foreground", text);
         UIManager.put("Label.disabledForeground", disabled);
 
-        // --- Buttons ---
-        UIManager.put("Button.background", surface);
-        UIManager.put("Button.foreground", text);
-        UIManager.put("Button.select", accent);
-        UIManager.put("Button.focus", accent);
-        UIManager.put("Button.shadow", border);
-        UIManager.put("Button.darkShadow", border);
-        UIManager.put("Button.light", surface);
-        UIManager.put("Button.highlight", surface);
-        UIManager.put("Button.border", new LineBorder(border, 1));
-        UIManager.put("Button.gradient", null); // disable Metal gradient
-        UIManager.put("ToggleButton.background", surface);
-        UIManager.put("ToggleButton.foreground", text);
-        UIManager.put("ToggleButton.select", accent);
-        UIManager.put("ToggleButton.shadow", border);
-        UIManager.put("ToggleButton.darkShadow", border);
-        UIManager.put("ToggleButton.light", surface);
-        UIManager.put("ToggleButton.highlight", surface);
-        UIManager.put("ToggleButton.border", new LineBorder(border, 1));
+        // --- Buttons (accent fill via custom UI) ---
+        UIManager.put("ButtonUI", "de.bund.zrb.ui.theme.AccentButtonUI");
+        UIManager.put("ToggleButtonUI", "de.bund.zrb.ui.theme.AccentButtonUI");
+        UIManager.put("Button.background", accent);
+        UIManager.put("Button.foreground", c(t.isDark ? Color.BLACK : Color.WHITE));
+        UIManager.put("Button.select", c(t.accentHover));
+        UIManager.put("Button.focus", c(t.accentHover));
+        UIManager.put("Button.shadow", accent);
+        UIManager.put("Button.darkShadow", accent);
+        UIManager.put("Button.light", c(t.accentHover));
+        UIManager.put("Button.highlight", c(t.accentHover));
+        UIManager.put("Button.border", new LineBorder(accent, 1));
+        UIManager.put("Button.gradient", null);
+        UIManager.put("ToggleButton.background", accent);
+        UIManager.put("ToggleButton.foreground", c(t.isDark ? Color.BLACK : Color.WHITE));
+        UIManager.put("ToggleButton.select", c(t.accentHover));
+        UIManager.put("ToggleButton.shadow", accent);
+        UIManager.put("ToggleButton.darkShadow", accent);
+        UIManager.put("ToggleButton.light", c(t.accentHover));
+        UIManager.put("ToggleButton.highlight", c(t.accentHover));
+        UIManager.put("ToggleButton.border", new LineBorder(accent, 1));
         UIManager.put("ToggleButton.gradient", null);
 
         // --- Text Fields ---
@@ -384,17 +395,18 @@ public final class ThemeManager {
         UIManager.put("Tree.selectionBackground", selBg);
         UIManager.put("Tree.selectionForeground", selFg);
 
-        // --- ScrollBar ---
-        UIManager.put("ScrollBar.background", bg);
-        UIManager.put("ScrollBar.thumb", border);
-        UIManager.put("ScrollBar.thumbHighlight", accent);
-        UIManager.put("ScrollBar.thumbShadow", border);
-        UIManager.put("ScrollBar.thumbDarkShadow", bg);
-        UIManager.put("ScrollBar.track", bg);
-        UIManager.put("ScrollBar.trackHighlight", surface);
-        UIManager.put("ScrollBar.darkShadow", bg);
-        UIManager.put("ScrollBar.shadow", bg);
-        UIManager.put("ScrollBar.highlight", surface);
+        // --- ScrollBar (accent fill via custom UI) ---
+        UIManager.put("ScrollBarUI", "de.bund.zrb.ui.theme.AccentScrollBarUI");
+        UIManager.put("ScrollBar.background", surface);
+        UIManager.put("ScrollBar.thumb", accent);
+        UIManager.put("ScrollBar.thumbHighlight", c(t.accentHover));
+        UIManager.put("ScrollBar.thumbShadow", accent);
+        UIManager.put("ScrollBar.thumbDarkShadow", accent);
+        UIManager.put("ScrollBar.track", surface);
+        UIManager.put("ScrollBar.trackHighlight", accent);
+        UIManager.put("ScrollBar.darkShadow", accent);
+        UIManager.put("ScrollBar.shadow", accent);
+        UIManager.put("ScrollBar.highlight", c(t.accentHover));
 
         // --- Separators ---
         UIManager.put("Separator.foreground", border);
