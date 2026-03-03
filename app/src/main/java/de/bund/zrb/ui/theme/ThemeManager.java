@@ -275,7 +275,6 @@ public final class ThemeManager {
         UIManager.put("Button.darkShadow", accent);
         UIManager.put("Button.light", c(t.accentHover));
         UIManager.put("Button.highlight", c(t.accentHover));
-        UIManager.put("Button.border", new LineBorder(accent, 1));
         UIManager.put("Button.gradient", null);
         UIManager.put("ToggleButton.background", accent);
         UIManager.put("ToggleButton.foreground", c(t.isDark ? Color.BLACK : Color.WHITE));
@@ -284,7 +283,6 @@ public final class ThemeManager {
         UIManager.put("ToggleButton.darkShadow", accent);
         UIManager.put("ToggleButton.light", c(t.accentHover));
         UIManager.put("ToggleButton.highlight", c(t.accentHover));
-        UIManager.put("ToggleButton.border", new LineBorder(accent, 1));
         UIManager.put("ToggleButton.gradient", null);
 
         // --- Text Fields ---

@@ -2,54 +2,45 @@ package de.bund.zrb.ui.theme;
 
 import javax.swing.*;
 import javax.swing.plaf.ComponentUI;
-import javax.swing.plaf.basic.BasicButtonUI;
+import javax.swing.plaf.metal.MetalButtonUI;
 import java.awt.*;
 
 /**
- * A simple ButtonUI that paints a solid accent-colored background fill.
- * Metal L&F ignores Button.background due to its gradient rendering —
- * this UI class forces a real filled background.
+ * A ButtonUI that extends MetalButtonUI but paints a solid accent-colored
+ * background fill instead of Metal's gradient. All other behavior
+ * (icons, text, borders, insets, layout) remains unchanged.
  */
-public class AccentButtonUI extends BasicButtonUI {
-
-    private static final AccentButtonUI INSTANCE = new AccentButtonUI();
+public class AccentButtonUI extends MetalButtonUI {
 
     @SuppressWarnings("unused") // called reflectively by UIManager
     public static ComponentUI createUI(JComponent c) {
-        return INSTANCE;
-    }
-
-    @Override
-    public void paint(Graphics g, JComponent c) {
-        AbstractButton b = (AbstractButton) c;
-        ButtonModel model = b.getModel();
-
-        Color fill = b.getBackground();
-        if (model.isPressed() || model.isArmed()) {
-            // Pressed: use slightly different shade
-            fill = darker(fill, 0.8f);
-        } else if (model.isRollover()) {
-            fill = brighter(fill, 1.15f);
-        }
-
-        Graphics2D g2 = (Graphics2D) g.create();
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(fill);
-        g2.fillRoundRect(0, 0, c.getWidth(), c.getHeight(), 6, 6);
-
-        // Paint border
-        g2.setColor(darker(fill, 0.7f));
-        g2.drawRoundRect(0, 0, c.getWidth() - 1, c.getHeight() - 1, 6, 6);
-        g2.dispose();
-
-        // Paint text/icon via super (but skip background painting)
-        super.paint(g, c);
+        return new AccentButtonUI();
     }
 
     @Override
     public void update(Graphics g, JComponent c) {
-        // Skip default opaque fill — we do it ourselves in paint()
+        if (c.isOpaque()) {
+            AbstractButton b = (AbstractButton) c;
+            ButtonModel model = b.getModel();
+
+            Color fill = b.getBackground();
+            if (model.isPressed() || model.isArmed()) {
+                fill = darker(fill, 0.8f);
+            } else if (model.isRollover()) {
+                fill = brighter(fill, 1.15f);
+            }
+
+            g.setColor(fill);
+            g.fillRect(0, 0, c.getWidth(), c.getHeight());
+        }
         paint(g, c);
+    }
+
+    @Override
+    protected void paintButtonPressed(Graphics g, AbstractButton b) {
+        Color fill = darker(b.getBackground(), 0.8f);
+        g.setColor(fill);
+        g.fillRect(0, 0, b.getWidth(), b.getHeight());
     }
 
     private static Color darker(Color c, float factor) {
