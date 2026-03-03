@@ -21,8 +21,12 @@ public final class ThemeManager {
     private static final ThemeManager INSTANCE = new ThemeManager();
 
     private AppTheme currentTheme = AppTheme.CLASSIC;
+    private final String systemLafClassName;
 
-    private ThemeManager() {}
+    private ThemeManager() {
+        // Remember the system L&F so we can restore it for Classic theme
+        systemLafClassName = UIManager.getSystemLookAndFeelClassName();
+    }
 
     public static ThemeManager getInstance() {
         return INSTANCE;
@@ -49,14 +53,19 @@ public final class ThemeManager {
 
     /**
      * Apply the given AppTheme to the entire application.
+     * For dark themes, switches to Metal L&F so UIManager defaults are fully honored
+     * (Windows L&F uses native rendering and ignores many color overrides).
      */
     public void applyTheme(AppTheme theme) {
         if (theme == null) theme = AppTheme.CLASSIC;
         this.currentTheme = theme;
 
         if (theme == AppTheme.CLASSIC) {
+            switchLookAndFeel(systemLafClassName);
             applyClassicTheme();
         } else {
+            // Metal L&F respects all UIManager.put() color overrides
+            switchLookAndFeel("javax.swing.plaf.metal.MetalLookAndFeel");
             applyDarkTheme(theme);
         }
 
@@ -64,88 +73,59 @@ public final class ThemeManager {
     }
 
     /**
-     * Classic theme: reset to system defaults – minimal overrides.
+     * Switch the global Look & Feel. Fails silently if not available.
      */
-    private void applyClassicTheme() {
-        // Restore system L&F defaults by removing our overrides
-        String[] keysToRemove = {
-                "Panel.background", "Panel.foreground",
-                "window", "control", "text", "textText", "controlText",
-                "infoText", "info",
-                "activeCaption", "activeCaptionText",
-                "inactiveCaption", "inactiveCaptionText",
-                "desktop",
-                "InternalFrame.activeTitleBackground", "InternalFrame.activeTitleForeground",
-                "InternalFrame.inactiveTitleBackground", "InternalFrame.inactiveTitleForeground",
-                "RootPane.background", "ContentPane.background",
-                "Label.foreground", "Label.disabledForeground",
-                "Button.background", "Button.foreground", "Button.select", "Button.focus",
-                "TextField.background", "TextField.foreground", "TextField.caretForeground",
-                "TextField.selectionBackground", "TextField.selectionForeground",
-                "TextField.inactiveForeground",
-                "TextArea.background", "TextArea.foreground", "TextArea.caretForeground",
-                "TextArea.selectionBackground", "TextArea.selectionForeground",
-                "TextPane.background", "TextPane.foreground", "TextPane.caretForeground",
-                "TextPane.selectionBackground", "TextPane.selectionForeground",
-                "EditorPane.background", "EditorPane.foreground", "EditorPane.caretForeground",
-                "PasswordField.background", "PasswordField.foreground", "PasswordField.caretForeground",
-                "Table.background", "Table.foreground",
-                "Table.selectionBackground", "Table.selectionForeground",
-                "Table.gridColor", "Table.focusCellHighlightBorder",
-                "TableHeader.background", "TableHeader.foreground",
-                "List.background", "List.foreground",
-                "List.selectionBackground", "List.selectionForeground",
-                "ComboBox.background", "ComboBox.foreground",
-                "ComboBox.selectionBackground", "ComboBox.selectionForeground",
-                "ComboBox.buttonBackground",
-                "ScrollPane.background",
-                "Viewport.background", "Viewport.foreground",
-                "TabbedPane.background", "TabbedPane.foreground",
-                "TabbedPane.selected", "TabbedPane.selectedForeground",
-                "TabbedPane.contentAreaColor",
-                "MenuBar.background", "MenuBar.foreground",
-                "Menu.background", "Menu.foreground",
-                "Menu.selectionBackground", "Menu.selectionForeground",
-                "MenuItem.background", "MenuItem.foreground",
-                "MenuItem.selectionBackground", "MenuItem.selectionForeground",
-                "PopupMenu.background", "PopupMenu.foreground",
-                "CheckBoxMenuItem.background", "CheckBoxMenuItem.foreground",
-                "CheckBoxMenuItem.selectionBackground", "CheckBoxMenuItem.selectionForeground",
-                "RadioButtonMenuItem.background", "RadioButtonMenuItem.foreground",
-                "ToolBar.background", "ToolBar.foreground",
-                "ToolTip.background", "ToolTip.foreground",
-                "OptionPane.background", "OptionPane.messageForeground",
-                "SplitPane.background",
-                "SplitPane.dividerFocusColor",
-                "Tree.background", "Tree.foreground", "Tree.textBackground", "Tree.textForeground",
-                "Tree.selectionBackground", "Tree.selectionForeground",
-                "ScrollBar.background", "ScrollBar.thumb", "ScrollBar.thumbHighlight",
-                "Separator.foreground", "Separator.background",
-                "CheckBox.background", "CheckBox.foreground",
-                "RadioButton.background", "RadioButton.foreground",
-                "Spinner.background", "Spinner.foreground",
-                "FileChooser.listViewBackground",
-                "ProgressBar.background", "ProgressBar.foreground",
-                "TitledBorder.titleColor",
-        };
-
-        // Try to get the default LookAndFeel defaults
+    private void switchLookAndFeel(String lafClassName) {
         try {
-            LookAndFeel systemLaf = UIManager.getLookAndFeel();
-            UIDefaults systemDefaults = systemLaf.getDefaults();
-            for (String key : keysToRemove) {
-                Object systemValue = systemDefaults.get(key);
-                if (systemValue != null) {
-                    UIManager.put(key, systemValue);
-                } else {
-                    UIManager.put(key, null);
-                }
+            String currentLaf = UIManager.getLookAndFeel().getClass().getName();
+            if (!currentLaf.equals(lafClassName)) {
+                UIManager.setLookAndFeel(lafClassName);
             }
         } catch (Exception e) {
-            // Fallback: just remove our overrides
-            for (String key : keysToRemove) {
-                UIManager.put(key, null);
-            }
+            System.err.println("[ThemeManager] Could not switch L&F to " + lafClassName + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Classic theme: the system L&F has already been restored by switchLookAndFeel().
+     * We just need to remove any explicit overrides we set (borders, gradient nulls, etc.)
+     * that would persist across L&F changes.
+     */
+    private void applyClassicTheme() {
+        // Remove our explicit overrides – the system L&F provides correct defaults
+        String[] keysToRemove = {
+                // Borders we set explicitly
+                "Button.border", "Button.gradient",
+                "ToggleButton.border", "ToggleButton.gradient",
+                "TextField.border", "TextArea.border",
+                "PasswordField.border", "FormattedTextField.border",
+                "Spinner.border", "Spinner.arrowButtonBackground", "Spinner.arrowButtonBorder",
+                "ToolTip.border",
+                // SplitPane extras
+                "SplitPane.darkShadow", "SplitPane.shadow", "SplitPane.highlight",
+                "SplitPaneDivider.draggingColor", "SplitPane.dividerSize",
+                // Button extras
+                "Button.shadow", "Button.darkShadow", "Button.light", "Button.highlight",
+                "ToggleButton.shadow", "ToggleButton.darkShadow", "ToggleButton.light", "ToggleButton.highlight",
+                // ComboBox extras
+                "ComboBox.buttonShadow", "ComboBox.buttonDarkShadow", "ComboBox.buttonHighlight",
+                // ScrollBar extras
+                "ScrollBar.thumbShadow", "ScrollBar.thumbDarkShadow", "ScrollBar.track",
+                "ScrollBar.trackHighlight", "ScrollBar.darkShadow", "ScrollBar.shadow", "ScrollBar.highlight",
+                // TabbedPane extras
+                "TabbedPane.tabAreaBackground", "TabbedPane.light", "TabbedPane.highlight",
+                "TabbedPane.shadow", "TabbedPane.darkShadow", "TabbedPane.focus",
+                "TabbedPane.unselectedBackground",
+                // FormattedTextField
+                "FormattedTextField.background", "FormattedTextField.foreground",
+                "FormattedTextField.caretForeground", "FormattedTextField.selectionBackground",
+                "FormattedTextField.selectionForeground", "FormattedTextField.inactiveForeground",
+                // ToggleButton
+                "ToggleButton.background", "ToggleButton.foreground", "ToggleButton.select",
+        };
+
+        for (String key : keysToRemove) {
+            UIManager.put(key, null);
         }
     }
 
@@ -200,6 +180,21 @@ public final class ThemeManager {
         UIManager.put("Button.foreground", text);
         UIManager.put("Button.select", accent);
         UIManager.put("Button.focus", accent);
+        UIManager.put("Button.shadow", border);
+        UIManager.put("Button.darkShadow", border);
+        UIManager.put("Button.light", surface);
+        UIManager.put("Button.highlight", surface);
+        UIManager.put("Button.border", new LineBorder(border, 1));
+        UIManager.put("Button.gradient", null); // disable Metal gradient
+        UIManager.put("ToggleButton.background", surface);
+        UIManager.put("ToggleButton.foreground", text);
+        UIManager.put("ToggleButton.select", accent);
+        UIManager.put("ToggleButton.shadow", border);
+        UIManager.put("ToggleButton.darkShadow", border);
+        UIManager.put("ToggleButton.light", surface);
+        UIManager.put("ToggleButton.highlight", surface);
+        UIManager.put("ToggleButton.border", new LineBorder(border, 1));
+        UIManager.put("ToggleButton.gradient", null);
 
         // --- Text Fields ---
         setTextComponent("TextField", inputBg, inputText, caret, selBg, selFg, disabled);
@@ -207,6 +202,12 @@ public final class ThemeManager {
         setTextComponent("TextPane", inputBg, inputText, caret, selBg, selFg, disabled);
         setTextComponent("EditorPane", inputBg, inputText, caret, selBg, selFg, disabled);
         setTextComponent("PasswordField", inputBg, inputText, caret, selBg, selFg, disabled);
+        setTextComponent("FormattedTextField", inputBg, inputText, caret, selBg, selFg, disabled);
+        // Borders for text fields
+        UIManager.put("TextField.border", new LineBorder(border, 1));
+        UIManager.put("TextArea.border", new LineBorder(border, 1));
+        UIManager.put("PasswordField.border", new LineBorder(border, 1));
+        UIManager.put("FormattedTextField.border", new LineBorder(border, 1));
 
         // --- Tables ---
         UIManager.put("Table.background", surface);
@@ -230,6 +231,9 @@ public final class ThemeManager {
         UIManager.put("ComboBox.selectionBackground", selBg);
         UIManager.put("ComboBox.selectionForeground", selFg);
         UIManager.put("ComboBox.buttonBackground", surface);
+        UIManager.put("ComboBox.buttonShadow", border);
+        UIManager.put("ComboBox.buttonDarkShadow", border);
+        UIManager.put("ComboBox.buttonHighlight", surface);
 
         // --- ScrollPane / Viewport ---
         UIManager.put("ScrollPane.background", bg);
@@ -242,6 +246,13 @@ public final class ThemeManager {
         UIManager.put("TabbedPane.selected", surface);
         UIManager.put("TabbedPane.selectedForeground", accent);
         UIManager.put("TabbedPane.contentAreaColor", bg);
+        UIManager.put("TabbedPane.tabAreaBackground", bg);
+        UIManager.put("TabbedPane.light", surface);
+        UIManager.put("TabbedPane.highlight", surface);
+        UIManager.put("TabbedPane.shadow", border);
+        UIManager.put("TabbedPane.darkShadow", border);
+        UIManager.put("TabbedPane.focus", accent);
+        UIManager.put("TabbedPane.unselectedBackground", bg);
 
         // --- Menus ---
         UIManager.put("MenuBar.background", bg);
@@ -270,6 +281,7 @@ public final class ThemeManager {
         // --- Tooltips ---
         UIManager.put("ToolTip.background", surface);
         UIManager.put("ToolTip.foreground", text);
+        UIManager.put("ToolTip.border", new LineBorder(border, 1));
 
         // --- OptionPane ---
         UIManager.put("OptionPane.background", bg);
@@ -278,6 +290,11 @@ public final class ThemeManager {
         // --- SplitPane ---
         UIManager.put("SplitPane.background", bg);
         UIManager.put("SplitPane.dividerFocusColor", accent);
+        UIManager.put("SplitPane.darkShadow", border);
+        UIManager.put("SplitPane.shadow", border);
+        UIManager.put("SplitPane.highlight", surface);
+        UIManager.put("SplitPaneDivider.draggingColor", accent);
+        UIManager.put("SplitPane.dividerSize", 6);
 
         // --- Tree ---
         UIManager.put("Tree.background", surface);
@@ -291,6 +308,13 @@ public final class ThemeManager {
         UIManager.put("ScrollBar.background", bg);
         UIManager.put("ScrollBar.thumb", border);
         UIManager.put("ScrollBar.thumbHighlight", accent);
+        UIManager.put("ScrollBar.thumbShadow", border);
+        UIManager.put("ScrollBar.thumbDarkShadow", bg);
+        UIManager.put("ScrollBar.track", bg);
+        UIManager.put("ScrollBar.trackHighlight", surface);
+        UIManager.put("ScrollBar.darkShadow", bg);
+        UIManager.put("ScrollBar.shadow", bg);
+        UIManager.put("ScrollBar.highlight", surface);
 
         // --- Separators ---
         UIManager.put("Separator.foreground", border);
@@ -305,6 +329,9 @@ public final class ThemeManager {
         // --- Spinner ---
         UIManager.put("Spinner.background", inputBg);
         UIManager.put("Spinner.foreground", inputText);
+        UIManager.put("Spinner.border", new LineBorder(border, 1));
+        UIManager.put("Spinner.arrowButtonBackground", surface);
+        UIManager.put("Spinner.arrowButtonBorder", new LineBorder(border, 1));
 
         // --- FileChooser ---
         UIManager.put("FileChooser.listViewBackground", surface);
