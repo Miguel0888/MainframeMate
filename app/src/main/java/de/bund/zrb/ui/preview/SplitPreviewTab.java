@@ -152,6 +152,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected boolean hasUnsavedChanges = false;
     protected String activeFileType = null; // currently selected file type (null = sentence type or none)
     protected JButton saveButton; // Save/Download button (can change label dynamically)
+    protected JButton uploadButton; // Upload button (visible only when in download/binary mode)
     protected byte[] rawBytes = null; // Binary content for download (set when reloaded as binary)
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
@@ -565,6 +566,14 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             saveButton.setVisible(false); // Hide if neither text nor renderable
         }
         toolbar.add(saveButton);
+
+        // Upload button (visible only when in download/binary mode)
+        uploadButton = new JButton("📤 Hochladen");
+        uploadButton.setToolTipText("Lokale Datei hochladen und die Remote-Datei ersetzen");
+        uploadButton.setVisible(false);
+        uploadButton.addActionListener(e -> uploadContent());
+        toolbar.add(uploadButton);
+
         toolbar.addSeparator(new Dimension(8, 0));
 
         // Copy Raw button
@@ -969,9 +978,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /**
      * Switches the save button between "Speichern" and "Herunterladen" mode.
      * When a non-text file type (PDF, WORD, EXCEL, OUTLOOK MAIL) is selected,
-     * the button becomes a download button.
+     * the button becomes a download button and an upload button appears.
      *
-     * @param downloadMode true to show "Herunterladen", false for "Speichern"
+     * @param downloadMode true to show "Herunterladen" + "Hochladen", false for "Speichern"
      */
     protected void updateSaveDownloadButton(boolean downloadMode) {
         if (saveButton == null) return;
@@ -980,10 +989,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             saveButton.setText("📥 Herunterladen");
             saveButton.setToolTipText("Inhalt als Datei herunterladen");
             saveButton.setVisible(true);
+            if (uploadButton != null) uploadButton.setVisible(true);
         } else {
             saveButton.setText("💾 Speichern");
             saveButton.setToolTipText("Änderungen speichern");
             saveButton.setVisible(isTextFile);
+            if (uploadButton != null) uploadButton.setVisible(false);
         }
     }
 
@@ -1055,6 +1066,16 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             case "OUTLOOK MAIL": return "eml";
             default:             return "txt";
         }
+    }
+
+    /**
+     * Uploads a local file to replace the remote file.
+     * Base implementation shows a message; subclasses (FileTabImpl) override with actual upload logic.
+     */
+    protected void uploadContent() {
+        JOptionPane.showMessageDialog(this,
+                "Hochladen ist nur für remote-geöffnete Dateien verfügbar.",
+                "Nicht verfügbar", JOptionPane.INFORMATION_MESSAGE);
     }
 
     /**

@@ -22,6 +22,15 @@ public interface FileService extends AutoCloseable {
 
     void writeFile(String absolutePath, FilePayload payload) throws FileServiceException;
 
+    /**
+     * Write a file in binary mode (no ASCII/EBCDIC conversion).
+     * Required for uploading binary formats (PDF, DOCX, XLSX, etc.) to FTP servers.
+     * Default implementation falls back to writeFile().
+     */
+    default void writeFileBinary(String absolutePath, FilePayload payload) throws FileServiceException {
+        writeFile(absolutePath, payload);
+    }
+
     FileWriteResult writeIfUnchanged(String absolutePath, FilePayload payload, String expectedHash)
             throws FileServiceException;
 

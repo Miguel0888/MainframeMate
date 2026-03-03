@@ -19,6 +19,8 @@ public class StatusBarPanel extends JPanel {
     private final JComboBox<String> sentenceComboBox = new JComboBox<>();
     private final JPanel legendWrapper = new JPanel(new BorderLayout());
 
+    private boolean suppressEvents = false;
+
     public StatusBarPanel() {
         super(new BorderLayout());
 
@@ -85,10 +87,15 @@ public class StatusBarPanel extends JPanel {
     }
 
     public void setSentenceTypes(List<String> types) {
-        sentenceComboBox.removeAllItems();
-        sentenceComboBox.addItem(""); // Leerer Eintrag für "keine Satzart"
-        for (String t : types) {
-            sentenceComboBox.addItem(t);
+        suppressEvents = true;
+        try {
+            sentenceComboBox.removeAllItems();
+            sentenceComboBox.addItem(""); // Leerer Eintrag für "keine Satzart"
+            for (String t : types) {
+                sentenceComboBox.addItem(t);
+            }
+        } finally {
+            suppressEvents = false;
         }
     }
 
@@ -97,8 +104,10 @@ public class StatusBarPanel extends JPanel {
      * Separator items (starting with "──") are rendered differently and not selectable.
      */
     public void setSentenceTypesGrouped(Map<String, SentenceDefinition> definitions) {
-        sentenceComboBox.removeAllItems();
-        sentenceComboBox.addItem(""); // Leerer Eintrag
+        suppressEvents = true;
+        try {
+            sentenceComboBox.removeAllItems();
+            sentenceComboBox.addItem(""); // Leerer Eintrag
 
         java.util.List<String> sentenceKeys = new java.util.ArrayList<>();
         java.util.List<String> fileTypeKeys = new java.util.ArrayList<>();
@@ -139,16 +148,24 @@ public class StatusBarPanel extends JPanel {
                 return this;
             }
         });
+        } finally {
+            suppressEvents = false;
+        }
     }
 
 
     public void setSelectedSentenceType(String sentenceType) {
-        ensureEmptySentenceOption();
+        suppressEvents = true;
+        try {
+            ensureEmptySentenceOption();
 
-        if (sentenceType == null || sentenceType.trim().isEmpty()) {
-            sentenceComboBox.setSelectedIndex(0); // Leerer Eintrag
-        } else {
-            sentenceComboBox.setSelectedItem(sentenceType);
+            if (sentenceType == null || sentenceType.trim().isEmpty()) {
+                sentenceComboBox.setSelectedIndex(0); // Leerer Eintrag
+            } else {
+                sentenceComboBox.setSelectedItem(sentenceType);
+            }
+        } finally {
+            suppressEvents = false;
         }
     }
 
@@ -160,6 +177,7 @@ public class StatusBarPanel extends JPanel {
 
     public void onSentenceTypeChanged(Consumer<String> callback) {
         sentenceComboBox.addActionListener(e -> {
+            if (suppressEvents) return;
             Object selected = sentenceComboBox.getSelectedItem();
             if (selected != null) {
                 String val = selected.toString();

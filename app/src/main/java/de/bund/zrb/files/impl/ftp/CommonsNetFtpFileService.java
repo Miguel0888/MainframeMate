@@ -591,6 +591,51 @@ public class CommonsNetFtpFileService implements FileService {
         }
     }
 
+    /**
+     * Write a file in BINARY transfer mode (no ASCII/EBCDIC conversion).
+     * Temporarily switches to FTP.BINARY_FILE_TYPE, writes, then restores the original mode.
+     */
+    @Override
+    public void writeFileBinary(String absolutePath, FilePayload payload) throws FileServiceException {
+        if (payload == null) {
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "Payload is required");
+        }
+
+        boolean originalRecordStructure = recordStructure;
+
+        try {
+            ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
+            ftpClient.setFileStructure(FTP.FILE_STRUCTURE);
+            recordStructure = false;
+            System.out.println("[FTP] writeFileBinary: switched to BINARY mode for " + absolutePath);
+
+            List<String> candidates = resolveWriteCandidates(absolutePath);
+            FileServiceException lastError = null;
+            for (String candidate : candidates) {
+                try {
+                    writeFileInternal(candidate, payload);
+                    System.out.println("[FTP] writeFileBinary: wrote " + payload.getBytes().length + " bytes to " + candidate);
+                    return;
+                } catch (FileServiceException e) {
+                    lastError = e;
+                }
+            }
+            if (lastError != null) throw lastError;
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR, "FTP binary write failed");
+        } catch (IOException e) {
+            throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
+                    "Failed to switch FTP to binary mode for write: " + e.getMessage(), e);
+        } finally {
+            try {
+                applyTransferSettings(settings);
+                recordStructure = originalRecordStructure;
+                System.out.println("[FTP] writeFileBinary: restored original transfer mode");
+            } catch (IOException e) {
+                System.err.println("[FTP] Warning: failed to restore transfer settings after binary write: " + e.getMessage());
+            }
+        }
+    }
+
     @Override
     public FileWriteResult writeIfUnchanged(String absolutePath, FilePayload payload, String expectedHash)
             throws FileServiceException {

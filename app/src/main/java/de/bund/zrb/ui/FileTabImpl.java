@@ -575,6 +575,106 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         }
     }
 
+    /**
+     * Uploads a local file to replace the remote binary file (PDF, DOCX, etc.).
+     * Opens a file chooser, reads the selected file, and writes it to the remote path in binary mode.
+     */
+    @Override
+    protected void uploadContent() {
+        if (resource == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Hochladen ist nicht möglich (keine Resource).",
+                    "Nicht möglich", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String resolvedPath = resource.getResolvedPath();
+        if (resolvedPath == null || resolvedPath.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Hochladen ist nicht möglich: Kein Zielpfad bekannt.",
+                    "Nicht möglich", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Datei zum Hochladen auswählen");
+        if (activeFileType != null) {
+            String ext = getUploadExtension(activeFileType);
+            if (ext != null) {
+                chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                        activeFileType.toUpperCase() + " Dateien (*." + ext + ")", ext));
+            }
+        }
+
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        java.io.File selected = chooser.getSelectedFile();
+        if (selected == null || !selected.exists()) return;
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Datei \"" + selected.getName() + "\" (" + formatFileSize(selected.length()) + ")\n" +
+                        "hochladen und Remote-Datei ersetzen?\n\n" +
+                        "Ziel: " + resolvedPath,
+                "Hochladen bestätigen", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        new Thread(() -> {
+            try {
+                SwingUtilities.invokeLater(() ->
+                        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR)));
+
+                byte[] fileBytes = java.nio.file.Files.readAllBytes(selected.toPath());
+
+                CredentialsProvider credentialsProvider = new InteractiveCredentialsProvider(
+                        (host, user) -> LoginManager.getInstance().getPassword(host, user)
+                );
+
+                try (FileService fs = new FileServiceFactory().create(resource, credentialsProvider)) {
+                    FilePayload payload = FilePayload.fromBytes(fileBytes, null, false);
+                    fs.writeFileBinary(resolvedPath, payload);
+                }
+
+                // Update local state with new bytes
+                this.rawBytes = fileBytes;
+
+                // Re-render the preview with new content
+                renderBinaryContent(fileBytes, resolvedPath, activeFileType != null ? activeFileType : "BINARY");
+
+                SwingUtilities.invokeLater(() -> {
+                    // Brief confirmation on the upload button
+                    String original = uploadButton.getText();
+                    uploadButton.setText("✓ Hochgeladen!");
+                    Timer timer = new Timer(2000, evt -> uploadButton.setText(original));
+                    timer.setRepeats(false);
+                    timer.start();
+                });
+
+                System.out.println("[FileTabImpl] Upload successful: " + selected.getName() +
+                        " (" + fileBytes.length + " bytes) → " + resolvedPath);
+
+            } catch (Exception e) {
+                System.err.println("[FileTabImpl] Upload failed: " + e.getMessage());
+                e.printStackTrace();
+                SwingUtilities.invokeLater(() ->
+                        JOptionPane.showMessageDialog(this,
+                                "Fehler beim Hochladen:\n" + e.getMessage(),
+                                "Upload-Fehler", JOptionPane.ERROR_MESSAGE));
+            } finally {
+                SwingUtilities.invokeLater(() ->
+                        setCursor(java.awt.Cursor.getDefaultCursor()));
+            }
+        }, "Upload-" + resolvedPath).start();
+    }
+
+    private String getUploadExtension(String fileType) {
+        if (fileType == null) return null;
+        switch (fileType.toUpperCase()) {
+            case "PDF": return "pdf";
+            case "WORD": return "docx";
+            case "EXCEL": return "xlsx";
+            case "OUTLOOK MAIL": return "eml";
+            default: return null;
+        }
+    }
+
     @Override
     public void setContent(String content) {
         // Use inherited setContent from SplitPreviewTab which sets rawContent and rawPane
