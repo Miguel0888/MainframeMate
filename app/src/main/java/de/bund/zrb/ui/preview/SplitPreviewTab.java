@@ -132,8 +132,8 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected final boolean isTextFile;
     protected final boolean isRemote;
     protected final String syntaxStyle;
-    protected final boolean isSourceCode;       // Source code files use RSyntaxTextArea for rendering
-    protected final boolean needsHtmlRendering; // MD/HTML/Binary docs use JEditorPane for rendering
+    protected boolean isSourceCode;       // Source code files use RSyntaxTextArea for rendering
+    protected boolean needsHtmlRendering; // MD/HTML/Binary docs use JEditorPane for rendering
     protected final ChatMarkdownFormatter markdownFormatter;
 
     // UI Components
@@ -859,6 +859,92 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
     // === Public API ===
+
+    /**
+     * Apply rendering for a specific file type (e.g., PDF, MD, JCL, COBOL).
+     * This overrides the automatic detection and changes the rendering mode.
+     *
+     * @param fileType the file type key (e.g., "PDF", "MD", "JCL", "COBOL", "NATURAL", "WORD", "EXCEL", "OUTLOOK MAIL")
+     */
+    public void applyFileTypeRendering(String fileType) {
+        if (fileType == null || fileType.trim().isEmpty()) {
+            resetFileTypeRendering();
+            return;
+        }
+
+        String type = fileType.trim().toUpperCase();
+
+        switch (type) {
+            case "PDF":
+            case "WORD":
+            case "EXCEL":
+            case "OUTLOOK MAIL":
+                // Binary document types → render as HTML (extracted text)
+                this.isSourceCode = false;
+                this.needsHtmlRendering = true;
+                renderHtmlContent();
+                applyViewMode(currentMode);
+                break;
+
+            case "MD":
+                // Markdown → render as HTML
+                this.isSourceCode = false;
+                this.needsHtmlRendering = true;
+                renderHtmlContent();
+                applyViewMode(currentMode);
+                break;
+
+            case "JCL":
+                // JCL → source code with properties-file syntax
+                this.isSourceCode = true;
+                this.needsHtmlRendering = false;
+                rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);
+                rawPane.setCodeFoldingEnabled(true);
+                applyViewMode(currentMode);
+                break;
+
+            case "COBOL":
+                // COBOL → source code (no native highlighting)
+                this.isSourceCode = true;
+                this.needsHtmlRendering = false;
+                rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+                rawPane.setCodeFoldingEnabled(true);
+                applyViewMode(currentMode);
+                break;
+
+            case "NATURAL":
+                // Natural → source code with custom syntax
+                this.isSourceCode = true;
+                this.needsHtmlRendering = false;
+                rawPane.setSyntaxEditingStyle(
+                        de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL);
+                rawPane.setCodeFoldingEnabled(true);
+                applyViewMode(currentMode);
+                break;
+
+            default:
+                // Unknown file type → reset to auto-detection
+                resetFileTypeRendering();
+                break;
+        }
+    }
+
+    /**
+     * Reset rendering to the auto-detected mode (based on file name/content).
+     */
+    public void resetFileTypeRendering() {
+        this.isSourceCode = isSourceCodeFile(sourceName);
+        this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
+        if (isSourceCode) {
+            rawPane.setSyntaxEditingStyle(syntaxStyle);
+        } else {
+            rawPane.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        }
+        if (needsHtmlRendering) {
+            renderHtmlContent();
+        }
+        applyViewMode(currentMode);
+    }
 
     /**
      * Get the current view mode.

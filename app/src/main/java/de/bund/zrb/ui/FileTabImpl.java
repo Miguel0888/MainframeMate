@@ -197,7 +197,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         eventManager.bindAll();
 
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
-        statusBarPanel.setSentenceTypes(new java.util.ArrayList<>(registry.getSentenceTypeSpec().getDefinitions().keySet()));
+        statusBarPanel.setSentenceTypesGrouped(registry.getSentenceTypeSpec().getDefinitions());
         statusBarPanel.setSelectedSentenceType(sentenceType);
 
         restoreDividerLocation();

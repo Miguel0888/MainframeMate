@@ -8,9 +8,26 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
-public class SentenceDefinition {
+public class SentenceDefinition { /** "sentence" (default) or "filetype" */
+    private String category;
     private SentenceMeta meta;
     private final FieldMap fields = new FieldMap();
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    /**
+     * Returns true if this definition represents a file type (PDF, MD, etc.)
+     * rather than a sentence type (Satzart).
+     */
+    public boolean isFileType() {
+        return "filetype".equalsIgnoreCase(category);
+    }
 
     public SentenceMeta getMeta() {
         return meta;

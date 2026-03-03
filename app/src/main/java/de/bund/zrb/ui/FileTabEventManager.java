@@ -3,6 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.ui.filetab.DiffHighlighter;
 import de.bund.zrb.ui.filetab.event.*;
 import de.zrb.bund.api.SentenceTypeRegistry;
+import de.zrb.bund.newApi.sentence.SentenceDefinition;
 
 public class FileTabEventManager {
 
@@ -17,13 +18,27 @@ public class FileTabEventManager {
             fileTab.model.setSentenceType(event.newType);
 
             if (event.newType == null || event.newType.trim().isEmpty()) {
-                // Satzart wurde "abgewählt"
+                // Satzart/Dateityp wurde "abgewählt" → Reset rendering
                 fileTab.highlighter.clearHighlights(fileTab.getRawPane());
                 fileTab.highlighter.clearHighlights(fileTab.comparePanel.getOriginalTextArea());
-                fileTab.legendController.clearLegend(); // optional
+                fileTab.legendController.clearLegend();
+                fileTab.resetFileTypeRendering();
                 return;
             }
 
+            // Check if this is a file type definition
+            java.util.Optional<SentenceDefinition> optDef = getRegistry().findDefinition(event.newType);
+            if (optDef.isPresent() && optDef.get().isFileType()) {
+                // File type selected → switch to file type rendering, clear sentence highlights
+                fileTab.highlighter.clearHighlights(fileTab.getRawPane());
+                fileTab.highlighter.clearHighlights(fileTab.comparePanel.getOriginalTextArea());
+                fileTab.legendController.clearLegend();
+                fileTab.applyFileTypeRendering(event.newType);
+                return;
+            }
+
+            // Sentence type selected → apply sentence highlighting, reset file type rendering
+            fileTab.resetFileTypeRendering();
             getRegistry().findDefinition(event.newType).ifPresent(def -> {
                 int schemaLines = def.getRowCount() != null ? def.getRowCount() : 1;
                 fileTab.highlighter.highlightFields(fileTab.getRawPane(), def.getFields(), schemaLines);

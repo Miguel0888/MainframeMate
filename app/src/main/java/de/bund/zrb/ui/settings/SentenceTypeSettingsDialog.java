@@ -2,6 +2,7 @@ package de.bund.zrb.ui.settings;
 
 import de.bund.zrb.helper.SentenceTypeSettingsHelper;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
+import de.zrb.bund.newApi.sentence.SentenceMeta;
 import de.zrb.bund.newApi.sentence.SentenceTypeSpec;
 
 import javax.swing.JButton;
@@ -96,10 +97,19 @@ public class SentenceTypeSettingsDialog {
             }
         });
 
+        JButton addFileTypesButton = new JButton("📁 Dateitypen hinzufügen");
+        addFileTypesButton.setToolTipText("Fügt Standard-Dateitypen hinzu (PDF, MD, JCL, COBOL, NATURAL, WORD, EXCEL, OUTLOOK MAIL)");
+        addFileTypesButton.addActionListener(e -> {
+            addDefaultFileTypes();
+            tableModel.fireTableDataChanged();
+            SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
+        });
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         buttonPanel.add(addButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
+        buttonPanel.add(addFileTypesButton);
 
         JPanel container = new JPanel(new BorderLayout());
         container.add(new JScrollPane(table), BorderLayout.CENTER);
@@ -125,8 +135,42 @@ public class SentenceTypeSettingsDialog {
         return result == JOptionPane.OK_OPTION;
     }
 
+    /**
+     * Adds default file type definitions if they don't already exist.
+     */
+    private static void addDefaultFileTypes() {
+        String[][] defaults = {
+                {"PDF",          ".*\\.pdf$"},
+                {"MD",           ".*\\.md$"},
+                {"JCL",          ".*\\.(jcl|proc|prc)$"},
+                {"COBOL",        ".*\\.(cbl|cob|cobol)$"},
+                {"NATURAL",      ""},
+                {"WORD",         ".*\\.(doc|docx)$"},
+                {"EXCEL",        ".*\\.(xls|xlsx)$"},
+                {"OUTLOOK MAIL", ".*\\.(msg|eml)$"},
+        };
+
+        for (String[] def : defaults) {
+            String key = def[0];
+            String pattern = def[1];
+
+            boolean exists = sentenceTypeSpec.getDefinitions().keySet().stream()
+                    .anyMatch(existingKey -> existingKey.equalsIgnoreCase(key));
+            if (exists) continue;
+
+            SentenceDefinition sd = new SentenceDefinition();
+            sd.setCategory("filetype");
+
+            SentenceMeta meta = new SentenceMeta();
+            meta.setPathPattern(pattern);
+            sd.setMeta(meta);
+
+            sentenceTypeSpec.getDefinitions().put(key, sd);
+        }
+    }
+
     private static class SentenceTableModel extends AbstractTableModel {
-        private final String[] columns = {"Satzart", "Pfade", "Pattern", "Feldzahl"};
+        private final String[] columns = {"Name", "Typ", "Pfade", "Pattern", "Feldzahl"};
 
         @Override
         public int getRowCount() {
@@ -157,16 +201,18 @@ public class SentenceTypeSettingsDialog {
                 if (index == row) {
                     switch (column) {
                         case 0: return entry.getKey();
-                        case 1:
+                        case 1: return entry.getValue().isFileType() ? "📁 Dateityp" : "📝 Satzart";
+                        case 2:
                             List<String> paths = entry.getValue().getMeta() != null
                                     ? entry.getValue().getMeta().getPaths()
                                     : null;
                             return paths != null ? String.join(";", paths) : "";
-                        case 2:
+                        case 3:
                             return entry.getValue().getMeta() != null
                                     ? entry.getValue().getMeta().getPathPattern()
                                     : "";
-                        case 3:
+                        case 4:
+                            if (entry.getValue().isFileType()) return "—";
                             return entry.getValue().getFields() != null
                                     ? entry.getValue().getFields().size()
                                     : 0;

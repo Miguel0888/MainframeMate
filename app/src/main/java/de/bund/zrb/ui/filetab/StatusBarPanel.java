@@ -1,10 +1,12 @@
 package de.bund.zrb.ui.filetab;
 
 import de.bund.zrb.ui.filetab.event.*;
+import de.zrb.bund.newApi.sentence.SentenceDefinition;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public class StatusBarPanel extends JPanel {
@@ -90,6 +92,55 @@ public class StatusBarPanel extends JPanel {
         }
     }
 
+    /**
+     * Fills the combo box with sentence types and file types, visually grouped.
+     * Separator items (starting with "──") are rendered differently and not selectable.
+     */
+    public void setSentenceTypesGrouped(Map<String, SentenceDefinition> definitions) {
+        sentenceComboBox.removeAllItems();
+        sentenceComboBox.addItem(""); // Leerer Eintrag
+
+        java.util.List<String> sentenceKeys = new java.util.ArrayList<>();
+        java.util.List<String> fileTypeKeys = new java.util.ArrayList<>();
+
+        for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
+            if (entry.getValue().isFileType()) {
+                fileTypeKeys.add(entry.getKey());
+            } else {
+                sentenceKeys.add(entry.getKey());
+            }
+        }
+
+        if (!sentenceKeys.isEmpty()) {
+            sentenceComboBox.addItem("── Satzarten ──");
+            for (String key : sentenceKeys) {
+                sentenceComboBox.addItem(key);
+            }
+        }
+
+        if (!fileTypeKeys.isEmpty()) {
+            sentenceComboBox.addItem("── Dateitypen ──");
+            for (String key : fileTypeKeys) {
+                sentenceComboBox.addItem(key);
+            }
+        }
+
+        // Custom renderer for separator items
+        sentenceComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value != null && value.toString().startsWith("──")) {
+                    setFont(getFont().deriveFont(Font.BOLD, 11f));
+                    setForeground(Color.GRAY);
+                    setEnabled(false);
+                }
+                return this;
+            }
+        });
+    }
+
 
     public void setSelectedSentenceType(String sentenceType) {
         ensureEmptySentenceOption();
@@ -111,7 +162,13 @@ public class StatusBarPanel extends JPanel {
         sentenceComboBox.addActionListener(e -> {
             Object selected = sentenceComboBox.getSelectedItem();
             if (selected != null) {
-                callback.accept(selected.toString());
+                String val = selected.toString();
+                // Skip separator items
+                if (val.startsWith("──")) {
+                    sentenceComboBox.setSelectedItem("");
+                    return;
+                }
+                callback.accept(val);
             }
         });
     }
