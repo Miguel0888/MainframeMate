@@ -53,6 +53,9 @@ public class Main {
         SwingUtilities.invokeLater(() -> {
             MainFrame gui = new MainFrame();
             gui.setVisible(true);
+
+            // Apply theme to title bar after window is visible (native HWND now exists)
+            de.bund.zrb.ui.theme.ThemeManager.getInstance().refreshWindow(gui);
         });
     }
 }

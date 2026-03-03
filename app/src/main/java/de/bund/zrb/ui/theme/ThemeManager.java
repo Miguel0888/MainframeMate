@@ -572,23 +572,26 @@ public final class ThemeManager {
      * to enable/disable the dark title bar for the given window.
      * This is the official Microsoft API for dark mode title bars.
      * Falls back gracefully on non-Windows or older Windows versions.
+     * The window must be visible (native peer must exist) for this to work.
      */
     private void applyWindowsTitleBarTheme(Window window) {
         if (!(window instanceof JFrame) && !(window instanceof JDialog)) return;
+        if (!window.isDisplayable() || !window.isVisible()) return;
 
         String os = System.getProperty("os.name", "").toLowerCase();
         if (!os.contains("windows")) return;
 
         try {
-            // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1+, Windows 11)
-            // Older Windows 10 builds use undocumented attribute 19
             long hwnd = getWindowHandle(window);
-            if (hwnd == 0) return;
+            if (hwnd == 0) {
+                System.err.println("[ThemeManager] Could not get HWND for window: " + window.getName());
+                return;
+            }
 
             com.sun.jna.platform.win32.WinDef.HWND hWnd =
                     new com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer.createConstant(hwnd));
 
-            // Try attribute 20 first (Windows 10 20H1+), fallback to 19
+            // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1+, Windows 11)
             com.sun.jna.Memory darkMode = new com.sun.jna.Memory(4);
             darkMode.setInt(0, currentTheme.isDark ? 1 : 0);
 
@@ -600,28 +603,30 @@ public final class ThemeManager {
                 Dwmapi.INSTANCE.DwmSetWindowAttribute(hWnd, 19, darkMode, 4);
             }
 
-            // Force Windows to redraw the title bar
-            // Toggle visibility to trigger a non-client area repaint
-            if (window.isVisible()) {
-                Dimension size = window.getSize();
-                window.setSize(size.width, size.height + 1);
-                window.setSize(size.width, size.height);
-            }
+            // Force Windows to redraw the title bar by toggling the window size
+            Dimension size = window.getSize();
+            window.setSize(size.width, size.height + 1);
+            window.setSize(size.width, size.height);
+
         } catch (Throwable t) {
-            // Not critical — fall back silently
             System.err.println("[ThemeManager] Windows title bar dark mode not available: " + t.getMessage());
         }
     }
 
     /**
      * Get the native window handle (HWND) from a Swing Window.
-     * Uses the sun.awt.windows.WComponentPeer internal API.
+     * Tries JNA Native.getWindowID first (most reliable), then reflection fallback.
      */
     private long getWindowHandle(Window window) {
+        // Try JNA first — most reliable for visible windows
         try {
-            // Access the peer's HWND via reflection (works on Oracle/OpenJDK on Windows)
+            long hwnd = com.sun.jna.Native.getWindowID(window);
+            if (hwnd != 0) return hwnd;
+        } catch (Throwable ignored) {}
+
+        // Fallback: reflection via sun.awt peer
+        try {
             if (window.isDisplayable()) {
-                // Java 8+: window peer has getHWnd()
                 Object peer = getComponentPeer(window);
                 if (peer != null) {
                     java.lang.reflect.Method getHWnd = peer.getClass().getMethod("getHWnd");
@@ -629,14 +634,8 @@ public final class ThemeManager {
                     return (Long) getHWnd.invoke(peer);
                 }
             }
-        } catch (Throwable t) {
-            // Fallback: try Native.getWindowID from JNA
-            try {
-                return com.sun.jna.Native.getWindowID(window);
-            } catch (Throwable t2) {
-                // not available
-            }
-        }
+        } catch (Throwable ignored) {}
+
         return 0;
     }
 
