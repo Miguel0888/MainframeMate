@@ -253,7 +253,7 @@ public interface IPalTransactions {
                       Set<EUploadOption> options, String[] sourceLines)
             throws IOException, PalResultException;
 
-    void sendFiles(IPalTypeSystemFile sysFile, String library, ObjectProperties objProps,
+    void sendFiles(IPalTypeSystemFile sysFile, String library, FileProperties objProps,
                    Set<EUploadOption> options, Object[] data)
             throws IOException, PalResultException;
 

@@ -65,7 +65,7 @@ public class DownloadService {
                                                  String library, String name, int type)
             throws IOException, PalResultException {
         return downloadBinary(sysFile, library,
-                new ObjectProperties.Builder(name, type).longName(name).build());
+                new FileProperties.Builder(name, type).longName(name).build());
     }
 
     /**
@@ -76,7 +76,7 @@ public class DownloadService {
                                                  String longName, int type)
             throws IOException, PalResultException {
         return downloadBinary(sysFile, library,
-                new ObjectProperties.Builder(name, type).longName(longName).build());
+                new FileProperties.Builder(name, type).longName(longName).build());
     }
 
     /**

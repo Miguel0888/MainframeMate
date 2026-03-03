@@ -7,7 +7,7 @@ import de.bund.zrb.ndv.transaction.impl.NdvTimeStamp;
 import java.util.EnumSet;
 import java.util.Set;
 
-public class ObjectProperties implements IFileProperties {
+public class FileProperties implements IFileProperties {
     private final String name;
     private final String langName;
     private final String benutzer;
@@ -30,7 +30,7 @@ public class ObjectProperties implements IFileProperties {
     private final NdvTimeStamp zeitstempel;
     private final String basisBibliothek;
 
-    private ObjectProperties(Builder builder) {
+    private FileProperties(Builder builder) {
         this.name = builder.name;
         this.langName = builder.langName;
         this.benutzer = builder.benutzer;
@@ -200,8 +200,8 @@ public class ObjectProperties implements IFileProperties {
         public Builder timeStamp(NdvTimeStamp timeStamp) { this.zeitstempel = timeStamp; return this; }
         public Builder baseLibrary(String baseLibrary) { this.basisBibliothek = baseLibrary; return this; }
 
-        public ObjectProperties build() {
-            return new ObjectProperties(this);
+        public FileProperties build() {
+            return new FileProperties(this);
         }
     }
 }

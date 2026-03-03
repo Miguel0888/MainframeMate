@@ -58,7 +58,7 @@ public class UploadService {
     // ══════════════════════════════════════════════════════════════
 
     public void sendFiles(IPalTypeSystemFile sysFile, String library,
-                          ObjectProperties objProps, Set<EUploadOption> options, Object[] data)
+                          FileProperties objProps, Set<EUploadOption> options, Object[] data)
             throws IOException, PalResultException {
         ctx.requirePal();
         if (sysFile == null) throw new IllegalArgumentException("systemFileKey must not be null");
@@ -665,7 +665,7 @@ public class UploadService {
                 }
             } else if (datei instanceof ByteArrayOutputStream) {
                 // Binaerdaten
-                binaryToPal((ByteArrayOutputStream) datei);
+                binaryToNdv((ByteArrayOutputStream) datei);
                 if (zeitstempel != null) zeitstempelAnServerSenden(zeitstempel);
                 ndv.add((IPalType) new PalTypeNotify(5));
                 ndv.commit();
@@ -762,7 +762,7 @@ public class UploadService {
         }
 
         if (notify[0].getNotification() == 6) {
-            binaryToPal(data);
+            binaryToNdv(data);
             if (zeitstempel != null) zeitstempelAnServerSenden(zeitstempel);
             ndv.add((IPalType) new PalTypeNotify(5));
             ndv.commit();
@@ -780,7 +780,7 @@ public class UploadService {
     //  Hilfsmethoden
     // ══════════════════════════════════════════════════════════════
 
-    private void binaryToPal(ByteArrayOutputStream data) throws IOException {
+    private void binaryToNdv(ByteArrayOutputStream data) throws IOException {
         Ndv ndv = ctx.getPal();
         byte[] bytes = data.toByteArray();
         int offset = 0;

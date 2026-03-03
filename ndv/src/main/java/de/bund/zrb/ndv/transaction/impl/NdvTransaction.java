@@ -291,7 +291,7 @@ public class NdvTransaction implements IPalTransactions {
 
     @Override
     public void sendFiles(IPalTypeSystemFile sysFile, String library,
-                          ObjectProperties objProps, Set<EUploadOption> options, Object[] data)
+                          FileProperties objProps, Set<EUploadOption> options, Object[] data)
             throws IOException, PalResultException {
         uploadService.sendFiles(sysFile, library, objProps, options, data);
     }

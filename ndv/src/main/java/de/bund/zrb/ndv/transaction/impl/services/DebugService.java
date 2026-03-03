@@ -44,7 +44,15 @@ public class DebugService {
         // Create a default stepLib array with one empty entry
         IPalTypeLibId[] stepLibs = new IPalTypeLibId[1];
         stepLibs[0] = PalTypeLibIdFactory.newInstance();
-        doLogon(library, stepLibs);
+        PalTrace.header("logon");
+        ctx.getPal().add((IPalType) new PalTypeOperation(2, 12));
+        ctx.getPal().add((IPalType) new PalTypeStack("LOGON " + library));
+        ctx.getPal().add((IPalType[]) stepLibs);
+        ctx.getPal().commit();
+        PalResultException ex = ctx.getResultException();
+        if (ex != null) {
+            throw ex;
+        }
     }
 
     public void logon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
@@ -55,7 +63,15 @@ public class DebugService {
         if (stepLibs == null) {
             throw new IllegalArgumentException("the palTypeLibIds must not be null");
         }
-        doLogon(library, stepLibs);
+        PalTrace.header("logon");
+        ctx.getPal().add((IPalType) new PalTypeOperation(2, 12));
+        ctx.getPal().add((IPalType) new PalTypeStack("LOGON " + library));
+        ctx.getPal().add((IPalType[]) stepLibs);
+        ctx.getPal().commit();
+        PalResultException ex = ctx.getResultException();
+        if (ex != null) {
+            throw ex;
+        }
     }
 
     public String getLogonLibrary() throws IOException, PalResultException {
@@ -72,21 +88,6 @@ public class DebugService {
             throw new IllegalStateException("Fatal:Ndv server did not deliver the Logon library");
         }
         return libIds[0].getLibrary();
-    }
-
-    /**
-     * Intern: Logon-Kommando an den Server senden.
-     */
-    private void doLogon(String library, IPalTypeLibId[] stepLibs) throws IOException, PalResultException {
-        PalTrace.header("logon");
-        ctx.getPal().add((IPalType) new PalTypeOperation(2, 12));
-        ctx.getPal().add((IPalType) new PalTypeStack("LOGON " + library));
-        ctx.getPal().add((IPalType[]) stepLibs);
-        ctx.getPal().commit();
-        PalResultException ex = ctx.getResultException();
-        if (ex != null) {
-            throw ex;
-        }
     }
 
     // ── Debug ──

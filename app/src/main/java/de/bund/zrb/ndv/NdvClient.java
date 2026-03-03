@@ -376,7 +376,7 @@ public class NdvClient implements Closeable {
                 (ITransactionContextDownload) pal.createTransactionContext(ITransactionContextDownload.class);
 
         try {
-            IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+            IFileProperties props = new FileProperties.Builder(objInfo.getName(), objInfo.getType()).build();
             Set<EDownLoadOption> options = EnumSet.of(EDownLoadOption.NONE);
 
             IDownloadResult result = pal.downloadSource(ctx, sysFile, library, props, options);
@@ -513,7 +513,7 @@ public class NdvClient implements Closeable {
                 + "/" + sysFile.getFileNumber() + "/" + sysFile.getKind());
 
         try {
-            IFileProperties props = new ObjectProperties.Builder(objInfo.getName(), objInfo.getType()).build();
+            IFileProperties props = new FileProperties.Builder(objInfo.getName(), objInfo.getType()).build();
 
             // Use empty set for upload options (no special options needed for basic save)
             Set<EUploadOption> options = EnumSet.noneOf(EUploadOption.class);
