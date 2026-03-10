@@ -121,6 +121,19 @@ public class RightDrawer extends JPanel {
     }
 
     /**
+     * Update the JCL outline panel with a language hint from the sentence type dropdown.
+     *
+     * @param jclContent   source content
+     * @param sourceName   display name
+     * @param languageHint sentence type key (e.g. "JCL", "COBOL", "NATURAL") or null for auto-detect
+     */
+    public void updateJclOutline(String jclContent, String sourceName, String languageHint) {
+        if (outlinePanel != null) {
+            outlinePanel.setContent(jclContent, sourceName, languageHint);
+        }
+    }
+
+    /**
      * Clear the JCL outline panel.
      */
     public void clearJclOutline() {

@@ -129,21 +129,45 @@ public class JclOutlinePanel extends JPanel {
     }
 
     /**
-     * Parse and display content. Automatically detects JCL vs COBOL.
+     * Parse and display content. Automatically detects JCL vs COBOL vs Natural.
      */
     public void setContent(String content, String sourceName) {
+        setContent(content, sourceName, null);
+    }
+
+    /**
+     * Parse and display content with an optional language hint from the sentence type dropdown.
+     * If a languageHint is given (e.g. "JCL", "COBOL", "NATURAL"), it takes precedence
+     * over the built-in content analysis.
+     *
+     * @param content      the source code
+     * @param sourceName   display name for the outline root
+     * @param languageHint sentence type key from the dropdown (nullable)
+     */
+    public void setContent(String content, String sourceName, String languageHint) {
         if (content == null || content.isEmpty()) {
             showPlaceholder();
             return;
         }
 
-        // Detect language and parse
-        if (isNaturalContent(content)) {
+        // Determine language – dropdown hint takes priority
+        String lang = languageHint != null ? languageHint.toUpperCase().trim() : "";
+
+        if (lang.contains("NATURAL")) {
             currentModel = naturalParser.parse(content, sourceName);
-        } else if (isCobolContent(content)) {
+        } else if (lang.contains("COBOL")) {
             currentModel = cobolParser.parse(content, sourceName);
-        } else {
+        } else if (lang.contains("JCL")) {
             currentModel = jclParser.parse(content, sourceName);
+        } else {
+            // Fallback: auto-detect from content (legacy behaviour)
+            if (isNaturalContent(content)) {
+                currentModel = naturalParser.parse(content, sourceName);
+            } else if (isCobolContent(content)) {
+                currentModel = cobolParser.parse(content, sourceName);
+            } else {
+                currentModel = jclParser.parse(content, sourceName);
+            }
         }
 
         if (currentModel.isEmpty()) {

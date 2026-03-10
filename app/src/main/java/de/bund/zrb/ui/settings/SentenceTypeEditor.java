@@ -32,7 +32,7 @@ public class SentenceTypeEditor extends JPanel {
 
     private final FieldTableModel fieldModel = new FieldTableModel();
     private final JTable fieldTable = new JTable(fieldModel);
-    private final JTextArea detectionScriptArea = new JTextArea(6, 40);
+    private final org.fife.ui.rsyntaxtextarea.RSyntaxTextArea detectionScriptArea = new org.fife.ui.rsyntaxtextarea.RSyntaxTextArea(8, 40);
     public String originalKey = ""; // wird extern gesetzt
 
     private boolean fileTypeMode = false;
@@ -248,11 +248,13 @@ public class SentenceTypeEditor extends JPanel {
         gbc.gridx = 1;
         gbc.weightx = 1;
         gbc.anchor = GridBagConstraints.WEST;
-        detectionScriptArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        detectionScriptArea.setSyntaxEditingStyle(org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_JAVA);
+        detectionScriptArea.setCodeFoldingEnabled(true);
+        detectionScriptArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         detectionScriptArea.setTabSize(4);
         detectionScriptArea.setToolTipText(detectionLabel.getToolTipText());
-        JScrollPane detectionScroll = new JScrollPane(detectionScriptArea);
-        detectionScroll.setPreferredSize(new Dimension(400, 120));
+        org.fife.ui.rtextarea.RTextScrollPane detectionScroll = new org.fife.ui.rtextarea.RTextScrollPane(detectionScriptArea);
+        detectionScroll.setPreferredSize(new Dimension(400, 160));
         metaPanel.add(detectionScroll, gbc);
 
         // Buttons für Felder

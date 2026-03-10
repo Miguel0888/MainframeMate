@@ -419,6 +419,14 @@ public class TabbedPaneManager {
      * Update JCL outline panel when a tab is selected.
      * Detects if the selected tab contains JCL content and updates the outline.
      */
+    /**
+     * Public entry point to refresh the outline panel for the currently active tab.
+     * Called when the sentence type dropdown changes.
+     */
+    public void refreshOutlineForActiveTab() {
+        updateJclOutlineForSelectedTab();
+    }
+
     private void updateJclOutlineForSelectedTab() {
         // Get RightDrawer from MainFrame
         if (!(mainframeContext instanceof MainFrame)) {
@@ -443,14 +451,16 @@ public class TabbedPaneManager {
             return;
         }
 
-        // Get content and source name
+        // Get content, source name, and sentence type from the tab
         String content = null;
         String sourceName = null;
+        String sentenceType = null;
 
         if (tab instanceof FileTabImpl) {
             FileTabImpl fileTab = (FileTabImpl) tab;
             content = fileTab.getContent();
             sourceName = fileTab.getPath();
+            sentenceType = fileTab.getModel().getSentenceType();
         } else if (tab instanceof SplitPreviewTab) {
             SplitPreviewTab previewTab = (SplitPreviewTab) tab;
             content = previewTab.getContent();
@@ -462,9 +472,18 @@ public class TabbedPaneManager {
             return;
         }
 
-        // Check if content looks like JCL, COBOL, or Natural
-        if (isJclContent(content) || isCobolContent(content) || isNaturalContent(content)) {
-            rightDrawer.updateJclOutline(content, sourceName);
+        // Determine whether to show outline based on the sentence type from dropdown
+        boolean showOutline = false;
+        if (sentenceType != null && !sentenceType.isEmpty()) {
+            String upper = sentenceType.toUpperCase();
+            showOutline = upper.contains("JCL") || upper.contains("COBOL") || upper.contains("NATURAL");
+        } else {
+            // Fallback: auto-detect from content if no sentence type is set in the dropdown
+            showOutline = isJclContent(content) || isCobolContent(content) || isNaturalContent(content);
+        }
+
+        if (showOutline) {
+            rightDrawer.updateJclOutline(content, sourceName, sentenceType);
 
             // Set up line navigator to jump to line in editor
             rightDrawer.getOutlinePanel().setLineNavigator(lineNumber -> {

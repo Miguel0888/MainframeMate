@@ -17,6 +17,9 @@ public class FileTabEventManager {
         fileTab.dispatcher.subscribe(SentenceTypeChangedEvent.class, event -> {
             fileTab.model.setSentenceType(event.newType);
 
+            // Refresh outline to match the dropdown selection
+            fileTab.refreshOutline();
+
             if (event.newType == null || event.newType.trim().isEmpty()) {
                 // Satzart/Dateityp wurde "abgewählt" → Reset rendering
                 fileTab.highlighter.clearHighlights(fileTab.getRawPane());

@@ -45,6 +45,10 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     final FileTabModel model = new FileTabModel();
     final FileTabEventDispatcher dispatcher = new FileTabEventDispatcher();
 
+    public FileTabModel getModel() {
+        return model;
+    }
+
     final ComparePanel comparePanel;
     final StatusBarPanel statusBarPanel = new StatusBarPanel();
 
@@ -386,6 +390,16 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
     private SentenceTypeRegistry getRegistry() {
         return tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
+    }
+
+    /**
+     * Request that the outline panel is refreshed for this tab.
+     * Delegates to TabbedPaneManager which has access to the RightDrawer.
+     */
+    void refreshOutline() {
+        if (tabbedPaneManager != null) {
+            tabbedPaneManager.refreshOutlineForActiveTab();
+        }
     }
 
     @Override

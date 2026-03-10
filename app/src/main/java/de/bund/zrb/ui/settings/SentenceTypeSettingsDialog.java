@@ -143,12 +143,27 @@ public class SentenceTypeSettingsDialog {
             SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
         });
 
+        JButton removeFileTypesButton = new JButton("🗑 Dateitypen entfernen");
+        removeFileTypesButton.setToolTipText("Entfernt alle Dateityp- und Sprach-Einträge (behält Satzarten)");
+        removeFileTypesButton.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(parent,
+                    "Alle Dateityp- und Sprach-Einträge wirklich entfernen?\nSatzarten bleiben erhalten.",
+                    "Dateitypen entfernen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                sentenceTypeSpec.getDefinitions().entrySet()
+                        .removeIf(entry -> entry.getValue().isFileType());
+                tableModel.fireTableDataChanged();
+                SentenceTypeSettingsHelper.saveSentenceTypes(sentenceTypeSpec);
+            }
+        });
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         buttonPanel.add(addButton);
         buttonPanel.add(addFileTypeButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
         buttonPanel.add(addFileTypesButton);
+        buttonPanel.add(removeFileTypesButton);
 
         JPanel container = new JPanel(new BorderLayout());
         container.add(new JScrollPane(table), BorderLayout.CENTER);
