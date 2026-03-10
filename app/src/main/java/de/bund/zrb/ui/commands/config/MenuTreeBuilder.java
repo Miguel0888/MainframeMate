@@ -12,7 +12,7 @@ public class MenuTreeBuilder {
 
     // Definiert die Reihenfolge der Hauptmenüs
     private static final List<String> MENU_ORDER = Arrays.asList(
-            "file", "connection", "edit", "view", "extras", "plugin", "settings", "help"
+            "file", "connection", "navigate", "edit", "view", "extras", "plugin", "settings", "help"
     );
 
     // Definiert die Reihenfolge innerhalb von Untermenüs
@@ -37,9 +37,13 @@ public class MenuTreeBuilder {
                 "---3",
                 "betaview"
         ));
+        // Navigieren-Menü Reihenfolge
+        SUBMENU_ORDER.put("navigate", Arrays.asList(
+                "searchEverywhere"
+        ));
         // Bearbeiten-Menü Reihenfolge
         SUBMENU_ORDER.put("edit", Arrays.asList(
-                "globalSearch", "---1", "search", "compare", "---2", "bookmark"
+                "search", "compare", "---1", "bookmark"
         ));
         // Einstellungen-Menü Reihenfolge
         SUBMENU_ORDER.put("settings", Arrays.asList(

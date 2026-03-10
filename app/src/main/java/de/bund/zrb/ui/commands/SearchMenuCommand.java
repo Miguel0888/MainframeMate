@@ -8,7 +8,7 @@ import javax.swing.*;
 
 /**
  * Menu command that opens the global search tab.
- * Registered under edit.globalSearch.
+ * Registered under navigate.searchEverywhere.
  */
 public class SearchMenuCommand extends ShortcutMenuCommand {
 
@@ -22,12 +22,12 @@ public class SearchMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "edit.globalSearch";
+        return "navigate.searchEverywhere";
     }
 
     @Override
     public String getLabel() {
-        return "Übergreifende Suche…";
+        return "\u00DCberall suchen\u2026";
     }
 
     @Override
