@@ -154,6 +154,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected JButton saveButton; // Save/Download button (can change label dynamically)
     protected JButton uploadButton; // Upload button (visible only when in download/binary mode)
     protected byte[] rawBytes = null; // Binary content for download (set when reloaded as binary)
+    protected JToolBar toolbar; // Toolbar reference for subclass extension
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
@@ -186,7 +187,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.mainPanel = new JPanel(new BorderLayout());
 
         // Toolbar with view mode toggle
-        JToolBar toolbar = createToolbar();
+        this.toolbar = createToolbar();
 
         // Content panel (holds split/single view)
         contentPanel = new JPanel(new BorderLayout());

@@ -26,6 +26,9 @@ import java.util.Map;
 
 import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.path.VirtualResourceRef;
+import de.bund.zrb.files.impl.ftp.jes.JesFtpJobSubmitter;
+import de.bund.zrb.files.impl.ftp.jes.JesSubmitException;
+import de.bund.zrb.files.impl.ftp.jes.JobSubmitResult;
 
 /**
  * File editor tab that extends SplitPreviewTab to provide:
@@ -234,6 +237,9 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         // Record initial version in local history (so we have the opened state for comparison)
         recordInitialVersion(content);
+
+        // Add JES Submit button for FTP+MVS+JCL tabs
+        initJesSubmitButton(content, sentenceType);
     }
 
     /**
@@ -1000,4 +1006,214 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         return null;
     }
+
+    // ── JES Submit ──────────────────────────────────────────────────────────────
+
+    private JButton jesSubmitButton;
+
+    /**
+     * Adds a "▶ Ausführen" button to the toolbar when the tab is FTP + MVS + JCL.
+     */
+    private void initJesSubmitButton(String content, String resolvedSentenceType) {
+        if (!isJesSubmitEligible(content, resolvedSentenceType)) {
+            return;
+        }
+
+        jesSubmitButton = new JButton("▶ Ausführen");
+        jesSubmitButton.setToolTipText("JCL als Job per FTP JES submitten");
+
+        jesSubmitButton.addActionListener(e -> handleJesSubmit());
+
+        // Insert after uploadButton in the toolbar (index search)
+        if (toolbar != null) {
+            int insertIndex = -1;
+            for (int i = 0; i < toolbar.getComponentCount(); i++) {
+                if (toolbar.getComponent(i) == uploadButton) {
+                    insertIndex = i + 1;
+                    break;
+                }
+            }
+            if (insertIndex >= 0 && insertIndex <= toolbar.getComponentCount()) {
+                toolbar.add(jesSubmitButton, insertIndex);
+            } else {
+                // Fallback: add before the glue
+                toolbar.add(jesSubmitButton, 5);
+            }
+            toolbar.revalidate();
+            toolbar.repaint();
+        }
+    }
+
+    /**
+     * Check if JES submit is eligible: FTP backend + MVS mode + JCL content.
+     */
+    private boolean isJesSubmitEligible(String content, String resolvedSentenceType) {
+        if (resource == null) return false;
+        if (resource.getBackendType() != VirtualBackendType.FTP) return false;
+
+        // Check MVS mode
+        FtpResourceState ftpState = resource.getFtpState();
+        if (ftpState == null || !Boolean.TRUE.equals(ftpState.getMvsMode())) return false;
+
+        // Check JCL: either by sentence type or content detection
+        if (resolvedSentenceType != null) {
+            String upper = resolvedSentenceType.toUpperCase();
+            if (upper.contains("JCL")) return true;
+        }
+        // Check file extension
+        String path = resource.getResolvedPath();
+        if (path != null) {
+            String lower = path.toLowerCase();
+            if (lower.endsWith(".jcl") || lower.endsWith(".proc") || lower.endsWith(".prc")) return true;
+        }
+        // Check content
+        if (content != null && isJclContent(content)) return true;
+
+        return false;
+    }
+
+    /**
+     * Handle JES submit button click:
+     * 1) Check unsaved changes
+     * 2) Show confirmation dialog
+     * 3) Submit asynchronously
+     */
+    private void handleJesSubmit() {
+        String jclContent = getRawPane().getText();
+        if (jclContent == null || jclContent.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "JCL-Inhalt ist leer.",
+                    "Ausführen nicht möglich", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // ── Step 1: Handle unsaved changes ──
+        if (hasUnsavedChanges) {
+            String[] options = {"Speichern & Ausführen", "Nur Ausführen", "Abbrechen"};
+            int choice = JOptionPane.showOptionDialog(mainPanel,
+                    "Es gibt ungespeicherte Änderungen.\nWas soll passieren?",
+                    "Ungespeicherte Änderungen",
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
+                    null, options, options[0]);
+
+            if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) return; // Cancel
+            if (choice == 0) {
+                // Save first
+                saveIfApplicable();
+                // Re-read content after save
+                jclContent = getRawPane().getText();
+            }
+            // choice == 1: proceed with current content
+        }
+
+        // ── Step 2: Confirmation dialog ──
+        FtpResourceState ftpState = resource.getFtpState();
+        String host = ftpState != null && ftpState.getConnectionId() != null
+                ? ftpState.getConnectionId().getHost() : "(unbekannt)";
+        String user = ftpState != null && ftpState.getConnectionId() != null
+                ? ftpState.getConnectionId().getUsername() : "(unbekannt)";
+        String path = resource.getResolvedPath();
+
+        String message = "Soll dieser JCL wirklich als Job submitted werden?\n\n"
+                + "Host: " + host + "\n"
+                + "User: " + user + "\n"
+                + (path != null ? "Datei: " + path + "\n" : "");
+
+        int confirm = JOptionPane.showConfirmDialog(mainPanel,
+                message,
+                "Job submitten?",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        // ── Step 3: Submit asynchronously ──
+        jesSubmitButton.setEnabled(false);
+        jesSubmitButton.setText("⏳ Submitting…");
+
+        final String finalJclContent = jclContent;
+        new SwingWorker<JobSubmitResult, Void>() {
+            @Override
+            protected JobSubmitResult doInBackground() throws Exception {
+                CredentialsProvider credentialsProvider = new InteractiveCredentialsProvider(
+                        (h, u) -> LoginManager.getInstance().getPassword(h, u)
+                );
+                return JesFtpJobSubmitter.submit(
+                        ftpState.getConnectionId(),
+                        credentialsProvider,
+                        finalJclContent
+                );
+            }
+
+            @Override
+            protected void done() {
+                jesSubmitButton.setEnabled(true);
+                jesSubmitButton.setText("▶ Ausführen");
+                try {
+                    JobSubmitResult result = get();
+                    showSubmitSuccess(result);
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    showSubmitError(cause);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Show success dialog with Job-ID and copy button.
+     */
+    private void showSubmitSuccess(JobSubmitResult result) {
+        String jobId = result.getJobId();
+        String jobName = result.getJobName();
+        String info = "Job submitted!\n\n"
+                + "Job-ID: " + jobId + "\n"
+                + (jobName != null ? "Jobname: " + jobName + "\n" : "")
+                + "Host: " + result.getHost() + "\n"
+                + "User: " + result.getUser() + "\n"
+                + "Zeit: " + result.getSubmittedAt().toString().replace('T', ' ');
+
+        String[] options = {"Job-ID kopieren", "Schließen"};
+        int choice = JOptionPane.showOptionDialog(mainPanel,
+                info,
+                "Job submitted",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.INFORMATION_MESSAGE,
+                null, options, options[1]);
+
+        if (choice == 0) {
+            // Copy Job-ID to clipboard
+            java.awt.datatransfer.StringSelection sel =
+                    new java.awt.datatransfer.StringSelection(jobId);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+        }
+    }
+
+    /**
+     * Show error dialog for failed submit.
+     */
+    private void showSubmitError(Throwable cause) {
+        String title;
+        String message;
+
+        if (cause instanceof JesSubmitException) {
+            // Check if it's a JES permission issue
+            String msg = cause.getMessage();
+            if (msg != null && (msg.contains("FILETYPE=JES") || msg.contains("JES-Submit nicht möglich"))) {
+                title = "JES-Submit nicht möglich";
+            } else {
+                title = "Job submit fehlgeschlagen";
+            }
+            message = cause.getMessage();
+        } else {
+            title = "Job submit fehlgeschlagen";
+            message = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+        }
+
+        JOptionPane.showMessageDialog(mainPanel,
+                message,
+                title,
+                JOptionPane.ERROR_MESSAGE);
+    }
 }
+
