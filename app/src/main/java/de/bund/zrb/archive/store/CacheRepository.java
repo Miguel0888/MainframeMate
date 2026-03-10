@@ -14,15 +14,15 @@ import java.util.logging.Logger;
 /**
  * H2-backed repository for archive entries and web-cache entries.
  */
-public class ArchiveRepository {
+public class CacheRepository {
 
-    private static final Logger LOG = Logger.getLogger(ArchiveRepository.class.getName());
-    private static ArchiveRepository instance;
+    private static final Logger LOG = Logger.getLogger(CacheRepository.class.getName());
+    private static CacheRepository instance;
 
     private final String jdbcUrl;
     private Connection connection;
 
-    private ArchiveRepository() {
+    private CacheRepository() {
         String home = System.getProperty("user.home");
         File dbDir = new File(home, ".mainframemate" + File.separator + "db");
         if (!dbDir.exists()) {
@@ -32,9 +32,9 @@ public class ArchiveRepository {
         initDatabase();
     }
 
-    public static synchronized ArchiveRepository getInstance() {
+    public static synchronized CacheRepository getInstance() {
         if (instance == null) {
-            instance = new ArchiveRepository();
+            instance = new CacheRepository();
         }
         return instance;
     }

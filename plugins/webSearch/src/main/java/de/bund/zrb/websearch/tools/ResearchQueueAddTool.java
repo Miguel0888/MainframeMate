@@ -5,7 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import de.bund.zrb.archive.model.ArchiveEntryStatus;
 import de.bund.zrb.archive.model.WebCacheEntry;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -55,7 +55,7 @@ public class ResearchQueueAddTool implements McpTool {
         int depth = input.has("depth") ? input.get("depth").getAsInt() : 0;
 
         try {
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
             int added = 0;
             int skipped = 0;
 

@@ -5,7 +5,7 @@ import com.google.gson.JsonObject;
 import de.bund.zrb.archive.model.ArchiveEntryStatus;
 import de.bund.zrb.archive.model.WebCacheEntry;
 import de.bund.zrb.archive.service.DomainFilter;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.indexing.model.IndexSource;
 import de.bund.zrb.indexing.store.IndexSourceRepository;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -20,9 +20,9 @@ import java.util.*;
  */
 public class WebCacheAddUrlsTool implements McpTool {
 
-    private final ArchiveRepository repo;
+    private final CacheRepository repo;
 
-    public WebCacheAddUrlsTool(ArchiveRepository repo) {
+    public WebCacheAddUrlsTool(CacheRepository repo) {
         this.repo = repo;
     }
 

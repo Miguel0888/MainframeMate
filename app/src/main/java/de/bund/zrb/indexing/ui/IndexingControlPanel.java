@@ -1,5 +1,6 @@
 package de.bund.zrb.indexing.ui;
 
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.indexing.model.*;
 import de.bund.zrb.indexing.service.IndexingService;
 
@@ -7,7 +8,6 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -774,7 +774,7 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
                     return lastRun != null ? "✅" : "–";
                 case 6:
                     if (s.getSourceType() == SourceType.WEB) {
-                        int count = de.bund.zrb.archive.store.ArchiveRepository.getInstance()
+                        int count = CacheRepository.getInstance()
                                 .countBySourceId(s.getSourceId());
                         return "🔗 " + count;
                     }

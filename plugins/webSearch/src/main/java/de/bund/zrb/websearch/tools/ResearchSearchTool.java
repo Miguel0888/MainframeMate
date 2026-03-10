@@ -3,7 +3,7 @@ package de.bund.zrb.websearch.tools;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import de.bund.zrb.archive.model.ArchiveDocument;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
 import de.zrb.bund.newApi.mcp.McpTool;
@@ -71,7 +71,7 @@ public class ResearchSearchTool implements McpTool {
             List<SearchResult> luceneResults = searchService.search(query, null, maxResults, false);
 
             // Also search the catalog DB directly for title/excerpt matches
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
             List<ArchiveDocument> dbDocs = repo.searchDocuments(query, host, maxResults);
 
             JsonObject resp = new JsonObject();

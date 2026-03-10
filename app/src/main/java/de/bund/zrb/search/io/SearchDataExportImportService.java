@@ -1,7 +1,7 @@
 package de.bund.zrb.search.io;
 
 import de.bund.zrb.archive.service.ResourceStorageService;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.service.RagService;
@@ -20,7 +20,7 @@ import java.util.zip.*;
  * and archive file snapshots as a single ZIP file.
  * <p>
  * <b>All data is read through the live service instances</b> (RagService,
- * ArchiveRepository, ResourceStorageService) so that no file-level locks
+ * CacheRepository, ResourceStorageService) so that no file-level locks
  * can cause failures on Windows.
  * <p>
  * ZIP layout (v2):
@@ -258,12 +258,12 @@ public final class SearchDataExportImportService {
 
     /**
      * Export the H2 database using the <b>already-open</b> connection held by
-     * {@link ArchiveRepository}.  This avoids opening a second connection that
+     * {@link CacheRepository}.  This avoids opening a second connection that
      * would compete for the database lock file.
      */
     private static void exportH2Dump(ZipOutputStream zos) throws IOException {
         try {
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
             String sql = repo.exportDatabaseScript();
 
             if (sql != null && !sql.isEmpty()) {
@@ -288,7 +288,7 @@ public final class SearchDataExportImportService {
     private static void exportSnapshotsViaService(ZipOutputStream zos,
                                                   ProgressCallback callback,
                                                   CancelToken cancelToken) throws IOException {
-        ArchiveRepository repo = ArchiveRepository.getInstance();
+        CacheRepository repo = CacheRepository.getInstance();
         ResourceStorageService storage = new ResourceStorageService();
 
         // ── Phase 1: collect all file references from DB (fast, in-memory) ──
@@ -689,7 +689,7 @@ public final class SearchDataExportImportService {
                 copy(sqlStream, fos);
             }
 
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
             repo.importDatabaseScript(tempSql);
 
         } finally {

@@ -3,7 +3,7 @@ package de.bund.zrb.archive.service;
 import de.bund.zrb.archive.model.ArchiveDocument;
 import de.bund.zrb.archive.model.ArchiveResource;
 import de.bund.zrb.archive.model.ResourceKind;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,10 +35,10 @@ public class CatalogPipeline {
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]+>");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
-    private final ArchiveRepository repository;
+    private final CacheRepository repository;
     private final ResourceStorageService storageService;
 
-    public CatalogPipeline(ArchiveRepository repository, ResourceStorageService storageService) {
+    public CatalogPipeline(CacheRepository repository, ResourceStorageService storageService) {
         this.repository = repository;
         this.storageService = storageService;
     }

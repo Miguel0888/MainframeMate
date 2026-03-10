@@ -5,7 +5,7 @@ import com.google.gson.JsonObject;
 import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.model.ArchiveEntryStatus;
 import de.bund.zrb.archive.model.WebCacheEntry;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -40,7 +40,7 @@ public class ResearchQueueStatusTool implements McpTool {
         String sourceId = input.has("sourceId") ? input.get("sourceId").getAsString() : null;
 
         try {
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
 
             JsonObject resp = new JsonObject();
             resp.addProperty("status", "ok");

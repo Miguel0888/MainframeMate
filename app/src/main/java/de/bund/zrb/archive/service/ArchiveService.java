@@ -1,14 +1,13 @@
 package de.bund.zrb.archive.service;
 
 import de.bund.zrb.archive.model.*;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.archive.tools.WebArchiveSnapshotTool;
 import de.bund.zrb.archive.tools.WebCacheAddUrlsTool;
 import de.bund.zrb.archive.tools.WebCacheStatusTool;
 import de.bund.zrb.runtime.ToolRegistryImpl;
 
 import java.util.Map;
-import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -21,13 +20,13 @@ public class ArchiveService {
     private static final Logger LOG = Logger.getLogger(ArchiveService.class.getName());
     private static ArchiveService instance;
 
-    private final ArchiveRepository repository;
+    private final CacheRepository repository;
     private final WebSnapshotPipeline snapshotPipeline;
     private final ResourceStorageService storageService;
     private final CatalogPipeline catalogPipeline;
 
     private ArchiveService() {
-        this.repository = ArchiveRepository.getInstance();
+        this.repository = CacheRepository.getInstance();
         this.storageService = new ResourceStorageService();
         this.snapshotPipeline = new WebSnapshotPipeline(repository);
         this.catalogPipeline = new CatalogPipeline(repository, storageService);
@@ -230,7 +229,7 @@ public class ArchiveService {
     //  Accessors
     // ═══════════════════════════════════════════════════════════
 
-    public ArchiveRepository getRepository() {
+    public CacheRepository getRepository() {
         return repository;
     }
 

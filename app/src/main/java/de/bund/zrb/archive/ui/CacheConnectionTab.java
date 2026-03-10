@@ -4,7 +4,7 @@ import de.bund.zrb.archive.model.ArchiveDocument;
 import de.bund.zrb.archive.model.ArchiveRun;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.service.ResourceStorageService;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchHighlighter;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -23,10 +23,10 @@ import java.util.List;
  * Features: host/kind/text filtering, search-term highlighting in preview,
  * checkboxes for selective delete, delete-all with confirmation.
  */
-public class IndexConnectionTab implements ConnectionTab {
+public class CacheConnectionTab implements ConnectionTab {
 
     private final JPanel mainPanel;
-    private final ArchiveRepository repo;
+    private final CacheRepository repo;
     private final ResourceStorageService storageService;
     private final JTextArea previewArea;
     private final JTextField searchField;
@@ -53,9 +53,9 @@ public class IndexConnectionTab implements ConnectionTab {
         DATE_FMT.setTimeZone(TimeZone.getTimeZone("Europe/Berlin"));
     }
 
-    public IndexConnectionTab(TabbedPaneManager tabbedPaneManager) {
+    public CacheConnectionTab(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
-        this.repo = ArchiveRepository.getInstance();
+        this.repo = CacheRepository.getInstance();
         this.storageService = ArchiveService.getInstance().getStorageService();
         this.mainPanel = new JPanel(new BorderLayout(4, 4));
 
@@ -454,14 +454,14 @@ public class IndexConnectionTab implements ConnectionTab {
 
     // ── ConnectionTab interface ──
 
-    @Override public String getTitle() { return "📊 Index"; }
-    @Override public String getTooltip() { return "Indexierte Inhalte aus allen Quellen (Lokal, FTP, NDV, Mail, Web, BetaView)"; }
+    @Override public String getTitle() { return "💾 Cache"; }
+    @Override public String getTooltip() { return "Lokal zwischengespeicherte Inhalte (Web, FTP, NDV, Mail, BetaView)"; }
     @Override public JComponent getComponent() { return mainPanel; }
     @Override public void onClose() { /* nothing */ }
     @Override public void saveIfApplicable() { /* read-only */ }
     @Override public String getContent() { return ""; }
     @Override public void markAsChanged() { /* not applicable */ }
-    @Override public String getPath() { return "index://"; }
+    @Override public String getPath() { return "cache://"; }
     @Override public Type getType() { return Type.CONNECTION; }
 
     @Override

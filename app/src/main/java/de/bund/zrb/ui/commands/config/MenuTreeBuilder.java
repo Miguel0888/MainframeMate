@@ -23,7 +23,7 @@ public class MenuTreeBuilder {
         SUBMENU_ORDER.put("file", Arrays.asList(
                 "save", "close", "saveAndClose",
                 "---1",
-                "index",
+                "cache",
                 "---2",
                 "exit"
         ));

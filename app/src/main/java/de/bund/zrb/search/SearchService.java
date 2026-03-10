@@ -1,7 +1,7 @@
 package de.bund.zrb.search;
 
 import de.bund.zrb.archive.model.ArchiveDocument;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
 import de.bund.zrb.rag.service.RagService;
@@ -165,7 +165,7 @@ public class SearchService {
     private List<SearchResult> searchArchive(String query, int maxResults) {
         List<SearchResult> results = new ArrayList<>();
         try {
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
             List<ArchiveDocument> docs = repo.searchDocuments(query, null, maxResults);
             for (ArchiveDocument doc : docs) {
                 String snippet = doc.getExcerpt() != null ? doc.getExcerpt() : "";

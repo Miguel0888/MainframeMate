@@ -3,7 +3,7 @@ package de.bund.zrb.archive.tools;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import de.bund.zrb.archive.model.WebCacheEntry;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -16,9 +16,9 @@ import java.util.*;
  */
 public class WebCacheStatusTool implements McpTool {
 
-    private final ArchiveRepository repo;
+    private final CacheRepository repo;
 
-    public WebCacheStatusTool(ArchiveRepository repo) {
+    public WebCacheStatusTool(CacheRepository repo) {
         this.repo = repo;
     }
 

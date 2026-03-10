@@ -3,7 +3,7 @@ package de.bund.zrb.archive.ui;
 import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.model.ArchiveEntryStatus;
 import de.bund.zrb.archive.model.WebCacheEntry;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -18,7 +18,7 @@ import java.util.List;
  */
 public class WebCacheDialog extends JDialog {
 
-    private final ArchiveRepository repo;
+    private final CacheRepository repo;
     private final String sourceId;
     private final String sourceName;
     private final JTable urlTable;
@@ -28,7 +28,7 @@ public class WebCacheDialog extends JDialog {
 
     public WebCacheDialog(Frame owner, String sourceId, String sourceName) {
         super(owner, "Web-Cache: " + sourceName, true);
-        this.repo = ArchiveRepository.getInstance();
+        this.repo = CacheRepository.getInstance();
         this.sourceId = sourceId;
         this.sourceName = sourceName;
 

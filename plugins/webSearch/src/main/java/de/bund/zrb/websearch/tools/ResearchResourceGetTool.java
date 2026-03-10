@@ -4,7 +4,7 @@ import com.google.gson.JsonObject;
 import de.bund.zrb.archive.model.ArchiveResource;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.service.ResourceStorageService;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
@@ -60,7 +60,7 @@ public class ResearchResourceGetTool implements McpTool {
         }
 
         try {
-            ArchiveRepository repo = ArchiveRepository.getInstance();
+            CacheRepository repo = CacheRepository.getInstance();
             ArchiveResource res = repo.findResourceById(resourceId);
 
             if (res == null) {

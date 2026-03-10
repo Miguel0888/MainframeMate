@@ -2,7 +2,7 @@ package de.bund.zrb.archive.service;
 
 import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.model.ArchiveEntryStatus;
-import de.bund.zrb.archive.store.ArchiveRepository;
+import de.bund.zrb.archive.store.CacheRepository;
 
 import java.io.*;
 import java.net.URI;
@@ -26,10 +26,10 @@ public class WebSnapshotPipeline {
 
     private static final Logger LOG = Logger.getLogger(WebSnapshotPipeline.class.getName());
 
-    private final ArchiveRepository repo;
+    private final CacheRepository repo;
     private final File snapshotBaseDir;
 
-    public WebSnapshotPipeline(ArchiveRepository repo) {
+    public WebSnapshotPipeline(CacheRepository repo) {
         this.repo = repo;
         String home = System.getProperty("user.home");
         this.snapshotBaseDir = new File(home, ".mainframemate" + File.separator + "archive" + File.separator + "snapshots");

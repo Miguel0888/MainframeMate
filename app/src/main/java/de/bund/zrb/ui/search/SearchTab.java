@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.search;
 
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
@@ -615,8 +616,8 @@ public class SearchTab extends JPanel implements FtpTab {
     private void openArchiveResult(SearchResult result) {
         String docId = result.getDocumentId();
         try {
-            de.bund.zrb.archive.store.ArchiveRepository repo =
-                    de.bund.zrb.archive.store.ArchiveRepository.getInstance();
+            CacheRepository repo =
+                    CacheRepository.getInstance();
             de.bund.zrb.archive.model.ArchiveDocument doc = repo.findDocumentById(docId);
 
             if (doc == null) {
