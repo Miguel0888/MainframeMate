@@ -328,6 +328,15 @@ public class TabbedPaneManager {
         }
     }
 
+    public void closeSelectedComponent() {
+        Component comp = tabbedPane.getSelectedComponent();
+        if (comp == null) return;
+        int index = tabbedPane.indexOfComponent(comp);
+        if (index >= 0) {
+            closeTab(index);
+        }
+    }
+
     public JComponent getComponent() {
         return tabbedPaneWrapper;
     }

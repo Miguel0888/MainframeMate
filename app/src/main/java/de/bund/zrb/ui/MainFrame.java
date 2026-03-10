@@ -74,11 +74,13 @@ public class MainFrame extends JFrame implements MainframeContext {
     // Builds the menu
     private void registerCoreCommands() {
         CommandRegistryImpl.register(new SaveMenuCommand(tabManager));
+        CommandRegistryImpl.register(new CloseTabMenuCommand(tabManager));
         CommandRegistryImpl.register(new SaveAndCloseMenuCommand(tabManager));
         CommandRegistryImpl.register(new ConnectMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectLocalMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectNdvMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectMailMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new OpenWebMenuCommand());
         CommandRegistryImpl.register(new OpenArchiveMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new OpenBetaViewMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new Connect3270MenuCommand(this, tabManager));
