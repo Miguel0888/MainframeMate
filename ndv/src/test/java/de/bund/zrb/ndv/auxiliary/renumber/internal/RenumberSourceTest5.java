@@ -1,5 +1,7 @@
 package de.bund.zrb.ndv.auxiliary.renumber.internal;
 
+import de.bund.zrb.ndv.util.IInsertLabels;
+import de.bund.zrb.ndv.util.RenumberSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
