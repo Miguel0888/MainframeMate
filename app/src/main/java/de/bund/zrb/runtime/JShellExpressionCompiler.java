@@ -1,199 +1,264 @@
 package de.bund.zrb.runtime;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * JShell-based expression compiler for Java 9+.
+ * Compile and execute full expression classes with JShell on Java 9+.
+ * <p>
+ * The source is expected to be a normal Java source file containing
+ * optional imports and one top-level expression class with an apply method.
+ * <p>
+ * This implementation does NOT try to extract method bodies or feed lines individually.
+ * Instead, it feeds imports and the full type declaration as proper JShell snippets,
+ * then instantiates the class and invokes apply(args).
  * <p>
  * All JShell API access is done via reflection so that this class compiles
  * cleanly under Java 8 (where {@code jdk.jshell} does not exist).
- * <p>
- * The expression source is expected to be a complete Java class implementing
- * {@code Function<Object, Object>}. This compiler:
- * <ol>
- *     <li>Strips the class wrapper and extracts the body of the {@code apply} method</li>
- *     <li>Feeds individual statements to JShell</li>
- *     <li>Returns the last evaluated value as a String</li>
- * </ol>
- * If the source cannot be unwrapped, it is passed to JShell verbatim.
  */
 public class JShellExpressionCompiler implements ExpressionCompiler {
 
+    private static final String ARGS_VARIABLE_NAME = "__mmArgs";
+
     @Override
     public String compileAndExecute(String key, String source, List<String> args) throws Exception {
-        // Build JShell snippets from the full class source
-        String snippet = buildSnippet(source, args);
-
         Class<?> jshellClass = Class.forName("jdk.jshell.JShell");
         Class<?> snippetEventClass = Class.forName("jdk.jshell.SnippetEvent");
 
         Object jshell = jshellClass.getMethod("create").invoke(null);
         try {
-            // Feed each statement line to JShell
-            String[] lines = snippet.split("\n");
-            Object lastValue = null;
+            SourceParts sourceParts = splitSource(source);
 
-            for (String line : lines) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) continue;
+            // 1) Feed imports individually
+            evaluateImports(jshellClass, snippetEventClass, jshell, sourceParts.imports);
 
-                Method evalMethod = jshellClass.getMethod("eval", String.class);
-                List<?> events = (List<?>) evalMethod.invoke(jshell, trimmed);
-
-                for (Object event : events) {
-                    // Check for rejection
-                    Object status = snippetEventClass.getMethod("status").invoke(event);
-                    if ("REJECTED".equals(String.valueOf(status))) {
-                        // Try to get diagnostic info
-                        String diag = getDiagnostics(jshellClass, jshell, event, snippetEventClass);
-                        throw new IllegalStateException(
-                                "JShell rejected snippet: " + trimmed
-                                        + (diag.isEmpty() ? "" : "\n" + diag));
-                    }
-
-                    Object val = snippetEventClass.getMethod("value").invoke(event);
-                    if (val != null && !val.toString().trim().isEmpty()) {
-                        lastValue = val;
-                    }
-                }
+            // 2) Feed the entire class as one type-declaration snippet
+            if (sourceParts.typeDeclaration.trim().isEmpty()) {
+                throw new IllegalArgumentException("Expression source does not contain a class declaration.");
             }
+            evaluateSnippet(jshellClass, snippetEventClass, jshell, sourceParts.typeDeclaration);
 
-            return lastValue == null ? null : cleanJShellValue(lastValue.toString());
+            // 3) Declare args variable
+            String argsSnippet = buildArgsSnippet(args);
+            evaluateSnippet(jshellClass, snippetEventClass, jshell, argsSnippet);
+
+            // 4) Instantiate and invoke: new Expr_Date().apply(args)
+            String className = extractClassName(source, key);
+            String invocationSnippet = "new " + className + "().apply(" + ARGS_VARIABLE_NAME + ")";
+            Object value = evaluateSnippet(jshellClass, snippetEventClass, jshell, invocationSnippet);
+
+            return value == null ? null : cleanJShellValue(String.valueOf(value));
         } finally {
             jshellClass.getMethod("close").invoke(jshell);
         }
     }
 
-    /**
-     * Attempts to extract the body of the {@code apply} method from a full class source,
-     * then prepends a variable declaration for the args parameter.
-     * Falls back to feeding the raw source if extraction fails.
-     */
-    private String buildSnippet(String source, List<String> args) {
-        StringBuilder sb = new StringBuilder();
+    // ── Snippet evaluation ──────────────────────────────────────────────
 
-        // Declare args as a variable in JShell context
-        sb.append("java.util.List<String> args = java.util.Arrays.asList(");
-        for (int i = 0; i < args.size(); i++) {
-            if (i > 0) sb.append(", ");
-            sb.append("\"").append(escapeJava(args.get(i))).append("\"");
+    private void evaluateImports(Class<?> jshellClass,
+                                 Class<?> snippetEventClass,
+                                 Object jshell,
+                                 List<String> imports) throws Exception {
+        for (int i = 0; i < imports.size(); i++) {
+            evaluateSnippet(jshellClass, snippetEventClass, jshell, imports.get(i));
         }
-        sb.append(");\n");
-
-        // Try to extract the method body
-        String body = extractApplyMethodBody(source);
-        if (body != null) {
-            sb.append(body);
-        } else {
-            // Fallback: strip package/import/class wrapper heuristically
-            sb.append(stripClassWrapper(source));
-        }
-
-        return sb.toString();
     }
 
-    /**
-     * Extracts everything between the first {@code public Object apply(Object} line
-     * and its matching closing brace.
-     */
-    private String extractApplyMethodBody(String source) {
-        String[] lines = source.split("\n");
-        int start = -1;
-        int braceDepth = 0;
-        boolean inMethod = false;
+    private Object evaluateSnippet(Class<?> jshellClass,
+                                   Class<?> snippetEventClass,
+                                   Object jshell,
+                                   String snippet) throws Exception {
+        Method evalMethod = jshellClass.getMethod("eval", String.class);
+        List<?> events = (List<?>) evalMethod.invoke(jshell, snippet);
 
-        StringBuilder body = new StringBuilder();
+        Object lastValue = null;
 
-        for (int i = 0; i < lines.length; i++) {
-            String trimmed = lines[i].trim();
+        for (int i = 0; i < events.size(); i++) {
+            Object event = events.get(i);
 
-            if (!inMethod) {
-                if (trimmed.contains("public") && trimmed.contains("apply") && trimmed.contains("Object")) {
-                    inMethod = true;
-                    // Count braces on this line
-                    for (char c : lines[i].toCharArray()) {
-                        if (c == '{') braceDepth++;
-                        if (c == '}') braceDepth--;
-                    }
-                    start = i;
-                }
-            } else {
-                for (char c : lines[i].toCharArray()) {
-                    if (c == '{') braceDepth++;
-                    if (c == '}') braceDepth--;
-                }
+            // Check status
+            Object status = snippetEventClass.getMethod("status").invoke(event);
+            String statusText = String.valueOf(status);
 
-                if (braceDepth <= 0) {
-                    // We've found the matching closing brace
-                    return body.toString();
-                }
+            if ("REJECTED".equals(statusText)) {
+                String diagnostics = getDiagnostics(jshellClass, jshell, event, snippetEventClass);
+                throw new IllegalStateException(
+                        "JShell rejected snippet: " + snippet
+                                + (diagnostics.isEmpty() ? "" : "\n" + diagnostics));
+            }
 
-                body.append(trimmed).append("\n");
+            // Check for runtime exception (SnippetEvent.exception() exists on some JDK versions)
+            Object exception = getOptionalEventProperty(snippetEventClass, event, "exception");
+            if (exception != null && exception instanceof Throwable) {
+                throw new IllegalStateException(
+                        "JShell execution failed for snippet: " + snippet,
+                        (Throwable) exception);
+            }
+
+            // Collect value
+            Object value = getOptionalEventProperty(snippetEventClass, event, "value");
+            if (value != null) {
+                lastValue = value;
             }
         }
 
-        return start >= 0 ? body.toString() : null;
+        return lastValue;
     }
 
-    /**
-     * Simple heuristic: remove package, import, class declaration lines, and outer braces.
-     */
-    private String stripClassWrapper(String source) {
-        StringBuilder sb = new StringBuilder();
-        for (String line : source.split("\n")) {
-            String trimmed = line.trim();
-            if (trimmed.startsWith("package ")) continue;
-            if (trimmed.startsWith("import ")) continue;
-            if (trimmed.startsWith("public class ")) continue;
-            if (trimmed.equals("}")) continue;
-            if (trimmed.startsWith("@Override")) continue;
-            if (trimmed.contains("public Object apply(")) continue;
-            sb.append(trimmed).append("\n");
+    private Object getOptionalEventProperty(Class<?> snippetEventClass, Object event, String methodName) {
+        try {
+            Method method = snippetEventClass.getMethod(methodName);
+            return method.invoke(event);
+        } catch (Exception ex) {
+            return null;
         }
+    }
+
+    // ── Source splitting ─────────────────────────────────────────────────
+
+    /**
+     * Splits the source into import statements and the remaining type declaration.
+     * Package declarations are silently dropped (JShell doesn't support them).
+     */
+    private SourceParts splitSource(String source) {
+        List<String> imports = new ArrayList<String>();
+        StringBuilder typeDeclaration = new StringBuilder();
+
+        String[] lines = source.split("\\r?\\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String trimmed = line.trim();
+
+            if (trimmed.isEmpty()) {
+                if (typeDeclaration.length() > 0) {
+                    typeDeclaration.append('\n');
+                }
+                continue;
+            }
+
+            // Drop package declaration (not supported in JShell)
+            if (trimmed.startsWith("package ")) {
+                continue;
+            }
+
+            // Collect import statements separately
+            if (trimmed.startsWith("import ")) {
+                imports.add(trimmed);
+                continue;
+            }
+
+            // Everything else is the type declaration
+            typeDeclaration.append(line).append('\n');
+        }
+
+        return new SourceParts(imports, typeDeclaration.toString().trim());
+    }
+
+    // ── Args snippet ────────────────────────────────────────────────────
+
+    private String buildArgsSnippet(List<String> args) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("java.util.List<String> ").append(ARGS_VARIABLE_NAME)
+                .append(" = java.util.Arrays.asList(");
+
+        for (int i = 0; i < args.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append("\"").append(escapeJava(args.get(i))).append("\"");
+        }
+
+        sb.append(");");
         return sb.toString();
     }
+
+    // ── Class name extraction ───────────────────────────────────────────
+
+    private String extractClassName(String source, String fallback) {
+        String[] lines = source.split("\\r?\\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+
+            if (line.contains(" class ")) {
+                // Normalize: remove '{' so tokenizing works cleanly
+                String normalized = line.replace("{", " ").trim();
+                String[] tokens = normalized.split("\\s+");
+                for (int j = 0; j < tokens.length - 1; j++) {
+                    if ("class".equals(tokens[j])) {
+                        return tokens[j + 1];
+                    }
+                }
+            }
+        }
+
+        return "Expr_" + fallback.replaceAll("[^a-zA-Z0-9_$]", "_");
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────
 
     private String escapeJava(String s) {
         return s.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
-                .replace("\n", "\\n")
                 .replace("\r", "\\r")
+                .replace("\n", "\\n")
                 .replace("\t", "\\t");
     }
 
     /**
-     * Remove JShell's trailing type annotation like {@code "42\n" → "42"}.
+     * JShell returns string values wrapped in quotes, e.g. {@code "\"2026-03-10\""}.
+     * This method strips the outer quotes if present.
      */
     private String cleanJShellValue(String raw) {
-        if (raw == null) return null;
-        // JShell wraps string values in quotes
+        if (raw == null) {
+            return null;
+        }
+
         String trimmed = raw.trim();
-        if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
-            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        if (trimmed.length() >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            return trimmed.substring(1, trimmed.length() - 1);
         }
         return trimmed;
     }
 
-    private String getDiagnostics(Class<?> jshellClass, Object jshell,
-                                  Object event, Class<?> snippetEventClass) {
+    private String getDiagnostics(Class<?> jshellClass,
+                                  Object jshell,
+                                  Object event,
+                                  Class<?> snippetEventClass) {
         try {
             Object snippet = snippetEventClass.getMethod("snippet").invoke(event);
             Class<?> snippetClass = Class.forName("jdk.jshell.Snippet");
             Method diagnosticsMethod = jshellClass.getMethod("diagnostics", snippetClass);
-            Object diagStream = diagnosticsMethod.invoke(jshell, snippet);
-            // diagStream is a Stream – convert to list
-            Method toArrayMethod = diagStream.getClass().getMethod("toArray");
-            Object[] diags = (Object[]) toArrayMethod.invoke(diagStream);
+            Object stream = diagnosticsMethod.invoke(jshell, snippet);
+
+            Method toArrayMethod = stream.getClass().getMethod("toArray");
+            Object[] diagnostics = (Object[]) toArrayMethod.invoke(stream);
+
             StringBuilder sb = new StringBuilder();
-            for (Object d : diags) {
-                Method getMessage = d.getClass().getMethod("getMessage", java.util.Locale.class);
-                sb.append(getMessage.invoke(d, java.util.Locale.getDefault())).append("\n");
+            for (int i = 0; i < diagnostics.length; i++) {
+                Object diagnostic = diagnostics[i];
+                Method getMessage = diagnostic.getClass().getMethod("getMessage", java.util.Locale.class);
+                Object message = getMessage.invoke(diagnostic, java.util.Locale.getDefault());
+                if (message != null) {
+                    sb.append(message).append('\n');
+                }
             }
-            return sb.toString();
+            return sb.toString().trim();
         } catch (Exception ex) {
             return "";
         }
     }
-}
 
+    // ── Internal model ──────────────────────────────────────────────────
+
+    private static final class SourceParts {
+
+        private final List<String> imports;
+        private final String typeDeclaration;
+
+        private SourceParts(List<String> imports, String typeDeclaration) {
+            this.imports = imports;
+            this.typeDeclaration = typeDeclaration;
+        }
+    }
+}
