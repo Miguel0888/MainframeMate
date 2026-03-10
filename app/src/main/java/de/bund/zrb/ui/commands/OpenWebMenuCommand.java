@@ -11,7 +11,7 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.web";
+        return "connection.web";
     }
 
     @Override

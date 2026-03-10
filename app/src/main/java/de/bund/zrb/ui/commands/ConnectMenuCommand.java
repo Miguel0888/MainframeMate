@@ -16,7 +16,7 @@ public class ConnectMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.connect";
+        return "connection.ftp";
     }
 
     @Override

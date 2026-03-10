@@ -25,7 +25,7 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.tn3270";
+        return "connection.tn3270";
     }
 
     @Override

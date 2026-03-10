@@ -30,7 +30,7 @@ public class ConnectJesMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.jes";
+        return "connection.jes";
     }
 
     @Override

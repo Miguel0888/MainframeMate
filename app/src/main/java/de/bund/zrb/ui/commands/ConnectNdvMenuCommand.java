@@ -28,7 +28,7 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.ndv";
+        return "connection.ndv";
     }
 
     @Override

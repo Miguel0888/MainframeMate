@@ -12,7 +12,7 @@ public class MenuTreeBuilder {
 
     // Definiert die Reihenfolge der Hauptmenüs
     private static final List<String> MENU_ORDER = Arrays.asList(
-            "file", "edit", "view", "extras", "plugin", "settings", "help"
+            "file", "connection", "edit", "view", "extras", "plugin", "settings", "help"
     );
 
     // Definiert die Reihenfolge innerhalb von Untermenüs
@@ -23,15 +23,19 @@ public class MenuTreeBuilder {
         SUBMENU_ORDER.put("file", Arrays.asList(
                 "save", "close", "saveAndClose",
                 "---1",
-                "local", "connect", "ndv",
+                "archive",
                 "---2",
-                "mail", "web",
-                "---3",
-                "tn3270", "jes",
-                "---4",
-                "betaview", "archive",
-                "---5",
                 "exit"
+        ));
+        // Verbindung-Menü Reihenfolge
+        SUBMENU_ORDER.put("connection", Arrays.asList(
+                "local", "ftp", "ndv",
+                "---1",
+                "mail", "web",
+                "---2",
+                "tn3270", "jes",
+                "---3",
+                "betaview"
         ));
         // Bearbeiten-Menü Reihenfolge
         SUBMENU_ORDER.put("edit", Arrays.asList(

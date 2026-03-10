@@ -57,9 +57,9 @@ public final class ToolbarDefaults {
 
         // The IDs and icons we want in the default toolbar (order matters)
         String[][] defaults = {
-                { "file.connect",      cp(0x1F310) },  // 🌐  FTP-Verbindung
-                { "file.local",        cp(0x1F4BB) },  // 💻  Dieser Computer
-                { "file.ndv",          cp(0x1F5A5) },  // 🖥  NDV-Verbindung
+                { "connection.ftp",    cp(0x1F310) },  // 🌐  FTP
+                { "connection.local",  cp(0x1F4BB) },  // 💻  Lokal
+                { "connection.ndv",    cp(0x1F5A5) },  // 🖥  NDV
                 { "file.saveAndClose", "\u2714"    },  // ✔   Speichern & Schließen
         };
 
@@ -93,12 +93,12 @@ public final class ToolbarDefaults {
         String id = (idRaw == null) ? "" : idRaw.toLowerCase(Locale.ROOT);
 
         // MainframeMate specific
-        if (id.equals("file.connect"))       return cp(0x1F310); // 🌐
-        if (id.equals("file.local"))         return cp(0x1F4BB); // 💻
-        if (id.equals("file.ndv"))           return cp(0x1F5A5); // 🖥
-        if (id.equals("file.saveandclose"))  return "\u2714";    // ✔
-        if (id.equals("file.save"))          return cp(0x1F4BE); // 💾
-        if (id.equals("file.exit"))          return cp(0x1F6AA); // 🚪
+        if (id.equals("connection.ftp"))       return cp(0x1F310); // 🌐
+        if (id.equals("connection.local"))     return cp(0x1F4BB); // 💻
+        if (id.equals("connection.ndv"))       return cp(0x1F5A5); // 🖥
+        if (id.equals("file.saveandclose"))    return "\u2714";    // ✔
+        if (id.equals("file.save"))            return cp(0x1F4BE); // 💾
+        if (id.equals("file.exit"))            return cp(0x1F6AA); // 🚪
 
         // Generic fallbacks
         if (id.contains("save") && id.contains("close")) return "\u2714"; // ✔

@@ -18,7 +18,7 @@ public class ConnectLocalMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "file.local";
+        return "connection.local";
     }
 
     @Override
