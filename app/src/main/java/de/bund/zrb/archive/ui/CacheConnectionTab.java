@@ -228,10 +228,18 @@ public class CacheConnectionTab implements ConnectionTab {
     // ═══════════════════════════════════════════════════════════
 
     private void switchView() {
+        int sourceIdx = sourceTypeFilter.getSelectedIndex();
         int selected = viewSelector.getSelectedIndex();
-        if (selected == 0) {
+
+        // Runs view only makes sense for Web sources
+        if (selected == 0 && (sourceIdx == 0 || sourceIdx == 1)) {
             cardLayout.show(tableCards, "RUNS");
             loadRuns();
+        } else if (selected == 0 && sourceIdx >= 2) {
+            // Non-web source selected but "Runs" view chosen: switch to docs
+            viewSelector.setSelectedIndex(1);
+            cardLayout.show(tableCards, "DOCS");
+            loadAllDocuments();
         } else {
             cardLayout.show(tableCards, "DOCS");
             loadAllDocuments();
@@ -240,6 +248,7 @@ public class CacheConnectionTab implements ConnectionTab {
 
     private void refresh() {
         updateHostFilter();
+        updateFilterVisibility();
         switchView();
     }
 
@@ -256,10 +265,22 @@ public class CacheConnectionTab implements ConnectionTab {
     }
 
     private void loadAllDocuments() {
+        int sourceIdx = sourceTypeFilter.getSelectedIndex();
+
+        // For non-web sources show empty list with hint
+        if (sourceIdx >= 2) {
+            String sourceName = (String) sourceTypeFilter.getSelectedItem();
+            currentSearchQuery = null;
+            docTableModel.setDocuments(new ArrayList<ArchiveDocument>());
+            statusLabel.setText("Keine gecachten " + sourceName + "-Inhalte vorhanden.");
+            previewArea.setText("");
+            return;
+        }
+
         currentSearchQuery = null;
         List<ArchiveDocument> docs = repo.findAllDocuments();
         docTableModel.setDocuments(docs);
-        statusLabel.setText(docs.size() + " Dokumente im Katalog");
+        statusLabel.setText(docs.size() + " Dokumente im Cache");
     }
 
     private void loadDocumentsForRun(String runId) {
@@ -274,6 +295,22 @@ public class CacheConnectionTab implements ConnectionTab {
     // ═══════════════════════════════════════════════════════════
 
     private void filterDocuments() {
+        int sourceIdx = sourceTypeFilter.getSelectedIndex();
+        // 0=Alle, 1=Web, 2=FTP, 3=NDV, 4=Mail, 5=BetaView
+
+        // For non-web sources there are currently no cached documents in the DB.
+        // Show an empty list with a status hint.
+        if (sourceIdx >= 2) {
+            String sourceName = (String) sourceTypeFilter.getSelectedItem();
+            docTableModel.setDocuments(new ArrayList<ArchiveDocument>());
+            viewSelector.setSelectedIndex(1);
+            cardLayout.show(tableCards, "DOCS");
+            statusLabel.setText("Keine gecachten " + sourceName + "-Inhalte vorhanden. "
+                    + "Inhalte werden beim manuellen Cachen aus dem jeweiligen Tab gespeichert.");
+            previewArea.setText("");
+            return;
+        }
+
         String query = searchField.getText();
         String selectedHost = (String) hostFilter.getSelectedItem();
         String selectedKind = (String) kindFilter.getSelectedItem();
