@@ -2,6 +2,8 @@ package de.bund.zrb.betaview.ui;
 
 import de.bund.zrb.betaview.domain.*;
 import de.bund.zrb.betaview.infrastructure.BetaViewGatewayHttpAdapter;
+import de.bund.zrb.betaview.infrastructure.BetaViewSession;
+import de.bund.zrb.betaview.infrastructure.BetaViewClient;
 import de.bund.zrb.betaview.port.BetaViewGateway;
 import de.bund.zrb.betaview.usecase.LoadBetaViewDocumentUseCase;
 import de.bund.zrb.betaview.usecase.SearchBetaViewUseCase;
@@ -9,6 +11,7 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
+import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.util.List;
 
@@ -47,6 +50,10 @@ public class BetaViewConnectionTab implements ConnectionTab {
 
     // Credentials provider – set externally by the MenuCommand (avoids compile dependency on app)
     private CredentialsProvider credentialsProvider;
+
+    // HTML navigator for server-side hyperlink navigation
+    private BetaViewHtmlNavigator navigator;
+    private HyperlinkListener currentHyperlinkListener;
 
     // Base URL – set externally from Settings
     private String baseUrl = "";
@@ -188,14 +195,7 @@ public class BetaViewConnectionTab implements ConnectionTab {
             }
         });
 
-        htmlView.addHyperlinkListener(e -> {
-            if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
-                String url = e.getDescription();
-                if (url != null && !url.isEmpty()) {
-                    doNavigateLink(url);
-                }
-            }
-        });
+        // Note: HyperlinkListener is installed via BetaViewHtmlNavigator after successful search
     }
 
     private void doSearch() {
@@ -266,8 +266,17 @@ public class BetaViewConnectionTab implements ConnectionTab {
                     for (BetaViewDocumentRef ref : result.documents()) {
                         resultListModel.addElement(ref);
                     }
-                    htmlView.setText(result.rawHtml());
-                    htmlView.setCaretPosition(0);
+
+                    // Install navigator from the session (for hyperlink handling)
+                    installNavigator();
+
+                    if (navigator != null) {
+                        navigator.showInitialHtml(result.rawHtml());
+                    } else {
+                        htmlView.setText(result.rawHtml());
+                        htmlView.setCaretPosition(0);
+                    }
+
                     statusLabel.setText(result.documents().size() + " Treffer gefunden");
                 } catch (Exception ex) {
                     statusLabel.setText("Suche fehlgeschlagen");
@@ -307,31 +316,30 @@ public class BetaViewConnectionTab implements ConnectionTab {
         }.execute();
     }
 
-    private void doNavigateLink(String relativePath) {
-        setBusy(true);
-        statusLabel.setText("Navigiere...");
+    private void installNavigator() {
+        // Remove old listener if exists
+        if (currentHyperlinkListener != null) {
+            htmlView.removeHyperlinkListener(currentHyperlinkListener);
+            currentHyperlinkListener = null;
+        }
 
-        new SwingWorker<String, Void>() {
-            @Override
-            protected String doInBackground() throws Exception {
-                return gateway.navigateLink(relativePath);
-            }
+        // Get session and client from the gateway adapter
+        if (gateway instanceof BetaViewGatewayHttpAdapter) {
+            BetaViewGatewayHttpAdapter adapter = (BetaViewGatewayHttpAdapter) gateway;
+            BetaViewSession session = adapter.getSession();
+            BetaViewClient client = adapter.getClient();
 
-            @Override
-            protected void done() {
+            if (session != null && client != null) {
                 try {
-                    String html = get();
-                    htmlView.setText(html);
-                    htmlView.setCaretPosition(0);
-                    statusLabel.setText("Seite geladen");
-                } catch (Exception ex) {
-                    statusLabel.setText("Navigation fehlgeschlagen");
-                    showError(ex);
-                } finally {
-                    setBusy(false);
+                    java.net.URL bUrl = new java.net.URL(baseUrl);
+                    navigator = new BetaViewHtmlNavigator(client, session, htmlView, bUrl);
+                    htmlView.addHyperlinkListener(navigator);
+                    currentHyperlinkListener = navigator;
+                } catch (Exception e) {
+                    System.err.println("[BetaView] Failed to install navigator: " + e.getMessage());
                 }
             }
-        }.execute();
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
