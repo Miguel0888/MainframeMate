@@ -11,6 +11,7 @@ public class SentenceMeta {
     private List<String> extensions = new ArrayList<>();     // Dateiendungen z.B. ["pdf", "doc"] (optional)
     private String transferMode;        // "ascii" (default) oder "binary" (für FTP)
     private String syntaxStyle;         // RSyntaxTextArea syntax style (e.g. "text/java", "text/jcl") (optional)
+    private String detectionScript;     // Java source code for content-based auto-detection (optional)
 
     public List<String> getPaths() {
         return paths;
@@ -72,5 +73,20 @@ public class SentenceMeta {
      */
     public boolean hasSyntaxStyle() {
         return syntaxStyle != null && !syntaxStyle.trim().isEmpty();
+    }
+
+    public String getDetectionScript() {
+        return detectionScript;
+    }
+
+    public void setDetectionScript(String detectionScript) {
+        this.detectionScript = detectionScript;
+    }
+
+    /**
+     * Returns true if a content-based detection script is configured.
+     */
+    public boolean hasDetectionScript() {
+        return detectionScript != null && !detectionScript.trim().isEmpty();
     }
 }

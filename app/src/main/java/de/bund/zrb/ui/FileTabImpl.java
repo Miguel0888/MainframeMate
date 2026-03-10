@@ -207,10 +207,14 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         // Auto-detect sentence type or file type by path if not explicitly provided
         if (sentenceType == null) {
             try {
-                sentenceType = detectSentenceTypeByPath(
-                        resource != null ? resource.getResolvedPath() : model.getFullPath());
+                String filePath = resource != null ? resource.getResolvedPath() : model.getFullPath();
+                sentenceType = detectSentenceTypeByPath(filePath);
+                // If path-based detection failed, try content-based detection
+                if (sentenceType == null && content != null && !content.isEmpty()) {
+                    sentenceType = detectSentenceTypeByContent(content);
+                }
                 System.out.println("[FileTabImpl] Auto-detected sentenceType: " + sentenceType
-                        + " for path: " + (resource != null ? resource.getResolvedPath() : model.getFullPath()));
+                        + " for path: " + filePath);
             } catch (Exception e) {
                 System.err.println("[FileTabImpl] Auto-detect sentence type failed: " + e.getMessage());
             }
@@ -938,6 +942,48 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         System.out.println("[SentenceDetect] No match for path: " + filePath
                 + " (ext: " + fileExt + ", definitions: " + definitions.size() + ")");
+        return null;
+    }
+
+    /**
+     * Detect sentence type by running configured detection scripts against the file content.
+     * Each definition can have a detectionScript (Java source) that receives the content
+     * as args[0] and returns "true" or "false".
+     *
+     * @param content the file content to check
+     * @return the matching sentence type key, or null if no script matched
+     */
+    private String detectSentenceTypeByContent(String content) {
+        if (content == null || content.isEmpty()) return null;
+
+        SentenceTypeRegistry registry = getRegistry();
+        Map<String, SentenceDefinition> definitions = registry.getSentenceTypeSpec().getDefinitions();
+
+        // Limit content passed to scripts (first ~4KB should be enough for language detection)
+        String snippet = content.length() > 4096 ? content.substring(0, 4096) : content;
+
+        for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
+            SentenceMeta meta = entry.getValue().getMeta();
+            if (meta == null || !meta.hasDetectionScript()) continue;
+
+            try {
+                de.bund.zrb.runtime.ExpressionCompiler compiler =
+                        de.bund.zrb.runtime.ExpressionCompilerFactory.getCompiler();
+                String result = compiler.compileAndExecute(
+                        "Detect_" + entry.getKey().replaceAll("[^a-zA-Z0-9_]", "_"),
+                        meta.getDetectionScript(),
+                        java.util.Collections.singletonList(snippet)
+                );
+                if ("true".equalsIgnoreCase(result != null ? result.trim() : "")) {
+                    System.out.println("[SentenceDetect] Content detection match: " + entry.getKey());
+                    return entry.getKey();
+                }
+            } catch (Exception e) {
+                System.err.println("[SentenceDetect] Detection script failed for '"
+                        + entry.getKey() + "': " + e.getMessage());
+            }
+        }
+
         return null;
     }
 }

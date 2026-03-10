@@ -32,6 +32,7 @@ public class SentenceTypeEditor extends JPanel {
 
     private final FieldTableModel fieldModel = new FieldTableModel();
     private final JTable fieldTable = new JTable(fieldModel);
+    private final JTextArea detectionScriptArea = new JTextArea(6, 40);
     public String originalKey = ""; // wird extern gesetzt
 
     private boolean fileTypeMode = false;
@@ -230,6 +231,30 @@ public class SentenceTypeEditor extends JPanel {
         );
         metaPanel.add(syntaxCombo, gbc);
 
+        // Content-based detection script (for all types)
+        row++;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        JLabel detectionLabel = new JLabel("Erkennung (Java)");
+        detectionLabel.setToolTipText(
+                "<html>Optionaler Java-Code zur inhaltsbasierten Erkennung.<br>" +
+                        "Der Code ist eine vollständige Java-Klasse mit einer <code>apply(List&lt;String&gt; args)</code>-Methode.<br>" +
+                        "args[0] = Dateiinhalt. Rückgabe: <code>\"true\"</code> wenn erkannt, sonst <code>\"false\"</code>.</html>"
+        );
+        metaPanel.add(detectionLabel, gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        gbc.anchor = GridBagConstraints.WEST;
+        detectionScriptArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        detectionScriptArea.setTabSize(4);
+        detectionScriptArea.setToolTipText(detectionLabel.getToolTipText());
+        JScrollPane detectionScroll = new JScrollPane(detectionScriptArea);
+        detectionScroll.setPreferredSize(new Dimension(400, 120));
+        metaPanel.add(detectionScroll, gbc);
+
         // Buttons für Felder
         JButton addFieldButton = new JButton("➕ Feld");
         addFieldButton.addActionListener(e -> {
@@ -334,6 +359,12 @@ public class SentenceTypeEditor extends JPanel {
             }
         }
 
+        // Detection script (for all types)
+        String script = detectionScriptArea.getText().trim();
+        if (!script.isEmpty()) {
+            meta.setDetectionScript(script);
+        }
+
         def.setMeta(meta);
         def.setFields(fieldModel.getInternalMap());
 
@@ -402,6 +433,13 @@ public class SentenceTypeEditor extends JPanel {
                 syntaxCombo.setSelectedItem(displaySyntaxStyle(def.getMeta().getSyntaxStyle()));
             } else {
                 syntaxCombo.setSelectedIndex(0);
+            }
+
+            // Detection script
+            if (def.getMeta().hasDetectionScript()) {
+                detectionScriptArea.setText(def.getMeta().getDetectionScript());
+            } else {
+                detectionScriptArea.setText("");
             }
         }
 

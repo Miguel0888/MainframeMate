@@ -179,32 +179,83 @@ public class SentenceTypeSettingsDialog {
      * Includes document types (PDF, WORD, ...) and programming languages (JCL, COBOL, Java, ...).
      */
     private static void addDefaultFileTypes() {
-        // name, pathPattern, extensions (comma-sep), transferMode, syntaxStyle
+        // name, pathPattern, extensions, transferMode, syntaxStyle, detectionScript
         String[][] defaults = {
                 // Document types (rendered)
-                {"PDF",          ".*\\.pdf$",              "pdf",           "binary",  ""},
-                {"MD",           ".*\\.md$",               "md,markdown",   "ascii",   ""},
-                {"WORD",         ".*\\.(doc|docx)$",        "doc,docx",      "binary",  ""},
-                {"EXCEL",        ".*\\.(xls|xlsx)$",        "xls,xlsx",      "binary",  ""},
-                {"OUTLOOK MAIL", ".*\\.(msg|eml)$",         "msg,eml",       "binary",  ""},
-                // Mainframe programming languages
-                {"JCL",          ".*\\.(jcl|proc|prc)$",   "jcl,proc,prc",  "ascii",   "text/properties"},
-                {"COBOL",        ".*\\.(cbl|cob|cobol)$",  "cbl,cob,cobol", "ascii",   "text/plain"},
+                {"PDF",          ".*\\.pdf$",              "pdf",           "binary",  "", ""},
+                {"MD",           ".*\\.md$",               "md,markdown",   "ascii",   "", ""},
+                {"WORD",         ".*\\.(doc|docx)$",        "doc,docx",      "binary",  "", ""},
+                {"EXCEL",        ".*\\.(xls|xlsx)$",        "xls,xlsx",      "binary",  "", ""},
+                {"OUTLOOK MAIL", ".*\\.(msg|eml)$",         "msg,eml",       "binary",  "", ""},
+                // Mainframe programming languages (with content-based detection scripts)
+                {"JCL",          ".*\\.(jcl|proc|prc)$",   "jcl,proc,prc",  "ascii",   "text/properties",
+                        "import java.util.List;\n"
+                        + "import java.util.function.Function;\n"
+                        + "public class Expr_DetectJCL implements Function<List<String>, String> {\n"
+                        + "    public String apply(List<String> args) {\n"
+                        + "        if (args.isEmpty()) return \"false\";\n"
+                        + "        String content = args.get(0);\n"
+                        + "        String[] lines = content.split(\"\\\\r?\\\\n\", 30);\n"
+                        + "        int hits = 0;\n"
+                        + "        for (String line : lines) {\n"
+                        + "            if (line.startsWith(\"//\") && !line.startsWith(\"///\")) hits++;\n"
+                        + "        }\n"
+                        + "        return hits >= 3 ? \"true\" : \"false\";\n"
+                        + "    }\n"
+                        + "}\n"},
+                {"COBOL",        ".*\\.(cbl|cob|cobol)$",  "cbl,cob,cobol", "ascii",   "text/plain",
+                        "import java.util.List;\n"
+                        + "import java.util.function.Function;\n"
+                        + "public class Expr_DetectCOBOL implements Function<List<String>, String> {\n"
+                        + "    public String apply(List<String> args) {\n"
+                        + "        if (args.isEmpty()) return \"false\";\n"
+                        + "        String content = args.get(0);\n"
+                        + "        String upper = content.toUpperCase();\n"
+                        + "        int hits = 0;\n"
+                        + "        if (upper.contains(\"IDENTIFICATION DIVISION\")) hits++;\n"
+                        + "        if (upper.contains(\"PROCEDURE DIVISION\")) hits++;\n"
+                        + "        if (upper.contains(\"DATA DIVISION\")) hits++;\n"
+                        + "        if (upper.contains(\"ENVIRONMENT DIVISION\")) hits++;\n"
+                        + "        if (upper.contains(\"WORKING-STORAGE SECTION\")) hits++;\n"
+                        + "        if (upper.contains(\"PROGRAM-ID\")) hits++;\n"
+                        + "        return hits >= 1 ? \"true\" : \"false\";\n"
+                        + "    }\n"
+                        + "}\n"},
                 {"NATURAL",      "",                        "",              "ascii",
-                        de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL},
+                        de.bund.zrb.ui.syntax.MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL,
+                        "import java.util.List;\n"
+                        + "import java.util.function.Function;\n"
+                        + "public class Expr_DetectNATURAL implements Function<List<String>, String> {\n"
+                        + "    public String apply(List<String> args) {\n"
+                        + "        if (args.isEmpty()) return \"false\";\n"
+                        + "        String content = args.get(0);\n"
+                        + "        String[] lines = content.split(\"\\\\r?\\\\n\", 40);\n"
+                        + "        int hits = 0;\n"
+                        + "        for (String line : lines) {\n"
+                        + "            String t = line.trim().toUpperCase();\n"
+                        + "            if (t.startsWith(\"DEFINE DATA\") || t.startsWith(\"END-DEFINE\")\n"
+                        + "                || t.startsWith(\"CALLNAT \") || t.startsWith(\"LOCAL USING\")\n"
+                        + "                || t.startsWith(\"PARAMETER USING\") || t.startsWith(\"INPUT USING MAP\")\n"
+                        + "                || t.startsWith(\"DECIDE ON\") || t.startsWith(\"FETCH RETURN\")) {\n"
+                        + "                hits++;\n"
+                        + "            }\n"
+                        + "        }\n"
+                        + "        return hits >= 2 ? \"true\" : \"false\";\n"
+                        + "    }\n"
+                        + "}\n"},
                 // Common programming languages
-                {"Java",         ".*\\.java$",             "java",          "ascii",   "text/java"},
-                {"Python",       ".*\\.py$",               "py",            "ascii",   "text/python"},
-                {"JavaScript",   ".*\\.js$",               "js",            "ascii",   "text/javascript"},
-                {"TypeScript",   ".*\\.ts$",               "ts",            "ascii",   "text/typescript"},
-                {"JSON",         ".*\\.json$",             "json",          "ascii",   "text/json"},
-                {"XML",          ".*\\.xml$",              "xml",           "ascii",   "text/xml"},
-                {"HTML",         ".*\\.html?$",            "html,htm",      "ascii",   "text/html"},
-                {"SQL",          ".*\\.sql$",              "sql",           "ascii",   "text/sql"},
-                {"YAML",         ".*\\.ya?ml$",            "yaml,yml",      "ascii",   "text/yaml"},
-                {"Shell",        ".*\\.(sh|bash)$",        "sh,bash",       "ascii",   "text/unix"},
-                {"Batch",        ".*\\.(bat|cmd)$",        "bat,cmd",       "ascii",   "text/bat"},
-                {"Groovy",       ".*\\.(groovy|gradle)$",  "groovy,gradle", "ascii",   "text/groovy"},
+                {"Java",         ".*\\.java$",             "java",          "ascii",   "text/java", ""},
+                {"Python",       ".*\\.py$",               "py",            "ascii",   "text/python", ""},
+                {"JavaScript",   ".*\\.js$",               "js",            "ascii",   "text/javascript", ""},
+                {"TypeScript",   ".*\\.ts$",               "ts",            "ascii",   "text/typescript", ""},
+                {"JSON",         ".*\\.json$",             "json",          "ascii",   "text/json", ""},
+                {"XML",          ".*\\.xml$",              "xml",           "ascii",   "text/xml", ""},
+                {"HTML",         ".*\\.html?$",            "html,htm",      "ascii",   "text/html", ""},
+                {"SQL",          ".*\\.sql$",              "sql",           "ascii",   "text/sql", ""},
+                {"YAML",         ".*\\.ya?ml$",            "yaml,yml",      "ascii",   "text/yaml", ""},
+                {"Shell",        ".*\\.(sh|bash)$",        "sh,bash",       "ascii",   "text/unix", ""},
+                {"Batch",        ".*\\.(bat|cmd)$",        "bat,cmd",       "ascii",   "text/bat", ""},
+                {"Groovy",       ".*\\.(groovy|gradle)$",  "groovy,gradle", "ascii",   "text/groovy", ""},
         };
 
         for (String[] def : defaults) {
@@ -213,6 +264,7 @@ public class SentenceTypeSettingsDialog {
             String extensions = def[2];
             String transfer = def[3];
             String syntaxStyle = def[4];
+            String detectionScript = def.length > 5 ? def[5] : "";
 
             boolean exists = sentenceTypeSpec.getDefinitions().keySet().stream()
                     .anyMatch(existingKey -> existingKey.equalsIgnoreCase(key));
@@ -237,6 +289,10 @@ public class SentenceTypeSettingsDialog {
                 meta.setSyntaxStyle(syntaxStyle);
             }
 
+            if (detectionScript != null && !detectionScript.isEmpty()) {
+                meta.setDetectionScript(detectionScript);
+            }
+
             sd.setMeta(meta);
 
             sentenceTypeSpec.getDefinitions().put(key, sd);
@@ -244,7 +300,7 @@ public class SentenceTypeSettingsDialog {
     }
 
     private static class SentenceTableModel extends AbstractTableModel {
-        private final String[] columns = {"Name", "Typ", "Endungen", "Transfer", "Syntax", "Pfade", "Pattern", "Feldzahl"};
+        private final String[] columns = {"Name", "Typ", "Endungen", "Transfer", "Syntax", "Erkennung", "Pfade", "Pattern", "Feldzahl"};
 
         @Override
         public int getRowCount() {
@@ -296,11 +352,15 @@ public class SentenceTypeSettingsDialog {
                             if (meta != null && meta.hasSyntaxStyle()) return meta.getSyntaxStyle();
                             return "";
                         case 5:
+                            // Detection script
+                            if (meta != null && meta.hasDetectionScript()) return "✅ Script";
+                            return "";
+                        case 6:
                             List<String> paths = meta != null ? meta.getPaths() : null;
                             return paths != null ? String.join(";", paths) : "";
-                        case 6:
-                            return meta != null ? meta.getPathPattern() : "";
                         case 7:
+                            return meta != null ? meta.getPathPattern() : "";
+                        case 8:
                             if (def.isFileType()) return "—";
                             return def.getFields() != null ? def.getFields().size() : 0;
                         default: return "";
