@@ -11,26 +11,22 @@ import javax.swing.event.HyperlinkListener;
 import javax.swing.text.html.HTMLDocument;
 import java.net.URL;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Hyperlink listener that intercepts clicks in the BetaView HTML view
  * and loads the target via the BetaView session (server-side navigation).
- * Adapted from the betaview-example BetaViewHtmlNavigator.
+ * <p>
+ * Taken 1:1 from the tested betaview-example (com.acme.betaview.BetaViewHtmlNavigator),
+ * only adapted for MainframeMate infrastructure package paths.
  */
 public final class BetaViewHtmlNavigator implements HyperlinkListener {
-
-    private static final Pattern OPEN_DOCUMENT = Pattern.compile("openDocument\\('([^']+)'\\)");
-    private static final Pattern POPUP = Pattern.compile("popup\\('([^']+)'\\)");
-    private static final Pattern REGULAR_DOWNLOAD = Pattern.compile("regularDownload\\('([^']+)'\\)");
-    private static final Pattern DIALOG_DOWNLOAD = Pattern.compile("dialogDownload\\('([^']+)'\\)");
 
     private final BetaViewClient client;
     private final BetaViewSession session;
     private final JEditorPane view;
     private final URL baseUrl;
 
+    private final BetaViewHtmlActionLinkRewriter rewriter = new BetaViewHtmlActionLinkRewriter();
     private final BetaViewActionPathResolver resolver = new BetaViewActionPathResolver();
 
     public BetaViewHtmlNavigator(BetaViewClient client, BetaViewSession session, JEditorPane view, URL baseUrl) {
@@ -66,7 +62,7 @@ public final class BetaViewHtmlNavigator implements HyperlinkListener {
             protected void done() {
                 try {
                     String html = get();
-                    String rewritten = rewriteToPlainLinks(html);
+                    String rewritten = rewriter.rewriteToPlainLinks(html);
                     setHtml(rewritten);
                 } catch (Exception ex) {
                     setHtml("<html><body><pre>" + escape(ex.getMessage()) + "</pre></body></html>");
@@ -76,7 +72,7 @@ public final class BetaViewHtmlNavigator implements HyperlinkListener {
     }
 
     public void showInitialHtml(String html) {
-        String rewritten = rewriteToPlainLinks(html);
+        String rewritten = rewriter.rewriteToPlainLinks(html);
         setHtml(rewritten);
     }
 
@@ -88,30 +84,6 @@ public final class BetaViewHtmlNavigator implements HyperlinkListener {
         if (view.getDocument() instanceof HTMLDocument) {
             ((HTMLDocument) view.getDocument()).setBase(baseUrl);
         }
-    }
-
-    /**
-     * Rewrite JavaScript onclick/href actions to plain href links for Swing's JEditorPane.
-     */
-    private String rewriteToPlainLinks(String html) {
-        if (html == null) {
-            return "";
-        }
-        // Simple replacement: extract action URLs from onclick handlers
-        html = html.replaceAll("href\\s*=\\s*[\"']javascript:[^\"']*[\"']", "href=\"#\"");
-
-        // Replace onclick="openDocument('...')" patterns
-        for (Pattern p : new Pattern[]{OPEN_DOCUMENT, POPUP, REGULAR_DOWNLOAD, DIALOG_DOWNLOAD}) {
-            Matcher m = p.matcher(html);
-            StringBuffer sb = new StringBuffer();
-            while (m.find()) {
-                String action = m.group(1).replace("&amp;", "&");
-                m.appendReplacement(sb, "href=\"" + Matcher.quoteReplacement(action) + "\"");
-            }
-            m.appendTail(sb);
-            html = sb.toString();
-        }
-        return html;
     }
 
     private URL resolveRelativeUrl(String description) {
@@ -129,4 +101,3 @@ public final class BetaViewHtmlNavigator implements HyperlinkListener {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
-

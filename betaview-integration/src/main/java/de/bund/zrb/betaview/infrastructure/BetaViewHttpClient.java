@@ -67,11 +67,20 @@ public final class BetaViewHttpClient implements BetaViewClient {
                     + " (last redirect location: " + safe(finalResponse.location()) + ")");
         }
 
-        // Fetch app context to get CSRF token for subsequent POST requests
-        String appContextJson = getText(session, "getAppContext.action");
-        BetaViewCsrfToken csrf = new AppContextCsrfTokenParser().parseFrom(appContextJson);
-        if (csrf != null) {
-            session = session.withCsrfToken(csrf);
+        // Fetch app context to get CSRF token for subsequent POST requests.
+        // Some BetaView deployments may not support getAppContext.action,
+        // so we tolerate failure here and continue without CSRF token.
+        try {
+            String appContextJson = getText(session, "getAppContext.action");
+            BetaViewCsrfToken csrf = new AppContextCsrfTokenParser().parseFrom(appContextJson);
+            if (csrf != null) {
+                session = session.withCsrfToken(csrf);
+                System.out.println("[BetaView] CSRF token acquired: field=" + csrf.field() + " name=" + csrf.name());
+            } else {
+                System.out.println("[BetaView] No CSRF token found in appContext response.");
+            }
+        } catch (IOException csrfEx) {
+            System.out.println("[BetaView] Could not fetch CSRF token (non-fatal): " + csrfEx.getMessage());
         }
         return session;
     }
@@ -135,9 +144,11 @@ public final class BetaViewHttpClient implements BetaViewClient {
 
         Map<String, String> effectiveFields = new LinkedHashMap<String, String>(fields);
 
-        // Add CSRF token automatically when available
+        // Add CSRF token automatically ONLY when the form does not already carry
+        // its own Struts token (page-specific tokens must not be overwritten by
+        // the session-level CSRF token – doing so causes HTTP 400).
         BetaViewCsrfToken csrf = session.csrfToken();
-        if (csrf != null) {
+        if (csrf != null && !effectiveFields.containsKey("struts.token.name")) {
             effectiveFields.put(csrf.field(), csrf.name());
             effectiveFields.put(csrf.name(), csrf.value());
         }

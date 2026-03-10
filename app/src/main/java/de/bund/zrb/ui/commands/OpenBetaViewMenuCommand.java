@@ -143,8 +143,8 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
         });
 
         // Document open callback: open as FileTab
-        tab.setOpenCallback((ref, content) -> {
-            String path = "betaview://" + ref.displayName();
+        tab.setOpenCallback((displayName, actionPath, content) -> {
+            String path = "betaview://" + displayName;
             tabManager.openFileTab(
                     new VirtualResource(null, VirtualResourceKind.FILE, path,
                             VirtualBackendType.BETAVIEW, null, null),
@@ -153,6 +153,9 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
         });
 
         tabManager.addTab(tab);
+
+        // Initiate connection (login + CSRF) in background
+        tab.connectInBackground();
     }
 
     // ── URL prompt ──────────────────────────────────────────────────────

@@ -1,85 +1,74 @@
 package de.bund.zrb.betaview.ui;
 
-import de.bund.zrb.betaview.domain.*;
-import de.bund.zrb.betaview.infrastructure.BetaViewGatewayHttpAdapter;
-import de.bund.zrb.betaview.infrastructure.BetaViewSession;
-import de.bund.zrb.betaview.infrastructure.BetaViewClient;
-import de.bund.zrb.betaview.port.BetaViewGateway;
-import de.bund.zrb.betaview.usecase.LoadBetaViewDocumentUseCase;
-import de.bund.zrb.betaview.usecase.SearchBetaViewUseCase;
+import de.bund.zrb.betaview.infrastructure.*;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
-import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
 import java.awt.*;
-import java.util.List;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Objects;
 
 /**
  * MainframeMate ConnectionTab for BetaView search and navigation.
  * <p>
- * Connection settings (URL) come from Settings, credentials from the shared LoginManager
- * (same as FTP/NDV). Only the search filter is editable within this tab.
+ * This tab mirrors the tested BetaViewSwingFrame from the betaview-example project 1:1.
+ * The only differences are:
+ * <ul>
+ *   <li>It implements {@link ConnectionTab} instead of extending JFrame</li>
+ *   <li>Credentials come from the shared LoginManager (via CredentialsProvider callback)</li>
+ *   <li>Connection settings come from MainframeMate Settings</li>
+ * </ul>
+ * <p>
+ * Flow: Connect (login + CSRF) → Load Results → Navigate via hyperlinks.
  */
 public class BetaViewConnectionTab implements ConnectionTab {
 
-    private final JPanel mainPanel;
-    private final BetaViewGateway gateway;
-    private final SearchBetaViewUseCase searchUseCase;
-    private final LoadBetaViewDocumentUseCase loadDocumentUseCase;
+    // ── UI components (same as BetaViewSwingFrame) ──────────────────────
 
-    // Filter fields (pre-filled from Settings)
+    private final JPanel mainPanel;
+
     private final JTextField favoriteIdField = new JTextField();
     private final JTextField localeField = new JTextField();
     private final JTextField extensionField = new JTextField();
     private final JTextField formField = new JTextField();
-    private final JTextField daysBackField = new JTextField("60");
+    private final JTextField daysBackField = new JTextField();
 
-    // Actions
-    private final JButton searchButton = new JButton("Suche starten");
+    private final JButton loadButton = new JButton("Suche starten");
     private final JLabel statusLabel = new JLabel("Nicht verbunden");
     private final JProgressBar progressBar = new JProgressBar();
 
-    // Results
     private final JEditorPane htmlView = new JEditorPane();
-    private final DefaultListModel<BetaViewDocumentRef> resultListModel = new DefaultListModel<BetaViewDocumentRef>();
-    private final JList<BetaViewDocumentRef> resultList = new JList<BetaViewDocumentRef>(resultListModel);
 
-    // Callback for opening documents in FileTab
-    private DocumentOpenCallback openCallback;
+    // ── State (same as BetaViewSwingFrame) ──────────────────────────────
 
-    // Credentials provider – set externally by the MenuCommand (avoids compile dependency on app)
-    private CredentialsProvider credentialsProvider;
+    private URL baseUrl;
+    private BetaViewClient client;
+    private BetaViewSession session;
+    private LoadResultsHtmlUseCase loadResultsHtmlUseCase;
 
-    // HTML navigator for server-side hyperlink navigation
     private BetaViewHtmlNavigator navigator;
     private HyperlinkListener currentHyperlinkListener;
 
-    // Base URL – set externally from Settings
-    private String baseUrl = "";
+    // ── MainframeMate-specific callbacks ────────────────────────────────
+
+    private DocumentOpenCallback openCallback;
+    private CredentialsProvider credentialsProvider;
+    private String baseUrlText = "";
 
     public BetaViewConnectionTab() {
-        this.gateway = new BetaViewGatewayHttpAdapter();
-        this.searchUseCase = new SearchBetaViewUseCase(gateway);
-        this.loadDocumentUseCase = new LoadBetaViewDocumentUseCase(gateway);
         this.mainPanel = buildUi();
         wireActions();
     }
 
     // ── External configuration (set by MenuCommand) ─────────────────────
 
-    /**
-     * Callback interface for opening a document in a MainframeMate FileTab.
-     */
     public interface DocumentOpenCallback {
-        void openDocument(BetaViewDocumentRef ref, String content);
+        void openDocument(String displayName, String actionPath, String content);
     }
 
-    /**
-     * Callback for obtaining credentials (user/password) from the shared LoginManager.
-     */
     public interface CredentialsProvider {
-        /** Returns [user, password] or null if user cancels. */
         String[] getCredentials(String host);
     }
 
@@ -91,12 +80,10 @@ public class BetaViewConnectionTab implements ConnectionTab {
         this.credentialsProvider = provider;
     }
 
-    /** Set the BetaView base URL (from Settings). */
     public void setBaseUrl(String url) {
-        this.baseUrl = url != null ? url : "";
+        this.baseUrlText = url != null ? url : "";
     }
 
-    /** Pre-fill filter fields with defaults from Settings. */
     public void setFilterDefaults(String favoriteId, String locale, String extension, String form, int daysBack) {
         favoriteIdField.setText(favoriteId != null ? favoriteId : "");
         localeField.setText(locale != null ? locale : "de");
@@ -105,114 +92,22 @@ public class BetaViewConnectionTab implements ConnectionTab {
         daysBackField.setText(String.valueOf(daysBack > 0 ? daysBack : 60));
     }
 
-    // ── UI Construction ─────────────────────────────────────────────────
-
-    private JPanel buildUi() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        // Top: Filter only (connection comes from Settings)
-        JPanel topPanel = new JPanel(new BorderLayout(8, 8));
-        topPanel.add(buildFilterPanel(), BorderLayout.CENTER);
-        topPanel.add(buildStatusPanel(), BorderLayout.SOUTH);
-
-        // Center: Split between result list and HTML view
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-
-        JScrollPane listScroll = new JScrollPane(resultList);
-        listScroll.setPreferredSize(new Dimension(250, 400));
-        splitPane.setLeftComponent(listScroll);
-
-        htmlView.setContentType("text/html");
-        htmlView.setEditable(false);
-        JScrollPane htmlScroll = new JScrollPane(htmlView);
-        htmlScroll.setPreferredSize(new Dimension(700, 400));
-        splitPane.setRightComponent(htmlScroll);
-
-        splitPane.setDividerLocation(280);
-
-        panel.add(topPanel, BorderLayout.NORTH);
-        panel.add(splitPane, BorderLayout.CENTER);
-
-        progressBar.setIndeterminate(true);
-        progressBar.setVisible(false);
-        panel.add(progressBar, BorderLayout.SOUTH);
-
-        return panel;
-    }
-
-    private JPanel buildFilterPanel() {
-        JPanel p = new JPanel(new GridBagLayout());
-        p.setBorder(BorderFactory.createTitledBorder("Suchfilter"));
-        GridBagConstraints c = gbc();
-
-        addRow(p, c, 0, "Favorite ID", favoriteIdField);
-        addRow(p, c, 1, "Locale", localeField);
-        addRow(p, c, 2, "Extension", extensionField);
-        addRow(p, c, 3, "Form", formField);
-        addRow(p, c, 4, "Tage zurück", daysBackField);
-
-        c.gridx = 1;
-        c.gridy = 5;
-        c.weightx = 0;
-        c.fill = GridBagConstraints.NONE;
-        c.anchor = GridBagConstraints.LINE_START;
-        p.add(searchButton, c);
-
-        return p;
-    }
-
-    private JPanel buildStatusPanel() {
-        JPanel p = new JPanel(new BorderLayout());
-        p.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
-        p.add(statusLabel, BorderLayout.WEST);
-        return p;
-    }
-
-    // ── Actions ─────────────────────────────────────────────────────────
-
-    private void wireActions() {
-        searchButton.addActionListener(e -> doSearch());
-
-        resultList.setCellRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value,
-                                                          int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof BetaViewDocumentRef) {
-                    setText(((BetaViewDocumentRef) value).displayName());
-                }
-                return this;
-            }
-        });
-
-        resultList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                BetaViewDocumentRef ref = resultList.getSelectedValue();
-                if (ref != null) {
-                    doOpenDocument(ref);
-                }
-            }
-        });
-
-        // Note: HyperlinkListener is installed via BetaViewHtmlNavigator after successful search
-    }
-
-    private void doSearch() {
-        if (baseUrl.isEmpty()) {
-            JOptionPane.showMessageDialog(mainPanel,
-                    "BetaView-URL ist nicht konfiguriert.\nBitte unter Einstellungen → BetaView die Base URL eintragen.",
-                    "Konfiguration fehlt", JOptionPane.WARNING_MESSAGE);
+    /**
+     * Called by the MenuCommand after adding this tab.
+     * Initiates the connect phase (login + CSRF) in the background.
+     */
+    public void connectInBackground() {
+        if (baseUrlText.isEmpty()) {
+            statusLabel.setText("Keine URL konfiguriert");
             return;
         }
 
-        // Get credentials from shared LoginManager
         String user = null;
         String password = null;
 
         if (credentialsProvider != null) {
             try {
-                String host = extractHost(baseUrl);
+                String host = extractHost(baseUrlText);
                 String[] creds = credentialsProvider.getCredentials(host);
                 if (creds == null || creds.length < 2) {
                     statusLabel.setText("Anmeldung abgebrochen");
@@ -227,60 +122,42 @@ public class BetaViewConnectionTab implements ConnectionTab {
         }
 
         if (user == null || user.isEmpty() || password == null || password.isEmpty()) {
-            JOptionPane.showMessageDialog(mainPanel,
-                    "Benutzername oder Passwort nicht verfügbar.\nBitte zuerst über FTP oder NDV anmelden.",
-                    "Anmeldung erforderlich", JOptionPane.WARNING_MESSAGE);
+            statusLabel.setText("Anmeldedaten fehlen");
             return;
         }
 
-        int daysBack;
-        try {
-            daysBack = Integer.parseInt(daysBackField.getText().trim());
-        } catch (NumberFormatException e) {
-            daysBack = 60;
-        }
-
-        final BetaViewSearchQuery query = new BetaViewSearchQuery(
-                baseUrl, user, password,
-                favoriteIdField.getText().trim(),
-                localeField.getText().trim(),
-                extensionField.getText().trim(),
-                formField.getText().trim(),
-                daysBack
-        );
+        final String fUser = user;
+        final String fPassword = password;
 
         setBusy(true);
-        statusLabel.setText("Suche läuft...");
+        statusLabel.setText("Verbinde...");
 
-        new SwingWorker<BetaViewSearchResult, Void>() {
+        new SwingWorker<Void, Void>() {
             @Override
-            protected BetaViewSearchResult doInBackground() throws Exception {
-                return searchUseCase.execute(query);
+            protected Void doInBackground() throws Exception {
+                // Exactly like BetaViewSwingFrame.connect()
+                baseUrl = normalizeBaseUrl(baseUrlText);
+                client = new BetaViewHttpClient(new BetaViewBaseUrl(baseUrl));
+                loadResultsHtmlUseCase = new LoadResultsHtmlUseCase(client);
+                session = client.login(new BetaViewCredentials(fUser, fPassword));
+                return null;
             }
 
             @Override
             protected void done() {
                 try {
-                    BetaViewSearchResult result = get();
-                    resultListModel.clear();
-                    for (BetaViewDocumentRef ref : result.documents()) {
-                        resultListModel.addElement(ref);
-                    }
+                    get(); // throws if doInBackground failed
 
-                    // Install navigator from the session (for hyperlink handling)
                     installNavigator();
 
-                    if (navigator != null) {
-                        navigator.showInitialHtml(result.rawHtml());
-                    } else {
-                        htmlView.setText(result.rawHtml());
-                        htmlView.setCaretPosition(0);
-                    }
-
-                    statusLabel.setText(result.documents().size() + " Treffer gefunden");
+                    statusLabel.setText("Verbunden");
+                    setFilterEnabled(true);
+                    loadButton.setEnabled(true);
                 } catch (Exception ex) {
-                    statusLabel.setText("Suche fehlgeschlagen");
+                    statusLabel.setText("Verbindung fehlgeschlagen");
                     showError(ex);
+                    setFilterEnabled(false);
+                    loadButton.setEnabled(false);
                 } finally {
                     setBusy(false);
                 }
@@ -288,26 +165,107 @@ public class BetaViewConnectionTab implements ConnectionTab {
         }.execute();
     }
 
-    private void doOpenDocument(BetaViewDocumentRef ref) {
-        if (openCallback == null) return;
+    // ── UI Construction ─────────────────────────────────────────────────
+
+    private JPanel buildUi() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JPanel topPanel = new JPanel(new BorderLayout(8, 8));
+        topPanel.add(buildFilterPanel(), BorderLayout.CENTER);
+        topPanel.add(buildStatusPanel(), BorderLayout.SOUTH);
+
+        htmlView.setContentType("text/html");
+        htmlView.setEditable(false);
+
+        JScrollPane htmlScroll = new JScrollPane(htmlView);
+        htmlScroll.setPreferredSize(new Dimension(900, 600));
+
+        panel.add(topPanel, BorderLayout.NORTH);
+        panel.add(htmlScroll, BorderLayout.CENTER);
+
+        progressBar.setIndeterminate(true);
+        progressBar.setVisible(false);
+        panel.add(progressBar, BorderLayout.SOUTH);
+
+        // Start with filter disabled (like BetaViewSwingFrame)
+        setFilterEnabled(false);
+        loadButton.setEnabled(false);
+
+        return panel;
+    }
+
+    private JPanel buildFilterPanel() {
+        JPanel p = new JPanel(new GridBagLayout());
+        p.setBorder(BorderFactory.createTitledBorder("Suchfilter"));
+        GridBagConstraints c = baseConstraints();
+
+        addRow(p, c, 0, "Favorite ID", favoriteIdField);
+        addRow(p, c, 1, "Locale", localeField);
+        addRow(p, c, 2, "Extension", extensionField);
+        addRow(p, c, 3, "Form", formField);
+        addRow(p, c, 4, "Tage zurück", daysBackField);
+
+        c.gridx = 1;
+        c.gridy = 5;
+        c.weightx = 0;
+        c.fill = GridBagConstraints.NONE;
+        c.anchor = GridBagConstraints.LINE_START;
+        p.add(loadButton, c);
+
+        return p;
+    }
+
+    private JPanel buildStatusPanel() {
+        JPanel p = new JPanel(new BorderLayout());
+        p.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
+        p.add(statusLabel, BorderLayout.WEST);
+        return p;
+    }
+
+    // ── Actions (mirrors BetaViewSwingFrame exactly) ────────────────────
+
+    private void wireActions() {
+        loadButton.addActionListener(e -> loadResults());
+    }
+
+    private void loadResults() {
+        if (client == null || session == null || loadResultsHtmlUseCase == null) {
+            JOptionPane.showMessageDialog(mainPanel, "Nicht verbunden.", "Status", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        final ResultFilter filter;
+        try {
+            filter = readFilterFromUi();
+        } catch (Exception ex) {
+            showError(ex);
+            return;
+        }
 
         setBusy(true);
-        statusLabel.setText("Lade Dokument: " + ref.displayName() + "...");
+        statusLabel.setText("Lade Ergebnisse...");
 
-        new SwingWorker<BetaViewDocument, Void>() {
+        new SwingWorker<String, Void>() {
             @Override
-            protected BetaViewDocument doInBackground() throws Exception {
-                return loadDocumentUseCase.execute(ref);
+            protected String doInBackground() throws Exception {
+                // Exactly like BetaViewSwingFrame.loadResults()
+                return loadResultsHtmlUseCase.execute(session, filter);
             }
 
             @Override
             protected void done() {
                 try {
-                    BetaViewDocument doc = get();
-                    openCallback.openDocument(doc.ref(), doc.content());
-                    statusLabel.setText("Geöffnet: " + ref.displayName());
+                    String html = get();
+
+                    if (navigator == null) {
+                        installNavigator();
+                    }
+                    navigator.showInitialHtml(html);
+
+                    statusLabel.setText("Ergebnisse geladen");
                 } catch (Exception ex) {
-                    statusLabel.setText("Fehler beim Laden");
+                    statusLabel.setText("Laden fehlgeschlagen");
                     showError(ex);
                 } finally {
                     setBusy(false);
@@ -317,32 +275,40 @@ public class BetaViewConnectionTab implements ConnectionTab {
     }
 
     private void installNavigator() {
-        // Remove old listener if exists
         if (currentHyperlinkListener != null) {
             htmlView.removeHyperlinkListener(currentHyperlinkListener);
             currentHyperlinkListener = null;
         }
 
-        // Get session and client from the gateway adapter
-        if (gateway instanceof BetaViewGatewayHttpAdapter) {
-            BetaViewGatewayHttpAdapter adapter = (BetaViewGatewayHttpAdapter) gateway;
-            BetaViewSession session = adapter.getSession();
-            BetaViewClient client = adapter.getClient();
+        navigator = new BetaViewHtmlNavigator(
+                Objects.requireNonNull(client, "client must not be null"),
+                Objects.requireNonNull(session, "session must not be null"),
+                htmlView,
+                Objects.requireNonNull(baseUrl, "baseUrl must not be null")
+        );
 
-            if (session != null && client != null) {
-                try {
-                    java.net.URL bUrl = new java.net.URL(baseUrl);
-                    navigator = new BetaViewHtmlNavigator(client, session, htmlView, bUrl);
-                    htmlView.addHyperlinkListener(navigator);
-                    currentHyperlinkListener = navigator;
-                } catch (Exception e) {
-                    System.err.println("[BetaView] Failed to install navigator: " + e.getMessage());
-                }
-            }
-        }
+        htmlView.addHyperlinkListener(navigator);
+        currentHyperlinkListener = navigator;
+    }
+
+    private ResultFilter readFilterFromUi() {
+        String favoriteId = favoriteIdField.getText().trim();
+        String locale = localeField.getText().trim();
+        String extension = extensionField.getText().trim();
+        String form = formField.getText().trim();
+        int daysBack = parseInt(daysBackField.getText().trim(), 60);
+        return new ResultFilter(favoriteId, locale, extension, form, daysBack);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    private int parseInt(String s, int fallback) {
+        try {
+            return Integer.parseInt(s);
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
 
     private String extractHost(String url) {
         try {
@@ -352,9 +318,26 @@ public class BetaViewConnectionTab implements ConnectionTab {
         }
     }
 
+    private URL normalizeBaseUrl(String text) throws MalformedURLException {
+        String s = text.trim();
+        if (!s.endsWith("/")) {
+            s = s + "/";
+        }
+        return new URL(s);
+    }
+
     private void setBusy(boolean busy) {
         progressBar.setVisible(busy);
-        searchButton.setEnabled(!busy);
+        loadButton.setEnabled(!busy && session != null);
+    }
+
+    private void setFilterEnabled(boolean enabled) {
+        favoriteIdField.setEnabled(enabled);
+        localeField.setEnabled(enabled);
+        extensionField.setEnabled(enabled);
+        formField.setEnabled(enabled);
+        daysBackField.setEnabled(enabled);
+        loadButton.setEnabled(enabled);
     }
 
     private void showError(Exception ex) {
@@ -367,11 +350,12 @@ public class BetaViewConnectionTab implements ConnectionTab {
         ex.printStackTrace();
     }
 
-    private GridBagConstraints gbc() {
+    private GridBagConstraints baseConstraints() {
         GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(3, 5, 3, 5);
+        c.insets = new Insets(4, 6, 4, 6);
         c.anchor = GridBagConstraints.LINE_START;
         c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0.0;
         return c;
     }
 
@@ -382,7 +366,7 @@ public class BetaViewConnectionTab implements ConnectionTab {
         panel.add(field, c);
     }
 
-    // ── ConnectionTab / FtpTab contract ─────────────────────────────────
+    // ── ConnectionTab contract ──────────────────────────────────────────
 
     @Override
     public String getTitle() {
@@ -428,8 +412,6 @@ public class BetaViewConnectionTab implements ConnectionTab {
         extensionField.setText(query);
     }
 
-    // ── Bookmarkable ────────────────────────────────────────────────────
-
     @Override
     public String getContent() {
         return "";
@@ -442,7 +424,7 @@ public class BetaViewConnectionTab implements ConnectionTab {
 
     @Override
     public String getPath() {
-        return "betaview://" + baseUrl;
+        return "betaview://" + baseUrlText;
     }
 
     @Override
