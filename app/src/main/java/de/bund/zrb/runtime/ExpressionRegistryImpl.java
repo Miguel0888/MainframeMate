@@ -3,7 +3,6 @@ package de.bund.zrb.runtime;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import de.bund.zrb.InMemoryJavaCompiler;
 import de.bund.zrb.ui.settings.ExpressionExamples;
 import de.zrb.bund.api.ExpressionRegistry;
 
@@ -11,11 +10,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Gson-basierte Implementierung der ExpressionRegistry, speichert Ausdrucksdefinitionen als komplette Callable-Klassen.
@@ -30,7 +26,7 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
 
     private final Map<String, String> expressions = new LinkedHashMap<>();
     private final File file;
-    private final InMemoryJavaCompiler compiler = new InMemoryJavaCompiler();
+    private final ExpressionCompiler expressionCompiler = ExpressionCompilerFactory.getCompiler();
 
     private ExpressionRegistryImpl() {
         this.file = new File(getSettingsFolder(), FILE_NAME);
@@ -75,11 +71,7 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
             throw new IllegalArgumentException("Kein Quelltext für Ausdruck: '" + key + "'");
         }
 
-        String className = extractClassName(source, key);
-        Object instance = compiler.compile(className, source, Function.class);
-        Method apply = instance.getClass().getMethod("apply", Object.class);
-        Object result = apply.invoke(instance, args);
-        return String.valueOf(result);
+        return expressionCompiler.compileAndExecute(key, source, args);
     }
 
 
@@ -127,16 +119,4 @@ public class ExpressionRegistryImpl implements ExpressionRegistry {
         return de.bund.zrb.helper.SettingsHelper.getSettingsFolder();
     }
 
-    private String extractClassName(String source, String fallback) {
-        // Versuche aus dem Source den Klassennamen zu parsen
-        for (String line : source.split("\\n")) {
-            line = line.trim();
-            if (line.startsWith("public class ")) {
-                String[] tokens = line.split("\\s+");
-                if (tokens.length >= 3) return tokens[2];
-            }
-        }
-        // Fallback
-        return "Expr_" + fallback.replaceAll("[^a-zA-Z0-9_$]", "_");
-    }
 }
