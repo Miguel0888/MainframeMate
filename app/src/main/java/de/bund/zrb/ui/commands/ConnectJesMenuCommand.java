@@ -40,12 +40,26 @@ public class ConnectJesMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
+        openJesTab(parent, tabManager, null);
+    }
+
+    /**
+     * Open a JES-Jobs tab, optionally pre-filling the local search field.
+     *
+     * @param parent        parent window for dialogs
+     * @param tabManager    tab manager to add the new tab
+     * @param searchPattern if non-null, will be set as the local search/filter text (e.g. a Job-ID)
+     */
+    public static void openJesTab(Component parent, TabbedPaneManager tabManager, String searchPattern) {
         Settings settings = SettingsHelper.load();
         String host = settings.host;
         String user = settings.user;
 
+        Window window = SwingUtilities.getWindowAncestor(parent);
+        if (window == null) window = JOptionPane.getRootFrame();
+
         if (host == null || host.trim().isEmpty()) {
-            JOptionPane.showMessageDialog(parent,
+            JOptionPane.showMessageDialog(window,
                     "Kein FTP-Host konfiguriert.\nBitte zuerst unter Einstellungen → FTP-Server einen Host eintragen.",
                     "Kein Host", JOptionPane.WARNING_MESSAGE);
             return;
@@ -64,7 +78,8 @@ public class ConnectJesMenuCommand extends ShortcutMenuCommand {
         }
         if (credentials == null) return;
 
-        parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        final Window win = window;
+        win.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
         final String fHost = host.trim();
         final String fUser = credentials.getUsername();
@@ -78,15 +93,18 @@ public class ConnectJesMenuCommand extends ShortcutMenuCommand {
 
             @Override
             protected void done() {
-                parent.setCursor(Cursor.getDefaultCursor());
+                win.setCursor(Cursor.getDefaultCursor());
                 try {
                     JesFtpService service = get();
                     LoginManager.getInstance().setSessionActive(true);
                     JesJobsConnectionTab tab = new JesJobsConnectionTab(service, tabManager);
                     tabManager.addTab(tab);
+                    if (searchPattern != null && !searchPattern.isEmpty()) {
+                        tab.searchFor(searchPattern);
+                    }
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
-                    JOptionPane.showMessageDialog(parent,
+                    JOptionPane.showMessageDialog(win,
                             "JES-Verbindung fehlgeschlagen:\n" + cause.getMessage(),
                             "Verbindungsfehler", JOptionPane.ERROR_MESSAGE);
                 }

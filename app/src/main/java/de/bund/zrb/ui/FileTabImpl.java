@@ -28,6 +28,7 @@ import de.bund.zrb.files.auth.CredentialsProvider;
 import de.bund.zrb.files.path.VirtualResourceRef;
 import de.bund.zrb.files.impl.ftp.jes.JesFtpJobSubmitter;
 import de.bund.zrb.files.impl.ftp.jes.JesSubmitException;
+import de.bund.zrb.ui.commands.ConnectJesMenuCommand;
 import de.bund.zrb.files.impl.ftp.jes.JobSubmitResult;
 
 /**
@@ -1173,19 +1174,22 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 + "User: " + result.getUser() + "\n"
                 + "Zeit: " + result.getSubmittedAt().toString().replace('T', ' ');
 
-        String[] options = {"Job-ID kopieren", "Schließen"};
+        String[] options = {"Job-ID kopieren", "📋 In JES-Jobs öffnen", "Schließen"};
         int choice = JOptionPane.showOptionDialog(mainPanel,
                 info,
                 "Job submitted",
                 JOptionPane.DEFAULT_OPTION,
                 JOptionPane.INFORMATION_MESSAGE,
-                null, options, options[1]);
+                null, options, options[2]);
 
         if (choice == 0) {
             // Copy Job-ID to clipboard
             java.awt.datatransfer.StringSelection sel =
                     new java.awt.datatransfer.StringSelection(jobId);
             java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+        } else if (choice == 1) {
+            // Open JES-Jobs tab with jobId as search pattern
+            ConnectJesMenuCommand.openJesTab(mainPanel, tabbedPaneManager, jobId);
         }
     }
 
