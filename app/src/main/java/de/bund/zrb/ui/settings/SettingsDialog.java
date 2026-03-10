@@ -32,6 +32,7 @@ public class SettingsDialog {
         categories.add(new TransformSettingsPanel());
         categories.add(new FtpSettingsPanel());
         categories.add(new NdvSettingsPanel());
+        categories.add(new BetaViewSettingsPanel());
         categories.add(new AiSettingsPanel());
         categories.add(wrapPanel("rag", "RAG", ragPanel, ragPanel::saveToSettings));
         categories.add(new ProxySettingsPanel(parent));

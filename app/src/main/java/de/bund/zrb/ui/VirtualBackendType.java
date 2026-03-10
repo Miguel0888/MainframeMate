@@ -4,6 +4,7 @@ public enum VirtualBackendType {
     LOCAL,
     FTP,
     NDV,
-    ARCHIVE
+    ARCHIVE,
+    BETAVIEW
 }
 

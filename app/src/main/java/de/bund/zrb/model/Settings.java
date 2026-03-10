@@ -71,6 +71,14 @@ public class Settings {
     public String ndvDefaultLibrary = "";           // Default-Bibliothek (optional, leer = keine)
     public String ndvLibPath = "";                  // Pfad zu NDV-JARs (leer = ~/.mainframemate/lib/)
 
+    // BetaView Settings
+    public String betaviewUrl = "";                 // BetaView Base URL (z.B. https://betaview.example.com/betaview/)
+    public String betaviewFavoriteId = "";           // Default Favorite ID
+    public String betaviewLocale = "de";             // Default Locale
+    public String betaviewExtension = "*";           // Default Extension Pattern
+    public String betaviewForm = "APZF";             // Default Form
+    public int betaviewDaysBack = 60;                // Default Tage zurück
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

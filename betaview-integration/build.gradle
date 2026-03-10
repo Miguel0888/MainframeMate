@@ -1,0 +1,21 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+dependencies {
+    // MainframeMate core APIs (ConnectionTab, FtpTab, etc.)
+    api project(':core')
+
+    // jsoup for HTML parsing (already used in app)
+    implementation 'org.jsoup:jsoup:1.17.2'
+}
+

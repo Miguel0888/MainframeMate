@@ -28,6 +28,9 @@ dependencies {
     // NDV (Natural Development Server) - transitiv über :ndv inkl. ndvserveraccess-JAR und ICU4J
     implementation project(':ndv')
 
+    // BetaView integration
+    implementation project(':betaview-integration')
+
     // JSON
     implementation 'com.google.code.gson:gson:2.10.1'
 
