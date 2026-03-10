@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /**
  * Shared highlighting utilities for search results.
- * Used by SearchTab (HTML-based) and ArchiveConnectionTab (JTextArea-based).
+ * Used by SearchTab (HTML-based) and IndexConnectionTab (JTextArea-based).
  */
 public final class SearchHighlighter {
 

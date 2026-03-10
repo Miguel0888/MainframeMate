@@ -1,27 +1,27 @@
 package de.bund.zrb.ui.commands;
 
-import de.bund.zrb.archive.ui.ArchiveConnectionTab;
+import de.bund.zrb.archive.ui.IndexConnectionTab;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
 
 /**
- * Opens the Archive connection tab.
+ * Opens the Index connection tab.
  */
-public class OpenArchiveMenuCommand extends ShortcutMenuCommand {
+public class OpenIndexMenuCommand extends ShortcutMenuCommand {
 
     private final JFrame parent;
     private final TabbedPaneManager tabManager;
 
-    public OpenArchiveMenuCommand(JFrame parent, TabbedPaneManager tabManager) {
+    public OpenIndexMenuCommand(JFrame parent, TabbedPaneManager tabManager) {
         this.parent = parent;
         this.tabManager = tabManager;
     }
 
     @Override
     public String getId() {
-        return "file.archive";
+        return "file.index";
     }
 
     @Override
@@ -31,6 +31,6 @@ public class OpenArchiveMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public void perform() {
-        tabManager.addTab(new ArchiveConnectionTab(tabManager));
+        tabManager.addTab(new IndexConnectionTab(tabManager));
     }
 }

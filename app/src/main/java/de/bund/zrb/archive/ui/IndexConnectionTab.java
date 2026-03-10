@@ -18,12 +18,12 @@ import java.util.*;
 import java.util.List;
 
 /**
- * Connection tab for the Archive system.
- * Shows Runs → Documents hierarchy with preview panel.
+ * Connection tab for the Index system.
+ * Shows indexed content from all sources (Web, Local, FTP, NDV, Mail, BetaView).
  * Features: host/kind/text filtering, search-term highlighting in preview,
  * checkboxes for selective delete, delete-all with confirmation.
  */
-public class ArchiveConnectionTab implements ConnectionTab {
+public class IndexConnectionTab implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final ArchiveRepository repo;
@@ -53,7 +53,7 @@ public class ArchiveConnectionTab implements ConnectionTab {
         DATE_FMT.setTimeZone(TimeZone.getTimeZone("Europe/Berlin"));
     }
 
-    public ArchiveConnectionTab(TabbedPaneManager tabbedPaneManager) {
+    public IndexConnectionTab(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.repo = ArchiveRepository.getInstance();
         this.storageService = ArchiveService.getInstance().getStorageService();
@@ -454,14 +454,14 @@ public class ArchiveConnectionTab implements ConnectionTab {
 
     // ── ConnectionTab interface ──
 
-    @Override public String getTitle() { return "📦 Archiv"; }
-    @Override public String getTooltip() { return "Data Lake + Katalog (Runs, Dokumente, Resources)"; }
+    @Override public String getTitle() { return "📊 Index"; }
+    @Override public String getTooltip() { return "Indexierte Inhalte aus allen Quellen (Lokal, FTP, NDV, Mail, Web, BetaView)"; }
     @Override public JComponent getComponent() { return mainPanel; }
     @Override public void onClose() { /* nothing */ }
     @Override public void saveIfApplicable() { /* read-only */ }
     @Override public String getContent() { return ""; }
     @Override public void markAsChanged() { /* not applicable */ }
-    @Override public String getPath() { return "archive://"; }
+    @Override public String getPath() { return "index://"; }
     @Override public Type getType() { return Type.CONNECTION; }
 
     @Override

@@ -5,6 +5,7 @@ import de.bund.zrb.chat.attachment.AttachTabToChatUseCase;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
+import de.bund.zrb.rag.service.RagService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -131,6 +132,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected final Document document;
     protected final boolean isTextFile;
     protected final boolean isRemote;
+    protected final String backendType; // e.g. "LOCAL", "FTP", "NDV", "MAIL", "WEB", "BETAVIEW"
     protected final String syntaxStyle;
     protected boolean isSourceCode;       // Source code files use RSyntaxTextArea for rendering
     protected boolean needsHtmlRendering; // MD/HTML/Binary docs use JEditorPane for rendering
@@ -158,6 +160,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
+        this(sourceName, rawContent, metadata, warnings, document, isRemote,
+                isRemote ? "FTP" : "LOCAL");
+    }
+
+    public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
+                           List<String> warnings, Document document, boolean isRemote,
+                           String backendType) {
         this.sourceName = sourceName;
         this.sourcePath = metadata != null ? metadata.getSourceName() : sourceName;
         this.rawContent = rawContent != null ? rawContent : "";
@@ -165,6 +174,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.warnings = warnings;
         this.document = document;
         this.isRemote = isRemote;
+        this.backendType = backendType != null ? backendType : (isRemote ? "FTP" : "LOCAL");
         this.isTextFile = determineIfTextFile(sourceName, metadata);
         this.syntaxStyle = detectSyntaxStyle(sourceName);
         this.isSourceCode = isSourceCodeFile(sourceName);
@@ -737,7 +747,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
                 metadata != null ? metadata.getMimeType() : null,
                 "UTF-8", // Default assumption
                 lastModified,
-                isRemote
+                backendType
         );
 
         // Extraction info
@@ -751,9 +761,48 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         }
         sidebar.setExtractionInfo(extractorName, warnings);
 
-        // Set document ID for index status
-        if (document != null && document.getMetadata() != null) {
-            sidebar.setDocumentId(sourcePath);
+        // Set document ID for index status — use sourcePath as universal document ID
+        String docId = sourcePath != null ? sourcePath : sourceName;
+        sidebar.setDocumentId(docId);
+
+        // Wire the "Index Now" button
+        sidebar.setIndexAction(() -> indexCurrentContent(docId));
+    }
+
+    /**
+     * Index the current content via RagService. Works for any source type.
+     */
+    private void indexCurrentContent(String docId) {
+        if (docId == null || docId.isEmpty()) return;
+
+        String content = rawPane.getText();
+        if (content == null || content.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Kein Inhalt zum Indexieren vorhanden.",
+                    "Indexierung", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        try {
+            RagService ragService = RagService.getInstance();
+            // Build a minimal Document from the current content if none exists
+            Document doc = this.document;
+            if (doc == null) {
+                DocumentMetadata meta = DocumentMetadata.builder()
+                        .sourceName(docId)
+                        .mimeType("text/plain")
+                        .build();
+                doc = Document.fromText(content, meta);
+            }
+            ragService.indexDocument(docId, sourceName != null ? sourceName : docId, doc);
+            sidebar.refreshIndexStatus();
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Dokument wurde erfolgreich indexiert.\nID: " + docId,
+                    "Indexierung erfolgreich", JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Indexierung fehlgeschlagen:\n" + ex.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 

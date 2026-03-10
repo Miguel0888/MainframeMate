@@ -163,7 +163,8 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                        String sentenceType, String searchPattern, Boolean toCompare) {
         // Call SplitPreviewTab constructor
         super(extractFileName(resource), content, null, null, null,
-                resource.getBackendType() == VirtualBackendType.FTP || resource.getBackendType() == VirtualBackendType.NDV);
+                resource.getBackendType() == VirtualBackendType.FTP || resource.getBackendType() == VirtualBackendType.NDV,
+                resource.getBackendType().name());
 
         this.tabbedPaneManager = tabbedPaneManager;
         this.resource = resource;

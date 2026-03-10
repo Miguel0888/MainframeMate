@@ -38,6 +38,8 @@ public class IndexStatusSidebar extends JPanel {
     private final JLabel indexedAtLabel;
 
     private String documentId;
+    private Runnable indexAction; // callback for "Index Now" button
+    private final JButton indexNowButton;
 
     public IndexStatusSidebar() {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -115,6 +117,16 @@ public class IndexStatusSidebar extends JPanel {
         indexedAtLabel = createValueLabel("-");
         add(createRow("Indexiert am:", indexedAtLabel));
 
+        add(Box.createVerticalStrut(8));
+        indexNowButton = new JButton("📊 Jetzt indexieren");
+        indexNowButton.setAlignmentX(LEFT_ALIGNMENT);
+        indexNowButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        indexNowButton.setFont(indexNowButton.getFont().deriveFont(Font.PLAIN, 11f));
+        indexNowButton.addActionListener(e -> {
+            if (indexAction != null) indexAction.run();
+        });
+        add(indexNowButton);
+
         add(Box.createVerticalGlue());
     }
 
@@ -170,14 +182,22 @@ public class IndexStatusSidebar extends JPanel {
      */
     public void setDocumentId(String documentId) {
         this.documentId = documentId;
+        indexNowButton.setEnabled(documentId != null && !documentId.isEmpty());
         refreshIndexStatus();
+    }
+
+    /**
+     * Set the action to execute when "Index Now" is clicked.
+     */
+    public void setIndexAction(Runnable action) {
+        this.indexAction = action;
     }
 
     /**
      * Update file details.
      */
     public void setFileDetails(String name, String path, Long sizeBytes, String mimeType,
-                               String encoding, Long lastModifiedMs, boolean isRemote) {
+                               String encoding, Long lastModifiedMs, String sourceType) {
         fileNameLabel.setText(name != null ? truncate(name, 25) : "-");
         fileNameLabel.setToolTipText(name);
 
@@ -203,7 +223,22 @@ public class IndexStatusSidebar extends JPanel {
             lastModifiedLabel.setText("-");
         }
 
-        sourceTypeLabel.setText(isRemote ? "🌐 Remote (FTP)" : "💻 Lokal");
+        sourceTypeLabel.setText(resolveSourceLabel(sourceType));
+    }
+
+    private static String resolveSourceLabel(String sourceType) {
+        if (sourceType == null) return "❓ Unbekannt";
+        switch (sourceType.toUpperCase()) {
+            case "LOCAL":     return "\uD83D\uDCBB Lokal";
+            case "FTP":       return "\uD83C\uDF10 FTP";
+            case "NDV":       return "\uD83D\uDDA5 NDV";
+            case "MAIL":      return "\uD83D\uDCE7 E-Mail";
+            case "WEB":       return "\uD83C\uDF10 Web";
+            case "BETAVIEW":  return "\uD83D\uDCD8 BetaView";
+            case "WIKI":      return "\uD83D\uDCD6 Wiki";
+            case "CONFLUENCE":return "\uD83D\uDCD3 Confluence";
+            default:          return sourceType;
+        }
     }
 
     /**

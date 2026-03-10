@@ -1,5 +1,6 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.archive.ui.IndexConnectionTab;
 import de.bund.zrb.ui.components.HelpButton;
 import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
 import de.bund.zrb.ui.drawer.LeftDrawer;
@@ -156,7 +157,7 @@ public class TabbedPaneManager {
         if (tab instanceof LocalConnectionTabImpl) return "LOCAL";
         if (tab instanceof de.bund.zrb.ui.mail.MailConnectionTab) return "MAIL";
         if (tab instanceof de.bund.zrb.ui.mail.MailPreviewTab) return "MAIL";
-        if (tab instanceof de.bund.zrb.archive.ui.ArchiveConnectionTab) return "ARCHIVE";
+        if (tab instanceof IndexConnectionTab) return "INDEX";
         return "LOCAL";
     }
 

@@ -8,7 +8,10 @@ public enum SourceType {
     FTP("FTP/Mainframe"),
     NDV("NDV/Natural"),
     MAIL("E-Mail (OST/PST)"),
-    WEB("Web/URL");
+    WEB("Web/URL"),
+    BETAVIEW("BetaView"),
+    WIKI("Wiki"),
+    CONFLUENCE("Confluence");
 
     private final String displayName;
 
