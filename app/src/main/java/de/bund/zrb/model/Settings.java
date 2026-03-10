@@ -83,6 +83,12 @@ public class Settings {
     public String betaviewForm = "APZF";             // Default Form
     public int betaviewDaysBack = 60;                // Default Tage zurück
 
+    // TN3270 Terminal Settings
+    public int tn3270Port = 23;                        // TN3270 Port (Standard: 23)
+    public boolean tn3270Tls = false;                  // TLS/SSL verwenden
+    public String tn3270TermType = "IBM-3278-2";       // Terminal-Typ (z.B. IBM-3278-2, IBM-3279-2)
+    public int tn3270KeepAliveTimeout = 0;             // KeepAlive in Sekunden (0 = deaktiviert)
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

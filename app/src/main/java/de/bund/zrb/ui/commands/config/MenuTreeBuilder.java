@@ -21,7 +21,7 @@ public class MenuTreeBuilder {
     static {
         // Datei-Menü Reihenfolge
         SUBMENU_ORDER.put("file", Arrays.asList(
-                "save", "saveAndClose", "---1", "connect", "local", "ndv", "mail", "archive", "betaview", "---2", "exit"
+                "save", "saveAndClose", "---1", "connect", "local", "ndv", "tn3270", "mail", "archive", "betaview", "---2", "exit"
         ));
         // Bearbeiten-Menü Reihenfolge
         SUBMENU_ORDER.put("edit", Arrays.asList(
