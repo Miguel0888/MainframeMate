@@ -23,7 +23,7 @@ public class ConnectLocalMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Dieser Computer";
+        return "Lokal\u2026";
     }
 
     @Override

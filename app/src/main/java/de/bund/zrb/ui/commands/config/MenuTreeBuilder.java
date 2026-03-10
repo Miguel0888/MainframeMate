@@ -31,7 +31,7 @@ public class MenuTreeBuilder {
         SUBMENU_ORDER.put("connection", Arrays.asList(
                 "local", "ftp", "ndv",
                 "---1",
-                "mail", "web",
+                "mail", "wiki", "confluence",
                 "---2",
                 "tn3270", "jes",
                 "---3",

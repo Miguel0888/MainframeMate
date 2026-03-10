@@ -26,7 +26,7 @@ public class OpenArchiveMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Archiv";
+        return "Index\u2026";
     }
 
     @Override

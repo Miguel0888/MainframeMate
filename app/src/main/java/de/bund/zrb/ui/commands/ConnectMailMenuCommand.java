@@ -32,7 +32,7 @@ public class ConnectMailMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Mail-Verbindung...";
+        return "Mail\u2026";
     }
 
     @Override

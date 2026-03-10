@@ -33,7 +33,7 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "NDV-Verbindung...";
+        return "NDV\u2026";
     }
 
     @Override
