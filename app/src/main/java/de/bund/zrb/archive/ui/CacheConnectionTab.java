@@ -65,24 +65,35 @@ public class CacheConnectionTab implements ConnectionTab {
         // ── Toolbar ──
         JPanel toolbar = new JPanel(new BorderLayout(4, 0));
 
-        // Left: view selector + refresh + delete
+        // Left: source type → view selector → refresh → delete
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+
+        sourceTypeFilter = new JComboBox<>(new String[]{
+                "Alle Quellen", "🌐 Web", "📁 FTP", "🖥 NDV", "📧 Mail", "📘 BetaView"});
+        sourceTypeFilter.addActionListener(e -> {
+            updateFilterVisibility();
+            switchView();
+        });
+        leftPanel.add(sourceTypeFilter);
+
         viewSelector = new JComboBox<>(new String[]{"📁 Runs", "📄 Dokumente"});
         viewSelector.addActionListener(e -> switchView());
+        leftPanel.add(viewSelector);
+
         JButton refreshBtn = new JButton("🔄");
         refreshBtn.setToolTipText("Aktualisieren");
         refreshBtn.addActionListener(e -> refresh());
+        leftPanel.add(refreshBtn);
+
         JButton deleteBtn = new JButton("🗑 Löschen");
         deleteBtn.setToolTipText("Markierte oder alle Einträge löschen");
         deleteBtn.addActionListener(e -> deleteEntries());
-        leftPanel.add(viewSelector);
-        leftPanel.add(refreshBtn);
         leftPanel.add(deleteBtn);
 
         // Center: search + advanced toggle
         JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
         searchField = new JTextField();
-        searchField.setToolTipText("Katalog durchsuchen (Enter)…");
+        searchField.setToolTipText("Cache durchsuchen (Enter)…");
         searchField.addActionListener(e -> filterDocuments());
         advancedToggle = new JToggleButton("\u2699");
         advancedToggle.setToolTipText("Erweiterte Suche: AND OR NOT \"phrase\"\n\n"
@@ -95,17 +106,8 @@ public class CacheConnectionTab implements ConnectionTab {
         searchPanel.add(searchField, BorderLayout.CENTER);
         searchPanel.add(advancedToggle, BorderLayout.EAST);
 
-        // Right: filters
+        // Right: host + kind filters (only visible for Web)
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-
-        sourceTypeFilter = new JComboBox<>(new String[]{
-                "Alle Quellen", "🌐 Web", "📁 FTP", "🖥 NDV", "📧 Mail", "📘 BetaView"});
-        sourceTypeFilter.addActionListener(e -> {
-            updateFilterVisibility();
-            filterDocuments();
-        });
-        filterPanel.add(new JLabel("Quelle:"));
-        filterPanel.add(sourceTypeFilter);
 
         hostFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         hostFilter = new JComboBox<>(new String[]{"Alle Hosts"});
