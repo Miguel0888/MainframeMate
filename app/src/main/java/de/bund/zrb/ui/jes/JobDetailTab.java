@@ -145,9 +145,13 @@ public class JobDetailTab implements FtpTab {
                 try {
                     List<JesSpoolFile> files = get();
                     spoolModel.setFiles(files);
-                    statusLabel.setText(files.size() + " Spool-File(s)");
                     if (!files.isEmpty()) {
+                        statusLabel.setText(files.size() + " Spool-File(s)");
                         spoolTable.setRowSelectionInterval(0, 0);
+                    } else {
+                        // Spool list parsing returned nothing – load full output as fallback
+                        statusLabel.setText("Spool-Liste nicht verfügbar – lade gesamten Output…");
+                        loadAllSpool();
                     }
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;

@@ -39,11 +39,18 @@ public class JesFtpService implements Closeable {
             "^(\\S+)\\s+((?:JOB|STC|TSU|J)\\d+)\\s+(\\S+)\\s+(OUTPUT|ACTIVE|INPUT|HELD)",
             Pattern.CASE_INSENSITIVE);
 
-    // Spool file line: ID STEPNAME PROCSTEP CLASS DDNAME BYTECOUNT
-    //   Example:   2   JES2        N/A        A  JESJCL      1234     20
-    private static final Pattern SPOOL_LINE = Pattern.compile(
-            "^\\s*(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S)\\s+(\\S+)\\s+(\\d+)\\s+(\\d+)",
-            Pattern.CASE_INSENSITIVE);
+    // Spool file line patterns – z/OS JES2 LIST output varies widely:
+    //   Format A:  002 JES2     N/A  H JESJCL      1,234    20
+    //   Format B:  002 JES2     N/A  H JESJCL      1234
+    //   Format C:  002 JES2     N/A  H JESJCL      1,234
+    // The byte-count may contain commas, record count may be absent.
+    private static final Pattern SPOOL_FULL = Pattern.compile(
+            "^\\s*(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S)\\s+(\\S+)\\s+([\\d,]+)\\s+(\\d+)");
+    private static final Pattern SPOOL_NO_RECORDS = Pattern.compile(
+            "^\\s*(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S)\\s+(\\S+)\\s+([\\d,]+)\\s*$");
+    // Minimal: just id + ddname somewhere in the line
+    private static final Pattern SPOOL_MINIMAL = Pattern.compile(
+            "^\\s*(\\d{1,4})\\s+.*?(\\S+)\\s*$");
 
     private final FTPClient ftp;
     private final String host;
@@ -173,9 +180,11 @@ public class JesFtpService implements Closeable {
         List<JesSpoolFile> spoolFiles = new ArrayList<JesSpoolFile>();
 
         if (files != null) {
+            LOG.info("[JES] LIST " + jobId + " returned " + files.length + " raw entries.");
             for (FTPFile f : files) {
                 String raw = f.getRawListing();
                 if (raw == null) continue;
+                LOG.fine("[JES] Spool raw: " + raw);
                 JesSpoolFile sf = parseSpoolLine(raw.trim());
                 if (sf != null) spoolFiles.add(sf);
             }
@@ -317,31 +326,71 @@ public class JesFtpService implements Closeable {
 
     /**
      * Parse a spool-file line from LIST JOBxxxxx output.
+     * Tries multiple patterns since z/OS JES2 output varies between systems.
      */
     static JesSpoolFile parseSpoolLine(String line) {
         if (line == null || line.isEmpty()) return null;
 
         // Skip header/separator lines
         String upper = line.toUpperCase().trim();
-        if (upper.startsWith("ID") || upper.startsWith("---") || upper.startsWith("JOBNAME")) {
+        if (upper.startsWith("ID") || upper.startsWith("---") || upper.startsWith("JOBNAME")
+                || upper.startsWith("BYTE") || upper.isEmpty()) {
             return null;
         }
 
-        Matcher m = SPOOL_LINE.matcher(line);
+        // Full format: ID STEP PROC CLASS DDNAME BYTES RECORDS
+        Matcher m = SPOOL_FULL.matcher(line);
         if (m.find()) {
             return new JesSpoolFile(
-                    Integer.parseInt(m.group(1)),      // id
-                    m.group(5),                         // ddName
-                    m.group(2),                         // stepName
-                    m.group(3),                         // procStep
-                    m.group(4),                         // class
-                    parseLongSafe(m.group(6), 0),       // byteCount
-                    parseIntSafe(m.group(7), 0)         // recordCount
+                    Integer.parseInt(m.group(1)),
+                    m.group(5),                              // ddName
+                    m.group(2),                              // stepName
+                    m.group(3),                              // procStep
+                    m.group(4),                              // class
+                    parseByteCount(m.group(6)),              // byteCount (may have commas)
+                    parseIntSafe(m.group(7), 0)              // recordCount
             );
         }
 
-        LOG.fine("[JES] Unparseable spool line: " + line);
+        // No record count: ID STEP PROC CLASS DDNAME BYTES
+        Matcher m2 = SPOOL_NO_RECORDS.matcher(line);
+        if (m2.find()) {
+            return new JesSpoolFile(
+                    Integer.parseInt(m2.group(1)),
+                    m2.group(5),
+                    m2.group(2),
+                    m2.group(3),
+                    m2.group(4),
+                    parseByteCount(m2.group(6)),
+                    0
+            );
+        }
+
+        // Minimal fallback: at least get the spool-file ID
+        Matcher m3 = SPOOL_MINIMAL.matcher(line);
+        if (m3.find()) {
+            // Extract tokens to get what we can
+            String[] tokens = line.trim().split("\\s+");
+            String ddName = tokens.length >= 5 ? tokens[4] : tokens[tokens.length - 1];
+            String step = tokens.length >= 2 ? tokens[1] : "";
+            String proc = tokens.length >= 3 ? tokens[2] : "";
+            String cls = tokens.length >= 4 ? tokens[3] : "";
+            return new JesSpoolFile(
+                    Integer.parseInt(m3.group(1)),
+                    ddName, step, proc,
+                    cls.length() == 1 ? cls : "",
+                    0, 0
+            );
+        }
+
+        LOG.info("[JES] Unparseable spool line: " + line);
         return null;
+    }
+
+    /** Parse a byte count that may contain commas (e.g. "1,234" → 1234). */
+    private static long parseByteCount(String s) {
+        if (s == null) return 0;
+        return parseLongSafe(s.replace(",", ""), 0);
     }
 
     private static int parseIntSafe(String s, int fallback) {
