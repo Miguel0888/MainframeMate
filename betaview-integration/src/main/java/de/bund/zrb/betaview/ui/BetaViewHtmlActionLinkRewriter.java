@@ -7,12 +7,6 @@ import org.jsoup.nodes.Element;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Rewrites JavaScript onclick/href handlers in BetaView HTML to plain href links
- * so that Swing's JEditorPane can handle them as hyperlinks.
- * <p>
- * Taken 1:1 from the tested betaview-example (com.acme.betaview.BetaViewHtmlActionLinkRewriter).
- */
 public final class BetaViewHtmlActionLinkRewriter {
 
     private static final Pattern OPEN_DOCUMENT = Pattern.compile("openDocument\\('([^']+)'\\)");
@@ -91,4 +85,3 @@ public final class BetaViewHtmlActionLinkRewriter {
         return s.replace("&amp;", "&");
     }
 }
-

@@ -28,5 +28,10 @@ public interface BetaViewClient {
      * POST a form and return the text response body.
      */
     String postFormText(BetaViewSession session, String relativePath, Map<String, String> fields) throws IOException;
+
+    /**
+     * POST a form and return the binary response (for downloads).
+     */
+    DownloadResult postFormDownload(BetaViewSession session, String relativePath, Map<String, String> fields) throws IOException;
 }
 

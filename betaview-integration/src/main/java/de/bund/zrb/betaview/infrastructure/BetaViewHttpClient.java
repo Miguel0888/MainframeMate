@@ -123,6 +123,24 @@ public final class BetaViewHttpClient implements BetaViewClient {
         return new String(finalResponse.body(), StandardCharsets.UTF_8);
     }
 
+    @Override
+    public DownloadResult postFormDownload(BetaViewSession session, String relativePath, Map<String, String> fields) throws IOException {
+        HttpResponse response = postForm(session, relativePath, fields);
+        HttpResponse finalResponse = followRedirects(session, response, MAX_REDIRECT_HOPS);
+
+        if (finalResponse.statusCode() / 100 != 2) {
+            throw new IOException("POST download failed with HTTP " + finalResponse.statusCode()
+                    + " for " + relativePath);
+        }
+
+        // Try to extract filename from Content-Disposition header (not available via HttpResponse,
+        // so we use a fallback name)
+        String filename = "download";
+        String contentType = "";
+
+        return new DownloadResult(finalResponse.body(), filename, contentType);
+    }
+
     // ── Internal HTTP methods ───────────────────────────────────────────
 
     private HttpResponse get(BetaViewSession session, URL url) throws IOException {

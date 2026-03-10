@@ -5,10 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Loads BetaView search results as HTML.
- * Taken 1:1 from the tested betaview-example (com.acme.betaview.LoadResultsHtmlUseCase).
- */
 public final class LoadResultsHtmlUseCase {
 
     private final BetaViewClient client;
@@ -21,7 +17,6 @@ public final class LoadResultsHtmlUseCase {
         Objects.requireNonNull(session, "session must not be null");
         Objects.requireNonNull(filter, "filter must not be null");
 
-        // Load select page to get the dynamic Struts token for the select form
         String selectHtml = client.getText(session, "select.action?favoriteID=" + filter.favoriteId());
         Map<String, String> hidden = HiddenInputExtractor.extractHiddenInputs(selectHtml);
 
@@ -39,45 +34,48 @@ public final class LoadResultsHtmlUseCase {
         form.put("struts.token.name", tokenNameField);
         form.put(tokenNameField, tokenValue);
 
-        // Mirror the captured request
+        // Mirror captured request â€“ all fields from filter
         form.put("getDateMask()", "DD.MM.YYYY");
         form.put("favID", filter.favoriteId());
         form.put("locale", filter.locale());
-        form.put("focus", "we_id_EXTENSION");
+        form.put("focus", "we_id_searchbtn");
 
-        form.put("lastdate", "last");
+        form.put("lastdate", filter.lastdate());
         form.put("timesel", "sub");
-        form.put("lastsel", "last7days");
+        form.put("lastsel", filter.lastsel());
         form.put("lasthoursdaysvalue", Integer.toString(filter.daysBack()));
-        form.put("timeunit", "days");
+        form.put("timeunit", filter.timeunit());
 
-        form.put("datefrom", "");
-        form.put("timefrom", "");
-        form.put("dateto", "");
-        form.put("timeto", "");
+        form.put("datefrom", filter.datefrom());
+        form.put("timefrom", filter.timefrom());
+        form.put("dateto", filter.dateto());
+        form.put("timeto", filter.timeto());
 
-        form.put("FOLDER", "*");
-        form.put("TAB", "*");
-        form.put("TITLE", "");
-        form.put("FTITLE", "0");
-        form.put("RECI", "*");
+        form.put("FOLDER", filter.folder());
+        form.put("TAB", filter.tab());
+        form.put("TITLE", filter.title());
+        form.put("FTITLE", filter.ftitle());
+        form.put("RECI", filter.recipient());
+
+        if (filter.needsSelgen()) {
+            form.put("SELGEN", "yes");
+        }
+
         form.put("FORM", filter.form());
         form.put("EXTENSION", filter.extensionPattern());
+        form.put("REPORT", filter.report());
+        form.put("JOBNAME", filter.jobName());
 
-        form.put("REPORT", "*");
-        form.put("JOBNAME", "*");
-        form.put("ONLINE", "");
-        form.put("LGRNOTE", "");
-        form.put("LGRXREAD", "");
-        form.put("ARCHIVE", "");
-        form.put("PROCESS", "");
-        form.put("DELETE", "");
-        form.put("LGRSTAT", "");
-        form.put("RELOAD", "");
+        form.put("ONLINE", filter.online());
+        form.put("LGRNOTE", filter.lgrnote());
+        form.put("LGRXREAD", filter.lgrxread());
+        form.put("ARCHIVE", filter.archive());
+        form.put("PROCESS", filter.process());
+        form.put("DELETE", filter.delete_());
+        form.put("LGRSTAT", filter.lgrstat());
+        form.put("RELOAD", filter.reload());
 
-        // POST result.action (302 -> showResult.action), then load showResult.action
         client.postFormText(session, "result.action", form);
         return client.getText(session, "showResult.action");
     }
 }
-

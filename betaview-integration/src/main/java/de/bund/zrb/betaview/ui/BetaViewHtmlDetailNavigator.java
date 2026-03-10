@@ -10,25 +10,22 @@ import de.bund.zrb.betaview.infrastructure.LoadResultsHtmlUseCase;
 import de.bund.zrb.betaview.infrastructure.DownloadResult;
 import de.bund.zrb.betaview.infrastructure.DownloadDocumentUseCase;
 
-import javax.swing.JEditorPane;
 import javax.swing.SwingWorker;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
-import javax.swing.text.html.HTMLDocument;
 import java.net.URL;
 import java.util.Objects;
 
-public final class BetaViewHtmlNavigator implements HyperlinkListener {
+public final class BetaViewHtmlDetailNavigator implements HyperlinkListener {
 
     private final BetaViewClient client;
     private final BetaViewSession session;
-    private final JEditorPane view;
+    private final DocumentDetailPanel view;
     private final URL baseUrl;
 
-    private final BetaViewHtmlActionLinkRewriter rewriter = new BetaViewHtmlActionLinkRewriter();
     private final BetaViewActionPathResolver resolver = new BetaViewActionPathResolver();
 
-    public BetaViewHtmlNavigator(BetaViewClient client, BetaViewSession session, JEditorPane view, URL baseUrl) {
+    public BetaViewHtmlDetailNavigator(BetaViewClient client, BetaViewSession session, DocumentDetailPanel view, URL baseUrl) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.session = Objects.requireNonNull(session, "session must not be null");
         this.view = Objects.requireNonNull(view, "view must not be null");
@@ -61,28 +58,16 @@ public final class BetaViewHtmlNavigator implements HyperlinkListener {
             protected void done() {
                 try {
                     String html = get();
-                    String rewritten = rewriter.rewriteToPlainLinks(html);
-                    setHtml(rewritten);
+                    view.loadDocument(html);
                 } catch (Exception ex) {
-                    setHtml("<html><body><pre>" + escape(ex.getMessage()) + "</pre></body></html>");
+                    view.clearDocument();
                 }
             }
         }.execute();
     }
 
-    public void showInitialHtml(String html) {
-        String rewritten = rewriter.rewriteToPlainLinks(html);
-        setHtml(rewritten);
-    }
-
-    private void setHtml(String html) {
-        view.setContentType("text/html");
-        view.setText(html);
-        view.setCaretPosition(0);
-
-        if (view.getDocument() instanceof HTMLDocument) {
-            ((HTMLDocument) view.getDocument()).setBase(baseUrl);
-        }
+    public void showDocument(String html) {
+        view.loadDocument(html);
     }
 
     private URL resolveRelativeUrl(String description) {
@@ -92,11 +77,6 @@ public final class BetaViewHtmlNavigator implements HyperlinkListener {
             return null;
         }
     }
-
-    private String escape(String s) {
-        if (s == null) {
-            return "";
-        }
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
 }
+
+

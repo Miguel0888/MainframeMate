@@ -17,5 +17,8 @@ dependencies {
 
     // jsoup for HTML parsing (already used in app)
     implementation 'org.jsoup:jsoup:1.17.2'
+
+    // PDF rendering for document preview
+    implementation 'org.apache.pdfbox:pdfbox:2.0.31'
 }
 
