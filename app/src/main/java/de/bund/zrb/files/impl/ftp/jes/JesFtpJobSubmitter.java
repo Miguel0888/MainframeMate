@@ -34,10 +34,12 @@ public final class JesFtpJobSubmitter {
     private static final Logger LOG = Logger.getLogger(JesFtpJobSubmitter.class.getName());
 
     /**
-     * Matches z/OS job identifiers like JOB12345, STC00001, TSU00042.
+     * Matches z/OS job identifiers like JOB12345, JOB00001, STC00001, TSU00042.
+     * z/OS may return 1–8 digit suffixes depending on configuration.
+     * Also matches the "J0012345" short form.
      */
     private static final Pattern JOB_ID_PATTERN =
-            Pattern.compile("\\b(JOB|STC|TSU)\\d{5}\\b", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("\\b(JOB|STC|TSU|J)\\d{1,8}\\b", Pattern.CASE_INSENSITIVE);
 
     private JesFtpJobSubmitter() {
         // utility – not instantiated
@@ -120,36 +122,38 @@ public final class JesFtpJobSubmitter {
             InputStream in = new ByteArrayInputStream(jclBytes);
 
             boolean stored = ftp.storeFile("JCL", in);
-            String[] replyStrings = ftp.getReplyStrings();
+            String fullReply = ftp.getReplyString();   // multi-line reply as single string
+            String[] replyStrings = ftp.getReplyStrings(); // individual reply lines
             int replyCode = ftp.getReplyCode();
+
+            LOG.info("[JES] storeFile reply (code " + replyCode + "): "
+                    + (fullReply != null ? fullReply.trim() : "(null)"));
 
             if (!stored || !FTPReply.isPositiveCompletion(replyCode)) {
                 StringBuilder msg = new StringBuilder("Job-Submit fehlgeschlagen (FTP Code ");
                 msg.append(replyCode).append(").");
-                if (replyStrings != null) {
-                    for (String line : replyStrings) {
-                        msg.append('\n').append(line.trim());
-                    }
+                if (fullReply != null) {
+                    msg.append('\n').append(fullReply.trim());
                 }
                 throw new JesSubmitException(msg.toString());
             }
 
             // ── Extract Job-ID ───────────────────────────────────────
-            String jobId = null;
-            if (replyStrings != null) {
+            // Try extraction from the full reply string first (most reliable),
+            // then fall back to individual reply lines.
+            String jobId = extractJobId(fullReply);
+            if (jobId == null && replyStrings != null) {
                 for (String line : replyStrings) {
-                    Matcher m = JOB_ID_PATTERN.matcher(line);
-                    if (m.find()) {
-                        jobId = m.group().toUpperCase();
-                        break;
-                    }
+                    jobId = extractJobId(line);
+                    if (jobId != null) break;
                 }
             }
             if (jobId == null) {
                 // Fallback – still successful but ID unknown
                 LOG.warning("[JES] Could not extract Job-ID from reply: "
-                        + (replyStrings != null ? String.join(" | ", replyStrings) : "(null)"));
-                jobId = "(unbekannt)";
+                        + (fullReply != null ? fullReply.trim() : "(null)"));
+                jobId = "(unbekannt – Reply: "
+                        + (fullReply != null ? fullReply.trim().replace("\n", " ") : "leer") + ")";
             }
 
             // ── Jobname from JCL (first JOB card) ────────────────────
@@ -174,6 +178,26 @@ public final class JesFtpJobSubmitter {
                 // best effort
             }
         }
+    }
+
+    /**
+     * Extract a Job-ID from a reply string.
+     * Typical z/OS replies:
+     * <ul>
+     *   <li>{@code 250-It is known to JES as JOB12345}</li>
+     *   <li>{@code 250 JOB JOB12345 submitted}</li>
+     *   <li>{@code 250-JOB JOB00042 IS SUBMITTED}</li>
+     * </ul>
+     *
+     * @return the Job-ID or null if not found
+     */
+    private static String extractJobId(String text) {
+        if (text == null || text.isEmpty()) return null;
+        Matcher m = JOB_ID_PATTERN.matcher(text);
+        if (m.find()) {
+            return m.group().toUpperCase();
+        }
+        return null;
     }
 
     /**
