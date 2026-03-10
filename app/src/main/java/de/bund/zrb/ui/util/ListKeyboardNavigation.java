@@ -1,25 +1,73 @@
 package de.bund.zrb.ui.util;
 
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 
 /**
- * Installs keyboard navigation for a JList + search field + back/forward callbacks.
+ * Installs keyboard navigation for a selectable component (JList or JTable)
+ * + search field + back/forward callbacks.
  *
  * Features:
- * - ENTER on list = triggers action (same as double-click)
- * - LEFT arrow on list = navigate back
- * - RIGHT arrow on list = navigate forward
- * - UP/DOWN in search field = jump to list (last/first element)
- * - Circular navigation in list (bottom→top, top→bottom)
+ * - ENTER on component = triggers action (same as double-click)
+ * - LEFT arrow = navigate back
+ * - RIGHT arrow = navigate forward
+ * - UP/DOWN in search field = jump to component (last/first element)
+ * - Circular navigation (bottom→top, top→bottom)
  */
 public final class ListKeyboardNavigation {
 
     private ListKeyboardNavigation() {}
 
+    // ─── Abstraction over JList / JTable ────────────────────────────
+
     /**
-     * Install full keyboard navigation.
+     * Thin abstraction so the same keyboard logic works for JList and JTable.
+     */
+    public interface SelectableComponent {
+        int getItemCount();
+        int getSelectedIndex();
+        void setSelectedIndex(int index);
+        void scrollToVisible(int index);
+        void requestFocusInWindow();
+        Component asComponent();
+    }
+
+    // ─── Adapters ───────────────────────────────────────────────────
+
+    /** Wrap a JList into a SelectableComponent. */
+    public static SelectableComponent of(final JList<?> list) {
+        return new SelectableComponent() {
+            @Override public int getItemCount() { return list.getModel().getSize(); }
+            @Override public int getSelectedIndex() { return list.getSelectedIndex(); }
+            @Override public void setSelectedIndex(int i) { list.setSelectedIndex(i); }
+            @Override public void scrollToVisible(int i) { list.ensureIndexIsVisible(i); }
+            @Override public void requestFocusInWindow() { list.requestFocusInWindow(); }
+            @Override public Component asComponent() { return list; }
+        };
+    }
+
+    /** Wrap a JTable into a SelectableComponent. */
+    public static SelectableComponent of(final JTable table) {
+        return new SelectableComponent() {
+            @Override public int getItemCount() { return table.getRowCount(); }
+            @Override public int getSelectedIndex() { return table.getSelectedRow(); }
+            @Override public void setSelectedIndex(int i) {
+                table.setRowSelectionInterval(i, i);
+            }
+            @Override public void scrollToVisible(int i) {
+                table.scrollRectToVisible(table.getCellRect(i, 0, true));
+            }
+            @Override public void requestFocusInWindow() { table.requestFocusInWindow(); }
+            @Override public Component asComponent() { return table; }
+        };
+    }
+
+    // ─── Backwards-compatible JList overload (unchanged signature) ──
+
+    /**
+     * Install full keyboard navigation for a JList.
      *
      * @param list        the file/item list
      * @param searchField the search/filter text field (may be null)
@@ -29,17 +77,37 @@ public final class ListKeyboardNavigation {
      */
     public static void install(JList<?> list, JTextField searchField,
                                 Runnable onEnter, Runnable onBack, Runnable onForward) {
+        install(of(list), searchField, onEnter, onBack, onForward);
+    }
 
-        // ── List: ENTER, LEFT, RIGHT, circular UP/DOWN ──
-        list.addKeyListener(new KeyAdapter() {
+    // ─── JTable overload ────────────────────────────────────────────
+
+    /**
+     * Install full keyboard navigation for a JTable.
+     */
+    public static void install(JTable table, JTextField searchField,
+                                Runnable onEnter, Runnable onBack, Runnable onForward) {
+        install(of(table), searchField, onEnter, onBack, onForward);
+    }
+
+    // ─── Generic implementation ─────────────────────────────────────
+
+    /**
+     * Install full keyboard navigation for any SelectableComponent.
+     */
+    public static void install(final SelectableComponent comp, final JTextField searchField,
+                                final Runnable onEnter, final Runnable onBack, final Runnable onForward) {
+
+        // ── Component: ENTER, LEFT, RIGHT, circular UP/DOWN ──
+        comp.asComponent().addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                int size = list.getModel().getSize();
+                int size = comp.getItemCount();
                 if (size == 0) return;
 
                 switch (e.getKeyCode()) {
                     case KeyEvent.VK_ENTER:
-                        if (list.getSelectedIndex() >= 0 && onEnter != null) {
+                        if (comp.getSelectedIndex() >= 0 && onEnter != null) {
                             onEnter.run();
                         }
                         e.consume();
@@ -60,47 +128,47 @@ public final class ListKeyboardNavigation {
                         break;
 
                     case KeyEvent.VK_UP:
-                        if (list.getSelectedIndex() == 0) {
+                        if (comp.getSelectedIndex() == 0) {
                             // At top → wrap to bottom
-                            list.setSelectedIndex(size - 1);
-                            list.ensureIndexIsVisible(size - 1);
+                            comp.setSelectedIndex(size - 1);
+                            comp.scrollToVisible(size - 1);
                             e.consume();
                         }
-                        // else: default JList behavior (move up)
+                        // else: default behavior (move up)
                         break;
 
                     case KeyEvent.VK_DOWN:
-                        if (list.getSelectedIndex() == size - 1) {
+                        if (comp.getSelectedIndex() == size - 1) {
                             // At bottom → wrap to top
-                            list.setSelectedIndex(0);
-                            list.ensureIndexIsVisible(0);
+                            comp.setSelectedIndex(0);
+                            comp.scrollToVisible(0);
                             e.consume();
                         }
-                        // else: default JList behavior (move down)
+                        // else: default behavior (move down)
                         break;
                 }
             }
         });
 
-        // ── Search field: UP/DOWN jump to list ──
+        // ── Search field: UP/DOWN jump to component ──
         if (searchField != null) {
             searchField.addKeyListener(new KeyAdapter() {
                 @Override
                 public void keyPressed(KeyEvent e) {
-                    int size = list.getModel().getSize();
+                    int size = comp.getItemCount();
                     if (size == 0) return;
 
                     if (e.getKeyCode() == KeyEvent.VK_DOWN) {
                         // Jump to first element
-                        list.setSelectedIndex(0);
-                        list.ensureIndexIsVisible(0);
-                        list.requestFocusInWindow();
+                        comp.setSelectedIndex(0);
+                        comp.scrollToVisible(0);
+                        comp.requestFocusInWindow();
                         e.consume();
                     } else if (e.getKeyCode() == KeyEvent.VK_UP) {
                         // Jump to last element
-                        list.setSelectedIndex(size - 1);
-                        list.ensureIndexIsVisible(size - 1);
-                        list.requestFocusInWindow();
+                        comp.setSelectedIndex(size - 1);
+                        comp.scrollToVisible(size - 1);
+                        comp.requestFocusInWindow();
                         e.consume();
                     }
                 }
