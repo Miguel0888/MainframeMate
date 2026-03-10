@@ -87,16 +87,34 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         sourceTable.getColumnModel().getColumn(5).setPreferredWidth(60);  // Status
 
         sourceTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) loadSelectedSource();
+            if (!e.getValueIsAdjusting()) {
+                int row = sourceTable.getSelectedRow();
+                if (row >= 0 && !tableModel.isCacheRow(row)) {
+                    loadSelectedSource();
+                }
+            }
         });
 
-        // Click on "Cache" column opens WebCacheDialog
+        // Click on "Cache" column opens WebCacheDialog / CacheIndexDialog
         sourceTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 int col = sourceTable.columnAtPoint(e.getPoint());
                 int row = sourceTable.rowAtPoint(e.getPoint());
-                if (col == 6 && row >= 0) { // Cache column
+                if (row < 0) return;
+
+                // Cache row: click on col 6 (cache column) opens CacheIndexDialog
+                if (tableModel.isCacheRow(row) && col == 6) {
+                    showCacheIndexDialog();
+                    return;
+                }
+                // Cache row: double-click anywhere also opens it
+                if (tableModel.isCacheRow(row) && e.getClickCount() == 2) {
+                    showCacheIndexDialog();
+                    return;
+                }
+
+                if (col == 6 && !tableModel.isCacheRow(row)) {
                     IndexSource src = tableModel.getSourceAt(row);
                     if (src.getSourceType() == SourceType.WEB) {
                         new de.bund.zrb.archive.ui.WebCacheDialog(
@@ -421,8 +439,8 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     private void cloneSelectedSource() {
         int row = sourceTable.getSelectedRow();
-        if (row < 0) {
-            statusLabel.setText("Bitte Quelle zum Klonen auswählen.");
+        if (row < 0 || tableModel.isCacheRow(row)) {
+            statusLabel.setText("Bitte Quelle zum Klonen auswählen (nicht Cache).");
             return;
         }
         IndexSource original = tableModel.getSourceAt(row);
@@ -461,7 +479,7 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     private void removeSource() {
         int row = sourceTable.getSelectedRow();
-        if (row < 0) return;
+        if (row < 0 || tableModel.isCacheRow(row)) return;
         IndexSource source = tableModel.getSourceAt(row);
         int confirm = JOptionPane.showConfirmDialog(this,
                 "Quelle '" + source.getName() + "' und alle Indexdaten entfernen?",
@@ -474,8 +492,8 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     private void runSelectedNow() {
         int row = sourceTable.getSelectedRow();
-        if (row < 0) {
-            statusLabel.setText("Bitte Quelle auswählen.");
+        if (row < 0 || tableModel.isCacheRow(row)) {
+            statusLabel.setText("Bitte Quelle auswählen (nicht Cache).");
             return;
         }
         IndexSource source = tableModel.getSourceAt(row);
@@ -489,8 +507,8 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
      */
     private void forceReindexSelected() {
         int row = sourceTable.getSelectedRow();
-        if (row < 0) {
-            statusLabel.setText("Bitte Quelle zum Reindexieren auswählen.");
+        if (row < 0 || tableModel.isCacheRow(row)) {
+            statusLabel.setText("Bitte Quelle zum Reindexieren auswählen (nicht Cache).");
             return;
         }
         IndexSource source = tableModel.getSourceAt(row);
@@ -561,7 +579,7 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     private void saveSelectedSource() {
         int row = sourceTable.getSelectedRow();
-        if (row < 0) return;
+        if (row < 0 || tableModel.isCacheRow(row)) return;
         IndexSource source = tableModel.getSourceAt(row);
         applyFieldsToSource(source);
         service.saveSource(source);
@@ -571,7 +589,7 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     private void loadSelectedSource() {
         int row = sourceTable.getSelectedRow();
-        if (row < 0) return;
+        if (row < 0 || tableModel.isCacheRow(row)) return;
         IndexSource source = tableModel.getSourceAt(row);
 
         nameField.setText(source.getName());
@@ -706,6 +724,117 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Cache Index Dialog
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Opens a dialog showing all cached + indexed content, sorted by source type.
+     * Allows deletion with a warning that it also removes from the cache.
+     */
+    private void showCacheIndexDialog() {
+        CacheRepository cache = CacheRepository.getInstance();
+        de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+
+        // Gather all indexed documents from RAG
+        java.util.Map<String, String> indexedDocs = rag.listAllIndexedDocuments();
+
+        if (indexedDocs.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Der Cache-Index ist leer.\n\n"
+                            + "Gecachte Inhalte werden automatisch indexiert.",
+                    "Cache-Index", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Build table: #, Name, DocID, Type (guessed from path/id)
+        String[] columns = {"#", "Typ", "Dateiname / Quelle", "Dokument-ID"};
+        Object[][] data = new Object[indexedDocs.size()][4];
+        int i = 0;
+        for (java.util.Map.Entry<String, String> entry : indexedDocs.entrySet()) {
+            data[i][0] = i + 1;
+            data[i][1] = guessSourceType(entry.getKey());
+            data[i][2] = entry.getValue();
+            data[i][3] = entry.getKey();
+            i++;
+        }
+
+        // Sort by type (column 1)
+        java.util.Arrays.sort(data, (a, b) -> String.valueOf(a[1]).compareTo(String.valueOf(b[1])));
+        // Re-number
+        for (int j = 0; j < data.length; j++) data[j][0] = j + 1;
+
+        JTable table = new JTable(data, columns) {
+            @Override
+            public boolean isCellEditable(int row, int col) { return false; }
+        };
+        table.setAutoCreateRowSorter(true);
+        table.setRowHeight(22);
+        table.getColumnModel().getColumn(0).setPreferredWidth(40);
+        table.getColumnModel().getColumn(0).setMaxWidth(50);
+        table.getColumnModel().getColumn(1).setPreferredWidth(80);
+        table.getColumnModel().getColumn(1).setMaxWidth(100);
+        table.getColumnModel().getColumn(2).setPreferredWidth(250);
+        table.getColumnModel().getColumn(3).setPreferredWidth(350);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setPreferredSize(new Dimension(780, 400));
+
+        JLabel summaryLabel = new JLabel(indexedDocs.size() + " Dokumente im Cache-Index");
+        summaryLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
+
+        JButton deleteButton = new JButton("🗑 Ausgewählte entfernen");
+        deleteButton.addActionListener(ev -> {
+            int selRow = table.getSelectedRow();
+            if (selRow < 0) return;
+            String docId = String.valueOf(table.getValueAt(selRow, 3));
+            String docName = String.valueOf(table.getValueAt(selRow, 2));
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "Eintrag entfernen?\n\n"
+                            + "\"" + docName + "\"\n\n"
+                            + "⚠ Dies entfernt das Dokument sowohl aus dem Index\n"
+                            + "als auch aus dem Cache. Diese Aktion kann nicht\n"
+                            + "rückgängig gemacht werden.",
+                    "Aus Cache und Index entfernen",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                rag.removeDocument(docId);
+                JOptionPane.showMessageDialog(this,
+                        "Dokument entfernt: " + docName,
+                        "Entfernt", JOptionPane.INFORMATION_MESSAGE);
+                // Refresh by closing and reopening
+                showCacheIndexDialog();
+            }
+        });
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.add(deleteButton);
+
+        JPanel panel = new JPanel(new BorderLayout(4, 4));
+        panel.add(summaryLabel, BorderLayout.NORTH);
+        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+
+        JOptionPane.showMessageDialog(this, panel,
+                "Cache-Index (" + indexedDocs.size() + " Dokumente)",
+                JOptionPane.PLAIN_MESSAGE);
+    }
+
+    /**
+     * Guess the source type from a document ID / path.
+     */
+    private static String guessSourceType(String docId) {
+        if (docId == null) return "?";
+        String lower = docId.toLowerCase();
+        if (lower.startsWith("http://") || lower.startsWith("https://")) return "🌐 Web";
+        if (lower.startsWith("ftp://") || lower.contains("/ftp/")) return "📁 FTP";
+        if (lower.startsWith("ndv://")) return "🖥 NDV";
+        if (lower.startsWith("mail://") || lower.endsWith(".msg") || lower.endsWith(".eml")) return "📧 Mail";
+        if (lower.startsWith("betaview://")) return "📘 BetaView";
+        if (lower.startsWith("/") || lower.matches("^[a-zA-Z]:.*")) return "💻 Lokal";
+        return "📄 Sonstige";
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
@@ -744,22 +873,44 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         private List<IndexSource> sources = new ArrayList<>();
         private final String[] COLUMNS = {"Name", "Typ", "Aktiv", "Zeitplan", "Letzter Lauf", "Status", "Cache"};
 
+        /** Row 0 is always the virtual "Cache" entry. Real sources start at row 1. */
+        private static final int CACHE_ROW = 0;
+
         void setSources(List<IndexSource> sources) {
             this.sources = sources;
             fireTableDataChanged();
         }
 
-        IndexSource getSourceAt(int row) {
-            return sources.get(row);
+        boolean isCacheRow(int row) {
+            return row == CACHE_ROW;
         }
 
-        @Override public int getRowCount() { return sources.size(); }
+        IndexSource getSourceAt(int row) {
+            return sources.get(row - 1); // offset by 1 due to virtual cache row
+        }
+
+        @Override public int getRowCount() { return sources.size() + 1; } // +1 for cache row
         @Override public int getColumnCount() { return COLUMNS.length; }
         @Override public String getColumnName(int col) { return COLUMNS[col]; }
 
         @Override
         public Object getValueAt(int row, int col) {
-            IndexSource s = sources.get(row);
+            if (row == CACHE_ROW) {
+                switch (col) {
+                    case 0: return "\uD83D\uDCBE Cache (automatisch)";
+                    case 1: return "Alle";
+                    case 2: return "✅";
+                    case 3: return "–";
+                    case 4: return "–";
+                    case 5: return "✅";
+                    case 6: {
+                        int count = CacheRepository.getInstance().countAllDocuments();
+                        return "📋 " + count + "  ⋯";
+                    }
+                    default: return "";
+                }
+            }
+            IndexSource s = sources.get(row - 1);
             switch (col) {
                 case 0: return s.getName();
                 case 1: return s.getSourceType().getDisplayName();

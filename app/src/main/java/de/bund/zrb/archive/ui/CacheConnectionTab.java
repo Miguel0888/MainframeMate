@@ -18,9 +18,9 @@ import java.util.*;
 import java.util.List;
 
 /**
- * Connection tab for the Index system.
- * Shows indexed content from all sources (Web, Local, FTP, NDV, Mail, BetaView).
- * Features: host/kind/text filtering, search-term highlighting in preview,
+ * Connection tab for the Cache system.
+ * Shows locally cached content from all sources (Web, FTP, NDV, Mail, BetaView).
+ * Features: source type filter, host/kind filtering (for Web), search-term highlighting,
  * checkboxes for selective delete, delete-all with confirmation.
  */
 public class CacheConnectionTab implements ConnectionTab {
@@ -35,8 +35,11 @@ public class CacheConnectionTab implements ConnectionTab {
 
     // View state
     private final JComboBox<String> viewSelector;
+    private final JComboBox<String> sourceTypeFilter;
     private final JComboBox<String> hostFilter;
     private final JComboBox<String> kindFilter;
+    private final JPanel hostFilterPanel;
+    private final JPanel kindFilterPanel;
     private final RunTableModel runTableModel;
     private final DocumentTableModel docTableModel;
     private final JTable runTable;
@@ -94,14 +97,29 @@ public class CacheConnectionTab implements ConnectionTab {
 
         // Right: filters
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+
+        sourceTypeFilter = new JComboBox<>(new String[]{
+                "Alle Quellen", "🌐 Web", "📁 FTP", "🖥 NDV", "📧 Mail", "📘 BetaView"});
+        sourceTypeFilter.addActionListener(e -> {
+            updateFilterVisibility();
+            filterDocuments();
+        });
+        filterPanel.add(new JLabel("Quelle:"));
+        filterPanel.add(sourceTypeFilter);
+
+        hostFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         hostFilter = new JComboBox<>(new String[]{"Alle Hosts"});
         hostFilter.addActionListener(e -> filterDocuments());
+        hostFilterPanel.add(new JLabel("Host:"));
+        hostFilterPanel.add(hostFilter);
+        filterPanel.add(hostFilterPanel);
+
+        kindFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         kindFilter = new JComboBox<>(new String[]{"Alle Typen", "ARTICLE", "PAGE", "LISTING", "FEED_ENTRY", "OTHER"});
         kindFilter.addActionListener(e -> filterDocuments());
-        filterPanel.add(new JLabel("Host:"));
-        filterPanel.add(hostFilter);
-        filterPanel.add(new JLabel("Typ:"));
-        filterPanel.add(kindFilter);
+        kindFilterPanel.add(new JLabel("Typ:"));
+        kindFilterPanel.add(kindFilter);
+        filterPanel.add(kindFilterPanel);
 
         toolbar.add(leftPanel, BorderLayout.WEST);
         toolbar.add(searchPanel, BorderLayout.CENTER);
@@ -188,6 +206,21 @@ public class CacheConnectionTab implements ConnectionTab {
         mainPanel.add(statusLabel, BorderLayout.SOUTH);
 
         refresh();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Dynamic filter visibility
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Show/hide Host and Kind filters depending on selected source type.
+     * Host + Kind are only relevant for Web sources.
+     */
+    private void updateFilterVisibility() {
+        boolean isWeb = sourceTypeFilter.getSelectedIndex() == 1; // "🌐 Web"
+        hostFilterPanel.setVisible(isWeb);
+        kindFilterPanel.setVisible(isWeb);
+        mainPanel.revalidate();
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -12,7 +12,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * H2-backed repository for archive entries and web-cache entries.
+ * H2-backed repository for cached content and web-cache entries.
+ * Stores local copies of remote content (Web, FTP, NDV, Mail, BetaView).
+ * All cached content is automatically indexed for full-text search.
  */
 public class CacheRepository {
 
@@ -429,6 +431,27 @@ public class CacheRepository {
             return count;
         } catch (SQLException e) {
             LOG.log(Level.WARNING, "[Archive] countBySourceId failed", e);
+            return 0;
+        }
+    }
+
+    /**
+     * Count all documents across all tables (archive_documents + web_cache).
+     */
+    public int countAllDocuments() {
+        try {
+            Statement stmt = getConnection().createStatement();
+            int total = 0;
+            ResultSet rs1 = stmt.executeQuery("SELECT COUNT(*) FROM archive_documents");
+            if (rs1.next()) total += rs1.getInt(1);
+            rs1.close();
+            ResultSet rs2 = stmt.executeQuery("SELECT COUNT(*) FROM web_cache");
+            if (rs2.next()) total += rs2.getInt(1);
+            rs2.close();
+            stmt.close();
+            return total;
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Cache] countAllDocuments failed", e);
             return 0;
         }
     }
