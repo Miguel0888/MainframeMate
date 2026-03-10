@@ -73,6 +73,10 @@ public class Settings {
 
     // BetaView Settings
     public String betaviewUrl = "";                 // BetaView Base URL (z.B. https://betaview.example.com/betaview/)
+    public boolean betaviewUseSharedCredentials = true;  // true = use host/user from Server Settings (FTP/NDV)
+    public String betaviewHost = "";                // Eigener BetaView-Host (nur wenn betaviewUseSharedCredentials=false)
+    public String betaviewUser = "";                // Eigener BetaView-User (nur wenn betaviewUseSharedCredentials=false)
+    public String betaviewEncryptedPassword = "";   // Eigenes verschlüsseltes Passwort (nur wenn betaviewUseSharedCredentials=false)
     public String betaviewFavoriteId = "";           // Default Favorite ID
     public String betaviewLocale = "de";             // Default Locale
     public String betaviewExtension = "*";           // Default Extension Pattern

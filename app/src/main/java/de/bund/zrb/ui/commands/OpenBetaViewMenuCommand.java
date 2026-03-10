@@ -74,22 +74,72 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
                 settings.betaviewDaysBack
         );
 
-        // Credentials: reuse LoginManager (same as FTP/NDV)
-        tab.setCredentialsProvider(host -> {
+        // Credentials: shared (FTP/NDV) or separate BetaView credentials.
+        tab.setCredentialsProvider(betaviewHost -> {
             Settings s = SettingsHelper.load();
-            String user = s.user;
-            if (user == null || user.isEmpty()) {
-                JOptionPane.showMessageDialog(parent,
-                        "Kein Benutzername konfiguriert.\n"
-                                + "Bitte zuerst unter Einstellungen → Server den Benutzernamen eintragen.",
-                        "Benutzer fehlt", JOptionPane.WARNING_MESSAGE);
-                return null;
+
+            if (s.betaviewUseSharedCredentials) {
+                // ── Shared mode: use the same host/user as FTP/NDV ──
+                // IMPORTANT: We MUST pass settings.host (not the BetaView URL host)
+                // to LoginManager because it internally overwrites settings.host.
+                String serverHost = s.host;
+                String user = s.user;
+                if (serverHost == null || serverHost.isEmpty()) {
+                    JOptionPane.showMessageDialog(parent,
+                            "Kein Server konfiguriert.\n"
+                                    + "Bitte zuerst unter Einstellungen → Server den Host angeben.",
+                            "Server fehlt", JOptionPane.WARNING_MESSAGE);
+                    return null;
+                }
+                if (user == null || user.isEmpty()) {
+                    JOptionPane.showMessageDialog(parent,
+                            "Kein Benutzername konfiguriert.\n"
+                                    + "Bitte zuerst unter Einstellungen → Server den Benutzernamen eintragen.",
+                            "Benutzer fehlt", JOptionPane.WARNING_MESSAGE);
+                    return null;
+                }
+                // Uses the same cache key as FTP/NDV. Once the user enters
+                // the password here, FTP/NDV will NOT prompt again and vice versa.
+                String password = LoginManager.getInstance().getPassword(serverHost, user);
+                if (password == null) {
+                    return null;
+                }
+                return new String[]{user, password};
+            } else {
+                // ── Separate BetaView credentials ──
+                String bvHost = s.betaviewHost;
+                String bvUser = s.betaviewUser;
+                if (bvHost == null || bvHost.isEmpty()) {
+                    JOptionPane.showMessageDialog(parent,
+                            "Kein BetaView-Host konfiguriert.\n"
+                                    + "Bitte unter Einstellungen → BetaView den Host angeben,\n"
+                                    + "oder \"Credentials aus Server-Einstellungen\" aktivieren.",
+                            "BetaView-Host fehlt", JOptionPane.WARNING_MESSAGE);
+                    return null;
+                }
+                if (bvUser == null || bvUser.isEmpty()) {
+                    JOptionPane.showMessageDialog(parent,
+                            "Kein BetaView-Benutzer konfiguriert.\n"
+                                    + "Bitte unter Einstellungen → BetaView den Benutzer angeben.",
+                            "BetaView-Benutzer fehlt", JOptionPane.WARNING_MESSAGE);
+                    return null;
+                }
+                // Try stored encrypted password first
+                if (s.betaviewEncryptedPassword != null && !s.betaviewEncryptedPassword.isEmpty()) {
+                    try {
+                        String pw = de.bund.zrb.util.WindowsCryptoUtil.decrypt(s.betaviewEncryptedPassword);
+                        if (pw != null && !pw.isEmpty()) {
+                            return new String[]{bvUser, pw};
+                        }
+                    } catch (Exception ignore) { /* fall through */ }
+                }
+                // Different host than settings.host, so this won't corrupt FTP/NDV.
+                String password = LoginManager.getInstance().getPassword(bvHost, bvUser);
+                if (password == null) {
+                    return null;
+                }
+                return new String[]{bvUser, password};
             }
-            String password = LoginManager.getInstance().getPassword(host, user);
-            if (password == null) {
-                return null;
-            }
-            return new String[]{user, password};
         });
 
         // Document open callback: open as FileTab
