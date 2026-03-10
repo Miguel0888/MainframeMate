@@ -129,32 +129,26 @@ public class JesJobsConnectionTab implements ConnectionTab {
         JScrollPane scrollPane = new JScrollPane(jobTable);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
 
-        // ── Bottom panel: search bar + buttons + status ─────────────
-        JPanel bottomPanel = new JPanel(new BorderLayout(0, 4));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+        // ── Status bar: buttons | search field | status label ───────
+        JPanel statusBar = new JPanel(new BorderLayout(8, 0));
+        statusBar.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
 
-        // Search / filter bar (local, instant, like in file connection tabs)
-        JPanel filterBarPanel = createFilterBar();
-        bottomPanel.add(filterBarPanel, BorderLayout.NORTH);
-
-        JPanel buttonRow = new JPanel(new BorderLayout(8, 0));
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        JButton openButton = new JButton("📄 Spool anzeigen");
-        openButton.addActionListener(e -> openSelectedJob());
-        buttonPanel.add(openButton);
 
         deleteButton = new JButton("🗑️ Löschen");
         deleteButton.addActionListener(e -> deleteSelectedJob());
         buttonPanel.add(deleteButton);
 
-        buttonRow.add(buttonPanel, BorderLayout.WEST);
+        statusBar.add(buttonPanel, BorderLayout.WEST);
+
+        // Search / filter field (local, instant, like in other connection tabs)
+        JPanel searchBarPanel = createFilterBar();
+        statusBar.add(searchBarPanel, BorderLayout.CENTER);
 
         statusLabel = new JLabel("Bereit");
-        buttonRow.add(statusLabel, BorderLayout.EAST);
+        statusBar.add(statusLabel, BorderLayout.EAST);
 
-        bottomPanel.add(buttonRow, BorderLayout.SOUTH);
-
-        mainPanel.add(bottomPanel, BorderLayout.SOUTH);
+        mainPanel.add(statusBar, BorderLayout.SOUTH);
 
         // Enter in filter fields triggers server search
         ownerField.addActionListener(e -> doSearch());
@@ -163,6 +157,9 @@ public class JesJobsConnectionTab implements ConnectionTab {
         // ── Keyboard navigation: search field ↔ table ───────────────
         ListKeyboardNavigation.install(jobTable, searchField,
                 this::openSelectedJob, null, null);
+
+        // ── Initial load ────────────────────────────────────────────
+        doSearch();
     }
 
     // ═══════════════════════════════════════════════════════════════════
