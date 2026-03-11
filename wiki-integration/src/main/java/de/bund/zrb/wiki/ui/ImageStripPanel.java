@@ -7,6 +7,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -76,35 +77,61 @@ public class ImageStripPanel extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Zoomable image panel (draws the BufferedImage with scale + translate)
+    //  Image data holder — supports both static BufferedImage and animated GIF
+    // ═══════════════════════════════════════════════════════════
+
+    private static class LoadedImage {
+        final BufferedImage staticImage;   // non-null for normal images
+        final byte[] rawBytes;             // original bytes (for GIF detection + download)
+        final boolean animated;            // true if animated GIF
+        final int width, height;
+
+        LoadedImage(BufferedImage img, byte[] raw) {
+            this.staticImage = img;
+            this.rawBytes = raw;
+            this.animated = false;
+            this.width = img != null ? img.getWidth() : 0;
+            this.height = img != null ? img.getHeight() : 0;
+        }
+
+        LoadedImage(byte[] raw, int w, int h) {
+            this.staticImage = null;
+            this.rawBytes = raw;
+            this.animated = true;
+            this.width = w;
+            this.height = h;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Zoomable image panel — supports both static and animated images
     // ═══════════════════════════════════════════════════════════
 
     private static class ZoomableImagePanel extends JPanel {
-        private BufferedImage image;
-        private double zoom = 1.0;
-        private double offsetX = 0, offsetY = 0;
-        private Point dragStart;
+        private BufferedImage staticImage;
+        private ImageIcon animatedIcon;  // for animated GIFs
+        private boolean isAnimated;
+        private int imgW, imgH;
+        double zoom = 1.0;
+        double offsetX = 0, offsetY = 0;
+        Point dragStart;
 
         ZoomableImagePanel() {
             setBackground(new Color(30, 30, 30));
             setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
 
-            // Drag to pan
             addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
+                @Override public void mousePressed(MouseEvent e) {
                     dragStart = e.getPoint();
                     setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                 }
-                @Override
-                public void mouseReleased(MouseEvent e) {
+                @Override public void mouseReleased(MouseEvent e) {
                     dragStart = null;
                     setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
                 }
             });
             addMouseMotionListener(new MouseMotionAdapter() {
-                @Override
-                public void mouseDragged(MouseEvent e) {
+                @Override public void mouseDragged(MouseEvent e) {
                     if (dragStart != null) {
                         offsetX += e.getX() - dragStart.x;
                         offsetY += e.getY() - dragStart.y;
@@ -115,41 +142,67 @@ public class ImageStripPanel extends JPanel {
             });
         }
 
-        void setImage(BufferedImage img) {
-            this.image = img;
+        void setStaticImage(BufferedImage img) {
+            this.staticImage = img;
+            this.animatedIcon = null;
+            this.isAnimated = false;
+            this.imgW = img != null ? img.getWidth() : 0;
+            this.imgH = img != null ? img.getHeight() : 0;
             resetView();
         }
 
-        /** Zoom to fit the image into the viewport. */
+        void setAnimatedImage(byte[] gifBytes, int w, int h) {
+            this.staticImage = null;
+            this.isAnimated = true;
+            this.imgW = w;
+            this.imgH = h;
+            // ImageIcon handles GIF animation natively via its internal GIF decoder
+            this.animatedIcon = new ImageIcon(gifBytes);
+            // Set the image observer to this panel so animation frames trigger repaints
+            this.animatedIcon.setImageObserver(this);
+            resetView();
+        }
+
+        void clearImage() {
+            this.staticImage = null;
+            this.animatedIcon = null;
+            this.isAnimated = false;
+            this.imgW = 0;
+            this.imgH = 0;
+            repaint();
+        }
+
+        boolean hasImage() {
+            return staticImage != null || animatedIcon != null;
+        }
+
         void resetView() {
             zoom = 1.0;
             offsetX = 0;
             offsetY = 0;
-            if (image != null && getWidth() > 0 && getHeight() > 0) {
-                double scaleX = (double) getWidth() / image.getWidth();
-                double scaleY = (double) getHeight() / image.getHeight();
+            if (imgW > 0 && imgH > 0 && getWidth() > 0 && getHeight() > 0) {
+                double scaleX = (double) getWidth() / imgW;
+                double scaleY = (double) getHeight() / imgH;
                 zoom = Math.min(scaleX, scaleY);
-                if (zoom > 1.0) zoom = 1.0; // don't upscale beyond 100%
+                if (zoom > 1.0) zoom = 1.0;
                 centerImage();
             }
             repaint();
         }
 
         private void centerImage() {
-            if (image == null) return;
-            double drawW = image.getWidth() * zoom;
-            double drawH = image.getHeight() * zoom;
+            if (imgW <= 0 || imgH <= 0) return;
+            double drawW = imgW * zoom;
+            double drawH = imgH * zoom;
             offsetX = (getWidth() - drawW) / 2.0;
             offsetY = (getHeight() - drawH) / 2.0;
         }
 
         void zoomAt(double factor, Point pivot) {
-            if (image == null) return;
+            if (imgW <= 0) return;
             double oldZoom = zoom;
             zoom *= factor;
             zoom = Math.max(0.05, Math.min(zoom, 20.0));
-
-            // Adjust offset so the pixel under the cursor stays put
             double px = pivot != null ? pivot.x : getWidth() / 2.0;
             double py = pivot != null ? pivot.y : getHeight() / 2.0;
             offsetX = px - (px - offsetX) * (zoom / oldZoom);
@@ -164,18 +217,24 @@ public class ImageStripPanel extends JPanel {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            if (image == null) return;
+            int drawW = (int) Math.round(imgW * zoom);
+            int drawH = (int) Math.round(imgH * zoom);
+            int dx = (int) Math.round(offsetX);
+            int dy = (int) Math.round(offsetY);
 
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                    zoom < 1.0 ? RenderingHints.VALUE_INTERPOLATION_BILINEAR
-                                : RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-
-            int drawW = (int) Math.round(image.getWidth() * zoom);
-            int drawH = (int) Math.round(image.getHeight() * zoom);
-            g2.drawImage(image, (int) Math.round(offsetX), (int) Math.round(offsetY),
-                    drawW, drawH, null);
-            g2.dispose();
+            if (isAnimated && animatedIcon != null) {
+                // Animated GIF — draw via ImageIcon which handles frame animation
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.drawImage(animatedIcon.getImage(), dx, dy, drawW, drawH, this);
+                g2.dispose();
+            } else if (staticImage != null) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        zoom < 1.0 ? RenderingHints.VALUE_INTERPOLATION_BILINEAR
+                                   : RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+                g2.drawImage(staticImage, dx, dy, drawW, drawH, null);
+                g2.dispose();
+            }
         }
     }
 
@@ -199,35 +258,44 @@ public class ImageStripPanel extends JPanel {
         final int screenMaxW = screen.width - screenInsets.left - screenInsets.right - 80;
         final int screenMaxH = screen.height - screenInsets.top - screenInsets.bottom - 120;
 
-        // Zoomable image panel replaces the old JLabel + JScrollPane
         final ZoomableImagePanel imagePanel = new ZoomableImagePanel();
         imagePanel.setPreferredSize(new Dimension(600, 400));
 
-        // Loading overlay label (shown while image loads)
         final JLabel loadingLabel = new JLabel("\u23f3 Lade Bild\u2026", SwingConstants.CENTER);
         loadingLabel.setForeground(Color.WHITE);
         loadingLabel.setFont(loadingLabel.getFont().deriveFont(16f));
 
-        // Stack the loading label on top of the image panel
         final JLayeredPane layered = new JLayeredPane();
         layered.setLayout(null);
 
-        // ── Overlay arrows ──
+        // ── Overlay arrows (left/right, middle third) ──
         final int ARROW_STRIP_W = 48;
-        final JPanel leftArrow = createArrowPanel("\u25c0", ARROW_STRIP_W);
-        final JPanel rightArrow = createArrowPanel("\u25b6", ARROW_STRIP_W);
+        final JPanel leftArrow = createOverlayButton("\u25c0", ARROW_STRIP_W, 0);
+        final JPanel rightArrow = createOverlayButton("\u25b6", ARROW_STRIP_W, 0);
 
-        final int DL_BTN_W = 44;
-        final int DL_BTN_H = 44;
-        final JPanel downloadOverlay = createArrowPanel("\uD83D\uDCBE", DL_BTN_W);
+        // ── Download overlay (top-right) ──
+        final int OVL_BTN = 40;
+        final JPanel downloadOverlay = createOverlayButton("\uD83D\uDCBE", OVL_BTN, OVL_BTN);
         downloadOverlay.setToolTipText("Herunterladen");
-        downloadOverlay.setVisible(false);
+
+        // ── Zoom overlays (bottom-right: ➖ ➕ 🔄) ──
+        final int ZOOM_BTN = 36;
+        final int ZOOM_GAP = 4;
+        final JPanel zoomOutBtn = createOverlayButton("\u2796", ZOOM_BTN, ZOOM_BTN);
+        zoomOutBtn.setToolTipText("Verkleinern (-)");
+        final JPanel zoomInBtn = createOverlayButton("\u2795", ZOOM_BTN, ZOOM_BTN);
+        zoomInBtn.setToolTipText("Vergrößern (+)");
+        final JPanel zoomResetBtn = createOverlayButton("\uD83D\uDD04", ZOOM_BTN, ZOOM_BTN);
+        zoomResetBtn.setToolTipText("Einpassen (0)");
 
         layered.add(imagePanel, JLayeredPane.DEFAULT_LAYER);
         layered.add(loadingLabel, JLayeredPane.MODAL_LAYER);
         layered.add(leftArrow, JLayeredPane.PALETTE_LAYER);
         layered.add(rightArrow, JLayeredPane.PALETTE_LAYER);
         layered.add(downloadOverlay, JLayeredPane.PALETTE_LAYER);
+        layered.add(zoomOutBtn, JLayeredPane.PALETTE_LAYER);
+        layered.add(zoomInBtn, JLayeredPane.PALETTE_LAYER);
+        layered.add(zoomResetBtn, JLayeredPane.PALETTE_LAYER);
 
         layered.addComponentListener(new ComponentAdapter() {
             @Override
@@ -236,16 +304,28 @@ public class ImageStripPanel extends JPanel {
                 int h = layered.getHeight();
                 imagePanel.setBounds(0, 0, w, h);
                 loadingLabel.setBounds(0, 0, w, h);
+                // Arrows in middle third
                 int arrowTop = h / 3;
                 int arrowH = h / 3;
                 leftArrow.setBounds(0, arrowTop, ARROW_STRIP_W, arrowH);
                 rightArrow.setBounds(w - ARROW_STRIP_W, arrowTop, ARROW_STRIP_W, arrowH);
-                downloadOverlay.setBounds(w - DL_BTN_W - 8, 8, DL_BTN_W, DL_BTN_H);
+                // Download: top-right
+                downloadOverlay.setBounds(w - OVL_BTN - 8, 8, OVL_BTN, OVL_BTN);
+                // Zoom: bottom-right, horizontal row
+                int zoomY = h - ZOOM_BTN - 10;
+                int zoomX = w - (3 * ZOOM_BTN + 2 * ZOOM_GAP) - 10;
+                zoomOutBtn.setBounds(zoomX, zoomY, ZOOM_BTN, ZOOM_BTN);
+                zoomInBtn.setBounds(zoomX + ZOOM_BTN + ZOOM_GAP, zoomY, ZOOM_BTN, ZOOM_BTN);
+                zoomResetBtn.setBounds(zoomX + 2 * (ZOOM_BTN + ZOOM_GAP), zoomY, ZOOM_BTN, ZOOM_BTN);
             }
         });
 
         leftArrow.setVisible(false);
         rightArrow.setVisible(false);
+        downloadOverlay.setVisible(false);
+        zoomOutBtn.setVisible(false);
+        zoomInBtn.setVisible(false);
+        zoomResetBtn.setVisible(false);
 
         dialog.add(layered, BorderLayout.CENTER);
 
@@ -255,10 +335,9 @@ public class ImageStripPanel extends JPanel {
         infoLabel.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
         dialog.add(infoLabel, BorderLayout.SOUTH);
 
-        // ── State for current image dimensions (for info updates) ──
-        final int[] currentImgDims = new int[2]; // [width, height]
+        // ── State ──
+        final int[] currentImgDims = new int[2];
 
-        // Helper to update info text
         final Runnable updateInfo = () -> {
             ImageRef ci = allImages.get(currentIndex[0]);
             String dims = currentImgDims[0] > 0
@@ -267,16 +346,6 @@ public class ImageStripPanel extends JPanel {
                     + "  \u2014  " + ci.description() + dims
                     + "  |  Zoom: " + imagePanel.getZoomPercent() + "%");
         };
-
-        // ── Mouse wheel zoom on image panel ──
-        imagePanel.addMouseWheelListener(new MouseWheelListener() {
-            @Override
-            public void mouseWheelMoved(MouseWheelEvent e) {
-                double factor = e.getWheelRotation() < 0 ? 1.15 : 1.0 / 1.15;
-                imagePanel.zoomAt(factor, e.getPoint());
-                updateInfo.run();
-            }
-        });
 
         // ── Load & display logic ──
         final Runnable[] loadCurrent = new Runnable[1];
@@ -287,6 +356,7 @@ public class ImageStripPanel extends JPanel {
         dialog.setGlassPane(glass);
         glass.setVisible(true);
 
+        // Hover zone rectangles (computed relative to layered pane)
         glass.addMouseMotionListener(new MouseAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
@@ -297,16 +367,29 @@ public class ImageStripPanel extends JPanel {
                 int arrowBottom = arrowTop + h / 3;
 
                 boolean inImage = p.x >= 0 && p.x < w && p.y >= 0 && p.y < h;
-                boolean showDl = inImage && p.x >= w - DL_BTN_W - 20 && p.y <= DL_BTN_H + 20;
+
+                // Download: top-right
+                boolean showDl = inImage && p.x >= w - OVL_BTN - 20 && p.y <= OVL_BTN + 20;
+
+                // Zoom: bottom-right area
+                int zoomY = h - ZOOM_BTN - 10;
+                int zoomX = w - (3 * ZOOM_BTN + 2 * ZOOM_GAP) - 10;
+                boolean showZoom = inImage && p.x >= zoomX - 10 && p.y >= zoomY - 10;
+
+                // Arrows: left/right in middle third, not overlapping download/zoom
                 boolean inArrowBand = p.y >= arrowTop - 20 && p.y <= arrowBottom + 20;
-                boolean showLeft = inImage && !showDl && currentIndex[0] > 0
-                        && p.x < ARROW_STRIP_W && inArrowBand;
-                boolean showRight = inImage && !showDl && currentIndex[0] < allImages.size() - 1
+                boolean showLeft = inImage && !showDl && !showZoom
+                        && currentIndex[0] > 0 && p.x < ARROW_STRIP_W && inArrowBand;
+                boolean showRight = inImage && !showDl && !showZoom
+                        && currentIndex[0] < allImages.size() - 1
                         && p.x >= w - ARROW_STRIP_W && inArrowBand;
 
                 leftArrow.setVisible(showLeft);
                 rightArrow.setVisible(showRight);
                 downloadOverlay.setVisible(showDl);
+                zoomOutBtn.setVisible(showZoom);
+                zoomInBtn.setVisible(showZoom);
+                zoomResetBtn.setVisible(showZoom);
             }
         });
         glass.addMouseListener(new MouseAdapter() {
@@ -315,6 +398,9 @@ public class ImageStripPanel extends JPanel {
                 leftArrow.setVisible(false);
                 rightArrow.setVisible(false);
                 downloadOverlay.setVisible(false);
+                zoomOutBtn.setVisible(false);
+                zoomInBtn.setVisible(false);
+                zoomResetBtn.setVisible(false);
             }
 
             @Override
@@ -328,48 +414,60 @@ public class ImageStripPanel extends JPanel {
                 boolean inImage = p.x >= 0 && p.x < w && p.y >= 0 && p.y < h;
                 if (!inImage) return;
 
-                if (p.x >= w - DL_BTN_W - 20 && p.y <= DL_BTN_H + 20) {
+                // Download
+                if (p.x >= w - OVL_BTN - 20 && p.y <= OVL_BTN + 20) {
                     downloadImage(allImages.get(currentIndex[0]));
-                } else if (currentIndex[0] > 0 && p.x < ARROW_STRIP_W
+                    return;
+                }
+
+                // Zoom buttons
+                int zoomY = h - ZOOM_BTN - 10;
+                int zoomX = w - (3 * ZOOM_BTN + 2 * ZOOM_GAP) - 10;
+                if (p.x >= zoomX - 5 && p.y >= zoomY - 5) {
+                    // Which button?
+                    int relX = p.x - zoomX;
+                    if (relX < ZOOM_BTN) {
+                        imagePanel.zoomAt(1.0 / 1.25, null); updateInfo.run(); // zoom out
+                    } else if (relX < 2 * ZOOM_BTN + ZOOM_GAP) {
+                        imagePanel.zoomAt(1.25, null); updateInfo.run(); // zoom in
+                    } else {
+                        imagePanel.resetView(); updateInfo.run(); // reset
+                    }
+                    return;
+                }
+
+                // Arrows
+                if (currentIndex[0] > 0 && p.x < ARROW_STRIP_W
                         && p.y >= arrowTop - 20 && p.y <= arrowBottom + 20) {
-                    currentIndex[0]--;
-                    loadCurrent[0].run();
+                    currentIndex[0]--; loadCurrent[0].run();
                 } else if (currentIndex[0] < allImages.size() - 1 && p.x >= w - ARROW_STRIP_W
                         && p.y >= arrowTop - 20 && p.y <= arrowBottom + 20) {
-                    currentIndex[0]++;
-                    loadCurrent[0].run();
+                    currentIndex[0]++; loadCurrent[0].run();
                 }
             }
         });
 
         // Forward mouse wheel from glass to image panel for zooming
-        glass.addMouseWheelListener(new MouseWheelListener() {
-            @Override
-            public void mouseWheelMoved(MouseWheelEvent e) {
-                Point p = SwingUtilities.convertPoint(glass, e.getPoint(), imagePanel);
-                double factor = e.getWheelRotation() < 0 ? 1.15 : 1.0 / 1.15;
-                imagePanel.zoomAt(factor, p);
-                updateInfo.run();
-            }
+        glass.addMouseWheelListener(e -> {
+            Point p = SwingUtilities.convertPoint(glass, e.getPoint(), imagePanel);
+            double factor = e.getWheelRotation() < 0 ? 1.15 : 1.0 / 1.15;
+            imagePanel.zoomAt(factor, p);
+            updateInfo.run();
         });
 
-        // Forward mouse drag from glass to image panel for panning
+        // Forward drag from glass to image panel for panning
         glass.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                Point p = SwingUtilities.convertPoint(glass, e.getPoint(), imagePanel);
-                imagePanel.dragStart = p;
+            @Override public void mousePressed(MouseEvent e) {
+                imagePanel.dragStart = SwingUtilities.convertPoint(glass, e.getPoint(), imagePanel);
                 imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
             }
-            @Override
-            public void mouseReleased(MouseEvent e) {
+            @Override public void mouseReleased(MouseEvent e) {
                 imagePanel.dragStart = null;
                 imagePanel.setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
             }
         });
         glass.addMouseMotionListener(new MouseMotionAdapter() {
-            @Override
-            public void mouseDragged(MouseEvent e) {
+            @Override public void mouseDragged(MouseEvent e) {
                 if (imagePanel.dragStart != null) {
                     Point p = SwingUtilities.convertPoint(glass, e.getPoint(), imagePanel);
                     imagePanel.offsetX += p.x - imagePanel.dragStart.x;
@@ -380,7 +478,6 @@ public class ImageStripPanel extends JPanel {
             }
         });
 
-        // Initial size
         dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
         dialog.setLocationRelativeTo(owner);
 
@@ -388,49 +485,61 @@ public class ImageStripPanel extends JPanel {
         loadCurrent[0] = () -> {
             ImageRef img = allImages.get(currentIndex[0]);
             dialog.setTitle(img.description());
-            imagePanel.image = null;
-            imagePanel.repaint();
+            imagePanel.clearImage();
+            loadingLabel.setText("\u23f3 Lade Bild\u2026");
             loadingLabel.setVisible(true);
             currentImgDims[0] = 0;
             currentImgDims[1] = 0;
             infoLabel.setText((currentIndex[0] + 1) + " / " + allImages.size()
                     + "  \u2014  " + img.description());
 
-            new SwingWorker<BufferedImage, Void>() {
+            new SwingWorker<LoadedImage, Void>() {
                 @Override
-                protected BufferedImage doInBackground() throws Exception {
-                    InputStream in = openImageStream(img.src());
-                    try {
-                        return ImageIO.read(in);
-                    } finally {
-                        in.close();
+                protected LoadedImage doInBackground() throws Exception {
+                    byte[] raw = downloadBytes(img.src());
+                    // Detect GIF by magic bytes (GIF87a / GIF89a)
+                    boolean isGif = raw.length > 3
+                            && raw[0] == 'G' && raw[1] == 'I' && raw[2] == 'F';
+                    if (isGif) {
+                        // Check if animated (has multiple image blocks)
+                        boolean animated = isAnimatedGif(raw);
+                        if (animated) {
+                            // Use Toolkit to get dimensions
+                            ImageIcon probe = new ImageIcon(raw);
+                            return new LoadedImage(raw, probe.getIconWidth(), probe.getIconHeight());
+                        }
                     }
+                    // Static image (including non-animated GIFs)
+                    BufferedImage bi = ImageIO.read(new java.io.ByteArrayInputStream(raw));
+                    return new LoadedImage(bi, raw);
                 }
 
                 @Override
                 protected void done() {
                     try {
-                        BufferedImage bi = get();
+                        LoadedImage loaded = get();
                         loadingLabel.setVisible(false);
-                        if (bi == null) {
+                        if (loaded == null || (loaded.width <= 0)) {
                             loadingLabel.setText("\u274c Bild konnte nicht geladen werden");
                             loadingLabel.setVisible(true);
                             return;
                         }
 
-                        currentImgDims[0] = bi.getWidth();
-                        currentImgDims[1] = bi.getHeight();
+                        currentImgDims[0] = loaded.width;
+                        currentImgDims[1] = loaded.height;
 
-                        // Size dialog to fit image (up to screen bounds)
                         int chromeW = 40, chromeH = 60;
-                        int dialogW = Math.max(Math.min(bi.getWidth() + chromeW, screenMaxW), 400);
-                        int dialogH = Math.max(Math.min(bi.getHeight() + chromeH, screenMaxH), 300);
+                        int dialogW = Math.max(Math.min(loaded.width + chromeW, screenMaxW), 400);
+                        int dialogH = Math.max(Math.min(loaded.height + chromeH, screenMaxH), 300);
                         dialog.setSize(dialogW, dialogH);
                         dialog.setLocationRelativeTo(owner);
 
-                        // Set image and fit to view (must happen after dialog is sized)
                         SwingUtilities.invokeLater(() -> {
-                            imagePanel.setImage(bi);
+                            if (loaded.animated) {
+                                imagePanel.setAnimatedImage(loaded.rawBytes, loaded.width, loaded.height);
+                            } else {
+                                imagePanel.setStaticImage(loaded.staticImage);
+                            }
                             updateInfo.run();
                         });
                     } catch (Exception ex) {
@@ -442,7 +551,7 @@ public class ImageStripPanel extends JPanel {
             }.execute();
         };
 
-        // ── Keyboard: arrows to navigate, +/-/0 to zoom ──
+        // ── Keyboard shortcuts ──
         InputMap im = dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap am = dialog.getRootPane().getActionMap();
 
@@ -463,24 +572,21 @@ public class ImageStripPanel extends JPanel {
         im.put(KeyStroke.getKeyStroke("ADD"), "zoomIn");
         am.put("zoomIn", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                imagePanel.zoomAt(1.25, null);
-                updateInfo.run();
+                imagePanel.zoomAt(1.25, null); updateInfo.run();
             }
         });
         im.put(KeyStroke.getKeyStroke("MINUS"), "zoomOut");
         im.put(KeyStroke.getKeyStroke("SUBTRACT"), "zoomOut");
         am.put("zoomOut", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                imagePanel.zoomAt(1.0 / 1.25, null);
-                updateInfo.run();
+                imagePanel.zoomAt(1.0 / 1.25, null); updateInfo.run();
             }
         });
         im.put(KeyStroke.getKeyStroke("0"), "zoomReset");
         im.put(KeyStroke.getKeyStroke("NUMPAD0"), "zoomReset");
         am.put("zoomReset", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) {
-                imagePanel.resetView();
-                updateInfo.run();
+                imagePanel.resetView(); updateInfo.run();
             }
         });
 
@@ -489,17 +595,21 @@ public class ImageStripPanel extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Arrow/overlay panel factory
+    //  Overlay button factory
     // ═══════════════════════════════════════════════════════════
 
-    private static JPanel createArrowPanel(String arrow, int stripWidth) {
+    /**
+     * Translucent rounded overlay button. If fixedH == 0, height is dynamic (for arrows).
+     */
+    private static JPanel createOverlayButton(String symbol, int fixedW, int fixedH) {
         JPanel panel = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
-                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
                 g2.setColor(Color.BLACK);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
                 g2.dispose();
                 super.paintComponent(g);
             }
@@ -507,11 +617,15 @@ public class ImageStripPanel extends JPanel {
         panel.setOpaque(false);
         panel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
-        JLabel label = new JLabel(arrow, SwingConstants.CENTER);
-        label.setForeground(new Color(255, 255, 255, 200));
-        label.setFont(label.getFont().deriveFont(Font.BOLD, 26f));
+        JLabel label = new JLabel(symbol, SwingConstants.CENTER);
+        label.setForeground(new Color(255, 255, 255, 210));
+        label.setFont(label.getFont().deriveFont(Font.BOLD, fixedH > 0 ? 16f : 26f));
         panel.add(label, BorderLayout.CENTER);
-        panel.setPreferredSize(new Dimension(stripWidth, 0));
+        if (fixedH > 0) {
+            panel.setPreferredSize(new Dimension(fixedW, fixedH));
+        } else {
+            panel.setPreferredSize(new Dimension(fixedW, 0));
+        }
 
         return panel;
     }
@@ -565,7 +679,7 @@ public class ImageStripPanel extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  HTTP helper
+    //  HTTP / IO helpers
     // ═══════════════════════════════════════════════════════════
 
     private static InputStream openImageStream(String imageUrl) throws java.io.IOException {
@@ -576,6 +690,69 @@ public class ImageStripPanel extends JPanel {
         conn.setReadTimeout(30_000);
         conn.setInstanceFollowRedirects(true);
         return conn.getInputStream();
+    }
+
+    /** Download the full image into a byte array. */
+    private static byte[] downloadBytes(String imageUrl) throws java.io.IOException {
+        InputStream in = openImageStream(imageUrl);
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(32768);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                baos.write(buf, 0, n);
+            }
+            return baos.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    /**
+     * Check if a GIF byte array contains multiple image frames (animated).
+     * Scans for more than one Image Descriptor block (0x2C) after the header.
+     */
+    private static boolean isAnimatedGif(byte[] data) {
+        int imageCount = 0;
+        int i = 6; // skip header "GIF89a" / "GIF87a"
+        while (i < data.length) {
+            int b = data[i] & 0xFF;
+            if (b == 0x2C) { // Image Descriptor
+                imageCount++;
+                if (imageCount > 1) return true;
+                // Skip past image descriptor (9 bytes) + optional LCT + image data
+                i += 9;
+                if (i >= data.length) break;
+                int packed = data[i - 1] & 0xFF;
+                if ((packed & 0x80) != 0) {
+                    int lctSize = 3 * (1 << ((packed & 0x07) + 1));
+                    i += lctSize;
+                }
+                if (i >= data.length) break;
+                i++; // LZW minimum code size
+                // Skip sub-blocks
+                while (i < data.length) {
+                    int blockSize = data[i] & 0xFF;
+                    i++;
+                    if (blockSize == 0) break;
+                    i += blockSize;
+                }
+            } else if (b == 0x21) { // Extension
+                i += 2; // skip extension type
+                // Skip sub-blocks
+                while (i < data.length) {
+                    int blockSize = data[i] & 0xFF;
+                    i++;
+                    if (blockSize == 0) break;
+                    i += blockSize;
+                }
+            } else if (b == 0x3B) { // Trailer
+                break;
+            } else {
+                i++;
+            }
+        }
+        return false;
     }
 
     private static String guessFileName(String src) {
