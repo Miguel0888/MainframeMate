@@ -42,6 +42,8 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final int keepAliveTimeout;
     private final String user;
     private final String password;
+    private final boolean autoLoginEnabled;
+    private final String autoCommand;  // null or empty = no auto-command
 
     private final JPanel mainPanel;
     private final JLabel statusLabel;
@@ -60,11 +62,16 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final Map<Integer, JButton> fkeyButtons = new HashMap<Integer, JButton>();
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout) {
-        this(host, port, termType, tls, keepAliveTimeout, null, null);
+        this(host, port, termType, tls, keepAliveTimeout, null, null, true, null);
     }
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout,
                                  String user, String password) {
+        this(host, port, termType, tls, keepAliveTimeout, user, password, true, null);
+    }
+
+    public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout,
+                                 String user, String password, boolean autoLoginEnabled, String autoCommand) {
         this.host = host;
         this.port = port;
         this.termType = termType != null ? termType : "IBM-3278-2";
@@ -72,6 +79,8 @@ public class TerminalConnectionTab implements ConnectionTab {
         this.keepAliveTimeout = keepAliveTimeout;
         this.user = user;
         this.password = password;
+        this.autoLoginEnabled = autoLoginEnabled;
+        this.autoCommand = autoCommand;
 
         ensureFactoryInitialized();
 
@@ -139,8 +148,8 @@ public class TerminalConnectionTab implements ConnectionTab {
                 }
             });
 
-            // Auto-login if credentials are available
-            if (user != null && !user.isEmpty() && password != null && !password.isEmpty()) {
+            // Auto-login if enabled and credentials are available
+            if (autoLoginEnabled && user != null && !user.isEmpty() && password != null && !password.isEmpty()) {
                 autoLogin(createdTerminal);
             }
         } catch (Exception ex) {
@@ -441,6 +450,20 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                     LOG.info("[3270] Auto-login: credentials sent");
                     updateStatus("  ✅ Verbunden (angemeldet)");
+
+                    // 8) Auto-command after login (e.g. "a" + ENTER to skip welcome screen)
+                    if (autoCommand != null && !autoCommand.isEmpty()) {
+                        if (!waitForKeyboardUnlock(term, 10_000)) {
+                            LOG.warning("[3270] Auto-command: keyboard did not unlock after login");
+                            return;
+                        }
+                        Thread.sleep(500);
+
+                        typeString(term, autoCommand);
+                        Thread.sleep(100);
+                        term.Fkey(AID_ENTER);
+                        LOG.info("[3270] Auto-command sent: '" + autoCommand + "'");
+                    }
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[3270] Auto-login failed", e);
                 }

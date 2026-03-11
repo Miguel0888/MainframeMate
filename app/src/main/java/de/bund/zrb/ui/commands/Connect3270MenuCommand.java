@@ -73,6 +73,9 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
         }
 
         int keepAlive = settings.tn3270KeepAliveTimeout;
+        boolean autoLogin = settings.tn3270AutoLogin;
+        String autoCmd = (settings.tn3270AutoCommand && settings.tn3270AutoCommandText != null)
+                ? settings.tn3270AutoCommandText : null;
 
         // ── Connect in background ──
         final String fHost = host;
@@ -82,6 +85,8 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
         final int fKeepAlive = keepAlive;
         final String fUser = user;
         final String fPassword = cachedPassword;
+        final boolean fAutoLogin = autoLogin;
+        final String fAutoCmd = autoCmd;
 
         parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
@@ -89,7 +94,7 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
             @Override
             protected TerminalConnectionTab doInBackground() throws Exception {
                 TerminalConnectionTab tab = new TerminalConnectionTab(
-                        fHost, fPort, fTermType, fTls, fKeepAlive, fUser, fPassword);
+                        fHost, fPort, fTermType, fTls, fKeepAlive, fUser, fPassword, fAutoLogin, fAutoCmd);
                 tab.connect();
                 return tab;
             }

@@ -14,6 +14,9 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox tlsCheckBox;
     private final JTextField termTypeField;
     private final JSpinner keepAliveSpinner;
+    private final JCheckBox autoLoginCheckBox;
+    private final JCheckBox autoCommandCheckBox;
+    private final JTextField autoCommandField;
 
     public Tn3270SettingsPanel() {
         super("tn3270", "3270-Terminal");
@@ -37,6 +40,34 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         keepAliveSpinner.setToolTipText("KeepAlive-Intervall in Sekunden (0 = deaktiviert)");
         fb.addRow("KeepAlive (Sek.):", keepAliveSpinner);
 
+        fb.addSection("Automatisierung");
+
+        autoLoginCheckBox = new JCheckBox("Auto-Login nach Verbindung", settings.tn3270AutoLogin);
+        autoLoginCheckBox.setToolTipText("Sendet Benutzername und Passwort automatisch nach dem Verbinden");
+        fb.addWide(autoLoginCheckBox);
+
+        autoCommandCheckBox = new JCheckBox("Nach Login Befehl senden:", settings.tn3270AutoCommand);
+        autoCommandCheckBox.setToolTipText("Sendet nach dem Login automatisch einen Befehl (z.B. um den Startbildschirm zu überspringen)");
+        autoCommandField = new JTextField(
+                settings.tn3270AutoCommandText != null ? settings.tn3270AutoCommandText : "a", 10);
+        autoCommandField.setToolTipText("Befehl der nach dem Login gesendet wird (z.B. \"a\" + Enter)");
+        autoCommandField.setEnabled(settings.tn3270AutoCommand);
+
+        // Enable/disable the text field based on the checkbox
+        autoCommandCheckBox.addActionListener(e -> autoCommandField.setEnabled(autoCommandCheckBox.isSelected()));
+        // Also disable auto-command when auto-login is off
+        autoLoginCheckBox.addActionListener(e -> {
+            boolean loginOn = autoLoginCheckBox.isSelected();
+            autoCommandCheckBox.setEnabled(loginOn);
+            autoCommandField.setEnabled(loginOn && autoCommandCheckBox.isSelected());
+        });
+        autoCommandCheckBox.setEnabled(settings.tn3270AutoLogin);
+
+        JPanel cmdPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        cmdPanel.add(autoCommandCheckBox);
+        cmdPanel.add(autoCommandField);
+        fb.addWide(cmdPanel);
+
         fb.addInfo("<html><i>Host und Benutzer werden aus den Server-Einstellungen übernommen.<br>"
                 + "Der Port kann beim Verbinden im Dialog überschrieben werden.</i></html>");
 
@@ -49,6 +80,9 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270Tls = tlsCheckBox.isSelected();
         s.tn3270TermType = termTypeField.getText().trim();
         s.tn3270KeepAliveTimeout = ((Number) keepAliveSpinner.getValue()).intValue();
+        s.tn3270AutoLogin = autoLoginCheckBox.isSelected();
+        s.tn3270AutoCommand = autoCommandCheckBox.isSelected();
+        s.tn3270AutoCommandText = autoCommandField.getText();
     }
 }
 

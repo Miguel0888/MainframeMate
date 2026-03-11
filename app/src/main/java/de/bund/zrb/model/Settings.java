@@ -88,6 +88,9 @@ public class Settings {
     public boolean tn3270Tls = true;                   // TLS/SSL verwenden (Standard: an)
     public String tn3270TermType = "IBM-3278-2";       // Terminal-Typ (z.B. IBM-3278-2, IBM-3279-2)
     public int tn3270KeepAliveTimeout = 0;             // KeepAlive in Sekunden (0 = deaktiviert)
+    public boolean tn3270AutoLogin = true;             // Auto-Login nach Verbindung (Standard: an)
+    public boolean tn3270AutoCommand = true;           // Nach Login automatisch einen Befehl senden (Standard: an)
+    public String tn3270AutoCommandText = "a";         // Der zu sendende Befehl (Standard: "a")
 
     // Wiki Settings
     // Each entry: "id|displayName|apiUrl|requiresLogin"
