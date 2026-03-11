@@ -53,8 +53,10 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         WikiConnectionTab tab = new WikiConnectionTab(service);
 
         // Wire up credentials callback: resolves encrypted credentials from settings
+        // (loads settings fresh each time to pick up credentials set after tab was opened)
         tab.setCredentialsCallback(siteId -> {
-            String encrypted = settings.wikiCredentials.get(siteId.value());
+            Settings currentSettings = SettingsHelper.load();
+            String encrypted = currentSettings.wikiCredentials.get(siteId.value());
             if (encrypted == null || encrypted.isEmpty()) return null;
             try {
                 String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(encrypted);

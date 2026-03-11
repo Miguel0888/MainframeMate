@@ -228,7 +228,6 @@ public class JwbfWikiContentService implements WikiContentService {
 
     private String httpGet(WikiSiteDescriptor site, String urlStr) throws IOException {
         HttpURLConnection conn = openConnection(site, urlStr, "GET");
-        storeCookies(site, conn);  // will be empty on first call, but sets up for redirect handling
         conn.connect();
         storeCookies(site, conn);
         return readResponse(conn);
@@ -238,7 +237,6 @@ public class JwbfWikiContentService implements WikiContentService {
         HttpURLConnection conn = openConnection(site, urlStr, "POST");
         conn.setDoOutput(true);
         conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-        conn.connect();
 
         OutputStream os = conn.getOutputStream();
         os.write(body.getBytes("UTF-8"));
