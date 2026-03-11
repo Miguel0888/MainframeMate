@@ -472,11 +472,18 @@ public class WikiConnectionTab implements ConnectionTab {
     }
 
     private WikiCredentials getCredentials(WikiSiteDescriptor site) {
-        if (!site.requiresLogin()) return WikiCredentials.anonymous();
+        if (!site.requiresLogin()) {
+            LOG.fine("[Wiki] getCredentials: site '" + site.displayName() + "' does not require login");
+            return WikiCredentials.anonymous();
+        }
         if (credentialsCallback != null) {
             WikiCredentials creds = credentialsCallback.getCredentials(site.id());
+            LOG.fine("[Wiki] getCredentials: callback returned " + (creds == null ? "null" : (creds.isAnonymous() ? "anonymous" : "user='" + creds.username() + "'")));
             if (creds != null) return creds;
+        } else {
+            LOG.warning("[Wiki] getCredentials: credentialsCallback is NULL for site '" + site.displayName() + "'");
         }
+        LOG.warning("[Wiki] getCredentials: falling back to anonymous for site '" + site.displayName() + "'");
         return WikiCredentials.anonymous();
     }
 

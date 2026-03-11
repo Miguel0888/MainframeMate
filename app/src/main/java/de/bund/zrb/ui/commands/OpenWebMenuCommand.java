@@ -56,8 +56,15 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         // (loads settings fresh each time to pick up credentials set after tab was opened)
         tab.setCredentialsCallback(siteId -> {
             Settings currentSettings = SettingsHelper.load();
-            String encrypted = currentSettings.wikiCredentials.get(siteId.value());
-            if (encrypted == null || encrypted.isEmpty()) return null;
+            String siteKey = siteId.value();
+            String encrypted = currentSettings.wikiCredentials.get(siteKey);
+            LOG.fine("[Wiki] CredentialsCallback for site '" + siteKey + "': encrypted="
+                    + (encrypted == null ? "null" : (encrypted.isEmpty() ? "(empty)" : encrypted.substring(0, Math.min(20, encrypted.length())) + "…"))
+                    + " | wikiCredentials keys=" + currentSettings.wikiCredentials.keySet());
+            if (encrypted == null || encrypted.isEmpty()) {
+                LOG.fine("[Wiki] No credentials stored for site '" + siteKey + "'");
+                return null;
+            }
             try {
                 String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(encrypted);
                 int sep = decrypted.indexOf('|');
@@ -65,11 +72,13 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                     String user = decrypted.substring(0, sep);
                     String pass = decrypted.substring(sep + 1);
                     if (!user.isEmpty()) {
+                        LOG.fine("[Wiki] Resolved credentials: user='" + user + "' for site '" + siteKey + "'");
                         return new WikiCredentials(user, pass.toCharArray());
                     }
                 }
+                LOG.warning("[Wiki] Decrypted credential has unexpected format for site '" + siteKey + "'");
             } catch (Exception e) {
-                // decryption failed – treat as anonymous
+                LOG.warning("[Wiki] Failed to decrypt credentials for site '" + siteKey + "': " + e.getMessage());
             }
             return null;
         });
