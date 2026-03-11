@@ -52,6 +52,26 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         WikiContentService service = new JwbfWikiContentService(sites);
         WikiConnectionTab tab = new WikiConnectionTab(service);
 
+        // Wire up credentials callback: resolves encrypted credentials from settings
+        tab.setCredentialsCallback(siteId -> {
+            String encrypted = settings.wikiCredentials.get(siteId.value());
+            if (encrypted == null || encrypted.isEmpty()) return null;
+            try {
+                String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(encrypted);
+                int sep = decrypted.indexOf('|');
+                if (sep >= 0) {
+                    String user = decrypted.substring(0, sep);
+                    String pass = decrypted.substring(sep + 1);
+                    if (!user.isEmpty()) {
+                        return new WikiCredentials(user, pass.toCharArray());
+                    }
+                }
+            } catch (Exception e) {
+                // decryption failed – treat as anonymous
+            }
+            return null;
+        });
+
         // Wire up open callback: creates WikiFileTab when user double-clicks/enters a result
         tab.setOpenCallback((siteId, pageTitle, htmlContent, outline, images) -> {
             WikiFileTab fileTab = new WikiFileTab(siteId, pageTitle, htmlContent, outline, images);
@@ -94,7 +114,7 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             new SwingWorker<WikiPageView, Void>() {
                 @Override
                 protected WikiPageView doInBackground() throws Exception {
-                    return service.loadPage(wsId, pageTitle, WikiCredentials.anonymous());
+                    return service.loadPage(wsId, pageTitle, resolveCredentials(wsId));
                 }
 
                 @Override
@@ -132,5 +152,25 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             }
         }
         return result;
+    }
+
+    private WikiCredentials resolveCredentials(WikiSiteId siteId) {
+        Settings settings = SettingsHelper.load();
+        String encrypted = settings.wikiCredentials.get(siteId.value());
+        if (encrypted == null || encrypted.isEmpty()) return WikiCredentials.anonymous();
+        try {
+            String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(encrypted);
+            int sep = decrypted.indexOf('|');
+            if (sep >= 0) {
+                String user = decrypted.substring(0, sep);
+                String pass = decrypted.substring(sep + 1);
+                if (!user.isEmpty()) {
+                    return new WikiCredentials(user, pass.toCharArray());
+                }
+            }
+        } catch (Exception e) {
+            // decryption failed
+        }
+        return WikiCredentials.anonymous();
     }
 }

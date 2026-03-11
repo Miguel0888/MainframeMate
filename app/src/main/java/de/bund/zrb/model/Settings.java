@@ -97,6 +97,9 @@ public class Settings {
             "wikipedia_en|Wikipedia (EN)|https://en.wikipedia.org/w/|false"
     ));
 
+    /** Encrypted wiki credentials per site. Key = siteId, Value = "encryptedUser|encryptedPassword". */
+    public Map<String, String> wikiCredentials = new HashMap<>();
+
     /** Maximum size in MB for volatile (prefetch) wiki cache entries. Default: 50 MB. */
     public int wikiPrefetchCacheMaxMb = 50;
     /** Max number of wiki pages to prefetch starting from cursor position. Default: 100. */

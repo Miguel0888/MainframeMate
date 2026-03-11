@@ -47,6 +47,8 @@ public class WikiConnectionTab implements ConnectionTab {
     private OutlineCallback outlineCallback;
     /** Callback for prefetching search results into local cache. */
     private WikiPrefetchCallback prefetchCallback;
+    /** Callback to resolve wiki login credentials per site. */
+    private CredentialsCallback credentialsCallback;
 
     private String currentPageTitle;
     private WikiSiteId currentSiteId;
@@ -471,6 +473,10 @@ public class WikiConnectionTab implements ConnectionTab {
 
     private WikiCredentials getCredentials(WikiSiteDescriptor site) {
         if (!site.requiresLogin()) return WikiCredentials.anonymous();
+        if (credentialsCallback != null) {
+            WikiCredentials creds = credentialsCallback.getCredentials(site.id());
+            if (creds != null) return creds;
+        }
         return WikiCredentials.anonymous();
     }
 
@@ -615,6 +621,15 @@ public class WikiConnectionTab implements ConnectionTab {
 
     public interface OutlineCallback {
         void onOutlineChanged(OutlineNode outline, String pageTitle);
+    }
+
+    public interface CredentialsCallback {
+        /** Return credentials for the given wiki site, or null if unavailable. */
+        WikiCredentials getCredentials(WikiSiteId siteId);
+    }
+
+    public void setCredentialsCallback(CredentialsCallback callback) {
+        this.credentialsCallback = callback;
     }
 
     // ═══════════════════════════════════════════════════════════

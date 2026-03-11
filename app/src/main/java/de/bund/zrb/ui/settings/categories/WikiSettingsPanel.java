@@ -50,11 +50,15 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         addBtn.addActionListener(e -> addSite());
         JButton removeBtn = new JButton("➖ Entfernen");
         removeBtn.addActionListener(e -> removeSite());
+        JButton credBtn = new JButton("🔑 Zugangsdaten…");
+        credBtn.setToolTipText("Benutzername und Passwort für das ausgewählte Wiki setzen");
+        credBtn.addActionListener(e -> editCredentials());
         JButton defaultBtn = new JButton("📦 Standard-Wikis laden");
         defaultBtn.setToolTipText("Wikipedia (DE + EN) als Standard hinzufügen");
         defaultBtn.addActionListener(e -> loadDefaults());
         buttons.add(addBtn);
         buttons.add(removeBtn);
+        buttons.add(credBtn);
         buttons.add(Box.createHorizontalStrut(16));
         buttons.add(defaultBtn);
         fb.addWide(buttons);
@@ -110,6 +114,77 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         }
     }
 
+    private void editCredentials() {
+        int row = siteTable.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(siteTable, "Bitte zuerst ein Wiki auswählen.",
+                    "Kein Wiki ausgewählt", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        WikiSiteRow site = tableModel.getRow(row);
+
+        // Load existing credentials (decrypt)
+        String existingUser = "";
+        String existingEncrypted = settings.wikiCredentials.get(site.id);
+        if (existingEncrypted != null && !existingEncrypted.isEmpty()) {
+            try {
+                String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(existingEncrypted);
+                int sep = decrypted.indexOf('|');
+                if (sep >= 0) {
+                    existingUser = decrypted.substring(0, sep);
+                }
+            } catch (Exception ignore) {
+                // corrupted credential, start fresh
+            }
+        }
+
+        JTextField userField = new JTextField(existingUser, 20);
+        JPasswordField passField = new JPasswordField(20);
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Wiki:"), gbc);
+        gbc.gridx = 1;
+        panel.add(new JLabel(site.displayName + " (" + site.id + ")"), gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1;
+        panel.add(new JLabel("Benutzername:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(userField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Passwort:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(passField, gbc);
+
+        int result = JOptionPane.showConfirmDialog(siteTable, panel,
+                "Wiki-Zugangsdaten: " + site.displayName,
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return;
+
+        String user = userField.getText().trim();
+        String pass = new String(passField.getPassword());
+
+        if (user.isEmpty() && pass.isEmpty()) {
+            // Clear credentials
+            settings.wikiCredentials.remove(site.id);
+        } else {
+            // Encrypt and store
+            String encrypted = de.bund.zrb.util.WindowsCryptoUtil.encrypt(user + "|" + pass);
+            settings.wikiCredentials.put(site.id, encrypted);
+        }
+
+        // Also enable requiresLogin if credentials are set
+        if (!user.isEmpty()) {
+            site.requiresLogin = true;
+            tableModel.fireTableRowsUpdated(row, row);
+        }
+    }
+
     @Override
     protected void applyToSettings(Settings s) {
         // Stop editing to capture any pending cell edits
@@ -123,6 +198,9 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
             serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin);
         }
         s.wikiSites = serialized;
+
+        // Credentials are edited in-place in settings, copy them over
+        s.wikiCredentials = settings.wikiCredentials;
 
         s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
         s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();
