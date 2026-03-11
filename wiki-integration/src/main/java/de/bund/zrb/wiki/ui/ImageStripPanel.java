@@ -478,7 +478,10 @@ public class ImageStripPanel extends JPanel {
             }
         });
 
-        dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
+        // Fixed dialog size: ~half screen height, 4:3 aspect
+        final int dialogH = Math.min(screen.height / 2, screenMaxH);
+        final int dialogW = Math.min(dialogH * 4 / 3, screenMaxW);
+        dialog.setSize(dialogW, dialogH);
         dialog.setLocationRelativeTo(owner);
 
         // ── Assign load logic ──
@@ -497,19 +500,15 @@ public class ImageStripPanel extends JPanel {
                 @Override
                 protected LoadedImage doInBackground() throws Exception {
                     byte[] raw = downloadBytes(img.src());
-                    // Detect GIF by magic bytes (GIF87a / GIF89a)
                     boolean isGif = raw.length > 3
                             && raw[0] == 'G' && raw[1] == 'I' && raw[2] == 'F';
                     if (isGif) {
-                        // Check if animated (has multiple image blocks)
                         boolean animated = isAnimatedGif(raw);
                         if (animated) {
-                            // Use Toolkit to get dimensions
                             ImageIcon probe = new ImageIcon(raw);
                             return new LoadedImage(raw, probe.getIconWidth(), probe.getIconHeight());
                         }
                     }
-                    // Static image (including non-animated GIFs)
                     BufferedImage bi = ImageIO.read(new java.io.ByteArrayInputStream(raw));
                     return new LoadedImage(bi, raw);
                 }
@@ -528,20 +527,13 @@ public class ImageStripPanel extends JPanel {
                         currentImgDims[0] = loaded.width;
                         currentImgDims[1] = loaded.height;
 
-                        int chromeW = 40, chromeH = 60;
-                        int dialogW = Math.max(Math.min(loaded.width + chromeW, screenMaxW), 400);
-                        int dialogH = Math.max(Math.min(loaded.height + chromeH, screenMaxH), 300);
-                        dialog.setSize(dialogW, dialogH);
-                        dialog.setLocationRelativeTo(owner);
-
-                        SwingUtilities.invokeLater(() -> {
-                            if (loaded.animated) {
-                                imagePanel.setAnimatedImage(loaded.rawBytes, loaded.width, loaded.height);
-                            } else {
-                                imagePanel.setStaticImage(loaded.staticImage);
-                            }
-                            updateInfo.run();
-                        });
+                        // Image is always fitted into the fixed-size viewport
+                        if (loaded.animated) {
+                            imagePanel.setAnimatedImage(loaded.rawBytes, loaded.width, loaded.height);
+                        } else {
+                            imagePanel.setStaticImage(loaded.staticImage);
+                        }
+                        updateInfo.run();
                     } catch (Exception ex) {
                         LOG.log(Level.FINE, "[ImageStrip] Failed to load: " + img.src(), ex);
                         loadingLabel.setText("\u274c Fehler: " + ex.getMessage());
