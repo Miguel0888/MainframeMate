@@ -563,6 +563,14 @@ public class TerminalConnectionTab implements ConnectionTab {
         btn.setFont(btn.getFont().deriveFont(Font.PLAIN, 11f));
         btn.setFocusable(false);
         btn.setToolTipText("F" + fkeyNumber);
+
+        Color bg = getFkeyColor(fkeyNumber);
+        btn.setBackground(bg);
+        btn.setOpaque(true);
+        // Use dark text for light backgrounds, white for dark ones
+        float brightness = (bg.getRed() * 299 + bg.getGreen() * 587 + bg.getBlue() * 114) / 255000f;
+        btn.setForeground(brightness > 0.55f ? Color.BLACK : Color.WHITE);
+
         btn.addActionListener(e -> {
             Terminal t = terminal;
             if (t != null && connected) {
@@ -571,6 +579,69 @@ public class TerminalConnectionTab implements ConnectionTab {
             }
         });
         return btn;
+    }
+
+    /**
+     * Compute a background color for an F-key button.
+     * <p>
+     * F1–F12 (standard keys):
+     *   F1–F4:  yellow group, slight gradient toward orange
+     *   F5–F8:  orange group, slight gradient toward red
+     *   F9–F12: red group
+     * <p>
+     * F13–F24 (extended keys):
+     *   F13–F16: green group, slight gradient toward teal
+     *   F17–F20: teal group, slight gradient toward blue
+     *   F21–F24: blue group
+     */
+    private static Color getFkeyColor(int fkey) {
+        // Group base colors (standard F1-F12)
+        //                  yellow         orange          red
+        Color yellow = new Color(255, 230, 80);
+        Color orange = new Color(255, 165, 50);
+        Color red    = new Color(220, 70, 60);
+
+        // Group base colors (extended F13-F24)
+        //                  green          teal            blue
+        Color green  = new Color(90, 200, 90);
+        Color teal   = new Color(60, 190, 190);
+        Color blue   = new Color(80, 120, 210);
+
+        if (fkey >= 1 && fkey <= 4) {
+            // Yellow group: position 0..3, blend up to 25% toward orange
+            float t = (fkey - 1) / 3f * 0.25f;
+            return blend(yellow, orange, t);
+        } else if (fkey >= 5 && fkey <= 8) {
+            // Orange group: position 0..3, blend up to 25% toward red
+            float t = (fkey - 5) / 3f * 0.25f;
+            return blend(orange, red, t);
+        } else if (fkey >= 9 && fkey <= 12) {
+            // Red group: position 0..3, stays red (slight lighten for first)
+            float t = (fkey - 9) / 3f * 0.15f;
+            return blend(red, new Color(180, 50, 50), t);
+        } else if (fkey >= 13 && fkey <= 16) {
+            // Green group
+            float t = (fkey - 13) / 3f * 0.25f;
+            return blend(green, teal, t);
+        } else if (fkey >= 17 && fkey <= 20) {
+            // Teal group
+            float t = (fkey - 17) / 3f * 0.25f;
+            return blend(teal, blue, t);
+        } else if (fkey >= 21 && fkey <= 24) {
+            // Blue group
+            float t = (fkey - 21) / 3f * 0.15f;
+            return blend(blue, new Color(60, 80, 180), t);
+        }
+        return new Color(200, 200, 200); // fallback gray
+    }
+
+    private static Color blend(Color a, Color b, float t) {
+        float u = 1f - t;
+        return new Color(
+                Math.round(a.getRed() * u + b.getRed() * t),
+                Math.round(a.getGreen() * u + b.getGreen() * t),
+                Math.round(a.getBlue() * u + b.getBlue() * t)
+        );
     }
 
     // ── ConnectionTab interface ─────────────────────────────────
