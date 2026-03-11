@@ -1,5 +1,6 @@
  package de.bund.zrb.ui.terminal;
 
+import com.ascert.open.ohio.Ohio;
 import com.ascert.open.term.core.Host;
 import com.ascert.open.term.core.Terminal;
 import com.ascert.open.term.core.TerminalFactoryRegistrar;
@@ -11,10 +12,14 @@ import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Embed a TN3270 terminal screen as a regular connection tab.
@@ -38,12 +43,15 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final JPanel mainPanel;
     private final JLabel statusLabel;
     private final JToolBar connectionToolbar;
-    private final JToolBar functionKeyToolbar;
+    private final JPanel fkeyPanel;
 
     private JComponent centerComponent;
     private volatile Terminal terminal;
     private volatile JTerminalScreen terminalScreen;
     private volatile boolean connected;
+
+    /** Timer that periodically reads the last screen line to update F-key buttons. */
+    private Timer fkeyRefreshTimer;
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout) {
         this(host, port, termType, tls, keepAliveTimeout, null, null);
@@ -64,16 +72,13 @@ public class TerminalConnectionTab implements ConnectionTab {
         this.mainPanel = new JPanel(new BorderLayout());
         this.statusLabel = new JLabel("  Bereit");
         this.connectionToolbar = createConnectionToolbar();
-        this.functionKeyToolbar = createFunctionKeyToolbar();
-
-        JPanel northPanel = new JPanel(new BorderLayout());
-        northPanel.add(connectionToolbar, BorderLayout.NORTH);
-        northPanel.add(functionKeyToolbar, BorderLayout.CENTER);
+        this.fkeyPanel = createFkeyPanel();
 
         this.centerComponent = createMessageLabel("Verbinde mit " + host + ":" + port + " …");
 
-        mainPanel.add(northPanel, BorderLayout.NORTH);
+        mainPanel.add(connectionToolbar, BorderLayout.NORTH);
         mainPanel.add(centerComponent, BorderLayout.CENTER);
+        mainPanel.add(fkeyPanel, BorderLayout.SOUTH);
     }
 
     private static void ensureFactoryInitialized() {
@@ -113,9 +118,8 @@ public class TerminalConnectionTab implements ConnectionTab {
                 @Override
                 public void run() {
                     statusLabel.setText("  ✅ Verbunden");
+                    startFkeyRefreshTimer();
                     if (terminalScreen != null) {
-                        // Ensure the screen component is fully visible before requesting focus.
-                        // A short timer ensures the layout has completed.
                         terminalScreen.setFocusable(true);
                         terminalScreen.requestFocusInWindow();
                         Timer focusTimer = new Timer(200, e -> {
@@ -148,7 +152,11 @@ public class TerminalConnectionTab implements ConnectionTab {
         SwingUtilities.invokeAndWait(new Runnable() {
             @Override
             public void run() {
-                JTerminalScreen screen = new JTerminalScreen(createdTerminal, functionKeyToolbar);
+                // Pass a hidden toolbar to JTerminalScreen (it needs one internally)
+                // We parse the F-key legend ourselves and show it in the bottom panel.
+                JToolBar dummyToolbar = new JToolBar();
+                dummyToolbar.setVisible(false);
+                JTerminalScreen screen = new JTerminalScreen(createdTerminal, dummyToolbar);
                 screenRef.set(screen);
 
                 // Make the screen focusable and request focus on click
@@ -265,12 +273,16 @@ public class TerminalConnectionTab implements ConnectionTab {
     }
 
     private void clearFunctionKeyToolbar() {
+        if (fkeyRefreshTimer != null) {
+            fkeyRefreshTimer.stop();
+            fkeyRefreshTimer = null;
+        }
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
-                functionKeyToolbar.removeAll();
-                functionKeyToolbar.revalidate();
-                functionKeyToolbar.repaint();
+                fkeyPanel.removeAll();
+                fkeyPanel.revalidate();
+                fkeyPanel.repaint();
             }
         });
     }
@@ -443,6 +455,16 @@ public class TerminalConnectionTab implements ConnectionTab {
         disconnectBtn.addActionListener(e -> disconnect());
         toolbar.add(disconnectBtn);
 
+        toolbar.addSeparator(new Dimension(12, 0));
+
+        // Special keys
+        toolbar.add(makeSpecialButton("ENT", AID_ENTER));
+        toolbar.add(makeSpecialButton("CLR", AID_CLEAR));
+        toolbar.add(makeSpecialButton("PA1", Ohio.OHIO_AID.OHIO_AID_3270_PA1));
+        toolbar.add(makeSpecialButton("PA2", Ohio.OHIO_AID.OHIO_AID_3270_PA2));
+        toolbar.add(makeSpecialButton("PA3", Ohio.OHIO_AID.OHIO_AID_3270_PA3));
+        toolbar.add(makeSpecialButton("SYS", Ohio.OHIO_AID.OHIO_AID_3270_SYSREQ));
+
         toolbar.addSeparator(new Dimension(16, 0));
         toolbar.add(Box.createHorizontalGlue());
         toolbar.add(statusLabel);
@@ -450,11 +472,105 @@ public class TerminalConnectionTab implements ConnectionTab {
         return toolbar;
     }
 
-    private JToolBar createFunctionKeyToolbar() {
-        JToolBar toolbar = new JToolBar();
-        toolbar.setFloatable(false);
-        toolbar.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
-        return toolbar;
+    private JButton makeSpecialButton(String label, final Ohio.OHIO_AID aid) {
+        JButton btn = new JButton(label);
+        btn.setMargin(new Insets(2, 6, 2, 6));
+        btn.setFocusable(false);
+        btn.addActionListener(e -> {
+            Terminal t = terminal;
+            if (t != null && connected) {
+                t.Fkey(aid);
+                if (terminalScreen != null) terminalScreen.requestFocusInWindow();
+            }
+        });
+        return btn;
+    }
+
+    private JPanel createFkeyPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 2));
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
+        return panel;
+    }
+
+    // ── F-Key Legend Parsing ─────────────────────────────────────
+
+    /** Pattern matching entries like "1=Help", "3=End", "10=Left", "12=Cancel" */
+    private static final Pattern FKEY_PATTERN = Pattern.compile("(\\d{1,2})\\s*[=]\\s*(\\S+)");
+
+    /** Last parsed legend text – avoid rebuilding buttons if unchanged. */
+    private String lastFkeyLegend = "";
+
+    private void startFkeyRefreshTimer() {
+        if (fkeyRefreshTimer != null) fkeyRefreshTimer.stop();
+        fkeyRefreshTimer = new Timer(500, e -> refreshFkeyLegend());
+        fkeyRefreshTimer.setRepeats(true);
+        fkeyRefreshTimer.start();
+    }
+
+    /**
+     * Read the last line(s) of the terminal screen, parse F-key assignments,
+     * and rebuild the bottom button panel if anything changed.
+     */
+    private void refreshFkeyLegend() {
+        Terminal t = terminal;
+        if (t == null || !connected) return;
+
+        int cols = t.getCols();
+        int rows = t.getRows();
+        if (cols <= 0 || rows <= 0) return;
+
+        // Read the last two rows (F-key legend often spans 2 lines)
+        String lastLine = "";
+        try {
+            int startPos = (rows - 2) * cols;
+            lastLine = t.getCharString(startPos, cols * 2);
+        } catch (Exception ex) {
+            return;
+        }
+
+        if (lastLine == null) return;
+        String trimmed = lastLine.trim();
+        if (trimmed.equals(lastFkeyLegend)) return;
+        lastFkeyLegend = trimmed;
+
+        // Parse: find patterns like "1=Help", "3=End", "10=Actions"
+        List<int[]> fkeys = new ArrayList<int[]>();  // [fkeyNumber]
+        List<String> labels = new ArrayList<String>();
+
+        Matcher m = FKEY_PATTERN.matcher(trimmed);
+        while (m.find()) {
+            int num = Integer.parseInt(m.group(1));
+            if (num >= 1 && num <= 24) {
+                fkeys.add(new int[]{num});
+                labels.add(m.group(2));
+            }
+        }
+
+        // Rebuild button panel on EDT
+        fkeyPanel.removeAll();
+        for (int i = 0; i < fkeys.size(); i++) {
+            int fnum = fkeys.get(i)[0];
+            String label = labels.get(i);
+            fkeyPanel.add(makeFkeyButton(fnum, label));
+        }
+        fkeyPanel.revalidate();
+        fkeyPanel.repaint();
+    }
+
+    private JButton makeFkeyButton(final int fkeyNumber, String label) {
+        JButton btn = new JButton(fkeyNumber + "-" + label);
+        btn.setMargin(new Insets(1, 4, 1, 4));
+        btn.setFont(btn.getFont().deriveFont(Font.PLAIN, 11f));
+        btn.setFocusable(false);
+        btn.setToolTipText("F" + fkeyNumber);
+        btn.addActionListener(e -> {
+            Terminal t = terminal;
+            if (t != null && connected) {
+                t.Fkey(fkeyNumber);
+                if (terminalScreen != null) terminalScreen.requestFocusInWindow();
+            }
+        });
+        return btn;
     }
 
     // ── ConnectionTab interface ─────────────────────────────────
@@ -476,6 +592,10 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     @Override
     public void onClose() {
+        if (fkeyRefreshTimer != null) {
+            fkeyRefreshTimer.stop();
+            fkeyRefreshTimer = null;
+        }
         disconnect();
     }
 
