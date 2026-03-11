@@ -13,13 +13,20 @@ import java.util.List;
 public interface WikiPrefetchCallback {
 
     /**
-     * Prefetch the given page titles in the background.
-     * Implementations should use a thread pool and mark entries as volatile/ephemeral.
+     * Prefetch pages starting from the given index in the result list.
+     * Called after search completes (fromIndex=0) and when the user scrolls/selects further down.
      */
-    void prefetchSearchResults(WikiSiteId siteId, List<String> pageTitles);
+    void prefetchSearchResults(WikiSiteId siteId, List<String> pageTitles, int fromIndex);
 
     /**
-     * Get a previously prefetched page from the in-memory cache.
+     * Convenience: prefetch from the beginning.
+     */
+    default void prefetchSearchResults(WikiSiteId siteId, List<String> pageTitles) {
+        prefetchSearchResults(siteId, pageTitles, 0);
+    }
+
+    /**
+     * Get a previously prefetched page from the in-memory cache. O(1).
      * @return the cached WikiPageView, or null if not yet prefetched.
      */
     WikiPageView getCached(WikiSiteId siteId, String pageTitle);
@@ -29,6 +36,13 @@ public interface WikiPrefetchCallback {
      * so re-selecting the same result is instant next time.
      */
     void putInCache(WikiSiteId siteId, String pageTitle, WikiPageView view);
+
+    /**
+     * Load a single page with high priority on a dedicated thread,
+     * bypassing the prefetch queue. For user-initiated preview/open.
+     * Returns null on error.
+     */
+    WikiPageView loadPriority(WikiSiteId siteId, String pageTitle);
 
     /**
      * Shut down background threads. Called when the connection tab closes.

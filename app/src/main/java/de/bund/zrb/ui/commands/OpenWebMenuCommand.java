@@ -63,7 +63,10 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         try {
             CacheRepository cacheRepo = CacheRepository.getInstance();
             WikiPrefetchService prefetch = new WikiPrefetchService(
-                    service, cacheRepo, settings.wikiPrefetchCacheMaxMb);
+                    service, cacheRepo,
+                    settings.wikiPrefetchCacheMaxMb,
+                    settings.wikiPrefetchMaxItems,
+                    settings.wikiPrefetchConcurrency);
             tab.setPrefetchCallback(prefetch);
         } catch (Exception e) {
             // CacheRepository not available — prefetch disabled, no problem

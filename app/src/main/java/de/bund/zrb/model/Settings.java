@@ -99,6 +99,10 @@ public class Settings {
 
     /** Maximum size in MB for volatile (prefetch) wiki cache entries. Default: 50 MB. */
     public int wikiPrefetchCacheMaxMb = 50;
+    /** Max number of wiki pages to prefetch starting from cursor position. Default: 100. */
+    public int wikiPrefetchMaxItems = 100;
+    /** Number of concurrent prefetch HTTP requests. Default: 4. */
+    public int wikiPrefetchConcurrency = 4;
 
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings

@@ -207,20 +207,28 @@ public class WikiConnectionTab implements ConnectionTab {
         currentSiteId = site.id();
         currentPageTitle = pageTitle;
 
-        // Check in-memory prefetch cache first
+        // Check in-memory prefetch cache first (O(1))
         if (prefetchCallback != null) {
             WikiPageView cached = prefetchCallback.getCached(site.id(), pageTitle);
             if (cached != null) {
                 applyPreview(cached);
+                triggerPrefetchFromCursor();
                 return;
             }
         }
 
         statusLabel.setText("⏳ Lade Vorschau: " + pageTitle + "…");
 
+        // Use dedicated priority thread if available, otherwise plain SwingWorker
         new SwingWorker<WikiPageView, Void>() {
             @Override
             protected WikiPageView doInBackground() throws Exception {
+                if (prefetchCallback != null) {
+                    // loadPriority uses its own dedicated thread, never blocked by prefetch pool
+                    WikiPageView view = prefetchCallback.loadPriority(site.id(), pageTitle);
+                    if (view != null) return view;
+                }
+                // Fallback: direct load
                 WikiCredentials creds = getCredentials(site);
                 return service.loadPage(site.id(), pageTitle, creds);
             }
@@ -229,11 +237,12 @@ public class WikiConnectionTab implements ConnectionTab {
             protected void done() {
                 try {
                     WikiPageView view = get();
-                    // Cache the on-demand result so re-selecting is instant
-                    if (prefetchCallback != null) {
-                        prefetchCallback.putInCache(site.id(), pageTitle, view);
+                    if (view != null) {
+                        applyPreview(view);
+                        triggerPrefetchFromCursor();
+                    } else {
+                        statusLabel.setText("❌ Seite konnte nicht geladen werden");
                     }
-                    applyPreview(view);
                 } catch (Exception ex) {
                     LOG.log(Level.WARNING, "[Wiki] Failed to load preview: " + pageTitle, ex);
                     htmlPane.setText("<html><body><h2>Fehler</h2><p>" + escHtml(getRootMessage(ex)) + "</p></body></html>");
@@ -241,6 +250,25 @@ public class WikiConnectionTab implements ConnectionTab {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Trigger prefetch of pages ahead of the currently selected row.
+     */
+    private void triggerPrefetchFromCursor() {
+        if (prefetchCallback == null) return;
+        WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
+        if (site == null) return;
+
+        int viewRow = resultTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int modelRow = resultTable.convertRowIndexToModel(viewRow);
+
+        // Collect all current result titles
+        java.util.List<String> allTitles = resultModel.getAllTitles();
+        if (!allTitles.isEmpty()) {
+            prefetchCallback.prefetchSearchResults(site.id(), allTitles, modelRow);
+        }
     }
 
     /** Apply a loaded WikiPageView to the preview pane and outline. */
@@ -263,33 +291,24 @@ public class WikiConnectionTab implements ConnectionTab {
         if (title == null || title.isEmpty()) return;
 
         WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
-        if (site == null) return;
+        if (site == null || openCallback == null) return;
 
-        if (openCallback == null) return;
-
-        // 1) current preview matches
+        // 1) Use current preview if it matches (already loaded)
         if (currentPreview != null && title.equals(currentPreview.title())) {
             openCallback.openWikiPage(site.id().value(), title, currentPreview.cleanedHtml(),
                     currentPreview.outline());
             return;
         }
 
-        // 2) prefetch in-memory cache
-        if (prefetchCallback != null) {
-            WikiPageView cached = prefetchCallback.getCached(site.id(), title);
-            if (cached != null) {
-                openCallback.openWikiPage(site.id().value(), cached.title(),
-                        cached.cleanedHtml(), cached.outline());
-                statusLabel.setText("✅ Geöffnet: " + cached.title());
-                return;
-            }
-        }
-
-        // 3) fallback: load from server
+        // 2) Use prefetch cache or priority thread
         statusLabel.setText("⏳ Öffne: " + title + "…");
         new SwingWorker<WikiPageView, Void>() {
             @Override
             protected WikiPageView doInBackground() throws Exception {
+                if (prefetchCallback != null) {
+                    WikiPageView view = prefetchCallback.loadPriority(site.id(), title);
+                    if (view != null) return view;
+                }
                 return service.loadPage(site.id(), title, getCredentials(site));
             }
 
@@ -297,11 +316,11 @@ public class WikiConnectionTab implements ConnectionTab {
             protected void done() {
                 try {
                     WikiPageView view = get();
-                    if (openCallback != null) {
+                    if (view != null && openCallback != null) {
                         openCallback.openWikiPage(site.id().value(), view.title(),
                                 view.cleanedHtml(), view.outline());
+                        statusLabel.setText("✅ Geöffnet: " + view.title());
                     }
-                    statusLabel.setText("✅ Geöffnet: " + view.title());
                 } catch (Exception ex) {
                     statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
                 }
@@ -560,6 +579,10 @@ public class WikiConnectionTab implements ConnectionTab {
 
         String getTitleAt(int row) {
             return titles.get(row);
+        }
+
+        List<String> getAllTitles() {
+            return new ArrayList<String>(titles);
         }
 
         @Override public int getRowCount() { return titles.size(); }
