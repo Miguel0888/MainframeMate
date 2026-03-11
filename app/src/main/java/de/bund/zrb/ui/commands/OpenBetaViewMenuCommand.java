@@ -142,45 +142,19 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
             }
         });
 
-        // Document open callback: open as read-only FileTab with proper document preview
+        // Document open callback: open as BetaViewDocumentTab with full server paging
         tab.setOpenCallback((docTab, html) -> {
-            // Build a stable unique path from document metadata
-            String docId = docTab.docId() != null ? docTab.docId() : "";
-            String favId = docTab.favId() != null ? docTab.favId() : "";
-            String linkID = docTab.linkID() != null ? docTab.linkID() : "";
-            String title = docTab.title() != null && !docTab.title().isEmpty()
-                    ? docTab.title() : "BetaView Dokument";
+            de.bund.zrb.betaview.ui.BetaViewDocumentTab documentTab =
+                    new de.bund.zrb.betaview.ui.BetaViewDocumentTab(
+                            docTab, html, tab.getClient(), tab.getSession());
 
-            String stablePath;
-            if (!docId.isEmpty()) {
-                stablePath = "betaview://doc/" + docId + "?favid=" + favId + "&linkID=" + linkID;
-            } else {
-                stablePath = "betaview://doc/" + title.replaceAll("[^a-zA-Z0-9_.-]", "_");
-            }
-
-            // Extract text content from the document HTML for the raw text view.
-            // The HTML is the full BetaView document page — we pass it as-is so the
-            // DocumentPreviewPanel can parse page-count, navigation tokens, etc.
-            // For the FileTab content we give a placeholder; the real rendering
-            // happens via page-get requests below.
-            String placeholder = "[BetaView Dokument: " + title + "]\n"
-                    + "Seiten werden vom Server geladen...";
-
-            VirtualResource resource = new VirtualResource(
-                    null, VirtualResourceKind.FILE, stablePath,
-                    VirtualBackendType.BETAVIEW, null, null);
-
-            tabManager.openFileTab(resource, placeholder, null, null, null);
-
-            // After opening the tab, initiate page loading in the background.
-            // The DocumentPreviewPanel in the BetaView integration handles the
-            // actual paging — but here we need to wire it through the
-            // BetaViewClient for the page.get.action calls.
-            // For now the content shown is the placeholder; proper DocumentPreviewPanel
-            // rendering in MainframeMate FileTabs requires further integration
-            // (connecting the preview panel's PageChangeListener to
-            //  BetaViewClient.postFormText(session, "document.page.get.action", ...)).
+            // Track the document tab so CloseAllTabs can close it
+            tabManager.addTab(documentTab);
         });
+
+        // Close-all callback: remove all BetaViewDocumentTab instances from the tab manager
+        tab.setCloseAllTabsCallback(() -> tabManager.closeTabsOfType(
+                de.bund.zrb.betaview.ui.BetaViewDocumentTab.class));
 
         tabManager.addTab(tab);
 

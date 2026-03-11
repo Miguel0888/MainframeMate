@@ -235,6 +235,23 @@ public class TabbedPaneManager {
     }
 
     /**
+     * Close all tabs that are instances of the given class.
+     * Each tab's onClose() is called before removal.
+     */
+    public void closeTabsOfType(Class<?> tabClass) {
+        // Iterate backwards to avoid index shift issues
+        for (int i = tabbedPane.getTabCount() - 1; i >= 0; i--) {
+            Component comp = tabbedPane.getComponentAt(i);
+            FtpTab tab = tabMap.get(comp);
+            if (tab != null && tabClass.isInstance(tab)) {
+                tabMap.remove(comp);
+                tab.onClose();
+                tabbedPane.remove(i);
+            }
+        }
+    }
+
+    /**
      * Refresh all star (favorite) buttons in tab headers to match current bookmark state.
      */
     public void refreshStarButtons() {

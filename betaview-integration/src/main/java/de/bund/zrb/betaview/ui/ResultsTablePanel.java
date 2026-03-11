@@ -7,6 +7,8 @@ import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
 import javax.swing.event.ListSelectionListener;
 import java.awt.BorderLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 public final class ResultsTablePanel extends JPanel {
 
@@ -48,6 +50,27 @@ public final class ResultsTablePanel extends JPanel {
 
     public void clearSelection() {
         table.clearSelection();
+    }
+
+    /** Registers a listener for double-click (or Enter) on a row – the trigger to open a document. */
+    public void addDoubleClickListener(final Runnable onActivation) {
+        table.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && getSelectedRow() >= 0) {
+                    onActivation.run();
+                }
+            }
+        });
+        // Enter key
+        table.getInputMap(javax.swing.JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+                .put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0), "openDoc");
+        table.getActionMap().put("openDoc", new javax.swing.AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (getSelectedRow() >= 0) onActivation.run();
+            }
+        });
     }
 }
 

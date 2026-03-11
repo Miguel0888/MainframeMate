@@ -136,11 +136,7 @@ public final class ConnectionTabPanel extends JPanel {
             if (listener != null) listener.onCloseAllTabs();
         });
 
-        resultsTablePanel.addSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                loadDetailForSelectedRow();
-            }
-        });
+        resultsTablePanel.addDoubleClickListener(() -> loadDetailForSelectedRow());
 
         sidebarPanel.setSidebarListener(new SidebarPanel.SidebarListener() {
             @Override public void onSavedSearchSelected(SidebarPanel.SavedItem item) { loadSavedSearch(item); }

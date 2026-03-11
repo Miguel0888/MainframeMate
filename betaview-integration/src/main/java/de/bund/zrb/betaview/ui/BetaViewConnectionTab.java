@@ -39,6 +39,10 @@ public class BetaViewConnectionTab implements ConnectionTab {
         String[] getCredentials(String host);
     }
 
+    public interface CloseAllDocumentTabsCallback {
+        void closeAllBetaViewDocumentTabs();
+    }
+
     // ── State ───────────────────────────────────────────────────────────
 
     private final JPanel mainPanel;
@@ -49,6 +53,7 @@ public class BetaViewConnectionTab implements ConnectionTab {
     private BetaViewAppProperties defaults;
     private DocumentOpenCallback openCallback;
     private CredentialsProvider credentialsProvider;
+    private CloseAllDocumentTabsCallback closeAllTabsCallback;
 
     private ConnectionTabPanel connectionTabPanel;
     private BetaViewClient client;
@@ -82,6 +87,10 @@ public class BetaViewConnectionTab implements ConnectionTab {
 
     public void setCredentialsProvider(CredentialsProvider provider) {
         this.credentialsProvider = provider;
+    }
+
+    public void setCloseAllTabsCallback(CloseAllDocumentTabsCallback cb) {
+        this.closeAllTabsCallback = cb;
     }
 
     /** Active client after successful login. May be null before connect. */
@@ -158,7 +167,23 @@ public class BetaViewConnectionTab implements ConnectionTab {
                         }
                         @Override
                         public void onCloseAllTabs() {
-                            // No-op in MainframeMate
+                            // Send closeAllDocuments.action to the server
+                            new SwingWorker<Void, Void>() {
+                                @Override
+                                protected Void doInBackground() {
+                                    try {
+                                        client.getText(session, "closeAllDocuments.action");
+                                    } catch (Exception ignore) { }
+                                    return null;
+                                }
+                                @Override
+                                protected void done() {
+                                    // Close all BetaView document tabs in MainframeMate
+                                    if (closeAllTabsCallback != null) {
+                                        closeAllTabsCallback.closeAllBetaViewDocumentTabs();
+                                    }
+                                }
+                            }.execute();
                         }
                     });
 
