@@ -139,6 +139,16 @@ public class JwbfWikiContentService implements WikiContentService {
 
         LOG.info("[Wiki] === LOGIN START === " + site.displayName() + " as '" + credentials.username() + "'");
         LOG.info("[Wiki] API base URL: " + site.apiUrl());
+
+        // Log proxy info for diagnostics
+        try {
+            java.net.URI uri = new java.net.URI(site.apiUrl());
+            java.util.List<java.net.Proxy> proxies = java.net.ProxySelector.getDefault().select(uri);
+            LOG.info("[Wiki] Proxy for " + uri.getHost() + ": " + proxies);
+        } catch (Exception pe) {
+            LOG.fine("[Wiki] Could not determine proxy: " + pe.getMessage());
+        }
+
         String apiBase = buildApiUrl(site, "");
 
         // Step 1: get a login token
@@ -287,40 +297,63 @@ public class JwbfWikiContentService implements WikiContentService {
     private String httpRequest(WikiSiteDescriptor site, String urlStr, String postBody) throws IOException {
         boolean isPost = (postBody != null);
         LOG.fine("[Wiki] HTTP " + (isPost ? "POST" : "GET") + " " + truncate(urlStr, 200));
-        HttpURLConnection conn = openConnection(site, urlStr, isPost ? "POST" : "GET");
 
-        if (isPost) {
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-            OutputStream os = conn.getOutputStream();
-            os.write(postBody.getBytes("UTF-8"));
-            os.flush();
-            os.close();
+        HttpURLConnection conn;
+        try {
+            conn = openConnection(site, urlStr, isPost ? "POST" : "GET");
+        } catch (java.net.ConnectException e) {
+            throw new IOException("Verbindung zu " + site.displayName() + " fehlgeschlagen: " + e.getMessage()
+                    + "\nPrüfen Sie die API-URL und Ihre Proxy-Einstellungen.", e);
+        } catch (java.net.UnknownHostException e) {
+            throw new IOException("Host nicht gefunden: " + e.getMessage()
+                    + "\nPrüfen Sie die API-URL und Ihre Netzwerk-/Proxy-Konfiguration.", e);
         }
 
-        // Read response body
-        int status = conn.getResponseCode();
-        LOG.fine("[Wiki] HTTP response status: " + status);
-        InputStream is = (status >= 400) ? conn.getErrorStream() : conn.getInputStream();
-        if (is == null) {
-            throw new IOException("HTTP " + status + " (no body)");
-        }
-        BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-        StringBuilder sb = new StringBuilder(4096);
-        String line;
-        while ((line = reader.readLine()) != null) {
-            sb.append(line);
-        }
-        reader.close();
+        try {
+            if (isPost) {
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+                OutputStream os = conn.getOutputStream();
+                os.write(postBody.getBytes("UTF-8"));
+                os.flush();
+                os.close();
+            }
 
-        // Store cookies BEFORE disconnect (headers may be lost after disconnect)
-        storeCookies(site, conn);
-        conn.disconnect();
+            // Read response body
+            int status = conn.getResponseCode();
+            LOG.fine("[Wiki] HTTP response status: " + status);
+            InputStream is = (status >= 400) ? conn.getErrorStream() : conn.getInputStream();
+            if (is == null) {
+                throw new IOException("HTTP " + status + " (no body)");
+            }
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            StringBuilder sb = new StringBuilder(4096);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
 
-        if (status != 200) {
-            throw new IOException("HTTP " + status + ": " + sb.toString());
+            // Store cookies BEFORE disconnect (headers may be lost after disconnect)
+            storeCookies(site, conn);
+            conn.disconnect();
+
+            if (status != 200) {
+                throw new IOException("HTTP " + status + ": " + sb.toString());
+            }
+            return sb.toString();
+
+        } catch (java.net.SocketTimeoutException e) {
+            conn.disconnect();
+            throw new IOException("Zeitüberschreitung bei Verbindung zu " + site.displayName()
+                    + " (" + e.getMessage() + ")"
+                    + "\nPrüfen Sie Ihre Proxy-Einstellungen und die API-URL.", e);
+        } catch (java.net.ConnectException e) {
+            conn.disconnect();
+            throw new IOException("Verbindung abgelehnt: " + site.displayName()
+                    + " (" + e.getMessage() + ")"
+                    + "\nPrüfen Sie Ihre Proxy-/Firewall-Einstellungen.", e);
         }
-        return sb.toString();
     }
 
     // ═══════════════════════════════════════════════════════════
