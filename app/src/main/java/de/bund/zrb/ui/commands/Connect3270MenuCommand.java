@@ -117,13 +117,18 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
         final boolean fTls = tls;
         final int fKeepAlive = keepAlive;
 
+        // Resolve credentials for auto-login (non-interactive – returns null if unavailable)
+        final String fUser = settings.user;
+        final String fPassword = de.bund.zrb.login.LoginManager.getInstance()
+                .getCachedPassword(host, settings.user);
+
         parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
         new SwingWorker<TerminalConnectionTab, Void>() {
             @Override
             protected TerminalConnectionTab doInBackground() throws Exception {
                 TerminalConnectionTab tab = new TerminalConnectionTab(
-                        fHost, fPort, fTermType, fTls, fKeepAlive);
+                        fHost, fPort, fTermType, fTls, fKeepAlive, fUser, fPassword);
                 tab.connect();
                 return tab;
             }

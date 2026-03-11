@@ -32,6 +32,8 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final String termType;
     private final boolean tls;
     private final int keepAliveTimeout;
+    private final String user;
+    private final String password;
 
     private final JPanel mainPanel;
     private final JLabel statusLabel;
@@ -44,11 +46,18 @@ public class TerminalConnectionTab implements ConnectionTab {
     private volatile boolean connected;
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout) {
+        this(host, port, termType, tls, keepAliveTimeout, null, null);
+    }
+
+    public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout,
+                                 String user, String password) {
         this.host = host;
         this.port = port;
         this.termType = termType != null ? termType : "IBM-3278-2";
         this.tls = tls;
         this.keepAliveTimeout = keepAliveTimeout;
+        this.user = user;
+        this.password = password;
 
         ensureFactoryInitialized();
 
@@ -119,6 +128,11 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 }
             });
+
+            // Auto-login if credentials are available
+            if (user != null && !user.isEmpty() && password != null && !password.isEmpty()) {
+                autoLogin(createdTerminal);
+            }
         } catch (Exception ex) {
             disconnectQuietly(createdTerminal);
             clearTerminalState();
@@ -259,6 +273,66 @@ public class TerminalConnectionTab implements ConnectionTab {
                 functionKeyToolbar.repaint();
             }
         });
+    }
+
+    // ── Auto-Login ──────────────────────────────────────────────
+
+    /**
+     * Automatically type username + Tab + password + Enter into the terminal.
+     * Runs on a background thread, polling until the keyboard is unlocked.
+     */
+    private void autoLogin(final Terminal term) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // Wait for the host to send the login screen (keyboard unlocked)
+                    if (!waitForKeyboardUnlock(term, 10_000)) {
+                        LOG.warning("[3270] Auto-login: keyboard did not unlock within timeout");
+                        return;
+                    }
+
+                    // Small extra delay to let the screen settle
+                    Thread.sleep(300);
+
+                    typeString(term, user);
+                    term.doKeyPress("[tab]");
+                    Thread.sleep(50);
+                    typeString(term, password);
+                    Thread.sleep(50);
+                    term.Fkey(com.ascert.open.ohio.Ohio.OHIO_AID.OHIO_AID_3270_ENTER);
+
+                    LOG.info("[3270] Auto-login: credentials sent");
+                    updateStatus("  ✅ Verbunden (angemeldet)");
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[3270] Auto-login failed", e);
+                }
+            }
+        }, "3270-AutoLogin").start();
+    }
+
+    /**
+     * Poll until the terminal keyboard is unlocked or the timeout expires.
+     */
+    private boolean waitForKeyboardUnlock(Terminal term, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (!term.isKeyboardLocked()) {
+                return true;
+            }
+            Thread.sleep(100);
+        }
+        return !term.isKeyboardLocked();
+    }
+
+    /**
+     * Type a string character by character into the terminal.
+     */
+    private void typeString(Terminal term, String text) throws Exception {
+        com.ascert.open.term.core.InputCharHandler charHandler = term.getCharHandler();
+        for (int i = 0; i < text.length(); i++) {
+            charHandler.type(text.charAt(i));
+        }
     }
 
     private void showDisconnectedMessage(final String message) {
