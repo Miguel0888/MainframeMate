@@ -206,6 +206,18 @@ public class TerminalConnectionTab implements ConnectionTab {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         screen.requestFocusInWindow();
+                        // Right-click context menu
+                        if (e.isPopupTrigger()) {
+                            showTerminalContextMenu(screen, createdTerminal, e.getX(), e.getY());
+                        }
+                    }
+
+                    @Override
+                    public void mouseReleased(java.awt.event.MouseEvent e) {
+                        // Windows fires popup trigger on release
+                        if (e.isPopupTrigger()) {
+                            showTerminalContextMenu(screen, createdTerminal, e.getX(), e.getY());
+                        }
                     }
 
                     @Override
@@ -221,9 +233,23 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                 // Visual feedback: press/release the F-key button when a keyboard F-key is used.
                 // Also record all keyboard input for macro bookmarks.
+                // Handle Ctrl+V (paste) and Ctrl+C (copy) before OpenTerm processes the keys.
                 screen.addKeyListener(new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
+                        // Ctrl+V → paste from clipboard
+                        if (e.getKeyCode() == java.awt.event.KeyEvent.VK_V && e.isControlDown() && !e.isAltDown()) {
+                            pasteFromClipboard(createdTerminal);
+                            e.consume();
+                            return;
+                        }
+                        // Ctrl+C → copy selection to clipboard
+                        if (e.getKeyCode() == java.awt.event.KeyEvent.VK_C && e.isControlDown() && !e.isAltDown()) {
+                            copySelectionToClipboard(screen, createdTerminal);
+                            e.consume();
+                            return;
+                        }
+
                         // Record F-keys as AID
                         int fnum = fkeyNumberFromEvent(e);
                         if (fnum > 0) {
@@ -425,6 +451,124 @@ public class TerminalConnectionTab implements ConnectionTab {
         } catch (Exception e) {
             LOG.log(Level.FINE, "[3270] autoEnterIfMenuItem error", e);
         }
+    }
+
+    // ── Clipboard: Paste / Copy ─────────────────────────────────
+
+    /**
+     * Paste text from the system clipboard into the terminal at the current cursor position.
+     * Each character is typed via InputCharHandler. Newlines are ignored (3270 fields are single-line).
+     */
+    private void pasteFromClipboard(Terminal term) {
+        if (term == null || !connected) return;
+        if (term.isKeyboardLocked()) return;
+
+        try {
+            java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (!clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) return;
+
+            String text = (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            if (text == null || text.isEmpty()) return;
+
+            // Strip newlines/tabs — 3270 fields don't support them
+            text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").replace("\t", " ");
+
+            com.ascert.open.term.core.InputCharHandler charHandler = term.getCharHandler();
+            for (int i = 0; i < text.length(); i++) {
+                charHandler.type(text.charAt(i));
+            }
+            macroRecorder.recordText(text);
+
+            LOG.fine("[3270] Pasted " + text.length() + " characters");
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[3270] Paste failed", e);
+        }
+    }
+
+    /**
+     * Copy the current terminal screen selection (or entire screen if no selection) to the clipboard.
+     */
+    private void copySelectionToClipboard(JTerminalScreen screen, Terminal term) {
+        if (term == null || !connected) return;
+
+        try {
+            String text = null;
+
+            // Try to get selection from JTerminalScreen
+            int selStart = screen.getSelectionStartPos();
+            int selEnd = screen.getSelectionEndPos();
+            if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) {
+                int from = Math.min(selStart, selEnd);
+                int to = Math.max(selStart, selEnd);
+                int len = to - from + 1;
+                text = term.getCharString(from, len);
+            }
+
+            // Fallback: copy entire screen
+            if (text == null || text.isEmpty()) {
+                char[] display = term.getDisplay();
+                if (display != null) {
+                    int cols = term.getCols();
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < display.length; i++) {
+                        sb.append(display[i]);
+                        if (cols > 0 && (i + 1) % cols == 0 && i + 1 < display.length) {
+                            sb.append('\n');
+                        }
+                    }
+                    text = sb.toString();
+                }
+            }
+
+            if (text != null && !text.isEmpty()) {
+                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                        .setContents(new java.awt.datatransfer.StringSelection(text), null);
+                LOG.fine("[3270] Copied " + text.length() + " characters to clipboard");
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[3270] Copy failed", e);
+        }
+    }
+
+    /**
+     * Show a right-click context menu on the terminal screen with Paste, Copy, Select All.
+     */
+    private void showTerminalContextMenu(JTerminalScreen screen, Terminal term, int x, int y) {
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem pasteItem = new JMenuItem("📋 Einfügen");
+        pasteItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_V,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        pasteItem.addActionListener(e -> {
+            pasteFromClipboard(term);
+            screen.requestFocusInWindow();
+        });
+        pasteItem.setEnabled(connected && term != null && !term.isKeyboardLocked());
+        menu.add(pasteItem);
+
+        JMenuItem copyItem = new JMenuItem("📄 Kopieren");
+        copyItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_C,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        copyItem.addActionListener(e -> {
+            copySelectionToClipboard(screen, term);
+            screen.requestFocusInWindow();
+        });
+        copyItem.setEnabled(connected && term != null);
+        menu.add(copyItem);
+
+        menu.addSeparator();
+
+        JMenuItem selectAllItem = new JMenuItem("🔲 Alles auswählen");
+        selectAllItem.setAccelerator(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_A,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        selectAllItem.addActionListener(e -> {
+            screen.selectAll();
+            screen.requestFocusInWindow();
+        });
+        selectAllItem.setEnabled(connected);
+        menu.add(selectAllItem);
+
+        menu.show(screen, x, y);
     }
 
     // ── Auto-Login ──────────────────────────────────────────────
