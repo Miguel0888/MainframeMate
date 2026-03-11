@@ -159,6 +159,7 @@ public class TabbedPaneManager {
         if (tab instanceof de.bund.zrb.ui.mail.MailPreviewTab) return "MAIL";
         if (tab instanceof CacheConnectionTab) return "CACHE";
         if (tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) return "WIKI";
+        if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab) return "WIKI";
         return "LOCAL";
     }
 
@@ -459,8 +460,25 @@ public class TabbedPaneManager {
         FtpTab tab = tabMap.get(selected);
         if (tab == null) {
             rightDrawer.clearJclOutline();
+            rightDrawer.restoreCodeOutline();
             return;
         }
+
+        // WikiFileTab: show wiki outline in RightDrawer
+        if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab) {
+            de.bund.zrb.wiki.ui.WikiFileTab wikiTab = (de.bund.zrb.wiki.ui.WikiFileTab) tab;
+            de.bund.zrb.wiki.domain.OutlineNode outline = wikiTab.getOutline();
+            if (outline != null) {
+                rightDrawer.updateWikiOutline(outline, wikiTab.getPageTitle(), wikiTab);
+            } else {
+                rightDrawer.restoreCodeOutline();
+                rightDrawer.clearJclOutline();
+            }
+            return;
+        }
+
+        // Restore code outline for non-wiki tabs
+        rightDrawer.restoreCodeOutline();
 
         // Get content, source name, and sentence type from the tab
         String content = null;

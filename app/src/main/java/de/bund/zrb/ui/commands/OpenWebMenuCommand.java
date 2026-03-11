@@ -1,13 +1,15 @@
 package de.bund.zrb.ui.commands;
 
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
-import de.bund.zrb.wiki.domain.WikiSiteDescriptor;
-import de.bund.zrb.wiki.domain.WikiSiteId;
+import de.bund.zrb.wiki.domain.*;
 import de.bund.zrb.wiki.infrastructure.JwbfWikiContentService;
 import de.bund.zrb.wiki.port.WikiContentService;
+import de.bund.zrb.wiki.service.WikiPrefetchService;
 import de.bund.zrb.wiki.ui.WikiConnectionTab;
+import de.bund.zrb.wiki.ui.WikiFileTab;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
@@ -46,9 +48,59 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             return;
         }
 
+        Settings settings = SettingsHelper.load();
         WikiContentService service = new JwbfWikiContentService(sites);
         WikiConnectionTab tab = new WikiConnectionTab(service);
+
+        // Wire up open callback: creates WikiFileTab when user double-clicks/enters a result
+        tab.setOpenCallback((siteId, pageTitle, htmlContent, outline) -> {
+            WikiFileTab fileTab = new WikiFileTab(siteId, pageTitle, htmlContent, outline);
+            wireFileTabLinks(fileTab, service, sites);
+            tabManager.addTab(fileTab);
+        });
+
+        // Wire up prefetch: cache search results in the background
+        try {
+            CacheRepository cacheRepo = CacheRepository.getInstance();
+            WikiPrefetchService prefetch = new WikiPrefetchService(
+                    service, cacheRepo, settings.wikiPrefetchCacheMaxMb);
+            tab.setPrefetchCallback(prefetch);
+        } catch (Exception e) {
+            // CacheRepository not available — prefetch disabled, no problem
+        }
+
         tabManager.addTab(tab);
+    }
+
+    /**
+     * Wire the link callback on a WikiFileTab so that clicking a link opens a new tab.
+     */
+    private void wireFileTabLinks(WikiFileTab fileTab, WikiContentService service,
+                                  List<WikiSiteDescriptor> sites) {
+        fileTab.setLinkCallback((siteId, pageTitle) -> {
+            WikiSiteId wsId = new WikiSiteId(siteId);
+            new SwingWorker<WikiPageView, Void>() {
+                @Override
+                protected WikiPageView doInBackground() throws Exception {
+                    return service.loadPage(wsId, pageTitle, WikiCredentials.anonymous());
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        WikiPageView view = get();
+                        WikiFileTab newTab = new WikiFileTab(siteId, view.title(),
+                                view.cleanedHtml(), view.outline());
+                        wireFileTabLinks(newTab, service, sites);
+                        tabManager.addTab(newTab);
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(null,
+                                "Fehler beim Laden der Wiki-Seite: " + ex.getMessage(),
+                                "Wiki-Fehler", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }.execute();
+        });
     }
 
     private List<WikiSiteDescriptor> parseWikiSites() {
@@ -58,7 +110,6 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         if (settings.wikiSites == null) return result;
 
         for (String entry : settings.wikiSites) {
-            // Format: "id|displayName|apiUrl|requiresLogin"
             String[] parts = entry.split("\\|", 4);
             if (parts.length >= 3) {
                 String id = parts[0].trim();

@@ -97,6 +97,9 @@ public class Settings {
             "wikipedia_en|Wikipedia (EN)|https://en.wikipedia.org/w/|false"
     ));
 
+    /** Maximum size in MB for volatile (prefetch) wiki cache entries. Default: 50 MB. */
+    public int wikiPrefetchCacheMaxMb = 50;
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

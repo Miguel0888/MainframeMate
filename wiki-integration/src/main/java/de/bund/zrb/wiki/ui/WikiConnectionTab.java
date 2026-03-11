@@ -5,19 +5,24 @@ import de.bund.zrb.wiki.port.WikiContentService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.HyperlinkEvent;
-import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeModel;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
-import java.io.IOException;
+import java.awt.event.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * ConnectionTab for browsing MediaWiki sites.
- * Left: site selector + search + outline tree.
- * Right: rendered wiki page (HTML).
+ * Layout: vertical split – top: search controls + results table, bottom: HTML preview.
+ * Outline is delegated to the RightDrawer via WikiFileTab.
+ * Single-click on result → preview below. Double-click/Enter → open as new WikiFileTab.
  */
 public class WikiConnectionTab implements ConnectionTab {
 
@@ -27,34 +32,40 @@ public class WikiConnectionTab implements ConnectionTab {
     private final WikiContentService service;
     private final JComboBox<WikiSiteDescriptor> siteSelector;
     private final JTextField searchField;
-    private final JTextField pageField;
-    private final JTree outlineTree;
-    private final DefaultTreeModel outlineModel;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
-    private final JList<String> searchResultList;
-    private final DefaultListModel<String> searchResultModel;
+    private final JTextField resultFilterField;
+    private final JTextField htmlFilterField;
+
+    // Results table
+    private final WikiResultTableModel resultModel;
+    private final JTable resultTable;
+    private final TableRowSorter<WikiResultTableModel> resultSorter;
 
     /** Callback for opening a wiki page as FileTab in MainframeMate. */
     private OpenCallback openCallback;
+    /** Callback to notify about outline changes (for RightDrawer). */
+    private OutlineCallback outlineCallback;
+    /** Callback for prefetching search results into local cache. */
+    private WikiPrefetchCallback prefetchCallback;
 
     private String currentPageTitle;
     private WikiSiteId currentSiteId;
+    private WikiPageView currentPreview;
 
     public WikiConnectionTab(WikiContentService service) {
         this.service = service;
-        this.mainPanel = new JPanel(new BorderLayout(4, 4));
+        this.mainPanel = new JPanel(new BorderLayout(0, 0));
 
-        // ── Left panel: site + search + outline ──
-        JPanel leftPanel = new JPanel(new BorderLayout(4, 4));
-        leftPanel.setPreferredSize(new Dimension(280, 0));
-
-        // Top: site selector + page field
+        // ═══════════════════════════════════════════════════════════
+        //  Top panel: site selector + search
+        // ═══════════════════════════════════════════════════════════
         JPanel topControls = new JPanel();
         topControls.setLayout(new BoxLayout(topControls, BoxLayout.Y_AXIS));
+        topControls.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        // Site selector
-        JPanel sitePanel = new JPanel(new BorderLayout(2, 0));
+        // Row 1: Site selector
+        JPanel sitePanel = new JPanel(new BorderLayout(4, 0));
         sitePanel.add(new JLabel("Wiki:"), BorderLayout.WEST);
         siteSelector = new JComboBox<WikiSiteDescriptor>();
         for (WikiSiteDescriptor site : service.listSites()) {
@@ -65,22 +76,8 @@ public class WikiConnectionTab implements ConnectionTab {
         topControls.add(sitePanel);
         topControls.add(Box.createVerticalStrut(4));
 
-        // Page title field
-        JPanel pagePanel = new JPanel(new BorderLayout(2, 0));
-        pagePanel.add(new JLabel("Seite:"), BorderLayout.WEST);
-        pageField = new JTextField("Hauptseite");
-        pageField.addActionListener(e -> loadPage(pageField.getText().trim()));
-        JButton goBtn = new JButton("→");
-        goBtn.setToolTipText("Seite laden");
-        goBtn.addActionListener(e -> loadPage(pageField.getText().trim()));
-        pagePanel.add(pageField, BorderLayout.CENTER);
-        pagePanel.add(goBtn, BorderLayout.EAST);
-        pagePanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topControls.add(pagePanel);
-        topControls.add(Box.createVerticalStrut(4));
-
-        // Search
-        JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
+        // Row 2: Search
+        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
         searchPanel.add(new JLabel("🔍"), BorderLayout.WEST);
         searchField = new JTextField();
         searchField.setToolTipText("Wiki durchsuchen (Enter)");
@@ -89,33 +86,74 @@ public class WikiConnectionTab implements ConnectionTab {
         searchPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         topControls.add(searchPanel);
 
-        leftPanel.add(topControls, BorderLayout.NORTH);
+        // ═══════════════════════════════════════════════════════════
+        //  Results table
+        // ═══════════════════════════════════════════════════════════
+        resultModel = new WikiResultTableModel();
+        resultTable = new JTable(resultModel);
+        resultTable.setRowHeight(22);
+        resultTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        resultTable.getColumnModel().getColumn(0).setPreferredWidth(300);
 
-        // Center: split between search results and outline
-        JSplitPane leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        leftSplit.setDividerLocation(150);
+        resultSorter = new TableRowSorter<WikiResultTableModel>(resultModel);
+        resultTable.setRowSorter(resultSorter);
 
-        // Search results list
-        searchResultModel = new DefaultListModel<String>();
-        searchResultList = new JList<String>(searchResultModel);
-        searchResultList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        searchResultList.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    String selected = searchResultList.getSelectedValue();
-                    if (selected != null) {
-                        pageField.setText(selected);
-                        loadPage(selected);
-                    }
+        // Single-click → preview
+        resultTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                int viewRow = resultTable.getSelectedRow();
+                if (viewRow >= 0) {
+                    int modelRow = resultTable.convertRowIndexToModel(viewRow);
+                    String title = resultModel.getTitleAt(modelRow);
+                    loadPreview(title);
                 }
             }
         });
-        JScrollPane searchScroll = new JScrollPane(searchResultList);
-        searchScroll.setBorder(BorderFactory.createTitledBorder("Suchergebnisse"));
-        leftSplit.setTopComponent(searchScroll);
 
-        // ── Right panel: HTML viewer (init early so outline listener can reference it) ──
+        // Double-click → open as tab
+        resultTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    openSelectedAsTab();
+                }
+            }
+        });
+
+        // Enter → open as tab
+        resultTable.getInputMap(JComponent.WHEN_FOCUSED).put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "openWikiTab");
+        resultTable.getActionMap().put("openWikiTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                openSelectedAsTab();
+            }
+        });
+
+        JScrollPane resultScroll = new JScrollPane(resultTable);
+        resultScroll.setBorder(BorderFactory.createTitledBorder("Suchergebnisse"));
+
+        // Result filter bar
+        resultFilterField = new JTextField();
+        resultFilterField.setToolTipText("Ergebnisse filtern (Regex)");
+        resultFilterField.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { applyResultFilter(); }
+            public void removeUpdate(DocumentEvent e) { applyResultFilter(); }
+            public void changedUpdate(DocumentEvent e) { applyResultFilter(); }
+        });
+        JPanel resultFilterBar = new JPanel(new BorderLayout(2, 0));
+        resultFilterBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
+        resultFilterBar.add(resultFilterField, BorderLayout.CENTER);
+
+        // Top half: controls + results + result filter
+        JPanel topHalf = new JPanel(new BorderLayout(0, 0));
+        topHalf.add(topControls, BorderLayout.NORTH);
+        topHalf.add(resultScroll, BorderLayout.CENTER);
+        topHalf.add(resultFilterBar, BorderLayout.SOUTH);
+
+        // ═══════════════════════════════════════════════════════════
+        //  HTML preview pane
+        // ═══════════════════════════════════════════════════════════
         htmlPane = new JEditorPane();
         htmlPane.setEditable(false);
         htmlPane.setContentType("text/html");
@@ -124,41 +162,34 @@ public class WikiConnectionTab implements ConnectionTab {
                 handleLink(e);
             }
         });
-
-        // Outline tree
-        DefaultMutableTreeNode rootNode = new DefaultMutableTreeNode("Gliederung");
-        outlineModel = new DefaultTreeModel(rootNode);
-        outlineTree = new JTree(outlineModel);
-        outlineTree.setRootVisible(false);
-        outlineTree.addTreeSelectionListener(e -> {
-            DefaultMutableTreeNode node = (DefaultMutableTreeNode) outlineTree.getLastSelectedPathComponent();
-            if (node != null && node.getUserObject() instanceof OutlineEntry) {
-                OutlineEntry entry = (OutlineEntry) node.getUserObject();
-                if (entry.anchor != null) {
-                    htmlPane.scrollToReference(entry.anchor);
-                }
-            }
-        });
-        JScrollPane outlineScroll = new JScrollPane(outlineTree);
-        outlineScroll.setBorder(BorderFactory.createTitledBorder("Gliederung"));
-        leftSplit.setBottomComponent(outlineScroll);
-
-        leftPanel.add(leftSplit, BorderLayout.CENTER);
-
-        // ── Assemble main split ──
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
+        htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
-        // ── Main split ──
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, htmlScroll);
-        mainSplit.setDividerLocation(280);
+        // HTML text search bar
+        htmlFilterField = new JTextField();
+        htmlFilterField.setToolTipText("Text in Vorschau suchen (Enter)");
+        htmlFilterField.addActionListener(e -> searchInHtml());
+        JPanel htmlFilterBar = new JPanel(new BorderLayout(2, 0));
+        htmlFilterBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
+        htmlFilterBar.add(htmlFilterField, BorderLayout.CENTER);
+
+        JPanel bottomHalf = new JPanel(new BorderLayout(0, 0));
+        bottomHalf.add(htmlScroll, BorderLayout.CENTER);
+        bottomHalf.add(htmlFilterBar, BorderLayout.SOUTH);
+
+        // ═══════════════════════════════════════════════════════════
+        //  Main split: top/bottom
+        // ═══════════════════════════════════════════════════════════
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topHalf, bottomHalf);
+        mainSplit.setDividerLocation(300);
+        mainSplit.setResizeWeight(0.4);
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
-        // ── Status bar ──
+        // Status bar
         statusLabel = new JLabel(" ");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
         mainPanel.add(statusLabel, BorderLayout.SOUTH);
 
-        // Load initial page if sites are configured
         if (siteSelector.getItemCount() > 0) {
             siteSelector.setSelectedIndex(0);
         }
@@ -168,14 +199,14 @@ public class WikiConnectionTab implements ConnectionTab {
     //  Actions
     // ═══════════════════════════════════════════════════════════
 
-    private void loadPage(String pageTitle) {
+    private void loadPreview(String pageTitle) {
         if (pageTitle == null || pageTitle.isEmpty()) return;
         WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
         if (site == null) return;
 
         currentSiteId = site.id();
         currentPageTitle = pageTitle;
-        statusLabel.setText("⏳ Lade: " + pageTitle + "…");
+        statusLabel.setText("⏳ Lade Vorschau: " + pageTitle + "…");
 
         new SwingWorker<WikiPageView, Void>() {
             @Override
@@ -188,18 +219,62 @@ public class WikiConnectionTab implements ConnectionTab {
             protected void done() {
                 try {
                     WikiPageView view = get();
+                    currentPreview = view;
                     htmlPane.setText(wrapHtml(view.cleanedHtml()));
                     htmlPane.setCaretPosition(0);
-                    updateOutline(view.outline());
-                    pageField.setText(view.title());
-                    statusLabel.setText("✅ " + view.title());
+                    statusLabel.setText("✅ Vorschau: " + view.title());
+
+                    // Update outline in RightDrawer
+                    if (outlineCallback != null) {
+                        outlineCallback.onOutlineChanged(view.outline(), view.title());
+                    }
                 } catch (Exception ex) {
-                    LOG.log(Level.WARNING, "[Wiki] Failed to load page: " + pageTitle, ex);
-                    htmlPane.setText("<html><body><h2>Fehler</h2><p>" + escHtml(ex.getMessage()) + "</p></body></html>");
-                    statusLabel.setText("❌ Fehler: " + ex.getMessage());
+                    LOG.log(Level.WARNING, "[Wiki] Failed to load preview: " + pageTitle, ex);
+                    htmlPane.setText("<html><body><h2>Fehler</h2><p>" + escHtml(getRootMessage(ex)) + "</p></body></html>");
+                    statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
                 }
             }
         }.execute();
+    }
+
+    private void openSelectedAsTab() {
+        int viewRow = resultTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int modelRow = resultTable.convertRowIndexToModel(viewRow);
+        String title = resultModel.getTitleAt(modelRow);
+        if (title == null || title.isEmpty()) return;
+
+        WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
+        if (site == null) return;
+
+        if (openCallback != null) {
+            if (currentPreview != null && title.equals(currentPreview.title())) {
+                openCallback.openWikiPage(site.id().value(), title, currentPreview.cleanedHtml(),
+                        currentPreview.outline());
+            } else {
+                statusLabel.setText("⏳ Öffne: " + title + "…");
+                new SwingWorker<WikiPageView, Void>() {
+                    @Override
+                    protected WikiPageView doInBackground() throws Exception {
+                        return service.loadPage(site.id(), title, getCredentials(site));
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+                            WikiPageView view = get();
+                            if (openCallback != null) {
+                                openCallback.openWikiPage(site.id().value(), view.title(),
+                                        view.cleanedHtml(), view.outline());
+                            }
+                            statusLabel.setText("✅ Geöffnet: " + view.title());
+                        } catch (Exception ex) {
+                            statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
+                        }
+                    }
+                }.execute();
+            }
+        }
     }
 
     private void searchWiki() {
@@ -209,26 +284,33 @@ public class WikiConnectionTab implements ConnectionTab {
         if (site == null) return;
 
         statusLabel.setText("🔍 Suche: " + query + "…");
-        searchResultModel.clear();
+        resultModel.clear();
 
         new SwingWorker<List<String>, Void>() {
             @Override
             protected List<String> doInBackground() throws Exception {
                 WikiCredentials creds = getCredentials(site);
-                return service.searchPages(site.id(), query, creds, 20);
+                return service.searchPages(site.id(), query, creds, 30);
             }
 
             @Override
             protected void done() {
                 try {
                     List<String> results = get();
-                    for (String title : results) {
-                        searchResultModel.addElement(title);
-                    }
+                    resultModel.setResults(results);
                     statusLabel.setText(results.size() + " Ergebnisse für \"" + query + "\"");
+
+                    if (!results.isEmpty() && resultTable.getRowCount() > 0) {
+                        resultTable.setRowSelectionInterval(0, 0);
+                    }
+
+                    // Prefetch results into local cache in the background
+                    if (prefetchCallback != null && !results.isEmpty()) {
+                        prefetchCallback.prefetchSearchResults(site.id(), results);
+                    }
                 } catch (Exception ex) {
                     LOG.log(Level.WARNING, "[Wiki] Search failed", ex);
-                    statusLabel.setText("❌ Suche fehlgeschlagen: " + ex.getMessage());
+                    statusLabel.setText("❌ Suche fehlgeschlagen: " + getRootMessage(ex));
                 }
             }
         }.execute();
@@ -237,22 +319,38 @@ public class WikiConnectionTab implements ConnectionTab {
     private void handleLink(HyperlinkEvent e) {
         String desc = e.getDescription();
         if (desc != null && desc.startsWith("#")) {
-            // Anchor link — scroll within page
             htmlPane.scrollToReference(desc.substring(1));
             return;
         }
 
-        // Try to extract wiki page title from URL
         String url = e.getURL() != null ? e.getURL().toString() : desc;
         if (url == null) return;
 
-        // MediaWiki internal link pattern: /wiki/PageTitle or /w/index.php?title=PageTitle
         String pageTitle = extractPageTitle(url);
         if (pageTitle != null) {
-            pageField.setText(pageTitle);
-            loadPage(pageTitle);
+            WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
+            if (site != null && openCallback != null) {
+                statusLabel.setText("⏳ Öffne: " + pageTitle + "…");
+                new SwingWorker<WikiPageView, Void>() {
+                    @Override
+                    protected WikiPageView doInBackground() throws Exception {
+                        return service.loadPage(site.id(), pageTitle, getCredentials(site));
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+                            WikiPageView view = get();
+                            openCallback.openWikiPage(site.id().value(), view.title(),
+                                    view.cleanedHtml(), view.outline());
+                            statusLabel.setText("✅ Geöffnet: " + view.title());
+                        } catch (Exception ex) {
+                            statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
+                        }
+                    }
+                }.execute();
+            }
         } else {
-            // External link — open in browser
             try {
                 Desktop.getDesktop().browse(e.getURL().toURI());
             } catch (Exception ex) {
@@ -261,8 +359,44 @@ public class WikiConnectionTab implements ConnectionTab {
         }
     }
 
-    private String extractPageTitle(String url) {
-        // /wiki/Title
+    // ═══════════════════════════════════════════════════════════
+    //  Filter logic
+    // ═══════════════════════════════════════════════════════════
+
+    private void applyResultFilter() {
+        String regex = resultFilterField.getText().trim();
+        if (regex.isEmpty()) {
+            resultSorter.setRowFilter(null);
+            resultFilterField.setBackground(UIManager.getColor("TextField.background"));
+        } else {
+            try {
+                resultSorter.setRowFilter(RowFilter.regexFilter("(?i)" + regex, 0));
+                resultFilterField.setBackground(UIManager.getColor("TextField.background"));
+            } catch (Exception ex) {
+                resultFilterField.setBackground(new Color(255, 200, 200));
+            }
+        }
+    }
+
+    private void searchInHtml() {
+        String query = htmlFilterField.getText().trim();
+        if (query.isEmpty() || currentPreview == null) return;
+
+        String html = currentPreview.cleanedHtml();
+        if (html == null) return;
+
+        String highlighted = html.replaceAll(
+                "(?i)(" + Pattern.quote(query) + ")",
+                "<mark style='background:yellow'>$1</mark>");
+        htmlPane.setText(wrapHtml(highlighted));
+        htmlPane.setCaretPosition(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════
+
+    static String extractPageTitle(String url) {
         int wikiIdx = url.indexOf("/wiki/");
         if (wikiIdx >= 0) {
             String raw = url.substring(wikiIdx + 6);
@@ -272,7 +406,6 @@ public class WikiConnectionTab implements ConnectionTab {
             if (queryIdx >= 0) raw = raw.substring(0, queryIdx);
             return decodeUrl(raw.replace('_', ' '));
         }
-        // ?title=Title
         int titleIdx = url.indexOf("title=");
         if (titleIdx >= 0) {
             String raw = url.substring(titleIdx + 6);
@@ -291,38 +424,12 @@ public class WikiConnectionTab implements ConnectionTab {
         }
     }
 
-    private void updateOutline(OutlineNode root) {
-        DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode("Gliederung");
-        if (root != null) {
-            for (OutlineNode child : root.children()) {
-                addOutlineNode(treeRoot, child);
-            }
-        }
-        outlineModel.setRoot(treeRoot);
-        // Expand all
-        for (int i = 0; i < outlineTree.getRowCount(); i++) {
-            outlineTree.expandRow(i);
-        }
-    }
-
-    private void addOutlineNode(DefaultMutableTreeNode parent, OutlineNode node) {
-        DefaultMutableTreeNode treeNode = new DefaultMutableTreeNode(
-                new OutlineEntry(node.text(), node.anchor()));
-        parent.add(treeNode);
-        for (OutlineNode child : node.children()) {
-            addOutlineNode(treeNode, child);
-        }
-    }
-
     private WikiCredentials getCredentials(WikiSiteDescriptor site) {
-        if (!site.requiresLogin()) {
-            return WikiCredentials.anonymous();
-        }
-        // TODO: integrate with MainframeMate LoginManager
+        if (!site.requiresLogin()) return WikiCredentials.anonymous();
         return WikiCredentials.anonymous();
     }
 
-    private String wrapHtml(String bodyHtml) {
+    static String wrapHtml(String bodyHtml) {
         return "<html><head><style>"
                 + "body { font-family: sans-serif; font-size: 13px; margin: 12px; }"
                 + "h1,h2,h3 { color: #333; }"
@@ -335,10 +442,18 @@ public class WikiConnectionTab implements ConnectionTab {
                 + "</body></html>";
     }
 
-    private static String escHtml(String s) {
+    static String escHtml(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
+
+    private static String getRootMessage(Exception ex) {
+        Throwable t = ex;
+        while (t.getCause() != null) t = t.getCause();
+        return t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+    }
+
+    public WikiContentService getService() { return service; }
 
     // ═══════════════════════════════════════════════════════════
     //  ConnectionTab interface
@@ -347,7 +462,11 @@ public class WikiConnectionTab implements ConnectionTab {
     @Override public String getTitle() { return "📖 Wiki"; }
     @Override public String getTooltip() { return "MediaWiki-Seiten durchsuchen und anzeigen"; }
     @Override public JComponent getComponent() { return mainPanel; }
-    @Override public void onClose() { /* nothing */ }
+    @Override public void onClose() {
+        if (prefetchCallback != null) {
+            prefetchCallback.shutdown();
+        }
+    }
     @Override public void saveIfApplicable() { /* read-only */ }
     @Override public String getContent() { return ""; }
     @Override public void markAsChanged() { /* not applicable */ }
@@ -366,32 +485,59 @@ public class WikiConnectionTab implements ConnectionTab {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Callback for opening pages in MainframeMate
+    //  Callbacks
     // ═══════════════════════════════════════════════════════════
 
     public void setOpenCallback(OpenCallback callback) {
         this.openCallback = callback;
     }
 
+    public void setOutlineCallback(OutlineCallback callback) {
+        this.outlineCallback = callback;
+    }
+
+    public void setPrefetchCallback(WikiPrefetchCallback callback) {
+        this.prefetchCallback = callback;
+    }
+
     public interface OpenCallback {
-        void openWikiPage(String siteId, String pageTitle, String htmlContent);
+        void openWikiPage(String siteId, String pageTitle, String htmlContent, OutlineNode outline);
+    }
+
+    public interface OutlineCallback {
+        void onOutlineChanged(OutlineNode outline, String pageTitle);
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Inner classes
+    //  Result Table Model
     // ═══════════════════════════════════════════════════════════
 
-    private static final class OutlineEntry {
-        final String text;
-        final String anchor;
+    private static final class WikiResultTableModel extends AbstractTableModel {
+        private final List<String> titles = new ArrayList<String>();
 
-        OutlineEntry(String text, String anchor) {
-            this.text = text;
-            this.anchor = anchor;
+        void setResults(List<String> results) {
+            titles.clear();
+            titles.addAll(results);
+            fireTableDataChanged();
         }
 
+        void clear() {
+            titles.clear();
+            fireTableDataChanged();
+        }
+
+        String getTitleAt(int row) {
+            return titles.get(row);
+        }
+
+        @Override public int getRowCount() { return titles.size(); }
+        @Override public int getColumnCount() { return 1; }
+        @Override public String getColumnName(int col) { return "Seitentitel"; }
+
         @Override
-        public String toString() { return text; }
+        public Object getValueAt(int row, int col) {
+            return titles.get(row);
+        }
     }
 }
 

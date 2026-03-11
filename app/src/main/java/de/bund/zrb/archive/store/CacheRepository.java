@@ -147,6 +147,10 @@ public class CacheRepository {
             try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_resources_content ON archive_resources(content_hash, canonical_url)"); } catch (Exception ignored) {}
             try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_documents_run ON archive_documents(run_id)"); } catch (Exception ignored) {}
 
+            // Migration: add volatile_flag for ephemeral prefetch cache entries
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS volatile_flag BOOLEAN DEFAULT FALSE"); } catch (Exception ignored) {}
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_volatile ON archive_entries(volatile_flag)"); } catch (Exception ignored) {}
+
             stmt.close();
             LOG.info("[Archive] Database initialized at " + jdbcUrl);
         } catch (Exception e) {
@@ -192,6 +196,108 @@ public class CacheRepository {
     private static String truncate(String value, int maxLen) {
         if (value == null) return null;
         return value.length() <= maxLen ? value : value.substring(0, maxLen);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Volatile (ephemeral) cache entries for prefetch
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Save an archive entry and mark it as volatile/ephemeral.
+     * Volatile entries are prefetched search results that should not displace important cache entries.
+     */
+    public ArchiveEntry saveVolatile(ArchiveEntry entry) {
+        save(entry);
+        try {
+            Connection conn = getConnection();
+            PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE archive_entries SET volatile_flag = TRUE WHERE entry_id = ?");
+            ps.setString(1, entry.getEntryId());
+            ps.executeUpdate();
+            ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Cache] Failed to mark entry as volatile: " + entry.getEntryId(), e);
+        }
+        return entry;
+    }
+
+    /**
+     * Get the total size in bytes of all volatile cache entries.
+     */
+    public long getVolatileCacheSize() {
+        try {
+            Connection conn = getConnection();
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COALESCE(SUM(file_size_bytes), 0) FROM archive_entries WHERE volatile_flag = TRUE");
+            java.sql.ResultSet rs = ps.executeQuery();
+            long size = 0;
+            if (rs.next()) {
+                size = rs.getLong(1);
+            }
+            rs.close();
+            ps.close();
+            return size;
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Cache] Failed to get volatile cache size", e);
+            return 0;
+        }
+    }
+
+    /**
+     * Evict oldest volatile entries until total volatile size is below targetSizeBytes.
+     */
+    public int evictOldestVolatile(long targetSizeBytes) {
+        int evicted = 0;
+        try {
+            Connection conn = getConnection();
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT entry_id, file_size_bytes FROM archive_entries "
+                            + "WHERE volatile_flag = TRUE ORDER BY crawl_timestamp ASC");
+            java.sql.ResultSet rs = ps.executeQuery();
+
+            long currentSize = getVolatileCacheSize();
+            java.util.List<String> toDelete = new java.util.ArrayList<String>();
+
+            while (rs.next() && currentSize > targetSizeBytes) {
+                String entryId = rs.getString("entry_id");
+                long entrySize = rs.getLong("file_size_bytes");
+                toDelete.add(entryId);
+                currentSize -= entrySize;
+            }
+            rs.close();
+            ps.close();
+
+            for (String entryId : toDelete) {
+                delete(entryId);
+                evicted++;
+            }
+
+            if (evicted > 0) {
+                LOG.info("[Cache] Evicted " + evicted + " volatile cache entries");
+            }
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Cache] Failed to evict volatile entries", e);
+        }
+        return evicted;
+    }
+
+    /**
+     * Check if an entry with the given URL exists in the cache.
+     */
+    public boolean existsByUrl(String url) {
+        try {
+            Connection conn = getConnection();
+            PreparedStatement ps = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM archive_entries WHERE url = ?");
+            ps.setString(1, url);
+            java.sql.ResultSet rs = ps.executeQuery();
+            boolean exists = rs.next() && rs.getInt(1) > 0;
+            rs.close();
+            ps.close();
+            return exists;
+        } catch (SQLException e) {
+            return false;
+        }
     }
 
     private void saveMetadata(Connection conn, ArchiveEntry entry) throws SQLException {

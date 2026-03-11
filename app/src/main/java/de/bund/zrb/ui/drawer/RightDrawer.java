@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.drawer;
-
+import de.bund.zrb.wiki.domain.OutlineNode;
+import de.bund.zrb.wiki.ui.WikiFileTab;
 import de.bund.zrb.ui.components.Chat;
 import de.bund.zrb.ui.components.HelpButton;
 import de.bund.zrb.ui.components.JclOutlinePanel;
@@ -13,6 +14,8 @@ import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import javax.swing.*;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
 import java.util.Map;
 
@@ -26,6 +29,12 @@ public class RightDrawer extends JPanel {
     private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
 
     private final JclOutlinePanel outlinePanel;
+
+    /** Separate tree for wiki page outlines, shown when a WikiFileTab is active. */
+    private final JTree wikiOutlineTree;
+    private final DefaultTreeModel wikiOutlineModel;
+    private final JPanel wikiOutlinePanel;
+    private WikiFileTab activeWikiFileTab;
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
@@ -56,6 +65,24 @@ public class RightDrawer extends JPanel {
 
         // Initialize outline panel
         outlinePanel = new JclOutlinePanel();
+
+        // Initialize wiki outline tree
+        DefaultMutableTreeNode wikiRoot = new DefaultMutableTreeNode("Wiki-Gliederung");
+        wikiOutlineModel = new DefaultTreeModel(wikiRoot);
+        wikiOutlineTree = new JTree(wikiOutlineModel);
+        wikiOutlineTree.setRootVisible(false);
+        wikiOutlineTree.addTreeSelectionListener(e -> {
+            javax.swing.tree.DefaultMutableTreeNode node =
+                    (javax.swing.tree.DefaultMutableTreeNode) wikiOutlineTree.getLastSelectedPathComponent();
+            if (node != null && node.getUserObject() instanceof WikiOutlineEntry && activeWikiFileTab != null) {
+                WikiOutlineEntry entry = (WikiOutlineEntry) node.getUserObject();
+                if (entry.anchor != null) {
+                    activeWikiFileTab.scrollToAnchor(entry.anchor);
+                }
+            }
+        });
+        wikiOutlinePanel = new JPanel(new BorderLayout());
+        wikiOutlinePanel.add(new JScrollPane(wikiOutlineTree), BorderLayout.CENTER);
 
         addWorkflowTab();
         addOutlineTab();
@@ -159,5 +186,76 @@ public class RightDrawer extends JPanel {
                 break;
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Wiki Outline
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Update the outline panel with a wiki page heading structure.
+     * Replaces the JCL outline content with the wiki outline tree.
+     */
+    public void updateWikiOutline(OutlineNode root, String pageTitle, WikiFileTab fileTab) {
+        this.activeWikiFileTab = fileTab;
+
+        DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode(
+                pageTitle != null ? pageTitle : "Wiki-Gliederung");
+        if (root != null) {
+            for (OutlineNode child : root.children()) {
+                addWikiOutlineNode(treeRoot, child);
+            }
+        }
+        wikiOutlineModel.setRoot(treeRoot);
+
+        // Expand all
+        for (int i = 0; i < wikiOutlineTree.getRowCount(); i++) {
+            wikiOutlineTree.expandRow(i);
+        }
+
+        // Switch the outline tab content to wiki outline
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            if (tabbedPane.getTitleAt(i).contains("Outline")) {
+                tabbedPane.getTabbedPaneDelegate().setComponentAt(i, wikiOutlinePanel);
+                tabbedPane.setSelectedIndex(i);
+                break;
+            }
+        }
+    }
+
+    /**
+     * Restore the JCL/COBOL/Natural outline panel (when switching away from wiki tabs).
+     */
+    public void restoreCodeOutline() {
+        this.activeWikiFileTab = null;
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            if (tabbedPane.getTitleAt(i).contains("Outline")) {
+                tabbedPane.getTabbedPaneDelegate().setComponentAt(i, outlinePanel);
+                break;
+            }
+        }
+    }
+
+    private void addWikiOutlineNode(DefaultMutableTreeNode parent, OutlineNode node) {
+        DefaultMutableTreeNode treeNode = new DefaultMutableTreeNode(
+                new WikiOutlineEntry(node.text(), node.anchor()));
+        parent.add(treeNode);
+        for (OutlineNode child : node.children()) {
+            addWikiOutlineNode(treeNode, child);
+        }
+    }
+
+    /** Simple display object for wiki outline tree nodes. */
+    private static final class WikiOutlineEntry {
+        final String text;
+        final String anchor;
+
+        WikiOutlineEntry(String text, String anchor) {
+            this.text = text;
+            this.anchor = anchor;
+        }
+
+        @Override
+        public String toString() { return text; }
     }
 }
