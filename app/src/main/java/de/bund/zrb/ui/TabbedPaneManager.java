@@ -169,6 +169,7 @@ public class TabbedPaneManager {
         if (tab instanceof CacheConnectionTab) return "CACHE";
         if (tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) return "WIKI";
         if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab) return "WIKI";
+        if (tab instanceof de.bund.zrb.ui.terminal.TerminalConnectionTab) return "TN3270";
         return "LOCAL";
     }
 
@@ -219,6 +220,43 @@ public class TabbedPaneManager {
                     VirtualResource res = ((FileTabImpl) tab).getResource();
                     if (res != null) ndvState = res.getNdvState();
                 }
+
+                // For TN3270 bookmarks, capture macro recording and ask for a name
+                String macroSteps = null;
+                if ("TN3270".equals(backend) && tab instanceof de.bund.zrb.ui.terminal.TerminalConnectionTab) {
+                    de.bund.zrb.ui.terminal.TerminalConnectionTab termTab =
+                            (de.bund.zrb.ui.terminal.TerminalConnectionTab) tab;
+                    macroSteps = termTab.getMacroStepsJson();
+                    // Check if already bookmarked — if so, just remove
+                    if (d.isBookmarked(path, backend)) {
+                        d.toggleBookmark(path, backend, kind, null, null);
+                        starButton.setText(STAR_EMPTY);
+                        starButton.setForeground(Color.GRAY);
+                        starButton.setToolTipText("Als Lesezeichen merken");
+                        return;
+                    }
+                    // Prompt for bookmark name
+                    String defaultName = "🖥️ 3270 → " + path;
+                    String name = (String) javax.swing.JOptionPane.showInputDialog(
+                            tabbedPane, "Name für das Terminal-Lesezeichen:",
+                            "3270 Lesezeichen", javax.swing.JOptionPane.PLAIN_MESSAGE,
+                            null, null, defaultName);
+                    if (name == null || name.trim().isEmpty()) return; // cancelled
+
+                    // Create bookmark directly with custom label
+                    String prefixedPath = de.bund.zrb.model.BookmarkEntry.buildPath(backend, path);
+                    de.bund.zrb.model.BookmarkEntry entry =
+                            new de.bund.zrb.model.BookmarkEntry(name.trim(), prefixedPath, false);
+                    entry.resourceKind = "CONNECTION";
+                    entry.tn3270MacroSteps = macroSteps;
+                    de.bund.zrb.helper.BookmarkHelper.addBookmarkToFolder("Allgemein", entry);
+                    d.refreshBookmarks();
+                    starButton.setText(STAR_FILLED);
+                    starButton.setForeground(new Color(255, 200, 0));
+                    starButton.setToolTipText("Lesezeichen entfernen");
+                    return;
+                }
+
                 boolean added = d.toggleBookmark(path, backend, kind, ndvState);
                 starButton.setText(added ? STAR_FILLED : STAR_EMPTY);
                 starButton.setForeground(added ? new Color(255, 200, 0) : Color.GRAY);

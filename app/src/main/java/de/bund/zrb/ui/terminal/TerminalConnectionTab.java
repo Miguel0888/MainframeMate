@@ -61,17 +61,32 @@ public class TerminalConnectionTab implements ConnectionTab {
     /** Map from F-key number (1–24) to the corresponding button in the bottom panel. */
     private final Map<Integer, JButton> fkeyButtons = new HashMap<Integer, JButton>();
 
+    /** Records all user interactions for macro bookmarks. Always active. */
+    private final TerminalMacroRecorder macroRecorder = new TerminalMacroRecorder();
+
+    /** Steps to replay after connect+login (null = no replay). */
+    private final List<Map<String, String>> replaySteps;
+
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout) {
-        this(host, port, termType, tls, keepAliveTimeout, null, null, true, null);
+        this(host, port, termType, tls, keepAliveTimeout, null, null, true, null, null);
     }
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout,
                                  String user, String password) {
-        this(host, port, termType, tls, keepAliveTimeout, user, password, true, null);
+        this(host, port, termType, tls, keepAliveTimeout, user, password, true, null, null);
     }
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout,
                                  String user, String password, boolean autoLoginEnabled, String autoCommand) {
+        this(host, port, termType, tls, keepAliveTimeout, user, password, autoLoginEnabled, autoCommand, null);
+    }
+
+    /**
+     * @param replaySteps macro steps to replay after connect+login (null = interactive session)
+     */
+    public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout,
+                                 String user, String password, boolean autoLoginEnabled, String autoCommand,
+                                 List<Map<String, String>> replaySteps) {
         this.host = host;
         this.port = port;
         this.termType = termType != null ? termType : "IBM-3278-2";
@@ -81,6 +96,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         this.password = password;
         this.autoLoginEnabled = autoLoginEnabled;
         this.autoCommand = autoCommand;
+        this.replaySteps = replaySteps;
 
         ensureFactoryInitialized();
 
@@ -195,10 +211,12 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                // Visual feedback: press/release the F-key button when a keyboard F-key is used
+                // Visual feedback: press/release the F-key button when a keyboard F-key is used.
+                // Also record all keyboard input for macro bookmarks.
                 screen.addKeyListener(new java.awt.event.KeyAdapter() {
                     @Override
                     public void keyPressed(java.awt.event.KeyEvent e) {
+                        // Record F-keys as AID
                         int fnum = fkeyNumberFromEvent(e);
                         if (fnum > 0) {
                             JButton btn = fkeyButtons.get(fnum);
@@ -206,6 +224,12 @@ public class TerminalConnectionTab implements ConnectionTab {
                                 btn.getModel().setArmed(true);
                                 btn.getModel().setPressed(true);
                             }
+                            Ohio.OHIO_AID aid = pfKeyToAid(fnum);
+                            if (aid != null) macroRecorder.recordAid(aid);
+                        }
+                        // Record Enter as AID
+                        if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER) {
+                            macroRecorder.recordAid(AID_ENTER);
                         }
                     }
 
@@ -218,6 +242,15 @@ public class TerminalConnectionTab implements ConnectionTab {
                                 btn.getModel().setPressed(false);
                                 btn.getModel().setArmed(false);
                             }
+                        }
+                    }
+
+                    @Override
+                    public void keyTyped(java.awt.event.KeyEvent e) {
+                        char c = e.getKeyChar();
+                        // Record printable characters (ignore control chars)
+                        if (c != java.awt.event.KeyEvent.CHAR_UNDEFINED && !Character.isISOControl(c)) {
+                            macroRecorder.recordChar(c);
                         }
                     }
                 });
@@ -464,6 +497,17 @@ public class TerminalConnectionTab implements ConnectionTab {
                         term.Fkey(AID_ENTER);
                         LOG.info("[3270] Auto-command sent: '" + autoCommand + "'");
                     }
+
+                    // 9) Replay macro steps if this is a bookmark session
+                    if (replaySteps != null && !replaySteps.isEmpty()) {
+                        if (!waitForKeyboardUnlock(term, 10_000)) {
+                            LOG.warning("[3270] Macro replay: keyboard did not unlock");
+                            return;
+                        }
+                        Thread.sleep(500);
+                        new TerminalMacroPlayer(term, replaySteps).play();
+                        LOG.info("[3270] Macro replay complete (" + replaySteps.size() + " steps)");
+                    }
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[3270] Auto-login failed", e);
                 }
@@ -592,6 +636,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         btn.addActionListener(e -> {
             Terminal t = terminal;
             if (t != null && connected) {
+                macroRecorder.recordAid(aid);
                 t.Fkey(aid);
                 if (terminalScreen != null) terminalScreen.requestFocusInWindow();
             }
@@ -730,6 +775,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         btn.addActionListener(e -> {
             Terminal t = terminal;
             if (t != null && connected && aid != null) {
+                macroRecorder.recordAid(aid);
                 t.Fkey(aid);
                 if (terminalScreen != null) terminalScreen.requestFocusInWindow();
             }
@@ -910,7 +956,12 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     @Override
     public String getPath() {
-        return "tn3270://" + host + ":" + port + "?tls=" + tls + "&termType=" + termType;
+        return host + ":" + port;
+    }
+
+    /** Get the recorded macro steps as a JSON string for bookmark storage. */
+    public String getMacroStepsJson() {
+        return macroRecorder.toJson();
     }
 
     @Override

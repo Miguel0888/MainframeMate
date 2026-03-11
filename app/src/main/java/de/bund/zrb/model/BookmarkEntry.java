@@ -32,6 +32,11 @@ public class BookmarkEntry {
     public static final String PREFIX_NDV   = "ndv://";
     public static final String PREFIX_MAIL     = "mail://";
     public static final String PREFIX_BETAVIEW = "betaview://";
+    public static final String PREFIX_TN3270   = "tn3270://";
+
+    // ── TN3270 macro bookmark metadata ──
+    /** Recorded macro steps as JSON array string, e.g. [{"type":"TEXT","value":"a"},{"type":"AID","value":"ENTER"}] */
+    public String tn3270MacroSteps;
 
     public BookmarkEntry() {
         // Für GSON
@@ -57,6 +62,7 @@ public class BookmarkEntry {
         if ("NDV".equals(backendType))   return PREFIX_NDV + rawPath;
         if ("MAIL".equals(backendType))     return PREFIX_MAIL + rawPath;
         if ("BETAVIEW".equals(backendType)) return PREFIX_BETAVIEW + rawPath;
+        if ("TN3270".equals(backendType))  return PREFIX_TN3270 + rawPath;
         // LOCAL or unknown: prefix with local://
         return PREFIX_LOCAL + rawPath;
     }
@@ -72,6 +78,7 @@ public class BookmarkEntry {
         if (path.startsWith(PREFIX_NDV))   return path.substring(PREFIX_NDV.length());
         if (path.startsWith(PREFIX_MAIL))     return path.substring(PREFIX_MAIL.length());
         if (path.startsWith(PREFIX_BETAVIEW)) return path.substring(PREFIX_BETAVIEW.length());
+        if (path.startsWith(PREFIX_TN3270))   return path.substring(PREFIX_TN3270.length());
         // Legacy: no prefix – treat as local
         return path;
     }
@@ -86,6 +93,7 @@ public class BookmarkEntry {
         if (path.startsWith(PREFIX_NDV))   return "NDV";
         if (path.startsWith(PREFIX_MAIL))     return "MAIL";
         if (path.startsWith(PREFIX_BETAVIEW)) return "BETAVIEW";
+        if (path.startsWith(PREFIX_TN3270))   return "TN3270";
         return "LOCAL";
     }
 

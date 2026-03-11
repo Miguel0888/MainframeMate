@@ -513,6 +513,9 @@ public class MainFrame extends JFrame implements MainframeContext {
                                 VirtualBackendType.BETAVIEW, null, null),
                         "[BetaView Dokument]\nLaden...", null, null, null);
                 break;
+            case "TN3270":
+                openTn3270Bookmark(entry);
+                break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
                 new VirtualResourceOpener(tabManager)
@@ -573,6 +576,68 @@ public class MainFrame extends JFrame implements MainframeContext {
             }
         };
         worker.execute();
+    }
+
+    /**
+     * Open a TN3270 macro bookmark: connect, auto-login, replay recorded macro steps.
+     */
+    private void openTn3270Bookmark(de.bund.zrb.model.BookmarkEntry entry) {
+        Settings settings = SettingsHelper.load();
+        String host = settings.host;
+        String user = settings.user;
+        int port = settings.tn3270Port;
+        String termType = settings.tn3270TermType;
+        boolean tls = settings.tn3270Tls;
+        int keepAlive = settings.tn3270KeepAliveTimeout;
+        boolean autoLogin = settings.tn3270AutoLogin;
+        String autoCmd = (settings.tn3270AutoCommand && settings.tn3270AutoCommandText != null)
+                ? settings.tn3270AutoCommandText : null;
+
+        if (host == null || host.isEmpty() || user == null || user.isEmpty()) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Bitte zuerst Server-Einstellungen konfigurieren.",
+                    "3270-Verbindung", javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String password = LoginManager.getInstance().getPassword(host, user);
+        if (password == null || password.isEmpty()) return;
+
+        // Parse macro steps from bookmark
+        final java.util.List<java.util.Map<String, String>> replaySteps =
+                de.bund.zrb.ui.terminal.TerminalMacroRecorder.fromJson(entry.tn3270MacroSteps);
+
+        final String fHost = host;
+        final String fUser = user;
+        final String fPassword = password;
+
+        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+
+        new javax.swing.SwingWorker<de.bund.zrb.ui.terminal.TerminalConnectionTab, Void>() {
+            @Override
+            protected de.bund.zrb.ui.terminal.TerminalConnectionTab doInBackground() throws Exception {
+                de.bund.zrb.ui.terminal.TerminalConnectionTab tab =
+                        new de.bund.zrb.ui.terminal.TerminalConnectionTab(
+                                fHost, port, termType, tls, keepAlive,
+                                fUser, fPassword, autoLogin, autoCmd, replaySteps);
+                tab.connect();
+                return tab;
+            }
+
+            @Override
+            protected void done() {
+                setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    de.bund.zrb.ui.terminal.TerminalConnectionTab tab = get();
+                    tabManager.addTab(tab);
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "3270-Bookmark fehlgeschlagen:\n" + cause.getMessage(),
+                            "Verbindungsfehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     /**

@@ -216,6 +216,11 @@ public class LeftDrawer extends JPanel {
 
     public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
                                   de.bund.zrb.ui.NdvResourceState ndvState) {
+        return toggleBookmark(rawPath, backendType, resourceKind, ndvState, null);
+    }
+
+    public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
+                                  de.bund.zrb.ui.NdvResourceState ndvState, String tn3270MacroSteps) {
         if (rawPath == null) return false;
         String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
         if (isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath)) {
@@ -238,6 +243,9 @@ public class LeftDrawer extends JPanel {
                     entry.ndvDbid = obj.getDatabaseId();
                     entry.ndvFnr = obj.getFileNumber();
                 }
+            }
+            if (tn3270MacroSteps != null && !tn3270MacroSteps.isEmpty()) {
+                entry.tn3270MacroSteps = tn3270MacroSteps;
             }
             BookmarkHelper.addBookmarkToFolder("Allgemein", entry);
             refreshBookmarks();
