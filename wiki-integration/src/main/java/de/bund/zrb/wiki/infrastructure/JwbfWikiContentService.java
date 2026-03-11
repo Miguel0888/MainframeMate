@@ -284,18 +284,24 @@ public class JwbfWikiContentService implements WikiContentService {
         conn.setReadTimeout(30000);
         conn.setUseCaches(false);
 
-        // Attach cookies from previous requests
+        // Attach cookies from previous requests – merged into a SINGLE Cookie header.
+        // Some servers/reverse proxies only read the first Cookie header and discard the rest.
         try {
             Map<String, List<String>> cookieHeaders = cm.get(url.toURI(), Collections.<String, List<String>>emptyMap());
-            boolean anyCookieSent = false;
+            StringBuilder merged = new StringBuilder();
             for (Map.Entry<String, List<String>> entry : cookieHeaders.entrySet()) {
+                if (entry.getKey() == null) continue;
+                // CookieManager returns "Cookie" as the key with each value being "name=value"
                 for (String value : entry.getValue()) {
-                    conn.addRequestProperty(entry.getKey(), value);
-                    LOG.info("[Wiki] → Sending cookie: " + entry.getKey() + ": " + value);
-                    anyCookieSent = true;
+                    if (value == null || value.isEmpty()) continue;
+                    if (merged.length() > 0) merged.append("; ");
+                    merged.append(value);
                 }
             }
-            if (!anyCookieSent) {
+            if (merged.length() > 0) {
+                conn.setRequestProperty("Cookie", merged.toString());
+                LOG.info("[Wiki] → Cookie: " + merged);
+            } else {
                 LOG.info("[Wiki] → NO cookies sent for " + url);
             }
         } catch (URISyntaxException e) {
