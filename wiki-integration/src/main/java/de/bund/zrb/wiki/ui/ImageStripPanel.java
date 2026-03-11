@@ -145,50 +145,78 @@ public class ImageStripPanel extends JPanel {
             }
         });
 
-        // Arrows hidden by default, shown on mouse hover
+        // Arrows hidden by default
         leftArrow.setVisible(false);
         rightArrow.setVisible(false);
 
-        // Mouse tracking: show arrows near edges, download button near top-right
-        final MouseAdapter hoverTracker = new MouseAdapter() {
-            private void update(MouseEvent e) {
-                Point p = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), layered);
-                int w = layered.getWidth();
-                boolean showLeft = currentIndex[0] > 0 && p.x < ARROW_STRIP_W + 10;
-                boolean showRight = currentIndex[0] < allImages.size() - 1 && p.x > w - ARROW_STRIP_W - 10;
-                // Show download when mouse is in the top-right quadrant
-                boolean showDl = p.x > w - DL_BTN_W - 30 && p.y < DL_BTN_H + 30;
-                leftArrow.setVisible(showLeft);
-                rightArrow.setVisible(showRight);
-                downloadOverlay.setVisible(showDl);
-            }
-
-            @Override public void mouseMoved(MouseEvent e) { update(e); }
-            @Override public void mouseExited(MouseEvent e) {
-                leftArrow.setVisible(false);
-                rightArrow.setVisible(false);
-                downloadOverlay.setVisible(false);
-            }
-        };
-        scrollPane.addMouseMotionListener(hoverTracker);
-        scrollPane.addMouseListener(hoverTracker);
-        imageLabel.addMouseMotionListener(hoverTracker);
-        imageLabel.addMouseListener(hoverTracker);
-
         dialog.add(layered, BorderLayout.CENTER);
 
-        // ── Slim info bar at the bottom (just the text, no buttons) ──
+        // ── Slim info bar at the bottom ──
         final JLabel infoLabel = new JLabel(" ", SwingConstants.CENTER);
         infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC, 11f));
         infoLabel.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
         dialog.add(infoLabel, BorderLayout.SOUTH);
 
+        // ── Load & display logic (declared early so glass pane can reference it) ──
+        final Runnable[] loadCurrent = new Runnable[1];
+
+        // ── Transparent glass pane over the entire dialog for flicker-free hover tracking ──
+        JPanel glass = new JPanel(null);
+        glass.setOpaque(false);
+        dialog.setGlassPane(glass);
+        glass.setVisible(true);
+
+        glass.addMouseMotionListener(new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                Point p = SwingUtilities.convertPoint(glass, e.getPoint(), layered);
+                int w = layered.getWidth();
+                int h = layered.getHeight();
+
+                boolean inImage = p.x >= 0 && p.x < w && p.y >= 0 && p.y < h;
+                boolean showLeft = inImage && currentIndex[0] > 0 && p.x < ARROW_STRIP_W;
+                boolean showRight = inImage && currentIndex[0] < allImages.size() - 1 && p.x >= w - ARROW_STRIP_W;
+                boolean showDl = inImage && p.x >= w - DL_BTN_W - 16 && p.y <= DL_BTN_H + 16;
+
+                leftArrow.setVisible(showLeft);
+                rightArrow.setVisible(showRight);
+                downloadOverlay.setVisible(showDl);
+            }
+        });
+        glass.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseExited(MouseEvent e) {
+                leftArrow.setVisible(false);
+                rightArrow.setVisible(false);
+                downloadOverlay.setVisible(false);
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                Point p = SwingUtilities.convertPoint(glass, e.getPoint(), layered);
+                int w = layered.getWidth();
+                int h = layered.getHeight();
+
+                boolean inImage = p.x >= 0 && p.x < w && p.y >= 0 && p.y < h;
+                if (!inImage) return;
+
+                if (currentIndex[0] > 0 && p.x < ARROW_STRIP_W) {
+                    currentIndex[0]--;
+                    loadCurrent[0].run();
+                } else if (currentIndex[0] < allImages.size() - 1 && p.x >= w - ARROW_STRIP_W) {
+                    currentIndex[0]++;
+                    loadCurrent[0].run();
+                } else if (p.x >= w - DL_BTN_W - 16 && p.y <= DL_BTN_H + 16) {
+                    downloadImage(allImages.get(currentIndex[0]));
+                }
+            }
+        });
+
         // Initial size
         dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
         dialog.setLocationRelativeTo(owner);
 
-        // ── Load & display logic ──
-        final Runnable[] loadCurrent = new Runnable[1];
+        // ── Assign load logic ──
         loadCurrent[0] = () -> {
             ImageRef img = allImages.get(currentIndex[0]);
             dialog.setTitle(img.description());
@@ -252,22 +280,6 @@ public class ImageStripPanel extends JPanel {
             }.execute();
         };
 
-        // Wire arrow clicks
-        leftArrow.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
-                if (currentIndex[0] > 0) { currentIndex[0]--; loadCurrent[0].run(); }
-            }
-        });
-        rightArrow.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
-                if (currentIndex[0] < allImages.size() - 1) { currentIndex[0]++; loadCurrent[0].run(); }
-            }
-        });
-        downloadOverlay.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
-                downloadImage(allImages.get(currentIndex[0]));
-            }
-        });
 
         // Keyboard navigation
         dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
