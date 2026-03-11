@@ -73,6 +73,15 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         }
 
         tabManager.addTab(tab);
+
+        // Register wiki service with RelationsService for link resolution
+        if (tabManager.getMainframeContext() instanceof de.bund.zrb.ui.MainFrame) {
+            de.bund.zrb.ui.MainFrame mf = (de.bund.zrb.ui.MainFrame) tabManager.getMainframeContext();
+            de.bund.zrb.service.RelationsService rs = mf.getRelationsService();
+            if (rs != null) {
+                rs.setWikiService(service);
+            }
+        }
     }
 
     /**

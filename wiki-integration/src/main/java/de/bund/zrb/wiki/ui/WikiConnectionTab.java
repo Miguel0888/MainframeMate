@@ -530,6 +530,69 @@ public class WikiConnectionTab implements ConnectionTab {
         this.prefetchCallback = callback;
     }
 
+    /**
+     * Open a wiki page externally (e.g. from a relation entry in the LeftDrawer).
+     * Uses the priority thread if prefetch is available, otherwise loads directly.
+     */
+    public void openPageExternally(String siteIdStr, String pageTitle) {
+        if (openCallback == null) return;
+
+        WikiSiteDescriptor site = findSiteById(siteIdStr);
+        if (site == null && siteSelector.getItemCount() > 0) {
+            site = (WikiSiteDescriptor) siteSelector.getItemAt(0);
+        }
+        if (site == null) return;
+
+        final WikiSiteDescriptor targetSite = site;
+
+        // Check prefetch cache first
+        if (prefetchCallback != null) {
+            WikiPageView cached = prefetchCallback.getCached(targetSite.id(), pageTitle);
+            if (cached != null) {
+                openCallback.openWikiPage(targetSite.id().value(), cached.title(),
+                        cached.cleanedHtml(), cached.outline());
+                return;
+            }
+        }
+
+        // Load in background
+        statusLabel.setText("⏳ Öffne: " + pageTitle + "…");
+        new SwingWorker<WikiPageView, Void>() {
+            @Override
+            protected WikiPageView doInBackground() throws Exception {
+                if (prefetchCallback != null) {
+                    WikiPageView v = prefetchCallback.loadPriority(targetSite.id(), pageTitle);
+                    if (v != null) return v;
+                }
+                return service.loadPage(targetSite.id(), pageTitle, getCredentials(targetSite));
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    WikiPageView view = get();
+                    if (view != null && openCallback != null) {
+                        openCallback.openWikiPage(targetSite.id().value(), view.title(),
+                                view.cleanedHtml(), view.outline());
+                        statusLabel.setText("✅ Geöffnet: " + view.title());
+                    }
+                } catch (Exception ex) {
+                    statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
+                }
+            }
+        }.execute();
+    }
+
+    private WikiSiteDescriptor findSiteById(String siteIdStr) {
+        for (int i = 0; i < siteSelector.getItemCount(); i++) {
+            WikiSiteDescriptor s = (WikiSiteDescriptor) siteSelector.getItemAt(i);
+            if (s.id().value().equals(siteIdStr)) {
+                return s;
+            }
+        }
+        return null;
+    }
+
     public interface OpenCallback {
         void openWikiPage(String siteId, String pageTitle, String htmlContent, OutlineNode outline);
     }

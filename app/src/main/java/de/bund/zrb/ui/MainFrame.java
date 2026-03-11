@@ -70,6 +70,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     private final WorkflowRunner workflowRunner;
     private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
     private DragAndDropImportHandler importHandler;
+    private de.bund.zrb.service.RelationsService relationsService;
 
     // Builds the menu
     private void registerCoreCommands() {
@@ -363,13 +364,34 @@ public class MainFrame extends JFrame implements MainframeContext {
     private Component initBookmarkDrawer(Component content) {
         leftDrawer = new LeftDrawer(this::openBookmark);
 
+        // Initialize RelationsService
+        Settings s = SettingsHelper.load();
+        relationsService = new de.bund.zrb.service.RelationsService(
+                Math.max(1, s.wikiPrefetchConcurrency));
+
+        // When user double-clicks a relation → open it as tab
+        leftDrawer.setOnRelationOpen(entry -> {
+            if ("WIKI_LINK".equals(entry.getType())) {
+                String targetPath = entry.getTargetPath(); // wiki://siteId/pageTitle
+                if (targetPath != null && targetPath.startsWith("wiki://")) {
+                    String rest = targetPath.substring("wiki://".length());
+                    int slash = rest.indexOf('/');
+                    if (slash > 0) {
+                        String siteId = rest.substring(0, slash);
+                        String pageTitle = rest.substring(slash + 1);
+                        openWikiPageAsTab(siteId, pageTitle);
+                    }
+                }
+            }
+        });
+
         leftSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftDrawer, content);
         leftSplitPane.setOneTouchExpandable(true);
 
         Settings settings = SettingsHelper.load();
         String dividerValue = settings.applicationState.get("drawer.bookmark.divider");
 
-        int divider = tryParseInt(dividerValue, 220); // Fallback default
+        int divider = tryParseInt(dividerValue, 220);
         leftSplitPane.setDividerLocation(divider);
 
         return leftSplitPane;
@@ -883,6 +905,20 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     public LeftDrawer getBookmarkDrawer() {
         return leftDrawer;
+    }
+
+    public de.bund.zrb.service.RelationsService getRelationsService() {
+        return relationsService;
+    }
+
+    /**
+     * Open a wiki page from a relation entry as a new WikiFileTab.
+     * Delegates to TabbedPaneManager's existing wiki open mechanism.
+     */
+    private void openWikiPageAsTab(String siteId, String pageTitle) {
+        if (tabManager != null) {
+            tabManager.openWikiRelationAsTab(siteId, pageTitle);
+        }
     }
 
     public de.bund.zrb.service.McpChatEventBridge getChatEventBridge() {

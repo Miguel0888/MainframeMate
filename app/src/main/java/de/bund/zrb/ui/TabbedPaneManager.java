@@ -464,7 +464,7 @@ public class TabbedPaneManager {
             return;
         }
 
-        // WikiFileTab: show wiki outline in RightDrawer
+        // WikiFileTab: show wiki outline in RightDrawer + relations in LeftDrawer
         if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab) {
             de.bund.zrb.wiki.ui.WikiFileTab wikiTab = (de.bund.zrb.wiki.ui.WikiFileTab) tab;
             de.bund.zrb.wiki.domain.OutlineNode outline = wikiTab.getOutline();
@@ -474,11 +474,15 @@ public class TabbedPaneManager {
                 rightDrawer.restoreCodeOutline();
                 rightDrawer.clearJclOutline();
             }
+            updateRelationsForWikiTab(mainFrame, wikiTab);
             return;
         }
 
         // Restore code outline for non-wiki tabs
         rightDrawer.restoreCodeOutline();
+
+        // Update relations for non-wiki tabs
+        updateRelationsForNonWikiTab(mainFrame, tab);
 
         // Get content, source name, and sentence type from the tab
         String content = null;
@@ -616,5 +620,81 @@ public class TabbedPaneManager {
         } catch (Exception e) {
             System.err.println("Could not navigate to line " + lineNumber + ": " + e.getMessage());
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Relations (LeftDrawer) support
+    // ═══════════════════════════════════════════════════════════
+
+    private void updateRelationsForWikiTab(MainFrame mainFrame, de.bund.zrb.wiki.ui.WikiFileTab wikiTab) {
+        LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
+        de.bund.zrb.service.RelationsService relationsService = mainFrame.getRelationsService();
+        if (leftDrawer == null || relationsService == null) return;
+
+        String tabPath = wikiTab.getPath(); // wiki://siteId/pageTitle
+
+        // Check cache first
+        java.util.List<LeftDrawer.RelationEntry> cached = relationsService.getCached(tabPath);
+        if (cached != null) {
+            leftDrawer.updateRelations("Wiki-Links", cached);
+            return;
+        }
+
+        // Show loading and resolve in background
+        leftDrawer.showRelationsLoading();
+
+        de.bund.zrb.wiki.domain.WikiSiteId siteId =
+                new de.bund.zrb.wiki.domain.WikiSiteId(wikiTab.getSiteId());
+
+        relationsService.resolveWikiLinks(siteId, wikiTab.getPageTitle(), tabPath,
+                new de.bund.zrb.service.RelationsService.RelationsCallback() {
+                    @Override
+                    public void onRelationsResolved(java.util.List<LeftDrawer.RelationEntry> entries) {
+                        leftDrawer.updateRelations("Wiki-Links", entries);
+                    }
+                });
+    }
+
+    private void updateRelationsForNonWikiTab(MainFrame mainFrame, de.zrb.bund.newApi.ui.FtpTab tab) {
+        LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
+        if (leftDrawer == null) return;
+
+        // Check if it's a program source (JCL/COBOL/Natural) → show placeholder
+        String sentenceType = null;
+        if (tab instanceof FileTabImpl) {
+            sentenceType = ((FileTabImpl) tab).getModel().getSentenceType();
+        }
+
+        if (sentenceType != null) {
+            String upper = sentenceType.toUpperCase();
+            if (upper.contains("JCL") || upper.contains("COBOL") || upper.contains("NATURAL")) {
+                leftDrawer.showRelationsPlaceholder("Dependencies werden in einer zukünftigen Version unterstützt.");
+                return;
+            }
+        }
+
+        leftDrawer.clearRelations();
+    }
+
+    /**
+     * Open a wiki page from a relation entry as a new WikiFileTab.
+     * Uses the existing WikiContentService if a WikiConnectionTab is open,
+     * otherwise falls back to a fresh service from settings.
+     */
+    public void openWikiRelationAsTab(String siteId, String pageTitle) {
+        // Try to find an open WikiConnectionTab to get its service + callback
+        for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
+            if (entry.getValue() instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
+                de.bund.zrb.wiki.ui.WikiConnectionTab wikiConn =
+                        (de.bund.zrb.wiki.ui.WikiConnectionTab) entry.getValue();
+                // Trigger the connection tab's open mechanism
+                wikiConn.openPageExternally(siteId, pageTitle);
+                return;
+            }
+        }
+        // If no wiki connection tab is open, we can't resolve the page
+        javax.swing.JOptionPane.showMessageDialog(tabbedPane,
+                "Bitte öffnen Sie zuerst einen Wiki-Tab unter Verbindung → Wiki.",
+                "Kein Wiki verbunden", javax.swing.JOptionPane.INFORMATION_MESSAGE);
     }
 }

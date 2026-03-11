@@ -20,12 +20,32 @@ public class LeftDrawer extends JPanel {
     private final DefaultMutableTreeNode rootNode;
     private final Consumer<BookmarkEntry> onBookmarkOpen;
 
+    private final JTabbedPane tabbedPane;
+    private final JPanel bookmarkPanel;
+
+    // ── Relations tab ──
+    private final JTree relationsTree;
+    private final DefaultTreeModel relationsModel;
+    private final DefaultMutableTreeNode relationsRoot;
+    private final JPanel relationsPanel;
+    private final JLabel relationsStatusLabel;
+
+    /** Callback for opening a relation target (e.g. wiki link). */
+    private Consumer<RelationEntry> onRelationOpen;
+
     public LeftDrawer(Consumer<BookmarkEntry> onBookmarkOpen) {
         this.onBookmarkOpen = onBookmarkOpen;
 
         setLayout(new BorderLayout());
         setPreferredSize(new Dimension(220, 0));
-        setBorder(BorderFactory.createTitledBorder("📁 Bookmarks"));
+
+        // ═══════════════════════════════════════════════
+        //  Tabbed pane (non-closable tabs, like RightDrawer)
+        // ═══════════════════════════════════════════════
+        tabbedPane = new JTabbedPane(JTabbedPane.TOP);
+
+        // ── Tab 1: Bookmarks ──
+        bookmarkPanel = new JPanel(new BorderLayout());
 
         BookmarkEntry rootEntry = new BookmarkEntry("Bookmarks", null, true);
         rootNode = new DefaultMutableTreeNode(rootEntry);
@@ -39,12 +59,116 @@ public class LeftDrawer extends JPanel {
         tree.setDropMode(DropMode.ON_OR_INSERT);
         tree.setTransferHandler(new BookmarkTreeTransferHandler(this));
 
-        JScrollPane scrollPane = new JScrollPane(tree);
-        add(scrollPane, BorderLayout.CENTER);
-
+        bookmarkPanel.add(new JScrollPane(tree), BorderLayout.CENTER);
         installMouseHandler();
+
+        tabbedPane.addTab("📁 Bookmarks", bookmarkPanel);
+
+        // ── Tab 2: Relations ──
+        relationsPanel = new JPanel(new BorderLayout());
+        relationsRoot = new DefaultMutableTreeNode("Beziehungen");
+        relationsModel = new DefaultTreeModel(relationsRoot);
+        relationsTree = new JTree(relationsModel);
+        relationsTree.setRootVisible(false);
+        relationsTree.setShowsRootHandles(true);
+
+        relationsTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    TreePath path = relationsTree.getPathForLocation(e.getX(), e.getY());
+                    if (path != null) {
+                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                        if (node.getUserObject() instanceof RelationEntry) {
+                            RelationEntry entry = (RelationEntry) node.getUserObject();
+                            if (onRelationOpen != null) {
+                                onRelationOpen.accept(entry);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        relationsStatusLabel = new JLabel(" ");
+        relationsStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        relationsStatusLabel.setFont(relationsStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+
+        relationsPanel.add(new JScrollPane(relationsTree), BorderLayout.CENTER);
+        relationsPanel.add(relationsStatusLabel, BorderLayout.SOUTH);
+
+        tabbedPane.addTab("🔗 Beziehungen", relationsPanel);
+
+        add(tabbedPane, BorderLayout.CENTER);
+
         refreshBookmarks();
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Relations API (called by TabbedPaneManager on tab switch)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Update the relations tree with the given entries.
+     * @param sectionLabel root label, e.g. "Wiki-Links" or "Dependencies"
+     * @param entries      list of relation entries to display
+     */
+    public void updateRelations(String sectionLabel, List<RelationEntry> entries) {
+        relationsRoot.removeAllChildren();
+
+        if (entries == null || entries.isEmpty()) {
+            relationsRoot.add(new DefaultMutableTreeNode("(keine)"));
+        } else {
+            for (RelationEntry entry : entries) {
+                relationsRoot.add(new DefaultMutableTreeNode(entry));
+            }
+        }
+
+        relationsModel.reload();
+        relationsStatusLabel.setText(entries != null ? entries.size() + " Beziehungen" : " ");
+
+        // Expand all
+        for (int i = 0; i < relationsTree.getRowCount(); i++) {
+            relationsTree.expandRow(i);
+        }
+    }
+
+    /**
+     * Show a placeholder message (e.g. for program tabs where dependencies aren't implemented yet).
+     */
+    public void showRelationsPlaceholder(String message) {
+        relationsRoot.removeAllChildren();
+        relationsRoot.add(new DefaultMutableTreeNode(message));
+        relationsModel.reload();
+        relationsStatusLabel.setText(" ");
+    }
+
+    /**
+     * Show a loading indicator in the relations tree.
+     */
+    public void showRelationsLoading() {
+        relationsRoot.removeAllChildren();
+        relationsRoot.add(new DefaultMutableTreeNode("⏳ Lade Beziehungen…"));
+        relationsModel.reload();
+        relationsStatusLabel.setText(" ");
+    }
+
+    /**
+     * Clear relations (no tab selected).
+     */
+    public void clearRelations() {
+        relationsRoot.removeAllChildren();
+        relationsModel.reload();
+        relationsStatusLabel.setText(" ");
+    }
+
+    public void setOnRelationOpen(Consumer<RelationEntry> callback) {
+        this.onRelationOpen = callback;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Bookmark API (unchanged)
+    // ═══════════════════════════════════════════════════════════
 
     public void refreshBookmarks() {
         rootNode.removeAllChildren();
@@ -68,8 +192,7 @@ public class LeftDrawer extends JPanel {
         if (path == null || path.trim().isEmpty()) return;
         String prefixedPath = BookmarkEntry.buildPath(backendType, path);
         String label = new File(path).getName();
-        if (label.isEmpty()) label = path; // fallback for paths like "/"
-        // Ensure "Allgemein" folder exists
+        if (label.isEmpty()) label = path;
         ensureGeneralFolder();
         BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
         entry.resourceKind = resourceKind != null ? resourceKind : "FILE";
@@ -77,33 +200,20 @@ public class LeftDrawer extends JPanel {
         refreshBookmarks();
     }
 
-    /**
-     * Check if a path (raw, without protocol prefix) is bookmarked.
-     */
     public boolean isBookmarked(String rawPath, String backendType) {
         if (rawPath == null) return false;
         String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
         return isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath);
     }
 
-    /**
-     * Toggle bookmark: add if not present, remove if already bookmarked.
-     * Returns true if bookmark was added, false if removed.
-     */
     public boolean toggleBookmark(String rawPath, String backendType) {
         return toggleBookmark(rawPath, backendType, "FILE");
     }
 
-    /**
-     * Toggle bookmark with explicit resource kind (FILE or DIRECTORY).
-     */
     public boolean toggleBookmark(String rawPath, String backendType, String resourceKind) {
         return toggleBookmark(rawPath, backendType, resourceKind, null);
     }
 
-    /**
-     * Toggle bookmark with optional NDV metadata for direct file reopening.
-     */
     public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
                                   de.bund.zrb.ui.NdvResourceState ndvState) {
         if (rawPath == null) return false;
@@ -118,7 +228,6 @@ public class LeftDrawer extends JPanel {
             ensureGeneralFolder();
             BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
             entry.resourceKind = resourceKind != null ? resourceKind : "FILE";
-            // Enrich NDV FILE bookmarks with object metadata for direct reopening
             if (ndvState != null && "FILE".equals(resourceKind)) {
                 de.bund.zrb.ndv.NdvObjectInfo obj = ndvState.getObjectInfo();
                 if (obj != null) {
@@ -135,6 +244,10 @@ public class LeftDrawer extends JPanel {
             return true;
         }
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Internal
+    // ═══════════════════════════════════════════════════════════
 
     private boolean isBookmarkedRecursive(List<BookmarkEntry> entries, String prefixedPath) {
         for (BookmarkEntry e : entries) {
@@ -162,7 +275,7 @@ public class LeftDrawer extends JPanel {
 
                 if (SwingUtilities.isRightMouseButton(e)) {
                     if (selPath == null) {
-                        showContextMenu(e.getComponent(), e.getX(), e.getY(), null); // root context
+                        showContextMenu(e.getComponent(), e.getX(), e.getY(), null);
                     } else {
                         Object nodeObj = ((DefaultMutableTreeNode) selPath.getLastPathComponent()).getUserObject();
                         if (nodeObj instanceof BookmarkEntry) {
@@ -237,7 +350,7 @@ public class LeftDrawer extends JPanel {
             menu.add(deleteItem);
         }
 
-        if (!entry.folder) {
+        if (entry != null && !entry.folder) {
             JMenuItem changePathItem = new JMenuItem("🛤 Pfad ändern");
             changePathItem.addActionListener(ev -> {
                 String newPath = JOptionPane.showInputDialog(invoker, "Neuer Pfad:", entry.path);
@@ -268,6 +381,39 @@ public class LeftDrawer extends JPanel {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Relation entry model
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * A single relation entry displayed in the relations tree.
+     * Used for wiki links, and later for program dependencies.
+     */
+    public static class RelationEntry {
+        private final String label;
+        private final String targetPath;  // e.g. "wiki://wikipedia_de/Seite" or later "ndv://LIB/OBJ"
+        private final String type;        // "WIKI_LINK", "DEPENDENCY", etc.
+
+        public RelationEntry(String label, String targetPath, String type) {
+            this.label = label;
+            this.targetPath = targetPath;
+            this.type = type;
+        }
+
+        public String getLabel() { return label; }
+        public String getTargetPath() { return targetPath; }
+        public String getType() { return type; }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Renderers
+    // ═══════════════════════════════════════════════════════════
+
     private static class BookmarkTreeCellRenderer extends DefaultTreeCellRenderer {
         private final Icon folderIcon = UIManager.getIcon("FileView.directoryIcon");
         private final Icon fileIcon = UIManager.getIcon("FileView.fileIcon");
@@ -297,6 +443,4 @@ public class LeftDrawer extends JPanel {
             return comp;
         }
     }
-
-
 }
