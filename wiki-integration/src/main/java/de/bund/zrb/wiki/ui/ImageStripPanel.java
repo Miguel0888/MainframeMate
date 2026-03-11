@@ -116,13 +116,21 @@ public class ImageStripPanel extends JPanel {
         final JPanel leftArrow = createArrowPanel("◀", ARROW_STRIP_W);
         final JPanel rightArrow = createArrowPanel("▶", ARROW_STRIP_W);
 
-        // Use a layered pane to overlay arrows on top of the scroll pane
+        // Download overlay button (top-right corner, same translucent style)
+        final int DL_BTN_W = 44;
+        final int DL_BTN_H = 44;
+        final JPanel downloadOverlay = createArrowPanel("💾", DL_BTN_W);
+        downloadOverlay.setToolTipText("Herunterladen");
+        downloadOverlay.setVisible(false);
+
+        // Use a layered pane to overlay arrows + download on top of the scroll pane
         final JLayeredPane layered = new JLayeredPane();
-        layered.setLayout(null); // manual positioning — we resize in a listener
+        layered.setLayout(null);
 
         layered.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
         layered.add(leftArrow, JLayeredPane.PALETTE_LAYER);
         layered.add(rightArrow, JLayeredPane.PALETTE_LAYER);
+        layered.add(downloadOverlay, JLayeredPane.PALETTE_LAYER);
 
         // Keep children sized to the layered pane
         layered.addComponentListener(new java.awt.event.ComponentAdapter() {
@@ -133,6 +141,7 @@ public class ImageStripPanel extends JPanel {
                 scrollPane.setBounds(0, 0, w, h);
                 leftArrow.setBounds(0, 0, ARROW_STRIP_W, h);
                 rightArrow.setBounds(w - ARROW_STRIP_W, 0, ARROW_STRIP_W, h);
+                downloadOverlay.setBounds(w - DL_BTN_W - 8, 8, DL_BTN_W, DL_BTN_H);
             }
         });
 
@@ -140,21 +149,25 @@ public class ImageStripPanel extends JPanel {
         leftArrow.setVisible(false);
         rightArrow.setVisible(false);
 
-        // Mouse tracking: show arrows when mouse is near the edges
+        // Mouse tracking: show arrows near edges, download button near top-right
         final MouseAdapter hoverTracker = new MouseAdapter() {
             private void update(MouseEvent e) {
                 Point p = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), layered);
                 int w = layered.getWidth();
                 boolean showLeft = currentIndex[0] > 0 && p.x < ARROW_STRIP_W + 10;
                 boolean showRight = currentIndex[0] < allImages.size() - 1 && p.x > w - ARROW_STRIP_W - 10;
+                // Show download when mouse is in the top-right quadrant
+                boolean showDl = p.x > w - DL_BTN_W - 30 && p.y < DL_BTN_H + 30;
                 leftArrow.setVisible(showLeft);
                 rightArrow.setVisible(showRight);
+                downloadOverlay.setVisible(showDl);
             }
 
             @Override public void mouseMoved(MouseEvent e) { update(e); }
             @Override public void mouseExited(MouseEvent e) {
                 leftArrow.setVisible(false);
                 rightArrow.setVisible(false);
+                downloadOverlay.setVisible(false);
             }
         };
         scrollPane.addMouseMotionListener(hoverTracker);
@@ -164,26 +177,11 @@ public class ImageStripPanel extends JPanel {
 
         dialog.add(layered, BorderLayout.CENTER);
 
-        // ── Bottom bar: info + download + close ──
-        JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
-
-        final JLabel infoLabel = new JLabel(" ");
-        infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC, 12f));
-        bottomPanel.add(infoLabel, BorderLayout.CENTER);
-
-        final JButton downloadBtn = new JButton("💾 Herunterladen");
-        downloadBtn.setEnabled(false);
-
-        JButton closeBtn = new JButton("Schließen");
-        closeBtn.addActionListener(e -> dialog.dispose());
-
-        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        rightButtons.add(downloadBtn);
-        rightButtons.add(closeBtn);
-        bottomPanel.add(rightButtons, BorderLayout.EAST);
-
-        dialog.add(bottomPanel, BorderLayout.SOUTH);
+        // ── Slim info bar at the bottom (just the text, no buttons) ──
+        final JLabel infoLabel = new JLabel(" ", SwingConstants.CENTER);
+        infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        infoLabel.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
+        dialog.add(infoLabel, BorderLayout.SOUTH);
 
         // Initial size
         dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
@@ -196,7 +194,6 @@ public class ImageStripPanel extends JPanel {
             dialog.setTitle(img.description());
             imageLabel.setIcon(null);
             imageLabel.setText("⏳ Lade Bild…");
-            downloadBtn.setEnabled(false);
             infoLabel.setText((currentIndex[0] + 1) + " / " + allImages.size()
                     + "  —  " + img.description());
 
@@ -238,7 +235,6 @@ public class ImageStripPanel extends JPanel {
 
                         imageLabel.setIcon(icon);
                         imageLabel.setText(null);
-                        downloadBtn.setEnabled(true);
 
                         int dialogW = Math.max(Math.min(icon.getIconWidth() + chromeW, screenMaxW), 400);
                         int dialogH = Math.max(Math.min(icon.getIconHeight() + chromeH, screenMaxH), 300);
@@ -267,7 +263,11 @@ public class ImageStripPanel extends JPanel {
                 if (currentIndex[0] < allImages.size() - 1) { currentIndex[0]++; loadCurrent[0].run(); }
             }
         });
-        downloadBtn.addActionListener(e -> downloadImage(allImages.get(currentIndex[0])));
+        downloadOverlay.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                downloadImage(allImages.get(currentIndex[0]));
+            }
+        });
 
         // Keyboard navigation
         dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
