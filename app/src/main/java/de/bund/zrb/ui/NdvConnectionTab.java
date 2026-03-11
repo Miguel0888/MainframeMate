@@ -44,17 +44,8 @@ public class NdvConnectionTab implements ConnectionTab {
     private DefaultListModel<Object> listModel = new DefaultListModel<Object>();
     private final JList<Object> fileList;
     private final JTextField searchField = new JTextField();
-    private final JLabel overlayLabel = new JLabel() {
-        @Override
-        protected void paintComponent(Graphics g) {
-            if (isVisible() && getBackground() != null) {
-                g.setColor(getBackground());
-                g.fillRect(0, 0, getWidth(), getHeight());
-            }
-            super.paintComponent(g);
-        }
-    };
-    private final JPanel listContainer;
+    private final JLabel overlayLabel = new JLabel();
+    private final JLayeredPane listContainer = new JLayeredPane();
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
     private JButton forwardButton;
@@ -89,7 +80,6 @@ public class NdvConnectionTab implements ConnectionTab {
 
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<Object>(listModel);
-        this.listContainer = new JPanel();
 
         fileList.setCellRenderer(new NdvCellRenderer());
 
@@ -145,18 +135,23 @@ public class NdvConnectionTab implements ConnectionTab {
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
-        overlayLabel.setOpaque(false);
+        overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
-        overlayLabel.setAlignmentX(0.5f);
-        overlayLabel.setAlignmentY(0.5f);
 
-        // List setup
+        // List setup – use JLayeredPane to avoid OverlayLayout painting artifacts
         JScrollPane scrollPane = new JScrollPane(fileList);
-        scrollPane.setAlignmentX(0.5f);
-        scrollPane.setAlignmentY(0.5f);
-        listContainer.setLayout(new OverlayLayout(listContainer));
-        listContainer.add(overlayLabel);
-        listContainer.add(scrollPane);
+        listContainer.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
+        listContainer.add(overlayLabel, JLayeredPane.PALETTE_LAYER);
+
+        // Keep children sized to the layered pane
+        listContainer.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                Dimension size = listContainer.getSize();
+                scrollPane.setBounds(0, 0, size.width, size.height);
+                overlayLabel.setBounds(0, 0, size.width, size.height);
+            }
+        });
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         installMouseNavigation(pathField);
