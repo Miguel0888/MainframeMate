@@ -122,6 +122,16 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
 
         tabManager.addTab(tab);
 
+        // Restore persisted wiki checkbox selection from applicationState
+        tab.restoreApplicationState(settings.applicationState);
+
+        // Auto-save checkbox state on every toggle
+        tab.setStateSaveCallback(() -> {
+            Settings s = SettingsHelper.load();
+            tab.addApplicationState(s.applicationState);
+            SettingsHelper.save(s);
+        });
+
         // Register wiki service with RelationsService for link resolution
         if (tabManager.getMainframeContext() instanceof de.bund.zrb.ui.MainFrame) {
             de.bund.zrb.ui.MainFrame mf = (de.bund.zrb.ui.MainFrame) tabManager.getMainframeContext();

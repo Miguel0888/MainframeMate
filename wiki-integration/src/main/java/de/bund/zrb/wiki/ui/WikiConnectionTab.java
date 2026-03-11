@@ -14,6 +14,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -81,6 +82,9 @@ public class WikiConnectionTab implements ConnectionTab {
             JCheckBox cb = new JCheckBox(site.displayName(), true);
             cb.setToolTipText(site.apiUrl());
             cb.putClientProperty("wikiSite", site);
+            cb.addItemListener(e -> {
+                if (stateSaveCallback != null) stateSaveCallback.run();
+            });
             siteCheckboxes.add(cb);
             siteCheckboxPanel.add(cb);
         }
@@ -790,6 +794,42 @@ public class WikiConnectionTab implements ConnectionTab {
 
     public void setCredentialsSaveCallback(CredentialsSaveCallback callback) {
         this.credentialsSaveCallback = callback;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Application State persistence (wiki checkbox selection)
+    // ═══════════════════════════════════════════════════════════
+
+    /** Callback to persist state changes immediately (e.g. on checkbox toggle). */
+    private Runnable stateSaveCallback;
+
+    public void setStateSaveCallback(Runnable callback) {
+        this.stateSaveCallback = callback;
+    }
+
+    /** Write current checkbox states into the applicationState map. */
+    public void addApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        for (JCheckBox cb : siteCheckboxes) {
+            WikiSiteDescriptor site = (WikiSiteDescriptor) cb.getClientProperty("wikiSite");
+            if (site != null) {
+                state.put("wiki.site.checked." + site.id().value(), String.valueOf(cb.isSelected()));
+            }
+        }
+    }
+
+    /** Restore checkbox states from the applicationState map. */
+    public void restoreApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        for (JCheckBox cb : siteCheckboxes) {
+            WikiSiteDescriptor site = (WikiSiteDescriptor) cb.getClientProperty("wikiSite");
+            if (site != null) {
+                String val = state.get("wiki.site.checked." + site.id().value());
+                if (val != null) {
+                    cb.setSelected(Boolean.parseBoolean(val));
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════

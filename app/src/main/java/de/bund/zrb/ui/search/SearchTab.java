@@ -124,6 +124,17 @@ public class SearchTab extends JPanel implements FtpTab {
         cbMail = new JCheckBox("\uD83D\uDCE7 Mail", true);
         cbArchive = new JCheckBox("\uD83D\uDCE6 Archiv", true);
 
+        // Restore persisted checkbox selection
+        restoreApplicationState();
+
+        // Auto-save on toggle
+        java.awt.event.ItemListener saveOnToggle = e -> saveApplicationState();
+        cbLocal.addItemListener(saveOnToggle);
+        cbFtp.addItemListener(saveOnToggle);
+        cbNdv.addItemListener(saveOnToggle);
+        cbMail.addItemListener(saveOnToggle);
+        cbArchive.addItemListener(saveOnToggle);
+
         int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
         ragStatusLabel = new JLabel(semSize > 0
                 ? "\uD83E\uDD16 Hybrid (" + semSize + " Emb.)"
@@ -811,6 +822,31 @@ public class SearchTab extends JPanel implements FtpTab {
     @Override public void markAsChanged() {}
     @Override public String getPath() { return "search://global"; }
     @Override public Type getType() { return Type.PREVIEW; }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Application State persistence (search source checkbox selection)
+    // ═══════════════════════════════════════════════════════════════
+
+    private void saveApplicationState() {
+        de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+        Map<String, String> state = s.applicationState;
+        state.put("search.source.local", String.valueOf(cbLocal.isSelected()));
+        state.put("search.source.ftp", String.valueOf(cbFtp.isSelected()));
+        state.put("search.source.ndv", String.valueOf(cbNdv.isSelected()));
+        state.put("search.source.mail", String.valueOf(cbMail.isSelected()));
+        state.put("search.source.archive", String.valueOf(cbArchive.isSelected()));
+        de.bund.zrb.helper.SettingsHelper.save(s);
+    }
+
+    private void restoreApplicationState() {
+        de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+        Map<String, String> state = s.applicationState;
+        if (state.containsKey("search.source.local")) cbLocal.setSelected(Boolean.parseBoolean(state.get("search.source.local")));
+        if (state.containsKey("search.source.ftp")) cbFtp.setSelected(Boolean.parseBoolean(state.get("search.source.ftp")));
+        if (state.containsKey("search.source.ndv")) cbNdv.setSelected(Boolean.parseBoolean(state.get("search.source.ndv")));
+        if (state.containsKey("search.source.mail")) cbMail.setSelected(Boolean.parseBoolean(state.get("search.source.mail")));
+        if (state.containsKey("search.source.archive")) cbArchive.setSelected(Boolean.parseBoolean(state.get("search.source.archive")));
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Inner classes
