@@ -173,6 +173,7 @@ public class JwbfWikiContentService implements WikiContentService {
                 + "&logintoken=" + enc(loginToken);
 
         LOG.info("[Wiki] Step 2 – Trying clientlogin for user '" + credentials.username() + "'");
+        logCookies(site);
         String loginJson = httpRequest(site, apiBase, postBody);
         LOG.info("[Wiki] Step 2 – clientlogin response: " + truncate(loginJson, 500));
         JsonNode loginRoot = mapper.readTree(loginJson);
@@ -189,18 +190,17 @@ public class JwbfWikiContentService implements WikiContentService {
         }
 
         // Fallback: try legacy action=login (older MediaWiki / bot passwords)
-        LOG.info("[Wiki] Step 3 – clientlogin failed (status='" + status + "'), trying legacy action=login");
-
-        // Need a fresh token for legacy login
-        tokenJson = httpRequest(site, tokenUrl, null);
-        tokenRoot = mapper.readTree(tokenJson);
-        loginToken = tokenRoot.path("query").path("tokens").path("logintoken").asText();
+        // IMPORTANT: Reuse the SAME token from Step 1 – do NOT fetch a new token,
+        // because that would start a new session and invalidate the existing cookies.
+        LOG.info("[Wiki] Step 3 – clientlogin failed (status='" + status + "'), trying legacy action=login with same token");
 
         postBody = "action=login&format=json"
                 + "&lgname=" + enc(credentials.username())
                 + "&lgpassword=" + enc(new String(credentials.password()))
                 + "&lgtoken=" + enc(loginToken);
 
+        LOG.info("[Wiki] Step 3 – Sending legacy login (reusing token from Step 1)");
+        logCookies(site);
         loginJson = httpRequest(site, apiBase, postBody);
         LOG.info("[Wiki] Step 3 – legacy login response: " + truncate(loginJson, 500));
         loginRoot = mapper.readTree(loginJson);
@@ -210,12 +210,37 @@ public class JwbfWikiContentService implements WikiContentService {
             loggedIn.add(key);
             LOG.info("[Wiki] === LOGIN SUCCESS (legacy) === " + site.displayName());
             logCookies(site);
-        } else {
-            String reason = loginRoot.path("login").path("reason").asText(result);
-            LOG.warning("[Wiki] === LOGIN FAILED === " + site.displayName() + ": " + reason);
-            logCookies(site);
-            throw new IOException("Wiki login failed for " + site.displayName() + ": " + reason);
+            return;
         }
+
+        // Legacy login sometimes requires a two-step dance: first call returns "NeedToken"
+        // with a dedicated lgtoken, then a second call uses that token.
+        if ("NeedToken".equalsIgnoreCase(result)) {
+            String lgToken = loginRoot.path("login").path("token").asText();
+            LOG.info("[Wiki] Step 3b – NeedToken received, retrying with lgtoken=" + truncate(lgToken, 20));
+
+            postBody = "action=login&format=json"
+                    + "&lgname=" + enc(credentials.username())
+                    + "&lgpassword=" + enc(new String(credentials.password()))
+                    + "&lgtoken=" + enc(lgToken);
+
+            loginJson = httpRequest(site, apiBase, postBody);
+            LOG.info("[Wiki] Step 3b – second legacy login response: " + truncate(loginJson, 500));
+            loginRoot = mapper.readTree(loginJson);
+            result = loginRoot.path("login").path("result").asText();
+
+            if ("Success".equalsIgnoreCase(result)) {
+                loggedIn.add(key);
+                LOG.info("[Wiki] === LOGIN SUCCESS (legacy 2-step) === " + site.displayName());
+                logCookies(site);
+                return;
+            }
+        }
+
+        String reason = loginRoot.path("login").path("reason").asText(result);
+        LOG.warning("[Wiki] === LOGIN FAILED === " + site.displayName() + ": " + reason);
+        logCookies(site);
+        throw new IOException("Wiki-Login fehlgeschlagen für " + site.displayName() + ": " + reason);
     }
 
     private void logCookies(WikiSiteDescriptor site) {
@@ -264,6 +289,7 @@ public class JwbfWikiContentService implements WikiContentService {
             for (Map.Entry<String, List<String>> entry : cookieHeaders.entrySet()) {
                 for (String value : entry.getValue()) {
                     conn.addRequestProperty(entry.getKey(), value);
+                    LOG.fine("[Wiki] → Cookie header: " + entry.getKey() + ": " + value);
                 }
             }
         } catch (URISyntaxException e) {
