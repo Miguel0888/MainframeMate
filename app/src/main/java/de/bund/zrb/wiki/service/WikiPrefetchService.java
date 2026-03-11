@@ -48,6 +48,9 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
     private final CopyOnWriteArrayList<Future<?>> runningPrefetches =
             new CopyOnWriteArrayList<Future<?>>();
 
+    /** Optional resolver for wiki credentials (used by prefetch to authenticate if needed). */
+    private java.util.function.Function<WikiSiteId, WikiCredentials> credentialsResolver;
+
     /**
      * @param wikiService     wiki content service for HTTP requests
      * @param cacheRepository persistent cache (H2)
@@ -67,6 +70,11 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
         int poolSize = Math.max(1, Math.min(concurrency, 8));
         this.prefetchPool = Executors.newFixedThreadPool(poolSize);
         this.priorityThread = Executors.newSingleThreadExecutor();
+    }
+
+    /** Set a resolver that provides credentials for a given wiki site (used during prefetch). */
+    public void setCredentialsResolver(java.util.function.Function<WikiSiteId, WikiCredentials> resolver) {
+        this.credentialsResolver = resolver;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -166,7 +174,12 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
         WikiPageView existing = memoryCache.get(cacheKey);
         if (existing != null) return existing;
 
-        WikiPageView view = wikiService.loadPage(siteId, pageTitle, WikiCredentials.anonymous());
+        WikiCredentials creds = WikiCredentials.anonymous();
+        if (credentialsResolver != null) {
+            WikiCredentials resolved = credentialsResolver.apply(siteId);
+            if (resolved != null) creds = resolved;
+        }
+        WikiPageView view = wikiService.loadPage(siteId, pageTitle, creds);
         if (view == null) return null;
 
         memoryCache.put(cacheKey, view);

@@ -49,6 +49,8 @@ public class WikiConnectionTab implements ConnectionTab {
     private WikiPrefetchCallback prefetchCallback;
     /** Callback to resolve wiki login credentials per site. */
     private CredentialsCallback credentialsCallback;
+    /** Callback to persist credentials entered via the login prompt. */
+    private CredentialsSaveCallback credentialsSaveCallback;
 
     private String currentPageTitle;
     private WikiSiteId currentSiteId;
@@ -479,11 +481,64 @@ public class WikiConnectionTab implements ConnectionTab {
         if (credentialsCallback != null) {
             WikiCredentials creds = credentialsCallback.getCredentials(site.id());
             LOG.fine("[Wiki] getCredentials: callback returned " + (creds == null ? "null" : (creds.isAnonymous() ? "anonymous" : "user='" + creds.username() + "'")));
-            if (creds != null) return creds;
+            if (creds != null && !creds.isAnonymous()) return creds;
         } else {
             LOG.warning("[Wiki] getCredentials: credentialsCallback is NULL for site '" + site.displayName() + "'");
         }
-        LOG.warning("[Wiki] getCredentials: falling back to anonymous for site '" + site.displayName() + "'");
+
+        // No credentials stored – prompt the user
+        LOG.info("[Wiki] getCredentials: no credentials available, prompting user for site '" + site.displayName() + "'");
+        final WikiCredentials[] result = new WikiCredentials[]{null};
+        try {
+            javax.swing.SwingUtilities.invokeAndWait(() -> {
+                javax.swing.JTextField userField = new javax.swing.JTextField(20);
+                javax.swing.JPasswordField passField = new javax.swing.JPasswordField(20);
+                javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.GridBagLayout());
+                java.awt.GridBagConstraints gbc = new java.awt.GridBagConstraints();
+                gbc.insets = new java.awt.Insets(4, 4, 4, 4);
+                gbc.anchor = java.awt.GridBagConstraints.WEST;
+
+                gbc.gridx = 0; gbc.gridy = 0;
+                panel.add(new javax.swing.JLabel("Wiki:"), gbc);
+                gbc.gridx = 1;
+                panel.add(new javax.swing.JLabel(site.displayName()), gbc);
+
+                gbc.gridx = 0; gbc.gridy = 1;
+                panel.add(new javax.swing.JLabel("Benutzername:"), gbc);
+                gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+                panel.add(userField, gbc);
+
+                gbc.gridx = 0; gbc.gridy = 2; gbc.fill = java.awt.GridBagConstraints.NONE; gbc.weightx = 0;
+                panel.add(new javax.swing.JLabel("Passwort:"), gbc);
+                gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+                panel.add(passField, gbc);
+
+                int choice = javax.swing.JOptionPane.showConfirmDialog(
+                        mainPanel, panel,
+                        "Wiki-Login: " + site.displayName(),
+                        javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                        javax.swing.JOptionPane.PLAIN_MESSAGE);
+
+                if (choice == javax.swing.JOptionPane.OK_OPTION) {
+                    String user = userField.getText().trim();
+                    String pass = new String(passField.getPassword());
+                    if (!user.isEmpty()) {
+                        result[0] = new WikiCredentials(user, pass.toCharArray());
+                        // Save to settings for next time
+                        if (credentialsSaveCallback != null) {
+                            credentialsSaveCallback.saveCredentials(site.id(), user, pass);
+                        }
+                    }
+                }
+            });
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Wiki] Credentials prompt failed", e);
+        }
+
+        if (result[0] != null) {
+            return result[0];
+        }
+        LOG.warning("[Wiki] getCredentials: user cancelled or empty – falling back to anonymous");
         return WikiCredentials.anonymous();
     }
 
@@ -635,8 +690,17 @@ public class WikiConnectionTab implements ConnectionTab {
         WikiCredentials getCredentials(WikiSiteId siteId);
     }
 
+    /** Callback to persist credentials entered via the login prompt dialog. */
+    public interface CredentialsSaveCallback {
+        void saveCredentials(WikiSiteId siteId, String username, String password);
+    }
+
     public void setCredentialsCallback(CredentialsCallback callback) {
         this.credentialsCallback = callback;
+    }
+
+    public void setCredentialsSaveCallback(CredentialsSaveCallback callback) {
+        this.credentialsSaveCallback = callback;
     }
 
     // ═══════════════════════════════════════════════════════════

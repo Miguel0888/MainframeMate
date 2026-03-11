@@ -7,7 +7,9 @@ import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Settings panel for Wiki site configuration.
@@ -20,6 +22,9 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner prefetchMaxItemsSpinner;
     private final JSpinner prefetchConcurrencySpinner;
     private final JSpinner prefetchCacheMaxMbSpinner;
+
+    /** Credentials edited via the dialog – kept separately so they survive settings reload in apply(). */
+    private final Map<String, String> pendingCredentials = new HashMap<String, String>();
 
     public WikiSettingsPanel() {
         super("wiki", "Wiki");
@@ -172,10 +177,17 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         if (user.isEmpty() && pass.isEmpty()) {
             // Clear credentials
             settings.wikiCredentials.remove(site.id);
+            pendingCredentials.remove(site.id);
         } else {
             // Encrypt and store
             String encrypted = de.bund.zrb.util.WindowsCryptoUtil.encrypt(user + "|" + pass);
             settings.wikiCredentials.put(site.id, encrypted);
+            pendingCredentials.put(site.id, encrypted);
+
+            // Also persist immediately so credentials survive settings reload
+            Settings diskSettings = de.bund.zrb.helper.SettingsHelper.load();
+            diskSettings.wikiCredentials.put(site.id, encrypted);
+            de.bund.zrb.helper.SettingsHelper.save(diskSettings);
         }
 
         // Also enable requiresLogin if credentials are set
@@ -199,8 +211,10 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         }
         s.wikiSites = serialized;
 
-        // Credentials are edited in-place in settings, copy them over
-        s.wikiCredentials = settings.wikiCredentials;
+        // Credentials: merge pending edits into the freshly loaded settings
+        // (apply() reloads settings from disk, which already has the immediately-saved creds,
+        //  but pendingCredentials is the authoritative source for this session)
+        s.wikiCredentials.putAll(pendingCredentials);
 
         s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
         s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();

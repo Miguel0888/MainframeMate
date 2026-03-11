@@ -15,12 +15,14 @@ import de.zrb.bund.api.ShortcutMenuCommand;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * Opens a Wiki connection tab for browsing MediaWiki sites.
  */
 public class OpenWebMenuCommand extends ShortcutMenuCommand {
 
+    private static final Logger LOG = Logger.getLogger(OpenWebMenuCommand.class.getName());
     private final TabbedPaneManager tabManager;
 
     public OpenWebMenuCommand(TabbedPaneManager tabManager) {
@@ -83,6 +85,20 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             return null;
         });
 
+        // Wire up save callback: when user enters credentials via the login prompt,
+        // encrypt and persist them to settings immediately
+        tab.setCredentialsSaveCallback((siteId, username, password) -> {
+            try {
+                String encrypted = de.bund.zrb.util.WindowsCryptoUtil.encrypt(username + "|" + password);
+                Settings s = SettingsHelper.load();
+                s.wikiCredentials.put(siteId.value(), encrypted);
+                SettingsHelper.save(s);
+                LOG.info("[Wiki] Credentials saved for site '" + siteId.value() + "' user='" + username + "'");
+            } catch (Exception e) {
+                LOG.warning("[Wiki] Failed to save credentials for site '" + siteId.value() + "': " + e.getMessage());
+            }
+        });
+
         // Wire up open callback: creates WikiFileTab when user double-clicks/enters a result
         tab.setOpenCallback((siteId, pageTitle, htmlContent, outline, images) -> {
             WikiFileTab fileTab = new WikiFileTab(siteId, pageTitle, htmlContent, outline, images);
@@ -98,6 +114,7 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                     settings.wikiPrefetchCacheMaxMb,
                     settings.wikiPrefetchMaxItems,
                     settings.wikiPrefetchConcurrency);
+            prefetch.setCredentialsResolver(siteId -> resolveCredentials(siteId));
             tab.setPrefetchCallback(prefetch);
         } catch (Exception e) {
             // CacheRepository not available — prefetch disabled, no problem
