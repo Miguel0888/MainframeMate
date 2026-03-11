@@ -139,8 +139,12 @@ public class ImageStripPanel extends JPanel {
                 int w = layered.getWidth();
                 int h = layered.getHeight();
                 scrollPane.setBounds(0, 0, w, h);
-                leftArrow.setBounds(0, 0, ARROW_STRIP_W, h);
-                rightArrow.setBounds(w - ARROW_STRIP_W, 0, ARROW_STRIP_W, h);
+                // Arrows only in the middle third of the height — leaves top/bottom free
+                int arrowTop = h / 3;
+                int arrowH = h / 3;
+                leftArrow.setBounds(0, arrowTop, ARROW_STRIP_W, arrowH);
+                rightArrow.setBounds(w - ARROW_STRIP_W, arrowTop, ARROW_STRIP_W, arrowH);
+                // Download button stays in the top-right corner, above the arrow
                 downloadOverlay.setBounds(w - DL_BTN_W - 8, 8, DL_BTN_W, DL_BTN_H);
             }
         });
@@ -172,11 +176,21 @@ public class ImageStripPanel extends JPanel {
                 Point p = SwingUtilities.convertPoint(glass, e.getPoint(), layered);
                 int w = layered.getWidth();
                 int h = layered.getHeight();
+                int arrowTop = h / 3;
+                int arrowBottom = arrowTop + h / 3;
 
                 boolean inImage = p.x >= 0 && p.x < w && p.y >= 0 && p.y < h;
-                boolean showLeft = inImage && currentIndex[0] > 0 && p.x < ARROW_STRIP_W;
-                boolean showRight = inImage && currentIndex[0] < allImages.size() - 1 && p.x >= w - ARROW_STRIP_W;
-                boolean showDl = inImage && p.x >= w - DL_BTN_W - 16 && p.y <= DL_BTN_H + 16;
+
+                // Download zone: top-right corner
+                boolean showDl = inImage && p.x >= w - DL_BTN_W - 20 && p.y <= DL_BTN_H + 20;
+
+                // Arrow zones: left/right edges, but only in the middle third of the height
+                // and NOT when in the download zone
+                boolean inArrowBand = p.y >= arrowTop - 20 && p.y <= arrowBottom + 20;
+                boolean showLeft = inImage && !showDl && currentIndex[0] > 0
+                        && p.x < ARROW_STRIP_W && inArrowBand;
+                boolean showRight = inImage && !showDl && currentIndex[0] < allImages.size() - 1
+                        && p.x >= w - ARROW_STRIP_W && inArrowBand;
 
                 leftArrow.setVisible(showLeft);
                 rightArrow.setVisible(showRight);
@@ -196,18 +210,23 @@ public class ImageStripPanel extends JPanel {
                 Point p = SwingUtilities.convertPoint(glass, e.getPoint(), layered);
                 int w = layered.getWidth();
                 int h = layered.getHeight();
+                int arrowTop = h / 3;
+                int arrowBottom = arrowTop + h / 3;
 
                 boolean inImage = p.x >= 0 && p.x < w && p.y >= 0 && p.y < h;
                 if (!inImage) return;
 
-                if (currentIndex[0] > 0 && p.x < ARROW_STRIP_W) {
+                // Download click takes priority
+                if (p.x >= w - DL_BTN_W - 20 && p.y <= DL_BTN_H + 20) {
+                    downloadImage(allImages.get(currentIndex[0]));
+                } else if (currentIndex[0] > 0 && p.x < ARROW_STRIP_W
+                        && p.y >= arrowTop - 20 && p.y <= arrowBottom + 20) {
                     currentIndex[0]--;
                     loadCurrent[0].run();
-                } else if (currentIndex[0] < allImages.size() - 1 && p.x >= w - ARROW_STRIP_W) {
+                } else if (currentIndex[0] < allImages.size() - 1 && p.x >= w - ARROW_STRIP_W
+                        && p.y >= arrowTop - 20 && p.y <= arrowBottom + 20) {
                     currentIndex[0]++;
                     loadCurrent[0].run();
-                } else if (p.x >= w - DL_BTN_W - 16 && p.y <= DL_BTN_H + 16) {
-                    downloadImage(allImages.get(currentIndex[0]));
                 }
             }
         });
