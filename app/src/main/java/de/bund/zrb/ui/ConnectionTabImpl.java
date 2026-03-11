@@ -42,11 +42,8 @@ public class ConnectionTabImpl implements ConnectionTab {
     private boolean sidebarVisible = false;
 
     private final JTextField searchField = new JTextField();
-    private final JLabel messageLabel = new JLabel();
-    private final CardLayout listCardLayout = new CardLayout();
-    private final JPanel listContainer = new JPanel(listCardLayout);
-    private static final String CARD_LIST = "list";
-    private static final String CARD_MESSAGE = "message";
+    private final JLabel overlayLabel = new JLabel();
+    private final JPanel listContainer = new JPanel(new BorderLayout());
     private List<String> currentDirectoryFiles = new ArrayList<>();
     private List<FileNode> currentDirectoryNodes = new ArrayList<>();
 
@@ -117,18 +114,16 @@ public class ConnectionTabImpl implements ConnectionTab {
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
-        // Message label setup (shown instead of list when needed)
-        messageLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        messageLabel.setVerticalAlignment(SwingConstants.CENTER);
-        messageLabel.setFont(messageLabel.getFont().deriveFont(Font.BOLD, 14f));
-        messageLabel.setOpaque(true);
-        messageLabel.setBackground(new Color(255, 255, 255, 200));
+        // Setup overlay label for status messages
+        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
+        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
+        overlayLabel.setOpaque(true);
+        overlayLabel.setVisible(false);
 
-        // List setup – use CardLayout to switch between list and message (no overlay)
+        // Use layered pane for overlay
         JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.add(scrollPane, CARD_LIST);
-        listContainer.add(messageLabel, CARD_MESSAGE);
-        listCardLayout.show(listContainer, CARD_LIST);
+        listContainer.add(scrollPane, BorderLayout.CENTER);
 
         mainPanel.add(pathPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
@@ -460,19 +455,30 @@ public class ConnectionTabImpl implements ConnectionTab {
     }
 
     /**
-     * Show a message in the file list area (replaces the list).
+     * Show an overlay message in the file list area.
      */
     private void showOverlayMessage(String message, Color color) {
-        messageLabel.setText(message);
-        messageLabel.setForeground(color);
-        listCardLayout.show(listContainer, CARD_MESSAGE);
+        overlayLabel.setText(message);
+        overlayLabel.setForeground(color);
+        overlayLabel.setBackground(new Color(255, 255, 255, 200));
+        overlayLabel.setVisible(true);
+
+        // Add overlay to list container if not already there
+        if (overlayLabel.getParent() != listContainer) {
+            listContainer.add(overlayLabel, BorderLayout.CENTER);
+        }
+        listContainer.revalidate();
+        listContainer.repaint();
     }
 
     /**
-     * Show the file list again.
+     * Hide the overlay message.
      */
     private void hideOverlay() {
-        listCardLayout.show(listContainer, CARD_LIST);
+        overlayLabel.setVisible(false);
+        listContainer.remove(overlayLabel);
+        listContainer.revalidate();
+        listContainer.repaint();
     }
 
     private void refreshListModelFromNodes() {
