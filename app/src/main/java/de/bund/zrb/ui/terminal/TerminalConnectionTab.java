@@ -528,8 +528,13 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     // ── F-Key Legend Parsing ─────────────────────────────────────
 
-    /** Pattern matching entries like "1=Help", "3=End", "10=Left", "12=Cancel" */
-    private static final Pattern FKEY_PATTERN = Pattern.compile("(\\d{1,2})\\s*[=]\\s*(\\S+)");
+    /**
+     * Pattern matching F-key legend entries in all common formats:
+     *   "F1=Help"  "F3:End"  "F10-Actions"  "1=Help"  "PF1=Help"  "PF3:End"
+     * Group 1 = key number, Group 2 = label text.
+     */
+    private static final Pattern FKEY_PATTERN = Pattern.compile(
+            "(?:PF|F)?(\\d{1,2})\\s*[=:\\-]\\s*(\\S+)");
 
     /** Last parsed legend text – avoid rebuilding buttons if unchanged. */
     private String lastFkeyLegend = "";
