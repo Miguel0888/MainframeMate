@@ -285,10 +285,8 @@ public class TerminalConnectionTab implements ConnectionTab {
     /**
      * Automatically log in after connect.
      * <p>
-     * Sequence: CLEAR → wait → type user → ENTER → wait → type password → ENTER.
-     * The initial CLEAR resets the screen to a clean login prompt.
-     * The first ENTER submits the userid; the host then shows the password prompt.
-     * The second ENTER submits the password.
+     * Sequence: CLEAR → wait → type user into 1st field → move cursor to 2nd field → type password → ENTER.
+     * Both userid and password are on the same screen; no host round-trip between them.
      * Runs on a background thread.
      */
     private void autoLogin(final Terminal term) {
@@ -311,35 +309,32 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                     Thread.sleep(500);
 
-                    // 3) Position cursor at the first unprotected field = userid
-                    short firstField = term.getNextUnprotectedField(0);
-                    if (firstField >= 0) {
-                        term.setCursorPosition(firstField);
+                    // 3) Find the first unprotected field = userid
+                    short useridField = term.getNextUnprotectedField(0);
+                    if (useridField < 0) {
+                        LOG.warning("[3270] Auto-login: no unprotected field found for userid");
+                        return;
                     }
+                    term.setCursorPosition(useridField);
 
                     // 4) Type username
                     typeString(term, user);
                     Thread.sleep(100);
 
-                    // 5) Send ENTER to submit userid – host advances to password prompt
-                    term.Fkey(AID_ENTER);
-                    if (!waitForKeyboardUnlock(term, 10_000)) {
-                        LOG.warning("[3270] Auto-login: keyboard did not unlock after userid ENTER");
+                    // 5) Find the SECOND unprotected field = password
+                    //    (jump from userid field position to the next one)
+                    short passwordField = term.getNextUnprotectedField(useridField + 1);
+                    if (passwordField < 0 || passwordField == useridField) {
+                        LOG.warning("[3270] Auto-login: no second unprotected field found for password");
                         return;
                     }
-                    Thread.sleep(500);
+                    term.setCursorPosition(passwordField);
 
-                    // 6) Position cursor at the first unprotected field = password
-                    firstField = term.getNextUnprotectedField(0);
-                    if (firstField >= 0) {
-                        term.setCursorPosition(firstField);
-                    }
-
-                    // 7) Type password
+                    // 6) Type password
                     typeString(term, password);
                     Thread.sleep(100);
 
-                    // 8) Send ENTER to submit password and complete login
+                    // 7) Send ENTER to submit both userid and password
                     term.Fkey(AID_ENTER);
 
                     LOG.info("[3270] Auto-login: credentials sent");
