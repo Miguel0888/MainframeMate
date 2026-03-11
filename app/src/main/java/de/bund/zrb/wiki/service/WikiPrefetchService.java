@@ -51,6 +51,9 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
     /** Optional resolver for wiki credentials (used by prefetch to authenticate if needed). */
     private java.util.function.Function<WikiSiteId, WikiCredentials> credentialsResolver;
 
+    /** Optional callback for auto-indexing loaded pages into Lucene. */
+    private java.util.function.BiConsumer<WikiSiteId, WikiPageView> autoIndexCallback;
+
     /**
      * @param wikiService     wiki content service for HTTP requests
      * @param cacheRepository persistent cache (H2)
@@ -75,6 +78,11 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
     /** Set a resolver that provides credentials for a given wiki site (used during prefetch). */
     public void setCredentialsResolver(java.util.function.Function<WikiSiteId, WikiCredentials> resolver) {
         this.credentialsResolver = resolver;
+    }
+
+    /** Set a callback that indexes each loaded page into Lucene (for auto-indexing). */
+    public void setAutoIndexCallback(java.util.function.BiConsumer<WikiSiteId, WikiPageView> callback) {
+        this.autoIndexCallback = callback;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -186,6 +194,15 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
 
         // Persist to DB (best-effort)
         persistToDb(siteId, pageTitle, view);
+
+        // Auto-index into Lucene if callback is set
+        if (autoIndexCallback != null) {
+            try {
+                autoIndexCallback.accept(siteId, view);
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[WikiPrefetch] Auto-index failed for: " + pageTitle, e);
+            }
+        }
 
         return view;
     }

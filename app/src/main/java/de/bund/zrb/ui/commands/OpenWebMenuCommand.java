@@ -15,6 +15,7 @@ import de.zrb.bund.api.ShortcutMenuCommand;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -62,6 +63,14 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
 
         WikiContentService service = jwbfService;
         WikiConnectionTab tab = new WikiConnectionTab(service);
+
+        // Wire wiki service into the indexing scanner so wiki pages can be indexed
+        de.bund.zrb.indexing.service.IndexingService indexingService =
+                de.bund.zrb.indexing.service.IndexingService.getInstance();
+        indexingService.getWikiScanner().setWikiService(service);
+        indexingService.getWikiScanner().setCredentialsResolver(siteId -> {
+            return resolveCredentials(siteId);
+        });
 
         // Wire up credentials callback: resolves encrypted credentials from settings
         // (loads settings fresh each time to pick up credentials set after tab was opened)
@@ -124,6 +133,48 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                     settings.wikiPrefetchMaxItems,
                     settings.wikiPrefetchConcurrency);
             prefetch.setCredentialsResolver(siteId -> resolveCredentials(siteId));
+
+            // Auto-index pages into Lucene when site has autoIndex=true
+            final List<WikiSiteDescriptor> allSites = sites;
+            prefetch.setAutoIndexCallback((siteId, pageView) -> {
+                // Check if this site has autoIndex enabled
+                boolean autoIdx = false;
+                for (WikiSiteDescriptor s : allSites) {
+                    if (s.id().equals(siteId)) {
+                        autoIdx = s.autoIndex();
+                        break;
+                    }
+                }
+                if (!autoIdx) return;
+
+                try {
+                    String docId = "wiki://" + siteId.value() + "/" + pageView.title();
+                    de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+                    if (rag.isIndexed(docId)) return;
+
+                    // Build a Document from the page HTML
+                    String text = stripHtmlForIndex(pageView.cleanedHtml());
+                    if (text.isEmpty()) return;
+
+                    de.bund.zrb.ingestion.model.document.DocumentMetadata meta =
+                            de.bund.zrb.ingestion.model.document.DocumentMetadata.builder()
+                                    .sourceName(pageView.title())
+                                    .mimeType("text/html")
+                                    .attribute("sourcePath", docId)
+                                    .attribute("wikiSite", siteId.value())
+                                    .build();
+                    de.bund.zrb.ingestion.model.document.Document doc =
+                            de.bund.zrb.ingestion.model.document.Document.builder()
+                                    .metadata(meta)
+                                    .paragraph(text)
+                                    .build();
+                    rag.indexDocument(docId, pageView.title(), doc, false);
+                    LOG.info("[Wiki] Auto-indexed: " + pageView.title() + " (" + text.length() + " chars)");
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[Wiki] Auto-index failed for: " + pageView.title(), e);
+                }
+            });
+
             tab.setPrefetchCallback(prefetch);
         } catch (Exception e) {
             // CacheRepository not available — prefetch disabled, no problem
@@ -221,5 +272,20 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             // decryption failed
         }
         return WikiCredentials.anonymous();
+    }
+
+    /**
+     * Simple HTML→text conversion for indexing: strip tags, decode entities, collapse whitespace.
+     */
+    private static String stripHtmlForIndex(String html) {
+        if (html == null || html.isEmpty()) return "";
+        String text = html.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>", "");
+        text = text.replaceAll("(?i)<(br|p|div|h[1-6]|li|tr)[^>]*>", "\n");
+        text = text.replaceAll("<[^>]+>", "");
+        text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                   .replace("&quot;", "\"").replace("&nbsp;", " ").replace("&#39;", "'");
+        text = text.replaceAll("[ \\t]+", " ");
+        text = text.replaceAll("\\n{3,}", "\n\n");
+        return text.trim();
     }
 }

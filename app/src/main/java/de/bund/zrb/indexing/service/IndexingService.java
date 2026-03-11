@@ -51,14 +51,25 @@ public class IndexingService {
         void onRunFailed(String sourceId, String error);
     }
 
+    private final de.bund.zrb.indexing.connector.WikiSourceScanner wikiScanner;
+
     private IndexingService() {
         pipeline = new IndexingPipeline(statusStore);
         // Register built-in scanners
         pipeline.registerScanner(SourceType.LOCAL, new LocalSourceScanner());
         pipeline.registerScanner(SourceType.MAIL, new de.bund.zrb.indexing.connector.MailSourceScanner());
+        wikiScanner = new de.bund.zrb.indexing.connector.WikiSourceScanner();
+        pipeline.registerScanner(SourceType.WIKI, wikiScanner);
         // Register content processor (Tika extraction → RAG chunking → Lucene index)
         pipeline.setContentProcessor(new RagContentProcessor());
         // FTP, NDV, WEB scanners will be registered as they are implemented
+    }
+
+    /**
+     * Get the wiki scanner so the app can wire in WikiContentService + credentials.
+     */
+    public de.bund.zrb.indexing.connector.WikiSourceScanner getWikiScanner() {
+        return wikiScanner;
     }
 
     public static synchronized IndexingService getInstance() {
