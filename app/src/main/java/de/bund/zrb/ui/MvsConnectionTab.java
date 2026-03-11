@@ -38,8 +38,17 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final DefaultListModel<MvsVirtualResource> listModel = new DefaultListModel<>();
     private final JList<MvsVirtualResource> fileList;
     private final JTextField searchField = new JTextField();
-    private final JLabel overlayLabel = new JLabel();
-    private final JLayeredPane listContainer = new JLayeredPane();
+    private final JLabel overlayLabel = new JLabel() {
+        @Override
+        protected void paintComponent(java.awt.Graphics g) {
+            if (isVisible() && getBackground() != null) {
+                g.setColor(getBackground());
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
+            super.paintComponent(g);
+        }
+    };
+    private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
     private JButton forwardButton;
@@ -126,23 +135,19 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
-        overlayLabel.setOpaque(true);
+        overlayLabel.setOpaque(false);
         overlayLabel.setVisible(false);
+        overlayLabel.setAlignmentX(0.5f);
+        overlayLabel.setAlignmentY(0.5f);
 
-        // List setup – use JLayeredPane to avoid OverlayLayout painting artifacts
+        // List setup
         JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
-        listContainer.add(overlayLabel, JLayeredPane.PALETTE_LAYER);
+        scrollPane.setAlignmentX(0.5f);
+        scrollPane.setAlignmentY(0.5f);
 
-        // Keep children sized to the layered pane
-        listContainer.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                Dimension size = listContainer.getSize();
-                scrollPane.setBounds(0, 0, size.width, size.height);
-                overlayLabel.setBounds(0, 0, size.width, size.height);
-            }
-        });
+        listContainer.setLayout(new OverlayLayout(listContainer));
+        listContainer.add(overlayLabel);
+        listContainer.add(scrollPane);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         installMouseNavigation(pathField);
