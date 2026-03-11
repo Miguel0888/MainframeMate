@@ -37,10 +37,14 @@ public class ImageStripPanel extends JPanel {
     private static final String USER_AGENT =
             "MainframeMate/1.0 (https://github.com/Miguel0888/MainframeMate; Java)";
 
+    /** All images on this page — kept for navigation inside the overlay. */
+    private List<ImageRef> allImages;
+
     public ImageStripPanel(List<ImageRef> images) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         setPreferredSize(new Dimension(ICON_SIZE + 8, 0));
+        this.allImages = images;
 
         if (images == null || images.isEmpty()) {
             setVisible(false);
@@ -64,10 +68,11 @@ public class ImageStripPanel extends JPanel {
             iconLabel.setToolTipText(tooltip);
 
             // Click: show overlay
+            final int imgIndex = allImages.indexOf(img);
             iconLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    showImageOverlay(img);
+                    showImageOverlay(imgIndex);
                 }
             });
 
@@ -79,12 +84,15 @@ public class ImageStripPanel extends JPanel {
     }
 
     /**
-     * Show an overlay dialog with the full image and a download button.
+     * Show an overlay dialog with the full image, download button,
+     * and ◀/▶ navigation to flip through all images on the page.
      */
-    private void showImageOverlay(ImageRef img) {
+    private void showImageOverlay(int startIndex) {
+        final int[] currentIndex = { Math.max(0, Math.min(startIndex, allImages.size() - 1)) };
+
         Window owner = SwingUtilities.getWindowAncestor(this);
         JDialog dialog = new JDialog(owner instanceof Frame ? (Frame) owner : null,
-                img.description(), true);
+                allImages.get(currentIndex[0]).description(), true);
         dialog.setLayout(new BorderLayout(8, 8));
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
@@ -100,94 +108,133 @@ public class ImageStripPanel extends JPanel {
         JScrollPane scrollPane = new JScrollPane(imageLabel);
         dialog.add(scrollPane, BorderLayout.CENTER);
 
+        // Bottom bar: [◀] [▶]  info  [💾 Herunterladen] [Schließen]
         JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
 
-        JLabel infoLabel = new JLabel(img.description());
+        JLabel infoLabel = new JLabel(" ");
         infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC));
-        bottomPanel.add(infoLabel, BorderLayout.CENTER);
 
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        // Navigation buttons
+        JButton prevBtn = new JButton("◀");
+        prevBtn.setToolTipText("Vorheriges Bild");
+        prevBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        JButton nextBtn = new JButton("▶");
+        nextBtn.setToolTipText("Nächstes Bild");
+        nextBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        navPanel.add(prevBtn);
+        navPanel.add(nextBtn);
 
         JButton downloadBtn = new JButton("💾 Herunterladen");
         downloadBtn.setEnabled(false);
-        downloadBtn.addActionListener(e -> downloadImage(img));
-        buttonPanel.add(downloadBtn);
 
         JButton closeBtn = new JButton("Schließen");
         closeBtn.addActionListener(e -> dialog.dispose());
-        buttonPanel.add(closeBtn);
 
-        bottomPanel.add(buttonPanel, BorderLayout.EAST);
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        rightButtons.add(downloadBtn);
+        rightButtons.add(closeBtn);
+
+        bottomPanel.add(navPanel, BorderLayout.WEST);
+        bottomPanel.add(infoLabel, BorderLayout.CENTER);
+        bottomPanel.add(rightButtons, BorderLayout.EAST);
         dialog.add(bottomPanel, BorderLayout.SOUTH);
 
         // Start with a reasonable loading size
         dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
         dialog.setLocationRelativeTo(owner);
 
-        // Load image in background
-        new SwingWorker<BufferedImage, Void>() {
-            @Override
-            protected BufferedImage doInBackground() throws Exception {
-                InputStream in = openImageStream(img.src());
-                try {
-                    return ImageIO.read(in);
-                } finally {
-                    in.close();
-                }
-            }
+        // --- Runnable to load & display image at currentIndex ---
+        final Runnable[] loadCurrent = new Runnable[1];
+        loadCurrent[0] = () -> {
+            ImageRef img = allImages.get(currentIndex[0]);
+            dialog.setTitle(img.description());
+            imageLabel.setIcon(null);
+            imageLabel.setText("⏳ Lade Bild…");
+            downloadBtn.setEnabled(false);
+            prevBtn.setEnabled(currentIndex[0] > 0);
+            nextBtn.setEnabled(currentIndex[0] < allImages.size() - 1);
+            infoLabel.setText((currentIndex[0] + 1) + " / " + allImages.size()
+                    + "  —  " + img.description());
 
-            @Override
-            protected void done() {
-                try {
-                    BufferedImage bi = get();
-                    if (bi == null) {
-                        imageLabel.setText("❌ Bild konnte nicht geladen werden");
-                        return;
+            new SwingWorker<BufferedImage, Void>() {
+                @Override
+                protected BufferedImage doInBackground() throws Exception {
+                    InputStream in = openImageStream(img.src());
+                    try {
+                        return ImageIO.read(in);
+                    } finally {
+                        in.close();
                     }
-
-                    int imgW = bi.getWidth();
-                    int imgH = bi.getHeight();
-
-                    // Chrome around the image: scrollbar insets + dialog borders + bottom panel
-                    int chromeW = 40;
-                    int chromeH = 90;
-                    int availW = screenMaxW - chromeW;
-                    int availH = screenMaxH - chromeH;
-
-                    // Show at full resolution if it fits, otherwise scale down to screen
-                    ImageIcon icon;
-                    if (imgW <= availW && imgH <= availH) {
-                        icon = new ImageIcon(bi);
-                    } else {
-                        double scale = Math.min((double) availW / imgW, (double) availH / imgH);
-                        int scaledW = (int) (imgW * scale);
-                        int scaledH = (int) (imgH * scale);
-                        icon = new ImageIcon(bi.getScaledInstance(scaledW, scaledH, Image.SCALE_SMOOTH));
-                    }
-
-                    imageLabel.setIcon(icon);
-                    imageLabel.setText(null);
-                    downloadBtn.setEnabled(true);
-
-                    // Resize dialog to fit image
-                    int dialogW = Math.min(icon.getIconWidth() + chromeW, screenMaxW);
-                    int dialogH = Math.min(icon.getIconHeight() + chromeH, screenMaxH);
-                    // Ensure a minimum size
-                    dialogW = Math.max(dialogW, 400);
-                    dialogH = Math.max(dialogH, 300);
-
-                    dialog.setSize(dialogW, dialogH);
-                    dialog.setLocationRelativeTo(owner);
-
-                    // Update info with actual dimensions
-                    infoLabel.setText(img.description() + "  (" + imgW + " × " + imgH + ")");
-                } catch (Exception ex) {
-                    LOG.log(Level.FINE, "[ImageStrip] Failed to load image: " + img.src(), ex);
-                    imageLabel.setText("❌ Fehler: " + ex.getMessage());
                 }
+
+                @Override
+                protected void done() {
+                    try {
+                        BufferedImage bi = get();
+                        if (bi == null) {
+                            imageLabel.setText("❌ Bild konnte nicht geladen werden");
+                            return;
+                        }
+
+                        int imgW = bi.getWidth();
+                        int imgH = bi.getHeight();
+
+                        int chromeW = 40;
+                        int chromeH = 90;
+                        int availW = screenMaxW - chromeW;
+                        int availH = screenMaxH - chromeH;
+
+                        ImageIcon icon;
+                        if (imgW <= availW && imgH <= availH) {
+                            icon = new ImageIcon(bi);
+                        } else {
+                            double scale = Math.min((double) availW / imgW, (double) availH / imgH);
+                            int scaledW = (int) (imgW * scale);
+                            int scaledH = (int) (imgH * scale);
+                            icon = new ImageIcon(bi.getScaledInstance(scaledW, scaledH, Image.SCALE_SMOOTH));
+                        }
+
+                        imageLabel.setIcon(icon);
+                        imageLabel.setText(null);
+                        downloadBtn.setEnabled(true);
+
+                        int dialogW = Math.max(Math.min(icon.getIconWidth() + chromeW, screenMaxW), 400);
+                        int dialogH = Math.max(Math.min(icon.getIconHeight() + chromeH, screenMaxH), 300);
+                        dialog.setSize(dialogW, dialogH);
+                        dialog.setLocationRelativeTo(owner);
+
+                        infoLabel.setText((currentIndex[0] + 1) + " / " + allImages.size()
+                                + "  —  " + img.description()
+                                + "  (" + imgW + " × " + imgH + ")");
+                    } catch (Exception ex) {
+                        LOG.log(Level.FINE, "[ImageStrip] Failed to load: " + img.src(), ex);
+                        imageLabel.setText("❌ Fehler: " + ex.getMessage());
+                    }
+                }
+            }.execute();
+        };
+
+        // Wire navigation
+        prevBtn.addActionListener(e -> {
+            if (currentIndex[0] > 0) {
+                currentIndex[0]--;
+                loadCurrent[0].run();
             }
-        }.execute();
+        });
+        nextBtn.addActionListener(e -> {
+            if (currentIndex[0] < allImages.size() - 1) {
+                currentIndex[0]++;
+                loadCurrent[0].run();
+            }
+        });
+        downloadBtn.addActionListener(e -> downloadImage(allImages.get(currentIndex[0])));
+
+        // Load the first image
+        loadCurrent[0].run();
 
         dialog.setVisible(true);
     }
