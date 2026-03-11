@@ -43,20 +43,20 @@ public final class ExtensionFilterPanel extends JPanel {
         super(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         modeBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem(CARD_BK_FREE, "BKnnâ€¦ â€“ Bundeskasse: BK + Kassen-Nr + Freitext (z. B. BK18F05*)"),
-                new OptionItem(CARD_BK_BANK, "BKnnBANK â€“ Bundeskasse: BK + Kassen-Nr + BANK (+ optional *)"),
-                new OptionItem(CARD_CONST, "Konstant â€“ FA00BANK / WV00BANK / â€¦"),
-                new OptionItem(CARD_BEW_FB, "B<BEW-NR>F13FB â€“ Faxfreigabe-BestÃ¤tigung"),
-                new OptionItem(CARD_BEW_LB, "B<BEW-NR>F13LB â€“ Buchungsdatei-BestÃ¤tigung"),
-                new OptionItem(CARD_CUSTOM, "Custom â€“ Freier Extension-Wert")
+                new OptionItem(CARD_BK_FREE, "BKnn\u2026 \u2013 Bundeskasse: BK + Kassen-Nr + Freitext (z. B. BK18F05*)"),
+                new OptionItem(CARD_BK_BANK, "BKnnBANK \u2013 Bundeskasse: BK + Kassen-Nr + BANK (+ optional *)"),
+                new OptionItem(CARD_CONST, "Konstant \u2013 FA00BANK / WV00BANK / \u2026"),
+                new OptionItem(CARD_BEW_FB, "B<BEW-NR>F13FB \u2013 Faxfreigabe-Best\u00e4tigung"),
+                new OptionItem(CARD_BEW_LB, "B<BEW-NR>F13LB \u2013 Buchungsdatei-Best\u00e4tigung"),
+                new OptionItem(CARD_CUSTOM, "Custom \u2013 Freier Extension-Wert")
         });
 
         constantBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("FA00BANK", "FA00BANK â€“ Finanzagentur"),
-                new OptionItem("WV00BANK", "WV00BANK â€“ Wertpapierverwaltung"),
-                new OptionItem("PA00BANK", "PA00BANK â€“ Patent- und Markenamt"),
-                new OptionItem("BW19BANK", "BW19BANK â€“ ZID Stuttgart Branntwein-Steuer"),
-                new OptionItem("*", "* â€“ Keine EinschrÃ¤nkung")
+                new OptionItem("FA00BANK", "FA00BANK \u2013 Finanzagentur"),
+                new OptionItem("WV00BANK", "WV00BANK \u2013 Wertpapierverwaltung"),
+                new OptionItem("PA00BANK", "PA00BANK \u2013 Patent- und Markenamt"),
+                new OptionItem("BW19BANK", "BW19BANK \u2013 ZID Stuttgart Branntwein-Steuer"),
+                new OptionItem("*", "* \u2013 Keine Einschr\u00e4nkung")
         });
 
         cardPanel.add(buildBkFreeCard(), CARD_BK_FREE);

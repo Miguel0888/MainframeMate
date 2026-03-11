@@ -11,9 +11,9 @@ import java.awt.FlowLayout;
  * <p>
  * Dropdown contains:
  * <ul>
- *   <li>{@code *} â€“ Keine EinschrÃ¤nkung  (no text field shown)</li>
+ *   <li>{@code *} -- Keine Einschr\u00e4nkung  (no text field shown)</li>
  *   <li>zero or more fixed known values   (no text field shown)</li>
- *   <li>Custom â€“ Freier Wert             (free-text field shown)</li>
+ *   <li>Custom -- Freier Wert             (free-text field shown)</li>
  * </ul>
  * Switching the dropdown dynamically shows / hides the text field via {@link CardLayout}.
  */
@@ -49,9 +49,9 @@ public final class WildcardFilterPanel extends JPanel {
 
         // Build combo items: * + fixed + Custom
         OptionItem[] items = new OptionItem[fixedOptions.length + 2];
-        items[0] = new OptionItem("*", "* â€“ Keine EinschrÃ¤nkung");
+        items[0] = new OptionItem("*", "* \u2013 Keine Einschr\u00e4nkung");
         System.arraycopy(fixedOptions, 0, items, 1, fixedOptions.length);
-        items[items.length - 1] = new OptionItem(CUSTOM_VALUE, "Custom â€“ Freier Wert");
+        items[items.length - 1] = new OptionItem(CUSTOM_VALUE, "Custom \u2013 Freier Wert");
 
         box = new JComboBox<>(items);
 
@@ -131,4 +131,3 @@ public final class WildcardFilterPanel extends JPanel {
         return s == null ? "" : s.trim();
     }
 }
-

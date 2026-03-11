@@ -55,17 +55,17 @@ public final class ConnectionTabPanel extends JPanel {
     private final TriStateFilterPanel deletePanel = new TriStateFilterPanel();
     private final ComboFilterPanel lgrstatPanel = new ComboFilterPanel(new OptionItem[]{
             new OptionItem("", "(Alle)"),
-            new OptionItem("H", "H â€“ Halten"),
-            new OptionItem("C", "C â€“ Abgeschlossen"),
-            new OptionItem("N", "N â€“ Neu"),
-            new OptionItem("T", "T â€“ TemporÃ¤r")
+            new OptionItem("H", "H \u2013 Halten"),
+            new OptionItem("C", "C \u2013 Abgeschlossen"),
+            new OptionItem("N", "N \u2013 Neu"),
+            new OptionItem("T", "T \u2013 Tempor\u00e4r")
     });
     private final TriStateFilterPanel reloadPanel = new TriStateFilterPanel();
 
     // ---- UI components ----
     private final JButton loadButton = new JButton("Load Results");
     private final JButton saveSearchButton = new JButton("Suche speichern");
-    private final JButton closeAllTabsButton = new JButton("Alle Tabs schlieÃŸen");
+    private final JButton closeAllTabsButton = new JButton("Alle Tabs schlie\u00dfen");
     private final JLabel statusLabel = new JLabel("Verbunden");
     private final JProgressBar progress = new JProgressBar();
     private final ResultsTablePanel resultsTablePanel = new ResultsTablePanel();
@@ -192,7 +192,7 @@ public final class ConnectionTabPanel extends JPanel {
         addRow(docPanel, dc, dr++, "Fach", tabPanel);
         addRow(docPanel, dc, dr++, "Titel", titleField);
         addRow(docPanel, dc, dr++, "", ftitleCheckBox);
-        addRow(docPanel, dc, dr++, "EmpfÃ¤nger", recipientPanel);
+        addRow(docPanel, dc, dr++, "Empfänger", recipientPanel);
         dc.gridy = dr; dc.weighty = 1.0; dc.gridx = 0;
         docPanel.add(new JLabel(), dc);
         tabs.addTab("Dokument", docPanel);
@@ -206,7 +206,7 @@ public final class ConnectionTabPanel extends JPanel {
         addRow(statusPanel, sc, sr++, "Gelesen", lgrxreadPanel);
         addRow(statusPanel, sc, sr++, "Archiv", archivePanel);
         addRow(statusPanel, sc, sr++, "Verarbeitung", processPanel);
-        addRow(statusPanel, sc, sr++, "LÃ¶schen", deletePanel);
+        addRow(statusPanel, sc, sr++, "Löschen", deletePanel);
         addRow(statusPanel, sc, sr++, "Listenstatus", lgrstatPanel);
         addRow(statusPanel, sc, sr++, "Neu laden", reloadPanel);
         sc.gridy = sr; sc.weighty = 1.0; sc.gridx = 0;
@@ -386,7 +386,7 @@ public final class ConnectionTabPanel extends JPanel {
                 }
                 if (!item.ssId().isEmpty()) form.put("ssIDForm", item.ssId());
 
-                // Execute the saved search â€“ server redirects to showResult.action
+                // Execute the saved search -- server redirects to showResult.action â€“ server redirects to showResult.action
                 String html = client.postFormText(session, item.action(), form);
 
                 // If the redirect-followed response doesn't look like a result page,
@@ -413,7 +413,7 @@ public final class ConnectionTabPanel extends JPanel {
     private void openBookmark(SidebarPanel.BookmarkItem item) {
         if (item.action().isEmpty()) return;
         setBusy(true);
-        statusLabel.setText("Ã–ffne Lesezeichen: " + item.name() + "...");
+        statusLabel.setText("\u00d6ffne Lesezeichen: " + item.name() + "...");
         new SwingWorker<String, Void>() {
             @Override protected String doInBackground() throws Exception {
                 return client.getText(session, item.action());
@@ -422,7 +422,7 @@ public final class ConnectionTabPanel extends JPanel {
                 try {
                     String html = get();
                     if (listener != null) listener.onOpenBookmarkDocument(html, item);
-                    statusLabel.setText("Lesezeichen geÃ¶ffnet: " + item.name());
+                    statusLabel.setText("Lesezeichen ge\u00f6ffnet: " + item.name());
                 } catch (Exception ex) {
                     statusLabel.setText("Fehler: " + ex.getMessage());
                 } finally { setBusy(false); }
@@ -493,5 +493,4 @@ public final class ConnectionTabPanel extends JPanel {
 
     private static String nullToEmpty(String v) { return v == null ? "" : v; }
 }
-
 

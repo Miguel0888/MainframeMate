@@ -21,14 +21,14 @@ public final class JobNameFilterPanel extends JPanel {
         super(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         box = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("*", "* â€“ Keine EinschrÃ¤nkung"),
-                new OptionItem("APABBBNK", "APABBBNK â€“ Protokoll Einlieferungen/Kontoinfos (PrÃ¼fung Bundesbank-Dateien)"),
-                new OptionItem("APABHOLE", "APABHOLE â€“ Protokoll Auslieferungen (PrÃ¼fung Bewirtschafter-Dateien)"),
-                new OptionItem("APABDAUB", "APABDAUB â€“ Protokoll Auslagerung an HKR/ZÃœV"),
-                new OptionItem("CUSTOM", "Custom â€“ Freier Jobname")
+                new OptionItem("*", "* \u2013 Keine Einschr\u00e4nkung"),
+                new OptionItem("APABBBNK", "APABBBNK \u2013 Protokoll Einlieferungen/Kontoinfos (Pr\u00fcfung Bundesbank-Dateien)"),
+                new OptionItem("APABHOLE", "APABHOLE \u2013 Protokoll Auslieferungen (Pr\u00fcfung Bewirtschafter-Dateien)"),
+                new OptionItem("APABDAUB", "APABDAUB \u2013 Protokoll Auslagerung an HKR/Z\u00dcV"),
+                new OptionItem("CUSTOM", "Custom \u2013 Freier Jobname")
         });
 
-        customField.setToolTipText("Freien Jobnamen eingeben, z. B. APABâ€¦");
+        customField.setToolTipText("Freien Jobnamen eingeben, z. B. APAB\u2026");
 
         cardPanel.add(new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)), CARD_NONE);
         JPanel customCard = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));

@@ -36,7 +36,7 @@ public final class DocumentTabbedPane extends JPanel {
         tabbedPane = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
         add(tabbedPane, BorderLayout.CENTER);
 
-        emptyLabel = new JLabel("Kein Dokument geÃ¶ffnet. WÃ¤hlen Sie ein Ergebnis aus der Tabelle.", JLabel.CENTER);
+        emptyLabel = new JLabel("Kein Dokument geöffnet. Wählen Sie ein Ergebnis aus der Tabelle.", JLabel.CENTER);
         emptyLabel.setForeground(Color.GRAY);
 
         showEmptyState();
@@ -101,7 +101,7 @@ public final class DocumentTabbedPane extends JPanel {
         tabbedPane.addTab(null, panel);
         int tabIndex = tabbedPane.indexOfComponent(panel);
         tabbedPane.setTabComponentAt(tabIndex, createTabComponent(tab, key));
-        // NOT selecting â€” tab stays in background
+        // NOT selecting -- tab stays in background
 
         return panel;
     }
@@ -219,10 +219,10 @@ public final class DocumentTabbedPane extends JPanel {
         String label = tab.title();
         if (label.length() > 30) label = label.substring(0, 27) + "...";
         JLabel titleLabel = new JLabel(label);
-        titleLabel.setToolTipText(tab.timestamp() + " â€“ " + tab.title());
+        titleLabel.setToolTipText(tab.timestamp() + " \u2013 " + tab.title());
         tabComp.add(titleLabel);
 
-        JButton closeBtn = new JButton("Ã—");
+        JButton closeBtn = new JButton("\u00d7");
         closeBtn.setPreferredSize(new Dimension(20, 20));
         closeBtn.setMargin(new java.awt.Insets(0, 0, 0, 0));
         closeBtn.setFocusable(false);
@@ -260,4 +260,3 @@ public final class DocumentTabbedPane extends JPanel {
         }
     }
 }
-

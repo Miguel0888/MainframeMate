@@ -21,7 +21,7 @@ public final class FormFilterPanel extends JPanel {
         super(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         baseFormBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("*", "* â€“ Keine EinschrÃ¤nkung"),
+                new OptionItem("*", "* â€“ Keine Einschränkung"),
                 new OptionItem("APZC", "APZC â€“ Produktion (alle Produktionsdaten)"),
                 new OptionItem("APZF", "APZF â€“ Produktion (Format)"),
                 new OptionItem("ATZC", "ATZC â€“ Test (Bewirtschafter-Test/Entwicklung)"),

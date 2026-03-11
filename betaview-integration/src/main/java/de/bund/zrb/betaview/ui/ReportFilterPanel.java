@@ -45,26 +45,26 @@ public final class ReportFilterPanel extends JPanel {
         super(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         modeBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem(CARD_ANY, "Report: * â€“ Keine EinschrÃ¤nkung"),
-                new OptionItem(CARD_PREFIX, "Report: *A/*E/*K â€“ nach Kategorie filtern"),
-                new OptionItem(CARD_BA, "Report: BAxxx + Typ â€“ ZABAK Listen"),
-                new OptionItem(CARD_K9999, "Report: K9999BAnnni â€“ gezielter Report"),
+                new OptionItem(CARD_ANY, "Report: * \u2013 Keine Einschr\u00e4nkung"),
+                new OptionItem(CARD_PREFIX, "Report: *A/*E/*K \u2013 nach Kategorie filtern"),
+                new OptionItem(CARD_BA, "Report: BAxxx + Typ \u2013 ZABAK Listen"),
+                new OptionItem(CARD_K9999, "Report: K9999BAnnni \u2013 gezielter Report"),
                 new OptionItem(CARD_BEWIRT, "Report: Bewirtschafternummer"),
-                new OptionItem(CARD_CUSTOM, "Report: Custom â€“ freier Wert")
+                new OptionItem(CARD_CUSTOM, "Report: Custom \u2013 freier Wert")
         });
 
         prefixBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("*A", "*A â€“ Alle Auslieferungen"),
-                new OptionItem("*E", "*E â€“ Alle Einlieferungen"),
-                new OptionItem("*K", "*K â€“ Alle Kontoinformationen")
+                new OptionItem("*A", "*A \u2013 Alle Auslieferungen"),
+                new OptionItem("*E", "*E \u2013 Alle Einlieferungen"),
+                new OptionItem("*K", "*K \u2013 Alle Kontoinformationen")
         });
 
         baListBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("BA001", "BA001 â€“ Protokolle Ladeprogramm"),
-                new OptionItem("BA002", "BA002 â€“ Protokolle Entladeprogramm"),
-                new OptionItem("BA100", "BA100 â€“ Einzelsatz (Dialog)"),
-                new OptionItem("BA101", "BA101 â€“ Sendung (Dialog)"),
-                new OptionItem("BA200", "BA200 â€“ Statistik (Dialog)")
+                new OptionItem("BA001", "BA001 \u2013 Protokolle Ladeprogramm"),
+                new OptionItem("BA002", "BA002 \u2013 Protokolle Entladeprogramm"),
+                new OptionItem("BA100", "BA100 \u2013 Einzelsatz (Dialog)"),
+                new OptionItem("BA101", "BA101 \u2013 Sendung (Dialog)"),
+                new OptionItem("BA200", "BA200 \u2013 Statistik (Dialog)")
         });
 
         baTypeBox = new JComboBox<OptionItem>();
@@ -72,17 +72,17 @@ public final class ReportFilterPanel extends JPanel {
         baListBox.addActionListener(e -> updateBaTypes(selectedValue(baListBox)));
 
         kListBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("001", "001 â€“ BA001 (Ladeprogramm)"),
-                new OptionItem("002", "002 â€“ BA002 (Entladeprogramm)"),
-                new OptionItem("100", "100 â€“ BA100 (Einzelsatz)"),
-                new OptionItem("101", "101 â€“ BA101 (Sendung)"),
-                new OptionItem("200", "200 â€“ BA200 (Statistik)")
+                new OptionItem("001", "001 \u2013 BA001 (Ladeprogramm)"),
+                new OptionItem("002", "002 \u2013 BA002 (Entladeprogramm)"),
+                new OptionItem("100", "100 \u2013 BA100 (Einzelsatz)"),
+                new OptionItem("101", "101 \u2013 BA101 (Sendung)"),
+                new OptionItem("200", "200 \u2013 BA200 (Statistik)")
         });
 
         kTypeBox = new JComboBox<OptionItem>(new OptionItem[] {
-                new OptionItem("A", "A â€“ Auslieferung"),
-                new OptionItem("E", "E â€“ Einlieferung"),
-                new OptionItem("K", "K â€“ Kontoinformation")
+                new OptionItem("A", "A \u2013 Auslieferung"),
+                new OptionItem("E", "E \u2013 Einlieferung"),
+                new OptionItem("K", "K \u2013 Kontoinformation")
         });
 
         cardPanel.add(buildAnyCard(), CARD_ANY);
@@ -246,35 +246,35 @@ public final class ReportFilterPanel extends JPanel {
 
     private void updateBewirtPreview() {
         String nr = safe(bewirtField.getText());
-        bewirtPreview.setText(nr.isEmpty() ? "â†’ *" : "â†’ %" + nr + "*");
+        bewirtPreview.setText(nr.isEmpty() ? "\u2192 *" : "\u2192 %" + nr + "*");
     }
 
     private void updateBaTypes(String baBase) {
         DefaultComboBoxModel<OptionItem> model = new DefaultComboBoxModel<OptionItem>();
 
         if ("BA001".equals(baBase)) {
-            model.addElement(new OptionItem("A", "A â€“ PROTOKOLL AUSLIEFERUNGEN"));
-            model.addElement(new OptionItem("E", "E â€“ PROTOKOLL EINLIEFERUNGEN"));
-            model.addElement(new OptionItem("K", "K â€“ PROTOKOLL KONTOINFORMATIONEN"));
-            model.addElement(new OptionItem("L", "L â€“ ABSTIMMUNG HKR"));
+            model.addElement(new OptionItem("A", "A \u2013 PROTOKOLL AUSLIEFERUNGEN"));
+            model.addElement(new OptionItem("E", "E \u2013 PROTOKOLL EINLIEFERUNGEN"));
+            model.addElement(new OptionItem("K", "K \u2013 PROTOKOLL KONTOINFORMATIONEN"));
+            model.addElement(new OptionItem("L", "L \u2013 ABSTIMMUNG HKR"));
         } else if ("BA002".equals(baBase)) {
-            model.addElement(new OptionItem("B", "B â€“ PROTOKOLL EXPORT BBK"));
-            model.addElement(new OptionItem("F", "F â€“ PROTOKOLL EXPORT BFF"));
-            model.addElement(new OptionItem("V", "V â€“ VERWAHRFÃ„LLE EINZELLISTE"));
+            model.addElement(new OptionItem("B", "B \u2013 PROTOKOLL EXPORT BBK"));
+            model.addElement(new OptionItem("F", "F \u2013 PROTOKOLL EXPORT BFF"));
+            model.addElement(new OptionItem("V", "V \u2013 VERWAHRF\u00c4LLE EINZELLISTE"));
         } else if ("BA100".equals(baBase)) {
-            model.addElement(new OptionItem("A", "A â€“ EINZELSATZ AUSLIEFERUNG"));
-            model.addElement(new OptionItem("E", "E â€“ EINZELSATZ EINLIEFERUNG"));
-            model.addElement(new OptionItem("K", "K â€“ EINZELSATZ KONTOINFORMATIONEN"));
+            model.addElement(new OptionItem("A", "A \u2013 EINZELSATZ AUSLIEFERUNG"));
+            model.addElement(new OptionItem("E", "E \u2013 EINZELSATZ EINLIEFERUNG"));
+            model.addElement(new OptionItem("K", "K \u2013 EINZELSATZ KONTOINFORMATIONEN"));
         } else if ("BA101".equals(baBase)) {
-            model.addElement(new OptionItem("A", "A â€“ SENDUNG AUSLIEFERUNG"));
-            model.addElement(new OptionItem("E", "E â€“ SENDUNG EINLIEFERUNG"));
+            model.addElement(new OptionItem("A", "A \u2013 SENDUNG AUSLIEFERUNG"));
+            model.addElement(new OptionItem("E", "E \u2013 SENDUNG EINLIEFERUNG"));
         } else if ("BA200".equals(baBase)) {
-            model.addElement(new OptionItem("A", "A â€“ STATISTIK AUSLIEFERUNG"));
-            model.addElement(new OptionItem("E", "E â€“ STATISTIK EINLIEFERUNG"));
+            model.addElement(new OptionItem("A", "A \u2013 STATISTIK AUSLIEFERUNG"));
+            model.addElement(new OptionItem("E", "E \u2013 STATISTIK EINLIEFERUNG"));
         } else {
-            model.addElement(new OptionItem("A", "A â€“ Auslieferung"));
-            model.addElement(new OptionItem("E", "E â€“ Einlieferung"));
-            model.addElement(new OptionItem("K", "K â€“ Kontoinformation"));
+            model.addElement(new OptionItem("A", "A \u2013 Auslieferung"));
+            model.addElement(new OptionItem("E", "E \u2013 Einlieferung"));
+            model.addElement(new OptionItem("K", "K \u2013 Kontoinformation"));
         }
 
         baTypeBox.setModel(model);

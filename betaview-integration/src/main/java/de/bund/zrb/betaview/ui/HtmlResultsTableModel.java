@@ -99,7 +99,7 @@ public final class HtmlResultsTableModel extends AbstractTableModel {
         // Extrahiere URL aus JavaScript-Funktionen
         // Beispiel: "javascript:bwe.result.openDocument('open.action?index=0&source=resulttable');"
         
-        // Suche nach String in einfachen oder doppelten AnfÃ¼hrungszeichen
+        // Suche nach String in einfachen oder doppelten Anführungszeichen
         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("['\"]([^'\"]+\\.action[^'\"]*)['\"]");
         java.util.regex.Matcher matcher = pattern.matcher(onclick);
         if (matcher.find()) {

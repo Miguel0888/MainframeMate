@@ -37,7 +37,7 @@ public final class TimePeriodFilterPanel extends JPanel {
                 new OptionItem("today", "Heute"),
                 new OptionItem("yesterday", "Gestern"),
                 new OptionItem("individual", "Individuell"),
-                new OptionItem("daterange", "Datumsbereich (Von â€“ Bis)")
+                new OptionItem("daterange", "Datumsbereich (Von \u2013 Bis)")
         });
 
         valueSpinner = new JSpinner(new SpinnerNumberModel(60, 1, 99999, 1));

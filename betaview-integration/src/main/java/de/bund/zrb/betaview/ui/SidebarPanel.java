@@ -310,7 +310,7 @@ public final class SidebarPanel extends JPanel {
         public String ssId()        { return ssId; }
 
         @Override public String toString() {
-            return description.isEmpty() ? name : name + " â€“ " + description;
+            return description.isEmpty() ? name : name + " \u2013 " + description;
         }
     }
 
@@ -333,7 +333,7 @@ public final class SidebarPanel extends JPanel {
         public int    bookmarkId()  { return bookmarkId; }
 
         @Override public String toString() {
-            return description.isEmpty() ? name : name + " â€“ " + description;
+            return description.isEmpty() ? name : name + " \u2013 " + description;
         }
     }
 

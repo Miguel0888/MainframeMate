@@ -105,7 +105,7 @@ public final class PdfPreviewPanel extends JPanel {
             cards.show(cardPanel, CARD_IMAGE);
             statusLabel.setText("PDF (" + pdfBytes.length / 1024 + " KB)");
         } catch (Exception e) {
-            // Not a valid PDF â€“ try showing as text
+            // Not a valid PDF -- try showing as text
             showText(pdfBytes, "application/octet-stream");
         }
     }

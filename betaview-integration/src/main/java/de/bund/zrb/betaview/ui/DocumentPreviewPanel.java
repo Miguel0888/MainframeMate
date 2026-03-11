@@ -148,7 +148,7 @@ public final class DocumentPreviewPanel extends JPanel {
         pageCountLabel = new JLabel("/ 1");
         pageCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 2));
 
-        nextPageBtn = toolbarButton("\u25B6", "NÃ¤chste Seite");
+        nextPageBtn = toolbarButton("\u25B6", "Nächste Seite");
         lastPageBtn = toolbarButton("\u23ED", "Letzte Seite");
 
         toolbar.add(firstPageBtn);
@@ -195,7 +195,7 @@ public final class DocumentPreviewPanel extends JPanel {
 
         toolbar.add(toolbarSeparator());
 
-        // -- sidebar toggle buttons (disabled â€“ not yet implemented) --
+        // -- sidebar toggle buttons (disabled -- not yet implemented) -- â€“ not yet implemented) --
         notesToggle  = toolbarToggle("\uD83D\uDDD2 Notizen", "Notizen ein-/ausblenden");
         marksToggle  = toolbarToggle("\u2691 Markiert", "Markierte Seiten ein-/ausblenden");
         searchToggle = toolbarToggle("\uD83D\uDD0D Suche", "Volltextsuche ein-/ausblenden");
