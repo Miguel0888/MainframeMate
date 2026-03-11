@@ -1,28 +1,28 @@
 package de.bund.zrb.ui.terminal;
 
 import com.ascert.open.term.core.Host;
+import com.ascert.open.term.core.Terminal;
 import com.ascert.open.term.core.TerminalFactoryRegistrar;
-import com.ascert.open.term.gui.EmulatorPanel;
-import com.ascert.open.term.i3270.Term3270Factory;
+import com.ascert.open.term.gui.JTerminalScreen;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
 import java.awt.*;
+import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * ConnectionTab wrapping an OpenTerm 3270 terminal emulator.
+ * Embed a TN3270 terminal screen as a regular connection tab.
  * <p>
- * Embeds an {@link EmulatorPanel} in MainframeMate as a regular tab.
- * The terminal never triggers {@code System.exit()} because we
- * set {@code EmulatorPanel.setEmbeddedUse(true)}.
+ * Uses {@link Terminal} + {@link JTerminalScreen} directly (not EmulatorPanel)
+ * to avoid the double-connect / swallowed-error problems of EmulatorPanel.
  */
 public class TerminalConnectionTab implements ConnectionTab {
 
     private static final Logger LOG = Logger.getLogger(TerminalConnectionTab.class.getName());
-
     private static final AtomicBoolean FACTORY_INITIALIZED = new AtomicBoolean(false);
 
     private final String host;
@@ -33,7 +33,12 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final JLabel statusLabel;
-    private EmulatorPanel emulatorPanel;
+    private final JToolBar connectionToolbar;
+    private final JToolBar functionKeyToolbar;
+
+    private JComponent centerComponent;
+    private volatile Terminal terminal;
+    private volatile JTerminalScreen terminalScreen;
     private volatile boolean connected;
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout) {
@@ -45,87 +50,156 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         ensureFactoryInitialized();
 
-        mainPanel = new JPanel(new BorderLayout());
-        statusLabel = new JLabel("  Verbinde…");
+        this.mainPanel = new JPanel(new BorderLayout());
+        this.statusLabel = new JLabel("  Bereit");
+        this.connectionToolbar = createConnectionToolbar();
+        this.functionKeyToolbar = createFunctionKeyToolbar();
 
-        JToolBar toolbar = createToolbar();
-        mainPanel.add(toolbar, BorderLayout.NORTH);
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.add(connectionToolbar, BorderLayout.NORTH);
+        northPanel.add(functionKeyToolbar, BorderLayout.CENTER);
 
-        // Placeholder while connecting
-        JLabel connecting = new JLabel("Verbinde mit " + host + ":" + port + " …", SwingConstants.CENTER);
-        connecting.setFont(connecting.getFont().deriveFont(Font.ITALIC, 14f));
-        mainPanel.add(connecting, BorderLayout.CENTER);
+        this.centerComponent = createMessageLabel("Verbinde mit " + host + ":" + port + " …");
+
+        mainPanel.add(northPanel, BorderLayout.NORTH);
+        mainPanel.add(centerComponent, BorderLayout.CENTER);
     }
 
-    /**
-     * Register OpenTerm terminal factories exactly once.
-     */
     private static void ensureFactoryInitialized() {
         if (FACTORY_INITIALIZED.compareAndSet(false, true)) {
             try {
-                TerminalFactoryRegistrar.initTermTypeFactories(Term3270Factory.class.getName());
+                TerminalFactoryRegistrar.initTermTypeFactories(null);
                 LOG.info("[3270] Terminal factories registered.");
             } catch (Exception e) {
-                LOG.log(Level.WARNING, "[3270] Failed to register terminal factories", e);
                 FACTORY_INITIALIZED.set(false);
+                LOG.log(Level.WARNING, "[3270] Failed to register terminal factories", e);
             }
         }
     }
 
     /**
-     * Create and connect the EmulatorPanel.
-     * Must be called on a background thread; UI updates via SwingUtilities.
+     * Create a Terminal via the factory, build the JTerminalScreen on the EDT,
+     * then connect. Must be called on a background thread.
      */
     public void connect() throws Exception {
-        Host h = new Host(host, port, termType, tls, keepAliveTimeout);
+        final Host terminalHost = new Host(host, port, termType, tls, keepAliveTimeout);
+        final Terminal createdTerminal = TerminalFactoryRegistrar.createTerminal(terminalHost);
+        final AtomicReference<JTerminalScreen> screenRef = new AtomicReference<JTerminalScreen>();
 
-        // Build the emulator panel on EDT
-        SwingUtilities.invokeAndWait(() -> {
-            try {
-                emulatorPanel = new EmulatorPanel(h, true);
-                emulatorPanel.setEmbeddedUse(true);
-            } catch (Exception e) {
-                throw new RuntimeException("EmulatorPanel creation failed: " + e.getMessage(), e);
-            }
-        });
+        updateStatus("  ⏳ Verbinde…");
 
-        // Trigger connection via init (public API)
-        emulatorPanel.init(host, port, termType, tls, keepAliveTimeout);
-        connected = true;
+        // Build screen component on EDT (Swing requirement)
+        buildScreenOnEdt(createdTerminal, screenRef);
 
-        // Replace placeholder on EDT
-        SwingUtilities.invokeLater(() -> {
-            mainPanel.removeAll();
-            mainPanel.add(createToolbar(), BorderLayout.NORTH);
-            mainPanel.add(emulatorPanel, BorderLayout.CENTER);
-            statusLabel.setText("  ✅ Verbunden");
-            mainPanel.revalidate();
-            mainPanel.repaint();
-        });
-    }
+        try {
+            createdTerminal.connect();
 
-    /**
-     * Disconnect the terminal session.
-     */
-    public void disconnect() {
-        if (emulatorPanel != null) {
-            try {
-                emulatorPanel.disconnect();
-            } catch (Exception e) {
-                LOG.log(Level.WARNING, "[3270] Disconnect error", e);
-            }
+            this.terminal = createdTerminal;
+            this.terminalScreen = screenRef.get();
+            this.connected = true;
+
+            SwingUtilities.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    statusLabel.setText("  ✅ Verbunden");
+                    if (terminalScreen != null) {
+                        terminalScreen.requestFocusInWindow();
+                    }
+                }
+            });
+        } catch (Exception ex) {
+            disconnectQuietly(createdTerminal);
+            clearTerminalState();
+            showDisconnectedMessage("Verbindung zu " + host + ":" + port + " fehlgeschlagen.");
+            updateStatus("  ❌ Fehler");
+            throw ex;
         }
-        connected = false;
-        SwingUtilities.invokeLater(() -> {
-            statusLabel.setText("  ⛔ Getrennt");
+    }
+
+    private void buildScreenOnEdt(final Terminal createdTerminal,
+                                  final AtomicReference<JTerminalScreen> screenRef)
+            throws InterruptedException, InvocationTargetException {
+        SwingUtilities.invokeAndWait(new Runnable() {
+            @Override
+            public void run() {
+                JTerminalScreen screen = new JTerminalScreen(createdTerminal, functionKeyToolbar);
+                screenRef.set(screen);
+                setCenterComponent(screen);
+            }
         });
     }
 
-    /**
-     * Reconnect from UI (background thread).
-     */
+    public void disconnect() {
+        Terminal currentTerminal = this.terminal;
+        clearTerminalState();
+        disconnectQuietly(currentTerminal);
+        clearFunctionKeyToolbar();
+        showDisconnectedMessage("Verbindung getrennt.");
+        updateStatus("  ⛔ Getrennt");
+    }
+
+    private void clearTerminalState() {
+        this.connected = false;
+        this.terminal = null;
+        this.terminalScreen = null;
+    }
+
+    private void disconnectQuietly(Terminal terminalToDisconnect) {
+        if (terminalToDisconnect == null) return;
+        try {
+            terminalToDisconnect.disconnect();
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[3270] Disconnect error", e);
+        }
+    }
+
+    private void clearFunctionKeyToolbar() {
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                functionKeyToolbar.removeAll();
+                functionKeyToolbar.revalidate();
+                functionKeyToolbar.repaint();
+            }
+        });
+    }
+
+    private void showDisconnectedMessage(final String message) {
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                setCenterComponent(createMessageLabel(message));
+            }
+        });
+    }
+
+    private void updateStatus(final String text) {
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                statusLabel.setText(text);
+            }
+        });
+    }
+
+    private void setCenterComponent(JComponent component) {
+        if (centerComponent != null) {
+            mainPanel.remove(centerComponent);
+        }
+        centerComponent = component;
+        mainPanel.add(centerComponent, BorderLayout.CENTER);
+        mainPanel.revalidate();
+        mainPanel.repaint();
+    }
+
+    private JLabel createMessageLabel(String text) {
+        JLabel label = new JLabel(text, JLabel.CENTER);
+        label.setFont(label.getFont().deriveFont(Font.ITALIC, 14f));
+        return label;
+    }
+
     private void reconnect() {
-        statusLabel.setText("  ⏳ Verbinde…");
+        updateStatus("  ⏳ Verbinde…");
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
@@ -139,7 +213,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     get();
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    statusLabel.setText("  ❌ Fehler");
+                    updateStatus("  ❌ Fehler");
                     JOptionPane.showMessageDialog(mainPanel,
                             "Verbindung fehlgeschlagen:\n" + cause.getMessage(),
                             "3270-Fehler", JOptionPane.ERROR_MESSAGE);
@@ -148,7 +222,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         }.execute();
     }
 
-    private JToolBar createToolbar() {
+    private JToolBar createConnectionToolbar() {
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
         toolbar.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
@@ -160,16 +234,20 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         JButton disconnectBtn = new JButton("⛔ Trennen");
         disconnectBtn.setToolTipText("Terminalsession trennen");
-        disconnectBtn.addActionListener(e -> {
-            disconnect();
-        });
+        disconnectBtn.addActionListener(e -> disconnect());
         toolbar.add(disconnectBtn);
 
         toolbar.addSeparator(new Dimension(16, 0));
-
         toolbar.add(Box.createHorizontalGlue());
         toolbar.add(statusLabel);
 
+        return toolbar;
+    }
+
+    private JToolBar createFunctionKeyToolbar() {
+        JToolBar toolbar = new JToolBar();
+        toolbar.setFloatable(false);
+        toolbar.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
         return toolbar;
     }
 
