@@ -124,6 +124,39 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             tabManager.addTab(fileTab);
         });
 
+        // Wire up index callback: indexes a single wiki page into Lucene on demand
+        tab.setIndexCallback((siteId, pageTitle, html) -> {
+            try {
+                String docId = "wiki://" + siteId.value() + "/" + pageTitle;
+                de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+                // Remove old version if already indexed (re-index)
+                if (rag.isIndexed(docId)) {
+                    rag.removeDocument(docId);
+                }
+                String text = stripHtmlForIndex(html);
+                if (text.isEmpty()) return 0;
+                de.bund.zrb.ingestion.model.document.DocumentMetadata meta =
+                        de.bund.zrb.ingestion.model.document.DocumentMetadata.builder()
+                                .sourceName(pageTitle)
+                                .mimeType("text/html")
+                                .attribute("sourcePath", docId)
+                                .attribute("wikiSite", siteId.value())
+                                .build();
+                de.bund.zrb.ingestion.model.document.Document doc =
+                        de.bund.zrb.ingestion.model.document.Document.builder()
+                                .metadata(meta)
+                                .paragraph(text)
+                                .build();
+                rag.indexDocument(docId, pageTitle, doc, false);
+                LOG.info("[Wiki] Indexed on demand: " + pageTitle + " (" + text.length() + " chars)");
+                de.bund.zrb.rag.service.RagService.IndexedDocument indexed = rag.getIndexedDocument(docId);
+                return indexed != null ? indexed.chunkCount : 1;
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[Wiki] Index on demand failed: " + pageTitle, e);
+                return -1;
+            }
+        });
+
         // Wire up prefetch: cache search results in the background
         try {
             CacheRepository cacheRepo = CacheRepository.getInstance();

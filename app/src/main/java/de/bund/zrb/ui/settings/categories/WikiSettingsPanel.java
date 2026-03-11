@@ -239,6 +239,54 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
         s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();
         s.wikiPrefetchCacheMaxMb = (Integer) prefetchCacheMaxMbSpinner.getValue();
+
+        // Sync IndexSource entries for auto-indexed wiki sites
+        syncWikiIndexSources();
+    }
+
+    /**
+     * Create/remove IndexSource entries for each wiki site based on autoIndex flag.
+     */
+    private void syncWikiIndexSources() {
+        try {
+            de.bund.zrb.indexing.service.IndexingService indexingService =
+                    de.bund.zrb.indexing.service.IndexingService.getInstance();
+            java.util.Set<String> existingWikiSourceIds = new java.util.HashSet<>();
+            for (de.bund.zrb.indexing.model.IndexSource src : indexingService.getAllSources()) {
+                if (src.getSourceType() == de.bund.zrb.indexing.model.SourceType.WIKI) {
+                    existingWikiSourceIds.add(src.getConnectionHost());
+                }
+            }
+
+            for (int i = 0; i < tableModel.getRowCount(); i++) {
+                WikiSiteRow row = tableModel.getRow(i);
+                if (row.autoIndex && !existingWikiSourceIds.contains(row.id)) {
+                    // Create new IndexSource for this wiki
+                    de.bund.zrb.indexing.model.IndexSource source = new de.bund.zrb.indexing.model.IndexSource();
+                    source.setName("Wiki: " + row.displayName);
+                    source.setSourceType(de.bund.zrb.indexing.model.SourceType.WIKI);
+                    source.setEnabled(true);
+                    source.setConnectionHost(row.id); // siteId
+                    source.setMaxCrawlDepth(0); // only search results, no crawling by default
+                    source.setMaxUrlsPerSession(100);
+                    source.setScheduleMode(de.bund.zrb.indexing.model.ScheduleMode.MANUAL);
+                    source.setFulltextEnabled(true);
+                    source.setEmbeddingEnabled(false);
+                    indexingService.saveSource(source);
+                } else if (!row.autoIndex && existingWikiSourceIds.contains(row.id)) {
+                    // Remove IndexSource for this wiki
+                    for (de.bund.zrb.indexing.model.IndexSource src : indexingService.getAllSources()) {
+                        if (src.getSourceType() == de.bund.zrb.indexing.model.SourceType.WIKI
+                                && row.id.equals(src.getConnectionHost())) {
+                            indexingService.removeSource(src.getSourceId());
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Best-effort: don't fail settings save if indexing sync fails
+        }
     }
 
     // ═══════════════════════════════════════════════════════════

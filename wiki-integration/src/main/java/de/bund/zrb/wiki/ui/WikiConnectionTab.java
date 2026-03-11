@@ -54,6 +54,8 @@ public class WikiConnectionTab implements ConnectionTab {
     private CredentialsCallback credentialsCallback;
     /** Callback to persist credentials entered via the login prompt. */
     private CredentialsSaveCallback credentialsSaveCallback;
+    /** Callback to index a wiki page into the search index. */
+    private IndexCallback indexCallback;
 
     private String currentPageTitle;
     private WikiSiteId currentSiteId;
@@ -182,7 +184,17 @@ public class WikiConnectionTab implements ConnectionTab {
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
         htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
+        // Index button for current preview
+        JButton indexPageButton = new JButton("📥 Indexieren");
+        indexPageButton.setToolTipText("Aktuelle Seite in den Suchindex aufnehmen");
+        indexPageButton.setFocusable(false);
+        indexPageButton.addActionListener(e -> indexCurrentPreview());
+
+        JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        previewToolbar.add(indexPageButton);
+
         previewPanel = new JPanel(new BorderLayout(0, 0));
+        previewPanel.add(previewToolbar, BorderLayout.NORTH);
         previewPanel.add(htmlScroll, BorderLayout.CENTER);
 
         // ═══════════════════════════════════════════════════════════
@@ -296,6 +308,49 @@ public class WikiConnectionTab implements ConnectionTab {
         if (!siteTitles.isEmpty()) {
             prefetchCallback.prefetchSearchResults(siteId, siteTitles, Math.max(0, siteTitles.indexOf(resultModel.getTitleAt(modelRow))));
         }
+    }
+
+    /**
+     * Index the currently previewed wiki page into the search index.
+     */
+    private void indexCurrentPreview() {
+        if (currentPreview == null || currentSiteId == null) {
+            statusLabel.setText("⚠️ Keine Seite zum Indexieren geladen");
+            return;
+        }
+        if (indexCallback == null) {
+            statusLabel.setText("⚠️ Indexierung nicht verfügbar");
+            return;
+        }
+
+        final WikiSiteId siteId = currentSiteId;
+        final String title = currentPreview.title();
+        final String html = currentPreview.cleanedHtml();
+        statusLabel.setText("⏳ Indexiere: " + title + "…");
+
+        new SwingWorker<Integer, Void>() {
+            @Override
+            protected Integer doInBackground() {
+                return indexCallback.indexPage(siteId, title, html);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    int chunks = get();
+                    if (chunks > 0) {
+                        statusLabel.setText("✅ Indexiert: " + title + " (" + chunks + " Chunks)");
+                    } else if (chunks == 0) {
+                        statusLabel.setText("⚠️ Kein Text extrahiert: " + title);
+                    } else {
+                        statusLabel.setText("❌ Indexierung fehlgeschlagen: " + title);
+                    }
+                } catch (Exception ex) {
+                    statusLabel.setText("❌ Fehler: " + ex.getMessage());
+                    LOG.log(Level.WARNING, "[Wiki] Index failed for: " + title, ex);
+                }
+            }
+        }.execute();
     }
 
     /** Apply a loaded WikiPageView to the preview pane and outline. */
@@ -786,6 +841,21 @@ public class WikiConnectionTab implements ConnectionTab {
     /** Callback to persist credentials entered via the login prompt dialog. */
     public interface CredentialsSaveCallback {
         void saveCredentials(WikiSiteId siteId, String username, String password);
+    }
+
+    /** Callback to index a single wiki page into the search index. */
+    public interface IndexCallback {
+        /**
+         * @param siteId    wiki site id
+         * @param pageTitle page title
+         * @param html      cleaned HTML content
+         * @return number of chunks indexed, or -1 on failure
+         */
+        int indexPage(WikiSiteId siteId, String pageTitle, String html);
+    }
+
+    public void setIndexCallback(IndexCallback callback) {
+        this.indexCallback = callback;
     }
 
     public void setCredentialsCallback(CredentialsCallback callback) {
