@@ -8,6 +8,8 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -134,6 +136,7 @@ public class TerminalConnectionTab implements ConnectionTab {
             public void run() {
                 JTerminalScreen screen = new JTerminalScreen(createdTerminal, functionKeyToolbar);
                 screenRef.set(screen);
+
                 // Make the screen focusable and request focus on click
                 screen.setFocusable(true);
                 screen.setRequestFocusEnabled(true);
@@ -144,17 +147,83 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                // Also grab focus when the mainPanel itself is clicked
-                mainPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+                // Wrap the screen in a panel that scales the font to fill the available space
+                JPanel scalingWrapper = new JPanel(new BorderLayout());
+                scalingWrapper.setBackground(Color.BLACK);
+                scalingWrapper.add(screen, BorderLayout.CENTER);
+
+                // Also grab focus when the wrapper is clicked
+                scalingWrapper.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         screen.requestFocusInWindow();
                     }
                 });
 
-                setCenterComponent(screen);
+                // Dynamically scale the terminal font when the container is resized
+                scalingWrapper.addComponentListener(new ComponentAdapter() {
+                    @Override
+                    public void componentResized(ComponentEvent e) {
+                        scaleTerminalFont(screen, scalingWrapper);
+                    }
+                });
+
+                setCenterComponent(scalingWrapper);
             }
         });
+    }
+
+    /**
+     * Scale the terminal font so that the 80×24 (or 80×43) character grid
+     * fills as much of the available container space as possible.
+     */
+    private void scaleTerminalFont(JTerminalScreen screen, JComponent container) {
+        if (screen == null || container == null) return;
+
+        int availableWidth = container.getWidth();
+        int availableHeight = container.getHeight();
+        if (availableWidth <= 0 || availableHeight <= 0) return;
+
+        // Standard 3270 screen dimensions
+        int cols = 80;
+        int rows = 24;
+        // Model 3 and 4 use 80×32 or 80×43 respectively, but 80×24 is most common
+        if ("IBM-3278-3".equalsIgnoreCase(termType) || "IBM-3279-3".equalsIgnoreCase(termType)) {
+            rows = 32;
+        } else if ("IBM-3278-4".equalsIgnoreCase(termType) || "IBM-3279-4".equalsIgnoreCase(termType)) {
+            rows = 43;
+        } else if ("IBM-3278-5".equalsIgnoreCase(termType) || "IBM-3279-5".equalsIgnoreCase(termType)) {
+            rows = 27;
+            cols = 132;
+        }
+
+        // Calculate max font size that fits
+        // Use monospaced font — character width ≈ 0.6 × font-size, height ≈ font-size + line-spacing
+        // We test actual metrics to be precise
+        Font currentFont = screen.getFont();
+        String fontFamily = currentFont != null ? currentFont.getFamily() : "Monospaced";
+
+        // Binary search for best font size
+        int bestSize = 8;
+        for (int size = 8; size <= 40; size++) {
+            Font testFont = new Font(fontFamily, Font.PLAIN, size);
+            FontMetrics fm = screen.getFontMetrics(testFont);
+            int totalWidth = fm.charWidth('M') * cols;
+            int totalHeight = fm.getHeight() * rows;
+
+            if (totalWidth <= availableWidth && totalHeight <= availableHeight) {
+                bestSize = size;
+            } else {
+                break;
+            }
+        }
+
+        Font currentScreenFont = screen.getFont();
+        if (currentScreenFont == null || currentScreenFont.getSize() != bestSize) {
+            screen.setFont(new Font(fontFamily, Font.PLAIN, bestSize));
+            screen.revalidate();
+            screen.repaint();
+        }
     }
 
     public void disconnect() {
