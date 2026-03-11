@@ -277,30 +277,61 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     // ── Auto-Login ──────────────────────────────────────────────
 
+    private static final com.ascert.open.ohio.Ohio.OHIO_AID AID_ENTER =
+            com.ascert.open.ohio.Ohio.OHIO_AID.OHIO_AID_3270_ENTER;
+    private static final com.ascert.open.ohio.Ohio.OHIO_AID AID_CLEAR =
+            com.ascert.open.ohio.Ohio.OHIO_AID.OHIO_AID_3270_CLEAR;
+
     /**
-     * Automatically type username + Tab + password + Enter into the terminal.
-     * Runs on a background thread, polling until the keyboard is unlocked.
+     * Automatically log in after connect.
+     * <p>
+     * Sequence: position cursor → type user → CLEAR → wait → type password → ENTER.
+     * Runs on a background thread.
      */
     private void autoLogin(final Terminal term) {
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    // Wait for the host to send the login screen (keyboard unlocked)
+                    // 1) Wait for the host to send the login screen
                     if (!waitForKeyboardUnlock(term, 10_000)) {
                         LOG.warning("[3270] Auto-login: keyboard did not unlock within timeout");
                         return;
                     }
+                    Thread.sleep(500);
 
-                    // Small extra delay to let the screen settle
-                    Thread.sleep(300);
+                    // 2) Position cursor at the first unprotected (input) field
+                    short firstField = term.getNextUnprotectedField(0);
+                    if (firstField >= 0) {
+                        term.setCursorPosition(firstField);
+                    }
 
+                    // 3) Type username
                     typeString(term, user);
-                    term.doKeyPress("[tab]");
-                    Thread.sleep(50);
+                    Thread.sleep(100);
+
+                    // 4) Send CLEAR to advance to the password field
+                    term.Fkey(AID_CLEAR);
+
+                    // 5) Wait for host to process CLEAR and unlock keyboard again
+                    if (!waitForKeyboardUnlock(term, 10_000)) {
+                        LOG.warning("[3270] Auto-login: keyboard did not unlock after CLEAR");
+                        return;
+                    }
+                    Thread.sleep(500);
+
+                    // 6) Position cursor at the (now first) unprotected field = password
+                    firstField = term.getNextUnprotectedField(0);
+                    if (firstField >= 0) {
+                        term.setCursorPosition(firstField);
+                    }
+
+                    // 7) Type password
                     typeString(term, password);
-                    Thread.sleep(50);
-                    term.Fkey(com.ascert.open.ohio.Ohio.OHIO_AID.OHIO_AID_3270_ENTER);
+                    Thread.sleep(100);
+
+                    // 8) Send ENTER
+                    term.Fkey(AID_ENTER);
 
                     LOG.info("[3270] Auto-login: credentials sent");
                     updateStatus("  ✅ Verbunden (angemeldet)");
