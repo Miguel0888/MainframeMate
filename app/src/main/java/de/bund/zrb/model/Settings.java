@@ -94,8 +94,8 @@ public class Settings {
     public int tn3270ActionDelayMs = 1000;             // Wartezeit in ms nach AID-Tasten bei Auto-Login/Makro (Standard: 1000)
 
     // Wiki Settings
-    // Each entry: "id|displayName|apiUrl|requiresLogin"
-    // e.g. "wikipedia|Wikipedia (DE)|https://de.wikipedia.org/w/|false"
+    // Each entry: "id|displayName|apiUrl|requiresLogin|useProxy|autoIndex"
+    // e.g. "wikipedia_de|Wikipedia (DE)|https://de.wikipedia.org/w/|false|false|false"
     public List<String> wikiSites = new ArrayList<>(java.util.Arrays.asList(
             "wikipedia_de|Wikipedia (DE)|https://de.wikipedia.org/w/|false",
             "wikipedia_en|Wikipedia (EN)|https://en.wikipedia.org/w/|false"

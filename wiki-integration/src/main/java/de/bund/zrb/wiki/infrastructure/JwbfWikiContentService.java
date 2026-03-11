@@ -280,18 +280,19 @@ public class JwbfWikiContentService implements WikiContentService {
 
         HttpURLConnection conn;
         if (site.useProxy()) {
-            // Use system proxy (reads Windows IE/WinHTTP proxy settings)
+            // Explicitly resolve proxy via ProxySelector (reads Windows IE/WinHTTP proxy settings)
             try {
-                List<Proxy> proxies = ProxySelector.getDefault().select(url.toURI());
+                ProxySelector selector = ProxySelector.getDefault();
+                List<Proxy> proxies = selector != null ? selector.select(url.toURI()) : null;
                 Proxy proxy = (proxies != null && !proxies.isEmpty()) ? proxies.get(0) : Proxy.NO_PROXY;
-                LOG.fine("[Wiki] Using proxy " + proxy + " for " + url.getHost());
+                LOG.fine("[Wiki] Using explicit proxy " + proxy + " for " + url.getHost());
                 conn = (HttpURLConnection) url.openConnection(proxy);
             } catch (URISyntaxException e) {
                 conn = (HttpURLConnection) url.openConnection();
             }
         } else {
-            // No proxy – connect DIRECT
-            conn = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
+            // Default JVM network handling (respects system proxy if configured globally)
+            conn = (HttpURLConnection) url.openConnection();
         }
         conn.setRequestMethod(method);
         conn.setInstanceFollowRedirects(false);   // handle redirects manually to preserve cookies

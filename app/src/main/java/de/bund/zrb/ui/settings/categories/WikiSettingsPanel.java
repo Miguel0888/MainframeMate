@@ -46,6 +46,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         siteTable.getColumnModel().getColumn(3).setMaxWidth(80);
         siteTable.getColumnModel().getColumn(4).setPreferredWidth(60);
         siteTable.getColumnModel().getColumn(4).setMaxWidth(80);
+        siteTable.getColumnModel().getColumn(5).setPreferredWidth(80);
+        siteTable.getColumnModel().getColumn(5).setMaxWidth(100);
 
         JScrollPane scroll = new JScrollPane(siteTable);
         scroll.setPreferredSize(new Dimension(600, 180));
@@ -89,7 +91,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
     }
 
     private void addSite() {
-        tableModel.addRow(new WikiSiteRow("new_wiki", "Neues Wiki", "https://example.com/w/", false));
+        tableModel.addRow(new WikiSiteRow("new_wiki", "Neues Wiki", "https://example.com/w/", false, false, true));
         int newRow = tableModel.getRowCount() - 1;
         siteTable.setRowSelectionInterval(newRow, newRow);
         siteTable.scrollRectToVisible(siteTable.getCellRect(newRow, 0, true));
@@ -104,8 +106,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
 
     private void loadDefaults() {
         List<WikiSiteRow> defaults = new ArrayList<WikiSiteRow>();
-        defaults.add(new WikiSiteRow("wikipedia_de", "Wikipedia (DE)", "https://de.wikipedia.org/w/", false));
-        defaults.add(new WikiSiteRow("wikipedia_en", "Wikipedia (EN)", "https://en.wikipedia.org/w/", false));
+        defaults.add(new WikiSiteRow("wikipedia_de", "Wikipedia (DE)", "https://de.wikipedia.org/w/", false, false, false));
+        defaults.add(new WikiSiteRow("wikipedia_en", "Wikipedia (EN)", "https://en.wikipedia.org/w/", false, false, false));
 
         for (WikiSiteRow def : defaults) {
             boolean exists = false;
@@ -225,7 +227,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         List<String> serialized = new ArrayList<String>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             WikiSiteRow row = tableModel.getRow(i);
-            serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin + "|" + row.useProxy);
+            serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin + "|" + row.useProxy + "|" + row.autoIndex);
         }
         s.wikiSites = serialized;
 
@@ -247,14 +249,15 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         List<WikiSiteRow> rows = new ArrayList<WikiSiteRow>();
         if (raw == null) return rows;
         for (String entry : raw) {
-            String[] parts = entry.split("\\|", 5);
+            String[] parts = entry.split("\\|", 6);
             if (parts.length >= 3) {
                 String id = parts[0].trim();
                 String name = parts[1].trim();
                 String url = parts[2].trim();
                 boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
                 boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
-                rows.add(new WikiSiteRow(id, name, url, login, proxy));
+                boolean autoIdx = parts.length >= 6 && "true".equalsIgnoreCase(parts[5].trim());
+                rows.add(new WikiSiteRow(id, name, url, login, proxy, autoIdx));
             }
         }
         return rows;
@@ -270,23 +273,29 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         String apiUrl;
         boolean requiresLogin;
         boolean useProxy;
+        boolean autoIndex;
 
         WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin) {
-            this(id, displayName, apiUrl, requiresLogin, false);
+            this(id, displayName, apiUrl, requiresLogin, false, false);
         }
 
         WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin, boolean useProxy) {
+            this(id, displayName, apiUrl, requiresLogin, useProxy, false);
+        }
+
+        WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin, boolean useProxy, boolean autoIndex) {
             this.id = id;
             this.displayName = displayName;
             this.apiUrl = apiUrl;
             this.requiresLogin = requiresLogin;
             this.useProxy = useProxy;
+            this.autoIndex = autoIndex;
         }
     }
 
     private static final class WikiSiteTableModel extends AbstractTableModel {
         private final List<WikiSiteRow> rows;
-        private static final String[] COLUMNS = {"ID", "Name", "API-URL", "Login", "Proxy"};
+        private static final String[] COLUMNS = {"ID", "Name", "API-URL", "Login", "Proxy", "Auto-Index"};
 
         WikiSiteTableModel(List<WikiSiteRow> rows) {
             this.rows = new ArrayList<WikiSiteRow>(rows);
@@ -310,7 +319,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
 
         @Override
         public Class<?> getColumnClass(int col) {
-            return (col == 3 || col == 4) ? Boolean.class : String.class;
+            return (col >= 3 && col <= 5) ? Boolean.class : String.class;
         }
 
         @Override
@@ -325,6 +334,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 case 2: return r.apiUrl;
                 case 3: return r.requiresLogin;
                 case 4: return r.useProxy;
+                case 5: return r.autoIndex;
                 default: return "";
             }
         }
@@ -338,6 +348,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 case 2: r.apiUrl = String.valueOf(value); break;
                 case 3: r.requiresLogin = Boolean.TRUE.equals(value); break;
                 case 4: r.useProxy = Boolean.TRUE.equals(value); break;
+                case 5: r.autoIndex = Boolean.TRUE.equals(value); break;
             }
             fireTableCellUpdated(row, col);
         }
