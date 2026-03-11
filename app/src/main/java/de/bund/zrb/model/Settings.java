@@ -84,8 +84,8 @@ public class Settings {
     public int betaviewDaysBack = 60;                // Default Tage zurück
 
     // TN3270 Terminal Settings
-    public int tn3270Port = 23;                        // TN3270 Port (Standard: 23)
-    public boolean tn3270Tls = false;                  // TLS/SSL verwenden
+    public int tn3270Port = 992;                       // TN3270 Port (Standard: 992 für TLS, 23 für Klartext)
+    public boolean tn3270Tls = true;                   // TLS/SSL verwenden (Standard: an)
     public String tn3270TermType = "IBM-3278-2";       // Terminal-Typ (z.B. IBM-3278-2, IBM-3279-2)
     public int tn3270KeepAliveTimeout = 0;             // KeepAlive in Sekunden (0 = deaktiviert)
 

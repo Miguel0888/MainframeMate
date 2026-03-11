@@ -40,11 +40,27 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
         // ── Build connection dialog ──
         JTextField hostField = new JTextField(
                 settings.host != null ? settings.host.trim() : "", 25);
-        JSpinner portSpinner = new JSpinner(
+        final JSpinner portSpinner = new JSpinner(
                 new SpinnerNumberModel(settings.tn3270Port, 1, 65535, 1));
         JTextField termTypeField = new JTextField(
                 settings.tn3270TermType != null ? settings.tn3270TermType : "IBM-3278-2", 15);
         JCheckBox tlsBox = new JCheckBox("SSL/TLS verwenden", settings.tn3270Tls);
+
+        // Automatically switch port when TLS checkbox changes
+        tlsBox.addActionListener(e -> {
+            int currentPort = ((Number) portSpinner.getValue()).intValue();
+            if (tlsBox.isSelected()) {
+                // Switching TO TLS: if port was 23 (default non-TLS), change to 992
+                if (currentPort == 23) {
+                    portSpinner.setValue(992);
+                }
+            } else {
+                // Switching FROM TLS: if port was 992 (default TLS), change to 23
+                if (currentPort == 992) {
+                    portSpinner.setValue(23);
+                }
+            }
+        });
 
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();

@@ -1,4 +1,4 @@
-package de.bund.zrb.ui.terminal;
+ package de.bund.zrb.ui.terminal;
 
 import com.ascert.open.term.core.Host;
 import com.ascert.open.term.core.Terminal;
@@ -103,7 +103,17 @@ public class TerminalConnectionTab implements ConnectionTab {
                 public void run() {
                     statusLabel.setText("  ✅ Verbunden");
                     if (terminalScreen != null) {
+                        // Ensure the screen component is fully visible before requesting focus.
+                        // A short timer ensures the layout has completed.
+                        terminalScreen.setFocusable(true);
                         terminalScreen.requestFocusInWindow();
+                        Timer focusTimer = new Timer(200, e -> {
+                            if (terminalScreen != null) {
+                                terminalScreen.requestFocusInWindow();
+                            }
+                        });
+                        focusTimer.setRepeats(false);
+                        focusTimer.start();
                     }
                 }
             });
@@ -124,6 +134,24 @@ public class TerminalConnectionTab implements ConnectionTab {
             public void run() {
                 JTerminalScreen screen = new JTerminalScreen(createdTerminal, functionKeyToolbar);
                 screenRef.set(screen);
+                // Make the screen focusable and request focus on click
+                screen.setFocusable(true);
+                screen.setRequestFocusEnabled(true);
+                screen.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        screen.requestFocusInWindow();
+                    }
+                });
+
+                // Also grab focus when the mainPanel itself is clicked
+                mainPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        screen.requestFocusInWindow();
+                    }
+                });
+
                 setCenterComponent(screen);
             }
         });
@@ -289,7 +317,10 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        // not applicable for terminal
+        // When this tab is selected/focused, give keyboard focus to the terminal screen
+        if (terminalScreen != null && connected) {
+            terminalScreen.requestFocusInWindow();
+        }
     }
 
     @Override

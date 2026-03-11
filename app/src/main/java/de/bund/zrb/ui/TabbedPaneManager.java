@@ -41,11 +41,20 @@ public class TabbedPaneManager {
                         HelpContentProvider.HelpTopic.MAIN_TABS));
         tabbedPaneWrapper.setHelpComponent(helpButton);
 
-        // Tab change listener for JCL outline updates
+        // Tab change listener for JCL outline updates + focus management
         tabbedPane.addChangeListener(new ChangeListener() {
             @Override
             public void stateChanged(ChangeEvent e) {
                 updateJclOutlineForSelectedTab();
+                // Give the newly selected tab a chance to claim keyboard focus
+                Component selected = tabbedPane.getSelectedComponent();
+                if (selected != null) {
+                    FtpTab tab = tabMap.get(selected);
+                    if (tab != null) {
+                        // Use invokeLater so the tab is fully visible when focus is requested
+                        SwingUtilities.invokeLater(() -> tab.focusSearchField());
+                    }
+                }
             }
         });
 
