@@ -13,7 +13,9 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
@@ -52,6 +54,9 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     /** Timer that periodically reads the last screen line to update F-key buttons. */
     private Timer fkeyRefreshTimer;
+
+    /** Map from F-key number (1–24) to the corresponding button in the bottom panel. */
+    private final Map<Integer, JButton> fkeyButtons = new HashMap<Integer, JButton>();
 
     public TerminalConnectionTab(String host, int port, String termType, boolean tls, int keepAliveTimeout) {
         this(host, port, termType, tls, keepAliveTimeout, null, null);
@@ -166,6 +171,33 @@ public class TerminalConnectionTab implements ConnectionTab {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         screen.requestFocusInWindow();
+                    }
+                });
+
+                // Visual feedback: press/release the F-key button when a keyboard F-key is used
+                screen.addKeyListener(new java.awt.event.KeyAdapter() {
+                    @Override
+                    public void keyPressed(java.awt.event.KeyEvent e) {
+                        int fnum = fkeyNumberFromEvent(e);
+                        if (fnum > 0) {
+                            JButton btn = fkeyButtons.get(fnum);
+                            if (btn != null) {
+                                btn.getModel().setArmed(true);
+                                btn.getModel().setPressed(true);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void keyReleased(java.awt.event.KeyEvent e) {
+                        int fnum = fkeyNumberFromEvent(e);
+                        if (fnum > 0) {
+                            JButton btn = fkeyButtons.get(fnum);
+                            if (btn != null) {
+                                btn.getModel().setPressed(false);
+                                btn.getModel().setArmed(false);
+                            }
+                        }
                     }
                 });
 
@@ -548,10 +580,13 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         // Rebuild button panel on EDT
         fkeyPanel.removeAll();
+        fkeyButtons.clear();
         for (int i = 0; i < fkeys.size(); i++) {
             int fnum = fkeys.get(i)[0];
             String label = labels.get(i);
-            fkeyPanel.add(makeFkeyButton(fnum, label));
+            JButton btn = makeFkeyButton(fnum, label);
+            fkeyButtons.put(fnum, btn);
+            fkeyPanel.add(btn);
         }
         fkeyPanel.revalidate();
         fkeyPanel.repaint();
@@ -642,6 +677,20 @@ public class TerminalConnectionTab implements ConnectionTab {
                 Math.round(a.getGreen() * u + b.getGreen() * t),
                 Math.round(a.getBlue() * u + b.getBlue() * t)
         );
+    }
+
+    /**
+     * Map a KeyEvent to an F-key number (1–24), or 0 if not an F-key.
+     */
+    private static int fkeyNumberFromEvent(java.awt.event.KeyEvent e) {
+        int code = e.getKeyCode();
+        if (code >= java.awt.event.KeyEvent.VK_F1 && code <= java.awt.event.KeyEvent.VK_F12) {
+            return code - java.awt.event.KeyEvent.VK_F1 + 1;
+        }
+        if (code >= java.awt.event.KeyEvent.VK_F13 && code <= java.awt.event.KeyEvent.VK_F24) {
+            return code - java.awt.event.KeyEvent.VK_F13 + 13;
+        }
+        return 0;
     }
 
     // ── ConnectionTab interface ─────────────────────────────────
