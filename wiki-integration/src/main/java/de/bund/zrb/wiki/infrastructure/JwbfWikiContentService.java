@@ -48,7 +48,7 @@ public class JwbfWikiContentService implements WikiContentService {
         String apiUrl = buildApiUrl(site, "action=parse&format=json&formatversion=2&disabletoc=1&prop=text&page="
                 + enc(pageTitle));
 
-        String json = httpGet(site, apiUrl);
+        String json = httpRequest(site, apiUrl);
         String rawHtml = extractHtml(json);
         HtmlPostProcessor.Result result = htmlProcessor.cleanAndBuildOutline(rawHtml);
 
@@ -71,7 +71,7 @@ public class JwbfWikiContentService implements WikiContentService {
                 params.append("&plcontinue=").append(enc(plcontinue));
             }
 
-            String json = httpGet(site, buildApiUrl(site, params.toString()));
+            String json = httpRequest(site, buildApiUrl(site, params.toString()));
             JsonNode root = mapper.readTree(json);
             JsonNode pages = root.path("query").path("pages");
 
@@ -104,7 +104,7 @@ public class JwbfWikiContentService implements WikiContentService {
                         + Math.min(limit, 50)
                         + "&srsearch=" + enc(query));
 
-        String json = httpGet(site, apiUrl);
+        String json = httpRequest(site, apiUrl);
         List<String> results = new ArrayList<String>();
         JsonNode root = mapper.readTree(json);
         JsonNode searchResults = root.path("query").path("search");
@@ -127,11 +127,13 @@ public class JwbfWikiContentService implements WikiContentService {
         String key = site.id().value() + "|" + credentials.username();
         if (loggedIn.contains(key)) return;
 
+        LOG.info("[Wiki] Logging in to " + site.displayName() + " as " + credentials.username());
         String apiBase = buildApiUrl(site, "");
 
-        // Step 1: get login token
+        // Step 1: get a login token
         String tokenUrl = apiBase + "action=query&meta=tokens&type=login&format=json";
-        String tokenJson = httpGet(site, tokenUrl);
+        String tokenJson = httpRequest(site, tokenUrl, null);
+        LOG.fine("[Wiki] Token response: " + tokenJson);
         JsonNode tokenRoot = mapper.readTree(tokenJson);
         String loginToken = tokenRoot.path("query").path("tokens").path("logintoken").asText();
 
@@ -139,19 +141,45 @@ public class JwbfWikiContentService implements WikiContentService {
             throw new IOException("Could not obtain login token from " + site.displayName());
         }
 
-        // Step 2: POST login with token + credentials
-        String postBody = "action=login&format=json"
+        // Step 2: try action=clientlogin (modern MediaWiki ≥ 1.27)
+        String postBody = "action=clientlogin&format=json"
+                + "&loginreturnurl=" + enc(site.apiUrl())
+                + "&username=" + enc(credentials.username())
+                + "&password=" + enc(new String(credentials.password()))
+                + "&logintoken=" + enc(loginToken);
+
+        String loginJson = httpRequest(site, apiBase, postBody);
+        LOG.fine("[Wiki] clientlogin response: " + loginJson);
+        JsonNode loginRoot = mapper.readTree(loginJson);
+
+        String status = loginRoot.path("clientlogin").path("status").asText();
+        if ("PASS".equalsIgnoreCase(status)) {
+            loggedIn.add(key);
+            LOG.info("[Wiki] Logged in (clientlogin) to " + site.displayName() + " as " + credentials.username());
+            return;
+        }
+
+        // Fallback: try legacy action=login (older MediaWiki / bot passwords)
+        LOG.info("[Wiki] clientlogin returned '" + status + "', trying legacy action=login");
+
+        // Need a fresh token for legacy login
+        tokenJson = httpRequest(site, tokenUrl, null);
+        tokenRoot = mapper.readTree(tokenJson);
+        loginToken = tokenRoot.path("query").path("tokens").path("logintoken").asText();
+
+        postBody = "action=login&format=json"
                 + "&lgname=" + enc(credentials.username())
                 + "&lgpassword=" + enc(new String(credentials.password()))
                 + "&lgtoken=" + enc(loginToken);
 
-        String loginJson = httpPost(site, apiBase, postBody);
-        JsonNode loginRoot = mapper.readTree(loginJson);
+        loginJson = httpRequest(site, apiBase, postBody);
+        LOG.fine("[Wiki] legacy login response: " + loginJson);
+        loginRoot = mapper.readTree(loginJson);
         String result = loginRoot.path("login").path("result").asText();
 
         if ("Success".equalsIgnoreCase(result)) {
             loggedIn.add(key);
-            LOG.info("[Wiki] Logged in to " + site.displayName() + " as " + credentials.username());
+            LOG.info("[Wiki] Logged in (legacy) to " + site.displayName() + " as " + credentials.username());
         } else {
             String reason = loginRoot.path("login").path("reason").asText(result);
             throw new IOException("Wiki login failed for " + site.displayName() + ": " + reason);
@@ -205,7 +233,32 @@ public class JwbfWikiContentService implements WikiContentService {
         }
     }
 
-    private String readResponse(HttpURLConnection conn) throws IOException {
+
+    /**
+     * Convenience GET request.
+     */
+    private String httpRequest(WikiSiteDescriptor site, String urlStr) throws IOException {
+        return httpRequest(site, urlStr, null);
+    }
+
+    /**
+     * Perform an HTTP request (GET if postBody is null, POST otherwise).
+     * Cookies are stored AFTER the response is fully read.
+     */
+    private String httpRequest(WikiSiteDescriptor site, String urlStr, String postBody) throws IOException {
+        boolean isPost = (postBody != null);
+        HttpURLConnection conn = openConnection(site, urlStr, isPost ? "POST" : "GET");
+
+        if (isPost) {
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            OutputStream os = conn.getOutputStream();
+            os.write(postBody.getBytes("UTF-8"));
+            os.flush();
+            os.close();
+        }
+
+        // Read response body
         int status = conn.getResponseCode();
         InputStream is = (status >= 400) ? conn.getErrorStream() : conn.getInputStream();
         if (is == null) {
@@ -218,33 +271,15 @@ public class JwbfWikiContentService implements WikiContentService {
             sb.append(line);
         }
         reader.close();
+
+        // Store cookies BEFORE disconnect (headers may be lost after disconnect)
+        storeCookies(site, conn);
         conn.disconnect();
 
         if (status != 200) {
             throw new IOException("HTTP " + status + ": " + sb.toString());
         }
         return sb.toString();
-    }
-
-    private String httpGet(WikiSiteDescriptor site, String urlStr) throws IOException {
-        HttpURLConnection conn = openConnection(site, urlStr, "GET");
-        conn.connect();
-        storeCookies(site, conn);
-        return readResponse(conn);
-    }
-
-    private String httpPost(WikiSiteDescriptor site, String urlStr, String body) throws IOException {
-        HttpURLConnection conn = openConnection(site, urlStr, "POST");
-        conn.setDoOutput(true);
-        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-
-        OutputStream os = conn.getOutputStream();
-        os.write(body.getBytes("UTF-8"));
-        os.flush();
-        os.close();
-
-        storeCookies(site, conn);
-        return readResponse(conn);
     }
 
     // ═══════════════════════════════════════════════════════════
