@@ -37,78 +37,42 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
     public void perform() {
         Settings settings = SettingsHelper.load();
 
-        // ── Build connection dialog ──
-        JTextField hostField = new JTextField(
-                settings.host != null ? settings.host.trim() : "", 25);
-        final JSpinner portSpinner = new JSpinner(
-                new SpinnerNumberModel(settings.tn3270Port, 1, 65535, 1));
-        JTextField termTypeField = new JTextField(
-                settings.tn3270TermType != null ? settings.tn3270TermType : "IBM-3278-2", 15);
-        JCheckBox tlsBox = new JCheckBox("SSL/TLS verwenden", settings.tn3270Tls);
+        // Check if all data is already available – skip dialog if so
+        String host = settings.host != null ? settings.host.trim() : "";
+        String user = settings.user != null ? settings.user.trim() : "";
+        String cachedPassword = !host.isEmpty() && !user.isEmpty()
+                ? de.bund.zrb.login.LoginManager.getInstance().getCachedPassword(host, user)
+                : null;
+        boolean allDataPresent = !host.isEmpty()
+                && !user.isEmpty()
+                && cachedPassword != null
+                && settings.tn3270Port > 0
+                && settings.tn3270TermType != null && !settings.tn3270TermType.isEmpty();
 
-        // Automatically switch port when TLS checkbox changes
-        tlsBox.addActionListener(e -> {
-            int currentPort = ((Number) portSpinner.getValue()).intValue();
-            if (tlsBox.isSelected()) {
-                // Switching TO TLS: if port was 23 (default non-TLS), change to 992
-                if (currentPort == 23) {
-                    portSpinner.setValue(992);
-                }
-            } else {
-                // Switching FROM TLS: if port was 992 (default TLS), change to 23
-                if (currentPort == 992) {
-                    portSpinner.setValue(23);
-                }
-            }
-        });
+        int port;
+        String termType;
+        boolean tls;
 
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.anchor = GridBagConstraints.WEST;
+        if (allDataPresent) {
+            // All data available – connect directly, no dialog needed
+            port = settings.tn3270Port;
+            termType = settings.tn3270TermType;
+            tls = settings.tn3270Tls;
+        } else {
+            // Show dialog for missing data
+            port = showConnectionDialog(settings);
+            if (port < 0) return; // cancelled
 
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Host:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(hostField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Port:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(portSpinner, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Terminal-Typ:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(termTypeField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE;
-        panel.add(tlsBox, gbc);
-
-        int result = JOptionPane.showConfirmDialog(parent, panel,
-                "3270-Terminal verbinden", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result != JOptionPane.OK_OPTION) return;
-
-        // ── Validate ──
-        String host = hostField.getText().trim();
-        if (host.isEmpty()) {
-            JOptionPane.showMessageDialog(parent,
-                    "Host darf nicht leer sein.",
-                    "Eingabefehler", JOptionPane.WARNING_MESSAGE);
-            return;
+            host = dialogHost;
+            termType = dialogTermType;
+            tls = dialogTls;
+            user = settings.user != null ? settings.user.trim() : "";
+            cachedPassword = !host.isEmpty() && !user.isEmpty()
+                    ? de.bund.zrb.login.LoginManager.getInstance().getCachedPassword(host, user)
+                    : null;
         }
-        int port = ((Number) portSpinner.getValue()).intValue();
-        String termType = termTypeField.getText().trim();
-        if (termType.isEmpty()) termType = "IBM-3278-2";
-        boolean tls = tlsBox.isSelected();
-        int keepAlive = settings.tn3270KeepAliveTimeout;
 
-        // ── Persist last used values ──
-        settings.tn3270Port = port;
-        settings.tn3270Tls = tls;
-        settings.tn3270TermType = termType;
-        SettingsHelper.save(settings);
+        int keepAlive = settings.tn3270KeepAliveTimeout;
 
         // ── Connect in background ──
         final String fHost = host;
@@ -116,11 +80,8 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
         final String fTermType = termType;
         final boolean fTls = tls;
         final int fKeepAlive = keepAlive;
-
-        // Resolve credentials for auto-login (non-interactive – returns null if unavailable)
-        final String fUser = settings.user;
-        final String fPassword = de.bund.zrb.login.LoginManager.getInstance()
-                .getCachedPassword(host, settings.user);
+        final String fUser = user;
+        final String fPassword = cachedPassword;
 
         parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
@@ -151,5 +112,82 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
             }
         }.execute();
     }
-}
 
+    // Temporary fields to pass dialog results back (avoid complex return types in Java 8)
+    private String dialogHost;
+    private String dialogTermType;
+    private boolean dialogTls;
+
+    /**
+     * Show the connection dialog. Returns the port number, or -1 if cancelled.
+     * Stores host, termType, tls in temporary fields.
+     */
+    private int showConnectionDialog(Settings settings) {
+        String hostValue = settings.host != null ? settings.host.trim() : "";
+
+        JTextField hostField = new JTextField(hostValue, 25);
+        final JSpinner portSpinner = new JSpinner(
+                new SpinnerNumberModel(settings.tn3270Port, 1, 65535, 1));
+        JTextField termTypeField = new JTextField(
+                settings.tn3270TermType != null ? settings.tn3270TermType : "IBM-3278-2", 15);
+        JCheckBox tlsBox = new JCheckBox("SSL/TLS verwenden", settings.tn3270Tls);
+
+        // Automatically switch port when TLS checkbox changes
+        tlsBox.addActionListener(e -> {
+            int currentPort = ((Number) portSpinner.getValue()).intValue();
+            if (tlsBox.isSelected()) {
+                if (currentPort == 23) portSpinner.setValue(992);
+            } else {
+                if (currentPort == 992) portSpinner.setValue(23);
+            }
+        });
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Host:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(hostField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Port:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(portSpinner, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Terminal-Typ:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(termTypeField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.NONE;
+        panel.add(tlsBox, gbc);
+
+        int result = JOptionPane.showConfirmDialog(parent, panel,
+                "3270-Terminal verbinden", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return -1;
+
+        dialogHost = hostField.getText().trim();
+        if (dialogHost.isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Host darf nicht leer sein.",
+                    "Eingabefehler", JOptionPane.WARNING_MESSAGE);
+            return -1;
+        }
+        int port = ((Number) portSpinner.getValue()).intValue();
+        dialogTermType = termTypeField.getText().trim();
+        if (dialogTermType.isEmpty()) dialogTermType = "IBM-3278-2";
+        dialogTls = tlsBox.isSelected();
+
+        // Persist values
+        settings.tn3270Port = port;
+        settings.tn3270Tls = dialogTls;
+        settings.tn3270TermType = dialogTermType;
+        SettingsHelper.save(settings);
+
+        return port;
+    }
+}

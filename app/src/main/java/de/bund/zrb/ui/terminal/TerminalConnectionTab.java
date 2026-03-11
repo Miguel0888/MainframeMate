@@ -14,6 +14,7 @@ import java.awt.event.ComponentEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -519,10 +520,11 @@ public class TerminalConnectionTab implements ConnectionTab {
     }
 
     private JPanel createFkeyPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 2));
-        panel.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
-        return panel;
+        JPanel outer = new JPanel(new GridLayout(0, 1, 0, 0));
+        outer.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
+        return outer;
     }
+
 
     // ── F-Key Legend Parsing ─────────────────────────────────────
 
@@ -541,7 +543,10 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     /**
      * Read the last line(s) of the terminal screen, parse F-key assignments,
-     * and rebuild the bottom button panel if anything changed.
+     * and rebuild the bottom status bar with grouped buttons.
+     * <p>
+     * Row 1 (standard):  F1–F4 left │ F5–F8 center │ F9–F12 right
+     * Row 2 (extended, only shown when used): F13–F16 left │ F17–F20 center │ F21–F24 right
      */
     private void refreshFkeyLegend() {
         Terminal t = terminal;
@@ -565,29 +570,59 @@ public class TerminalConnectionTab implements ConnectionTab {
         if (trimmed.equals(lastFkeyLegend)) return;
         lastFkeyLegend = trimmed;
 
-        // Parse: find patterns like "1=Help", "3=End", "10=Actions"
-        List<int[]> fkeys = new ArrayList<int[]>();  // [fkeyNumber]
-        List<String> labels = new ArrayList<String>();
-
+        // Parse F-key assignments
+        Map<Integer, String> parsed = new LinkedHashMap<Integer, String>();
         Matcher m = FKEY_PATTERN.matcher(trimmed);
         while (m.find()) {
             int num = Integer.parseInt(m.group(1));
             if (num >= 1 && num <= 24) {
-                fkeys.add(new int[]{num});
-                labels.add(m.group(2));
+                parsed.put(num, m.group(2));
             }
         }
 
-        // Rebuild button panel on EDT
-        fkeyPanel.removeAll();
+        // Build sub-panels for standard keys (row 1)
+        JPanel leftStd   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
+        JPanel centerStd = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
+        JPanel rightStd  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
+
+        // Build sub-panels for extended keys (row 2)
+        JPanel leftExt   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
+        JPanel centerExt = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
+        JPanel rightExt  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
+
+        boolean hasExtended = false;
         fkeyButtons.clear();
-        for (int i = 0; i < fkeys.size(); i++) {
-            int fnum = fkeys.get(i)[0];
-            String label = labels.get(i);
-            JButton btn = makeFkeyButton(fnum, label);
+
+        for (Map.Entry<Integer, String> entry : parsed.entrySet()) {
+            int fnum = entry.getKey();
+            JButton btn = makeFkeyButton(fnum, entry.getValue());
             fkeyButtons.put(fnum, btn);
-            fkeyPanel.add(btn);
+
+            if (fnum >= 1 && fnum <= 4)        leftStd.add(btn);
+            else if (fnum >= 5 && fnum <= 8)   centerStd.add(btn);
+            else if (fnum >= 9 && fnum <= 12)  rightStd.add(btn);
+            else if (fnum >= 13 && fnum <= 16) { leftExt.add(btn); hasExtended = true; }
+            else if (fnum >= 17 && fnum <= 20) { centerExt.add(btn); hasExtended = true; }
+            else if (fnum >= 21 && fnum <= 24) { rightExt.add(btn); hasExtended = true; }
         }
+
+        // Assemble rows
+        JPanel row1 = new JPanel(new BorderLayout(8, 0));
+        row1.add(leftStd, BorderLayout.WEST);
+        row1.add(centerStd, BorderLayout.CENTER);
+        row1.add(rightStd, BorderLayout.EAST);
+
+        fkeyPanel.removeAll();
+        fkeyPanel.add(row1);
+
+        if (hasExtended) {
+            JPanel row2 = new JPanel(new BorderLayout(8, 0));
+            row2.add(leftExt, BorderLayout.WEST);
+            row2.add(centerExt, BorderLayout.CENTER);
+            row2.add(rightExt, BorderLayout.EAST);
+            fkeyPanel.add(row2);
+        }
+
         fkeyPanel.revalidate();
         fkeyPanel.repaint();
     }
