@@ -44,16 +44,7 @@ public class NdvConnectionTab implements ConnectionTab {
     private DefaultListModel<Object> listModel = new DefaultListModel<Object>();
     private final JList<Object> fileList;
     private final JTextField searchField = new JTextField();
-    private final JLabel overlayLabel = new JLabel() {
-        @Override
-        protected void paintComponent(Graphics g) {
-            if (isVisible() && getBackground() != null) {
-                g.setColor(getBackground());
-                g.fillRect(0, 0, getWidth(), getHeight());
-            }
-            super.paintComponent(g);
-        }
-    };
+    private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer;
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
@@ -145,15 +136,11 @@ public class NdvConnectionTab implements ConnectionTab {
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
-        overlayLabel.setOpaque(false);
+        overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
-        overlayLabel.setAlignmentX(0.5f);
-        overlayLabel.setAlignmentY(0.5f);
 
         // List setup
         JScrollPane scrollPane = new JScrollPane(fileList);
-        scrollPane.setAlignmentX(0.5f);
-        scrollPane.setAlignmentY(0.5f);
         listContainer.setLayout(new OverlayLayout(listContainer));
         listContainer.add(overlayLabel);
         listContainer.add(scrollPane);
@@ -607,16 +594,12 @@ public class NdvConnectionTab implements ConnectionTab {
     private void showOverlayMessage(String message, Color color) {
         overlayLabel.setText(message);
         overlayLabel.setForeground(color);
-        overlayLabel.setBackground(new Color(255, 255, 255, 220));
+        overlayLabel.setBackground(new Color(color.getRed(), color.getGreen(), color.getBlue(), 30));
         overlayLabel.setVisible(true);
-        listContainer.revalidate();
-        listContainer.repaint();
     }
 
     private void hideOverlay() {
         overlayLabel.setVisible(false);
-        listContainer.revalidate();
-        listContainer.repaint();
     }
 
     // ==================== Cell Renderer ====================

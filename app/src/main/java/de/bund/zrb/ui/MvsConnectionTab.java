@@ -38,16 +38,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final DefaultListModel<MvsVirtualResource> listModel = new DefaultListModel<>();
     private final JList<MvsVirtualResource> fileList;
     private final JTextField searchField = new JTextField();
-    private final JLabel overlayLabel = new JLabel() {
-        @Override
-        protected void paintComponent(java.awt.Graphics g) {
-            if (isVisible() && getBackground() != null) {
-                g.setColor(getBackground());
-                g.fillRect(0, 0, getWidth(), getHeight());
-            }
-            super.paintComponent(g);
-        }
-    };
+    private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
@@ -135,7 +126,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
-        overlayLabel.setOpaque(false);
+        overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
         overlayLabel.setAlignmentX(0.5f);
         overlayLabel.setAlignmentY(0.5f);
