@@ -35,7 +35,6 @@ public class WikiConnectionTab implements ConnectionTab {
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
     private final JTextField resultFilterField;
-    private final JTextField htmlFilterField;
 
     // Results table
     private final WikiResultTableModel resultModel;
@@ -145,11 +144,10 @@ public class WikiConnectionTab implements ConnectionTab {
         resultFilterBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
         resultFilterBar.add(resultFilterField, BorderLayout.CENTER);
 
-        // Top half: controls + results + result filter
+        // Top half: controls + results (no filter bar here)
         JPanel topHalf = new JPanel(new BorderLayout(0, 0));
         topHalf.add(topControls, BorderLayout.NORTH);
         topHalf.add(resultScroll, BorderLayout.CENTER);
-        topHalf.add(resultFilterBar, BorderLayout.SOUTH);
 
         // ═══════════════════════════════════════════════════════════
         //  HTML preview pane
@@ -165,17 +163,8 @@ public class WikiConnectionTab implements ConnectionTab {
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
         htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
-        // HTML text search bar
-        htmlFilterField = new JTextField();
-        htmlFilterField.setToolTipText("Text in Vorschau suchen (Enter)");
-        htmlFilterField.addActionListener(e -> searchInHtml());
-        JPanel htmlFilterBar = new JPanel(new BorderLayout(2, 0));
-        htmlFilterBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
-        htmlFilterBar.add(htmlFilterField, BorderLayout.CENTER);
-
         JPanel bottomHalf = new JPanel(new BorderLayout(0, 0));
         bottomHalf.add(htmlScroll, BorderLayout.CENTER);
-        bottomHalf.add(htmlFilterBar, BorderLayout.SOUTH);
 
         // ═══════════════════════════════════════════════════════════
         //  Main split: top/bottom
@@ -185,10 +174,13 @@ public class WikiConnectionTab implements ConnectionTab {
         mainSplit.setResizeWeight(0.4);
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
-        // Status bar
+        // Filter bar below everything (filters results + positioned below preview)
+        JPanel bottomBar = new JPanel(new BorderLayout(0, 0));
+        bottomBar.add(resultFilterBar, BorderLayout.CENTER);
         statusLabel = new JLabel(" ");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
-        mainPanel.add(statusLabel, BorderLayout.SOUTH);
+        bottomBar.add(statusLabel, BorderLayout.SOUTH);
+        mainPanel.add(bottomBar, BorderLayout.SOUTH);
 
         if (siteSelector.getItemCount() > 0) {
             siteSelector.setSelectedIndex(0);
@@ -429,19 +421,6 @@ public class WikiConnectionTab implements ConnectionTab {
         }
     }
 
-    private void searchInHtml() {
-        String query = htmlFilterField.getText().trim();
-        if (query.isEmpty() || currentPreview == null) return;
-
-        String html = currentPreview.cleanedHtml();
-        if (html == null) return;
-
-        String highlighted = html.replaceAll(
-                "(?i)(" + Pattern.quote(query) + ")",
-                "<mark style='background:yellow'>$1</mark>");
-        htmlPane.setText(wrapHtml(highlighted));
-        htmlPane.setCaretPosition(0);
-    }
 
     // ═══════════════════════════════════════════════════════════
     //  Helpers
