@@ -51,7 +51,16 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         }
 
         Settings settings = SettingsHelper.load();
-        WikiContentService service = new JwbfWikiContentService(sites);
+        JwbfWikiContentService jwbfService = new JwbfWikiContentService(sites);
+
+        // Wire up proxy resolver so Wiki HTTP requests use the configured proxy (PAC script / manual)
+        jwbfService.setProxyResolver(url -> {
+            Settings s = SettingsHelper.load();
+            de.bund.zrb.net.ProxyResolver.ProxyResolution res = de.bund.zrb.net.ProxyResolver.resolveForUrl(url, s);
+            return res.getProxy();
+        });
+
+        WikiContentService service = jwbfService;
         WikiConnectionTab tab = new WikiConnectionTab(service);
 
         // Wire up credentials callback: resolves encrypted credentials from settings

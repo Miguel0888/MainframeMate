@@ -24,6 +24,9 @@ public class JwbfWikiContentService implements WikiContentService {
     private final ObjectMapper mapper;
     private final HtmlPostProcessor htmlProcessor;
 
+    /** Optional proxy resolver: given a URL string, returns the Proxy to use (or Proxy.NO_PROXY). */
+    private volatile java.util.function.Function<String, Proxy> proxyResolver;
+
     /** One CookieManager per site-id, keeps login sessions alive. */
     private final Map<String, CookieManager> cookieManagers = new HashMap<String, CookieManager>();
     /** Track which site+user combos are already logged in. */
@@ -33,6 +36,14 @@ public class JwbfWikiContentService implements WikiContentService {
         this.sites = new ArrayList<WikiSiteDescriptor>(Objects.requireNonNull(sites));
         this.mapper = new ObjectMapper();
         this.htmlProcessor = new HtmlPostProcessor();
+    }
+
+    /**
+     * Set a proxy resolver that maps a URL to a {@link Proxy}.
+     * Called from the app module to wire in the PAC-script / manual proxy settings.
+     */
+    public void setProxyResolver(java.util.function.Function<String, Proxy> resolver) {
+        this.proxyResolver = resolver;
     }
 
     @Override
@@ -279,19 +290,16 @@ public class JwbfWikiContentService implements WikiContentService {
         URL url = new URL(urlStr);
 
         HttpURLConnection conn;
-        if (site.useProxy()) {
-            // Explicitly resolve proxy via ProxySelector (reads Windows IE/WinHTTP proxy settings)
-            try {
-                ProxySelector selector = ProxySelector.getDefault();
-                List<Proxy> proxies = selector != null ? selector.select(url.toURI()) : null;
-                Proxy proxy = (proxies != null && !proxies.isEmpty()) ? proxies.get(0) : Proxy.NO_PROXY;
-                LOG.fine("[Wiki] Using explicit proxy " + proxy + " for " + url.getHost());
+        java.util.function.Function<String, Proxy> resolver = this.proxyResolver;
+        if (site.useProxy() && resolver != null) {
+            Proxy proxy = resolver.apply(urlStr);
+            if (proxy != null && !Proxy.NO_PROXY.equals(proxy)) {
+                LOG.info("[Wiki] Using proxy " + proxy + " for " + url.getHost());
                 conn = (HttpURLConnection) url.openConnection(proxy);
-            } catch (URISyntaxException e) {
+            } else {
                 conn = (HttpURLConnection) url.openConnection();
             }
         } else {
-            // Default JVM network handling (respects system proxy if configured globally)
             conn = (HttpURLConnection) url.openConnection();
         }
         conn.setRequestMethod(method);
