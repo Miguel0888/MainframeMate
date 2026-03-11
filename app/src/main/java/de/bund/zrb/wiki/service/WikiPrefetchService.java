@@ -54,6 +54,9 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
     /** Optional callback for auto-indexing loaded pages into Lucene. */
     private java.util.function.BiConsumer<WikiSiteId, WikiPageView> autoIndexCallback;
 
+    /** Dedicated single-thread executor for auto-indexing (avoids Lucene contention with prefetch). */
+    private final ExecutorService autoIndexExecutor = Executors.newSingleThreadExecutor();
+
     /**
      * @param wikiService     wiki content service for HTTP requests
      * @param cacheRepository persistent cache (H2)
@@ -195,13 +198,20 @@ public class WikiPrefetchService implements WikiPrefetchCallback {
         // Persist to DB (best-effort)
         persistToDb(siteId, pageTitle, view);
 
-        // Auto-index into Lucene if callback is set
+        // Auto-index into Lucene if callback is set (async, to avoid Lucene contention)
         if (autoIndexCallback != null) {
-            try {
-                autoIndexCallback.accept(siteId, view);
-            } catch (Exception e) {
-                LOG.log(Level.WARNING, "[WikiPrefetch] Auto-index failed for: " + pageTitle, e);
-            }
+            final WikiPageView viewToIndex = view;
+            autoIndexExecutor.submit(() -> {
+                try {
+                    autoIndexCallback.accept(siteId, viewToIndex);
+                    // Small pause between index operations to avoid starving search threads
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[WikiPrefetch] Auto-index failed for: " + pageTitle, e);
+                }
+            });
         }
 
         return view;
