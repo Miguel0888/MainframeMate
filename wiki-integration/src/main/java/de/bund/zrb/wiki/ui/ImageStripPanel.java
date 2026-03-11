@@ -88,8 +88,15 @@ public class ImageStripPanel extends JPanel {
         dialog.setLayout(new BorderLayout(8, 8));
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
+        // Determine usable screen area (leave some margin)
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(
+                GraphicsEnvironment.getLocalGraphicsEnvironment()
+                        .getDefaultScreenDevice().getDefaultConfiguration());
+        final int screenMaxW = screen.width - screenInsets.left - screenInsets.right - 80;
+        final int screenMaxH = screen.height - screenInsets.top - screenInsets.bottom - 120;
+
         JLabel imageLabel = new JLabel("⏳ Lade Bild…", SwingConstants.CENTER);
-        imageLabel.setPreferredSize(new Dimension(500, 400));
         JScrollPane scrollPane = new JScrollPane(imageLabel);
         dialog.add(scrollPane, BorderLayout.CENTER);
 
@@ -114,30 +121,17 @@ public class ImageStripPanel extends JPanel {
         bottomPanel.add(buttonPanel, BorderLayout.EAST);
         dialog.add(bottomPanel, BorderLayout.SOUTH);
 
-        dialog.setSize(600, 500);
+        // Start with a reasonable loading size
+        dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
         dialog.setLocationRelativeTo(owner);
 
         // Load image in background
-        new SwingWorker<ImageIcon, Void>() {
+        new SwingWorker<BufferedImage, Void>() {
             @Override
-            protected ImageIcon doInBackground() throws Exception {
+            protected BufferedImage doInBackground() throws Exception {
                 InputStream in = openImageStream(img.src());
                 try {
-                    BufferedImage bi = ImageIO.read(in);
-                    if (bi == null) return null;
-
-                    // Scale down if too large for the dialog
-                    int maxW = 560;
-                    int maxH = 420;
-                    if (bi.getWidth() > maxW || bi.getHeight() > maxH) {
-                        double scale = Math.min((double) maxW / bi.getWidth(),
-                                (double) maxH / bi.getHeight());
-                        int w = (int) (bi.getWidth() * scale);
-                        int h = (int) (bi.getHeight() * scale);
-                        Image scaled = bi.getScaledInstance(w, h, Image.SCALE_SMOOTH);
-                        return new ImageIcon(scaled);
-                    }
-                    return new ImageIcon(bi);
+                    return ImageIO.read(in);
                 } finally {
                     in.close();
                 }
@@ -146,19 +140,48 @@ public class ImageStripPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    ImageIcon icon = get();
-                    if (icon != null) {
-                        imageLabel.setIcon(icon);
-                        imageLabel.setText(null);
-                        downloadBtn.setEnabled(true);
-                        dialog.pack();
-                        dialog.setSize(
-                                Math.min(icon.getIconWidth() + 60, 900),
-                                Math.min(icon.getIconHeight() + 120, 700));
-                        dialog.setLocationRelativeTo(owner);
-                    } else {
+                    BufferedImage bi = get();
+                    if (bi == null) {
                         imageLabel.setText("❌ Bild konnte nicht geladen werden");
+                        return;
                     }
+
+                    int imgW = bi.getWidth();
+                    int imgH = bi.getHeight();
+
+                    // Chrome around the image: scrollbar insets + dialog borders + bottom panel
+                    int chromeW = 40;
+                    int chromeH = 90;
+                    int availW = screenMaxW - chromeW;
+                    int availH = screenMaxH - chromeH;
+
+                    // Show at full resolution if it fits, otherwise scale down to screen
+                    ImageIcon icon;
+                    if (imgW <= availW && imgH <= availH) {
+                        icon = new ImageIcon(bi);
+                    } else {
+                        double scale = Math.min((double) availW / imgW, (double) availH / imgH);
+                        int scaledW = (int) (imgW * scale);
+                        int scaledH = (int) (imgH * scale);
+                        icon = new ImageIcon(bi.getScaledInstance(scaledW, scaledH, Image.SCALE_SMOOTH));
+                    }
+
+                    imageLabel.setIcon(icon);
+                    imageLabel.setText(null);
+                    downloadBtn.setEnabled(true);
+
+                    // Resize dialog to fit image
+                    int dialogW = Math.min(icon.getIconWidth() + chromeW, screenMaxW);
+                    int dialogH = Math.min(icon.getIconHeight() + chromeH, screenMaxH);
+                    // Ensure a minimum size
+                    dialogW = Math.max(dialogW, 400);
+                    dialogH = Math.max(dialogH, 300);
+
+                    dialog.setSize(dialogW, dialogH);
+                    dialog.setLocationRelativeTo(owner);
+
+                    // Update info with actual dimensions
+                    infoLabel.setText(img.description() + "  (" + imgW + " × " + imgH + ")");
                 } catch (Exception ex) {
                     LOG.log(Level.FINE, "[ImageStrip] Failed to load image: " + img.src(), ex);
                     imageLabel.setText("❌ Fehler: " + ex.getMessage());
