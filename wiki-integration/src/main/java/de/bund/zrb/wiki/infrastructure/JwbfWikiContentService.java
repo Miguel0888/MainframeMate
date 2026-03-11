@@ -122,164 +122,69 @@ public class JwbfWikiContentService implements WikiContentService {
 
     private void ensureLoggedIn(WikiSiteDescriptor site, WikiCredentials credentials) throws IOException {
         if (!site.requiresLogin()) {
-            LOG.info("[Wiki] Site " + site.displayName() + " does not require login, skipping.");
             return;
         }
         if (credentials == null || credentials.isAnonymous()) {
-            LOG.warning("[Wiki] Site " + site.displayName() + " requires login but credentials are "
-                    + (credentials == null ? "null" : "anonymous") + " – proceeding without login!");
+            LOG.warning("[Wiki] Site " + site.displayName() + " requires login but no credentials – proceeding without login!");
             return;
         }
 
         String key = site.id().value() + "|" + credentials.username();
         if (loggedIn.contains(key)) {
-            LOG.fine("[Wiki] Already logged in as " + credentials.username() + " on " + site.displayName());
             return;
         }
 
         LOG.info("[Wiki] === LOGIN START === " + site.displayName() + " as '" + credentials.username() + "'");
-        LOG.info("[Wiki] API base URL: " + site.apiUrl());
 
-        // Log proxy info for diagnostics
-        try {
-            URI uri = new URI(site.apiUrl());
-            List<Proxy> proxies = ProxySelector.getDefault().select(uri);
-            LOG.info("[Wiki] Proxy for " + uri.getHost() + ": " + proxies);
-        } catch (Exception pe) {
-            LOG.fine("[Wiki] Could not determine proxy: " + pe.getMessage());
-        }
-
-        // ── Strategy 1: clientlogin (modern MediaWiki ≥ 1.27) ───────
-        IOException clientLoginError = null;
-        resetSession(site, key);
-        try {
-            attemptClientLogin(site, credentials);
-            loggedIn.add(key);
-            LOG.info("[Wiki] === LOGIN SUCCESS (clientlogin) === " + site.displayName());
-            logCookies(site);
-            return;
-        } catch (IOException e) {
-            clientLoginError = e;
-            LOG.info("[Wiki] clientlogin failed: " + e.getMessage() + " – trying legacy login with fresh session");
-        }
-
-        // ── Strategy 2: legacy action=login (fresh session!) ────────
-        resetSession(site, key);
-        try {
-            attemptLegacyLogin(site, credentials);
-            loggedIn.add(key);
-            LOG.info("[Wiki] === LOGIN SUCCESS (legacy) === " + site.displayName());
-            logCookies(site);
-            return;
-        } catch (IOException legacyError) {
-            LOG.warning("[Wiki] === LOGIN FAILED === " + site.displayName() + ": " + legacyError.getMessage());
-            logCookies(site);
-            if (clientLoginError != null) {
-                legacyError.addSuppressed(clientLoginError);
-            }
-            throw new IOException(
-                    "Wiki-Login fehlgeschlagen für " + site.displayName() + ": " + legacyError.getMessage(),
-                    legacyError);
-        }
-    }
-
-    /** Reset cookie jar and login state so the next login attempt starts with a clean session. */
-    private void resetSession(WikiSiteDescriptor site, String loginKey) {
+        // Always start with a clean cookie jar
         cookieManagers.remove(site.id().value());
-        loggedIn.remove(loginKey);
-        LOG.fine("[Wiki] Session reset for " + site.displayName());
-    }
 
-    /** Request a fresh login token via POST (same session). */
-    private String requestLoginToken(WikiSiteDescriptor site) throws IOException {
         String apiBase = buildApiUrl(site, "");
 
-        // Use POST for the token request so that session cookies are established
-        // consistently (some wikis behind reverse proxies behave differently for GET vs POST).
-        String postBody = "action=query&meta=tokens&type=login&format=json";
-        LOG.info("[Wiki] Requesting login token via POST: " + apiBase);
-
-        String tokenJson = httpRequest(site, apiBase, postBody);
-        LOG.info("[Wiki] Token response: " + truncate(tokenJson, 500));
+        // ── Step 1: Get login token ─────────────────────────────
+        // POST, so that the session cookie established here is the same one used for login
+        String tokenBody = "action=query&meta=tokens&type=login&format=json";
+        LOG.info("[Wiki] Step 1 – POST " + apiBase + " body=" + tokenBody);
+        String tokenJson = httpRequest(site, apiBase, tokenBody);
+        LOG.info("[Wiki] Step 1 – response: " + truncate(tokenJson, 500));
+        logCookies(site);
 
         JsonNode tokenRoot = mapper.readTree(tokenJson);
         String loginToken = tokenRoot.path("query").path("tokens").path("logintoken").asText();
-
-        LOG.info("[Wiki] Login token: "
-                + (loginToken.isEmpty() ? "(EMPTY!)"
-                : loginToken.substring(0, Math.min(8, loginToken.length())) + "…"));
+        LOG.info("[Wiki] Step 1 – token raw value: '" + loginToken + "' (length=" + loginToken.length() + ")");
+        LOG.info("[Wiki] Step 1 – token URL-encoded: '" + enc(loginToken) + "'");
 
         if (loginToken.isEmpty()) {
-            throw new IOException("Could not obtain login token from " + site.displayName()
-                    + " – response was: " + truncate(tokenJson, 200));
-        }
-        logCookies(site);
-        return loginToken;
-    }
-
-    private void attemptClientLogin(WikiSiteDescriptor site, WikiCredentials credentials) throws IOException {
-        String apiBase = buildApiUrl(site, "");
-        String loginToken = requestLoginToken(site);
-
-        String returnUrl = loginReturnUrl(site);
-        String postBody = "action=clientlogin&format=json"
-                + "&loginreturnurl=" + enc(returnUrl)
-                + "&username=" + enc(credentials.username())
-                + "&password=" + enc(new String(credentials.password()))
-                + "&logintoken=" + enc(loginToken);
-
-        LOG.info("[Wiki] Trying clientlogin for user '" + credentials.username() + "'");
-        String loginJson = httpRequest(site, apiBase, postBody);
-        LOG.info("[Wiki] clientlogin response: " + truncate(loginJson, 500));
-
-        JsonNode loginRoot = mapper.readTree(loginJson);
-
-        // Check for top-level API error (e.g. badtoken)
-        if (loginRoot.has("error")) {
-            String code = loginRoot.path("error").path("code").asText();
-            String info = loginRoot.path("error").path("info").asText("Unknown error");
-            throw new IOException("clientlogin error " + code + ": " + info);
+            throw new IOException("Kein Login-Token von " + site.displayName() + " erhalten");
         }
 
-        String status = loginRoot.path("clientlogin").path("status").asText();
-        String message = loginRoot.path("clientlogin").path("message").asText("");
-        LOG.info("[Wiki] clientlogin status='" + status + "' message='" + message + "'");
-
-        if ("PASS".equalsIgnoreCase(status)) {
-            return; // success
-        }
-        if ("UI".equalsIgnoreCase(status) || "REDIRECT".equalsIgnoreCase(status)
-                || "CONTINUE".equalsIgnoreCase(status) || "RESTART".equalsIgnoreCase(status)) {
-            throw new IOException("clientlogin requires interactive continuation (" + status + ")"
-                    + (message.isEmpty() ? "" : ": " + message));
-        }
-        throw new IOException("clientlogin " + status + (message.isEmpty() ? "" : ": " + message));
-    }
-
-    private void attemptLegacyLogin(WikiSiteDescriptor site, WikiCredentials credentials) throws IOException {
-        String apiBase = buildApiUrl(site, "");
-        String loginToken = requestLoginToken(site);
-
+        // ── Step 2: action=login ────────────────────────────────
         String postBody = "action=login&format=json"
                 + "&lgname=" + enc(credentials.username())
                 + "&lgpassword=" + enc(new String(credentials.password()))
                 + "&lgtoken=" + enc(loginToken);
 
-        LOG.info("[Wiki] Sending legacy action=login");
+        LOG.info("[Wiki] Step 2 – POST action=login lgname=" + enc(credentials.username())
+                + " lgtoken=" + enc(loginToken) + " (password omitted)");
+
         String loginJson = httpRequest(site, apiBase, postBody);
-        LOG.info("[Wiki] legacy login response: " + truncate(loginJson, 500));
+        LOG.info("[Wiki] Step 2 – response: " + truncate(loginJson, 500));
+        logCookies(site);
 
         JsonNode loginRoot = mapper.readTree(loginJson);
         String result = loginRoot.path("login").path("result").asText();
+        LOG.info("[Wiki] Step 2 – result='" + result + "'");
 
         if ("Success".equalsIgnoreCase(result)) {
+            loggedIn.add(key);
+            LOG.info("[Wiki] === LOGIN SUCCESS === " + site.displayName());
             return;
         }
 
-        // Older wikis: first call returns "NeedToken" with a dedicated lgtoken
+        // Some older wikis need a two-step dance: first call → NeedToken → second call with lgtoken
         if ("NeedToken".equalsIgnoreCase(result)) {
             String lgToken = loginRoot.path("login").path("token").asText();
-            LOG.info("[Wiki] NeedToken received, retrying with lgtoken=" + truncate(lgToken, 20));
+            LOG.info("[Wiki] Step 2b – NeedToken, lgtoken='" + lgToken + "'");
 
             postBody = "action=login&format=json"
                     + "&lgname=" + enc(credentials.username())
@@ -287,27 +192,53 @@ public class JwbfWikiContentService implements WikiContentService {
                     + "&lgtoken=" + enc(lgToken);
 
             loginJson = httpRequest(site, apiBase, postBody);
-            LOG.info("[Wiki] second legacy login response: " + truncate(loginJson, 500));
+            LOG.info("[Wiki] Step 2b – response: " + truncate(loginJson, 500));
 
             loginRoot = mapper.readTree(loginJson);
             result = loginRoot.path("login").path("result").asText();
 
             if ("Success".equalsIgnoreCase(result)) {
+                loggedIn.add(key);
+                LOG.info("[Wiki] === LOGIN SUCCESS (2-step) === " + site.displayName());
                 return;
             }
         }
 
-        String reason = loginRoot.path("login").path("reason").asText(result);
-        throw new IOException(reason);
-    }
+        // If action=login also fails, try clientlogin as last resort (different token type)
+        LOG.info("[Wiki] action=login failed (result='" + result + "'), trying clientlogin as fallback");
 
-    private String loginReturnUrl(WikiSiteDescriptor site) {
-        String base = site.apiUrl();
-        if (base.endsWith("api.php")) {
-            int idx = base.lastIndexOf("/api.php");
-            if (idx > 0) return base.substring(0, idx + 1);
+        // Reset session again for clientlogin attempt
+        cookieManagers.remove(site.id().value());
+
+        tokenJson = httpRequest(site, apiBase, tokenBody);
+        tokenRoot = mapper.readTree(tokenJson);
+        loginToken = tokenRoot.path("query").path("tokens").path("logintoken").asText();
+
+        String returnUrl = site.apiUrl().endsWith("/") ? site.apiUrl() : site.apiUrl() + "/";
+        postBody = "action=clientlogin&format=json"
+                + "&loginreturnurl=" + enc(returnUrl)
+                + "&username=" + enc(credentials.username())
+                + "&password=" + enc(new String(credentials.password()))
+                + "&logintoken=" + enc(loginToken);
+
+        loginJson = httpRequest(site, apiBase, postBody);
+        LOG.info("[Wiki] clientlogin response: " + truncate(loginJson, 500));
+
+        loginRoot = mapper.readTree(loginJson);
+        String status = loginRoot.path("clientlogin").path("status").asText();
+
+        if ("PASS".equalsIgnoreCase(status)) {
+            loggedIn.add(key);
+            LOG.info("[Wiki] === LOGIN SUCCESS (clientlogin) === " + site.displayName());
+            return;
         }
-        return base.endsWith("/") ? base : base + "/";
+
+        // Everything failed
+        String reason = loginRoot.path("login").path("reason").asText(
+                loginRoot.path("clientlogin").path("message").asText(
+                        loginRoot.path("error").path("info").asText("Unbekannter Fehler")));
+
+        throw new IOException("Wiki-Login fehlgeschlagen für " + site.displayName() + ": " + reason);
     }
 
     private void logCookies(WikiSiteDescriptor site) {
@@ -356,14 +287,19 @@ public class JwbfWikiContentService implements WikiContentService {
         // Attach cookies from previous requests
         try {
             Map<String, List<String>> cookieHeaders = cm.get(url.toURI(), Collections.<String, List<String>>emptyMap());
+            boolean anyCookieSent = false;
             for (Map.Entry<String, List<String>> entry : cookieHeaders.entrySet()) {
                 for (String value : entry.getValue()) {
                     conn.addRequestProperty(entry.getKey(), value);
-                    LOG.fine("[Wiki] → Cookie header: " + entry.getKey() + ": " + value);
+                    LOG.info("[Wiki] → Sending cookie: " + entry.getKey() + ": " + value);
+                    anyCookieSent = true;
                 }
             }
+            if (!anyCookieSent) {
+                LOG.info("[Wiki] → NO cookies sent for " + url);
+            }
         } catch (URISyntaxException e) {
-            LOG.log(Level.FINE, "[Wiki] Could not attach cookies", e);
+            LOG.log(Level.WARNING, "[Wiki] Could not attach cookies for " + urlStr, e);
         }
 
         return conn;
@@ -372,9 +308,18 @@ public class JwbfWikiContentService implements WikiContentService {
     private void storeCookies(WikiSiteDescriptor site, HttpURLConnection conn) {
         CookieManager cm = getCookieManager(site);
         try {
-            cm.put(conn.getURL().toURI(), conn.getHeaderFields());
+            // Log raw Set-Cookie headers
+            Map<String, List<String>> headers = conn.getHeaderFields();
+            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase("Set-Cookie")) {
+                    for (String v : entry.getValue()) {
+                        LOG.info("[Wiki] ← Set-Cookie: " + truncate(v, 120));
+                    }
+                }
+            }
+            cm.put(conn.getURL().toURI(), headers);
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[Wiki] Could not store cookies", e);
+            LOG.log(Level.WARNING, "[Wiki] Could not store cookies", e);
         }
     }
 
