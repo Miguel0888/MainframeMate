@@ -48,19 +48,32 @@ public class JobDetailTab implements FtpTab {
         mainPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
 
         // ── Info header ─────────────────────────────────────────────
-        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
+        JPanel infoPanel = new JPanel(new BorderLayout(8, 0));
         infoPanel.setBorder(BorderFactory.createTitledBorder("Job-Info"));
 
-        infoPanel.add(createInfoLabel("Job-ID:", job.getJobId()));
-        infoPanel.add(createInfoLabel("Name:", job.getJobName()));
-        infoPanel.add(createInfoLabel("Owner:", job.getOwner()));
-        infoPanel.add(createInfoLabel("Status:", job.getStatus()));
+        JPanel infoLabels = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
+        infoLabels.add(createInfoLabel("Job-ID:", job.getJobId()));
+        infoLabels.add(createInfoLabel("Name:", job.getJobName()));
+        infoLabels.add(createInfoLabel("Owner:", job.getOwner()));
+        infoLabels.add(createInfoLabel("Status:", job.getStatus()));
         if (job.getRetCode() != null && !job.getRetCode().isEmpty()) {
-            infoPanel.add(createInfoLabel("RC:", job.getRetCode()));
+            infoLabels.add(createInfoLabel("RC:", job.getRetCode()));
         }
         if (job.getJobClass() != null && !job.getJobClass().isEmpty()) {
-            infoPanel.add(createInfoLabel("Class:", job.getJobClass()));
+            infoLabels.add(createInfoLabel("Class:", job.getJobClass()));
         }
+        infoPanel.add(infoLabels, BorderLayout.CENTER);
+
+        JPanel infoButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
+        JButton allButton = new JButton("📑 Gesamter Output");
+        allButton.setToolTipText("Alle Spool-Files zusammen laden");
+        allButton.addActionListener(e -> loadAllSpool());
+        infoButtons.add(allButton);
+
+        JButton deleteButton = new JButton("🗑️ Job löschen");
+        deleteButton.addActionListener(e -> deleteJob());
+        infoButtons.add(deleteButton);
+        infoPanel.add(infoButtons, BorderLayout.EAST);
 
         mainPanel.add(infoPanel, BorderLayout.NORTH);
 
@@ -88,17 +101,45 @@ public class JobDetailTab implements FtpTab {
         contentArea.setTabSize(8);
         JScrollPane contentScroll = new JScrollPane(contentArea);
 
-        // ── Search bar above content ────────────────────────────────
-        JPanel searchBar = new JPanel(new BorderLayout(4, 0));
-        searchBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        // Content panel: just the content (search bar moves to bottom)
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.add(contentScroll, BorderLayout.CENTER);
 
-        searchField = new JTextField(20);
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, spoolScroll, contentPanel);
+        splitPane.setDividerLocation(160);
+        splitPane.setResizeWeight(0.3);
+        mainPanel.add(splitPane, BorderLayout.CENTER);
+
+        // ── Bottom bar: [Copy] [🔍 Search ↓ count] ... [status] ────
+        JPanel bottomPanel = new JPanel(new BorderLayout(8, 0));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+
+        // Right: Status (initialized first so other listeners can reference it)
+        statusLabel = new JLabel("Lade Spool-Liste…");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
+
+        // Left: Copy button
+        JButton copyButton = new JButton("📋 Kopieren");
+        copyButton.setToolTipText("Angezeigten Inhalt in die Zwischenablage kopieren");
+        copyButton.addActionListener(e -> {
+            String text = contentArea.getText();
+            if (text != null && !text.isEmpty()) {
+                Toolkit.getDefaultToolkit().getSystemClipboard()
+                        .setContents(new StringSelection(text), null);
+                statusLabel.setText("✅ In Zwischenablage kopiert");
+            }
+        });
+        bottomPanel.add(copyButton, BorderLayout.WEST);
+
+        // Center: Search bar (fills remaining space)
+        searchField = new JTextField();
         searchField.setToolTipText("Suche im Spool-Output (z.B. JOBLIB, IEF, ABEND)");
+        searchField.addActionListener(e -> searchInContent());
+
         JButton searchBtn = new JButton("🔍");
         searchBtn.setMargin(new Insets(1, 4, 1, 4));
         searchBtn.setFocusable(false);
         searchBtn.addActionListener(e -> searchInContent());
-        searchField.addActionListener(e -> searchInContent());
 
         JButton searchNextBtn = new JButton("↓");
         searchNextBtn.setMargin(new Insets(1, 4, 1, 4));
@@ -110,56 +151,17 @@ public class JobDetailTab implements FtpTab {
         searchCountLabel.setFont(searchCountLabel.getFont().deriveFont(Font.PLAIN, 11f));
         searchCountLabel.setForeground(Color.GRAY);
 
-        JPanel searchLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        searchLeft.add(new JLabel("🔍 Suche:"));
-        searchLeft.add(searchField);
-        searchLeft.add(searchBtn);
-        searchLeft.add(searchNextBtn);
-        searchLeft.add(searchCountLabel);
+        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        JPanel searchButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        searchButtons.add(searchBtn);
+        searchButtons.add(searchNextBtn);
+        searchButtons.add(searchCountLabel);
+        searchPanel.add(searchButtons, BorderLayout.EAST);
+        bottomPanel.add(searchPanel, BorderLayout.CENTER);
 
-        searchBar.add(searchLeft, BorderLayout.WEST);
-
-        // Content panel: search bar + content
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.add(searchBar, BorderLayout.NORTH);
-        contentPanel.add(contentScroll, BorderLayout.CENTER);
-
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, spoolScroll, contentPanel);
-        splitPane.setDividerLocation(160);
-        splitPane.setResizeWeight(0.3);
-        mainPanel.add(splitPane, BorderLayout.CENTER);
-
-        // ── Bottom bar ──────────────────────────────────────────────
-        JPanel bottomPanel = new JPanel(new BorderLayout(8, 0));
-        bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
-
-        statusLabel = new JLabel("Lade Spool-Liste…");
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-
-        JButton allButton = new JButton("📑 Gesamter Output");
-        allButton.setToolTipText("Alle Spool-Files zusammen laden");
-        allButton.addActionListener(e -> loadAllSpool());
-        buttonPanel.add(allButton);
-
-        JButton copyButton = new JButton("📋 Kopieren");
-        copyButton.setToolTipText("Angezeigten Inhalt in die Zwischenablage kopieren");
-        copyButton.addActionListener(e -> {
-            String text = contentArea.getText();
-            if (text != null && !text.isEmpty()) {
-                Toolkit.getDefaultToolkit().getSystemClipboard()
-                        .setContents(new StringSelection(text), null);
-                statusLabel.setText("✅ In Zwischenablage kopiert");
-            }
-        });
-        buttonPanel.add(copyButton);
-
-        JButton deleteButton = new JButton("🗑️ Job löschen");
-        deleteButton.addActionListener(e -> deleteJob());
-        buttonPanel.add(deleteButton);
-
-        bottomPanel.add(buttonPanel, BorderLayout.WEST);
-
+        // Add status to right
         bottomPanel.add(statusLabel, BorderLayout.EAST);
 
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
