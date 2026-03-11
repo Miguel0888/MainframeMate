@@ -206,6 +206,16 @@ public class WikiConnectionTab implements ConnectionTab {
 
         currentSiteId = site.id();
         currentPageTitle = pageTitle;
+
+        // Check in-memory prefetch cache first
+        if (prefetchCallback != null) {
+            WikiPageView cached = prefetchCallback.getCached(site.id(), pageTitle);
+            if (cached != null) {
+                applyPreview(cached);
+                return;
+            }
+        }
+
         statusLabel.setText("⏳ Lade Vorschau: " + pageTitle + "…");
 
         new SwingWorker<WikiPageView, Void>() {
@@ -219,15 +229,11 @@ public class WikiConnectionTab implements ConnectionTab {
             protected void done() {
                 try {
                     WikiPageView view = get();
-                    currentPreview = view;
-                    htmlPane.setText(wrapHtml(view.cleanedHtml()));
-                    htmlPane.setCaretPosition(0);
-                    statusLabel.setText("✅ Vorschau: " + view.title());
-
-                    // Update outline in RightDrawer
-                    if (outlineCallback != null) {
-                        outlineCallback.onOutlineChanged(view.outline(), view.title());
+                    // Cache the on-demand result so re-selecting is instant
+                    if (prefetchCallback != null) {
+                        prefetchCallback.putInCache(site.id(), pageTitle, view);
                     }
+                    applyPreview(view);
                 } catch (Exception ex) {
                     LOG.log(Level.WARNING, "[Wiki] Failed to load preview: " + pageTitle, ex);
                     htmlPane.setText("<html><body><h2>Fehler</h2><p>" + escHtml(getRootMessage(ex)) + "</p></body></html>");
@@ -235,6 +241,18 @@ public class WikiConnectionTab implements ConnectionTab {
                 }
             }
         }.execute();
+    }
+
+    /** Apply a loaded WikiPageView to the preview pane and outline. */
+    private void applyPreview(WikiPageView view) {
+        currentPreview = view;
+        htmlPane.setText(wrapHtml(view.cleanedHtml()));
+        htmlPane.setCaretPosition(0);
+        statusLabel.setText("✅ Vorschau: " + view.title());
+
+        if (outlineCallback != null) {
+            outlineCallback.onOutlineChanged(view.outline(), view.title());
+        }
     }
 
     private void openSelectedAsTab() {
@@ -247,34 +265,48 @@ public class WikiConnectionTab implements ConnectionTab {
         WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
         if (site == null) return;
 
-        if (openCallback != null) {
-            if (currentPreview != null && title.equals(currentPreview.title())) {
-                openCallback.openWikiPage(site.id().value(), title, currentPreview.cleanedHtml(),
-                        currentPreview.outline());
-            } else {
-                statusLabel.setText("⏳ Öffne: " + title + "…");
-                new SwingWorker<WikiPageView, Void>() {
-                    @Override
-                    protected WikiPageView doInBackground() throws Exception {
-                        return service.loadPage(site.id(), title, getCredentials(site));
-                    }
+        if (openCallback == null) return;
 
-                    @Override
-                    protected void done() {
-                        try {
-                            WikiPageView view = get();
-                            if (openCallback != null) {
-                                openCallback.openWikiPage(site.id().value(), view.title(),
-                                        view.cleanedHtml(), view.outline());
-                            }
-                            statusLabel.setText("✅ Geöffnet: " + view.title());
-                        } catch (Exception ex) {
-                            statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
-                        }
-                    }
-                }.execute();
+        // 1) current preview matches
+        if (currentPreview != null && title.equals(currentPreview.title())) {
+            openCallback.openWikiPage(site.id().value(), title, currentPreview.cleanedHtml(),
+                    currentPreview.outline());
+            return;
+        }
+
+        // 2) prefetch in-memory cache
+        if (prefetchCallback != null) {
+            WikiPageView cached = prefetchCallback.getCached(site.id(), title);
+            if (cached != null) {
+                openCallback.openWikiPage(site.id().value(), cached.title(),
+                        cached.cleanedHtml(), cached.outline());
+                statusLabel.setText("✅ Geöffnet: " + cached.title());
+                return;
             }
         }
+
+        // 3) fallback: load from server
+        statusLabel.setText("⏳ Öffne: " + title + "…");
+        new SwingWorker<WikiPageView, Void>() {
+            @Override
+            protected WikiPageView doInBackground() throws Exception {
+                return service.loadPage(site.id(), title, getCredentials(site));
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    WikiPageView view = get();
+                    if (openCallback != null) {
+                        openCallback.openWikiPage(site.id().value(), view.title(),
+                                view.cleanedHtml(), view.outline());
+                    }
+                    statusLabel.setText("✅ Geöffnet: " + view.title());
+                } catch (Exception ex) {
+                    statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
+                }
+            }
+        }.execute();
     }
 
     private void searchWiki() {

@@ -24,6 +24,11 @@ final class HtmlPostProcessor {
         doc.select("script").remove();
 
         OutlineNode outlineRoot = buildOutline(doc);
+
+        // Inject <a name="..."></a> before headings for Swing's scrollToReference()
+        // JEditorPane only supports <a name="...">, not id="..." on arbitrary elements
+        injectNameAnchors(doc);
+
         String cleaned = doc.body().html();
         return new Result(cleaned, outlineRoot);
     }
@@ -65,6 +70,23 @@ final class HtmlPostProcessor {
     private String extractText(Element heading) {
         Element headline = heading.selectFirst(".mw-headline");
         return headline != null ? headline.text() : heading.text();
+    }
+
+    /**
+     * Inject {@code <a name="anchor"></a>} right before each heading that has an id.
+     * Also checks child elements like {@code <span class="mw-headline" id="...">}.
+     * This is necessary because Swing's JEditorPane.scrollToReference() only looks for
+     * {@code <a name="...">}, not {@code id="..."} on arbitrary elements.
+     */
+    private void injectNameAnchors(Document doc) {
+        Elements headings = doc.select("h1, h2, h3, h4, h5, h6");
+        for (Element h : headings) {
+            String anchor = extractAnchor(h);
+            if (anchor != null && !anchor.isEmpty()) {
+                // Prepend an <a name="anchor"></a> right before the heading
+                h.before("<a name=\"" + anchor + "\"></a>");
+            }
+        }
     }
 
     private String extractAnchor(Element heading) {
