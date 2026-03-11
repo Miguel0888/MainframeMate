@@ -85,7 +85,8 @@ public class ImageStripPanel extends JPanel {
 
     /**
      * Show an overlay dialog with the full image, download button,
-     * and ◀/▶ navigation to flip through all images on the page.
+     * and translucent ◀/▶ arrows on the left/right edges of the image
+     * that appear on hover — click to navigate between images.
      */
     private void showImageOverlay(int startIndex) {
         final int[] currentIndex = { Math.max(0, Math.min(startIndex, allImages.size() - 1)) };
@@ -93,10 +94,10 @@ public class ImageStripPanel extends JPanel {
         Window owner = SwingUtilities.getWindowAncestor(this);
         JDialog dialog = new JDialog(owner instanceof Frame ? (Frame) owner : null,
                 allImages.get(currentIndex[0]).description(), true);
-        dialog.setLayout(new BorderLayout(8, 8));
+        dialog.setLayout(new BorderLayout(0, 0));
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-        // Determine usable screen area (leave some margin)
+        // Determine usable screen area
         Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
         Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(
                 GraphicsEnvironment.getLocalGraphicsEnvironment()
@@ -104,31 +105,74 @@ public class ImageStripPanel extends JPanel {
         final int screenMaxW = screen.width - screenInsets.left - screenInsets.right - 80;
         final int screenMaxH = screen.height - screenInsets.top - screenInsets.bottom - 120;
 
-        JLabel imageLabel = new JLabel("⏳ Lade Bild…", SwingConstants.CENTER);
-        JScrollPane scrollPane = new JScrollPane(imageLabel);
-        dialog.add(scrollPane, BorderLayout.CENTER);
+        // Image label inside a scroll pane
+        final JLabel imageLabel = new JLabel("⏳ Lade Bild…", SwingConstants.CENTER);
+        final JScrollPane scrollPane = new JScrollPane(imageLabel);
+        scrollPane.setBorder(null);
 
-        // Bottom bar: [◀] [▶]  info  [💾 Herunterladen] [Schließen]
+        // ── Overlay navigation arrows ──
+        final int ARROW_STRIP_W = 48;
+
+        final JPanel leftArrow = createArrowPanel("◀", ARROW_STRIP_W);
+        final JPanel rightArrow = createArrowPanel("▶", ARROW_STRIP_W);
+
+        // Use a layered pane to overlay arrows on top of the scroll pane
+        final JLayeredPane layered = new JLayeredPane();
+        layered.setLayout(null); // manual positioning — we resize in a listener
+
+        layered.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
+        layered.add(leftArrow, JLayeredPane.PALETTE_LAYER);
+        layered.add(rightArrow, JLayeredPane.PALETTE_LAYER);
+
+        // Keep children sized to the layered pane
+        layered.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                int w = layered.getWidth();
+                int h = layered.getHeight();
+                scrollPane.setBounds(0, 0, w, h);
+                leftArrow.setBounds(0, 0, ARROW_STRIP_W, h);
+                rightArrow.setBounds(w - ARROW_STRIP_W, 0, ARROW_STRIP_W, h);
+            }
+        });
+
+        // Arrows hidden by default, shown on mouse hover
+        leftArrow.setVisible(false);
+        rightArrow.setVisible(false);
+
+        // Mouse tracking: show arrows when mouse is near the edges
+        final MouseAdapter hoverTracker = new MouseAdapter() {
+            private void update(MouseEvent e) {
+                Point p = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), layered);
+                int w = layered.getWidth();
+                boolean showLeft = currentIndex[0] > 0 && p.x < ARROW_STRIP_W + 10;
+                boolean showRight = currentIndex[0] < allImages.size() - 1 && p.x > w - ARROW_STRIP_W - 10;
+                leftArrow.setVisible(showLeft);
+                rightArrow.setVisible(showRight);
+            }
+
+            @Override public void mouseMoved(MouseEvent e) { update(e); }
+            @Override public void mouseExited(MouseEvent e) {
+                leftArrow.setVisible(false);
+                rightArrow.setVisible(false);
+            }
+        };
+        scrollPane.addMouseMotionListener(hoverTracker);
+        scrollPane.addMouseListener(hoverTracker);
+        imageLabel.addMouseMotionListener(hoverTracker);
+        imageLabel.addMouseListener(hoverTracker);
+
+        dialog.add(layered, BorderLayout.CENTER);
+
+        // ── Bottom bar: info + download + close ──
         JPanel bottomPanel = new JPanel(new BorderLayout(4, 4));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
 
-        JLabel infoLabel = new JLabel(" ");
-        infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC));
+        final JLabel infoLabel = new JLabel(" ");
+        infoLabel.setFont(infoLabel.getFont().deriveFont(Font.ITALIC, 12f));
+        bottomPanel.add(infoLabel, BorderLayout.CENTER);
 
-        // Navigation buttons
-        JButton prevBtn = new JButton("◀");
-        prevBtn.setToolTipText("Vorheriges Bild");
-        prevBtn.setMargin(new Insets(2, 6, 2, 6));
-
-        JButton nextBtn = new JButton("▶");
-        nextBtn.setToolTipText("Nächstes Bild");
-        nextBtn.setMargin(new Insets(2, 6, 2, 6));
-
-        JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        navPanel.add(prevBtn);
-        navPanel.add(nextBtn);
-
-        JButton downloadBtn = new JButton("💾 Herunterladen");
+        final JButton downloadBtn = new JButton("💾 Herunterladen");
         downloadBtn.setEnabled(false);
 
         JButton closeBtn = new JButton("Schließen");
@@ -137,17 +181,15 @@ public class ImageStripPanel extends JPanel {
         JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         rightButtons.add(downloadBtn);
         rightButtons.add(closeBtn);
-
-        bottomPanel.add(navPanel, BorderLayout.WEST);
-        bottomPanel.add(infoLabel, BorderLayout.CENTER);
         bottomPanel.add(rightButtons, BorderLayout.EAST);
+
         dialog.add(bottomPanel, BorderLayout.SOUTH);
 
-        // Start with a reasonable loading size
+        // Initial size
         dialog.setSize(Math.min(700, screenMaxW), Math.min(500, screenMaxH));
         dialog.setLocationRelativeTo(owner);
 
-        // --- Runnable to load & display image at currentIndex ---
+        // ── Load & display logic ──
         final Runnable[] loadCurrent = new Runnable[1];
         loadCurrent[0] = () -> {
             ImageRef img = allImages.get(currentIndex[0]);
@@ -155,8 +197,6 @@ public class ImageStripPanel extends JPanel {
             imageLabel.setIcon(null);
             imageLabel.setText("⏳ Lade Bild…");
             downloadBtn.setEnabled(false);
-            prevBtn.setEnabled(currentIndex[0] > 0);
-            nextBtn.setEnabled(currentIndex[0] < allImages.size() - 1);
             infoLabel.setText((currentIndex[0] + 1) + " / " + allImages.size()
                     + "  —  " + img.description());
 
@@ -182,7 +222,6 @@ public class ImageStripPanel extends JPanel {
 
                         int imgW = bi.getWidth();
                         int imgH = bi.getHeight();
-
                         int chromeW = 40;
                         int chromeH = 90;
                         int availW = screenMaxW - chromeW;
@@ -193,9 +232,8 @@ public class ImageStripPanel extends JPanel {
                             icon = new ImageIcon(bi);
                         } else {
                             double scale = Math.min((double) availW / imgW, (double) availH / imgH);
-                            int scaledW = (int) (imgW * scale);
-                            int scaledH = (int) (imgH * scale);
-                            icon = new ImageIcon(bi.getScaledInstance(scaledW, scaledH, Image.SCALE_SMOOTH));
+                            icon = new ImageIcon(bi.getScaledInstance(
+                                    (int) (imgW * scale), (int) (imgH * scale), Image.SCALE_SMOOTH));
                         }
 
                         imageLabel.setIcon(icon);
@@ -218,25 +256,78 @@ public class ImageStripPanel extends JPanel {
             }.execute();
         };
 
-        // Wire navigation
-        prevBtn.addActionListener(e -> {
-            if (currentIndex[0] > 0) {
-                currentIndex[0]--;
-                loadCurrent[0].run();
+        // Wire arrow clicks
+        leftArrow.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (currentIndex[0] > 0) { currentIndex[0]--; loadCurrent[0].run(); }
             }
         });
-        nextBtn.addActionListener(e -> {
-            if (currentIndex[0] < allImages.size() - 1) {
-                currentIndex[0]++;
-                loadCurrent[0].run();
+        rightArrow.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (currentIndex[0] < allImages.size() - 1) { currentIndex[0]++; loadCurrent[0].run(); }
             }
         });
         downloadBtn.addActionListener(e -> downloadImage(allImages.get(currentIndex[0])));
 
-        // Load the first image
-        loadCurrent[0].run();
+        // Keyboard navigation
+        dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke("LEFT"), "prev");
+        dialog.getRootPane().getActionMap().put("prev", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (currentIndex[0] > 0) { currentIndex[0]--; loadCurrent[0].run(); }
+            }
+        });
+        dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke("RIGHT"), "next");
+        dialog.getRootPane().getActionMap().put("next", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (currentIndex[0] < allImages.size() - 1) { currentIndex[0]++; loadCurrent[0].run(); }
+            }
+        });
 
+        loadCurrent[0].run();
         dialog.setVisible(true);
+    }
+
+    /**
+     * Create a translucent arrow panel used as an overlay on the left or right edge
+     * of the image area. The arrow symbol is large and centered; the background is
+     * semi-transparent dark so it is visible on any image.
+     */
+    private static JPanel createArrowPanel(String arrow, int stripWidth) {
+        JPanel panel = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+                g2.setColor(Color.BLACK);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        panel.setOpaque(false);
+        panel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        JLabel label = new JLabel(arrow, SwingConstants.CENTER);
+        label.setForeground(Color.WHITE);
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 28f));
+        panel.add(label, BorderLayout.CENTER);
+        panel.setPreferredSize(new Dimension(stripWidth, 0));
+
+        // Hover brightens the strip
+        panel.addMouseListener(new MouseAdapter() {
+            @Override public void mouseEntered(MouseEvent e) {
+                label.setForeground(new Color(255, 255, 255, 255));
+                panel.repaint();
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                label.setForeground(new Color(255, 255, 255, 200));
+                panel.repaint();
+            }
+        });
+
+        return panel;
     }
 
     /**
