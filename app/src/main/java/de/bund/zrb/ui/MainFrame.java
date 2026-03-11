@@ -506,6 +506,13 @@ public class MainFrame extends JFrame implements MainframeContext {
             case "MAIL":
                 openMailBookmark(rawPath);
                 break;
+            case "BETAVIEW":
+                // BetaView bookmarks: open as read-only file tab
+                tabManager.openFileTab(
+                        new VirtualResource(null, VirtualResourceKind.FILE, entry.path,
+                                VirtualBackendType.BETAVIEW, null, null),
+                        "[BetaView Dokument]\nLaden...", null, null, null);
+                break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
                 new VirtualResourceOpener(tabManager)

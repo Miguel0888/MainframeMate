@@ -28,7 +28,11 @@ public class BetaViewConnectionTab implements ConnectionTab {
     // ── Callbacks (set by OpenBetaViewMenuCommand) ──────────────────────
 
     public interface DocumentOpenCallback {
-        void openDocument(String displayName, String actionPath, String htmlContent);
+        /**
+         * @param tab         parsed DocumentTab with docId/favId/linkID/title
+         * @param htmlContent the full document HTML (for DocumentPreviewPanel.loadDocument)
+         */
+        void openDocument(DocumentTab tab, String htmlContent);
     }
 
     public interface CredentialsProvider {
@@ -79,6 +83,11 @@ public class BetaViewConnectionTab implements ConnectionTab {
     public void setCredentialsProvider(CredentialsProvider provider) {
         this.credentialsProvider = provider;
     }
+
+    /** Active client after successful login. May be null before connect. */
+    public BetaViewClient getClient()   { return client; }
+    /** Active session after successful login. May be null before connect. */
+    public BetaViewSession getSession() { return session; }
 
     // ── Connect ─────────────────────────────────────────────────────────
 
@@ -160,6 +169,10 @@ public class BetaViewConnectionTab implements ConnectionTab {
 
                     fetchAndOpenServerTabs();
 
+                    // Load sidebar data (saved searches + bookmarks) like BetaViewSwingFrame does
+                    connectionTabPanel.refreshSavedSearches();
+                    connectionTabPanel.refreshBookmarks();
+
                 } catch (Exception ex) {
                     connectingLabel.setText("Verbindung fehlgeschlagen: " +
                             (ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage()));
@@ -182,7 +195,7 @@ public class BetaViewConnectionTab implements ConnectionTab {
             activeTab = new DocumentTab("", "", action, "Dokument", "", action, true);
         }
         if (openCallback != null) {
-            openCallback.openDocument(activeTab.title(), activeTab.openAction(), html);
+            openCallback.openDocument(activeTab, html);
         }
     }
 
@@ -196,7 +209,7 @@ public class BetaViewConnectionTab implements ConnectionTab {
             activeTab = new DocumentTab("", "", item.action(), item.name(), "", item.action(), true);
         }
         if (openCallback != null) {
-            openCallback.openDocument(activeTab.title(), activeTab.openAction(), html);
+            openCallback.openDocument(activeTab, html);
         }
     }
 
@@ -235,9 +248,16 @@ public class BetaViewConnectionTab implements ConnectionTab {
                 try {
                     String html = get();
                     if (openCallback != null) {
-                        String title = tab.title();
-                        if (title == null || title.isEmpty()) title = "BetaView Dokument";
-                        openCallback.openDocument(title, tab.openAction(), html);
+                        // Parse the returned HTML to find the real active tab metadata
+                        List<DocumentTab> parsed = DocumentTabParser.parse(html);
+                        DocumentTab activeTab = null;
+                        for (DocumentTab t : parsed) {
+                            if (t.isActive()) activeTab = t;
+                        }
+                        if (activeTab == null) {
+                            activeTab = tab; // fallback to the server-tab info
+                        }
+                        openCallback.openDocument(activeTab, html);
                     }
                 } catch (Exception ignored) { }
             }

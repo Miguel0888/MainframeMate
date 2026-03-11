@@ -22,6 +22,8 @@ public final class VirtualResourceRef {
     public static final String MAIL_PREFIX = "mail://";
     /** Prefix for NDV paths */
     public static final String NDV_PREFIX = "ndv://";
+    /** Prefix for BetaView document paths */
+    public static final String BETAVIEW_PREFIX = "betaview://";
 
     private final String raw;
 
@@ -64,7 +66,7 @@ public final class VirtualResourceRef {
     }
 
     public boolean isUri() {
-        if (isFtpPath() || isLocalPrefixed() || isMailPath() || isNdvPath()) {
+        if (isFtpPath() || isLocalPrefixed() || isMailPath() || isNdvPath() || isBetaviewPath()) {
             return false; // these are handled by their own prefixes
         }
         String s = raw.trim().toLowerCase();
@@ -153,6 +155,21 @@ public final class VirtualResourceRef {
     }
 
     /**
+     * Check if this is a BetaView document path (betaview:// prefix).
+     */
+    public boolean isBetaviewPath() {
+        return raw.trim().toLowerCase().startsWith(BETAVIEW_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the BetaView path without the betaview:// prefix.
+     */
+    public String getBetaviewPath() {
+        if (!isBetaviewPath()) return raw;
+        return raw.trim().substring(BETAVIEW_PREFIX.length());
+    }
+
+    /**
      * Build a prefixed path from a backend type and raw path.
      */
     public static String buildPrefixedPath(String backendType, String rawPath) {
@@ -160,7 +177,8 @@ public final class VirtualResourceRef {
         switch (backendType) {
             case "FTP":  return FTP_PREFIX + rawPath;
             case "NDV":  return NDV_PREFIX + rawPath;
-            case "MAIL": return MAIL_PREFIX + rawPath;
+            case "MAIL":     return MAIL_PREFIX + rawPath;
+            case "BETAVIEW": return BETAVIEW_PREFIX + rawPath;
             default:     return LOCAL_PREFIX + rawPath;
         }
     }

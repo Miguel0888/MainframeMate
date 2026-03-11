@@ -412,7 +412,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         area.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE); // NO highlighting for RAW
         area.setCodeFoldingEnabled(false);
         area.setFont(new Font("Consolas", Font.PLAIN, 13));
-        area.setEditable(isTextFile);
+        area.setEditable(isTextFile && !"BETAVIEW".equals(backendType));
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         area.setText(rawContent);
@@ -857,6 +857,9 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     @Override
     public void saveIfApplicable() {
+        // BetaView documents are read-only
+        if ("BETAVIEW".equals(backendType)) return;
+
         if (!isTextFile || !hasUnsavedChanges) return;
 
         // For text files, save the raw content

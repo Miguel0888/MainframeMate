@@ -37,8 +37,8 @@ public final class ResultFilter {
     private final String reload;        // JA, NEIN, or empty
 
     private ResultFilter(Builder b) {
-        this.favoriteId = requireNotBlank(b.favoriteId, "favoriteId must not be blank");
-        this.locale = requireNotBlank(b.locale, "locale must not be blank");
+        this.favoriteId = defaultIfBlank(b.favoriteId, "A158");
+        this.locale = defaultIfBlank(b.locale, "de");
         this.extensionPattern = defaultIfBlank(b.extensionPattern, "*");
         this.form = defaultIfBlank(b.form, "APZC");
         this.report = defaultIfBlank(b.report, "*");

@@ -343,7 +343,7 @@ public final class ConnectionTabPanel extends JPanel {
 
     // ---- Sidebar actions ----
 
-    private void refreshSavedSearches() {
+    public void refreshSavedSearches() {
         statusLabel.setText("Lade gespeicherte Suchen...");
         new SwingWorker<String, Void>() {
             @Override protected String doInBackground() throws Exception {
@@ -358,7 +358,7 @@ public final class ConnectionTabPanel extends JPanel {
         }.execute();
     }
 
-    private void refreshBookmarks() {
+    public void refreshBookmarks() {
         statusLabel.setText("Lade gemerkte Dokumente...");
         new SwingWorker<String, Void>() {
             @Override protected String doInBackground() throws Exception {
