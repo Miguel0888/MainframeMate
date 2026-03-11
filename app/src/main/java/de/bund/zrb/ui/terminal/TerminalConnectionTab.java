@@ -285,8 +285,10 @@ public class TerminalConnectionTab implements ConnectionTab {
     /**
      * Automatically log in after connect.
      * <p>
-     * Sequence: CLEAR → wait → type user → CLEAR → wait → type password → ENTER.
-     * The initial CLEAR ensures the host presents the userid input field.
+     * Sequence: CLEAR → wait → type user → ENTER → wait → type password → ENTER.
+     * The initial CLEAR resets the screen to a clean login prompt.
+     * The first ENTER submits the userid; the host then shows the password prompt.
+     * The second ENTER submits the password.
      * Runs on a background thread.
      */
     private void autoLogin(final Terminal term) {
@@ -301,15 +303,15 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                     Thread.sleep(500);
 
-                    // 2) Send CLEAR to ensure the host presents the userid field
+                    // 2) Send CLEAR to reset the screen to a clean login prompt
                     term.Fkey(AID_CLEAR);
                     if (!waitForKeyboardUnlock(term, 10_000)) {
-                        LOG.warning("[3270] Auto-login: keyboard did not unlock after initial CLEAR");
+                        LOG.warning("[3270] Auto-login: keyboard did not unlock after CLEAR");
                         return;
                     }
                     Thread.sleep(500);
 
-                    // 3) Position cursor at the first unprotected (input) field = userid
+                    // 3) Position cursor at the first unprotected field = userid
                     short firstField = term.getNextUnprotectedField(0);
                     if (firstField >= 0) {
                         term.setCursorPosition(firstField);
@@ -319,15 +321,15 @@ public class TerminalConnectionTab implements ConnectionTab {
                     typeString(term, user);
                     Thread.sleep(100);
 
-                    // 5) Send CLEAR to advance to the password field
-                    term.Fkey(AID_CLEAR);
+                    // 5) Send ENTER to submit userid – host advances to password prompt
+                    term.Fkey(AID_ENTER);
                     if (!waitForKeyboardUnlock(term, 10_000)) {
-                        LOG.warning("[3270] Auto-login: keyboard did not unlock after CLEAR");
+                        LOG.warning("[3270] Auto-login: keyboard did not unlock after userid ENTER");
                         return;
                     }
                     Thread.sleep(500);
 
-                    // 6) Position cursor at the (now first) unprotected field = password
+                    // 6) Position cursor at the first unprotected field = password
                     firstField = term.getNextUnprotectedField(0);
                     if (firstField >= 0) {
                         term.setCursorPosition(firstField);
@@ -337,7 +339,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     typeString(term, password);
                     Thread.sleep(100);
 
-                    // 8) Send ENTER to submit login
+                    // 8) Send ENTER to submit password and complete login
                     term.Fkey(AID_ENTER);
 
                     LOG.info("[3270] Auto-login: credentials sent");
