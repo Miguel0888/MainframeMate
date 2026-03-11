@@ -641,14 +641,46 @@ public class TerminalConnectionTab implements ConnectionTab {
         float brightness = (bg.getRed() * 299 + bg.getGreen() * 587 + bg.getBlue() * 114) / 255000f;
         btn.setForeground(brightness > 0.55f ? Color.BLACK : Color.WHITE);
 
+        final Ohio.OHIO_AID aid = pfKeyToAid(fkeyNumber);
         btn.addActionListener(e -> {
             Terminal t = terminal;
-            if (t != null && connected) {
-                t.Fkey(fkeyNumber);
+            if (t != null && connected && aid != null) {
+                t.Fkey(aid);
                 if (terminalScreen != null) terminalScreen.requestFocusInWindow();
             }
         });
         return btn;
+    }
+
+    /** Map PF key number (1–24) to the corresponding OHIO_AID enum. */
+    private static Ohio.OHIO_AID pfKeyToAid(int pfNumber) {
+        switch (pfNumber) {
+            case 1:  return Ohio.OHIO_AID.OHIO_AID_3270_PF1;
+            case 2:  return Ohio.OHIO_AID.OHIO_AID_3270_PF2;
+            case 3:  return Ohio.OHIO_AID.OHIO_AID_3270_PF3;
+            case 4:  return Ohio.OHIO_AID.OHIO_AID_3270_PF4;
+            case 5:  return Ohio.OHIO_AID.OHIO_AID_3270_PF5;
+            case 6:  return Ohio.OHIO_AID.OHIO_AID_3270_PF6;
+            case 7:  return Ohio.OHIO_AID.OHIO_AID_3270_PF7;
+            case 8:  return Ohio.OHIO_AID.OHIO_AID_3270_PF8;
+            case 9:  return Ohio.OHIO_AID.OHIO_AID_3270_PF9;
+            case 10: return Ohio.OHIO_AID.OHIO_AID_3270_PF10;
+            case 11: return Ohio.OHIO_AID.OHIO_AID_3270_PF11;
+            case 12: return Ohio.OHIO_AID.OHIO_AID_3270_PF12;
+            case 13: return Ohio.OHIO_AID.OHIO_AID_3270_PF13;
+            case 14: return Ohio.OHIO_AID.OHIO_AID_3270_PF14;
+            case 15: return Ohio.OHIO_AID.OHIO_AID_3270_PF15;
+            case 16: return Ohio.OHIO_AID.OHIO_AID_3270_PF16;
+            case 17: return Ohio.OHIO_AID.OHIO_AID_3270_PF17;
+            case 18: return Ohio.OHIO_AID.OHIO_AID_3270_PF18;
+            case 19: return Ohio.OHIO_AID.OHIO_AID_3270_PF19;
+            case 20: return Ohio.OHIO_AID.OHIO_AID_3270_PF20;
+            case 21: return Ohio.OHIO_AID.OHIO_AID_3270_PF21;
+            case 22: return Ohio.OHIO_AID.OHIO_AID_3270_PF22;
+            case 23: return Ohio.OHIO_AID.OHIO_AID_3270_PF23;
+            case 24: return Ohio.OHIO_AID.OHIO_AID_3270_PF24;
+            default: return null;
+        }
     }
 
     /**
