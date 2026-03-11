@@ -38,8 +38,11 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private final DefaultListModel<MvsVirtualResource> listModel = new DefaultListModel<>();
     private final JList<MvsVirtualResource> fileList;
     private final JTextField searchField = new JTextField();
-    private final JLabel overlayLabel = new JLabel();
-    private final JLayeredPane listContainer = new JLayeredPane();
+    private final JLabel messageLabel = new JLabel();
+    private final CardLayout listCardLayout = new CardLayout();
+    private final JPanel listContainer = new JPanel(listCardLayout);
+    private static final String CARD_LIST = "list";
+    private static final String CARD_MESSAGE = "message";
     private final JLabel statusLabel = new JLabel(" ");
     private JButton backButton;
     private JButton forwardButton;
@@ -122,27 +125,18 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
-        // Overlay setup
-        overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
-        overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
-        overlayLabel.setOpaque(true);
-        overlayLabel.setVisible(false);
+        // Message label setup (shown instead of list when needed)
+        messageLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        messageLabel.setVerticalAlignment(SwingConstants.CENTER);
+        messageLabel.setFont(messageLabel.getFont().deriveFont(Font.BOLD, 14f));
+        messageLabel.setOpaque(true);
+        messageLabel.setBackground(new Color(255, 255, 255, 220));
 
-        // List setup – use JLayeredPane to avoid OverlayLayout painting artifacts
+        // List setup – use CardLayout to switch between list and message (no overlay)
         JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
-        listContainer.add(overlayLabel, JLayeredPane.PALETTE_LAYER);
-
-        // Keep children sized to the layered pane
-        listContainer.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
-                Dimension size = listContainer.getSize();
-                scrollPane.setBounds(0, 0, size.width, size.height);
-                overlayLabel.setBounds(0, 0, size.width, size.height);
-            }
-        });
+        listContainer.add(scrollPane, CARD_LIST);
+        listContainer.add(messageLabel, CARD_MESSAGE);
+        listCardLayout.show(listContainer, CARD_LIST);
 
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         installMouseNavigation(pathField);
@@ -457,18 +451,13 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     // === Overlay helpers ===
 
     private void showOverlayMessage(String message, Color color) {
-        overlayLabel.setText(message);
-        overlayLabel.setForeground(color);
-        overlayLabel.setBackground(new Color(255, 255, 255, 220));
-        overlayLabel.setVisible(true);
-        listContainer.revalidate();
-        listContainer.repaint();
+        messageLabel.setText(message);
+        messageLabel.setForeground(color);
+        listCardLayout.show(listContainer, CARD_MESSAGE);
     }
 
     private void hideOverlay() {
-        overlayLabel.setVisible(false);
-        listContainer.revalidate();
-        listContainer.repaint();
+        listCardLayout.show(listContainer, CARD_LIST);
     }
 
     // === ConnectionTab interface ===
