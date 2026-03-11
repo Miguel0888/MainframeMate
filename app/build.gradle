@@ -31,6 +31,9 @@ dependencies {
     // BetaView integration
     implementation project(':betaview-integration')
 
+    // Wiki integration (MediaWiki via JWBF)
+    implementation project(':wiki-integration')
+
     // JSON
     implementation 'com.google.code.gson:gson:2.10.1'
 

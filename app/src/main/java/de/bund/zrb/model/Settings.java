@@ -89,6 +89,14 @@ public class Settings {
     public String tn3270TermType = "IBM-3278-2";       // Terminal-Typ (z.B. IBM-3278-2, IBM-3279-2)
     public int tn3270KeepAliveTimeout = 0;             // KeepAlive in Sekunden (0 = deaktiviert)
 
+    // Wiki Settings
+    // Each entry: "id|displayName|apiUrl|requiresLogin"
+    // e.g. "wikipedia|Wikipedia (DE)|https://de.wikipedia.org/w/|false"
+    public List<String> wikiSites = new ArrayList<>(java.util.Arrays.asList(
+            "wikipedia_de|Wikipedia (DE)|https://de.wikipedia.org/w/|false",
+            "wikipedia_en|Wikipedia (EN)|https://en.wikipedia.org/w/|false"
+    ));
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

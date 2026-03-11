@@ -1,0 +1,205 @@
+package de.bund.zrb.ui.settings.categories;
+
+import de.bund.zrb.model.Settings;
+import de.bund.zrb.ui.settings.FormBuilder;
+
+import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Settings panel for Wiki site configuration.
+ * Users can add, edit, remove wiki sites (each with id, name, API URL, login flag).
+ */
+public class WikiSettingsPanel extends AbstractSettingsPanel {
+
+    private final WikiSiteTableModel tableModel;
+    private final JTable siteTable;
+
+    public WikiSettingsPanel() {
+        super("wiki", "Wiki");
+        FormBuilder fb = new FormBuilder();
+
+        fb.addSection("Wiki-Sites");
+        fb.addInfo("Konfigurieren Sie hier Ihre MediaWiki-Instanzen. "
+                + "Die API-URL endet typischerweise auf /w/ oder /api.php.");
+
+        // Parse existing sites from settings
+        List<WikiSiteRow> rows = parseSites(settings.wikiSites);
+        tableModel = new WikiSiteTableModel(rows);
+        siteTable = new JTable(tableModel);
+        siteTable.setRowHeight(24);
+        siteTable.getColumnModel().getColumn(0).setPreferredWidth(100);
+        siteTable.getColumnModel().getColumn(1).setPreferredWidth(150);
+        siteTable.getColumnModel().getColumn(2).setPreferredWidth(300);
+        siteTable.getColumnModel().getColumn(3).setPreferredWidth(60);
+        siteTable.getColumnModel().getColumn(3).setMaxWidth(80);
+
+        JScrollPane scroll = new JScrollPane(siteTable);
+        scroll.setPreferredSize(new Dimension(600, 180));
+        fb.addWideGrow(scroll);
+
+        // Buttons
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JButton addBtn = new JButton("➕ Hinzufügen");
+        addBtn.addActionListener(e -> addSite());
+        JButton removeBtn = new JButton("➖ Entfernen");
+        removeBtn.addActionListener(e -> removeSite());
+        JButton defaultBtn = new JButton("📦 Standard-Wikis laden");
+        defaultBtn.setToolTipText("Wikipedia (DE + EN) als Standard hinzufügen");
+        defaultBtn.addActionListener(e -> loadDefaults());
+        buttons.add(addBtn);
+        buttons.add(removeBtn);
+        buttons.add(Box.createHorizontalStrut(16));
+        buttons.add(defaultBtn);
+        fb.addWide(buttons);
+
+        installPanel(fb);
+    }
+
+    private void addSite() {
+        tableModel.addRow(new WikiSiteRow("new_wiki", "Neues Wiki", "https://example.com/w/", false));
+        int newRow = tableModel.getRowCount() - 1;
+        siteTable.setRowSelectionInterval(newRow, newRow);
+        siteTable.scrollRectToVisible(siteTable.getCellRect(newRow, 0, true));
+    }
+
+    private void removeSite() {
+        int row = siteTable.getSelectedRow();
+        if (row >= 0) {
+            tableModel.removeRow(row);
+        }
+    }
+
+    private void loadDefaults() {
+        List<WikiSiteRow> defaults = new ArrayList<WikiSiteRow>();
+        defaults.add(new WikiSiteRow("wikipedia_de", "Wikipedia (DE)", "https://de.wikipedia.org/w/", false));
+        defaults.add(new WikiSiteRow("wikipedia_en", "Wikipedia (EN)", "https://en.wikipedia.org/w/", false));
+
+        for (WikiSiteRow def : defaults) {
+            boolean exists = false;
+            for (int i = 0; i < tableModel.getRowCount(); i++) {
+                if (tableModel.getRow(i).id.equals(def.id)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                tableModel.addRow(def);
+            }
+        }
+    }
+
+    @Override
+    protected void applyToSettings(Settings s) {
+        // Stop editing to capture any pending cell edits
+        if (siteTable.isEditing()) {
+            siteTable.getCellEditor().stopCellEditing();
+        }
+
+        List<String> serialized = new ArrayList<String>();
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            WikiSiteRow row = tableModel.getRow(i);
+            serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin);
+        }
+        s.wikiSites = serialized;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════
+
+    private List<WikiSiteRow> parseSites(List<String> raw) {
+        List<WikiSiteRow> rows = new ArrayList<WikiSiteRow>();
+        if (raw == null) return rows;
+        for (String entry : raw) {
+            String[] parts = entry.split("\\|", 4);
+            if (parts.length >= 3) {
+                String id = parts[0].trim();
+                String name = parts[1].trim();
+                String url = parts[2].trim();
+                boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
+                rows.add(new WikiSiteRow(id, name, url, login));
+            }
+        }
+        return rows;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Table Model
+    // ═══════════════════════════════════════════════════════════
+
+    private static final class WikiSiteRow {
+        String id;
+        String displayName;
+        String apiUrl;
+        boolean requiresLogin;
+
+        WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin) {
+            this.id = id;
+            this.displayName = displayName;
+            this.apiUrl = apiUrl;
+            this.requiresLogin = requiresLogin;
+        }
+    }
+
+    private static final class WikiSiteTableModel extends AbstractTableModel {
+        private final List<WikiSiteRow> rows;
+        private static final String[] COLUMNS = {"ID", "Name", "API-URL", "Login"};
+
+        WikiSiteTableModel(List<WikiSiteRow> rows) {
+            this.rows = new ArrayList<WikiSiteRow>(rows);
+        }
+
+        WikiSiteRow getRow(int row) { return rows.get(row); }
+
+        void addRow(WikiSiteRow row) {
+            rows.add(row);
+            fireTableRowsInserted(rows.size() - 1, rows.size() - 1);
+        }
+
+        void removeRow(int row) {
+            rows.remove(row);
+            fireTableRowsDeleted(row, row);
+        }
+
+        @Override public int getRowCount() { return rows.size(); }
+        @Override public int getColumnCount() { return COLUMNS.length; }
+        @Override public String getColumnName(int col) { return COLUMNS[col]; }
+
+        @Override
+        public Class<?> getColumnClass(int col) {
+            return col == 3 ? Boolean.class : String.class;
+        }
+
+        @Override
+        public boolean isCellEditable(int row, int col) { return true; }
+
+        @Override
+        public Object getValueAt(int row, int col) {
+            WikiSiteRow r = rows.get(row);
+            switch (col) {
+                case 0: return r.id;
+                case 1: return r.displayName;
+                case 2: return r.apiUrl;
+                case 3: return r.requiresLogin;
+                default: return "";
+            }
+        }
+
+        @Override
+        public void setValueAt(Object value, int row, int col) {
+            WikiSiteRow r = rows.get(row);
+            switch (col) {
+                case 0: r.id = String.valueOf(value); break;
+                case 1: r.displayName = String.valueOf(value); break;
+                case 2: r.apiUrl = String.valueOf(value); break;
+                case 3: r.requiresLogin = Boolean.TRUE.equals(value); break;
+            }
+            fireTableCellUpdated(row, col);
+        }
+    }
+}
+

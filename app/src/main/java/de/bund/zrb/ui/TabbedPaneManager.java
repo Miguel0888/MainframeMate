@@ -158,6 +158,7 @@ public class TabbedPaneManager {
         if (tab instanceof de.bund.zrb.ui.mail.MailConnectionTab) return "MAIL";
         if (tab instanceof de.bund.zrb.ui.mail.MailPreviewTab) return "MAIL";
         if (tab instanceof CacheConnectionTab) return "CACHE";
+        if (tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) return "WIKI";
         return "LOCAL";
     }
 
