@@ -78,6 +78,13 @@ public class TerminalMacroRecorder {
         return recording;
     }
 
+    /** Clear all recorded steps and the pending text buffer. Recording continues. */
+    public synchronized void clear() {
+        steps.clear();
+        textBuffer.setLength(0);
+        LOG.fine("[MacroRec] Cleared");
+    }
+
     // ── Snapshot / Serialization ────────────────────────────────
 
     /** Get a snapshot of all recorded steps (flushing pending text). */

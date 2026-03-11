@@ -634,9 +634,156 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         toolbar.addSeparator(new Dimension(16, 0));
         toolbar.add(Box.createHorizontalGlue());
+
+        // History dropdown button
+        JButton historyBtn = new JButton("📜");
+        historyBtn.setToolTipText("Eingabe-Historie (Makro-Aufzeichnung)");
+        historyBtn.setMargin(new Insets(2, 6, 2, 6));
+        historyBtn.setFocusable(false);
+        historyBtn.addActionListener(e -> showHistoryPopup(historyBtn));
+        toolbar.add(historyBtn);
+
+        toolbar.addSeparator(new Dimension(4, 0));
         toolbar.add(statusLabel);
 
         return toolbar;
+    }
+
+    /**
+     * Show a popup with the recorded macro history.
+     * Each step is a row with text + a copy button.
+     * A "clear" button at the top resets the recorder.
+     */
+    private void showHistoryPopup(JComponent anchor) {
+        List<Map<String, String>> steps = macroRecorder.getSteps();
+
+        JPopupMenu popup = new JPopupMenu();
+        popup.setLayout(new BorderLayout());
+
+        // Header with clear button
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        JLabel titleLabel = new JLabel("📜 Eingabe-Historie (" + steps.size() + ")");
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 12f));
+        header.add(titleLabel, BorderLayout.WEST);
+
+        JButton clearBtn = new JButton("🗑 Leeren");
+        clearBtn.setMargin(new Insets(1, 6, 1, 6));
+        clearBtn.setFont(clearBtn.getFont().deriveFont(Font.PLAIN, 11f));
+        clearBtn.setFocusable(false);
+        clearBtn.addActionListener(e -> {
+            macroRecorder.clear();
+            popup.setVisible(false);
+        });
+        header.add(clearBtn, BorderLayout.EAST);
+        popup.add(header, BorderLayout.NORTH);
+
+        // Steps list in a scrollable panel
+        JPanel listPanel = new JPanel();
+        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+        listPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+        if (steps.isEmpty()) {
+            JLabel emptyLabel = new JLabel("  (keine Eingaben aufgezeichnet)");
+            emptyLabel.setFont(emptyLabel.getFont().deriveFont(Font.ITALIC, 11f));
+            emptyLabel.setForeground(Color.GRAY);
+            emptyLabel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+            listPanel.add(emptyLabel);
+        } else {
+            for (int i = 0; i < steps.size(); i++) {
+                Map<String, String> step = steps.get(i);
+                listPanel.add(createHistoryRow(i + 1, step));
+            }
+        }
+
+        JScrollPane scrollPane = new JScrollPane(listPanel);
+        scrollPane.setPreferredSize(new Dimension(350, Math.min(steps.size() * 28 + 20, 400)));
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        popup.add(scrollPane, BorderLayout.CENTER);
+
+        popup.show(anchor, 0, anchor.getHeight());
+    }
+
+    /**
+     * Create a single row in the history popup: "[#] TYPE: value  [📋]"
+     */
+    private JPanel createHistoryRow(int index, Map<String, String> step) {
+        String type = step.getOrDefault("type", "?");
+        String value = step.getOrDefault("value", "");
+
+        // Format display text
+        String displayText;
+        Color typeColor;
+        if ("TEXT".equals(type)) {
+            displayText = "\"" + value + "\"";
+            typeColor = new Color(0, 100, 0);
+        } else {
+            // AID — make it more readable
+            displayText = formatAidName(value);
+            typeColor = new Color(0, 50, 150);
+        }
+
+        JPanel row = new JPanel(new BorderLayout(4, 0));
+        row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 220, 220)),
+                BorderFactory.createEmptyBorder(2, 4, 2, 4)
+        ));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+
+        // Index label
+        JLabel indexLabel = new JLabel(String.valueOf(index));
+        indexLabel.setFont(indexLabel.getFont().deriveFont(Font.PLAIN, 10f));
+        indexLabel.setForeground(Color.GRAY);
+        indexLabel.setPreferredSize(new Dimension(24, 20));
+        indexLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        row.add(indexLabel, BorderLayout.WEST);
+
+        // Content label
+        JLabel contentLabel = new JLabel(displayText);
+        contentLabel.setFont(new Font("Monospaced", Font.PLAIN, 11));
+        contentLabel.setForeground(typeColor);
+        contentLabel.setToolTipText(type + ": " + value);
+        row.add(contentLabel, BorderLayout.CENTER);
+
+        // Copy button
+        JButton copyBtn = new JButton("📋");
+        copyBtn.setMargin(new Insets(0, 2, 0, 2));
+        copyBtn.setPreferredSize(new Dimension(24, 20));
+        copyBtn.setFont(copyBtn.getFont().deriveFont(10f));
+        copyBtn.setFocusable(false);
+        copyBtn.setToolTipText("In Zwischenablage kopieren");
+        final String copyValue = value;
+        copyBtn.addActionListener(e -> {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(copyValue), null);
+            copyBtn.setText("✓");
+            Timer reset = new Timer(1000, evt -> copyBtn.setText("📋"));
+            reset.setRepeats(false);
+            reset.start();
+        });
+        row.add(copyBtn, BorderLayout.EAST);
+
+        return row;
+    }
+
+    /** Format an OHIO_AID enum name to a human-readable short form. */
+    private static String formatAidName(String aidName) {
+        if (aidName == null) return "?";
+        // OHIO_AID_3270_ENTER → ⏎ Enter
+        // OHIO_AID_3270_PF3 → F3
+        // OHIO_AID_3270_CLEAR → ⌧ Clear
+        // OHIO_AID_3270_PA1 → PA1
+        if (aidName.contains("ENTER")) return "⏎ Enter";
+        if (aidName.contains("CLEAR")) return "⌧ Clear";
+        if (aidName.contains("SYSREQ")) return "⚡ SysReq";
+        if (aidName.contains("PA1")) return "PA1";
+        if (aidName.contains("PA2")) return "PA2";
+        if (aidName.contains("PA3")) return "PA3";
+        // PF keys
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("PF(\\d+)").matcher(aidName);
+        if (m.find()) return "F" + m.group(1);
+        return aidName;
     }
 
     private JButton makeSpecialButton(String label, final Ohio.OHIO_AID aid) {
