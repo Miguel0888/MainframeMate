@@ -17,6 +17,9 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
 
     private final WikiSiteTableModel tableModel;
     private final JTable siteTable;
+    private final JSpinner prefetchMaxItemsSpinner;
+    private final JSpinner prefetchConcurrencySpinner;
+    private final JSpinner prefetchCacheMaxMbSpinner;
 
     public WikiSettingsPanel() {
         super("wiki", "Wiki");
@@ -55,6 +58,21 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         buttons.add(Box.createHorizontalStrut(16));
         buttons.add(defaultBtn);
         fb.addWide(buttons);
+
+        // ── Prefetch settings ──
+        fb.addSection("Vorabladen (Prefetch)");
+
+        prefetchMaxItemsSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.wikiPrefetchMaxItems, 1, 1000, 10));
+        fb.addRow("Max. Seiten vorladen:", prefetchMaxItemsSpinner);
+
+        prefetchConcurrencySpinner = new JSpinner(new SpinnerNumberModel(
+                settings.wikiPrefetchConcurrency, 1, 8, 1));
+        fb.addRow("Parallele Requests:", prefetchConcurrencySpinner);
+
+        prefetchCacheMaxMbSpinner = new JSpinner(new SpinnerNumberModel(
+                settings.wikiPrefetchCacheMaxMb, 1, 500, 10));
+        fb.addRow("Max. Cache-Größe (MB):", prefetchCacheMaxMbSpinner);
 
         installPanel(fb);
     }
@@ -105,6 +123,10 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
             serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin);
         }
         s.wikiSites = serialized;
+
+        s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
+        s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();
+        s.wikiPrefetchCacheMaxMb = (Integer) prefetchCacheMaxMbSpinner.getValue();
     }
 
     // ═══════════════════════════════════════════════════════════

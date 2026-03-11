@@ -4,13 +4,14 @@ import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.event.HyperlinkEvent;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Document;
+import javax.swing.text.Highlighter;
 import java.awt.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
 
 /**
  * Read-only tab for displaying a single wiki page.
@@ -28,6 +29,10 @@ public class WikiFileTab implements ConnectionTab {
     private final String pageTitle;
     private final String htmlContent;
     private final OutlineNode outline;
+
+    /** Yellow highlight painter for search hits. */
+    private static final Highlighter.HighlightPainter YELLOW_PAINTER =
+            new DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW);
 
     /** Callback for opening linked pages as new tabs. */
     private LinkCallback linkCallback;
@@ -85,18 +90,50 @@ public class WikiFileTab implements ConnectionTab {
         }
     }
 
+    /**
+     * Highlight all occurrences of the search query using Swing's Highlighter API.
+     * This preserves all HTML formatting (bold, headings, anchors) and scrolls to the first hit.
+     */
     private void highlightSearch() {
+        Highlighter highlighter = htmlPane.getHighlighter();
+        highlighter.removeAllHighlights();
+
         String query = searchField.getText().trim();
-        if (query.isEmpty()) {
-            htmlPane.setText(WikiConnectionTab.wrapHtml(htmlContent));
-            htmlPane.setCaretPosition(0);
-            return;
+        if (query.isEmpty()) return;
+
+        try {
+            Document doc = htmlPane.getDocument();
+            String fullText = doc.getText(0, doc.getLength());
+            String lowerText = fullText.toLowerCase();
+            String lowerQuery = query.toLowerCase();
+
+            int firstHit = -1;
+            int pos = 0;
+
+            while (pos < lowerText.length()) {
+                int idx = lowerText.indexOf(lowerQuery, pos);
+                if (idx < 0) break;
+
+                int end = idx + query.length();
+                highlighter.addHighlight(idx, end, YELLOW_PAINTER);
+
+                if (firstHit < 0) {
+                    firstHit = idx;
+                }
+                pos = end;
+            }
+
+            // Scroll to the first hit
+            if (firstHit >= 0) {
+                Rectangle rect = htmlPane.modelToView(firstHit);
+                if (rect != null) {
+                    htmlPane.scrollRectToVisible(rect);
+                }
+                htmlPane.setCaretPosition(firstHit);
+            }
+        } catch (BadLocationException ex) {
+            LOG.log(Level.FINE, "[WikiFileTab] Search highlight error", ex);
         }
-        String highlighted = htmlContent.replaceAll(
-                "(?i)(" + Pattern.quote(query) + ")",
-                "<mark style='background:yellow'>$1</mark>");
-        htmlPane.setText(WikiConnectionTab.wrapHtml(highlighted));
-        htmlPane.setCaretPosition(0);
     }
 
     /**
@@ -149,4 +186,3 @@ public class WikiFileTab implements ConnectionTab {
         void openLinkedPage(String siteId, String pageTitle);
     }
 }
-
