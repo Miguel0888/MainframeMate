@@ -31,6 +31,8 @@ public class WikiConnectionTab implements ConnectionTab {
     private final JPanel mainPanel;
     private final WikiContentService service;
     private final JComboBox<WikiSiteDescriptor> siteSelector;
+    private final JPanel siteCheckboxPanel;
+    private final List<JCheckBox> siteCheckboxes = new ArrayList<JCheckBox>();
     private final JTextField searchField;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
@@ -70,16 +72,20 @@ public class WikiConnectionTab implements ConnectionTab {
         topControls.setLayout(new BoxLayout(topControls, BoxLayout.Y_AXIS));
         topControls.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        // Row 1: Site selector
-        JPanel sitePanel = new JPanel(new BorderLayout(4, 0));
-        sitePanel.add(new JLabel("Wiki:"), BorderLayout.WEST);
-        siteSelector = new JComboBox<WikiSiteDescriptor>();
+        // Row 1: Site checkboxes (dynamically generated)
+        siteCheckboxPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        siteCheckboxPanel.add(new JLabel("Wikis:"));
+        siteSelector = new JComboBox<WikiSiteDescriptor>(); // hidden, used internally for preview/open
         for (WikiSiteDescriptor site : service.listSites()) {
             siteSelector.addItem(site);
+            JCheckBox cb = new JCheckBox(site.displayName(), true);
+            cb.setToolTipText(site.apiUrl());
+            cb.putClientProperty("wikiSite", site);
+            siteCheckboxes.add(cb);
+            siteCheckboxPanel.add(cb);
         }
-        sitePanel.add(siteSelector, BorderLayout.CENTER);
-        sitePanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topControls.add(sitePanel);
+        siteCheckboxPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topControls.add(siteCheckboxPanel);
         topControls.add(Box.createVerticalStrut(4));
 
         // Row 2: Search
@@ -100,6 +106,8 @@ public class WikiConnectionTab implements ConnectionTab {
         resultTable.setRowHeight(22);
         resultTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         resultTable.getColumnModel().getColumn(0).setPreferredWidth(300);
+        resultTable.getColumnModel().getColumn(1).setPreferredWidth(100);
+        resultTable.getColumnModel().getColumn(1).setMaxWidth(180);
 
         resultSorter = new TableRowSorter<WikiResultTableModel>(resultModel);
         resultTable.setRowSorter(resultSorter);
@@ -200,15 +208,26 @@ public class WikiConnectionTab implements ConnectionTab {
 
     private void loadPreview(String pageTitle) {
         if (pageTitle == null || pageTitle.isEmpty()) return;
-        WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
+        // Determine site from selected result row
+        int viewRow = resultTable.getSelectedRow();
+        WikiSiteDescriptor site = null;
+        if (viewRow >= 0) {
+            int modelRow = resultTable.convertRowIndexToModel(viewRow);
+            WikiSiteId siteId = resultModel.getSiteIdAt(modelRow);
+            site = findSiteDescriptor(siteId);
+        }
+        if (site == null) {
+            site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
+        }
         if (site == null) return;
 
-        currentSiteId = site.id();
+        final WikiSiteDescriptor targetSite = site;
+        currentSiteId = targetSite.id();
         currentPageTitle = pageTitle;
 
         // Check in-memory prefetch cache first (O(1))
         if (prefetchCallback != null) {
-            WikiPageView cached = prefetchCallback.getCached(site.id(), pageTitle);
+            WikiPageView cached = prefetchCallback.getCached(targetSite.id(), pageTitle);
             if (cached != null) {
                 applyPreview(cached);
                 triggerPrefetchFromCursor();
@@ -224,12 +243,12 @@ public class WikiConnectionTab implements ConnectionTab {
             protected WikiPageView doInBackground() throws Exception {
                 if (prefetchCallback != null) {
                     // loadPriority uses its own dedicated thread, never blocked by prefetch pool
-                    WikiPageView view = prefetchCallback.loadPriority(site.id(), pageTitle);
+                    WikiPageView view = prefetchCallback.loadPriority(targetSite.id(), pageTitle);
                     if (view != null) return view;
                 }
                 // Fallback: direct load
-                WikiCredentials creds = getCredentials(site);
-                return service.loadPage(site.id(), pageTitle, creds);
+                WikiCredentials creds = getCredentials(targetSite);
+                return service.loadPage(targetSite.id(), pageTitle, creds);
             }
 
             @Override
@@ -256,17 +275,22 @@ public class WikiConnectionTab implements ConnectionTab {
      */
     private void triggerPrefetchFromCursor() {
         if (prefetchCallback == null) return;
-        WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
-        if (site == null) return;
 
         int viewRow = resultTable.getSelectedRow();
         if (viewRow < 0) return;
         int modelRow = resultTable.convertRowIndexToModel(viewRow);
 
-        // Collect all current result titles
-        java.util.List<String> allTitles = resultModel.getAllTitles();
-        if (!allTitles.isEmpty()) {
-            prefetchCallback.prefetchSearchResults(site.id(), allTitles, modelRow);
+        WikiSiteId siteId = resultModel.getSiteIdAt(modelRow);
+
+        // Collect titles for the same site
+        List<String> siteTitles = new ArrayList<String>();
+        for (int i = 0; i < resultModel.getRowCount(); i++) {
+            if (resultModel.getSiteIdAt(i).equals(siteId) && !resultModel.getTitleAt(i).startsWith("⚠️")) {
+                siteTitles.add(resultModel.getTitleAt(i));
+            }
+        }
+        if (!siteTitles.isEmpty()) {
+            prefetchCallback.prefetchSearchResults(siteId, siteTitles, Math.max(0, siteTitles.indexOf(resultModel.getTitleAt(modelRow))));
         }
     }
 
@@ -299,14 +323,18 @@ public class WikiConnectionTab implements ConnectionTab {
         if (viewRow < 0) return;
         int modelRow = resultTable.convertRowIndexToModel(viewRow);
         String title = resultModel.getTitleAt(modelRow);
-        if (title == null || title.isEmpty()) return;
+        if (title == null || title.isEmpty() || title.startsWith("⚠️")) return;
 
-        WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
+        WikiSiteId siteId = resultModel.getSiteIdAt(modelRow);
+        WikiSiteDescriptor site = findSiteDescriptor(siteId);
+        if (site == null) site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
         if (site == null || openCallback == null) return;
+
+        final WikiSiteDescriptor targetSite = site;
 
         // 1) Use current preview if it matches (already loaded)
         if (currentPreview != null && title.equals(currentPreview.title())) {
-            openCallback.openWikiPage(site.id().value(), title, currentPreview.cleanedHtml(),
+            openCallback.openWikiPage(targetSite.id().value(), title, currentPreview.cleanedHtml(),
                     currentPreview.outline(), currentPreview.images());
             return;
         }
@@ -317,10 +345,10 @@ public class WikiConnectionTab implements ConnectionTab {
             @Override
             protected WikiPageView doInBackground() throws Exception {
                 if (prefetchCallback != null) {
-                    WikiPageView view = prefetchCallback.loadPriority(site.id(), title);
+                    WikiPageView view = prefetchCallback.loadPriority(targetSite.id(), title);
                     if (view != null) return view;
                 }
-                return service.loadPage(site.id(), title, getCredentials(site));
+                return service.loadPage(targetSite.id(), title, getCredentials(targetSite));
             }
 
             @Override
@@ -328,7 +356,7 @@ public class WikiConnectionTab implements ConnectionTab {
                 try {
                     WikiPageView view = get();
                     if (view != null && openCallback != null) {
-                        openCallback.openWikiPage(site.id().value(), view.title(),
+                        openCallback.openWikiPage(targetSite.id().value(), view.title(),
                                 view.cleanedHtml(), view.outline(), view.images());
                         statusLabel.setText("✅ Geöffnet: " + view.title());
                     }
@@ -342,33 +370,79 @@ public class WikiConnectionTab implements ConnectionTab {
     private void searchWiki() {
         String query = searchField.getText().trim();
         if (query.isEmpty()) return;
-        WikiSiteDescriptor site = (WikiSiteDescriptor) siteSelector.getSelectedItem();
-        if (site == null) return;
 
-        statusLabel.setText("🔍 Suche: " + query + "…");
+        // Collect all checked wikis
+        final List<WikiSiteDescriptor> selectedSites = new ArrayList<WikiSiteDescriptor>();
+        for (JCheckBox cb : siteCheckboxes) {
+            if (cb.isSelected()) {
+                WikiSiteDescriptor site = (WikiSiteDescriptor) cb.getClientProperty("wikiSite");
+                if (site != null) selectedSites.add(site);
+            }
+        }
+        if (selectedSites.isEmpty()) {
+            statusLabel.setText("⚠️ Bitte mindestens ein Wiki auswählen.");
+            return;
+        }
+
+        statusLabel.setText("🔍 Suche in " + selectedSites.size() + " Wiki(s): " + query + "…");
         resultModel.clear();
 
-        new SwingWorker<List<String>, Void>() {
+        new SwingWorker<List<WikiResultTableModel.ResultEntry>, Void>() {
             @Override
-            protected List<String> doInBackground() throws Exception {
-                WikiCredentials creds = getCredentials(site);
-                return service.searchPages(site.id(), query, creds, 30);
+            protected List<WikiResultTableModel.ResultEntry> doInBackground() throws Exception {
+                List<WikiResultTableModel.ResultEntry> allResults =
+                        new ArrayList<WikiResultTableModel.ResultEntry>();
+
+                // Search each selected wiki (sequentially to avoid credential prompts overlapping)
+                for (WikiSiteDescriptor site : selectedSites) {
+                    try {
+                        WikiCredentials creds = getCredentials(site);
+                        List<String> titles = service.searchPages(site.id(), query, creds, 30);
+                        for (String title : titles) {
+                            allResults.add(new WikiResultTableModel.ResultEntry(
+                                    title, site.displayName(), site.id()));
+                        }
+                    } catch (Exception ex) {
+                        LOG.log(Level.WARNING, "[Wiki] Search failed for " + site.displayName(), ex);
+                        // Add an error entry so the user sees which wiki failed
+                        allResults.add(new WikiResultTableModel.ResultEntry(
+                                "⚠️ Fehler: " + getRootMessage(ex), site.displayName(), site.id()));
+                    }
+                }
+                return allResults;
             }
 
             @Override
             protected void done() {
                 try {
-                    List<String> results = get();
-                    resultModel.setResults(results);
-                    statusLabel.setText(results.size() + " Ergebnisse für \"" + query + "\"");
+                    List<WikiResultTableModel.ResultEntry> results = get();
+                    resultModel.setEntries(results);
+
+                    long errorCount = 0;
+                    for (WikiResultTableModel.ResultEntry e : results) {
+                        if (e.title.startsWith("⚠️")) errorCount++;
+                    }
+                    long realResults = results.size() - errorCount;
+                    statusLabel.setText(realResults + " Ergebnisse für \"" + query + "\""
+                            + (selectedSites.size() > 1 ? " (in " + selectedSites.size() + " Wikis)" : ""));
 
                     if (!results.isEmpty() && resultTable.getRowCount() > 0) {
                         resultTable.setRowSelectionInterval(0, 0);
                     }
 
-                    // Prefetch results into local cache in the background
-                    if (prefetchCallback != null && !results.isEmpty()) {
-                        prefetchCallback.prefetchSearchResults(site.id(), results);
+                    // Prefetch results for each site
+                    if (prefetchCallback != null) {
+                        for (WikiSiteDescriptor site : selectedSites) {
+                            List<String> siteTitles = new ArrayList<String>();
+                            for (WikiResultTableModel.ResultEntry e : results) {
+                                if (e.siteId.equals(site.id()) && !e.title.startsWith("⚠️")) {
+                                    siteTitles.add(e.title);
+                                }
+                            }
+                            if (!siteTitles.isEmpty()) {
+                                prefetchCallback.prefetchSearchResults(site.id(), siteTitles);
+                            }
+                        }
                     }
                 } catch (Exception ex) {
                     LOG.log(Level.WARNING, "[Wiki] Search failed", ex);
@@ -686,6 +760,11 @@ public class WikiConnectionTab implements ConnectionTab {
         return null;
     }
 
+    private WikiSiteDescriptor findSiteDescriptor(WikiSiteId siteId) {
+        if (siteId == null) return null;
+        return findSiteById(siteId.value());
+    }
+
     public interface OpenCallback {
         void openWikiPage(String siteId, String pageTitle, String htmlContent,
                           OutlineNode outline, java.util.List<de.bund.zrb.wiki.domain.ImageRef> images);
@@ -714,38 +793,71 @@ public class WikiConnectionTab implements ConnectionTab {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Result Table Model
+    //  Result Table Model (title + source wiki)
     // ═══════════════════════════════════════════════════════════
 
-    private static final class WikiResultTableModel extends AbstractTableModel {
-        private final List<String> titles = new ArrayList<String>();
+    static final class WikiResultTableModel extends AbstractTableModel {
 
+        static final class ResultEntry {
+            final String title;
+            final String sourceName;
+            final WikiSiteId siteId;
+
+            ResultEntry(String title, String sourceName, WikiSiteId siteId) {
+                this.title = title;
+                this.sourceName = sourceName;
+                this.siteId = siteId;
+            }
+        }
+
+        private final List<ResultEntry> entries = new ArrayList<ResultEntry>();
+
+        void setEntries(List<ResultEntry> results) {
+            entries.clear();
+            entries.addAll(results);
+            fireTableDataChanged();
+        }
+
+        /** Legacy helper: set simple title list (single-site search). */
         void setResults(List<String> results) {
-            titles.clear();
-            titles.addAll(results);
+            entries.clear();
+            for (String t : results) {
+                entries.add(new ResultEntry(t, "", new WikiSiteId("")));
+            }
             fireTableDataChanged();
         }
 
         void clear() {
-            titles.clear();
+            entries.clear();
             fireTableDataChanged();
         }
 
         String getTitleAt(int row) {
-            return titles.get(row);
+            return entries.get(row).title;
+        }
+
+        WikiSiteId getSiteIdAt(int row) {
+            return entries.get(row).siteId;
         }
 
         List<String> getAllTitles() {
-            return new ArrayList<String>(titles);
+            List<String> titles = new ArrayList<String>();
+            for (ResultEntry e : entries) {
+                if (!e.title.startsWith("⚠️")) titles.add(e.title);
+            }
+            return titles;
         }
 
-        @Override public int getRowCount() { return titles.size(); }
-        @Override public int getColumnCount() { return 1; }
-        @Override public String getColumnName(int col) { return "Seitentitel"; }
+        @Override public int getRowCount() { return entries.size(); }
+        @Override public int getColumnCount() { return 2; }
+        @Override public String getColumnName(int col) {
+            return col == 0 ? "Seitentitel" : "Quelle";
+        }
 
         @Override
         public Object getValueAt(int row, int col) {
-            return titles.get(row);
+            ResultEntry e = entries.get(row);
+            return col == 0 ? e.title : e.sourceName;
         }
     }
 }

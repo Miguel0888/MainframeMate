@@ -50,7 +50,9 @@ public class JwbfWikiContentService implements WikiContentService {
 
         String json = httpRequest(site, apiUrl);
         String rawHtml = extractHtml(json);
-        HtmlPostProcessor.Result result = htmlProcessor.cleanAndBuildOutline(rawHtml);
+        // Use the site's base URL so relative image paths (e.g. /images/...) get resolved
+        String siteBaseUrl = site.apiUrl();
+        HtmlPostProcessor.Result result = htmlProcessor.cleanAndBuildOutline(rawHtml, siteBaseUrl);
 
         return new WikiPageView(pageTitle, result.cleanedHtml, result.outlineRoot, result.images);
     }

@@ -18,7 +18,14 @@ import java.util.Stack;
 final class HtmlPostProcessor {
 
     Result cleanAndBuildOutline(String wikiHtmlFragment) {
+        return cleanAndBuildOutline(wikiHtmlFragment, null);
+    }
+
+    Result cleanAndBuildOutline(String wikiHtmlFragment, String baseUrl) {
         Document doc = Jsoup.parseBodyFragment(wikiHtmlFragment != null ? wikiHtmlFragment : "");
+        if (baseUrl != null && !baseUrl.isEmpty()) {
+            doc.setBaseUri(baseUrl);
+        }
 
         // Remove MediaWiki TOC, edit sections, scripts
         doc.select("#toc, .toc, .mw-toc").remove();
@@ -78,6 +85,17 @@ final class HtmlPostProcessor {
             if (!src.isEmpty()) {
                 if (src.startsWith("//")) {
                     src = "https:" + src;
+                } else if (src.startsWith("/") && !src.startsWith("//")) {
+                    // Resolve server-relative URL using the document's base URI
+                    String base = doc.baseUri();
+                    if (base != null && !base.isEmpty()) {
+                        try {
+                            java.net.URL baseUrl = new java.net.URL(base);
+                            src = baseUrl.getProtocol() + "://" + baseUrl.getAuthority() + src;
+                        } catch (java.net.MalformedURLException ignored) {
+                            // leave src as-is
+                        }
+                    }
                 }
                 images.add(new ImageRef(src, alt, title, w, h));
             }
