@@ -1,27 +1,20 @@
 package de.bund.zrb.ui.commands;
 
-import de.bund.zrb.betaview.ui.BetaViewConnectionTab;
+import de.bund.zrb.betaview.*;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
-import de.bund.zrb.ui.VirtualBackendType;
-import de.bund.zrb.ui.VirtualResource;
-import de.bund.zrb.ui.VirtualResourceKind;
 import de.zrb.bund.api.ShortcutMenuCommand;
+import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
+import java.awt.*;
 import java.net.URL;
 
 /**
  * Opens a new BetaView ConnectionTab.
- * <p>
- * On open the command:
- * <ol>
- *     <li>Loads the BetaView URL from Settings (prompts if empty)</li>
- *     <li>Auto-normalises the URL to just the scheme+host (like FTP host)</li>
- *     <li>Creates the tab, wires credentials via LoginManager, and adds it</li>
- * </ol>
+ * Uses the shared server credentials from Settings + LoginManager (same as FTP/NDV).
  */
 public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
 
@@ -63,103 +56,134 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
             return; // User cancelled after seeing correction dialog
         }
 
-        // ── 3) Create tab and wire everything ───────────────────────────
-        BetaViewConnectionTab tab = new BetaViewConnectionTab();
-        tab.setBaseUrl(betaviewUrl);
-        tab.setFilterDefaults(
+        // ── 3) Determine credentials (shared with FTP/NDV or separate) ──
+        String host;
+        String user;
+
+        if (settings.betaviewUseSharedCredentials) {
+            host = settings.host;
+            user = settings.user;
+        } else {
+            host = settings.betaviewHost;
+            user = settings.betaviewUser;
+        }
+
+        if (host == null || host.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Kein Server konfiguriert.\nBitte unter Einstellungen den Host angeben.",
+                    "Kein Server", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (user == null || user.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Kein Benutzer konfiguriert.\nBitte unter Einstellungen den Benutzer angeben.",
+                    "Kein Benutzer", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        host = host.trim();
+        user = user.trim();
+
+        // ── 4) Get password via LoginManager (cached, stored, or interactive prompt) ──
+        String password;
+        if (!settings.betaviewUseSharedCredentials
+                && settings.betaviewEncryptedPassword != null
+                && !settings.betaviewEncryptedPassword.isEmpty()) {
+            // Try stored encrypted password first for separate BetaView credentials
+            try {
+                password = de.bund.zrb.util.WindowsCryptoUtil.decrypt(settings.betaviewEncryptedPassword);
+            } catch (Exception ignore) {
+                password = LoginManager.getInstance().getPassword(host, user);
+            }
+        } else {
+            password = LoginManager.getInstance().getPassword(host, user);
+        }
+
+        if (password == null || password.isEmpty()) {
+            return; // User cancelled the password dialog
+        }
+
+        final String fUrl = betaviewUrl;
+        final String fHost = host;
+        final String fUser = user;
+        final String fPassword = password;
+
+        // Build defaults from settings
+        final BetaViewAppProperties defaults = new BetaViewAppProperties(
+                betaviewUrl, user, "",
                 settings.betaviewFavoriteId,
                 settings.betaviewLocale,
                 settings.betaviewExtension,
                 settings.betaviewForm,
+                "",      // report
+                "",      // jobName
                 settings.betaviewDaysBack
         );
 
-        // Credentials: shared (FTP/NDV) or separate BetaView credentials.
-        tab.setCredentialsProvider(betaviewHost -> {
-            Settings s = SettingsHelper.load();
+        // ── 5) Connect in background ────────────────────────────────────
+        parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
-            if (s.betaviewUseSharedCredentials) {
-                // ── Shared mode: use the same host/user as FTP/NDV ──
-                // IMPORTANT: We MUST pass settings.host (not the BetaView URL host)
-                // to LoginManager because it internally overwrites settings.host.
-                String serverHost = s.host;
-                String user = s.user;
-                if (serverHost == null || serverHost.isEmpty()) {
-                    JOptionPane.showMessageDialog(parent,
-                            "Kein Server konfiguriert.\n"
-                                    + "Bitte zuerst unter Einstellungen → Server den Host angeben.",
-                            "Server fehlt", JOptionPane.WARNING_MESSAGE);
-                    return null;
-                }
-                if (user == null || user.isEmpty()) {
-                    JOptionPane.showMessageDialog(parent,
-                            "Kein Benutzername konfiguriert.\n"
-                                    + "Bitte zuerst unter Einstellungen → Server den Benutzernamen eintragen.",
-                            "Benutzer fehlt", JOptionPane.WARNING_MESSAGE);
-                    return null;
-                }
-                // Uses the same cache key as FTP/NDV. Once the user enters
-                // the password here, FTP/NDV will NOT prompt again and vice versa.
-                String password = LoginManager.getInstance().getPassword(serverHost, user);
-                if (password == null) {
-                    return null;
-                }
-                return new String[]{user, password};
-            } else {
-                // ── Separate BetaView credentials ──
-                String bvHost = s.betaviewHost;
-                String bvUser = s.betaviewUser;
-                if (bvHost == null || bvHost.isEmpty()) {
-                    JOptionPane.showMessageDialog(parent,
-                            "Kein BetaView-Host konfiguriert.\n"
-                                    + "Bitte unter Einstellungen → BetaView den Host angeben,\n"
-                                    + "oder \"Credentials aus Server-Einstellungen\" aktivieren.",
-                            "BetaView-Host fehlt", JOptionPane.WARNING_MESSAGE);
-                    return null;
-                }
-                if (bvUser == null || bvUser.isEmpty()) {
-                    JOptionPane.showMessageDialog(parent,
-                            "Kein BetaView-Benutzer konfiguriert.\n"
-                                    + "Bitte unter Einstellungen → BetaView den Benutzer angeben.",
-                            "BetaView-Benutzer fehlt", JOptionPane.WARNING_MESSAGE);
-                    return null;
-                }
-                // Try stored encrypted password first
-                if (s.betaviewEncryptedPassword != null && !s.betaviewEncryptedPassword.isEmpty()) {
-                    try {
-                        String pw = de.bund.zrb.util.WindowsCryptoUtil.decrypt(s.betaviewEncryptedPassword);
-                        if (pw != null && !pw.isEmpty()) {
-                            return new String[]{bvUser, pw};
-                        }
-                    } catch (Exception ignore) { /* fall through */ }
-                }
-                // Different host than settings.host, so this won't corrupt FTP/NDV.
-                String password = LoginManager.getInstance().getPassword(bvHost, bvUser);
-                if (password == null) {
-                    return null;
-                }
-                return new String[]{bvUser, password};
+        new SwingWorker<BetaViewConnectionTab, Void>() {
+            @Override
+            protected BetaViewConnectionTab doInBackground() throws Exception {
+                URL baseUrl = new URL(fUrl);
+
+                // Use factory to connect (keeps package-private classes encapsulated)
+                BetaViewFactory.ConnectionResult connResult = BetaViewFactory.connect(baseUrl, fUser, fPassword);
+
+                // Mark session as active (for ApplicationLocker)
+                LoginManager.getInstance().onLoginSuccess(fHost, fUser);
+
+                String displayName = fUser + "@" + baseUrl.getHost();
+
+                return BetaViewFactory.createConnectionTab(baseUrl, connResult, displayName, defaults);
             }
-        });
 
-        // Document open callback: open as BetaViewDocumentTab with full server paging
-        tab.setOpenCallback((docTab, html) -> {
-            de.bund.zrb.betaview.ui.BetaViewDocumentTab documentTab =
-                    new de.bund.zrb.betaview.ui.BetaViewDocumentTab(
-                            docTab, html, tab.getClient(), tab.getSession());
+            @Override
+            protected void done() {
+                parent.setCursor(Cursor.getDefaultCursor());
+                try {
+                    BetaViewConnectionTab connTab = get();
 
-            // Track the document tab so CloseAllTabs can close it
-            tabManager.addTab(documentTab);
-        });
+                    // Create document tab manager that opens documents as separate FtpTabs
+                    BetaViewDocumentTabManager docManager = connTab.createAndWireDocumentTabManager(
+                            new BetaViewDocumentTabManager.TabHost() {
+                                @Override
+                                public void addTab(FtpTab tab) {
+                                    tabManager.addTab(tab);
+                                }
+                                @Override
+                                public void removeTab(FtpTab tab) {
+                                    // TabbedPaneManager handles close via onClose()
+                                }
+                            }
+                    );
 
-        // Close-all callback: remove all BetaViewDocumentTab instances from the tab manager
-        tab.setCloseAllTabsCallback(() -> tabManager.closeTabsOfType(
-                de.bund.zrb.betaview.ui.BetaViewDocumentTab.class));
+                    // Add connection tab to TabbedPaneManager
+                    tabManager.addTab(connTab);
 
-        tabManager.addTab(tab);
+                    // Fetch and open server-side tabs (lazy)
+                    docManager.fetchAndOpenServerTabs();
 
-        // Initiate connection (login + CSRF) in background
-        tab.connectInBackground();
+                } catch (Exception e) {
+                    String msg = e.getMessage();
+                    if (e.getCause() != null) {
+                        msg = e.getCause().getMessage();
+                    }
+
+                    // On auth failure, clear the cached password
+                    if (msg != null && (msg.contains("Login") || msg.contains("login")
+                            || msg.contains("401") || msg.contains("403"))) {
+                        LoginManager.getInstance().invalidatePassword(fHost, fUser);
+                    }
+
+                    JOptionPane.showMessageDialog(parent,
+                            "BetaView-Verbindung fehlgeschlagen:\n" + msg,
+                            "Verbindungsfehler", JOptionPane.ERROR_MESSAGE);
+                    System.err.println("[OpenBetaViewMenuCommand] Connection failed: " + msg);
+                }
+            }
+        }.execute();
     }
 
     // ── URL prompt ──────────────────────────────────────────────────────
@@ -177,13 +201,6 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
 
     // ── URL normalisation ───────────────────────────────────────────────
 
-    /**
-     * If the user typed a full URL with path (e.g. {@code https://host.example.com/betaview/login.action}),
-     * strip it down to just the base ({@code https://host.example.com/betaview/}).
-     * If the URL was corrected, show an info dialog and persist the corrected value.
-     *
-     * @return the normalised URL, or {@code null} if the user cancelled
-     */
     private String normaliseAndPersist(String raw, Settings settings) {
         String normalised = normaliseUrl(raw);
 
@@ -214,17 +231,6 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
         return normalised;
     }
 
-    /**
-     * Normalise a BetaView URL:
-     * <ul>
-     *     <li>Ensure scheme (default https)</li>
-     *     <li>If the URL has a path with more than one segment
-     *         (e.g. {@code /betaview/login.action}), keep only the first path segment
-     *         ({@code /betaview/})</li>
-     *     <li>If the URL has no meaningful path, keep it as-is with trailing slash</li>
-     *     <li>Ensure trailing slash</li>
-     * </ul>
-     */
     static String normaliseUrl(String raw) {
         if (raw == null) return "";
         String s = raw.trim();
@@ -247,13 +253,11 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
             // Extract first path segment if present (e.g. "/betaview" from "/betaview/login.action")
             String contextPath = "";
             if (!path.isEmpty() && !path.equals("/")) {
-                // Remove leading slash, split by /
                 String stripped = path.startsWith("/") ? path.substring(1) : path;
                 int slash = stripped.indexOf('/');
                 if (slash >= 0) {
                     contextPath = "/" + stripped.substring(0, slash);
                 } else {
-                    // Single segment like "/betaview" – keep it
                     contextPath = "/" + stripped;
                 }
             }
@@ -269,7 +273,6 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
             }
             return result.toString();
         } catch (Exception e) {
-            // If URL parsing fails, just ensure trailing slash
             if (!s.endsWith("/")) s += "/";
             return s;
         }
