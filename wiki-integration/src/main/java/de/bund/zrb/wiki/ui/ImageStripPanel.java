@@ -184,7 +184,7 @@ public class ImageStripPanel extends JPanel {
                 double scaleX = (double) getWidth() / imgW;
                 double scaleY = (double) getHeight() / imgH;
                 zoom = Math.min(scaleX, scaleY);
-                if (zoom > 1.0) zoom = 1.0;
+                // No cap — always fit to viewport (upscale small images too)
                 centerImage();
             }
             repaint();
@@ -478,10 +478,10 @@ public class ImageStripPanel extends JPanel {
             }
         });
 
-        // Fixed dialog size: ~half screen height, 4:3 aspect
-        final int dialogH = Math.min(screen.height / 2, screenMaxH);
-        final int dialogW = Math.min(dialogH * 4 / 3, screenMaxW);
-        dialog.setSize(dialogW, dialogH);
+        // Fixed dialog size: ~60% screen height, 16:10 aspect for wide/portrait images
+        final int fixedH = Math.min(screen.height * 6 / 10, screenMaxH);
+        final int fixedW = Math.min(fixedH * 16 / 10, screenMaxW);
+        dialog.setSize(fixedW, fixedH);
         dialog.setLocationRelativeTo(owner);
 
         // ── Assign load logic ──
