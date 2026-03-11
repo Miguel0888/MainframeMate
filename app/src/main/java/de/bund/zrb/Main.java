@@ -17,9 +17,6 @@ public class Main {
 //        UnicodeFontFix.apply(); // for windows 11 required to display emojis correctly
         MainframeSyntaxSupport.register(); // Register Natural/JCL/COBOL syntax highlighting
 
-        // Enable system proxy detection (Windows: reads IE/WinHTTP proxy settings)
-        // This is critical for HTTP-based services (Wiki, Archive, etc.) behind corporate proxies
-        System.setProperty("java.net.useSystemProxies", "true");
 
         // Install branding icon theme (before any Swing window is created)
         IconThemeInstaller.install();

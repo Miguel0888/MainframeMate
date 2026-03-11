@@ -180,13 +180,14 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         if (settings.wikiSites == null) return result;
 
         for (String entry : settings.wikiSites) {
-            String[] parts = entry.split("\\|", 4);
+            String[] parts = entry.split("\\|", 5);
             if (parts.length >= 3) {
                 String id = parts[0].trim();
                 String name = parts[1].trim();
                 String url = parts[2].trim();
                 boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
-                result.add(new WikiSiteDescriptor(new WikiSiteId(id), name, url, login));
+                boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
+                result.add(new WikiSiteDescriptor(new WikiSiteId(id), name, url, login, proxy));
             }
         }
         return result;

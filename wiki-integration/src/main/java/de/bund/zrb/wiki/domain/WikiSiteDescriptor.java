@@ -8,18 +8,25 @@ public final class WikiSiteDescriptor {
     private final String displayName;
     private final String apiUrl;
     private final boolean requiresLogin;
+    private final boolean useProxy;
 
     public WikiSiteDescriptor(WikiSiteId id, String displayName, String apiUrl, boolean requiresLogin) {
+        this(id, displayName, apiUrl, requiresLogin, false);
+    }
+
+    public WikiSiteDescriptor(WikiSiteId id, String displayName, String apiUrl, boolean requiresLogin, boolean useProxy) {
         this.id = id;
         this.displayName = displayName;
         this.apiUrl = apiUrl;
         this.requiresLogin = requiresLogin;
+        this.useProxy = useProxy;
     }
 
     public WikiSiteId id() { return id; }
     public String displayName() { return displayName; }
     public String apiUrl() { return apiUrl; }
     public boolean requiresLogin() { return requiresLogin; }
+    public boolean useProxy() { return useProxy; }
 
     @Override
     public String toString() { return displayName; }

@@ -277,7 +277,22 @@ public class JwbfWikiContentService implements WikiContentService {
     private HttpURLConnection openConnection(WikiSiteDescriptor site, String urlStr, String method) throws IOException {
         CookieManager cm = getCookieManager(site);
         URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+        HttpURLConnection conn;
+        if (site.useProxy()) {
+            // Use system proxy (reads Windows IE/WinHTTP proxy settings)
+            try {
+                List<Proxy> proxies = ProxySelector.getDefault().select(url.toURI());
+                Proxy proxy = (proxies != null && !proxies.isEmpty()) ? proxies.get(0) : Proxy.NO_PROXY;
+                LOG.fine("[Wiki] Using proxy " + proxy + " for " + url.getHost());
+                conn = (HttpURLConnection) url.openConnection(proxy);
+            } catch (URISyntaxException e) {
+                conn = (HttpURLConnection) url.openConnection();
+            }
+        } else {
+            // No proxy – connect DIRECT
+            conn = (HttpURLConnection) url.openConnection(Proxy.NO_PROXY);
+        }
         conn.setRequestMethod(method);
         conn.setInstanceFollowRedirects(false);   // handle redirects manually to preserve cookies
         conn.setRequestProperty("User-Agent", "MainframeMate/1.0 WikiIntegration");

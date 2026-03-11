@@ -44,6 +44,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         siteTable.getColumnModel().getColumn(2).setPreferredWidth(300);
         siteTable.getColumnModel().getColumn(3).setPreferredWidth(60);
         siteTable.getColumnModel().getColumn(3).setMaxWidth(80);
+        siteTable.getColumnModel().getColumn(4).setPreferredWidth(60);
+        siteTable.getColumnModel().getColumn(4).setMaxWidth(80);
 
         JScrollPane scroll = new JScrollPane(siteTable);
         scroll.setPreferredSize(new Dimension(600, 180));
@@ -223,7 +225,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         List<String> serialized = new ArrayList<String>();
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             WikiSiteRow row = tableModel.getRow(i);
-            serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin);
+            serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin + "|" + row.useProxy);
         }
         s.wikiSites = serialized;
 
@@ -245,13 +247,14 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         List<WikiSiteRow> rows = new ArrayList<WikiSiteRow>();
         if (raw == null) return rows;
         for (String entry : raw) {
-            String[] parts = entry.split("\\|", 4);
+            String[] parts = entry.split("\\|", 5);
             if (parts.length >= 3) {
                 String id = parts[0].trim();
                 String name = parts[1].trim();
                 String url = parts[2].trim();
                 boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
-                rows.add(new WikiSiteRow(id, name, url, login));
+                boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
+                rows.add(new WikiSiteRow(id, name, url, login, proxy));
             }
         }
         return rows;
@@ -266,18 +269,24 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         String displayName;
         String apiUrl;
         boolean requiresLogin;
+        boolean useProxy;
 
         WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin) {
+            this(id, displayName, apiUrl, requiresLogin, false);
+        }
+
+        WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin, boolean useProxy) {
             this.id = id;
             this.displayName = displayName;
             this.apiUrl = apiUrl;
             this.requiresLogin = requiresLogin;
+            this.useProxy = useProxy;
         }
     }
 
     private static final class WikiSiteTableModel extends AbstractTableModel {
         private final List<WikiSiteRow> rows;
-        private static final String[] COLUMNS = {"ID", "Name", "API-URL", "Login"};
+        private static final String[] COLUMNS = {"ID", "Name", "API-URL", "Login", "Proxy"};
 
         WikiSiteTableModel(List<WikiSiteRow> rows) {
             this.rows = new ArrayList<WikiSiteRow>(rows);
@@ -301,7 +310,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
 
         @Override
         public Class<?> getColumnClass(int col) {
-            return col == 3 ? Boolean.class : String.class;
+            return (col == 3 || col == 4) ? Boolean.class : String.class;
         }
 
         @Override
@@ -315,6 +324,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 case 1: return r.displayName;
                 case 2: return r.apiUrl;
                 case 3: return r.requiresLogin;
+                case 4: return r.useProxy;
                 default: return "";
             }
         }
@@ -327,6 +337,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 case 1: r.displayName = String.valueOf(value); break;
                 case 2: r.apiUrl = String.valueOf(value); break;
                 case 3: r.requiresLogin = Boolean.TRUE.equals(value); break;
+                case 4: r.useProxy = Boolean.TRUE.equals(value); break;
             }
             fireTableCellUpdated(row, col);
         }
