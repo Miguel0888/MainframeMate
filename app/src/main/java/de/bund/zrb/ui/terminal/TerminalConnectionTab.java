@@ -165,13 +165,24 @@ public class TerminalConnectionTab implements ConnectionTab {
                 JTerminalScreen screen = new JTerminalScreen(createdTerminal, dummyToolbar);
                 screenRef.set(screen);
 
-                // Make the screen focusable and request focus on click
+                // Make the screen focusable and request focus on click.
+                // If the click lands on a menu/action-bar item, auto-send ENTER.
                 screen.setFocusable(true);
                 screen.setRequestFocusEnabled(true);
                 screen.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         screen.requestFocusInWindow();
+                    }
+
+                    @Override
+                    public void mouseClicked(java.awt.event.MouseEvent e) {
+                        if (e.getButton() != java.awt.event.MouseEvent.BUTTON1) return;
+                        if (e.getClickCount() != 1) return;
+                        // Short delay so JTerminalScreen has finished positioning the cursor
+                        Timer autoEnter = new Timer(50, evt -> autoEnterIfMenuItem(createdTerminal));
+                        autoEnter.setRepeats(false);
+                        autoEnter.start();
                     }
                 });
 
@@ -318,6 +329,52 @@ public class TerminalConnectionTab implements ConnectionTab {
                 fkeyPanel.repaint();
             }
         });
+    }
+
+    // ── Menu / Action-Bar click detection ─────────────────────
+
+    /** Max row (0-based) to consider as action-bar area. */
+    private static final int ACTION_BAR_MAX_ROW = 3;
+
+    /**
+     * Called shortly after a mouse click on the terminal screen.
+     * If the cursor is positioned on a selectable menu item (= an unprotected
+     * field in the top rows that contains visible text), send ENTER automatically.
+     */
+    private void autoEnterIfMenuItem(Terminal term) {
+        if (term == null || !connected) return;
+        if (term.isKeyboardLocked()) return;
+
+        int cols = term.getCols();
+        if (cols <= 0) return;
+
+        int cursorPos = term.getCursorPosition();
+        int cursorRow = cursorPos / cols;   // 0-based
+
+        // Only action-bar area (top few rows)
+        if (cursorRow > ACTION_BAR_MAX_ROW) return;
+
+        // Check if the cursor is in an unprotected field with text
+        try {
+            com.ascert.open.term.core.TermField field = term.getField(cursorPos);
+            if (field == null) return;
+            if (field.isProtected()) return;
+
+            // Read the field text — if it has any visible non-space chars, it's a menu item
+            int begin = field.getBeginBA() + 1; // skip attribute byte
+            int end = field.getEndBA();
+            int len = end - begin + 1;
+            if (len <= 0 || len > cols) return;
+
+            String fieldText = term.getCharString(begin, len);
+            if (fieldText != null && fieldText.trim().length() > 0) {
+                LOG.fine("[3270] Menu click detected at row " + cursorRow
+                        + ", field='" + fieldText.trim() + "' → sending ENTER");
+                term.Fkey(AID_ENTER);
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[3270] autoEnterIfMenuItem error", e);
+        }
     }
 
     // ── Auto-Login ──────────────────────────────────────────────
