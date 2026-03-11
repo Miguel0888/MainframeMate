@@ -91,6 +91,7 @@ public class Settings {
     public boolean tn3270AutoLogin = true;             // Auto-Login nach Verbindung (Standard: an)
     public boolean tn3270AutoCommand = true;           // Nach Login automatisch einen Befehl senden (Standard: an)
     public String tn3270AutoCommandText = "a";         // Der zu sendende Befehl (Standard: "a")
+    public int tn3270ActionDelayMs = 1000;             // Wartezeit in ms nach AID-Tasten bei Auto-Login/Makro (Standard: 1000)
 
     // Wiki Settings
     // Each entry: "id|displayName|apiUrl|requiresLogin"

@@ -18,10 +18,16 @@ public class TerminalMacroPlayer {
 
     private final Terminal terminal;
     private final List<Map<String, String>> steps;
+    private final int actionDelayMs;
 
     public TerminalMacroPlayer(Terminal terminal, List<Map<String, String>> steps) {
+        this(terminal, steps, 1000);
+    }
+
+    public TerminalMacroPlayer(Terminal terminal, List<Map<String, String>> steps, int actionDelayMs) {
         this.terminal = terminal;
         this.steps = steps;
+        this.actionDelayMs = Math.max(actionDelayMs, 0);
     }
 
     /**
@@ -56,7 +62,7 @@ public class TerminalMacroPlayer {
         for (int i = 0; i < text.length(); i++) {
             charHandler.type(text.charAt(i));
         }
-        Thread.sleep(50);
+        Thread.sleep(actionDelayMs);
         LOG.fine("[MacroPlay] Typed: '" + text + "'");
     }
 
@@ -75,7 +81,7 @@ public class TerminalMacroPlayer {
         terminal.Fkey(aid);
         LOG.fine("[MacroPlay] Sent AID: " + aidName);
         // Wait for host to process
-        Thread.sleep(200);
+        Thread.sleep(actionDelayMs);
     }
 
     private boolean waitForKeyboardUnlock(long timeoutMs) throws InterruptedException {

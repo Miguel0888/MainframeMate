@@ -17,6 +17,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox autoLoginCheckBox;
     private final JCheckBox autoCommandCheckBox;
     private final JTextField autoCommandField;
+    private final JSpinner actionDelaySpinner;
 
     public Tn3270SettingsPanel() {
         super("tn3270", "3270-Terminal");
@@ -68,6 +69,10 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         cmdPanel.add(autoCommandField);
         fb.addWide(cmdPanel);
 
+        actionDelaySpinner = new JSpinner(new SpinnerNumberModel(settings.tn3270ActionDelayMs, 0, 10000, 100));
+        actionDelaySpinner.setToolTipText("Wartezeit in Millisekunden nach jeder AID-Taste (Enter, F-Key) bei Auto-Login und Makro-Wiedergabe");
+        fb.addRow("Aktions-Delay (ms):", actionDelaySpinner);
+
         fb.addInfo("<html><i>Host und Benutzer werden aus den Server-Einstellungen übernommen.<br>"
                 + "Der Port kann beim Verbinden im Dialog überschrieben werden.</i></html>");
 
@@ -83,6 +88,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270AutoLogin = autoLoginCheckBox.isSelected();
         s.tn3270AutoCommand = autoCommandCheckBox.isSelected();
         s.tn3270AutoCommandText = autoCommandField.getText();
+        s.tn3270ActionDelayMs = ((Number) actionDelaySpinner.getValue()).intValue();
     }
 }
 

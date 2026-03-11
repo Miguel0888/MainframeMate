@@ -44,6 +44,7 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final String password;
     private final boolean autoLoginEnabled;
     private final String autoCommand;  // null or empty = no auto-command
+    private final int actionDelayMs;   // delay in ms after AID keys during auto-login/macro
 
     private final JPanel mainPanel;
     private final JLabel statusLabel;
@@ -97,6 +98,13 @@ public class TerminalConnectionTab implements ConnectionTab {
         this.autoLoginEnabled = autoLoginEnabled;
         this.autoCommand = autoCommand;
         this.replaySteps = replaySteps;
+
+        // Load action delay from settings (used for auto-login and macro replay)
+        int delayFromSettings = 1000;
+        try {
+            delayFromSettings = de.bund.zrb.helper.SettingsHelper.load().tn3270ActionDelayMs;
+        } catch (Exception ignored) { }
+        this.actionDelayMs = Math.max(delayFromSettings, 0);
 
         ensureFactoryInitialized();
 
@@ -438,12 +446,14 @@ public class TerminalConnectionTab implements ConnectionTab {
             @Override
             public void run() {
                 try {
+                    final int delay = actionDelayMs;
+
                     // 1) Wait for the host to send the initial screen
                     if (!waitForKeyboardUnlock(term, 10_000)) {
                         LOG.warning("[3270] Auto-login: keyboard did not unlock within timeout");
                         return;
                     }
-                    Thread.sleep(500);
+                    Thread.sleep(delay);
 
                     // 2) Send CLEAR to reset the screen to a clean login prompt
                     term.Fkey(AID_CLEAR);
@@ -451,7 +461,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                         LOG.warning("[3270] Auto-login: keyboard did not unlock after CLEAR");
                         return;
                     }
-                    Thread.sleep(500);
+                    Thread.sleep(delay);
 
                     // 3) Find the first unprotected field = userid
                     short useridField = term.getNextUnprotectedField(0);
@@ -463,7 +473,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                     // 4) Type username
                     typeString(term, user);
-                    Thread.sleep(100);
+                    Thread.sleep(delay);
 
                     // 5) Find the SECOND unprotected field = password
                     //    (jump from userid field position to the next one)
@@ -476,7 +486,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                     // 6) Type password
                     typeString(term, password);
-                    Thread.sleep(100);
+                    Thread.sleep(delay);
 
                     // 7) Send ENTER to submit both userid and password
                     term.Fkey(AID_ENTER);
@@ -490,10 +500,10 @@ public class TerminalConnectionTab implements ConnectionTab {
                             LOG.warning("[3270] Auto-command: keyboard did not unlock after login");
                             return;
                         }
-                        Thread.sleep(500);
+                        Thread.sleep(delay);
 
                         typeString(term, autoCommand);
-                        Thread.sleep(100);
+                        Thread.sleep(delay);
                         term.Fkey(AID_ENTER);
                         LOG.info("[3270] Auto-command sent: '" + autoCommand + "'");
                     }
@@ -504,8 +514,8 @@ public class TerminalConnectionTab implements ConnectionTab {
                             LOG.warning("[3270] Macro replay: keyboard did not unlock");
                             return;
                         }
-                        Thread.sleep(500);
-                        new TerminalMacroPlayer(term, replaySteps).play();
+                        Thread.sleep(delay);
+                        new TerminalMacroPlayer(term, replaySteps, delay).play();
                         LOG.info("[3270] Macro replay complete (" + replaySteps.size() + " steps)");
                     }
                 } catch (Exception e) {
