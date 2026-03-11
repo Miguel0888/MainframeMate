@@ -35,6 +35,9 @@ public class JobDetailTab implements FtpTab {
     private final SpoolTableModel spoolModel;
     private final JTextArea contentArea;
     private final JLabel statusLabel;
+    private final JTextField searchField;
+    private final JLabel searchCountLabel;
+    private int lastSearchPos = 0;
 
     public JobDetailTab(JesFtpService service, JesJob job) {
         this.service = service;
@@ -85,7 +88,43 @@ public class JobDetailTab implements FtpTab {
         contentArea.setTabSize(8);
         JScrollPane contentScroll = new JScrollPane(contentArea);
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, spoolScroll, contentScroll);
+        // ── Search bar above content ────────────────────────────────
+        JPanel searchBar = new JPanel(new BorderLayout(4, 0));
+        searchBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+        searchField = new JTextField(20);
+        searchField.setToolTipText("Suche im Spool-Output (z.B. JOBLIB, IEF, ABEND)");
+        JButton searchBtn = new JButton("🔍");
+        searchBtn.setMargin(new Insets(1, 4, 1, 4));
+        searchBtn.setFocusable(false);
+        searchBtn.addActionListener(e -> searchInContent());
+        searchField.addActionListener(e -> searchInContent());
+
+        JButton searchNextBtn = new JButton("↓");
+        searchNextBtn.setMargin(new Insets(1, 4, 1, 4));
+        searchNextBtn.setFocusable(false);
+        searchNextBtn.setToolTipText("Nächstes Ergebnis");
+        searchNextBtn.addActionListener(e -> searchNextInContent());
+
+        searchCountLabel = new JLabel("");
+        searchCountLabel.setFont(searchCountLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        searchCountLabel.setForeground(Color.GRAY);
+
+        JPanel searchLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        searchLeft.add(new JLabel("🔍 Suche:"));
+        searchLeft.add(searchField);
+        searchLeft.add(searchBtn);
+        searchLeft.add(searchNextBtn);
+        searchLeft.add(searchCountLabel);
+
+        searchBar.add(searchLeft, BorderLayout.WEST);
+
+        // Content panel: search bar + content
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.add(searchBar, BorderLayout.NORTH);
+        contentPanel.add(contentScroll, BorderLayout.CENTER);
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, spoolScroll, contentPanel);
         splitPane.setDividerLocation(160);
         splitPane.setResizeWeight(0.3);
         mainPanel.add(splitPane, BorderLayout.CENTER);
@@ -133,6 +172,15 @@ public class JobDetailTab implements FtpTab {
     //  Data loading
     // ═══════════════════════════════════════════════════════════════════
 
+    /** Cached full output – populated when we had to fall back to full-output parsing. */
+    private String cachedFullOutput;
+
+    /**
+     * Map from spool-table row → line range in cachedFullOutput (start inclusive, end exclusive).
+     * Only populated when sections were parsed from full output.
+     */
+    private final List<int[]> sectionLineRanges = new ArrayList<>();
+
     private void loadSpoolList() {
         new SwingWorker<List<JesSpoolFile>, Void>() {
             @Override
@@ -144,23 +192,87 @@ public class JobDetailTab implements FtpTab {
             protected void done() {
                 try {
                     List<JesSpoolFile> files = get();
-                    spoolModel.setFiles(files);
                     if (!files.isEmpty()) {
+                        spoolModel.setFiles(files);
                         statusLabel.setText(files.size() + " Spool-File(s)");
                         spoolTable.setRowSelectionInterval(0, 0);
                     } else {
-                        // Spool list parsing returned nothing – load full output as fallback
-                        statusLabel.setText("Spool-Liste nicht verfügbar – lade gesamten Output…");
-                        loadAllSpool();
+                        // Spool list parsing returned nothing – load full output and parse sections
+                        statusLabel.setText("⏳ Lade gesamten Output und analysiere Sections…");
+                        loadFullOutputAndParseSections();
                     }
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     LOG.log(Level.WARNING, "[JES] Failed to load spool list for " + job.getJobId(), cause);
-                    statusLabel.setText("❌ Fehler beim Laden der Spool-Liste");
+                    statusLabel.setText("⏳ Lade gesamten Output…");
+                    // FTP listing failed entirely – try full output
+                    loadFullOutputAndParseSections();
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Load the concatenated full output, parse DD sections from it,
+     * populate the spool table, and show the full content.
+     */
+    private void loadFullOutputAndParseSections() {
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                return service.getAllSpoolContent(job.getJobId());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String fullOutput = get();
+                    cachedFullOutput = fullOutput;
+                    contentArea.setText(fullOutput);
+                    contentArea.setCaretPosition(0);
+
+                    // Parse sections from the output
+                    List<JesSpoolFile> sections = JesFtpService.parseSpoolSectionsFromOutput(fullOutput);
+                    if (!sections.isEmpty()) {
+                        // Also compute line ranges for each section so we can scroll to them
+                        computeSectionRanges(fullOutput);
+                        spoolModel.setFiles(sections);
+                        statusLabel.setText(sections.size() + " Section(s) aus Output erkannt");
+                        spoolTable.setRowSelectionInterval(0, 0);
+                    } else {
+                        statusLabel.setText("✅ Gesamter Output geladen (keine Sections erkannt)");
+                    }
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    LOG.log(Level.WARNING, "[JES] Failed to load full output for " + job.getJobId(), cause);
+                    statusLabel.setText("❌ Fehler beim Laden");
                     contentArea.setText("Fehler: " + cause.getMessage());
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Compute line ranges for each section in the full output, delimited by JES separator lines.
+     */
+    private void computeSectionRanges(String fullOutput) {
+        sectionLineRanges.clear();
+        String[] lines = fullOutput.split("\\r?\\n");
+        int sectionStart = 0;
+
+        for (int i = 0; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.contains("END OF JES SPOOL FILE")
+                    || trimmed.contains("END OF JES2 SPOOL")
+                    || trimmed.matches("^\\s*!!\\s+END\\s+.*!!\\s*$")) {
+                sectionLineRanges.add(new int[]{sectionStart, i});
+                sectionStart = i + 1;
+            }
+        }
+        // Last section (after last separator or entire output if no separators found)
+        if (sectionStart < lines.length) {
+            sectionLineRanges.add(new int[]{sectionStart, lines.length});
+        }
     }
 
     private void loadSelectedSpool() {
@@ -168,6 +280,24 @@ public class JobDetailTab implements FtpTab {
         if (row < 0) return;
 
         JesSpoolFile sf = spoolModel.getFileAt(row);
+
+        // If we have cached full output with section ranges, scroll to that section
+        if (cachedFullOutput != null && row < sectionLineRanges.size()) {
+            int[] range = sectionLineRanges.get(row);
+            String[] allLines = cachedFullOutput.split("\\r?\\n");
+            StringBuilder sb = new StringBuilder();
+            int endLine = Math.min(range[1], allLines.length);
+            for (int i = range[0]; i < endLine; i++) {
+                sb.append(allLines[i]).append('\n');
+            }
+            contentArea.setText(sb.toString());
+            contentArea.setCaretPosition(0);
+            int lineCount = endLine - range[0];
+            statusLabel.setText("✅ " + sf.getDdName() + " (" + lineCount + " Zeilen)");
+            return;
+        }
+
+        // Normal mode: load from FTP
         statusLabel.setText("⏳ Lade " + sf.getDdName() + "…");
         contentArea.setText("Lade " + sf.getDdName() + " (Spool #" + sf.getId() + ")…");
 
@@ -194,6 +324,15 @@ public class JobDetailTab implements FtpTab {
     }
 
     private void loadAllSpool() {
+        // If we already have the full output cached, just show it
+        if (cachedFullOutput != null) {
+            contentArea.setText(cachedFullOutput);
+            contentArea.setCaretPosition(0);
+            statusLabel.setText("✅ Gesamter Output angezeigt");
+            spoolTable.clearSelection();
+            return;
+        }
+
         statusLabel.setText("⏳ Lade gesamten Output…");
         contentArea.setText("Lade alle Spool-Files für " + job.getJobId() + "…");
 
@@ -254,6 +393,52 @@ public class JobDetailTab implements FtpTab {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    //  Search
+    // ═══════════════════════════════════════════════════════════════════
+
+    private void searchInContent() {
+        lastSearchPos = 0;
+        searchNextInContent();
+    }
+
+    private void searchNextInContent() {
+        String query = searchField.getText();
+        if (query == null || query.isEmpty()) return;
+
+        String text = contentArea.getText();
+        if (text == null || text.isEmpty()) return;
+
+        String textLower = text.toLowerCase();
+        String queryLower = query.toLowerCase();
+
+        // Count total matches
+        int count = 0;
+        int idx = 0;
+        while ((idx = textLower.indexOf(queryLower, idx)) >= 0) {
+            count++;
+            idx += queryLower.length();
+        }
+
+        // Find next match from lastSearchPos
+        int pos = textLower.indexOf(queryLower, lastSearchPos);
+        if (pos < 0 && lastSearchPos > 0) {
+            // Wrap around
+            pos = textLower.indexOf(queryLower, 0);
+        }
+
+        if (pos >= 0) {
+            contentArea.setCaretPosition(pos);
+            contentArea.select(pos, pos + query.length());
+            contentArea.requestFocusInWindow();
+            lastSearchPos = pos + query.length();
+            searchCountLabel.setText(count + " Treffer");
+        } else {
+            searchCountLabel.setText("Nicht gefunden");
+            lastSearchPos = 0;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════
 
@@ -285,8 +470,16 @@ public class JobDetailTab implements FtpTab {
     @Override public JComponent getComponent() { return mainPanel; }
     @Override public void onClose() { /* service is shared with ConnectionTab – don't close */ }
     @Override public void saveIfApplicable() { }
-    @Override public void focusSearchField() { }
-    @Override public void searchFor(String s) { }
+    @Override public void focusSearchField() {
+        searchField.requestFocusInWindow();
+        searchField.selectAll();
+    }
+    @Override public void searchFor(String s) {
+        if (s != null && !s.isEmpty()) {
+            searchField.setText(s);
+            searchInContent();
+        }
+    }
 
     @Override
     public String getPath() {

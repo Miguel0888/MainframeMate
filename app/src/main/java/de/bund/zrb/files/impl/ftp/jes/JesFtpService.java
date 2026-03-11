@@ -190,8 +190,104 @@ public class JesFtpService implements Closeable {
             }
         }
 
+        // Fallback 1: try NLST if listFiles() returned nothing parseable
+        if (spoolFiles.isEmpty()) {
+            LOG.fine("[JES] Spool listing empty for " + jobId + ", trying NLST fallback…");
+            String[] names = ftp.listNames(jobId);
+            if (names != null) {
+                LOG.fine("[JES] NLST " + jobId + " returned " + names.length + " names.");
+                for (String name : names) {
+                    if (name != null && !name.trim().isEmpty()) {
+                        JesSpoolFile sf = parseSpoolLine(name.trim());
+                        if (sf != null) spoolFiles.add(sf);
+                    }
+                }
+            }
+        }
+
         LOG.info("[JES] Job " + jobId + " has " + spoolFiles.size() + " spool files.");
         return spoolFiles;
+    }
+
+    /**
+     * Parse spool DD sections from the full concatenated output text.
+     * Looks for JES separator lines like "!! END OF JES SPOOL FILE !!" and
+     * DD header lines to extract section boundaries.
+     * <p>
+     * Returns a list of pseudo-SpoolFiles with id and ddName derived from the content.
+     * This is a last-resort fallback when the FTP listing fails.
+     */
+    public static List<JesSpoolFile> parseSpoolSectionsFromOutput(String fullOutput) {
+        List<JesSpoolFile> sections = new ArrayList<JesSpoolFile>();
+        if (fullOutput == null || fullOutput.isEmpty()) return sections;
+
+        String[] lines = fullOutput.split("\\r?\\n");
+        int sectionId = 0;
+        int sectionStart = 0;
+        String currentDd = null;
+        int lineCount = 0;
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String trimmed = line.trim();
+
+            // JES2 separator: "!! END OF JES SPOOL FILE !!" or similar
+            if (trimmed.contains("END OF JES SPOOL FILE")
+                    || trimmed.contains("END OF JES2 SPOOL")
+                    || trimmed.matches("^\\s*!!\\s+END\\s+.*!!\\s*$")) {
+                // Close current section
+                if (currentDd != null) {
+                    sections.add(new JesSpoolFile(sectionId, currentDd, "", "", "", 0, lineCount));
+                }
+                currentDd = null;
+                lineCount = 0;
+                sectionStart = i + 1;
+                continue;
+            }
+
+            // Try to detect DD name from header lines
+            // Typical: "         J E S 2  J O B  L O G  --  S Y S T E M ..."
+            // or first few lines after a separator often contain the DD name
+            if (currentDd == null && i == sectionStart) {
+                sectionId++;
+                // Try to identify the DD from known patterns
+                currentDd = detectDdNameFromLine(trimmed, sectionId);
+            }
+
+            lineCount++;
+        }
+
+        // Close last section
+        if (currentDd != null && lineCount > 0) {
+            sections.add(new JesSpoolFile(sectionId, currentDd, "", "", "", 0, lineCount));
+        }
+
+        return sections;
+    }
+
+    /**
+     * Try to identify a DD name from a JES output header line.
+     */
+    private static String detectDdNameFromLine(String line, int sectionId) {
+        if (line == null || line.isEmpty()) return "SPOOL#" + sectionId;
+        String upper = line.toUpperCase();
+        // JES2 Job Log
+        if (upper.contains("J E S 2  J O B  L O G") || upper.contains("JES2 JOB LOG"))
+            return "JESMSGLG";
+        // JES2 JCL
+        if (upper.contains("J E S 2  J C L") || upper.contains("JES2 JCL"))
+            return "JESJCL";
+        // JES2 System Messages / JESYSMSG
+        if (upper.contains("SYSTEM MESSAGES") || upper.contains("S Y S T E M  M E S S A G E S")
+                || upper.contains("JESYSMSG"))
+            return "JESYSMSG";
+        // SYSPRINT, SYSOUT
+        if (upper.contains("SYSPRINT")) return "SYSPRINT";
+        if (upper.contains("SYSOUT")) return "SYSOUT";
+        // SYSTSPRT
+        if (upper.contains("SYSTSPRT")) return "SYSTSPRT";
+        // Default: numbered
+        return "SPOOL#" + sectionId;
     }
 
     // ═══════════════════════════════════════════════════════════════════
