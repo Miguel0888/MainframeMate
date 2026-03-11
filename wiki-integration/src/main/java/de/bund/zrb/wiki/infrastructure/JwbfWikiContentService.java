@@ -55,7 +55,7 @@ public class JwbfWikiContentService implements WikiContentService {
         String rawHtml = extractHtml(json);
         HtmlPostProcessor.Result result = htmlProcessor.cleanAndBuildOutline(rawHtml);
 
-        return new WikiPageView(pageTitle, result.cleanedHtml, result.outlineRoot);
+        return new WikiPageView(pageTitle, result.cleanedHtml, result.outlineRoot, result.images);
     }
 
     @Override

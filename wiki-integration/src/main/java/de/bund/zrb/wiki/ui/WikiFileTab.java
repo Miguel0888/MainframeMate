@@ -1,5 +1,6 @@
 package de.bund.zrb.wiki.ui;
 
+import de.bund.zrb.wiki.domain.ImageRef;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
@@ -10,6 +11,8 @@ import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
 import java.awt.*;
+import java.util.Collections;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -29,6 +32,7 @@ public class WikiFileTab implements ConnectionTab {
     private final String pageTitle;
     private final String htmlContent;
     private final OutlineNode outline;
+    private final List<ImageRef> images;
 
     /** Yellow highlight painter for search hits. */
     private static final Highlighter.HighlightPainter YELLOW_PAINTER =
@@ -38,10 +42,16 @@ public class WikiFileTab implements ConnectionTab {
     private LinkCallback linkCallback;
 
     public WikiFileTab(String siteId, String pageTitle, String htmlContent, OutlineNode outline) {
+        this(siteId, pageTitle, htmlContent, outline, Collections.<ImageRef>emptyList());
+    }
+
+    public WikiFileTab(String siteId, String pageTitle, String htmlContent,
+                       OutlineNode outline, List<ImageRef> images) {
         this.siteId = siteId;
         this.pageTitle = pageTitle;
         this.htmlContent = htmlContent;
         this.outline = outline;
+        this.images = images != null ? images : Collections.<ImageRef>emptyList();
         this.mainPanel = new JPanel(new BorderLayout(0, 0));
 
         // HTML pane
@@ -56,7 +66,18 @@ public class WikiFileTab implements ConnectionTab {
             }
         });
 
-        mainPanel.add(new JScrollPane(htmlPane), BorderLayout.CENTER);
+        JScrollPane htmlScroll = new JScrollPane(htmlPane);
+
+        // Image strip on the right (only if images exist)
+        if (!this.images.isEmpty()) {
+            ImageStripPanel imageStrip = new ImageStripPanel(this.images);
+            JPanel centerPanel = new JPanel(new BorderLayout(0, 0));
+            centerPanel.add(htmlScroll, BorderLayout.CENTER);
+            centerPanel.add(imageStrip, BorderLayout.EAST);
+            mainPanel.add(centerPanel, BorderLayout.CENTER);
+        } else {
+            mainPanel.add(htmlScroll, BorderLayout.CENTER);
+        }
 
         // Search bar at bottom
         searchField = new JTextField();

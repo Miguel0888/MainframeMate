@@ -52,6 +52,9 @@ public class WikiConnectionTab implements ConnectionTab {
     private WikiSiteId currentSiteId;
     private WikiPageView currentPreview;
 
+    /** Panel containing htmlScroll + optional ImageStripPanel for the preview area. */
+    private JPanel previewPanel;
+
     public WikiConnectionTab(WikiContentService service) {
         this.service = service;
         this.mainPanel = new JPanel(new BorderLayout(0, 0));
@@ -163,13 +166,13 @@ public class WikiConnectionTab implements ConnectionTab {
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
         htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
-        JPanel bottomHalf = new JPanel(new BorderLayout(0, 0));
-        bottomHalf.add(htmlScroll, BorderLayout.CENTER);
+        previewPanel = new JPanel(new BorderLayout(0, 0));
+        previewPanel.add(htmlScroll, BorderLayout.CENTER);
 
         // ═══════════════════════════════════════════════════════════
         //  Main split: top/bottom
         // ═══════════════════════════════════════════════════════════
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topHalf, bottomHalf);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topHalf, previewPanel);
         mainSplit.setDividerLocation(300);
         mainSplit.setResizeWeight(0.4);
         mainPanel.add(mainSplit, BorderLayout.CENTER);
@@ -270,6 +273,18 @@ public class WikiConnectionTab implements ConnectionTab {
         htmlPane.setCaretPosition(0);
         statusLabel.setText("✅ Vorschau: " + view.title());
 
+        // Update image strip in preview area
+        Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
+                .getLayoutComponent(java.awt.BorderLayout.EAST);
+        if (eastComp != null) {
+            previewPanel.remove(eastComp);
+        }
+        if (view.images() != null && !view.images().isEmpty()) {
+            previewPanel.add(new ImageStripPanel(view.images()), java.awt.BorderLayout.EAST);
+        }
+        previewPanel.revalidate();
+        previewPanel.repaint();
+
         if (outlineCallback != null) {
             outlineCallback.onOutlineChanged(view.outline(), view.title());
         }
@@ -288,7 +303,7 @@ public class WikiConnectionTab implements ConnectionTab {
         // 1) Use current preview if it matches (already loaded)
         if (currentPreview != null && title.equals(currentPreview.title())) {
             openCallback.openWikiPage(site.id().value(), title, currentPreview.cleanedHtml(),
-                    currentPreview.outline());
+                    currentPreview.outline(), currentPreview.images());
             return;
         }
 
@@ -310,7 +325,7 @@ public class WikiConnectionTab implements ConnectionTab {
                     WikiPageView view = get();
                     if (view != null && openCallback != null) {
                         openCallback.openWikiPage(site.id().value(), view.title(),
-                                view.cleanedHtml(), view.outline());
+                                view.cleanedHtml(), view.outline(), view.images());
                         statusLabel.setText("✅ Geöffnet: " + view.title());
                     }
                 } catch (Exception ex) {
@@ -385,7 +400,7 @@ public class WikiConnectionTab implements ConnectionTab {
                         try {
                             WikiPageView view = get();
                             openCallback.openWikiPage(site.id().value(), view.title(),
-                                    view.cleanedHtml(), view.outline());
+                                    view.cleanedHtml(), view.outline(), view.images());
                             statusLabel.setText("✅ Geöffnet: " + view.title());
                         } catch (Exception ex) {
                             statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
@@ -550,7 +565,7 @@ public class WikiConnectionTab implements ConnectionTab {
             WikiPageView cached = prefetchCallback.getCached(targetSite.id(), pageTitle);
             if (cached != null) {
                 openCallback.openWikiPage(targetSite.id().value(), cached.title(),
-                        cached.cleanedHtml(), cached.outline());
+                        cached.cleanedHtml(), cached.outline(), cached.images());
                 return;
             }
         }
@@ -573,7 +588,7 @@ public class WikiConnectionTab implements ConnectionTab {
                     WikiPageView view = get();
                     if (view != null && openCallback != null) {
                         openCallback.openWikiPage(targetSite.id().value(), view.title(),
-                                view.cleanedHtml(), view.outline());
+                                view.cleanedHtml(), view.outline(), view.images());
                         statusLabel.setText("✅ Geöffnet: " + view.title());
                     }
                 } catch (Exception ex) {
@@ -594,7 +609,8 @@ public class WikiConnectionTab implements ConnectionTab {
     }
 
     public interface OpenCallback {
-        void openWikiPage(String siteId, String pageTitle, String htmlContent, OutlineNode outline);
+        void openWikiPage(String siteId, String pageTitle, String htmlContent,
+                          OutlineNode outline, java.util.List<de.bund.zrb.wiki.domain.ImageRef> images);
     }
 
     public interface OutlineCallback {

@@ -53,8 +53,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         WikiConnectionTab tab = new WikiConnectionTab(service);
 
         // Wire up open callback: creates WikiFileTab when user double-clicks/enters a result
-        tab.setOpenCallback((siteId, pageTitle, htmlContent, outline) -> {
-            WikiFileTab fileTab = new WikiFileTab(siteId, pageTitle, htmlContent, outline);
+        tab.setOpenCallback((siteId, pageTitle, htmlContent, outline, images) -> {
+            WikiFileTab fileTab = new WikiFileTab(siteId, pageTitle, htmlContent, outline, images);
             wireFileTabLinks(fileTab, service, sites);
             tabManager.addTab(fileTab);
         });
@@ -102,7 +102,7 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                     try {
                         WikiPageView view = get();
                         WikiFileTab newTab = new WikiFileTab(siteId, view.title(),
-                                view.cleanedHtml(), view.outline());
+                                view.cleanedHtml(), view.outline(), view.images());
                         wireFileTabLinks(newTab, service, sites);
                         tabManager.addTab(newTab);
                     } catch (Exception ex) {

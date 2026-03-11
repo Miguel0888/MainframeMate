@@ -1,5 +1,6 @@
 package de.bund.zrb.wiki.infrastructure;
 
+import de.bund.zrb.wiki.domain.ImageRef;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -11,7 +12,8 @@ import java.util.List;
 import java.util.Stack;
 
 /**
- * Cleans MediaWiki HTML output and extracts a heading outline.
+ * Cleans MediaWiki HTML output, extracts a heading outline,
+ * and strips images from the flow (collecting them as ImageRefs).
  */
 final class HtmlPostProcessor {
 
@@ -25,13 +27,90 @@ final class HtmlPostProcessor {
 
         OutlineNode outlineRoot = buildOutline(doc);
 
+        // Extract images before cleaning the body
+        List<ImageRef> images = extractAndRemoveImages(doc);
+
         // Inject <a name="..."></a> before headings for Swing's scrollToReference()
-        // JEditorPane only supports <a name="...">, not id="..." on arbitrary elements
         injectNameAnchors(doc);
 
         String cleaned = doc.body().html();
-        return new Result(cleaned, outlineRoot);
+        return new Result(cleaned, outlineRoot, images);
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Image extraction
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Extract all &lt;img&gt; tags, collect their metadata as {@link ImageRef},
+     * then remove the images (and their wrapping figure/thumbnail containers)
+     * from the document so the HTML text flow is clean.
+     */
+    private List<ImageRef> extractAndRemoveImages(Document doc) {
+        List<ImageRef> images = new ArrayList<ImageRef>();
+
+        // Collect all <img> elements
+        Elements imgs = doc.select("img");
+        for (Element img : imgs) {
+            String src = img.absUrl("src");
+            if (src.isEmpty()) {
+                src = img.attr("src");
+            }
+            // Skip tiny icons/badges (< 30px) — they are UI chrome, not content images
+            int w = parseIntAttr(img, "width", 0);
+            int h = parseIntAttr(img, "height", 0);
+            if (w > 0 && w < 30 && h > 0 && h < 30) {
+                img.remove();
+                continue;
+            }
+
+            String alt = img.attr("alt");
+            String title = img.attr("title");
+            if (title.isEmpty()) {
+                // Try parent <a> title
+                Element parent = img.parent();
+                if (parent != null && parent.hasAttr("title")) {
+                    title = parent.attr("title");
+                }
+            }
+
+            // Resolve relative wiki image URLs
+            if (!src.isEmpty()) {
+                if (src.startsWith("//")) {
+                    src = "https:" + src;
+                }
+                images.add(new ImageRef(src, alt, title, w, h));
+            }
+        }
+
+        // Remove common MediaWiki image wrapper elements
+        // (thumbs, figures, image containers) that would leave empty boxes
+        doc.select(".thumb, .thumbinner, figure, .mw-file-element").remove();
+        // Also remove any remaining <img> tags
+        doc.select("img").remove();
+        // Clean up empty <a> tags that only contained an image
+        for (Element a : doc.select("a.image, a.mw-file-description")) {
+            if (a.text().trim().isEmpty()) {
+                a.remove();
+            }
+        }
+
+        return images;
+    }
+
+    private static int parseIntAttr(Element el, String attr, int defaultVal) {
+        String val = el.attr(attr);
+        if (val == null || val.isEmpty()) return defaultVal;
+        try {
+            return Integer.parseInt(val.trim());
+        } catch (NumberFormatException e) {
+            return defaultVal;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Outline
+    // ═══════════════════════════════════════════════════════════
 
     private OutlineNode buildOutline(Document doc) {
         Elements headings = doc.select("h1, h2, h3, h4, h5, h6");
@@ -72,18 +151,11 @@ final class HtmlPostProcessor {
         return headline != null ? headline.text() : heading.text();
     }
 
-    /**
-     * Inject {@code <a name="anchor"></a>} right before each heading that has an id.
-     * Also checks child elements like {@code <span class="mw-headline" id="...">}.
-     * This is necessary because Swing's JEditorPane.scrollToReference() only looks for
-     * {@code <a name="...">}, not {@code id="..."} on arbitrary elements.
-     */
     private void injectNameAnchors(Document doc) {
         Elements headings = doc.select("h1, h2, h3, h4, h5, h6");
         for (Element h : headings) {
             String anchor = extractAnchor(h);
             if (anchor != null && !anchor.isEmpty()) {
-                // Prepend an <a name="anchor"></a> right before the heading
                 h.before("<a name=\"" + anchor + "\"></a>");
             }
         }
@@ -96,13 +168,19 @@ final class HtmlPostProcessor {
         return null;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Result & helpers
+    // ═══════════════════════════════════════════════════════════
+
     static final class Result {
         final String cleanedHtml;
         final OutlineNode outlineRoot;
+        final List<ImageRef> images;
 
-        Result(String cleanedHtml, OutlineNode outlineRoot) {
+        Result(String cleanedHtml, OutlineNode outlineRoot, List<ImageRef> images) {
             this.cleanedHtml = cleanedHtml;
             this.outlineRoot = outlineRoot;
+            this.images = images;
         }
     }
 
