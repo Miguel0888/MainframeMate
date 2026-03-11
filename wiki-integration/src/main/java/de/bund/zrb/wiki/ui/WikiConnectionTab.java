@@ -486,51 +486,61 @@ public class WikiConnectionTab implements ConnectionTab {
             LOG.warning("[Wiki] getCredentials: credentialsCallback is NULL for site '" + site.displayName() + "'");
         }
 
-        // No credentials stored – prompt the user
+        // No credentials stored – prompt the user via dialog
         LOG.info("[Wiki] getCredentials: no credentials available, prompting user for site '" + site.displayName() + "'");
         final WikiCredentials[] result = new WikiCredentials[]{null};
-        try {
-            javax.swing.SwingUtilities.invokeAndWait(() -> {
-                javax.swing.JTextField userField = new javax.swing.JTextField(20);
-                javax.swing.JPasswordField passField = new javax.swing.JPasswordField(20);
-                javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.GridBagLayout());
-                java.awt.GridBagConstraints gbc = new java.awt.GridBagConstraints();
-                gbc.insets = new java.awt.Insets(4, 4, 4, 4);
-                gbc.anchor = java.awt.GridBagConstraints.WEST;
 
-                gbc.gridx = 0; gbc.gridy = 0;
-                panel.add(new javax.swing.JLabel("Wiki:"), gbc);
-                gbc.gridx = 1;
-                panel.add(new javax.swing.JLabel(site.displayName()), gbc);
+        Runnable dialogRunnable = () -> {
+            javax.swing.JTextField userField = new javax.swing.JTextField(20);
+            javax.swing.JPasswordField passField = new javax.swing.JPasswordField(20);
+            javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.GridBagLayout());
+            java.awt.GridBagConstraints gbc = new java.awt.GridBagConstraints();
+            gbc.insets = new java.awt.Insets(4, 4, 4, 4);
+            gbc.anchor = java.awt.GridBagConstraints.WEST;
 
-                gbc.gridx = 0; gbc.gridy = 1;
-                panel.add(new javax.swing.JLabel("Benutzername:"), gbc);
-                gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-                panel.add(userField, gbc);
+            gbc.gridx = 0; gbc.gridy = 0;
+            panel.add(new javax.swing.JLabel("Wiki:"), gbc);
+            gbc.gridx = 1;
+            panel.add(new javax.swing.JLabel(site.displayName()), gbc);
 
-                gbc.gridx = 0; gbc.gridy = 2; gbc.fill = java.awt.GridBagConstraints.NONE; gbc.weightx = 0;
-                panel.add(new javax.swing.JLabel("Passwort:"), gbc);
-                gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-                panel.add(passField, gbc);
+            gbc.gridx = 0; gbc.gridy = 1;
+            panel.add(new javax.swing.JLabel("Benutzername:"), gbc);
+            gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+            panel.add(userField, gbc);
 
-                int choice = javax.swing.JOptionPane.showConfirmDialog(
-                        mainPanel, panel,
-                        "Wiki-Login: " + site.displayName(),
-                        javax.swing.JOptionPane.OK_CANCEL_OPTION,
-                        javax.swing.JOptionPane.PLAIN_MESSAGE);
+            gbc.gridx = 0; gbc.gridy = 2; gbc.fill = java.awt.GridBagConstraints.NONE; gbc.weightx = 0;
+            panel.add(new javax.swing.JLabel("Passwort:"), gbc);
+            gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+            panel.add(passField, gbc);
 
-                if (choice == javax.swing.JOptionPane.OK_OPTION) {
-                    String user = userField.getText().trim();
-                    String pass = new String(passField.getPassword());
-                    if (!user.isEmpty()) {
-                        result[0] = new WikiCredentials(user, pass.toCharArray());
-                        // Save to settings for next time
-                        if (credentialsSaveCallback != null) {
-                            credentialsSaveCallback.saveCredentials(site.id(), user, pass);
-                        }
+            int choice = javax.swing.JOptionPane.showConfirmDialog(
+                    mainPanel, panel,
+                    "Wiki-Login: " + site.displayName(),
+                    javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                    javax.swing.JOptionPane.PLAIN_MESSAGE);
+
+            if (choice == javax.swing.JOptionPane.OK_OPTION) {
+                String user = userField.getText().trim();
+                String pass = new String(passField.getPassword());
+                if (!user.isEmpty() && !pass.isEmpty()) {
+                    result[0] = new WikiCredentials(user, pass.toCharArray());
+                    // Save to settings for next time
+                    if (credentialsSaveCallback != null) {
+                        credentialsSaveCallback.saveCredentials(site.id(), user, pass);
                     }
+                    LOG.info("[Wiki] getCredentials: user entered credentials for '" + site.displayName() + "' user='" + user + "'");
+                } else {
+                    LOG.warning("[Wiki] getCredentials: user or password empty in prompt dialog");
                 }
-            });
+            }
+        };
+
+        try {
+            if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+                dialogRunnable.run();
+            } else {
+                javax.swing.SwingUtilities.invokeAndWait(dialogRunnable);
+            }
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Wiki] Credentials prompt failed", e);
         }
