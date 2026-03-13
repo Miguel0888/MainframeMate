@@ -212,6 +212,16 @@ public class TerminalConnectionTab implements ConnectionTab {
                     dummyToolbar.getParent().remove(dummyToolbar);
                 }
 
+                // JTerminalScreen.paintComponent() only draws a fixed-size
+                // frameBuff image at (0,0) — it does NOT fill its entire
+                // bounds and does NOT call super.paintComponent().  By
+                // default it is opaque, so Swing trusts it to paint its
+                // whole area, but it doesn't — leaving stale pixels from
+                // the back-buffer visible (ghost images of the toolbar and
+                // F-key bar).  Setting it non-opaque forces Swing to paint
+                // the parent's black background before drawing the terminal.
+                screen.setOpaque(false);
+
                 // Make the screen focusable and request focus on click.
                 // Disable Swing focus-traversal so Tab etc. reach OpenTerm.
                 screen.setFocusable(true);
@@ -323,7 +333,16 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                 // ── Build overlay: terminal fills everything, F-key bar
                 //    floats at the bottom as a see-through overlay ──────────
-                final JPanel scalingWrapper = new JPanel(new BorderLayout());
+                final JPanel scalingWrapper = new JPanel(new BorderLayout()) {
+                    @Override
+                    protected void paintComponent(Graphics g) {
+                        // Explicitly fill black so the area outside the terminal
+                        // character grid (which JTerminalScreen does not paint)
+                        // is always clean — no ghost artifacts.
+                        g.setColor(Color.BLACK);
+                        g.fillRect(0, 0, getWidth(), getHeight());
+                    }
+                };
                 scalingWrapper.setBackground(Color.BLACK);
                 scalingWrapper.add(screen, BorderLayout.CENTER);
 
