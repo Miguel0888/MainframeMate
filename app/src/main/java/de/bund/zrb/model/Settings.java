@@ -93,6 +93,7 @@ public class Settings {
     public String tn3270AutoCommandText = "a";         // Der zu sendende Befehl (Standard: "a")
     public int tn3270ActionDelayMs = 1000;             // Wartezeit in ms nach AID-Tasten bei Auto-Login/Makro (Standard: 1000)
     public int tn3270FkeyOverlayOpacity = 50;            // Transparenz der F-Tasten-Leiste in Prozent (0=unsichtbar, 100=deckend, Standard: 50)
+    public double cosmicClockTimeFactor = 120;             // Zeitfaktor für die Cosmic Clock (1 = Echtzeit, 120 = 2min ≈ 4h)
 
     // Wiki Settings
     // Each entry: "id|displayName|apiUrl|requiresLogin|useProxy|autoIndex"

@@ -331,25 +331,25 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                // ── Build overlay: terminal fills everything, F-key bar
-                //    floats at the bottom as a see-through overlay ──────────
-                final JPanel scalingWrapper = new JPanel(new GridBagLayout()) {
-                    @Override
-                    protected void paintComponent(Graphics g) {
-                        // Explicitly fill black so the area outside the terminal
-                        // character grid (which JTerminalScreen does not paint)
-                        // is always clean — no ghost artifacts.
-                        g.setColor(Color.BLACK);
-                        g.fillRect(0, 0, getWidth(), getHeight());
-                    }
-                };
-                scalingWrapper.setBackground(Color.BLACK);
-                // GridBagConstraints default = centered, no fill → terminal
-                // sits at its preferred size in the middle of the black area.
-                scalingWrapper.add(screen, new GridBagConstraints());
+                // ── Build overlay: terminal centred over cosmic-clock sky,
+                //    F-key bar floats at the bottom as a see-through overlay ──
+                // Load cosmic clock time factor from settings (default 120×)
+                double clockFactor = 120;
+                try {
+                    de.bund.zrb.model.Settings cs = de.bund.zrb.helper.SettingsHelper.load();
+                    clockFactor = cs.cosmicClockTimeFactor;
+                } catch (Exception ignored) { }
 
-                // Also grab focus when the wrapper is clicked
-                scalingWrapper.addMouseListener(new java.awt.event.MouseAdapter() {
+                final de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClock =
+                        new de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel(clockFactor);
+                cosmicClock.setLayout(new GridBagLayout());
+                // GridBagConstraints default = centred, no fill → terminal
+                // sits at its preferred size in the middle of the sky.
+                cosmicClock.add(screen, new GridBagConstraints());
+                cosmicClock.start();
+
+                // Also grab focus when the background is clicked
+                cosmicClock.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         screen.requestFocusInWindow();
@@ -357,7 +357,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                 });
 
                 // ── Overlay container with a custom LayoutManager ──────────
-                // The terminal (scalingWrapper) always fills the full area;
+                // The terminal (cosmicClock) always fills the full area;
                 // the F-key panel is anchored at the bottom edge.
                 // Using a real LayoutManager (instead of null layout +
                 // ComponentListener) ensures Swing's validation cycle keeps
@@ -374,7 +374,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     @Override public void addLayoutComponent(String name, Component comp) { }
                     @Override public void removeLayoutComponent(Component comp) { }
                     @Override public Dimension preferredLayoutSize(Container parent) {
-                        return scalingWrapper.getPreferredSize();
+                        return cosmicClock.getPreferredSize();
                     }
                     @Override public Dimension minimumLayoutSize(Container parent) {
                         return new Dimension(0, 0);
@@ -383,7 +383,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     public void layoutContainer(Container parent) {
                         int w = parent.getWidth();
                         int h = parent.getHeight();
-                        scalingWrapper.setBounds(0, 0, w, h);
+                        cosmicClock.setBounds(0, 0, w, h);
                         int fkeyH = fkeyPanel.getPreferredSize().height;
                         if (fkeyH <= 0) fkeyH = 30;
                         fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
@@ -391,16 +391,16 @@ public class TerminalConnectionTab implements ConnectionTab {
                 });
 
                 // Paint order: last added (highest index) is painted FIRST (behind).
-                // Index 0 = fkeyPanel  → painted LAST  → on top  ✓
-                // Index 1 = scalingWrapper → painted FIRST → behind ✓
+                // Index 0 = fkeyPanel   → painted LAST  → on top  ✓
+                // Index 1 = cosmicClock → painted FIRST → behind ✓
                 overlayContainer.add(fkeyPanel);
-                overlayContainer.add(scalingWrapper);
+                overlayContainer.add(cosmicClock);
 
                 // Scale terminal font when the container is resized
                 overlayContainer.addComponentListener(new ComponentAdapter() {
                     @Override
                     public void componentResized(ComponentEvent e) {
-                        scaleTerminalFont(screen, scalingWrapper);
+                        scaleTerminalFont(screen, cosmicClock);
                     }
                 });
 
