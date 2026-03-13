@@ -21,18 +21,6 @@ class MvsLocationTest {
     }
 
     @Test
-    void parseSlashReturnsRoot() {
-        MvsLocation loc = MvsLocation.parse("/");
-        assertEquals(MvsLocationType.ROOT, loc.getType());
-    }
-
-    @Test
-    void parseQuotedSlashReturnsRoot() {
-        MvsLocation loc = MvsLocation.parse("'/'");
-        assertEquals(MvsLocationType.ROOT, loc.getType());
-    }
-
-    @Test
     void parseHlqReturnsHlq() {
         MvsLocation loc = MvsLocation.parse("BENUTZERKENNUNG");
         assertEquals(MvsLocationType.HLQ, loc.getType());

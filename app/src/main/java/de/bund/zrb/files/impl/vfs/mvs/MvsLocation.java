@@ -75,7 +75,7 @@ public final class MvsLocation {
         String normalized = MvsQuoteNormalizer.normalize(path.trim());
         String unquoted = MvsQuoteNormalizer.unquote(normalized);
 
-        if (unquoted.isEmpty() || "/".equals(unquoted)) {
+        if (unquoted.isEmpty()) {
             return root();
         }
 
