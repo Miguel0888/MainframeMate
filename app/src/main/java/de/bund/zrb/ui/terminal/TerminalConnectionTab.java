@@ -704,8 +704,8 @@ public class TerminalConnectionTab implements ConnectionTab {
     /**
      * Automatically log in after connect.
      * <p>
-     * Sequence: CLEAR → wait → type user into 1st field → move cursor to 2nd field → type password → ENTER.
-     * Both userid and password are on the same screen; no host round-trip between them.
+     * Sequence: CLEAR → wait → type user → Tab to next field → type password → ENTER.
+     * Uses OpenTerm's field navigation (same as Tab key) to move between fields.
      * Runs on a background thread.
      */
     private void autoLogin(final Terminal term) {
@@ -736,17 +736,24 @@ public class TerminalConnectionTab implements ConnectionTab {
                         LOG.warning("[3270] Auto-login: no unprotected field found for userid");
                         return;
                     }
+                    LOG.info("[3270] Auto-login: userid field at position " + useridField);
                     term.setCursorPosition(useridField);
 
                     // 4) Type username
                     typeString(term, user);
                     Thread.sleep(delay);
 
-                    // 5) Find the SECOND unprotected field = password
-                    //    (jump from userid field position to the next one)
-                    short passwordField = term.getNextUnprotectedField(useridField + 1);
+                    // 5) Tab to password field — use the current cursor position
+                    //    (same mechanism as OpenTerm's TabAction: find the next
+                    //    unprotected field AFTER where the cursor is right now)
+                    int cursorAfterUser = term.getCursorPosition();
+                    short passwordField = term.getNextUnprotectedField(cursorAfterUser);
+                    LOG.info("[3270] Auto-login: cursor after user=" + cursorAfterUser
+                            + ", password field at position " + passwordField);
+
                     if (passwordField < 0 || passwordField == useridField) {
-                        LOG.warning("[3270] Auto-login: no second unprotected field found for password");
+                        LOG.warning("[3270] Auto-login: no second unprotected field found for password"
+                                + " (useridField=" + useridField + ", passwordField=" + passwordField + ")");
                         return;
                     }
                     term.setCursorPosition(passwordField);
