@@ -44,8 +44,8 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final String password;
     private final boolean autoLoginEnabled;
     private final String autoCommand;  // null or empty = no auto-command
-    private final int actionDelayMs;   // delay in ms after AID keys during auto-login/macro
-    private final int fkeyOverlayOpacity; // 0..100 percent opacity for F-key overlay
+    private volatile int actionDelayMs;   // delay in ms after AID keys during auto-login/macro
+    private volatile int fkeyOverlayOpacity; // 0..100 percent opacity for F-key overlay
 
     private final JPanel mainPanel;
     private final JLabel statusLabel;
@@ -62,6 +62,18 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     /** Reference to the cosmic clock panel (if enabled) so we can stop it on disconnect. */
     private volatile de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClockInstance;
+
+    /** Current mouse→F-key bindings (mutable, updated live from settings). */
+    private volatile java.util.List<de.bund.zrb.model.MouseFkeyBinding> mouseBindings;
+
+    /** Reference to the background panel (cosmic clock or plain black) in the overlay hierarchy. */
+    private volatile JPanel backgroundPanelRef;
+
+    /** Reference to the overlay container that holds backgroundPanel + fkeyPanel. */
+    private volatile JPanel overlayContainerRef;
+
+    /** Settings change listener – stored so we can unregister on close. */
+    private final java.util.function.Consumer<de.bund.zrb.model.Settings> settingsListener;
 
     /** Map from F-key number (1–24) to the corresponding button in the bottom panel. */
     private final Map<Integer, JButton> fkeyButtons = new HashMap<Integer, JButton>();
@@ -110,9 +122,15 @@ public class TerminalConnectionTab implements ConnectionTab {
             de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
             delayFromSettings = s.tn3270ActionDelayMs;
             opacityFromSettings = s.tn3270FkeyOverlayOpacity;
+            this.mouseBindings = s.tn3270MouseFkeyBindings;
         } catch (Exception ignored) { }
         this.actionDelayMs = Math.max(delayFromSettings, 0);
         this.fkeyOverlayOpacity = Math.max(0, Math.min(100, opacityFromSettings));
+        if (this.mouseBindings == null) this.mouseBindings = de.bund.zrb.model.MouseFkeyBinding.getDefaults();
+
+        // Register for live settings updates
+        this.settingsListener = this::onSettingsChanged;
+        de.bund.zrb.helper.SettingsHelper.addChangeListener(settingsListener);
 
         ensureFactoryInitialized();
 
@@ -127,6 +145,104 @@ public class TerminalConnectionTab implements ConnectionTab {
         mainPanel.add(centerComponent, BorderLayout.CENTER);
         // fkeyPanel is NOT added to BorderLayout.SOUTH — it floats as a
         // translucent overlay inside the terminal area (see buildScreenOnEdt).
+    }
+
+    // ── Live settings application ───────────────────────────────
+
+    /**
+     * Called by the {@link de.bund.zrb.helper.SettingsHelper} listener whenever
+     * any settings are saved.  Applies relevant terminal settings immediately
+     * to this tab without requiring an application restart.
+     */
+    private void onSettingsChanged(de.bund.zrb.model.Settings s) {
+        SwingUtilities.invokeLater(() -> {
+            // ── Action delay ──
+            actionDelayMs = Math.max(s.tn3270ActionDelayMs, 0);
+
+            // ── F-key overlay opacity ──
+            int newOpacity = Math.max(0, Math.min(100, s.tn3270FkeyOverlayOpacity));
+            if (newOpacity != fkeyOverlayOpacity) {
+                fkeyOverlayOpacity = newOpacity;
+                fkeyPanel.repaint();
+            }
+
+            // ── Mouse bindings ──
+            mouseBindings = s.tn3270MouseFkeyBindings != null
+                    ? s.tn3270MouseFkeyBindings
+                    : de.bund.zrb.model.MouseFkeyBinding.getDefaults();
+
+            // ── Cosmic clock time factor ──
+            if (cosmicClockInstance != null) {
+                cosmicClockInstance.getTimeModel().setTimeFactor(s.cosmicClockTimeFactor);
+            }
+
+            // ── Cosmic clock enable/disable toggle ──
+            boolean wantCosmic = s.cosmicClockEnabled;
+            boolean haveCosmic = cosmicClockInstance != null;
+            JTerminalScreen screen = terminalScreen;
+            JPanel overlay = overlayContainerRef;
+            JPanel oldBg = backgroundPanelRef;
+
+            if (wantCosmic != haveCosmic && screen != null && overlay != null && oldBg != null) {
+                // Detach screen from current background
+                oldBg.remove(screen);
+
+                // Stop old cosmic clock if active
+                if (cosmicClockInstance != null) {
+                    cosmicClockInstance.stop();
+                    cosmicClockInstance = null;
+                }
+
+                // Create new background
+                JPanel newBg;
+                if (wantCosmic) {
+                    de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cc =
+                            new de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel(s.cosmicClockTimeFactor);
+                    cc.setLayout(new GridBagLayout());
+                    cc.add(screen, new GridBagConstraints());
+                    cc.start();
+                    cc.addMouseListener(new java.awt.event.MouseAdapter() {
+                        @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                            JTerminalScreen ts = terminalScreen;
+                            if (ts != null) ts.requestFocusInWindow();
+                        }
+                    });
+                    cosmicClockInstance = cc;
+                    newBg = cc;
+                } else {
+                    JPanel blackBg = new JPanel(new GridBagLayout());
+                    blackBg.setOpaque(true);
+                    blackBg.setBackground(Color.BLACK);
+                    blackBg.add(screen, new GridBagConstraints());
+                    blackBg.addMouseListener(new java.awt.event.MouseAdapter() {
+                        @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                            JTerminalScreen ts = terminalScreen;
+                            if (ts != null) ts.requestFocusInWindow();
+                        }
+                    });
+                    newBg = blackBg;
+                }
+
+                // Swap in overlay container: remove old background, add new one
+                overlay.remove(oldBg);
+                overlay.add(newBg);   // added last → painted first (behind fkeyPanel)
+                backgroundPanelRef = newBg;
+
+                // Re-attach resize listener for font scaling
+                overlay.addComponentListener(new ComponentAdapter() {
+                    @Override
+                    public void componentResized(ComponentEvent e) {
+                        scaleTerminalFont(terminalScreen, backgroundPanelRef);
+                    }
+                });
+
+                overlay.revalidate();
+                overlay.repaint();
+
+                // Trigger font re-scaling with the new background
+                scaleTerminalFont(screen, newBg);
+            }
+        });
     }
 
     private static void ensureFactoryInitialized() {
@@ -335,18 +451,14 @@ public class TerminalConnectionTab implements ConnectionTab {
                 });
 
                 // ── Build overlay: terminal centred, F-key bar at the bottom ──
-                // Load settings for cosmic clock and mouse bindings
+                // Load settings for cosmic clock
                 boolean cosmicEnabled = true;
                 double clockFactor = 120;
-                java.util.List<de.bund.zrb.model.MouseFkeyBinding> mouseBindings = null;
                 try {
                     de.bund.zrb.model.Settings cs = de.bund.zrb.helper.SettingsHelper.load();
                     cosmicEnabled = cs.cosmicClockEnabled;
                     clockFactor = cs.cosmicClockTimeFactor;
-                    mouseBindings = cs.tn3270MouseFkeyBindings;
                 } catch (Exception ignored) { }
-                if (mouseBindings == null) mouseBindings = de.bund.zrb.model.MouseFkeyBinding.getDefaults();
-                final java.util.List<de.bund.zrb.model.MouseFkeyBinding> bindings = mouseBindings;
 
                 // Background panel: either animated cosmic clock or plain black
                 final JPanel backgroundPanel;
@@ -368,6 +480,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                 }
                 final de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClock = cosmicClockRef;
                 cosmicClockInstance = cosmicClockRef;
+                backgroundPanelRef = backgroundPanel;
 
                 // Also grab focus when the background is clicked
                 backgroundPanel.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -390,8 +503,9 @@ public class TerminalConnectionTab implements ConnectionTab {
                         else if (e.getButton() == 5) action = de.bund.zrb.model.MouseFkeyBinding.MouseAction.FORWARD;
                         if (action == null) return;
 
+                        java.util.List<de.bund.zrb.model.MouseFkeyBinding> currentBindings = mouseBindings;
                         boolean shift = e.isShiftDown(), ctrl = e.isControlDown(), alt = e.isAltDown();
-                        for (de.bund.zrb.model.MouseFkeyBinding b : bindings) {
+                        for (de.bund.zrb.model.MouseFkeyBinding b : currentBindings) {
                             if (b.mouseAction == action && b.modifierMatches(shift, ctrl, alt)) {
                                 sendFkeyFromMouse(createdTerminal, b.fkey);
                                 e.consume();
@@ -413,8 +527,9 @@ public class TerminalConnectionTab implements ConnectionTab {
                         de.bund.zrb.model.MouseFkeyBinding.MouseAction action =
                                 rotation > 0 ? de.bund.zrb.model.MouseFkeyBinding.MouseAction.SCROLL_DOWN
                                              : de.bund.zrb.model.MouseFkeyBinding.MouseAction.SCROLL_UP;
+                        java.util.List<de.bund.zrb.model.MouseFkeyBinding> currentBindings = mouseBindings;
                         boolean shift = e.isShiftDown(), ctrl = e.isControlDown(), alt = e.isAltDown();
-                        for (de.bund.zrb.model.MouseFkeyBinding b : bindings) {
+                        for (de.bund.zrb.model.MouseFkeyBinding b : currentBindings) {
                             if (b.mouseAction == action && b.modifierMatches(shift, ctrl, alt)) {
                                 lastMouseFkeySentAt[0] = now;
                                 sendFkeyFromMouse(createdTerminal, b.fkey);
@@ -458,6 +573,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                 overlayContainer.add(fkeyPanel);
                 overlayContainer.add(backgroundPanel);
+                overlayContainerRef = overlayContainer;
 
                 // Scale terminal font when the container is resized
                 overlayContainer.addComponentListener(new ComponentAdapter() {
@@ -1221,10 +1337,11 @@ public class TerminalConnectionTab implements ConnectionTab {
         // terminal screen.  We override paintComponent to fill a semi-
         // transparent background whose alpha is controlled by the user
         // setting tn3270FkeyOverlayOpacity (0–100%).
-        final int alpha = (int) Math.round(fkeyOverlayOpacity / 100.0 * 255);
+        // The opacity field is volatile and updated live from settings.
         JPanel outer = new JPanel(new GridLayout(0, 1, 0, 0)) {
             @Override
             protected void paintComponent(Graphics g) {
+                int alpha = (int) Math.round(fkeyOverlayOpacity / 100.0 * 255);
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha / 255f));
                 g2.setColor(getBackground());
@@ -1722,6 +1839,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     @Override
     public void onClose() {
+        de.bund.zrb.helper.SettingsHelper.removeChangeListener(settingsListener);
         if (fkeyRefreshTimer != null) {
             fkeyRefreshTimer.stop();
             fkeyRefreshTimer = null;
