@@ -2,9 +2,13 @@ package de.bund.zrb.ui.terminal.cosmicclock;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.util.ArrayList;
+import java.util.List;
 
 import static de.bund.zrb.ui.terminal.cosmicclock.CelestialMath.*;
 
@@ -26,16 +30,56 @@ public class CosmicClockPanel extends JPanel {
     private final SkyProjection projection;
     private Timer animationTimer;
 
+    /** Visible celestial bodies from the last paint cycle (for tooltip hit-testing). */
+    private final List<CelestialBody> visibleBodies = new ArrayList<>();
+
+    /** A rendered celestial body with screen position and name. */
+    private static final class CelestialBody {
+        final int x, y;
+        final double hitRadius;
+        final String name;
+        CelestialBody(int x, int y, double hitRadius, String name) {
+            this.x = x; this.y = y; this.hitRadius = hitRadius; this.name = name;
+        }
+    }
+
     public CosmicClockPanel(double timeFactor) {
         this.timeModel = new CosmicClockTimeModel(timeFactor);
         this.projection = new SkyProjection(); // south-facing default
         setOpaque(true);
         setBackground(Color.BLACK);
+
+        // Enable Swing tooltips and speed up the initial delay
+        ToolTipManager ttm = ToolTipManager.sharedInstance();
+        ttm.registerComponent(this);
+        ttm.setInitialDelay(150);
+        ttm.setDismissDelay(5000);
     }
 
     /** Convenience constructor with default time factor 120×. */
     public CosmicClockPanel() {
         this(120);
+    }
+
+    /** Return the name of the nearest celestial body under the mouse, or null. */
+    @Override
+    public String getToolTipText(MouseEvent e) {
+        int mx = e.getX(), my = e.getY();
+        double bestDist = Double.MAX_VALUE;
+        String bestName = null;
+        // snapshot to avoid concurrent modification
+        List<CelestialBody> bodies = new ArrayList<>(visibleBodies);
+        for (CelestialBody b : bodies) {
+            double dx = mx - b.x;
+            double dy = my - b.y;
+            double dist = Math.sqrt(dx * dx + dy * dy);
+            double hitR = Math.max(b.hitRadius, 8); // minimum 8px hit area
+            if (dist <= hitR && dist < bestDist) {
+                bestDist = dist;
+                bestName = b.name;
+            }
+        }
+        return bestName;
     }
 
     // ── Lifecycle ──────────────────────────────────────────────
@@ -148,8 +192,22 @@ public class CosmicClockPanel extends JPanel {
             double jd = julianDate(simMillis);
             double lstDeg = lst(jd, OBSERVER_LON);
 
+            // Collect visible bodies for tooltip hit-testing
+            List<CelestialBody> bodies = new ArrayList<>();
+
+            // ── Sun ──────────────────────────────────────────────
+            double[] sunData = SolarSystemCalculator.sun(jd);
+            double[] sunAltAz = equatorialToHorizontal(sunData[0], sunData[1], lstDeg, OBSERVER_LAT);
+            if (sunAltAz[1] > -5) {
+                int[] spx = projection.project(sunAltAz[0], sunAltAz[1], w, h);
+                if (spx != null) {
+                    bodies.add(new CelestialBody(spx[0], spx[1], 10, "☀ Sonne"));
+                }
+            }
+
             // ── Stars ──────────────────────────────────────────
-            for (double[] star : StarCatalog.STARS) {
+            for (int si = 0; si < StarCatalog.STARS.length; si++) {
+                double[] star = StarCatalog.STARS[si];
                 double raH   = star[0];
                 double decDeg = star[1];
                 double mag   = star[2];
@@ -177,6 +235,12 @@ public class CosmicClockPanel extends JPanel {
                 g.setColor(new Color(r, gv, b, (int)(alpha * 255)));
                 double d = radius * 2;
                 g.fill(new Ellipse2D.Double(px[0] - radius, px[1] - radius, d, d));
+
+                // Register for tooltip
+                if (si < StarCatalog.STAR_NAMES.length) {
+                    String name = StarCatalog.STAR_NAMES[si];
+                    bodies.add(new CelestialBody(px[0], px[1], radius * 3, "✦ " + name));
+                }
 
                 // Glow for very bright stars
                 if (mag < 1.0 && alpha > 0.3f) {
@@ -206,6 +270,9 @@ public class CosmicClockPanel extends JPanel {
                 g.setColor(new Color(cr, cg, cb, (int)(alpha * 255)));
                 int pr = pl.radius;
                 g.fill(new Ellipse2D.Double(px[0] - pr, px[1] - pr, pr * 2, pr * 2));
+
+                // Register for tooltip
+                bodies.add(new CelestialBody(px[0], px[1], pr * 3, "● " + pl.name));
             }
 
             // ── Moon ───────────────────────────────────────────
@@ -215,8 +282,13 @@ public class CosmicClockPanel extends JPanel {
                 int[] px = projection.project(moonAltAz[0], moonAltAz[1], w, h);
                 if (px != null) {
                     paintMoon(g, px[0], px[1], moonData[2], moonAltAz[1]);
+                    bodies.add(new CelestialBody(px[0], px[1], 12, "🌙 Mond"));
                 }
             }
+
+            // Publish for tooltip hit-testing
+            visibleBodies.clear();
+            visibleBodies.addAll(bodies);
 
         } finally {
             g.dispose();
