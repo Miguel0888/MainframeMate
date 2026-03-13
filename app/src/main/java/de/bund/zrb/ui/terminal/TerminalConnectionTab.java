@@ -349,17 +349,28 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                JLayeredPane layered = new JLayeredPane();
-                layered.setLayout(null); // manual positioning
-                layered.add(scalingWrapper, JLayeredPane.DEFAULT_LAYER);
-                layered.add(fkeyPanel, JLayeredPane.PALETTE_LAYER);
-                // Ensure mouse clicks on the overlay still give focus to the terminal
-                fkeyPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+                // ── Overlay container ──────────────────────────────────
+                // We use a plain JPanel with null layout that:
+                //  • paints a black background (fills the whole area so no
+                //    "ghost" pixels survive from moved children)
+                //  • returns isOptimizedDrawingEnabled() == false so Swing
+                //    knows children overlap and must repaint properly
+                JPanel layered = new JPanel(null) {
                     @Override
-                    public void mousePressed(java.awt.event.MouseEvent e) {
-                        // Don't steal focus — let button clicks work normally
+                    protected void paintComponent(Graphics g) {
+                        g.setColor(Color.BLACK);
+                        g.fillRect(0, 0, getWidth(), getHeight());
                     }
-                });
+
+                    @Override
+                    public boolean isOptimizedDrawingEnabled() {
+                        return false; // children overlap (terminal + fkey overlay)
+                    }
+                };
+                layered.setOpaque(true);
+                layered.setBackground(Color.BLACK);
+                layered.add(fkeyPanel);     // painted last = on top
+                layered.add(scalingWrapper); // painted first = behind
 
                 // Keep both layers sized to the container
                 layered.addComponentListener(new ComponentAdapter() {
@@ -370,10 +381,9 @@ public class TerminalConnectionTab implements ConnectionTab {
                         // Terminal fills everything
                         scalingWrapper.setBounds(0, 0, w, h);
                         // F-key overlay anchored at the bottom
-                        int fkeyH = fkeyPanel.getPreferredSize().height;
-                        if (fkeyH <= 0) fkeyH = 30;
-                        fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
+                        repositionFkeyOverlay(layered);
                         scaleTerminalFont(screen, scalingWrapper);
+                        layered.repaint();
                     }
                 });
 
@@ -469,7 +479,13 @@ public class TerminalConnectionTab implements ConnectionTab {
             public void run() {
                 fkeyPanel.removeAll();
                 fkeyPanel.revalidate();
-                fkeyPanel.repaint();
+                // Repaint the whole overlay parent to clear ghost artifacts
+                Container parent = fkeyPanel.getParent();
+                if (parent != null) {
+                    parent.repaint();
+                } else {
+                    fkeyPanel.repaint();
+                }
             }
         });
     }
@@ -1227,15 +1243,23 @@ public class TerminalConnectionTab implements ConnectionTab {
         fkeyPanel.revalidate();
         fkeyPanel.repaint();
 
-        // Re-position the overlay in the JLayeredPane after content changed
-        Container parent = fkeyPanel.getParent();
-        if (parent instanceof JLayeredPane) {
-            int w = parent.getWidth();
-            int h = parent.getHeight();
-            int fkeyH = fkeyPanel.getPreferredSize().height;
-            if (fkeyH <= 0) fkeyH = 30;
-            fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
-        }
+        // Re-position the overlay and repaint the whole parent to clear ghosts
+        repositionFkeyOverlay(fkeyPanel.getParent());
+    }
+
+    /**
+     * Position the F-key overlay at the bottom of its parent container
+     * and trigger a full repaint so no ghost artifacts remain.
+     */
+    private void repositionFkeyOverlay(Container parent) {
+        if (parent == null) return;
+        int w = parent.getWidth();
+        int h = parent.getHeight();
+        if (w <= 0 || h <= 0) return;
+        int fkeyH = fkeyPanel.getPreferredSize().height;
+        if (fkeyH <= 0) fkeyH = 30;
+        fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
+        parent.repaint();
     }
 
     private JButton makeFkeyButton(final int fkeyNumber, String label) {
