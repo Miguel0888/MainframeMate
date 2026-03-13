@@ -286,9 +286,8 @@ public final class VirtualResourceOpener {
             // Determine initial path
             String initialPath = resource.getResolvedPath();
 
-            // If no specific path given, use initial HLQ from settings
-            if (initialPath == null || initialPath.isEmpty() ||
-                "''".equals(initialPath) || "/".equals(initialPath)) {
+            // If no specific path given, use initial HLQ from settings.
+            if (isRootLikePath(initialPath)) {
                 // Check settings for initial HLQ
                 if (settings.ftpUseLoginAsHlq) {
                     // Use login name as HLQ (like IBM client)
@@ -310,8 +309,7 @@ public final class VirtualResourceOpener {
             }
 
             // Navigate to initial path if we have one
-            if (initialPath != null && !initialPath.isEmpty() &&
-                !"''".equals(initialPath) && !"/".equals(initialPath)) {
+            if (!isRootLikePath(initialPath)) {
                 tab.loadDirectory(initialPath);
             }
 
@@ -324,6 +322,24 @@ public final class VirtualResourceOpener {
             showErrorDialog("MVS Verbindungsfehler", e.getMessage());
             return null;
         }
+    }
+
+    private boolean isRootLikePath(String path) {
+        if (path == null) {
+            return true;
+        }
+
+        String trimmed = path.trim();
+        if (trimmed.isEmpty()) {
+            return true;
+        }
+
+        if ("/".equals(trimmed) || "''".equals(trimmed)) {
+            return true;
+        }
+
+        String unquoted = de.bund.zrb.files.impl.vfs.mvs.MvsQuoteNormalizer.unquote(trimmed);
+        return unquoted.isEmpty() || "/".equals(unquoted);
     }
 
     private FtpTab openFile(VirtualResource resource, FileService fs,
