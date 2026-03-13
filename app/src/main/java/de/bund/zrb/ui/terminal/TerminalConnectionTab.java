@@ -1115,6 +1115,15 @@ public class TerminalConnectionTab implements ConnectionTab {
             "(?:PF|F)?(\\d{1,2})\\s*[=:\\-]\\s*([A-Za-z][\\w./#@]*)");
 
     /**
+     * Pattern matching multi-key legend entries where two (or more) keys share
+     * the same label, separated by {@code /}:
+     *   "PF1/PF13:Help"  "F3/F15=Exit"  "1/13-Actions"
+     * Group 1 = first key, Group 2 = second key, Group 3 = label.
+     */
+    private static final Pattern FKEY_MULTI_PATTERN = Pattern.compile(
+            "(?:PF|F)?(\\d{1,2})/(?:PF|F)?(\\d{1,2})\\s*[=:\\-]\\s*([A-Za-z][\\w./#@]*)");
+
+    /**
      * Detects Natural-style positional F-key legend.
      * Line 1: {@code Enter-PF1---PF2---PF3---PF4---...---PF12---}
      * Line 2: labels aligned underneath the corresponding keys.
@@ -1195,11 +1204,22 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         // ── Fall back to standard inline format ────────────────────
         // "F1=Help  F3=Exit  F12=Cancel"  /  "PF1:Help  PF3:End"
+        // Also handles multi-key entries: "PF1/PF13:Help"
         if (parsed.isEmpty()) {
+            // First pass: multi-key entries like "PF1/PF13:Help"
+            Matcher mm = FKEY_MULTI_PATTERN.matcher(trimmed);
+            while (mm.find()) {
+                String label = mm.group(3);
+                int num1 = Integer.parseInt(mm.group(1));
+                int num2 = Integer.parseInt(mm.group(2));
+                if (num1 >= 1 && num1 <= 24) parsed.put(num1, label);
+                if (num2 >= 1 && num2 <= 24) parsed.put(num2, label);
+            }
+            // Second pass: single-key entries like "F3=Exit"
             Matcher m = FKEY_PATTERN.matcher(trimmed);
             while (m.find()) {
                 int num = Integer.parseInt(m.group(1));
-                if (num >= 1 && num <= 24) {
+                if (num >= 1 && num <= 24 && !parsed.containsKey(num)) {
                     parsed.put(num, m.group(2));
                 }
             }
