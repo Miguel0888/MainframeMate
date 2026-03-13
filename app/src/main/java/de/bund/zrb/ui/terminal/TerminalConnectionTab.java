@@ -195,8 +195,16 @@ public class TerminalConnectionTab implements ConnectionTab {
                 // We parse the F-key legend ourselves and show it in the bottom panel.
                 JToolBar dummyToolbar = new JToolBar();
                 dummyToolbar.setVisible(false);
+                dummyToolbar.setPreferredSize(new Dimension(0, 0));
+                dummyToolbar.setMaximumSize(new Dimension(0, 0));
                 JTerminalScreen screen = new JTerminalScreen(createdTerminal, dummyToolbar);
                 screenRef.set(screen);
+
+                // OpenTerm may have added the dummyToolbar into JTerminalScreen's
+                // layout — detach it so it can never become visible as a ghost bar.
+                if (dummyToolbar.getParent() != null) {
+                    dummyToolbar.getParent().remove(dummyToolbar);
+                }
 
                 // Make the screen focusable and request focus on click.
                 // Disable Swing focus-traversal so Tab, arrow keys, etc. reach
@@ -1035,8 +1043,16 @@ public class TerminalConnectionTab implements ConnectionTab {
      * Read the last line(s) of the terminal screen, parse F-key assignments,
      * and rebuild the bottom status bar with grouped buttons.
      * <p>
+     * F1–F12 are <b>always</b> visible.  Assigned keys use the full group
+     * color; unassigned keys use a pale/desaturated accent of that color so
+     * the user can gauge the key positions at a glance.
+     * <p>
+     * F13–F24 (extended) are shown <b>only</b> when at least one of them is
+     * assigned on the current screen.  When shown, all twelve buttons appear
+     * (again, unassigned ones are pale).
+     * <p>
      * Row 1 (standard):  F1–F4 left │ F5–F8 center │ F9–F12 right
-     * Row 2 (extended, only shown when used): F13–F16 left │ F17–F20 center │ F21–F24 right
+     * Row 2 (extended):  F13–F16 left │ F17–F20 center │ F21–F24 right
      */
     private void refreshFkeyLegend() {
         Terminal t = terminal;
@@ -1060,7 +1076,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         if (trimmed.equals(lastFkeyLegend)) return;
         lastFkeyLegend = trimmed;
 
-        // Parse F-key assignments
+        // Parse F-key assignments from the legend text
         Map<Integer, String> parsed = new LinkedHashMap<Integer, String>();
         Matcher m = FKEY_PATTERN.matcher(trimmed);
         while (m.find()) {
@@ -1070,33 +1086,58 @@ public class TerminalConnectionTab implements ConnectionTab {
             }
         }
 
-        // Build sub-panels for standard keys (row 1)
+        // ── Build sub-panels for standard keys (row 1): always all F1–F12 ──
         JPanel leftStd   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
         JPanel centerStd = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
         JPanel rightStd  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
 
-        // Build sub-panels for extended keys (row 2)
-        JPanel leftExt   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
-        JPanel centerExt = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
-        JPanel rightExt  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
-
-        boolean hasExtended = false;
         fkeyButtons.clear();
 
-        for (Map.Entry<Integer, String> entry : parsed.entrySet()) {
-            int fnum = entry.getKey();
-            JButton btn = makeFkeyButton(fnum, entry.getValue());
+        for (int fnum = 1; fnum <= 12; fnum++) {
+            JButton btn;
+            if (parsed.containsKey(fnum)) {
+                btn = makeFkeyButton(fnum, parsed.get(fnum));
+            } else {
+                btn = makeFkeyPlaceholder(fnum);
+            }
             fkeyButtons.put(fnum, btn);
 
-            if (fnum >= 1 && fnum <= 4)        leftStd.add(btn);
-            else if (fnum >= 5 && fnum <= 8)   centerStd.add(btn);
-            else if (fnum >= 9 && fnum <= 12)  rightStd.add(btn);
-            else if (fnum >= 13 && fnum <= 16) { leftExt.add(btn); hasExtended = true; }
-            else if (fnum >= 17 && fnum <= 20) { centerExt.add(btn); hasExtended = true; }
-            else if (fnum >= 21 && fnum <= 24) { rightExt.add(btn); hasExtended = true; }
+            if (fnum <= 4)       leftStd.add(btn);
+            else if (fnum <= 8)  centerStd.add(btn);
+            else                 rightStd.add(btn);
         }
 
-        // Assemble rows
+        // ── Extended keys (row 2): only if at least one F13–F24 is assigned ──
+        boolean hasExtended = false;
+        for (int fnum = 13; fnum <= 24; fnum++) {
+            if (parsed.containsKey(fnum)) { hasExtended = true; break; }
+        }
+
+        JPanel leftExt   = null;
+        JPanel centerExt = null;
+        JPanel rightExt  = null;
+
+        if (hasExtended) {
+            leftExt   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
+            centerExt = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
+            rightExt  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
+
+            for (int fnum = 13; fnum <= 24; fnum++) {
+                JButton btn;
+                if (parsed.containsKey(fnum)) {
+                    btn = makeFkeyButton(fnum, parsed.get(fnum));
+                } else {
+                    btn = makeFkeyPlaceholder(fnum);
+                }
+                fkeyButtons.put(fnum, btn);
+
+                if (fnum <= 16)      leftExt.add(btn);
+                else if (fnum <= 20) centerExt.add(btn);
+                else                 rightExt.add(btn);
+            }
+        }
+
+        // ── Assemble rows ──
         JPanel row1 = new JPanel(new BorderLayout(8, 0));
         row1.add(leftStd, BorderLayout.WEST);
         row1.add(centerStd, BorderLayout.CENTER);
@@ -1118,11 +1159,11 @@ public class TerminalConnectionTab implements ConnectionTab {
     }
 
     private JButton makeFkeyButton(final int fkeyNumber, String label) {
-        JButton btn = new JButton(fkeyNumber + "-" + label);
+        JButton btn = new JButton("F" + fkeyNumber + "-" + label);
         btn.setMargin(new Insets(1, 4, 1, 4));
         btn.setFont(btn.getFont().deriveFont(Font.PLAIN, 11f));
         btn.setFocusable(false);
-        btn.setToolTipText("F" + fkeyNumber);
+        btn.setToolTipText("F" + fkeyNumber + " – " + label);
 
         Color bg = getFkeyColor(fkeyNumber);
         btn.setBackground(bg);
@@ -1130,6 +1171,36 @@ public class TerminalConnectionTab implements ConnectionTab {
         // Use dark text for light backgrounds, white for dark ones
         float brightness = (bg.getRed() * 299 + bg.getGreen() * 587 + bg.getBlue() * 114) / 255000f;
         btn.setForeground(brightness > 0.55f ? Color.BLACK : Color.WHITE);
+
+        final Ohio.OHIO_AID aid = pfKeyToAid(fkeyNumber);
+        btn.addActionListener(e -> {
+            Terminal t = terminal;
+            if (t != null && connected && aid != null) {
+                macroRecorder.recordAid(aid);
+                t.Fkey(aid);
+                if (terminalScreen != null) terminalScreen.requestFocusInWindow();
+            }
+        });
+        return btn;
+    }
+
+    /**
+     * Create a pale placeholder button for an F-key that is not assigned
+     * on the current screen.  The button is still functional (sends the
+     * PF key to the host when clicked), but its washed-out colour signals
+     * that no legend label is active for it.
+     */
+    private JButton makeFkeyPlaceholder(final int fkeyNumber) {
+        JButton btn = new JButton("F" + fkeyNumber);
+        btn.setMargin(new Insets(1, 4, 1, 4));
+        btn.setFont(btn.getFont().deriveFont(Font.PLAIN, 11f));
+        btn.setFocusable(false);
+        btn.setToolTipText("F" + fkeyNumber + " (nicht belegt)");
+
+        Color bg = getFkeyColorPale(fkeyNumber);
+        btn.setBackground(bg);
+        btn.setOpaque(true);
+        btn.setForeground(new Color(160, 160, 160)); // muted gray text
 
         final Ohio.OHIO_AID aid = pfKeyToAid(fkeyNumber);
         btn.addActionListener(e -> {
@@ -1226,6 +1297,18 @@ public class TerminalConnectionTab implements ConnectionTab {
             return blend(blue, new Color(60, 80, 180), t);
         }
         return new Color(200, 200, 200); // fallback gray
+    }
+
+    /**
+     * Compute a pale/washed-out background colour for an unassigned F-key.
+     * Takes the full group colour from {@link #getFkeyColor(int)} and blends
+     * it 75 % toward white, producing a light pastel that still hints at
+     * the group (pale yellow, pale orange, pale red, etc.).
+     */
+    private static Color getFkeyColorPale(int fkey) {
+        Color full = getFkeyColor(fkey);
+        Color white = new Color(255, 255, 255);
+        return blend(full, white, 0.75f);
     }
 
     private static Color blend(Color a, Color b, float t) {
