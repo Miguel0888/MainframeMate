@@ -1103,12 +1103,28 @@ public class TerminalConnectionTab implements ConnectionTab {
     // ── F-Key Legend Parsing ─────────────────────────────────────
 
     /**
-     * Pattern matching F-key legend entries in all common formats:
+     * Pattern matching F-key legend entries in standard inline formats:
      *   "F1=Help"  "F3:End"  "F10-Actions"  "1=Help"  "PF1=Help"  "PF3:End"
      * Group 1 = key number, Group 2 = label text.
+     * <p>
+     * The label capture {@code ([A-Za-z][\\w./#@]*)} requires labels to start
+     * with a letter.  This prevents false matches on Natural-style positional
+     * legends where keys are separated by dashes: {@code PF1---PF2---PF3---}.
      */
     private static final Pattern FKEY_PATTERN = Pattern.compile(
-            "(?:PF|F)?(\\d{1,2})\\s*[=:\\-]\\s*(\\S+)");
+            "(?:PF|F)?(\\d{1,2})\\s*[=:\\-]\\s*([A-Za-z][\\w./#@]*)");
+
+    /**
+     * Detects Natural-style positional F-key legend.
+     * Line 1: {@code Enter-PF1---PF2---PF3---PF4---...---PF12---}
+     * Line 2: labels aligned underneath the corresponding keys.
+     */
+    private static final Pattern NATURAL_FKEY_LINE = Pattern.compile(
+            "PF\\d+---");
+
+    /** Pattern to find individual PF key positions on a Natural legend line. */
+    private static final Pattern NATURAL_PF_KEY = Pattern.compile(
+            "PF(\\d{1,2})");
 
     /** Last parsed legend text – avoid rebuilding buttons if unchanged. */
     private String lastFkeyLegend = "";
@@ -1144,26 +1160,48 @@ public class TerminalConnectionTab implements ConnectionTab {
         if (cols <= 0 || rows <= 0) return;
 
         // Read the last two rows (F-key legend often spans 2 lines)
-        String lastLine = "";
+        String lastTwoLines = "";
         try {
             int startPos = (rows - 2) * cols;
-            lastLine = t.getCharString(startPos, cols * 2);
+            lastTwoLines = t.getCharString(startPos, cols * 2);
         } catch (Exception ex) {
             return;
         }
 
-        if (lastLine == null) return;
-        String trimmed = lastLine.trim();
+        if (lastTwoLines == null || lastTwoLines.length() < cols) return;
+        String trimmed = lastTwoLines.trim();
         if (trimmed.equals(lastFkeyLegend)) return;
         lastFkeyLegend = trimmed;
 
+        // Split into the two physical screen lines
+        String line1 = lastTwoLines.substring(0, cols);
+        String line2 = lastTwoLines.length() >= cols * 2
+                ? lastTwoLines.substring(cols, cols * 2) : "";
+
         // Parse F-key assignments from the legend text
         Map<Integer, String> parsed = new LinkedHashMap<Integer, String>();
-        Matcher m = FKEY_PATTERN.matcher(trimmed);
-        while (m.find()) {
-            int num = Integer.parseInt(m.group(1));
-            if (num >= 1 && num <= 24) {
-                parsed.put(num, m.group(2));
+
+        // ── Try Natural-style positional format first ──────────────
+        // Detected by "PF<n>---" on either line (keys separated by
+        // dashes, labels on the OTHER line aligned by column position).
+        boolean naturalOnLine1 = NATURAL_FKEY_LINE.matcher(line1).find();
+        boolean naturalOnLine2 = NATURAL_FKEY_LINE.matcher(line2).find();
+
+        if (naturalOnLine1) {
+            parseNaturalFkeyLegend(line1, line2, parsed);
+        } else if (naturalOnLine2) {
+            parseNaturalFkeyLegend(line2, line1, parsed);
+        }
+
+        // ── Fall back to standard inline format ────────────────────
+        // "F1=Help  F3=Exit  F12=Cancel"  /  "PF1:Help  PF3:End"
+        if (parsed.isEmpty()) {
+            Matcher m = FKEY_PATTERN.matcher(trimmed);
+            while (m.find()) {
+                int num = Integer.parseInt(m.group(1));
+                if (num >= 1 && num <= 24) {
+                    parsed.put(num, m.group(2));
+                }
             }
         }
 
@@ -1251,6 +1289,52 @@ public class TerminalConnectionTab implements ConnectionTab {
         if (parent != null) {
             parent.revalidate();
             parent.repaint();
+        }
+    }
+
+    /**
+     * Parse Natural-style positional F-key legend.
+     * <p>
+     * {@code keysLine} contains the PF key names separated by dashes:
+     * <pre>Enter-PF1---PF2---PF3---PF4---...---PF12---</pre>
+     * {@code labelsLine} contains the labels aligned by column position:
+     * <pre>      Help        Exit                   Canc</pre>
+     * <p>
+     * Each label word on {@code labelsLine} is assigned to the PF key whose
+     * column zone contains the label's start position.  A key's zone runs
+     * from the start of its name to just before the next key's name.
+     */
+    private void parseNaturalFkeyLegend(String keysLine, String labelsLine,
+                                         Map<Integer, String> parsed) {
+        // 1) Find all PF key positions on the keys line
+        Matcher km = NATURAL_PF_KEY.matcher(keysLine);
+        List<int[]> keys = new ArrayList<int[]>(); // {keyNumber, startColumn}
+        while (km.find()) {
+            int keyNum = Integer.parseInt(km.group(1));
+            if (keyNum >= 1 && keyNum <= 24) {
+                keys.add(new int[]{keyNum, km.start()});
+            }
+        }
+        if (keys.isEmpty()) return;
+
+        // 2) Find all label words on the labels line and assign each
+        //    to the PF key whose zone contains the label's start column.
+        //    A key's zone extends from its start column to the start of
+        //    the next key (or end of line for the last key).
+        Matcher wm = Pattern.compile("\\S+").matcher(labelsLine);
+        while (wm.find()) {
+            String label = wm.group();
+            int labelCol = wm.start();
+
+            for (int i = 0; i < keys.size(); i++) {
+                int zoneStart = keys.get(i)[1];
+                int zoneEnd = (i + 1 < keys.size())
+                        ? keys.get(i + 1)[1] : labelsLine.length();
+                if (labelCol >= zoneStart && labelCol < zoneEnd) {
+                    parsed.put(keys.get(i)[0], label);
+                    break;
+                }
+            }
         }
     }
 
