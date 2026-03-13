@@ -333,7 +333,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
                 // ── Build overlay: terminal fills everything, F-key bar
                 //    floats at the bottom as a see-through overlay ──────────
-                final JPanel scalingWrapper = new JPanel(new BorderLayout()) {
+                final JPanel scalingWrapper = new JPanel(new GridBagLayout()) {
                     @Override
                     protected void paintComponent(Graphics g) {
                         // Explicitly fill black so the area outside the terminal
@@ -344,7 +344,9 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 };
                 scalingWrapper.setBackground(Color.BLACK);
-                scalingWrapper.add(screen, BorderLayout.CENTER);
+                // GridBagConstraints default = centered, no fill → terminal
+                // sits at its preferred size in the middle of the black area.
+                scalingWrapper.add(screen, new GridBagConstraints());
 
                 // Also grab focus when the wrapper is clicked
                 scalingWrapper.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -431,19 +433,20 @@ public class TerminalConnectionTab implements ConnectionTab {
             cols = 132;
         }
 
-        // Calculate max font size that fits
-        // Use monospaced font — character width ≈ 0.6 × font-size, height ≈ font-size + line-spacing
-        // We test actual metrics to be precise
+        // JTerminalScreen draws into a frameBuff that includes margins around the grid
+        int marginX = JTerminalScreen.MARGIN_X;  // 10
+        int marginY = JTerminalScreen.MARGIN_Y;  //  6
+
+        // Calculate max font size that fits (including margins)
         Font currentFont = screen.getFont();
         String fontFamily = currentFont != null ? currentFont.getFamily() : "Monospaced";
 
-        // Binary search for best font size
         int bestSize = 8;
         for (int size = 8; size <= 40; size++) {
             Font testFont = new Font(fontFamily, Font.PLAIN, size);
             FontMetrics fm = screen.getFontMetrics(testFont);
-            int totalWidth = fm.charWidth('M') * cols;
-            int totalHeight = fm.getHeight() * rows;
+            int totalWidth  = fm.charWidth('M') * cols + 2 * marginX;
+            int totalHeight = fm.getHeight() * rows     + 2 * marginY;
 
             if (totalWidth <= availableWidth && totalHeight <= availableHeight) {
                 bestSize = size;
@@ -454,7 +457,16 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         Font currentScreenFont = screen.getFont();
         if (currentScreenFont == null || currentScreenFont.getSize() != bestSize) {
-            screen.setFont(new Font(fontFamily, Font.PLAIN, bestSize));
+            Font bestFont = new Font(fontFamily, Font.PLAIN, bestSize);
+            screen.setFont(bestFont);
+
+            // Set the preferred size to the exact frameBuff pixel dimensions
+            // so GridBagLayout centres the terminal in the available space.
+            FontMetrics fm = screen.getFontMetrics(bestFont);
+            int prefW = fm.charWidth('M') * cols + 2 * marginX;
+            int prefH = fm.getHeight() * rows     + 2 * marginY;
+            screen.setPreferredSize(new Dimension(prefW, prefH));
+
             screen.revalidate();
             screen.repaint();
         }
