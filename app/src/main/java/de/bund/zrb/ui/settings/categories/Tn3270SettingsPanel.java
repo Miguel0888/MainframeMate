@@ -28,6 +28,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JSpinner actionDelaySpinner;
     private final JSpinner fkeyOpacitySpinner;
     private final JCheckBox cosmicClockCheckBox;
+    private final JSpinner cosmicClockFactorSpinner;
     private final MouseBindingTableModel mouseBindingModel;
 
     public Tn3270SettingsPanel() {
@@ -92,7 +93,20 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
 
         cosmicClockCheckBox = new JCheckBox("Kosmische Uhr als Hintergrund", settings.cosmicClockEnabled);
         cosmicClockCheckBox.setToolTipText("Animierter Sternenhimmel hinter dem Terminal (deaktiviert = klassisch schwarzer Hintergrund)");
-        fb.addWide(cosmicClockCheckBox);
+
+        cosmicClockFactorSpinner = new JSpinner(new SpinnerNumberModel(
+                (int) settings.cosmicClockTimeFactor, 1, 10000, 10));
+        cosmicClockFactorSpinner.setToolTipText("Zeitfaktor (1 = Echtzeit, 120 = 2 Min ≈ 4 Std simuliert)");
+        cosmicClockFactorSpinner.setEnabled(settings.cosmicClockEnabled);
+
+        cosmicClockCheckBox.addActionListener(e ->
+                cosmicClockFactorSpinner.setEnabled(cosmicClockCheckBox.isSelected()));
+
+        JPanel clockPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        clockPanel.add(cosmicClockCheckBox);
+        clockPanel.add(new JLabel("Faktor:"));
+        clockPanel.add(cosmicClockFactorSpinner);
+        fb.addWide(clockPanel);
 
         // ── Mouse → F-Key bindings ──────────────────────────────
         fb.addSection("Maus-Aktionen");
@@ -164,6 +178,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270ActionDelayMs = ((Number) actionDelaySpinner.getValue()).intValue();
         s.tn3270FkeyOverlayOpacity = ((Number) fkeyOpacitySpinner.getValue()).intValue();
         s.cosmicClockEnabled = cosmicClockCheckBox.isSelected();
+        s.cosmicClockTimeFactor = ((Number) cosmicClockFactorSpinner.getValue()).doubleValue();
         s.tn3270MouseFkeyBindings = mouseBindingModel.getBindings();
     }
 
