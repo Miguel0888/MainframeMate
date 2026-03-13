@@ -218,32 +218,140 @@ public class TerminalConnectionTab implements ConnectionTab {
                 screen.setRequestFocusEnabled(true);
                 screen.setFocusTraversalKeysEnabled(false);
 
-                // ── Arrow-key bindings via InputMap/ActionMap ──────────────
-                // KeyListeners have LOW priority in Swing — they fire AFTER
-                // InputMap/ActionMap processing.  Swing's default focus-traversal
-                // for containers intercepts arrow keys before any KeyListener
-                // sees them.  We therefore register explicit bindings at the
-                // WHEN_FOCUSED level which have HIGHEST priority.
+                // ── Arrow-key DEBUG + fallback ──────────────────────────────
+                // OpenTerm's AbstractKeyHandler already registers LEFT/RIGHT/UP/DOWN
+                // actions in its own InputMap/ActionMap (installed via setKbdEnabled
+                // during JTerminalScreen construction).  We must NOT override them,
+                // because OpenTerm's actions call renderScreen()+repaint() via the
+                // TnAction.refresh() callback — a plain repaint() is insufficient.
+                //
+                // Below we add debug logging at EVERY level to trace where
+                // arrow key events go, plus a WHEN_IN_FOCUSED_WINDOW fallback
+                // so arrow keys work even if focus is on a parent container.
+
                 InputMap im = screen.getInputMap(JComponent.WHEN_FOCUSED);
                 ActionMap am = screen.getActionMap();
+
+                // DEBUG: dump existing arrow key bindings installed by OpenTerm
                 int[] arrowKeys = {
                     java.awt.event.KeyEvent.VK_LEFT,
                     java.awt.event.KeyEvent.VK_RIGHT,
                     java.awt.event.KeyEvent.VK_UP,
                     java.awt.event.KeyEvent.VK_DOWN
                 };
+                for (int debugVk : arrowKeys) {
+                    KeyStroke ks = KeyStroke.getKeyStroke(debugVk, 0);
+                    Object existingBinding = im.get(ks);
+                    LOG.info("[3270-DEBUG] WHEN_FOCUSED binding for VK_" + debugVk + ": " + existingBinding);
+                    if (existingBinding != null) {
+                        javax.swing.Action existingAction = am.get(existingBinding);
+                        LOG.info("[3270-DEBUG]   → Action: " + existingAction
+                                + " class=" + (existingAction != null ? existingAction.getClass().getName() : "null"));
+                    }
+                    // Also check parent input maps
+                    InputMap parentIm = im.getParent();
+                    if (parentIm != null) {
+                        Object parentBinding = parentIm.get(ks);
+                        LOG.info("[3270-DEBUG]   → Parent InputMap binding: " + parentBinding);
+                    }
+                }
+                // DEBUG: dump ALL keys in the InputMap
+                KeyStroke[] allKeys = im.allKeys();
+                LOG.info("[3270-DEBUG] Total InputMap keys: " + (allKeys != null ? allKeys.length : 0));
+                if (allKeys != null) {
+                    for (KeyStroke ks : allKeys) {
+                        LOG.info("[3270-DEBUG]   InputMap: " + ks + " → " + im.get(ks));
+                    }
+                }
+                LOG.info("[3270-DEBUG] kbdEnabled check: isScreenInputEnabled=" + screen.isScreenInputEnabled());
+
+                // ── Wrap OpenTerm's arrow-key actions with debug logging ──────
+                // Instead of replacing them, we wrap existing actions so we get
+                // logging AND OpenTerm's refresh() mechanism stays intact.
                 for (int vk : arrowKeys) {
-                    String actionName = "cursor-" + vk;
-                    im.put(KeyStroke.getKeyStroke(vk, 0), actionName);
+                    String openTermName = arrowKeyActionName(vk);
+                    if (openTermName == null) continue;
+                    final javax.swing.Action origAction = am.get(openTermName);
+                    final int keyCode = vk;
+                    if (origAction != null) {
+                        LOG.info("[3270-DEBUG] Wrapping OpenTerm action '" + openTermName + "' for VK_" + vk);
+                        am.put(openTermName, new AbstractAction() {
+                            @Override
+                            public void actionPerformed(java.awt.event.ActionEvent e) {
+                                LOG.info("[3270-DEBUG] OpenTerm action '" + openTermName + "' FIRED for VK_" + keyCode
+                                        + " connected=" + connected
+                                        + " kbdLocked=" + (createdTerminal != null ? createdTerminal.isKeyboardLocked() : "N/A")
+                                        + " cursorBefore=" + (createdTerminal != null ? createdTerminal.getCursorPosition() : -1));
+                                origAction.actionPerformed(e);
+                                LOG.info("[3270-DEBUG] OpenTerm action done, cursorAfter="
+                                        + (createdTerminal != null ? createdTerminal.getCursorPosition() : -1));
+                            }
+                        });
+                    } else {
+                        LOG.warning("[3270-DEBUG] No OpenTerm action found for '" + openTermName + "' (VK_" + vk
+                                + "). Installing our own fallback.");
+                        // Fallback: if OpenTerm didn't register the action, add our own
+                        KeyStroke ks = KeyStroke.getKeyStroke(vk, 0);
+                        String fallbackName = "cursor-fallback-" + vk;
+                        im.put(ks, fallbackName);
+                        am.put(fallbackName, new AbstractAction() {
+                            @Override
+                            public void actionPerformed(java.awt.event.ActionEvent e) {
+                                LOG.info("[3270-DEBUG] FALLBACK action FIRED for VK_" + keyCode);
+                                moveCursorByArrowKey(createdTerminal, keyCode);
+                                screen.refresh();
+                            }
+                        });
+                    }
+                }
+
+                // ── WHEN_IN_FOCUSED_WINDOW fallback (fires even if screen
+                //    doesn't have direct focus) ────────────────────────────────
+                InputMap windowIm = screen.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+                for (int vk : arrowKeys) {
+                    String actionName = "cursor-window-" + vk;
+                    windowIm.put(KeyStroke.getKeyStroke(vk, 0), actionName);
                     final int keyCode = vk;
                     am.put(actionName, new AbstractAction() {
                         @Override
                         public void actionPerformed(java.awt.event.ActionEvent e) {
+                            LOG.info("[3270-DEBUG] WHEN_IN_FOCUSED_WINDOW FIRED for VK_" + keyCode
+                                    + " screenHasFocus=" + screen.hasFocus()
+                                    + " kbdLocked=" + (createdTerminal != null ? createdTerminal.isKeyboardLocked() : "N/A")
+                                    + " focusOwner=" + java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner());
                             moveCursorByArrowKey(createdTerminal, keyCode);
-                            screen.repaint();
+                            screen.refresh();
                         }
                     });
                 }
+
+                // ── Global KeyEventDispatcher — catches ALL arrow events ──────
+                java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                        .addKeyEventDispatcher(new java.awt.KeyEventDispatcher() {
+                    @Override
+                    public boolean dispatchKeyEvent(java.awt.event.KeyEvent e) {
+                        int kc = e.getKeyCode();
+                        if (kc == java.awt.event.KeyEvent.VK_LEFT
+                                || kc == java.awt.event.KeyEvent.VK_RIGHT
+                                || kc == java.awt.event.KeyEvent.VK_UP
+                                || kc == java.awt.event.KeyEvent.VK_DOWN) {
+                            if (e.getID() == java.awt.event.KeyEvent.KEY_PRESSED) {
+                                Component focusOwner = java.awt.KeyboardFocusManager
+                                        .getCurrentKeyboardFocusManager().getFocusOwner();
+                                LOG.info("[3270-DEBUG] GLOBAL KeyEventDispatcher: VK_" + kc
+                                        + " type=KEY_PRESSED"
+                                        + " consumed=" + e.isConsumed()
+                                        + " focusOwner=" + (focusOwner != null ? focusOwner.getClass().getName() : "null")
+                                        + " isScreen=" + (focusOwner == screen)
+                                        + " screenFocusable=" + screen.isFocusable()
+                                        + " screenShowing=" + screen.isShowing()
+                                        + " screenVisible=" + screen.isVisible()
+                                        + " kbdLocked=" + (createdTerminal != null ? createdTerminal.isKeyboardLocked() : "N/A"));
+                            }
+                        }
+                        return false; // don't consume — let normal processing continue
+                    }
+                });
 
                 screen.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
@@ -308,7 +416,18 @@ public class TerminalConnectionTab implements ConnectionTab {
                         if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER) {
                             macroRecorder.recordAid(AID_ENTER);
                         }
-                        // Note: arrow keys are now handled by InputMap/ActionMap above
+                        // DEBUG: Log arrow key events reaching the KeyListener
+                        int akc = e.getKeyCode();
+                        if (akc == java.awt.event.KeyEvent.VK_LEFT
+                                || akc == java.awt.event.KeyEvent.VK_RIGHT
+                                || akc == java.awt.event.KeyEvent.VK_UP
+                                || akc == java.awt.event.KeyEvent.VK_DOWN) {
+                            LOG.info("[3270-DEBUG] KeyListener.keyPressed: VK_" + akc
+                                    + " consumed=" + e.isConsumed()
+                                    + " kbdLocked=" + (createdTerminal != null ? createdTerminal.isKeyboardLocked() : "N/A")
+                                    + " cursorPos=" + (createdTerminal != null ? createdTerminal.getCursorPosition() : -1)
+                                    + " screenInputEnabled=" + screen.isScreenInputEnabled());
+                        }
                     }
 
                     @Override
@@ -545,20 +664,38 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     // ── Arrow-key cursor movement ─────────────────────────────────
 
+    /** Map a VK_* arrow code to OpenTerm's action name in the ActionMap. */
+    private static String arrowKeyActionName(int vk) {
+        switch (vk) {
+            case java.awt.event.KeyEvent.VK_LEFT:  return "LEFT";
+            case java.awt.event.KeyEvent.VK_RIGHT: return "RIGHT";
+            case java.awt.event.KeyEvent.VK_UP:    return "UP";
+            case java.awt.event.KeyEvent.VK_DOWN:  return "DOWN";
+            default: return null;
+        }
+    }
+
     /**
      * Move the 3270 cursor by one position in the direction indicated by the
      * given {@code VK_*} arrow key code.  The cursor wraps around at screen
      * boundaries (standard 3270 behaviour).
      */
     private void moveCursorByArrowKey(Terminal term, int keyCode) {
-        if (term == null || !connected) return;
+        if (term == null || !connected) {
+            LOG.info("[3270-DEBUG] moveCursorByArrowKey: SKIPPED (term=" + (term != null) + ", connected=" + connected + ")");
+            return;
+        }
 
         int cols = term.getCols();
         int rows = term.getRows();
-        if (cols <= 0 || rows <= 0) return;
+        if (cols <= 0 || rows <= 0) {
+            LOG.info("[3270-DEBUG] moveCursorByArrowKey: SKIPPED (cols=" + cols + ", rows=" + rows + ")");
+            return;
+        }
 
         int totalCells = rows * cols;
-        int pos = term.getCursorPosition();
+        int oldPos = term.getCursorPosition();
+        int pos = oldPos;
 
         switch (keyCode) {
             case java.awt.event.KeyEvent.VK_LEFT:
@@ -577,6 +714,10 @@ public class TerminalConnectionTab implements ConnectionTab {
                 return;
         }
 
+        LOG.info("[3270-DEBUG] moveCursorByArrowKey: VK_" + keyCode
+                + " oldPos=" + oldPos + " newPos=" + pos
+                + " (row " + (oldPos / cols) + "→" + (pos / cols)
+                + ", col " + (oldPos % cols) + "→" + (pos % cols) + ")");
         term.setCursorPosition((short) pos);
     }
 
