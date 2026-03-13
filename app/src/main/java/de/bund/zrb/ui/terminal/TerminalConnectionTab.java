@@ -587,14 +587,20 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     // ── Menu / Action-Bar click detection ─────────────────────
 
-    /** Max row (0-based) to consider as action-bar area. */
-    private static final int ACTION_BAR_MAX_ROW = 3;
-
     /**
      * Called shortly after a mouse click on the terminal screen.
      * If the cursor is positioned on a selectable menu item (= a <b>protected</b>
-     * field in the top rows that contains visible text), send ENTER automatically.
+     * field that contains visible text), send ENTER automatically.
      * <p>
+     * Detection strategy:
+     * <ul>
+     *   <li><b>Rows 0–1</b> (action bar): always auto-enter for protected fields with text.</li>
+     *   <li><b>Rows 2 … (rows−4)</b> (pulldown / popup area): auto-enter only when the field
+     *       uses CUA-style highlighting — <i>reverse video</i>, <i>alternate intensity</i>,
+     *       or <i>underscore</i>.  This covers pulldown menu items of any depth while
+     *       avoiding false positives on regular labels.</li>
+     *   <li><b>Bottom 3 rows</b> (command line, message line, PF-key legend): never auto-enter.</li>
+     * </ul>
      * In 3270, action-bar / menu items are always in protected fields.
      * Unprotected fields in the top rows are input fields (e.g. command line)
      * where the user types, so we must NOT auto-send ENTER there.
@@ -604,13 +610,14 @@ public class TerminalConnectionTab implements ConnectionTab {
         if (term.isKeyboardLocked()) return;
 
         int cols = term.getCols();
-        if (cols <= 0) return;
+        int rows = term.getRows();
+        if (cols <= 0 || rows <= 0) return;
 
         int cursorPos = term.getCursorPosition();
         int cursorRow = cursorPos / cols;   // 0-based
 
-        // Only action-bar area (top few rows)
-        if (cursorRow > ACTION_BAR_MAX_ROW) return;
+        // Bottom 3 rows are command line / message / PF-key legend → never
+        if (cursorRow >= rows - 3) return;
 
         // Check if the cursor is in a PROTECTED field with text (= menu item)
         try {
@@ -621,21 +628,56 @@ public class TerminalConnectionTab implements ConnectionTab {
             // Unprotected fields are input areas → don't interfere.
             if (!field.isProtected()) return;
 
-            // Read the field text — if it has any visible non-space chars, it's a menu item
+            // Read the field text — if it has any visible non-space chars, it's a candidate
             int begin = field.getBeginBA() + 1; // skip attribute byte
             int end = field.getEndBA();
             int len = end - begin + 1;
             if (len <= 0 || len > cols) return;
 
             String fieldText = term.getCharString(begin, len);
-            if (fieldText != null && fieldText.trim().length() > 0) {
-                LOG.fine("[3270] Menu click detected at row " + cursorRow
+            if (fieldText == null || fieldText.trim().length() == 0) return;
+
+            // ── Action bar area (rows 0–1): always selectable ───
+            if (cursorRow <= 1) {
+                LOG.fine("[3270] Action-bar click at row " + cursorRow
                         + ", field='" + fieldText.trim() + "' → sending ENTER");
+                term.Fkey(AID_ENTER);
+                return;
+            }
+
+            // ── Pulldown / popup area (rows 2+): need CUA visual indicator ──
+            // Check for reverse video, alternate intensity, or underscore
+            // on the first data character of the field.
+            if (fieldHasMenuStyle(field)) {
+                LOG.fine("[3270] Menu click at row " + cursorRow
+                        + ", field='" + fieldText.trim() + "' (highlighted) → sending ENTER");
                 term.Fkey(AID_ENTER);
             }
         } catch (Exception e) {
             LOG.log(Level.FINE, "[3270] autoEnterIfMenuItem error", e);
         }
+    }
+
+    /**
+     * Check whether a protected field has the visual styling typical of
+     * selectable CUA menu items: <b>reverse video</b>, <b>alternate intensity</b>
+     * (high-intensity / bold), or <b>underscore</b>.
+     */
+    private static boolean fieldHasMenuStyle(com.ascert.open.term.core.TermField field) {
+        // 1) Check data characters for video attributes
+        com.ascert.open.term.core.TermChar[] chars = field.getChars();
+        if (chars != null) {
+            for (com.ascert.open.term.core.TermChar c : chars) {
+                if (c == null || c.isStartField()) continue;  // skip attribute byte
+                return c.isReverse() || c.isAltIntensity() || c.isUnderscore();
+            }
+        }
+        // 2) Fallback: check the field-attribute character itself
+        com.ascert.open.term.core.TermChar fa = field.getFAChar();
+        if (fa != null) {
+            return fa.isReverse() || fa.isAltIntensity();
+        }
+        return false;
     }
 
     // ── Arrow-key cursor movement ─────────────────────────────────
