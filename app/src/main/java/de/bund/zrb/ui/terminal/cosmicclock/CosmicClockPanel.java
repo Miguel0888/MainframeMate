@@ -3,6 +3,8 @@ package de.bund.zrb.ui.terminal.cosmicclock;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.Ellipse2D;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 
 import static de.bund.zrb.ui.terminal.cosmicclock.CelestialMath.*;
 
@@ -59,6 +61,65 @@ public class CosmicClockPanel extends JPanel {
     }
 
     // ── Rendering ──────────────────────────────────────────────
+
+    /** Reusable off-screen buffer for transparent child compositing. */
+    private BufferedImage childBuffer;
+
+    /**
+     * Render child components (the terminal screen) into an off-screen
+     * buffer, make all near-black pixels transparent, and composite the
+     * result over the cosmic-clock sky.  This lets the starry background
+     * shine through the terminal's black areas while keeping the coloured
+     * text fully visible.
+     */
+    @Override
+    protected void paintChildren(Graphics g0) {
+        int w = getWidth();
+        int h = getHeight();
+        if (w <= 0 || h <= 0) { super.paintChildren(g0); return; }
+
+        // (Re-)allocate the buffer when the panel size changes
+        if (childBuffer == null
+                || childBuffer.getWidth() != w
+                || childBuffer.getHeight() != h) {
+            childBuffer = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        } else {
+            // Clear previous frame
+            int[] clr = ((DataBufferInt) childBuffer.getRaster().getDataBuffer()).getData();
+            java.util.Arrays.fill(clr, 0);
+        }
+
+        // Paint children (terminal) into the off-screen buffer
+        Graphics2D bg = childBuffer.createGraphics();
+        super.paintChildren(bg);
+        bg.dispose();
+
+        // Walk every pixel; make near-black pixels transparent.
+        // Most pixels outside the terminal area are already alpha=0
+        // (because screen.setOpaque(false)), so the fast-path skip
+        // keeps this very efficient.
+        int[] data = ((DataBufferInt) childBuffer.getRaster().getDataBuffer()).getData();
+        final int threshold = 30; // max-channel brightness below this → transparent
+        for (int i = 0; i < data.length; i++) {
+            int argb = data[i];
+            if ((argb & 0xFF000000) == 0) continue; // already transparent
+
+            int r  = (argb >> 16) & 0xFF;
+            int gv = (argb >>  8) & 0xFF;
+            int b  =  argb        & 0xFF;
+            int brightness = Math.max(r, Math.max(gv, b));
+
+            if (brightness < threshold) {
+                // Smooth fade: pure black → fully transparent,
+                // near-threshold → semi-transparent
+                int a = (argb >>> 24) & 0xFF;
+                int newAlpha = (brightness * a) / threshold;
+                data[i] = (newAlpha << 24) | (argb & 0x00FFFFFF);
+            }
+        }
+
+        ((Graphics2D) g0).drawImage(childBuffer, 0, 0, null);
+    }
 
     @Override
     protected void paintComponent(Graphics g0) {
