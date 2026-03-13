@@ -206,6 +206,9 @@ public class CosmicClockPanel extends JPanel {
             }
 
             // ── Stars ──────────────────────────────────────────
+            // Store projected pixel positions per star index for constellation lines
+            int[][] starPixels = new int[StarCatalog.STARS.length][];
+
             for (int si = 0; si < StarCatalog.STARS.length; si++) {
                 double[] star = StarCatalog.STARS[si];
                 double raH   = star[0];
@@ -222,6 +225,8 @@ public class CosmicClockPanel extends JPanel {
 
                 int[] px = projection.project(az, alt, w, h);
                 if (px == null) continue;
+
+                starPixels[si] = px;
 
                 // Size & brightness from magnitude
                 double radius = magnitudeToRadius(mag);
@@ -251,6 +256,46 @@ public class CosmicClockPanel extends JPanel {
                             glowR * 2, glowR * 2));
                 }
             }
+
+            // ── Constellation lines & labels ───────────────────
+            Stroke oldStroke = g.getStroke();
+            g.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            Font labelFont = g.getFont().deriveFont(Font.PLAIN, 10f);
+            g.setFont(labelFont);
+
+            for (ConstellationCatalog.Constellation con : ConstellationCatalog.CONSTELLATIONS) {
+                boolean anyLineVisible = false;
+
+                // Draw stick-figure lines
+                for (int[] seg : con.lines) {
+                    int idxA = seg[0];
+                    int idxB = seg[1];
+                    if (idxA >= starPixels.length || idxB >= starPixels.length) continue;
+                    int[] pxA = starPixels[idxA];
+                    int[] pxB = starPixels[idxB];
+                    if (pxA == null || pxB == null) continue;
+
+                    g.setColor(con.color);
+                    g.drawLine(pxA[0], pxA[1], pxB[0], pxB[1]);
+                    anyLineVisible = true;
+                }
+
+                // Draw constellation name near the label star
+                if (anyLineVisible && con.labelStar >= 0 && con.labelStar < starPixels.length) {
+                    int[] labelPx = starPixels[con.labelStar];
+                    if (labelPx != null) {
+                        // Offset label slightly above and to the right of the reference star
+                        int lx = labelPx[0] + 6;
+                        int ly = labelPx[1] - 6;
+                        Color labelColor = new Color(
+                                con.color.getRed(), con.color.getGreen(), con.color.getBlue(),
+                                Math.min(180, con.color.getAlpha() + 80));
+                        g.setColor(labelColor);
+                        g.drawString(con.name, lx, ly);
+                    }
+                }
+            }
+            g.setStroke(oldStroke);
 
             // ── Planets ────────────────────────────────────────
             for (SolarSystemCalculator.PlanetElements pl : SolarSystemCalculator.ALL_PLANETS) {
