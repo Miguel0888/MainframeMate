@@ -60,6 +60,9 @@ public class TerminalConnectionTab implements ConnectionTab {
     /** Timer that periodically reads the last screen line to update F-key buttons. */
     private Timer fkeyRefreshTimer;
 
+    /** Reference to the cosmic clock panel (if enabled) so we can stop it on disconnect. */
+    private volatile de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClockInstance;
+
     /** Map from F-key number (1–24) to the corresponding button in the bottom panel. */
     private final Map<Integer, JButton> fkeyButtons = new HashMap<Integer, JButton>();
 
@@ -331,37 +334,100 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                // ── Build overlay: terminal centred over cosmic-clock sky,
-                //    F-key bar floats at the bottom as a see-through overlay ──
-                // Load cosmic clock time factor from settings (default 120×)
+                // ── Build overlay: terminal centred, F-key bar at the bottom ──
+                // Load settings for cosmic clock and mouse bindings
+                boolean cosmicEnabled = true;
                 double clockFactor = 120;
+                java.util.List<de.bund.zrb.model.MouseFkeyBinding> mouseBindings = null;
                 try {
                     de.bund.zrb.model.Settings cs = de.bund.zrb.helper.SettingsHelper.load();
+                    cosmicEnabled = cs.cosmicClockEnabled;
                     clockFactor = cs.cosmicClockTimeFactor;
+                    mouseBindings = cs.tn3270MouseFkeyBindings;
                 } catch (Exception ignored) { }
+                if (mouseBindings == null) mouseBindings = de.bund.zrb.model.MouseFkeyBinding.getDefaults();
+                final java.util.List<de.bund.zrb.model.MouseFkeyBinding> bindings = mouseBindings;
 
-                final de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClock =
-                        new de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel(clockFactor);
-                cosmicClock.setLayout(new GridBagLayout());
-                // GridBagConstraints default = centred, no fill → terminal
-                // sits at its preferred size in the middle of the sky.
-                cosmicClock.add(screen, new GridBagConstraints());
-                cosmicClock.start();
+                // Background panel: either animated cosmic clock or plain black
+                final JPanel backgroundPanel;
+                de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClockRef = null;
+                if (cosmicEnabled) {
+                    de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cc =
+                            new de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel(clockFactor);
+                    cc.setLayout(new GridBagLayout());
+                    cc.add(screen, new GridBagConstraints());
+                    cc.start();
+                    backgroundPanel = cc;
+                    cosmicClockRef = cc;
+                } else {
+                    JPanel blackBg = new JPanel(new GridBagLayout());
+                    blackBg.setOpaque(true);
+                    blackBg.setBackground(Color.BLACK);
+                    blackBg.add(screen, new GridBagConstraints());
+                    backgroundPanel = blackBg;
+                }
+                final de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cosmicClock = cosmicClockRef;
+                cosmicClockInstance = cosmicClockRef;
 
                 // Also grab focus when the background is clicked
-                cosmicClock.addMouseListener(new java.awt.event.MouseAdapter() {
+                backgroundPanel.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
                         screen.requestFocusInWindow();
                     }
                 });
 
+                // ── Mouse → F-key bindings (buttons + scroll wheel) ─────────
+                final long[] lastMouseFkeySentAt = {0};
+                final int MOUSE_DEBOUNCE_MS = 150;
+
+                screen.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        // Buttons 4 (back) and 5 (forward) on extended mice
+                        de.bund.zrb.model.MouseFkeyBinding.MouseAction action = null;
+                        if (e.getButton() == 4) action = de.bund.zrb.model.MouseFkeyBinding.MouseAction.BACK;
+                        else if (e.getButton() == 5) action = de.bund.zrb.model.MouseFkeyBinding.MouseAction.FORWARD;
+                        if (action == null) return;
+
+                        boolean shift = e.isShiftDown(), ctrl = e.isControlDown(), alt = e.isAltDown();
+                        for (de.bund.zrb.model.MouseFkeyBinding b : bindings) {
+                            if (b.mouseAction == action && b.modifierMatches(shift, ctrl, alt)) {
+                                sendFkeyFromMouse(createdTerminal, b.fkey);
+                                e.consume();
+                                return;
+                            }
+                        }
+                    }
+                });
+                screen.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
+                    @Override
+                    public void mouseWheelMoved(java.awt.event.MouseWheelEvent e) {
+                        int rotation = e.getWheelRotation();
+                        if (rotation == 0) return;
+
+                        // Debounce: prevent flooding the host with rapid scroll events
+                        long now = System.currentTimeMillis();
+                        if (now - lastMouseFkeySentAt[0] < MOUSE_DEBOUNCE_MS) { e.consume(); return; }
+
+                        de.bund.zrb.model.MouseFkeyBinding.MouseAction action =
+                                rotation > 0 ? de.bund.zrb.model.MouseFkeyBinding.MouseAction.SCROLL_DOWN
+                                             : de.bund.zrb.model.MouseFkeyBinding.MouseAction.SCROLL_UP;
+                        boolean shift = e.isShiftDown(), ctrl = e.isControlDown(), alt = e.isAltDown();
+                        for (de.bund.zrb.model.MouseFkeyBinding b : bindings) {
+                            if (b.mouseAction == action && b.modifierMatches(shift, ctrl, alt)) {
+                                lastMouseFkeySentAt[0] = now;
+                                sendFkeyFromMouse(createdTerminal, b.fkey);
+                                e.consume();
+                                return;
+                            }
+                        }
+                    }
+                });
+
                 // ── Overlay container with a custom LayoutManager ──────────
-                // The terminal (cosmicClock) always fills the full area;
+                // The terminal (backgroundPanel) always fills the full area;
                 // the F-key panel is anchored at the bottom edge.
-                // Using a real LayoutManager (instead of null layout +
-                // ComponentListener) ensures Swing's validation cycle keeps
-                // everything positioned correctly — no ghost artifacts.
                 final JPanel overlayContainer = new JPanel() {
                     @Override
                     public boolean isOptimizedDrawingEnabled() {
@@ -374,7 +440,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     @Override public void addLayoutComponent(String name, Component comp) { }
                     @Override public void removeLayoutComponent(Component comp) { }
                     @Override public Dimension preferredLayoutSize(Container parent) {
-                        return cosmicClock.getPreferredSize();
+                        return backgroundPanel.getPreferredSize();
                     }
                     @Override public Dimension minimumLayoutSize(Container parent) {
                         return new Dimension(0, 0);
@@ -383,24 +449,21 @@ public class TerminalConnectionTab implements ConnectionTab {
                     public void layoutContainer(Container parent) {
                         int w = parent.getWidth();
                         int h = parent.getHeight();
-                        cosmicClock.setBounds(0, 0, w, h);
+                        backgroundPanel.setBounds(0, 0, w, h);
                         int fkeyH = fkeyPanel.getPreferredSize().height;
                         if (fkeyH <= 0) fkeyH = 30;
                         fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
                     }
                 });
 
-                // Paint order: last added (highest index) is painted FIRST (behind).
-                // Index 0 = fkeyPanel   → painted LAST  → on top  ✓
-                // Index 1 = cosmicClock → painted FIRST → behind ✓
                 overlayContainer.add(fkeyPanel);
-                overlayContainer.add(cosmicClock);
+                overlayContainer.add(backgroundPanel);
 
                 // Scale terminal font when the container is resized
                 overlayContainer.addComponentListener(new ComponentAdapter() {
                     @Override
                     public void componentResized(ComponentEvent e) {
-                        scaleTerminalFont(screen, cosmicClock);
+                        scaleTerminalFont(screen, backgroundPanel);
                     }
                 });
 
@@ -476,6 +539,11 @@ public class TerminalConnectionTab implements ConnectionTab {
         Terminal currentTerminal = this.terminal;
         clearTerminalState();
         disconnectQuietly(currentTerminal);
+        // Stop the cosmic clock animation timer
+        if (cosmicClockInstance != null) {
+            cosmicClockInstance.stop();
+            cosmicClockInstance = null;
+        }
         clearFunctionKeyToolbar();
         showDisconnectedMessage("Verbindung getrennt.");
         updateStatus("  ⛔ Getrennt");
@@ -1474,6 +1542,34 @@ public class TerminalConnectionTab implements ConnectionTab {
             case 24: return Ohio.OHIO_AID.OHIO_AID_3270_PF24;
             default: return null;
         }
+    }
+
+    /**
+     * Send an F-key from a mouse action (button click or scroll wheel).
+     * Animates the corresponding F-key button and records the AID for macros.
+     */
+    private void sendFkeyFromMouse(Terminal t, int fkeyNumber) {
+        if (t == null || !connected) return;
+        Ohio.OHIO_AID aid = pfKeyToAid(fkeyNumber);
+        if (aid == null) return;
+
+        macroRecorder.recordAid(aid);
+        t.Fkey(aid);
+
+        // Visual feedback on the F-key button
+        JButton btn = fkeyButtons.get(fkeyNumber);
+        if (btn != null) {
+            btn.getModel().setArmed(true);
+            btn.getModel().setPressed(true);
+            Timer release = new Timer(120, e -> {
+                btn.getModel().setPressed(false);
+                btn.getModel().setArmed(false);
+            });
+            release.setRepeats(false);
+            release.start();
+        }
+
+        if (terminalScreen != null) terminalScreen.requestFocusInWindow();
     }
 
     /**
