@@ -144,6 +144,36 @@ public final class MvsQuoteNormalizer {
     }
 
     /**
+     * Get the stable (non-wildcard) base path, i.e. everything before the
+     * qualifier that contains the wildcard character.
+     *
+     * Examples:
+     * - 'APAB*'       -> ''       (single qualifier IS the wildcard)
+     * - 'KKR07.ZABA*' -> 'KKR07'  (qualifier before the wildcard qualifier)
+     * - 'A.B.C*'      -> 'A.B'
+     * - 'A.B.C'       -> 'A.B.C'  (no wildcard, return as-is)
+     *
+     * @param path the path (quoted or unquoted)
+     * @return the stable base without the wildcard qualifier, or empty string
+     */
+    public static String getWildcardBase(String path) {
+        String unquoted = unquote(path);
+        if (!hasWildcard(unquoted)) {
+            return unquoted;
+        }
+
+        int lastDot = unquoted.lastIndexOf('.');
+        if (lastDot <= 0) {
+            // Single qualifier with wildcard (e.g. 'APAB*') → no stable base
+            return "";
+        }
+
+        // Everything before the last dot is the stable base
+        // e.g. 'KKR07.ZABA*' → 'KKR07'
+        return unquoted.substring(0, lastDot);
+    }
+
+    /**
      * Create a wildcard query path from a logical path.
      * Example: 'HLQ' -> 'HLQ.*'
      */

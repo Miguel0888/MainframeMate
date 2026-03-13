@@ -100,5 +100,64 @@ class MvsLocationTest {
         assertTrue(MvsLocation.dataset("BENUTZERKENNUNG.PDS").isDirectory());
         assertFalse(MvsLocation.member("BENUTZERKENNUNG.PDS(MEM)").isDirectory());
     }
+
+    // === Wildcard tests ===
+
+    @Test
+    void parseHlqWildcardReturnsHlq() {
+        MvsLocation loc = MvsLocation.parse("APAB*");
+        assertEquals(MvsLocationType.HLQ, loc.getType());
+        assertEquals("'APAB*'", loc.getLogicalPath());
+    }
+
+    @Test
+    void parseQualifiedWildcardReturnsQualifierContext() {
+        MvsLocation loc = MvsLocation.parse("KKR07.ZABA*");
+        assertEquals(MvsLocationType.QUALIFIER_CONTEXT, loc.getType());
+        assertEquals("'KKR07.ZABA*'", loc.getLogicalPath());
+    }
+
+    @Test
+    void wildcardHlqQueryPathPreservesWildcard() {
+        MvsLocation loc = MvsLocation.hlq("APAB*");
+        // Already ends with *, should NOT append .*
+        assertEquals("'APAB*'", loc.getQueryPath());
+    }
+
+    @Test
+    void wildcardQualifierContextQueryPathPreservesWildcard() {
+        MvsLocation loc = MvsLocation.qualifierContext("KKR07.ZABA*");
+        assertEquals("'KKR07.ZABA*'", loc.getQueryPath());
+    }
+
+    @Test
+    void getWildcardBaseForHlqWildcard() {
+        assertEquals("", MvsQuoteNormalizer.getWildcardBase("APAB*"));
+        assertEquals("", MvsQuoteNormalizer.getWildcardBase("'APAB*'"));
+    }
+
+    @Test
+    void getWildcardBaseForQualifiedWildcard() {
+        assertEquals("KKR07", MvsQuoteNormalizer.getWildcardBase("KKR07.ZABA*"));
+        assertEquals("KKR07", MvsQuoteNormalizer.getWildcardBase("'KKR07.ZABA*'"));
+    }
+
+    @Test
+    void getWildcardBaseForDeepWildcard() {
+        assertEquals("A.B", MvsQuoteNormalizer.getWildcardBase("A.B.C*"));
+    }
+
+    @Test
+    void getWildcardBaseForNoWildcard() {
+        assertEquals("KKR07.DATA", MvsQuoteNormalizer.getWildcardBase("KKR07.DATA"));
+    }
+
+    @Test
+    void hasWildcardDetectsAsterisk() {
+        assertTrue(MvsQuoteNormalizer.hasWildcard("APAB*"));
+        assertTrue(MvsQuoteNormalizer.hasWildcard("'KKR07.ZABA*'"));
+        assertFalse(MvsQuoteNormalizer.hasWildcard("BENUTZERKENNUNG"));
+        assertFalse(MvsQuoteNormalizer.hasWildcard("'BENUTZERKENNUNG.PDS'"));
+    }
 }
 

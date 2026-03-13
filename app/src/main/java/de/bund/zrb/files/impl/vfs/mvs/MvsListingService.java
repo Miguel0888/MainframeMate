@@ -408,15 +408,34 @@ public class MvsListingService {
     }
 
     /**
-     * Create child location from listing entry.
+     * Create child location from listing entry.* <p>
+     * When the parent location contains a wildcard (e.g. {@code 'APAB*'} or
+     * {@code 'KKR07.ZABA*'}), the server returns fully-qualified names that
+     * matched the pattern.  We must NOT concatenate those results with the
+     * wildcard pattern itself; instead we use the <em>stable base</em> (the
+     * non-wildcard prefix) for prefix stripping and child path construction.
      */
     private MvsLocation createChildLocation(MvsLocation parent, String childName, String parentUnquoted) {
         String unquotedChild = MvsQuoteNormalizer.unquote(childName);
         String unquotedChildUpper = unquotedChild.toUpperCase();
 
+        // --- Wildcard-aware parent resolution ---
+        boolean isWildcard = MvsQuoteNormalizer.hasWildcard(parent.getLogicalPath());
+        String basePath;              // stable path used for child construction
+        String effectiveParentUpper;  // used for prefix stripping (upper case)
+
+        if (isWildcard) {
+            basePath = MvsQuoteNormalizer.getWildcardBase(parent.getLogicalPath());
+            effectiveParentUpper = basePath.toUpperCase();
+        } else {
+            basePath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
+            effectiveParentUpper = parentUnquoted; // already upper case
+        }
+
+        // Strip the effective parent prefix from the child name
         String actualName;
-        if (!parentUnquoted.isEmpty() && unquotedChildUpper.startsWith(parentUnquoted + ".")) {
-            actualName = unquotedChild.substring(parentUnquoted.length() + 1);
+        if (!effectiveParentUpper.isEmpty() && unquotedChildUpper.startsWith(effectiveParentUpper + ".")) {
+            actualName = unquotedChild.substring(effectiveParentUpper.length() + 1);
         } else {
             actualName = unquotedChild;
         }
@@ -425,38 +444,48 @@ public class MvsListingService {
             return null;
         }
 
+        // --- HLQ / QUALIFIER_CONTEXT parents ---
         if (parent.getType() == MvsLocationType.HLQ || parent.getType() == MvsLocationType.QUALIFIER_CONTEXT) {
             int dot = actualName.indexOf('.');
             if (dot >= 0) {
+                // Multiple qualifiers remaining → group by next qualifier
                 String nextQualifier = actualName.substring(0, dot);
                 if (nextQualifier.isEmpty()) {
                     return null;
                 }
-                return parent.createChild(nextQualifier);
+                if (basePath.isEmpty()) {
+                    return MvsLocation.qualifierContext(nextQualifier);
+                }
+                return MvsLocation.qualifierContext(basePath + "." + nextQualifier);
             }
 
-            String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
-            if (parentPath.isEmpty()) {
-                return MvsLocation.dataset(actualName);
+            // Single qualifier remaining (leaf entry)
+            if (basePath.isEmpty()) {
+                // Top-level wildcard (e.g. 'APAB*') → result is a top-level qualifier
+                return isWildcard ? MvsLocation.hlq(actualName)
+                                  : MvsLocation.dataset(actualName);
             }
-            return MvsLocation.dataset(parentPath + "." + actualName);
+            return MvsLocation.dataset(basePath + "." + actualName);
         }
 
+        // --- DATASET parents ---
         if (parent.getType() == MvsLocationType.DATASET) {
-            String parentPath = MvsQuoteNormalizer.unquote(parent.getLogicalPath());
+            String datasetPath = isWildcard ? basePath : MvsQuoteNormalizer.unquote(parent.getLogicalPath());
 
             // Member entry in fully qualified format: PDS(MEMBER)
-            if (unquotedChildUpper.startsWith(parentUnquoted + "(") && unquotedChild.endsWith(")")) {
+            if (!effectiveParentUpper.isEmpty()
+                    && unquotedChildUpper.startsWith(effectiveParentUpper + "(")
+                    && unquotedChild.endsWith(")")) {
                 int open = unquotedChild.indexOf('(');
                 int close = unquotedChild.lastIndexOf(')');
                 if (open > 0 && close > open + 1) {
                     String memberName = unquotedChild.substring(open + 1, close);
-                    return MvsLocation.member(parentPath + "(" + memberName + ")");
+                    return MvsLocation.member(datasetPath + "(" + memberName + ")");
                 }
             }
 
-            boolean isQualifiedChild = !parentUnquoted.isEmpty() &&
-                    unquotedChildUpper.startsWith(parentUnquoted + ".");
+            boolean isQualifiedChild = !effectiveParentUpper.isEmpty()
+                    && unquotedChildUpper.startsWith(effectiveParentUpper + ".");
 
             if (isQualifiedChild) {
                 int dot = actualName.indexOf('.');
@@ -464,8 +493,17 @@ public class MvsListingService {
                 if (nextQualifier.isEmpty()) {
                     return null;
                 }
-                return MvsLocation.dataset(parentPath + "." + nextQualifier);
+                return MvsLocation.dataset(datasetPath + "." + nextQualifier);
             }
+        }
+
+        // Fallback: for wildcards, build from base to avoid concatenating the
+        // wildcard pattern; for non-wildcards, delegate to MvsLocation.createChild.
+        if (isWildcard) {
+            if (basePath.isEmpty()) {
+                return MvsLocation.parse(actualName);
+            }
+            return MvsLocation.parse(basePath + "." + actualName);
         }
 
         return parent.createChild(actualName);
