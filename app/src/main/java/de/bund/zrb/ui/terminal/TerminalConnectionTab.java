@@ -48,7 +48,7 @@ public class TerminalConnectionTab implements ConnectionTab {
     private volatile int fkeyOverlayOpacity; // 0..100 percent opacity for F-key overlay
 
     private final JPanel mainPanel;
-    private final JLabel statusLabel;
+    private final JLabel statusDot;
     private final JToolBar connectionToolbar;
     private final JPanel fkeyPanel;
 
@@ -135,7 +135,8 @@ public class TerminalConnectionTab implements ConnectionTab {
         ensureFactoryInitialized();
 
         this.mainPanel = new JPanel(new BorderLayout());
-        this.statusLabel = new JLabel("  Bereit");
+        this.statusDot = createStatusDot();
+        setStatus(Status.IDLE);
         this.connectionToolbar = createConnectionToolbar();
         this.fkeyPanel = createFkeyPanel();
 
@@ -266,7 +267,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         final Terminal createdTerminal = TerminalFactoryRegistrar.createTerminal(terminalHost);
         final AtomicReference<JTerminalScreen> screenRef = new AtomicReference<JTerminalScreen>();
 
-        updateStatus("  ⏳ Verbinde…");
+        setStatus(Status.CONNECTING);
 
         // Build screen component on EDT (Swing requirement)
         buildScreenOnEdt(createdTerminal, screenRef);
@@ -281,7 +282,7 @@ public class TerminalConnectionTab implements ConnectionTab {
             SwingUtilities.invokeLater(new Runnable() {
                 @Override
                 public void run() {
-                    statusLabel.setText("  ✅ Verbunden");
+                    setStatus(Status.CONNECTED);
                     startFkeyRefreshTimer();
                     if (terminalScreen != null) {
                         terminalScreen.setFocusable(true);
@@ -305,7 +306,7 @@ public class TerminalConnectionTab implements ConnectionTab {
             disconnectQuietly(createdTerminal);
             clearTerminalState();
             showDisconnectedMessage("Verbindung zu " + host + ":" + port + " fehlgeschlagen.");
-            updateStatus("  ❌ Fehler");
+            setStatus(Status.ERROR);
             throw ex;
         }
     }
@@ -662,7 +663,7 @@ public class TerminalConnectionTab implements ConnectionTab {
         }
         clearFunctionKeyToolbar();
         showDisconnectedMessage("Verbindung getrennt.");
-        updateStatus("  ⛔ Getrennt");
+        setStatus(Status.DISCONNECTED);
     }
 
     private void clearTerminalState() {
@@ -1085,7 +1086,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     term.Fkey(AID_ENTER);
 
                     LOG.info("[3270] Auto-login: credentials sent");
-                    updateStatus("  ✅ Verbunden (angemeldet)");
+                    setStatus(Status.LOGGED_IN);
 
                     // 8) Auto-command after login (e.g. "a" + ENTER to skip welcome screen)
                     if (autoCommand != null && !autoCommand.isEmpty()) {
@@ -1151,12 +1152,32 @@ public class TerminalConnectionTab implements ConnectionTab {
         });
     }
 
-    private void updateStatus(final String text) {
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                statusLabel.setText(text);
-            }
+    // ── Status indicator (colored dot) ────────────────────────
+
+    private enum Status {
+        IDLE       (new Color(160, 160, 160), "Bereit"),          // gray
+        CONNECTING (new Color(240, 200,  40), "Verbinde…"),       // yellow
+        CONNECTED  (new Color( 40, 200,  60), "Verbunden"),       // green
+        LOGGED_IN  (new Color( 40, 200,  60), "Angemeldet"),      // green
+        ERROR      (new Color(220,  50,  50), "Fehler"),          // red
+        DISCONNECTED(new Color(220, 50,  50), "Getrennt");        // red
+
+        final Color color;
+        final String tooltip;
+        Status(Color color, String tooltip) { this.color = color; this.tooltip = tooltip; }
+    }
+
+    private JLabel createStatusDot() {
+        JLabel dot = new JLabel("●");
+        dot.setFont(dot.getFont().deriveFont(Font.PLAIN, 16f));
+        dot.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 6));
+        return dot;
+    }
+
+    private void setStatus(final Status status) {
+        SwingUtilities.invokeLater(() -> {
+            statusDot.setForeground(status.color);
+            statusDot.setToolTipText(status.tooltip);
         });
     }
 
@@ -1177,7 +1198,7 @@ public class TerminalConnectionTab implements ConnectionTab {
     }
 
     private void reconnect() {
-        updateStatus("  ⏳ Verbinde…");
+        setStatus(Status.CONNECTING);
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
@@ -1191,7 +1212,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                     get();
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    updateStatus("  ❌ Fehler");
+                    setStatus(Status.ERROR);
                     JOptionPane.showMessageDialog(mainPanel,
                             "Verbindung fehlgeschlagen:\n" + cause.getMessage(),
                             "3270-Fehler", JOptionPane.ERROR_MESSAGE);
@@ -1204,6 +1225,9 @@ public class TerminalConnectionTab implements ConnectionTab {
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
         toolbar.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+
+        // Status dot at the very left
+        toolbar.add(statusDot);
 
         JButton connectBtn = new JButton("🔌 Verbinden");
         connectBtn.setToolTipText("Verbindung (wieder-)herstellen");
@@ -1236,8 +1260,6 @@ public class TerminalConnectionTab implements ConnectionTab {
         historyBtn.addActionListener(e -> showHistoryPopup(historyBtn));
         toolbar.add(historyBtn);
 
-        toolbar.addSeparator(new Dimension(4, 0));
-        toolbar.add(statusLabel);
 
         return toolbar;
     }
