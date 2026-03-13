@@ -199,9 +199,11 @@ public class TerminalConnectionTab implements ConnectionTab {
                 screenRef.set(screen);
 
                 // Make the screen focusable and request focus on click.
-                // If the click lands on a menu/action-bar item, auto-send ENTER.
+                // Disable Swing focus-traversal so Tab, arrow keys, etc. reach
+                // OpenTerm's own key handler instead of being consumed by Swing.
                 screen.setFocusable(true);
                 screen.setRequestFocusEnabled(true);
+                screen.setFocusTraversalKeysEnabled(false);
                 screen.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
@@ -264,6 +266,19 @@ public class TerminalConnectionTab implements ConnectionTab {
                         // Record Enter as AID
                         if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER) {
                             macroRecorder.recordAid(AID_ENTER);
+                        }
+
+                        // Arrow keys: move cursor explicitly as a fallback in case
+                        // OpenTerm's own InputMap/ActionMap bindings are not active.
+                        if (!e.isConsumed()) {
+                            int kc = e.getKeyCode();
+                            if (kc == java.awt.event.KeyEvent.VK_LEFT
+                                    || kc == java.awt.event.KeyEvent.VK_RIGHT
+                                    || kc == java.awt.event.KeyEvent.VK_UP
+                                    || kc == java.awt.event.KeyEvent.VK_DOWN) {
+                                moveCursorByArrowKey(createdTerminal, kc);
+                                screen.repaint();
+                            }
                         }
                     }
 
@@ -414,8 +429,12 @@ public class TerminalConnectionTab implements ConnectionTab {
 
     /**
      * Called shortly after a mouse click on the terminal screen.
-     * If the cursor is positioned on a selectable menu item (= an unprotected
+     * If the cursor is positioned on a selectable menu item (= a <b>protected</b>
      * field in the top rows that contains visible text), send ENTER automatically.
+     * <p>
+     * In 3270, action-bar / menu items are always in protected fields.
+     * Unprotected fields in the top rows are input fields (e.g. command line)
+     * where the user types, so we must NOT auto-send ENTER there.
      */
     private void autoEnterIfMenuItem(Terminal term) {
         if (term == null || !connected) return;
@@ -430,11 +449,14 @@ public class TerminalConnectionTab implements ConnectionTab {
         // Only action-bar area (top few rows)
         if (cursorRow > ACTION_BAR_MAX_ROW) return;
 
-        // Check if the cursor is in an unprotected field with text
+        // Check if the cursor is in a PROTECTED field with text (= menu item)
         try {
             com.ascert.open.term.core.TermField field = term.getField(cursorPos);
             if (field == null) return;
-            if (field.isProtected()) return;
+
+            // Only auto-enter for PROTECTED fields (action bar menu items).
+            // Unprotected fields are input areas → don't interfere.
+            if (!field.isProtected()) return;
 
             // Read the field text — if it has any visible non-space chars, it's a menu item
             int begin = field.getBeginBA() + 1; // skip attribute byte
@@ -451,6 +473,43 @@ public class TerminalConnectionTab implements ConnectionTab {
         } catch (Exception e) {
             LOG.log(Level.FINE, "[3270] autoEnterIfMenuItem error", e);
         }
+    }
+
+    // ── Arrow-key cursor movement ─────────────────────────────────
+
+    /**
+     * Move the 3270 cursor by one position in the direction indicated by the
+     * given {@code VK_*} arrow key code.  The cursor wraps around at screen
+     * boundaries (standard 3270 behaviour).
+     */
+    private void moveCursorByArrowKey(Terminal term, int keyCode) {
+        if (term == null || !connected) return;
+
+        int cols = term.getCols();
+        int rows = term.getRows();
+        if (cols <= 0 || rows <= 0) return;
+
+        int totalCells = rows * cols;
+        int pos = term.getCursorPosition();
+
+        switch (keyCode) {
+            case java.awt.event.KeyEvent.VK_LEFT:
+                pos = (pos - 1 + totalCells) % totalCells;
+                break;
+            case java.awt.event.KeyEvent.VK_RIGHT:
+                pos = (pos + 1) % totalCells;
+                break;
+            case java.awt.event.KeyEvent.VK_UP:
+                pos = (pos - cols + totalCells) % totalCells;
+                break;
+            case java.awt.event.KeyEvent.VK_DOWN:
+                pos = (pos + cols) % totalCells;
+                break;
+            default:
+                return;
+        }
+
+        term.setCursorPosition((short) pos);
     }
 
     // ── Clipboard: Paste / Copy ─────────────────────────────────
