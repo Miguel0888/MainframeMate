@@ -95,6 +95,7 @@ public class Settings {
     public int tn3270FkeyOverlayOpacity = 50;            // Transparenz der F-Tasten-Leiste in Prozent (0=unsichtbar, 100=deckend, Standard: 50)
     public boolean cosmicClockEnabled = true;              // Kosmische Uhr als Terminalhintergrund (false = klassisch schwarz)
     public double cosmicClockTimeFactor = 120;             // Zeitfaktor für die Cosmic Clock (1 = Echtzeit, 120 = 2min ≈ 4h)
+    public boolean cosmicClockGermanNames = true;          // Sternbild-Namen auf Deutsch anzeigen (false = Englisch/Latein)
     public java.util.List<MouseFkeyBinding> tn3270MouseFkeyBindings = MouseFkeyBinding.getDefaults(); // Maus→F-Key Zuordnungen
 
     // Wiki Settings

@@ -15,17 +15,24 @@ public final class ConstellationCatalog {
 
     public static class Constellation {
         public final String name;
+        public final String nameDe;
         public final Color color;
         /** Each element is {@code {starIndex_A, starIndex_B}}. */
         public final int[][] lines;
         /** Star index near which the constellation label is placed. */
         public final int labelStar;
 
-        Constellation(String name, Color color, int labelStar, int[]... lines) {
+        Constellation(String name, String nameDe, Color color, int labelStar, int[]... lines) {
             this.name = name;
+            this.nameDe = nameDe;
             this.color = color;
             this.labelStar = labelStar;
             this.lines = lines;
+        }
+
+        /** Return the display name depending on the locale flag. */
+        public String displayName(boolean german) {
+            return german ? nameDe : name;
         }
     }
 
@@ -61,7 +68,7 @@ public final class ConstellationCatalog {
 
         // ── Orion ────────────────────────────────────────────
         // Shoulders → belt → feet
-        new Constellation("Orion", LIGHT_ORANGE, 21,
+        new Constellation("Orion", "Orion", LIGHT_ORANGE, 21,
             new int[]{9, 44},    // Betelgeuse – Bellatrix
             new int[]{9, 22},    // Betelgeuse – Alnitak
             new int[]{44, 23},   // Bellatrix – Mintaka
@@ -74,7 +81,7 @@ public final class ConstellationCatalog {
 
         // ── Großer Wagen (Big Dipper / Ursa Major) ───────────
         // Bowl + handle
-        new Constellation("Gr. Wagen", TURQUOISE, 39,
+        new Constellation("Big Dipper", "Großer Wagen", TURQUOISE, 39,
             new int[]{36, 37},   // Dubhe – Merak
             new int[]{37, 38},   // Merak – Phecda
             new int[]{38, 39},   // Phecda – Megrez
@@ -86,19 +93,19 @@ public final class ConstellationCatalog {
 
         // ── Cassiopeia ───────────────────────────────────────
         // W-shape
-        new Constellation("Cassiopeia", ROSE, 34,
+        new Constellation("Cassiopeia", "Kassiopeia", ROSE, 34,
             new int[]{33, 32},   // Caph – Schedar
             new int[]{32, 34},   // Schedar – Navi
             new int[]{34, 35}    // Navi – Ruchbah
         ),
 
         // ── Zwillinge (Gemini) ───────────────────────────────
-        new Constellation("Gemini", LIGHT_YELLOW, 46,
+        new Constellation("Gemini", "Zwillinge", LIGHT_YELLOW, 46,
             new int[]{46, 48}    // Pollux – Castor
         ),
 
         // ── Großer Hund (Canis Major) ────────────────────────
-        new Constellation("Canis Major", LIGHT_BLUE, 0,
+        new Constellation("Canis Major", "Großer Hund", LIGHT_BLUE, 0,
             new int[]{0, 28},    // Sirius – Mirzam
             new int[]{0, 27},    // Sirius – Wezen
             new int[]{27, 29},   // Wezen – Aludra
@@ -106,50 +113,50 @@ public final class ConstellationCatalog {
         ),
 
         // ── Leier (Lyra) ────────────────────────────────────
-        new Constellation("Lyra", LAVENDER, 4,
+        new Constellation("Lyra", "Leier", LAVENDER, 4,
             new int[]{4, 53},    // Vega – Sheliak
             new int[]{53, 54},   // Sheliak – Sulafat
             new int[]{54, 4}     // Sulafat – Vega
         ),
 
         // ── Skorpion (Scorpius) ──────────────────────────────
-        new Constellation("Scorpius", CORAL, 14,
+        new Constellation("Scorpius", "Skorpion", CORAL, 14,
             new int[]{52, 51},   // Acrab – Dschubba
             new int[]{51, 14},   // Dschubba – Antares
             new int[]{14, 50}    // Antares – Shaula
         ),
 
         // ── Löwe (Leo) ──────────────────────────────────────
-        new Constellation("Leo", LIGHT_YELLOW, 26,
+        new Constellation("Leo", "Löwe", LIGHT_YELLOW, 26,
             new int[]{26, 49}    // Regulus – Denebola
         ),
 
         // ── Sommerdreieck (asterism) ─────────────────────────
-        new Constellation("Sommerdreieck", MINT, 15,
+        new Constellation("Summer Triangle", "Sommerdreieck", MINT, 15,
             new int[]{4, 15},    // Vega – Deneb
             new int[]{15, 12},   // Deneb – Altair
             new int[]{12, 4}     // Altair – Vega
         ),
 
         // ── Stier (Taurus) ──────────────────────────────────
-        new Constellation("Taurus", PEACH, 13,
+        new Constellation("Taurus", "Stier", PEACH, 13,
             new int[]{13, 56},   // Aldebaran – Elnath
             new int[]{13, 55}    // Aldebaran – Alcyone (Pleiades direction)
         ),
 
         // ── Andromeda ────────────────────────────────────────
-        new Constellation("Andromeda", LIGHT_GREEN, 30,
+        new Constellation("Andromeda", "Andromeda", LIGHT_GREEN, 30,
             new int[]{31, 30}    // Alpheratz – Mirach
         ),
 
         // ── Fuhrmann (Auriga) ───────────────────────────────
-        new Constellation("Auriga", LIGHT_ORANGE, 5,
+        new Constellation("Auriga", "Fuhrmann", LIGHT_ORANGE, 5,
             new int[]{5, 58},    // Capella – Menkalinan
             new int[]{5, 56}     // Capella – Elnath (shared with Taurus)
         ),
 
         // ── Kreuz des Südens (Crux) ─────────────────────────
-        new Constellation("Crux", TURQUOISE, 16,
+        new Constellation("Crux", "Kreuz des Südens", TURQUOISE, 16,
             new int[]{18, 17},   // Gacrux – δ Crucis (vertical-ish)
             new int[]{16, 17}    // Mimosa – δ Crucis (horizontal-ish)
         ),

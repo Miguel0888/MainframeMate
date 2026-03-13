@@ -175,6 +175,7 @@ public class TerminalConnectionTab implements ConnectionTab {
             // ── Cosmic clock time factor ──
             if (cosmicClockInstance != null) {
                 cosmicClockInstance.getTimeModel().setTimeFactor(s.cosmicClockTimeFactor);
+                cosmicClockInstance.setUseGermanNames(s.cosmicClockGermanNames);
             }
 
             // ── Cosmic clock enable/disable toggle ──
@@ -199,6 +200,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                 if (wantCosmic) {
                     de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cc =
                             new de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel(s.cosmicClockTimeFactor);
+                    cc.setUseGermanNames(s.cosmicClockGermanNames);
                     cc.setLayout(new GridBagLayout());
                     cc.add(screen, new GridBagConstraints());
                     cc.start();
@@ -455,10 +457,12 @@ public class TerminalConnectionTab implements ConnectionTab {
                 // Load settings for cosmic clock
                 boolean cosmicEnabled = true;
                 double clockFactor = 120;
+                boolean germanNames = true;
                 try {
                     de.bund.zrb.model.Settings cs = de.bund.zrb.helper.SettingsHelper.load();
                     cosmicEnabled = cs.cosmicClockEnabled;
                     clockFactor = cs.cosmicClockTimeFactor;
+                    germanNames = cs.cosmicClockGermanNames;
                 } catch (Exception ignored) { }
 
                 // Background panel: either animated cosmic clock or plain black
@@ -467,6 +471,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                 if (cosmicEnabled) {
                     de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel cc =
                             new de.bund.zrb.ui.terminal.cosmicclock.CosmicClockPanel(clockFactor);
+                    cc.setUseGermanNames(germanNames);
                     cc.setLayout(new GridBagLayout());
                     cc.add(screen, new GridBagConstraints());
                     cc.start();

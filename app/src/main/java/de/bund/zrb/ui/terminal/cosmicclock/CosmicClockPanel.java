@@ -30,6 +30,9 @@ public class CosmicClockPanel extends JPanel {
     private final SkyProjection projection;
     private Timer animationTimer;
 
+    /** Whether to use German constellation names (default: true). */
+    private volatile boolean useGermanNames = true;
+
     /** Visible celestial bodies from the last paint cycle (for tooltip hit-testing). */
     private final List<CelestialBody> visibleBodies = new ArrayList<>();
 
@@ -59,6 +62,11 @@ public class CosmicClockPanel extends JPanel {
     /** Convenience constructor with default time factor 120×. */
     public CosmicClockPanel() {
         this(120);
+    }
+
+    /** Set whether constellation names should be displayed in German (true) or English/Latin (false). */
+    public void setUseGermanNames(boolean german) {
+        this.useGermanNames = german;
     }
 
     /** Return the name of the nearest celestial body under the mouse, or null. */
@@ -291,7 +299,7 @@ public class CosmicClockPanel extends JPanel {
                                 con.color.getRed(), con.color.getGreen(), con.color.getBlue(),
                                 Math.min(180, con.color.getAlpha() + 80));
                         g.setColor(labelColor);
-                        g.drawString(con.name, lx, ly);
+                        g.drawString(con.displayName(useGermanNames), lx, ly);
                     }
                 }
             }

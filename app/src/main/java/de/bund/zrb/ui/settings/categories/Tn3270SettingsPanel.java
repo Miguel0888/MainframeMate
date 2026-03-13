@@ -29,6 +29,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JSpinner fkeyOpacitySpinner;
     private final JCheckBox cosmicClockCheckBox;
     private final JSpinner cosmicClockFactorSpinner;
+    private final JCheckBox germanNamesCheckBox;
     private final MouseBindingTableModel mouseBindingModel;
 
     public Tn3270SettingsPanel() {
@@ -99,14 +100,22 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         cosmicClockFactorSpinner.setToolTipText("Zeitfaktor (1 = Echtzeit, 120 = 2 Min ≈ 4 Std simuliert)");
         cosmicClockFactorSpinner.setEnabled(settings.cosmicClockEnabled);
 
-        cosmicClockCheckBox.addActionListener(e ->
-                cosmicClockFactorSpinner.setEnabled(cosmicClockCheckBox.isSelected()));
+        germanNamesCheckBox = new JCheckBox("Sternbild-Namen auf Deutsch", settings.cosmicClockGermanNames);
+        germanNamesCheckBox.setToolTipText("Zeigt Konstellationsnamen auf Deutsch an (z.B. 'Großer Wagen' statt 'Big Dipper')");
+        germanNamesCheckBox.setEnabled(settings.cosmicClockEnabled);
+
+        cosmicClockCheckBox.addActionListener(e -> {
+                cosmicClockFactorSpinner.setEnabled(cosmicClockCheckBox.isSelected());
+                germanNamesCheckBox.setEnabled(cosmicClockCheckBox.isSelected());
+        });
 
         JPanel clockPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
         clockPanel.add(cosmicClockCheckBox);
         clockPanel.add(new JLabel("Faktor:"));
         clockPanel.add(cosmicClockFactorSpinner);
         fb.addWide(clockPanel);
+
+        fb.addWide(germanNamesCheckBox);
 
         // ── Mouse → F-Key bindings ──────────────────────────────
         fb.addSection("Maus-Aktionen");
@@ -179,6 +188,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270FkeyOverlayOpacity = ((Number) fkeyOpacitySpinner.getValue()).intValue();
         s.cosmicClockEnabled = cosmicClockCheckBox.isSelected();
         s.cosmicClockTimeFactor = ((Number) cosmicClockFactorSpinner.getValue()).doubleValue();
+        s.cosmicClockGermanNames = germanNamesCheckBox.isSelected();
         s.tn3270MouseFkeyBindings = mouseBindingModel.getBindings();
     }
 
