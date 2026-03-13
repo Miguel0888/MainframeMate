@@ -45,6 +45,7 @@ public class TerminalConnectionTab implements ConnectionTab {
     private final boolean autoLoginEnabled;
     private final String autoCommand;  // null or empty = no auto-command
     private final int actionDelayMs;   // delay in ms after AID keys during auto-login/macro
+    private final int fkeyOverlayOpacity; // 0..100 percent opacity for F-key overlay
 
     private final JPanel mainPanel;
     private final JLabel statusLabel;
@@ -99,12 +100,16 @@ public class TerminalConnectionTab implements ConnectionTab {
         this.autoCommand = autoCommand;
         this.replaySteps = replaySteps;
 
-        // Load action delay from settings (used for auto-login and macro replay)
+        // Load action delay and overlay opacity from settings
         int delayFromSettings = 1000;
+        int opacityFromSettings = 50;
         try {
-            delayFromSettings = de.bund.zrb.helper.SettingsHelper.load().tn3270ActionDelayMs;
+            de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+            delayFromSettings = s.tn3270ActionDelayMs;
+            opacityFromSettings = s.tn3270FkeyOverlayOpacity;
         } catch (Exception ignored) { }
         this.actionDelayMs = Math.max(delayFromSettings, 0);
+        this.fkeyOverlayOpacity = Math.max(0, Math.min(100, opacityFromSettings));
 
         ensureFactoryInitialized();
 
@@ -117,7 +122,8 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         mainPanel.add(connectionToolbar, BorderLayout.NORTH);
         mainPanel.add(centerComponent, BorderLayout.CENTER);
-        mainPanel.add(fkeyPanel, BorderLayout.SOUTH);
+        // fkeyPanel is NOT added to BorderLayout.SOUTH — it floats as a
+        // translucent overlay inside the terminal area (see buildScreenOnEdt).
     }
 
     private static void ensureFactoryInitialized() {
@@ -207,11 +213,38 @@ public class TerminalConnectionTab implements ConnectionTab {
                 }
 
                 // Make the screen focusable and request focus on click.
-                // Disable Swing focus-traversal so Tab, arrow keys, etc. reach
-                // OpenTerm's own key handler instead of being consumed by Swing.
+                // Disable Swing focus-traversal so Tab etc. reach OpenTerm.
                 screen.setFocusable(true);
                 screen.setRequestFocusEnabled(true);
                 screen.setFocusTraversalKeysEnabled(false);
+
+                // ── Arrow-key bindings via InputMap/ActionMap ──────────────
+                // KeyListeners have LOW priority in Swing — they fire AFTER
+                // InputMap/ActionMap processing.  Swing's default focus-traversal
+                // for containers intercepts arrow keys before any KeyListener
+                // sees them.  We therefore register explicit bindings at the
+                // WHEN_FOCUSED level which have HIGHEST priority.
+                InputMap im = screen.getInputMap(JComponent.WHEN_FOCUSED);
+                ActionMap am = screen.getActionMap();
+                int[] arrowKeys = {
+                    java.awt.event.KeyEvent.VK_LEFT,
+                    java.awt.event.KeyEvent.VK_RIGHT,
+                    java.awt.event.KeyEvent.VK_UP,
+                    java.awt.event.KeyEvent.VK_DOWN
+                };
+                for (int vk : arrowKeys) {
+                    String actionName = "cursor-" + vk;
+                    im.put(KeyStroke.getKeyStroke(vk, 0), actionName);
+                    final int keyCode = vk;
+                    am.put(actionName, new AbstractAction() {
+                        @Override
+                        public void actionPerformed(java.awt.event.ActionEvent e) {
+                            moveCursorByArrowKey(createdTerminal, keyCode);
+                            screen.repaint();
+                        }
+                    });
+                }
+
                 screen.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent e) {
@@ -275,19 +308,7 @@ public class TerminalConnectionTab implements ConnectionTab {
                         if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ENTER) {
                             macroRecorder.recordAid(AID_ENTER);
                         }
-
-                        // Arrow keys: move cursor explicitly as a fallback in case
-                        // OpenTerm's own InputMap/ActionMap bindings are not active.
-                        if (!e.isConsumed()) {
-                            int kc = e.getKeyCode();
-                            if (kc == java.awt.event.KeyEvent.VK_LEFT
-                                    || kc == java.awt.event.KeyEvent.VK_RIGHT
-                                    || kc == java.awt.event.KeyEvent.VK_UP
-                                    || kc == java.awt.event.KeyEvent.VK_DOWN) {
-                                moveCursorByArrowKey(createdTerminal, kc);
-                                screen.repaint();
-                            }
-                        }
+                        // Note: arrow keys are now handled by InputMap/ActionMap above
                     }
 
                     @Override
@@ -312,7 +333,10 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                // Wrap the screen in a panel that scales the font to fill the available space
+                // ── Build layered pane: terminal + translucent F-key overlay ──
+                // The terminal fills the entire area; the F-key bar floats at
+                // the bottom as a see-through overlay so the terminal is never
+                // shrunk or clipped.
                 JPanel scalingWrapper = new JPanel(new BorderLayout());
                 scalingWrapper.setBackground(Color.BLACK);
                 scalingWrapper.add(screen, BorderLayout.CENTER);
@@ -325,15 +349,35 @@ public class TerminalConnectionTab implements ConnectionTab {
                     }
                 });
 
-                // Dynamically scale the terminal font when the container is resized
-                scalingWrapper.addComponentListener(new ComponentAdapter() {
+                JLayeredPane layered = new JLayeredPane();
+                layered.setLayout(null); // manual positioning
+                layered.add(scalingWrapper, JLayeredPane.DEFAULT_LAYER);
+                layered.add(fkeyPanel, JLayeredPane.PALETTE_LAYER);
+                // Ensure mouse clicks on the overlay still give focus to the terminal
+                fkeyPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mousePressed(java.awt.event.MouseEvent e) {
+                        // Don't steal focus — let button clicks work normally
+                    }
+                });
+
+                // Keep both layers sized to the container
+                layered.addComponentListener(new ComponentAdapter() {
                     @Override
                     public void componentResized(ComponentEvent e) {
+                        int w = layered.getWidth();
+                        int h = layered.getHeight();
+                        // Terminal fills everything
+                        scalingWrapper.setBounds(0, 0, w, h);
+                        // F-key overlay anchored at the bottom
+                        int fkeyH = fkeyPanel.getPreferredSize().height;
+                        if (fkeyH <= 0) fkeyH = 30;
+                        fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
                         scaleTerminalFont(screen, scalingWrapper);
                     }
                 });
 
-                setCenterComponent(scalingWrapper);
+                setCenterComponent(layered);
             }
         });
     }
@@ -1013,8 +1057,26 @@ public class TerminalConnectionTab implements ConnectionTab {
     }
 
     private JPanel createFkeyPanel() {
-        JPanel outer = new JPanel(new GridLayout(0, 1, 0, 0));
-        outer.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
+        // The F-key panel is drawn as a translucent overlay on top of the
+        // terminal screen.  We override paintComponent to fill a semi-
+        // transparent background whose alpha is controlled by the user
+        // setting tn3270FkeyOverlayOpacity (0–100%).
+        final int alpha = (int) Math.round(fkeyOverlayOpacity / 100.0 * 255);
+        JPanel outer = new JPanel(new GridLayout(0, 1, 0, 0)) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha / 255f));
+                g2.setColor(getBackground());
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.dispose();
+                // do NOT call super — we painted the background ourselves
+            }
+        };
+        outer.setOpaque(false); // let the custom paintComponent handle it
+        outer.setBackground(UIManager.getColor("Panel.background") != null
+                ? UIManager.getColor("Panel.background") : new Color(240, 240, 240));
+        outer.setBorder(BorderFactory.createEmptyBorder(2, 8, 4, 8));
         return outer;
     }
 
@@ -1090,6 +1152,9 @@ public class TerminalConnectionTab implements ConnectionTab {
         JPanel leftStd   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
         JPanel centerStd = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
         JPanel rightStd  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
+        leftStd.setOpaque(false);
+        centerStd.setOpaque(false);
+        rightStd.setOpaque(false);
 
         fkeyButtons.clear();
 
@@ -1121,6 +1186,9 @@ public class TerminalConnectionTab implements ConnectionTab {
             leftExt   = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
             centerExt = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 1));
             rightExt  = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 1));
+            leftExt.setOpaque(false);
+            centerExt.setOpaque(false);
+            rightExt.setOpaque(false);
 
             for (int fnum = 13; fnum <= 24; fnum++) {
                 JButton btn;
@@ -1139,6 +1207,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         // ── Assemble rows ──
         JPanel row1 = new JPanel(new BorderLayout(8, 0));
+        row1.setOpaque(false);
         row1.add(leftStd, BorderLayout.WEST);
         row1.add(centerStd, BorderLayout.CENTER);
         row1.add(rightStd, BorderLayout.EAST);
@@ -1148,6 +1217,7 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         if (hasExtended) {
             JPanel row2 = new JPanel(new BorderLayout(8, 0));
+            row2.setOpaque(false);
             row2.add(leftExt, BorderLayout.WEST);
             row2.add(centerExt, BorderLayout.CENTER);
             row2.add(rightExt, BorderLayout.EAST);
@@ -1156,6 +1226,16 @@ public class TerminalConnectionTab implements ConnectionTab {
 
         fkeyPanel.revalidate();
         fkeyPanel.repaint();
+
+        // Re-position the overlay in the JLayeredPane after content changed
+        Container parent = fkeyPanel.getParent();
+        if (parent instanceof JLayeredPane) {
+            int w = parent.getWidth();
+            int h = parent.getHeight();
+            int fkeyH = fkeyPanel.getPreferredSize().height;
+            if (fkeyH <= 0) fkeyH = 30;
+            fkeyPanel.setBounds(0, h - fkeyH, w, fkeyH);
+        }
     }
 
     private JButton makeFkeyButton(final int fkeyNumber, String label) {

@@ -18,6 +18,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox autoCommandCheckBox;
     private final JTextField autoCommandField;
     private final JSpinner actionDelaySpinner;
+    private final JSpinner fkeyOpacitySpinner;
 
     public Tn3270SettingsPanel() {
         super("tn3270", "3270-Terminal");
@@ -73,6 +74,12 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         actionDelaySpinner.setToolTipText("Wartezeit in Millisekunden nach jeder AID-Taste (Enter, F-Key) bei Auto-Login und Makro-Wiedergabe");
         fb.addRow("Aktions-Delay (ms):", actionDelaySpinner);
 
+        fb.addSection("Darstellung");
+
+        fkeyOpacitySpinner = new JSpinner(new SpinnerNumberModel(settings.tn3270FkeyOverlayOpacity, 0, 100, 5));
+        fkeyOpacitySpinner.setToolTipText("Transparenz der F-Tasten-Leiste in Prozent (0 = unsichtbar, 100 = deckend)");
+        fb.addRow("F-Tasten Deckkraft (%):", fkeyOpacitySpinner);
+
         fb.addInfo("<html><i>Host und Benutzer werden aus den Server-Einstellungen übernommen.<br>"
                 + "Der Port kann beim Verbinden im Dialog überschrieben werden.</i></html>");
 
@@ -89,6 +96,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.tn3270AutoCommand = autoCommandCheckBox.isSelected();
         s.tn3270AutoCommandText = autoCommandField.getText();
         s.tn3270ActionDelayMs = ((Number) actionDelaySpinner.getValue()).intValue();
+        s.tn3270FkeyOverlayOpacity = ((Number) fkeyOpacitySpinner.getValue()).intValue();
     }
 }
 
