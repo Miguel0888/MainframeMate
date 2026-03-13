@@ -711,15 +711,15 @@ public class TerminalConnectionTab implements ConnectionTab {
      * Detection strategy:
      * <ul>
      *   <li><b>Rows 0–1</b> (action bar): always auto-enter for protected fields with text.</li>
-     *   <li><b>Rows 2 … (rows−4)</b> (pulldown / popup area): auto-enter only when the field
-     *       uses CUA-style highlighting — <i>reverse video</i>, <i>alternate intensity</i>,
-     *       or <i>underscore</i>.  This covers pulldown menu items of any depth while
-     *       avoiding false positives on regular labels.</li>
+     *   <li><b>Rows 2 … (rows−4)</b> (pulldown / popup area): auto-enter when
+     *       <ul>
+     *         <li>the field uses CUA-style highlighting (reverse video, alt-intensity, underscore), <b>OR</b></li>
+     *         <li>the screen line looks like a pulldown menu item — bordered by {@code |}
+     *             with a leading number (e.g. {@code | 3  Save   |}).</li>
+     *       </ul>
+     *   </li>
      *   <li><b>Bottom 3 rows</b> (command line, message line, PF-key legend): never auto-enter.</li>
      * </ul>
-     * In 3270, action-bar / menu items are always in protected fields.
-     * Unprotected fields in the top rows are input fields (e.g. command line)
-     * where the user types, so we must NOT auto-send ENTER there.
      */
     private void autoEnterIfMenuItem(Terminal term) {
         if (term == null || !connected) return;
@@ -735,12 +735,11 @@ public class TerminalConnectionTab implements ConnectionTab {
         // Bottom 3 rows are command line / message / PF-key legend → never
         if (cursorRow >= rows - 3) return;
 
-        // Check if the cursor is in a PROTECTED field with text (= menu item)
         try {
             com.ascert.open.term.core.TermField field = term.getField(cursorPos);
             if (field == null) return;
 
-            // Only auto-enter for PROTECTED fields (action bar menu items).
+            // Only auto-enter for PROTECTED fields.
             // Unprotected fields are input areas → don't interfere.
             if (!field.isProtected()) return;
 
@@ -761,17 +760,80 @@ public class TerminalConnectionTab implements ConnectionTab {
                 return;
             }
 
-            // ── Pulldown / popup area (rows 2+): need CUA visual indicator ──
-            // Check for reverse video, alternate intensity, or underscore
-            // on the first data character of the field.
+            // ── Pulldown / popup area (rows 2+) ────────────────
+
+            // Check 1: CUA visual attributes (reverse video, highlight, underscore)
             if (fieldHasMenuStyle(field)) {
                 LOG.fine("[3270] Menu click at row " + cursorRow
                         + ", field='" + fieldText.trim() + "' (highlighted) → sending ENTER");
+                term.Fkey(AID_ENTER);
+                return;
+            }
+
+            // Check 2: Line looks like a pipe-bordered pulldown menu item
+            //           e.g.  "  | 3  Save        |  "
+            if (looksLikePulldownMenuLine(term, cursorRow, cols)) {
+                LOG.fine("[3270] Pulldown menu click at row " + cursorRow
+                        + ", field='" + fieldText.trim() + "' (pipe-bordered) → sending ENTER");
                 term.Fkey(AID_ENTER);
             }
         } catch (Exception e) {
             LOG.log(Level.FINE, "[3270] autoEnterIfMenuItem error", e);
         }
+    }
+
+    /**
+     * Check whether the screen line at {@code row} looks like a pulldown menu item.
+     * <p>
+     * Typical 3270 pulldown format:
+     * <pre>
+     *   | 1  New        |
+     *   | 2  Open       |
+     *   | 3  Save       |
+     *   | 10 Long name  |
+     * </pre>
+     * Detection heuristic:
+     * <ol>
+     *   <li>The line contains at least two vertical-border characters
+     *       ({@code |}, {@code │}, {@code ║}).</li>
+     *   <li>The content between the outermost borders starts (after optional spaces)
+     *       with one or more digits — the menu-item selection number.</li>
+     * </ol>
+     */
+    private static boolean looksLikePulldownMenuLine(Terminal term, int row, int cols) {
+        String line;
+        try {
+            line = term.getCharString(row * cols, cols);
+        } catch (Exception e) {
+            return false;
+        }
+        if (line == null || line.isEmpty()) return false;
+
+        // Find leftmost and rightmost border character
+        int firstBorder = -1;
+        int lastBorder = -1;
+        for (int i = 0; i < line.length(); i++) {
+            if (isBorderChar(line.charAt(i))) {
+                if (firstBorder < 0) firstBorder = i;
+                lastBorder = i;
+            }
+        }
+
+        // Need at least two border chars with content between them
+        if (firstBorder < 0 || lastBorder - firstBorder < 2) return false;
+
+        // Extract content between the outermost borders
+        String between = line.substring(firstBorder + 1, lastBorder);
+        String trimmed = between.trim();
+        if (trimmed.isEmpty()) return false;
+
+        // First non-space character must be a digit (menu-item number)
+        return Character.isDigit(trimmed.charAt(0));
+    }
+
+    /** Characters used as vertical borders in 3270 pulldown menus. */
+    private static boolean isBorderChar(char c) {
+        return c == '|' || c == '│' || c == '┃' || c == '║' || c == '¦';
     }
 
     /**

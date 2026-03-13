@@ -96,7 +96,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
 
         // ── Mouse → F-Key bindings ──────────────────────────────
         fb.addSection("Maus-Aktionen");
-        fb.addInfo("Maustasten und Scrollrad können F-Tasten auslösen. Änderungen gelten für neue Verbindungen.");
+        fb.addInfo("Maustasten und Scrollrad können F-Tasten auslösen. Änderungen werden sofort übernommen.");
 
         List<MouseFkeyBinding> bindings = settings.tn3270MouseFkeyBindings;
         if (bindings == null) bindings = MouseFkeyBinding.getDefaults();
