@@ -253,6 +253,36 @@ public class Int31Handler implements CPU.IntHandler {
             case 0x0304:
                 break; // stub
 
+            // ═══════════════════════════════════════════
+            // 0305h: Get State Save/Restore Addresses
+            // ═══════════════════════════════════════════
+            case 0x0305: {
+                // Returns addresses of procedures to save/restore DPMI host state.
+                // AX = size of save state buffer (0 = no state to save)
+                // BX:CX = real mode save/restore procedure (segment:offset)
+                // SI:DI = protected mode save/restore procedure (selector:offset)
+                cpu.regs.setAX(DPMIManager.STATE_SAVE_SIZE);
+                cpu.regs.setBX(DPMIManager.STATE_SAVE_RM_SEG);
+                cpu.regs.setCX(DPMIManager.STATE_SAVE_RM_OFS);
+                cpu.regs.setSI(cpu.regs.cs);  // use current CS for PM stub
+                cpu.regs.setDI(DPMIManager.STATE_SAVE_PM_OFS);
+                break;
+            }
+
+            // ═══════════════════════════════════════════
+            // 0306h: Get Raw Mode Switch Addresses
+            // ═══════════════════════════════════════════
+            case 0x0306: {
+                // Returns addresses for raw real/protected mode switching.
+                // BX:CX = real-to-protected mode switch address (segment:offset)
+                // SI:DI = protected-to-real mode switch address (selector:offset)
+                cpu.regs.setBX(DPMIManager.RAW_SWITCH_RM2PM_SEG);
+                cpu.regs.setCX(DPMIManager.RAW_SWITCH_RM2PM_OFS);
+                cpu.regs.setSI(cpu.regs.cs);  // use current CS for PM stub
+                cpu.regs.setDI(DPMIManager.RAW_SWITCH_PM2RM_OFS);
+                break;
+            }
+
             // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
             // 0400h: Get DPMI Version
             // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -372,6 +402,14 @@ public class Int31Handler implements CPU.IntHandler {
             // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
             case 0x0902:
                 cpu.regs.setAL(cpu.regs.flags.getIF() ? 1 : 0);
+                break;
+
+            // ═══════════════════════════════════════════
+            // 0A00h: Get Vendor-Specific API Entry Point
+            // ═══════════════════════════════════════════
+            case 0x0A00:
+                // Not supported — set carry flag (this is normal)
+                cpu.regs.flags.setCF(true);
                 break;
 
             default:

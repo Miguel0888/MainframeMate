@@ -667,8 +667,13 @@ public class CPU implements Module {
 
             segOverride = -1;
             repPrefix = false;
-            prefix66 = false;
-            prefix67 = false;
+            // In protected mode, check CS descriptor's D-bit for default operand/address size.
+            // If D=1 (32-bit CS), default is 32-bit; 0x66/0x67 prefixes toggle to 16-bit.
+            // If D=0 (16-bit CS) or real mode, default is 16-bit; prefixes toggle to 32-bit.
+            boolean csIs32 = isProtectedMode() && dpmi != null && dpmi.isDpmiActive()
+                    && dpmi.is32BitSelector(regs.cs);
+            prefix66 = csIs32;
+            prefix67 = csIs32;
             executeOne();
             cycles++;
             totalCycles++;
@@ -692,8 +697,8 @@ public class CPU implements Module {
                 case 0x3E: segOverride = regs.ds; opcode = fetchByte(); continue;
                 case 0x64: segOverride = regs.fs; opcode = fetchByte(); continue; // FS override
                 case 0x65: segOverride = regs.gs; opcode = fetchByte(); continue; // GS override
-                case 0x66: prefix66 = true; opcode = fetchByte(); continue;       // operand size
-                case 0x67: prefix67 = true; opcode = fetchByte(); continue;       // address size
+                case 0x66: prefix66 = !prefix66; opcode = fetchByte(); continue;       // operand size toggle
+                case 0x67: prefix67 = !prefix67; opcode = fetchByte(); continue;       // address size toggle
                 case 0xF0: opcode = fetchByte(); continue;                        // LOCK (ignored)
                 case 0xF2: repPrefix = true; repNE = true; opcode = fetchByte(); continue;
                 case 0xF3: repPrefix = true; repNE = false; opcode = fetchByte(); continue;

@@ -175,11 +175,14 @@ public class DOSBox {
 
             int[] selectors = dpmi.enterProtectedMode(clientBits, pspSeg);
 
-            // Create a code selector for the caller's CS segment
+            // Create a code selector for the caller's CS segment.
+            // IMPORTANT: The return code is always 16-bit (it was real-mode code
+            // that called the DPMI entry point). The clientBits flag only means the
+            // client WANTS to use 32-bit PM features later — the initial CS must
+            // remain 16-bit so the return code is interpreted correctly.
             int callerCSSel = dpmi.segmentToDescriptor(callerCS);
             int csIdx = dpmi.selectorToIndex(callerCSSel);
-            dpmi.setAccessRights(callerCSSel,
-                    clientBits != 0 ? 0x409A : 0x009A); // code, read, present (32-bit if requested)
+            dpmi.setAccessRights(callerCSSel, 0x009A); // code, read, present, 16-bit
 
             // Create a data selector for the caller's SS segment
             int callerSSSel = dpmi.segmentToDescriptor(callerSS);
@@ -211,6 +214,14 @@ public class DOSBox {
         // Also install a callback at F000:8100 for real mode callbacks
         int cbAddr = Memory.segOfs(0xF000, 0x8100);
         memory.writeByte(cbAddr, 0xCB); // RETF (stub)
+
+        // Install stubs for INT 31h/0305 (State Save/Restore)
+        memory.writeByte(Memory.segOfs(DPMIManager.STATE_SAVE_RM_SEG, DPMIManager.STATE_SAVE_RM_OFS), 0xCB); // RETF
+        memory.writeByte(Memory.segOfs(0xF000, DPMIManager.STATE_SAVE_PM_OFS), 0xCB); // RETF
+
+        // Install stubs for INT 31h/0306 (Raw Mode Switch)
+        memory.writeByte(Memory.segOfs(DPMIManager.RAW_SWITCH_RM2PM_SEG, DPMIManager.RAW_SWITCH_RM2PM_OFS), 0xCB); // RETF
+        memory.writeByte(Memory.segOfs(DPMIManager.RAW_SWITCH_PM2RM_SEG, DPMIManager.RAW_SWITCH_PM2RM_OFS), 0xCB); // RETF
 
         // Set up IVT entries for BIOS interrupts so real mode reflection works
         setupIVT();

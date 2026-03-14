@@ -65,6 +65,19 @@ public class DPMIManager {
     // Callback interrupt number (used internally)
     public static final int DPMI_CALLBACK_INT = 0xFE;
 
+    // Stub addresses for INT 31h/0305 (State Save/Restore)
+    public static final int STATE_SAVE_RM_SEG = 0xF000;
+    public static final int STATE_SAVE_RM_OFS = 0x8200;
+    public static final int STATE_SAVE_PM_SEL = 0;  // filled in after PM entry
+    public static final int STATE_SAVE_PM_OFS = 0x8204;
+    public static final int STATE_SAVE_SIZE   = 0;   // no state to save
+
+    // Stub addresses for INT 31h/0306 (Raw Mode Switch)
+    public static final int RAW_SWITCH_RM2PM_SEG = 0xF000;
+    public static final int RAW_SWITCH_RM2PM_OFS = 0x8210;
+    public static final int RAW_SWITCH_PM2RM_SEG = 0xF000;
+    public static final int RAW_SWITCH_PM2RM_OFS = 0x8214;
+
     public DPMIManager(Memory memory) {
         this.memory = memory;
         for (int i = 0; i < MAX_LDT_ENTRIES; i++) {
@@ -245,7 +258,8 @@ public class DPMIManager {
         int idx = selectorToIndex(selector);
         if (idx < MAX_LDT_ENTRIES) {
             ldt[idx].accessRights = rights;
-            ldt[idx].is32Bit = (rights & 0x4000) != 0; // bit 14 = D/B bit
+            ldt[idx].present = (rights & 0x0080) != 0;   // bit 7 = Present bit
+            ldt[idx].is32Bit = (rights & 0x4000) != 0;   // bit 14 = D/B bit
             ldt[idx].pageGranular = (rights & 0x8000) != 0; // bit 15 = G bit
             return true;
         }
