@@ -35,7 +35,9 @@ public class MenuTreeBuilder {
                 "---2",
                 "tn3270", "jes",
                 "---3",
-                "betaview"
+                "betaview",
+                "---4",
+                "dos"
         ));
         // Navigieren-Menü Reihenfolge
         SUBMENU_ORDER.put("navigate", Arrays.asList(
