@@ -364,9 +364,38 @@ public class CPU implements Module {
                 setEffIP(pmOfs);
                 return;
             }
-            // No PM vector — reflect to real mode via IVT
-            // For now, just log and return
-            System.err.printf("[DPMI] Unhandled PM INT %02X at %04X:%04X%n", vector, regs.cs, regs.getIP());
+            // No PM vector — reflect to real mode via saved IVT
+            // Hardware interrupts (and unhandled software INTs) must be
+            // reflected to the real-mode handler that was active before PM entry.
+            int rmSeg = dpmi.getRMIntVector_Seg(vector);
+            int rmOfs = dpmi.getRMIntVector_Ofs(vector);
+            if (rmSeg != 0 || rmOfs != 0) {
+                // Simulate the real-mode interrupt handler inline:
+                // Save PM state, switch to real mode temporarily, execute handler, return.
+                // Simplified approach: just call the RM handler at seg:ofs in real-mode context
+                // by directly executing the memory at the IVT target.
+                // For most hardware IRQs (like INT 08 timer), the BIOS handler just
+                // increments the tick counter and sends EOI — we can simulate that here.
+                if (vector == 0x08) {
+                    // Timer tick: increment BIOS tick count at 0040:006C and send EOI
+                    int tickAddr = Memory.segOfs(0x0040, 0x006C);
+                    long ticks = memory.readDWord(tickAddr) & 0xFFFFFFFFL;
+                    ticks++;
+                    memory.writeDWord(tickAddr, (int) ticks);
+                    // Send EOI to master PIC (port 0x20)
+                    if (pic != null) pic.lowerIRQ(0);
+                } else if (vector >= 0x08 && vector <= 0x0F) {
+                    // Other master PIC IRQs: just send EOI
+                    if (pic != null) pic.lowerIRQ(vector - 0x08);
+                } else if (vector >= 0x70 && vector <= 0x77) {
+                    // Slave PIC IRQs: send EOI to both slave and master
+                    if (pic != null) pic.lowerIRQ(vector - 0x70 + 8);
+                }
+                // For non-hardware interrupts, silently ignore
+                return;
+            }
+            System.err.printf("[DPMI] Unhandled PM INT %02X at %04X:%04X (no RM vector either)%n",
+                    vector, regs.cs, regs.getIP());
             return;
         }
 
@@ -1312,7 +1341,51 @@ public class CPU implements Module {
                 int rm = modrm & 7;
                 int val;
                 if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
-                regs.setSeg(seg, val);
+
+                // Protected mode: validate selector for data segments (DS=3, ES=0, FS=4, GS=5)
+                if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()
+                        && seg != 1 /* CS loaded via far jmp/call only */) {
+                    if ((val & 0xFFFC) == 0) {
+                        // Null selector is allowed for data segments — clears the register
+                        regs.setSeg(seg, 0);
+                    } else {
+                        // Check if the selector points to a valid descriptor
+                        boolean valid = false;
+                        if (dpmi.isLDTSelector(val)) {
+                            int idx = dpmi.selectorToIndex(val);
+                            DPMIManager.LDTEntry e = dpmi.getEntry(val);
+                            if (e != null && e.present) valid = true;
+                        } else {
+                            // GDT selector — check if GDT has this entry
+                            int idx = dpmi.selectorToIndex(val);
+                            DPMIManager.LDTEntry e = dpmi.getEntry(val);
+                            if (e != null && e.present) valid = true;
+                        }
+                        if (valid) {
+                            regs.setSeg(seg, val);
+                        } else {
+                            // Invalid selector — #GP(selector)
+                            // DOS/4GW handles #GP by checking if the faulting instruction
+                            // was a segment load and fixing it up. For now, load 0 (null selector)
+                            // to prevent garbage propagation, and invoke exception handler if set.
+                            int excSel = dpmi.getExceptionHandler_Sel(0x0D); // #GP = exception 13
+                            if (excSel != 0) {
+                                // Push error code and jump to exception handler
+                                pushOp(val); // error code = selector
+                                pushOp(regs.flags.getDWord());
+                                pushOp(regs.cs);
+                                pushOp(regs.getEIP());
+                                regs.cs = excSel;
+                                setEffIP(dpmi.getExceptionHandler_Ofs(0x0D));
+                            } else {
+                                // No exception handler — silently load null to avoid crash
+                                regs.setSeg(seg, 0);
+                            }
+                        }
+                    }
+                } else {
+                    regs.setSeg(seg, val);
+                }
                 break;
             }
 
