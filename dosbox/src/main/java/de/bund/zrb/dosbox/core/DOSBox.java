@@ -514,6 +514,10 @@ public class DOSBox {
         System.out.printf("[DOSBox] Starting emulation: CS=%04X EIP=%08X SS=%04X ESP=%08X DS=%04X ES=%04X%n",
                 cpu.regs.cs, cpu.regs.getEIP(), cpu.regs.ss, cpu.regs.getESP(), cpu.regs.ds, cpu.regs.es);
 
+        // Enable trace recording from start
+        cpu.getTrace().setEnabled(true);
+        cpu.getTrace().clear();
+
         long startTime = System.currentTimeMillis();
         long blockCount = 0;
         int prevIP = -1;
@@ -611,14 +615,29 @@ public class DOSBox {
         System.out.printf("[DOSBox] Final: CS=%04X EIP=%08X SS=%04X ESP=%08X DS=%04X ES=%04X%n",
                 cpu.regs.cs, cpu.regs.getEIP(), cpu.regs.ss, cpu.regs.getESP(), cpu.regs.ds, cpu.regs.es);
 
-        // Print last 50 trace entries to console
+        // Print last 500 trace entries to console
         if (cpu.getTrace().getCount() > 0) {
-            de.bund.zrb.dosbox.cpu.CpuTrace.Entry[] last = cpu.getTrace().getLastEntries(50);
+            de.bund.zrb.dosbox.cpu.CpuTrace.Entry[] last = cpu.getTrace().getLastEntries(500);
             System.out.println("[DOSBox] === LAST " + last.length + " TRACE ENTRIES ===");
             for (de.bund.zrb.dosbox.cpu.CpuTrace.Entry e : last) {
                 System.out.println(e.toString());
             }
             System.out.println("[DOSBox] === END TRACE ===");
+
+            // Also save full trace to file
+            try {
+                java.io.File traceFile = new java.io.File("doom2/trace.txt");
+                try (java.io.PrintWriter pw = new java.io.PrintWriter(traceFile)) {
+                    de.bund.zrb.dosbox.cpu.CpuTrace.Entry[] all = cpu.getTrace().getLastEntries(cpu.getTrace().getCount());
+                    for (de.bund.zrb.dosbox.cpu.CpuTrace.Entry e : all) {
+                        pw.println(e.toString());
+                    }
+                }
+                System.out.printf("[DOSBox] Full trace (%d entries) saved to %s%n",
+                        cpu.getTrace().getCount(), traceFile.getAbsolutePath());
+            } catch (Exception ex) {
+                System.err.println("[DOSBox] Failed to save trace: " + ex.getMessage());
+            }
         }
 
         cpu.setRunning(false);

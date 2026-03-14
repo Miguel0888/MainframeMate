@@ -554,8 +554,11 @@ public class DPMIManager {
             if (gdt != null && gdt.present) {
                 return gdt.base + offset;
             }
-            // GDT not set up yet or invalid — fall back to real-mode style
-            return ((selector & 0xFFFF) << 4) + (offset & 0xFFFF);
+            // GDT entry invalid or out of bounds — log and return linear offset
+            // This happens when the program uses a selector not yet set up
+            System.err.printf("[DPMI] resolveAddress: invalid GDT selector %04X (idx=%d, gdtBase=%08X, gdtLimit=%04X)%n",
+                    selector, idx, gdtrBase, gdtrLimit);
+            return offset; // use offset as linear address (better than real-mode calc)
         }
 
         // LDT selector

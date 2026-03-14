@@ -80,7 +80,7 @@ public class CpuTrace {
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
     /** Record the CPU state before executing an instruction. */
-    public void record(CPU cpu, int opcode, long cycle) {
+    public void record(CPU cpu, int opcode, int op2, long cycle) {
         if (!enabled) return;
 
         Entry e = buffer[writePos];
@@ -102,9 +102,10 @@ public class CpuTrace {
         e.bp = cpu.regs.getEBP();
         e.flags = cpu.regs.flags.getDWord();
         e.opcode = opcode;
+        e.opcode2 = op2;
         e.pm = cpu.isProtectedMode();
         e.linearAddr = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getEIP());
-        e.disasm = disassembleSimple(opcode);
+        e.disasm = disassembleSimple(opcode, op2);
 
         writePos = (writePos + 1) % capacity;
         if (count < capacity) count++;
@@ -164,14 +165,48 @@ public class CpuTrace {
 
     // ── Simple disassembler for common opcodes ──────────────
 
-    private static String disassembleSimple(int opcode) {
+    private static String disassembleSimple(int opcode, int op2) {
+        if (opcode == 0x0F && op2 != 0) {
+            switch (op2) {
+                case 0x00: return "GRP6";
+                case 0x01: return "GRP7";
+                case 0x20: return "MOV CRr";
+                case 0x22: return "MOV rCR";
+                case 0x80: case 0x81: case 0x82: case 0x83:
+                case 0x84: case 0x85: case 0x86: case 0x87:
+                case 0x88: case 0x89: case 0x8A: case 0x8B:
+                case 0x8C: case 0x8D: case 0x8E: case 0x8F: return "Jcc32";
+                case 0x90: case 0x91: case 0x92: case 0x93:
+                case 0x94: case 0x95: case 0x96: case 0x97:
+                case 0x98: case 0x99: case 0x9A: case 0x9B:
+                case 0x9C: case 0x9D: case 0x9E: case 0x9F: return "SETcc";
+                case 0xA0: return "PshFS";
+                case 0xA1: return "PopFS";
+                case 0xA2: return "CPUID";
+                case 0xA4: case 0xA5: return "SHLD";
+                case 0xA8: return "PshGS";
+                case 0xA9: return "PopGS";
+                case 0xAC: case 0xAD: return "SHRD";
+                case 0xAF: return "IMUL";
+                case 0xB0: case 0xB1: return "CMPXC";
+                case 0xB6: return "MOVZX8";
+                case 0xB7: return "MOVZX";
+                case 0xBA: return "BT/S/R";
+                case 0xBE: return "MOVSX8";
+                case 0xBF: return "MOVSX";
+                case 0x02: return "LAR";
+                case 0x03: return "LSL";
+                case 0x06: return "CLTS";
+                default: return String.format("0F %02X", op2);
+            }
+        }
         switch (opcode) {
             case 0x00: case 0x01: case 0x02: case 0x03: case 0x04: case 0x05: return "ADD";
             case 0x06: return "PUSH ES";
             case 0x07: return "POP ES";
             case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0C: case 0x0D: return "OR";
             case 0x0E: return "PUSH CS";
-            case 0x0F: return "0F...";
+            case 0x0F: return "0F..";  // should be handled above when op2 is known
             case 0x10: case 0x11: case 0x12: case 0x13: case 0x14: case 0x15: return "ADC";
             case 0x16: return "PUSH SS";
             case 0x17: return "POP SS";

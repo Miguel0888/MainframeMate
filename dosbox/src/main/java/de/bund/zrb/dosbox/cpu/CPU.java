@@ -114,8 +114,8 @@ public class CPU implements Module {
                 return dpmi.resolveAddress(seg, offset);
             }
             // PE set without DPMI (DOS extender set PE directly)
-            // Try to resolve via GDT if we have one
-            if (dpmi != null && gdtr_base != 0) {
+            // Try to resolve via GDT if we have one (gdtr_limit > 0 means GDT was loaded)
+            if (dpmi != null && gdtr_limit > 0) {
                 // Sync GDTR and use dpmi's GDT reading capability
                 dpmi.setGDTR(gdtr_base, gdtr_limit);
                 return dpmi.resolveAddress(seg, offset);
@@ -472,12 +472,8 @@ public class CPU implements Module {
         // Segment
         int seg = (segOverride >= 0) ? segOverride : (useSS ? regs.ss : regs.ds);
 
-        // In protected mode, use descriptor base + offset
-        // In real mode, use segment:offset (but with 32-bit offset)
-        if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
-            return dpmi.resolveAddress(seg, addr);
-        }
-        return ((seg & 0xFFFF) << 4) + addr;
+        // Use resolveSegOfs for consistent PM and RM address resolution
+        return resolveSegOfs(seg, addr);
     }
 
     // ── ALU operations ──────────────────────────────────────
@@ -737,7 +733,33 @@ public class CPU implements Module {
             }
             prefix66 = csIs32;
             prefix67 = csIs32;
+
+            int prevCS = regs.cs;
             executeOne();
+
+            // ── CS change detection ──
+            if (regs.cs != prevCS) {
+                System.out.printf("[CPU] CS changed: %04X → %04X at cycle %d (EIP=%08X)%n",
+                        prevCS, regs.cs, totalCycles, regs.getEIP());
+                // Validate new CS in protected mode
+                if (isProtectedMode() && dpmi != null) {
+                    int sel = regs.cs;
+                    if (!dpmi.isLDTSelector(sel)) {
+                        // GDT selector — check bounds
+                        int idx = dpmi.selectorToIndex(sel);
+                        int maxIdx = dpmi.getGdtrLimit() / 8;
+                        if (idx > 0 && idx > maxIdx) {
+                            System.out.printf("[CPU] *** INVALID CS: GDT selector %04X index=%d exceeds GDT limit %04X (max index=%d) ***%n",
+                                    sel, idx, dpmi.getGdtrLimit(), maxIdx);
+                            System.out.printf("[CPU] Previous CS=%04X, GDTR base=%08X limit=%04X%n",
+                                    prevCS, dpmi.getGdtrBase(), dpmi.getGdtrLimit());
+                            // Dump trace and stop
+                            running = false;
+                        }
+                    }
+                }
+            }
+
             cycles++;
             totalCycles++;
         }
@@ -771,12 +793,17 @@ public class CPU implements Module {
 
         // Record trace entry (with actual opcode after prefix stripping)
         if (trace.isEnabled()) {
-            // Temporarily set IP back to pre-fetch position for trace
             int savedIP = getEffIP();
             int savedCS = regs.cs;
+            // For 0F xx opcodes, peek at the op2 byte (next byte after 0F)
+            int op2ForTrace = 0;
+            if (opcode == 0x0F) {
+                op2ForTrace = memory.readByte(resolveSegOfs(savedCS, savedIP));
+            }
+            // Temporarily set IP back to pre-fetch position for trace
             regs.cs = preCS;
             setEffIP(preIP);
-            trace.record(this, opcode, totalCycles);
+            trace.record(this, opcode, op2ForTrace, totalCycles);
             regs.cs = savedCS;
             setEffIP(savedIP);
         }
@@ -1891,7 +1918,38 @@ public class CPU implements Module {
                             // Sync with DPMI manager so it can resolve GDT selectors
                             if (dpmi != null) {
                                 dpmi.setGDTR(gdtr_base, gdtr_limit);
-                                System.out.printf("[CPU] LGDT: base=%08X limit=%04X%n", gdtr_base, gdtr_limit);
+                                System.out.printf("[CPU] LGDT: base=%08X limit=%04X (read from ea=%08X)%n", gdtr_base, gdtr_limit, ea);
+                                // Dump raw bytes of pseudo-descriptor
+                                StringBuilder raw = new StringBuilder("[CPU] LGDT raw bytes at ea: ");
+                                for (int d = 0; d < 6; d++) raw.append(String.format("%02X ", memory.readByte(ea + d)));
+                                System.out.println(raw.toString().trim());
+                                // Dump first 10 GDT entries from the loaded GDT
+                                int maxEntries = Math.min(10, (gdtr_limit + 1) / 8);
+                                System.out.printf("[CPU] GDT dump (first %d entries at base %08X):%n", maxEntries, gdtr_base);
+                                for (int g = 0; g < maxEntries; g++) {
+                                    int gaddr = gdtr_base + g * 8;
+                                    int lo = memory.readByte(gaddr) | (memory.readByte(gaddr+1) << 8)
+                                           | (memory.readByte(gaddr+2) << 16) | (memory.readByte(gaddr+3) << 24);
+                                    int hi = memory.readByte(gaddr+4) | (memory.readByte(gaddr+5) << 8)
+                                           | (memory.readByte(gaddr+6) << 16) | (memory.readByte(gaddr+7) << 24);
+                                    // Parse descriptor fields
+                                    int baseLo = (lo >> 16) & 0xFFFF;
+                                    int baseMid = (hi) & 0xFF;
+                                    int baseHi = (hi >> 24) & 0xFF;
+                                    int base = baseLo | (baseMid << 16) | (baseHi << 24);
+                                    int limitLo = lo & 0xFFFF;
+                                    int limitHi4 = (hi >> 16) & 0x0F;
+                                    int limit = limitLo | (limitHi4 << 16);
+                                    int access = (hi >> 8) & 0xFF;
+                                    int flags = (hi >> 20) & 0x0F;
+                                    boolean present = (access & 0x80) != 0;
+                                    boolean is32 = (flags & 0x04) != 0;
+                                    boolean gran = (flags & 0x08) != 0;
+                                    System.out.printf("[CPU]   GDT[%d] sel=%04X: base=%08X limit=%05X%s acc=%02X P=%s D=%s %s%n",
+                                            g, g * 8, base, limit, gran ? "*4K" : "",
+                                            access, present ? "Y" : "N", is32 ? "32" : "16",
+                                            (access & 0x08) != 0 ? "CODE" : "DATA");
+                                }
                             }
                         }
                         break;
