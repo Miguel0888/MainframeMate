@@ -735,6 +735,11 @@ public class CPU implements Module {
     public long getTotalCycles() { return totalCycles; }
     public CpuTrace getTrace() { return trace; }
 
+    private int consecutiveNullOps = 0;
+    private static final int NULL_OP_ABORT_THRESHOLD = 200;
+    private int nullRegionOps = 0;
+    private static final int NULL_REGION_ABORT_THRESHOLD = 500;
+
     /**
      * Execute a block of instructions.
      * @param maxCycles maximum cycles to execute (approximate)
@@ -759,14 +764,55 @@ public class CPU implements Module {
             segOverride = -1;
             repPrefix = false;
             // In protected mode, check CS descriptor's D-bit for default operand/address size.
-            // If D=1 (32-bit CS), default is 32-bit; 0x66/0x67 prefixes toggle to 16-bit.
-            // If D=0 (16-bit CS) or real mode, default is 16-bit; prefixes toggle to 32-bit.
             csIs32 = false;
             if (isProtectedMode() && dpmi != null) {
                 csIs32 = dpmi.is32BitSelector(regs.cs);
             }
             prefix66 = csIs32;
             prefix67 = csIs32;
+
+            // Null-byte detection: detect execution in zeroed memory regions
+            int linearAddr = resolveSegOfs(regs.cs, getEffIP());
+            int peekOp = memory.readByte(linearAddr);
+            if (peekOp == 0x00) {
+                nullRegionOps++;
+            }
+            // Every 600 instructions, check if most were null ops
+            if (totalCycles % 600 == 599) {
+                if (nullRegionOps >= NULL_REGION_ABORT_THRESHOLD) {
+                    System.err.printf("[CPU] ABORT: %d of last 600 instructions were null bytes (ADD [EAX],AL) at %04X:%08X [linear %08X]%n",
+                            nullRegionOps, regs.cs, getEffIP(), linearAddr);
+                    System.err.printf("[CPU] Cycle %d, Registers: EAX=%08X EBX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X%n",
+                            totalCycles, regs.getEAX(), regs.getEBX(), regs.getECX(), regs.getEDX(), regs.getESI(), regs.getEDI());
+                    System.err.printf("[CPU] ESP=%08X EBP=%08X CS=%04X DS=%04X ES=%04X SS=%04X FS=%04X GS=%04X%n",
+                            regs.getESP(), regs.getEBP(), regs.cs, regs.ds, regs.es, regs.ss, regs.fs, regs.gs);
+                    System.err.printf("[CPU] CR0=%08X GDTR base=%08X limit=%04X csIs32=%b%n",
+                            cr0, gdtr_base, gdtr_limit, csIs32);
+                    if (dpmi != null) {
+                        System.err.printf("[CPU] DPMI active=%b, DPMI GDTR base=%08X limit=%04X%n",
+                                dpmi.isDpmiActive(), dpmi.getGdtrBase(), dpmi.getGdtrLimit());
+                        boolean isLdt = dpmi.isLDTSelector(regs.cs);
+                        int csIdx = dpmi.selectorToIndex(regs.cs);
+                        System.err.printf("[CPU] CS=%04X is %s index=%d%n", regs.cs, isLdt ? "LDT" : "GDT", csIdx);
+                        if (isLdt) {
+                            DPMIManager.LDTEntry entry = dpmi.getEntry(regs.cs);
+                            if (entry != null) {
+                                System.err.printf("[CPU] LDT[%d]: base=%08X limit=%05X present=%b is32=%b pageGranular=%b access=%04X%n",
+                                        csIdx, entry.base, entry.limit, entry.present, entry.is32Bit, entry.pageGranular, entry.accessRights);
+                            }
+                        }
+                    }
+                    System.err.printf("[CPU] Memory at linear %08X:", linearAddr & ~0xF);
+                    for (int d = 0; d < 48; d++) {
+                        if (d % 16 == 0) System.err.printf("%n  %08X:", (linearAddr & ~0xF) + d);
+                        System.err.printf(" %02X", memory.readByte((linearAddr & ~0xF) + d));
+                    }
+                    System.err.println();
+                    running = false;
+                    break;
+                }
+                nullRegionOps = 0;
+            }
 
             int prevCS = regs.cs;
             executeOne();

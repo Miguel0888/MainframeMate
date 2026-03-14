@@ -184,7 +184,7 @@ public class DPMIManager {
      *
      * @return array of [csSel, dsSel, ssSel, esSel] initial selectors
      */
-    public int[] enterProtectedMode(int clientBits, int pspSegment) {
+    public int[] enterProtectedMode(int clientBits, int callerCS, int callerDS, int callerSS, int callerES) {
         dpmiActive = true;
 
         // Save real mode IVT
@@ -193,25 +193,25 @@ public class DPMIManager {
             rmIntVecSeg[i] = memory.readWord(i * 4 + 2);
         }
 
-        // Create initial selectors for the program's real mode segments
-        // CS selector
-        int csSel = segmentToDescriptor(pspSegment);
+        // Create initial selectors for the caller's real mode segments
+        // CS selector — must map the caller's actual CS, NOT the PSP!
+        int csSel = segmentToDescriptor(callerCS);
         int csIdx = selectorToIndex(csSel);
         ldt[csIdx].accessRights = 0x009A; // code, read, present
-        // The initial CS maps the PSP's real-mode segment — always 16-bit.
+        // The initial CS maps the caller's real-mode segment — always 16-bit.
         // clientBits=1 means the client WANTS 32-bit DPMI features later,
-        // NOT that the PSP segment itself is 32-bit.
+        // NOT that the initial CS segment itself is 32-bit.
         ldt[csIdx].is32Bit = false;
         ldt[csIdx].limit = 0xFFFF;
 
-        // DS selector
-        int dsSel = segmentToDescriptor(pspSegment);
+        // DS selector — map caller's DS
+        int dsSel = segmentToDescriptor(callerDS);
 
-        // SS selector - same as DS for now
-        int ssSel = segmentToDescriptor(pspSegment);
+        // SS selector — map caller's SS
+        int ssSel = segmentToDescriptor(callerSS);
 
-        // ES selector - same as DS
-        int esSel = segmentToDescriptor(pspSegment);
+        // ES selector — map caller's ES (typically the PSP)
+        int esSel = segmentToDescriptor(callerES);
 
         // Also create a selector for the environment segment (PSP+0x2C)
         // and selectors for conventional memory ranges

@@ -170,28 +170,25 @@ public class DOSBox {
             int returnIP = memory.readWord(stackAddr);
             int callerCS = memory.readWord(stackAddr + 2);
             int callerSS = c.regs.ss;
+            int callerDS = c.regs.ds;
+            int callerES = pspSeg;
 
-            System.out.printf("[DPMI] FAR CALL return: CS=%04X IP=%04X, caller SS=%04X%n",
-                    callerCS, returnIP, callerSS);
+            System.out.printf("[DPMI] FAR CALL return: CS=%04X IP=%04X, caller SS=%04X DS=%04X ES=%04X%n",
+                    callerCS, returnIP, callerSS, callerDS, callerES);
 
-            int[] selectors = dpmi.enterProtectedMode(clientBits, pspSeg);
+            // enterProtectedMode now creates selectors from the actual caller segments:
+            //   selectors[0] = CS selector (maps callerCS)
+            //   selectors[1] = DS selector (maps callerDS)
+            //   selectors[2] = SS selector (maps callerSS)
+            //   selectors[3] = ES selector (maps callerES/PSP)
+            int[] selectors = dpmi.enterProtectedMode(clientBits, callerCS, callerDS, callerSS, callerES);
 
-            // Create a code selector for the caller's CS segment.
-            // IMPORTANT: The return code is always 16-bit (it was real-mode code
-            // that called the DPMI entry point). The clientBits flag only means the
-            // client WANTS to use 32-bit PM features later — the initial CS must
-            // remain 16-bit so the return code is interpreted correctly.
-            int callerCSSel = dpmi.segmentToDescriptor(callerCS);
-            int csIdx = dpmi.selectorToIndex(callerCSSel);
-            dpmi.setAccessRights(callerCSSel, 0x009A); // code, read, present, 16-bit
+            int callerCSSel = selectors[0];
+            int callerSSSel = selectors[2];
 
-            // Create a data selector for the caller's SS segment
-            int callerSSSel = dpmi.segmentToDescriptor(callerSS);
-
-            // Set DS, ES to PM selectors (from enterProtectedMode)
+            // Set segment registers to PM selectors
             c.regs.ds = selectors[1]; // DS selector
-            c.regs.es = selectors[3]; // ES selector
-            // Set SS to the new SS selector
+            c.regs.es = selectors[3]; // ES selector (PSP)
             c.regs.ss = callerSSSel;
 
             // Set PE bit in CR0 to indicate protected mode
@@ -527,7 +524,8 @@ public class DOSBox {
         int loopDetectCount = 0;
         boolean dumpedLoop = false;
 
-        while (cpu.isRunning() && !int20.isTerminated() && !int21.isTerminated()) {
+        while (cpu.isRunning() && !int20.isTerminated() && !int21.isTerminated()
+                && cpu.getTotalCycles() < 500000) {
             cpu.executeBlock(cyclesPerBlock);
             pic.advanceTime(0.5);
             pit.tick(0.5);
