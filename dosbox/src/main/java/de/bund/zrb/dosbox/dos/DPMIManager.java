@@ -542,6 +542,8 @@ public class DPMIManager {
      *   - LDT selector (TI=1): use our LDT array
      *   - GDT selector (TI=0): read descriptor from memory at gdtr_base + index*8
      */
+    private int resolveAddressErrCount = 0;
+
     public int resolveAddress(int selector, int offset) {
         if (!isLDTSelector(selector)) {
             // GDT selector — read descriptor from memory
@@ -555,9 +557,11 @@ public class DPMIManager {
                 return gdt.base + offset;
             }
             // GDT entry invalid or out of bounds — log and return linear offset
-            // This happens when the program uses a selector not yet set up
-            System.err.printf("[DPMI] resolveAddress: invalid GDT selector %04X (idx=%d, gdtBase=%08X, gdtLimit=%04X)%n",
-                    selector, idx, gdtrBase, gdtrLimit);
+            if (resolveAddressErrCount < 10) {
+                resolveAddressErrCount++;
+                System.err.printf("[DPMI] resolveAddress: invalid GDT selector %04X (idx=%d, gdtBase=%08X, gdtLimit=%04X)%n",
+                        selector, idx, gdtrBase, gdtrLimit);
+            }
             return offset; // use offset as linear address (better than real-mode calc)
         }
 

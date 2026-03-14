@@ -162,7 +162,7 @@ public class DOSBox {
             System.out.printf("[DPMI] Current CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
                     c.regs.cs, c.regs.getIP(), c.regs.ss, c.regs.getSP(), c.regs.ds, c.regs.es);
 
-            // The stack currently has the FAR CALL return address:
+            // The stack currently has the FAR CALL return address (pushed by CALL FAR):
             //   [SS:SP] = return_IP (word)
             //   [SS:SP+2] = caller_CS (real-mode segment) (word)
             int stackAddr = Memory.segOfs(c.regs.ss, c.regs.getSP());
@@ -187,28 +187,30 @@ public class DOSBox {
             // Create a data selector for the caller's SS segment
             int callerSSSel = dpmi.segmentToDescriptor(callerSS);
 
-            // Patch the FAR CALL return address on the stack:
-            // Replace real-mode CS with the new PM code selector
-            memory.writeWord(stackAddr + 2, callerCSSel);
-
             // Set DS, ES to PM selectors (from enterProtectedMode)
             c.regs.ds = selectors[1]; // DS selector
             c.regs.es = selectors[3]; // ES selector
             // Set SS to the new SS selector
             c.regs.ss = callerSSSel;
 
-            // DON'T change CS here! CS is still F000 (BIOS ROM area).
-            // The RETF instruction at F000:8002 will pop CS from the patched stack,
-            // giving the caller the proper PM code selector.
+            // Set PE bit in CR0 to indicate protected mode
+            c.setCR0(c.getCR0() | 1);
+
+            // CRITICAL FIX: We cannot rely on the RETF at F000:8002 to pop the
+            // return address, because after setting PE, CS=F000 is treated as a
+            // GDT selector (not a real-mode segment), and F000:8002 resolves to
+            // address 0x8002 instead of 0xF8002. So we must directly set CS:IP
+            // to the caller's PM code, and pop the FAR CALL return from the stack.
+            c.regs.cs = callerCSSel;
+            c.regs.setIP(returnIP);
+            // Pop the FAR CALL return address (IP + CS = 4 bytes) from the stack
+            c.regs.setSP(c.regs.getSP() + 4);
 
             // Set AX=0 to indicate success
             c.regs.setAX(0);
 
-            // Set PE bit in CR0 to indicate protected mode
-            c.setCR0(c.getCR0() | 1);
-
-            System.out.printf("[DPMI] Patched return: CS_sel=%04X DS=%04X SS=%04X ES=%04X%n",
-                    callerCSSel, c.regs.ds, c.regs.ss, c.regs.es);
+            System.out.printf("[DPMI] Patched return: CS_sel=%04X DS=%04X SS=%04X ES=%04X, entry at %04X:%04X%n",
+                    callerCSSel, c.regs.ds, c.regs.ss, c.regs.es, callerCSSel, returnIP);
         });
 
         // Also install a callback at F000:8100 for real mode callbacks

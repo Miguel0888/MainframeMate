@@ -54,6 +54,7 @@ public class CPU implements Module {
     // ── Cycle counting ──────────────────────────────────────
     private long totalCycles;
     private static final int CYCLES_PER_TICK = 1000; // simplified
+    private int csChangeLogCount = 0; // limit CS change logging
 
     // ── Instruction trace ────────────────────────────────────
     private final CpuTrace trace = new CpuTrace(100_000); // last 100K instructions
@@ -739,8 +740,11 @@ public class CPU implements Module {
 
             // ── CS change detection ──
             if (regs.cs != prevCS) {
-                System.out.printf("[CPU] CS changed: %04X → %04X at cycle %d (EIP=%08X)%n",
-                        prevCS, regs.cs, totalCycles, regs.getEIP());
+                csChangeLogCount++;
+                if (csChangeLogCount <= 50) {
+                    System.out.printf("[CPU] CS changed: %04X → %04X at cycle %d (EIP=%08X)%n",
+                            prevCS, regs.cs, totalCycles, regs.getEIP());
+                }
                 // Validate new CS in protected mode
                 if (isProtectedMode() && dpmi != null) {
                     int sel = regs.cs;
