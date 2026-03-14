@@ -3,6 +3,8 @@ package de.bund.zrb.ui.jes;
 import de.bund.zrb.files.impl.ftp.jes.JesFtpService;
 import de.bund.zrb.files.impl.ftp.jes.JesJob;
 import de.bund.zrb.files.impl.ftp.jes.JesSpoolFile;
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;

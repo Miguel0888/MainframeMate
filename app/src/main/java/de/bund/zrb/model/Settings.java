@@ -83,6 +83,9 @@ public class Settings {
     public String betaviewForm = "APZF";             // Default Form
     public int betaviewDaysBack = 60;                // Default Tage zurück
 
+    // JES Spool Settings
+    public String jesSpoolDdNameMode = "FAST";         // FAST = schnell laden (Content-Fallback), PROBE = einzeln abrufen (langsam, genauer), OFF = keine DDName-Erkennung
+
     // TN3270 Terminal Settings
     public int tn3270Port = 992;                       // TN3270 Port (Standard: 992 für TLS, 23 für Klartext)
     public boolean tn3270Tls = true;                   // TLS/SSL verwenden (Standard: an)

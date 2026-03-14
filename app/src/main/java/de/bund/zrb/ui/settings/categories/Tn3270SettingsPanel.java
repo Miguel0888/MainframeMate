@@ -31,6 +31,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
     private final JSpinner cosmicClockFactorSpinner;
     private final JCheckBox germanNamesCheckBox;
     private final MouseBindingTableModel mouseBindingModel;
+    private final JComboBox<String> jesSpoolDdNameCombo;
 
     public Tn3270SettingsPanel() {
         super("tn3270", "3270-Terminal");
@@ -172,6 +173,21 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         fb.addInfo("<html><i>Host und Benutzer werden aus den Server-Einstellungen übernommen.<br>"
                 + "Der Port kann beim Verbinden im Dialog überschrieben werden.</i></html>");
 
+        // ── JES Spool Settings ──────────────────────────────────
+        fb.addSection("JES Spool");
+
+        jesSpoolDdNameCombo = new JComboBox<>(new String[]{"FAST", "PROBE", "OFF"});
+        String currentMode = settings.jesSpoolDdNameMode != null ? settings.jesSpoolDdNameMode : "FAST";
+        jesSpoolDdNameCombo.setSelectedItem(currentMode);
+        jesSpoolDdNameCombo.setToolTipText(
+                "<html><b>FAST</b> = Schnell laden (gesamter Output), DDNames aus Inhalt erkennen<br>"
+                + "<b>PROBE</b> = Einzelne Spool-Files abrufen (langsamer, genauere DDNames)<br>"
+                + "<b>OFF</b> = Keine DDName-Erkennung (nur SPOOL#n)</html>");
+        fb.addRow("DD-Name Erkennung:", jesSpoolDdNameCombo);
+
+        fb.addInfo("<html><i>FAST lädt den gesamten Output in einem Abruf und erkennt DDNames aus dem Inhalt.<br>"
+                + "PROBE ruft jedes Spool-File einzeln ab – langsamer, aber erkennt mehr DDNames.</i></html>");
+
         installPanel(fb);
     }
 
@@ -190,6 +206,7 @@ public class Tn3270SettingsPanel extends AbstractSettingsPanel {
         s.cosmicClockTimeFactor = ((Number) cosmicClockFactorSpinner.getValue()).doubleValue();
         s.cosmicClockGermanNames = germanNamesCheckBox.isSelected();
         s.tn3270MouseFkeyBindings = mouseBindingModel.getBindings();
+        s.jesSpoolDdNameMode = (String) jesSpoolDdNameCombo.getSelectedItem();
     }
 
     // ── Table model for mouse bindings ──────────────────────────

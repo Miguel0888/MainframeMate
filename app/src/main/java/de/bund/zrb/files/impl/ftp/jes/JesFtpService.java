@@ -220,14 +220,17 @@ public class JesFtpService implements Closeable {
             }
         }
 
-        // ── Strategy 2: Probe individual spool files via RETR reply ─
-        // The RETR reply on this server is just "250 Transfer completed successfully."
-        // with no DDName info. So we probe to discover how many spool files exist,
-        // then use content-based detection on each one to determine the DDName.
-        if (spoolFiles.isEmpty()) {
-            LOG.info("[JES] Trying spool probe for " + jobId + "…");
+        // ── Strategy 2: Probe individual spool files (only in PROBE mode) ─
+        Settings probeSettings = SettingsHelper.load();
+        String ddNameMode = probeSettings.jesSpoolDdNameMode != null ? probeSettings.jesSpoolDdNameMode : "FAST";
+
+        if (spoolFiles.isEmpty() && "PROBE".equalsIgnoreCase(ddNameMode)) {
+            LOG.info("[JES] Trying spool probe for " + jobId + " (PROBE mode)…");
             spoolFiles = probeSpoolFilesWithContentDetection(jobId);
         }
+
+        // In FAST or OFF mode, return empty list – caller (JobDetailTab) will use
+        // getAllSpoolContent + parseSpoolSectionsFromOutput for fast loading.
 
         LOG.info("[JES] Job " + jobId + " has " + spoolFiles.size() + " spool files.");
         return spoolFiles;
