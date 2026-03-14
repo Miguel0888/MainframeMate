@@ -1158,6 +1158,34 @@ public class CPU implements Module {
                 break;
             }
 
+            // ── ARPL (63) — Adjust RPL Field of Selector ────
+            case 0x63: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM(modrm);
+                int rm = modrm & 7;
+                int srcRPL = regs.getReg16(reg) & 3;
+                int destVal;
+                if (ea == -1) {
+                    destVal = regs.getReg16(rm);
+                } else {
+                    destVal = memory.readWord(ea);
+                }
+                int destRPL = destVal & 3;
+                if (destRPL < srcRPL) {
+                    destVal = (destVal & 0xFFFC) | srcRPL;
+                    if (ea == -1) {
+                        regs.setReg16(rm, destVal);
+                    } else {
+                        memory.writeWord(ea, destVal);
+                    }
+                    regs.flags.setZF(true);
+                } else {
+                    regs.flags.setZF(false);
+                }
+                break;
+            }
+
             // ── PUSH imm16(32) (68) ─────────────────────────
             case 0x68:
                 pushOp(fetchImm());
