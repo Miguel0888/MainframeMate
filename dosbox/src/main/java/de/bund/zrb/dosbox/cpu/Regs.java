@@ -117,6 +117,35 @@ public class Regs {
         }
     }
 
+    /** Get 32-bit register by index (0=EAX,1=ECX,2=EDX,3=EBX,4=ESP,5=EBP,6=ESI,7=EDI) */
+    public int getReg32(int idx) {
+        switch (idx & 7) {
+            case 0: return eax;
+            case 1: return ecx;
+            case 2: return edx;
+            case 3: return ebx;
+            case 4: return esp;
+            case 5: return ebp;
+            case 6: return esi;
+            case 7: return edi;
+            default: return 0;
+        }
+    }
+
+    /** Set 32-bit register by index */
+    public void setReg32(int idx, int v) {
+        switch (idx & 7) {
+            case 0: eax = v; break;
+            case 1: ecx = v; break;
+            case 2: edx = v; break;
+            case 3: ebx = v; break;
+            case 4: esp = v; break;
+            case 5: ebp = v; break;
+            case 6: esi = v; break;
+            case 7: edi = v; break;
+        }
+    }
+
     /** Get 8-bit register by index (0=AL,1=CL,2=DL,3=BL,4=AH,5=CH,6=DH,7=BH) */
     public int getReg8(int idx) {
         switch (idx & 7) {
@@ -192,4 +221,3 @@ public class Regs {
         );
     }
 }
-

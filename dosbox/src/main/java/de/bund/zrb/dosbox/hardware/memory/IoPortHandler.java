@@ -75,5 +75,13 @@ public class IoPortHandler implements de.bund.zrb.dosbox.core.Module {
     public void writeWord(int port, int value) {
         writeHandlers[port & 0xFFFF].write(port & 0xFFFF, value & 0xFFFF, IO_MW);
     }
+
+    public int readDWord(int port) {
+        return readHandlers[port & 0xFFFF].read(port & 0xFFFF, IO_MD);
+    }
+
+    public void writeDWord(int port, int value) {
+        writeHandlers[port & 0xFFFF].write(port & 0xFFFF, value, IO_MD);
+    }
 }
 
