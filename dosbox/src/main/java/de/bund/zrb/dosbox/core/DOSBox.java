@@ -511,8 +511,8 @@ public class DOSBox {
         int21.resetTerminated();
         cpu.setRunning(true);
 
-        System.out.printf("[DOSBox] Starting emulation: CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
-                cpu.regs.cs, cpu.regs.getIP(), cpu.regs.ss, cpu.regs.getSP(), cpu.regs.ds, cpu.regs.es);
+        System.out.printf("[DOSBox] Starting emulation: CS=%04X EIP=%08X SS=%04X ESP=%08X DS=%04X ES=%04X%n",
+                cpu.regs.cs, cpu.regs.getEIP(), cpu.regs.ss, cpu.regs.getESP(), cpu.regs.ds, cpu.regs.es);
 
         long startTime = System.currentTimeMillis();
         long blockCount = 0;
@@ -532,7 +532,7 @@ public class DOSBox {
             }
 
             // Tight-loop detection: if IP stays in a small range, dump the bytes once
-            int curIP = cpu.regs.getIP();
+            int curIP = cpu.regs.getEIP();
             if (prevIP >= 0 && Math.abs(curIP - prevIP) < 32 && cpu.regs.cs == (prevIP >> 16 | cpu.regs.cs)) {
                 loopDetectCount++;
             } else {
@@ -542,7 +542,7 @@ public class DOSBox {
 
             // Periodic status update (every 10000 blocks) — with instruction dump
             if (blockCount % 10000 == 0) {
-                int csIP = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getIP());
+                int csIP = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getEIP());
                 StringBuilder hexDump = new StringBuilder();
                 for (int i = -4; i < 32; i++) {
                     if (i == 0) hexDump.append('[');
@@ -550,12 +550,12 @@ public class DOSBox {
                     if (i == 0) hexDump.append(']');
                     hexDump.append(' ');
                 }
-                System.out.printf("[DOSBox] Cycles=%d, CS=%04X IP=%04X, PM=%s, AX=%04X BX=%04X CX=%04X DX=%04X%n",
-                        cpu.getTotalCycles(), cpu.regs.cs, cpu.regs.getIP(),
+                System.out.printf("[DOSBox] Cycles=%d, CS=%04X EIP=%08X, PM=%s, EAX=%08X EBX=%08X ECX=%08X EDX=%08X%n",
+                        cpu.getTotalCycles(), cpu.regs.cs, cpu.regs.getEIP(),
                         cpu.isProtectedMode() ? "yes" : "no",
-                        cpu.regs.getAX(), cpu.regs.getBX(), cpu.regs.getCX(), cpu.regs.getDX());
-                System.out.printf("[DOSBox] Bytes @ %04X:%04X [%08X]: %s%n",
-                        cpu.regs.cs, cpu.regs.getIP(), csIP, hexDump.toString().trim());
+                        cpu.regs.getEAX(), cpu.regs.getEBX(), cpu.regs.getECX(), cpu.regs.getEDX());
+                System.out.printf("[DOSBox] Bytes @ %04X:%08X [%08X]: %s%n",
+                        cpu.regs.cs, cpu.regs.getEIP(), csIP, hexDump.toString().trim());
                 // Show GDT info if in PM
                 if (cpu.isProtectedMode() && dpmi.getGdtrBase() != 0) {
                     System.out.printf("[DOSBox] GDTR: base=%08X limit=%04X, CS sel=%04X is32=%s%n",
@@ -583,6 +583,21 @@ public class DOSBox {
                 System.out.println("[DOSBox] *** END LOOP TRACE ***");
             }
 
+            // Null-byte execution detection: if CS:EIP points to a region of all zeros, stop
+            if (blockCount % 100 == 0) {
+                int csEip = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getEIP());
+                int b0 = memory.readByte(csEip);
+                int b1 = memory.readByte(csEip + 1);
+                int b2 = memory.readByte(csEip + 2);
+                int b3 = memory.readByte(csEip + 3);
+                if (b0 == 0 && b1 == 0 && b2 == 0 && b3 == 0) {
+                    System.out.printf("[DOSBox] *** ABORT: Executing null bytes at %04X:%08X (linear=%08X). CPU went off-track. ***%n",
+                            cpu.regs.cs, cpu.regs.getEIP(), csEip);
+                    cpu.setRunning(false);
+                    break;
+                }
+            }
+
             // Small yield to prevent 100% host CPU usage
             try { Thread.sleep(1); } catch (InterruptedException e) {
                 cpu.setRunning(false);
@@ -593,8 +608,8 @@ public class DOSBox {
         long elapsed = System.currentTimeMillis() - startTime;
         System.out.printf("[DOSBox] Emulation ended after %d ms, %d blocks, total cycles=%d, PM=%s%n",
                 elapsed, blockCount, cpu.getTotalCycles(), cpu.isProtectedMode() ? "yes" : "no");
-        System.out.printf("[DOSBox] Final: CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
-                cpu.regs.cs, cpu.regs.getIP(), cpu.regs.ss, cpu.regs.getSP(), cpu.regs.ds, cpu.regs.es);
+        System.out.printf("[DOSBox] Final: CS=%04X EIP=%08X SS=%04X ESP=%08X DS=%04X ES=%04X%n",
+                cpu.regs.cs, cpu.regs.getEIP(), cpu.regs.ss, cpu.regs.getESP(), cpu.regs.ds, cpu.regs.es);
 
         // Print last 50 trace entries to console
         if (cpu.getTrace().getCount() > 0) {

@@ -38,8 +38,15 @@ public class Flags {
 
     // ── Bulk access ─────────────────────────────────────────
 
+    /** Get FLAGS (16-bit). */
     public int getWord() { return word | 0x0002; }
-    public void setWord(int v) { word = (v & 0xFFFF) | 0x0002; }
+    /** Set FLAGS (16-bit, preserves upper bits). */
+    public void setWord(int v) { word = (word & 0xFFFF0000) | (v & 0xFFFF) | 0x0002; }
+
+    /** Get EFLAGS (full 32-bit). */
+    public int getDWord() { return word | 0x0002; }
+    /** Set EFLAGS (full 32-bit, preserves reserved bits). */
+    public void setDWord(int v) { word = (v & 0x003F7FD7) | 0x0002; }
 
     // ── Individual flag access ──────────────────────────────
 

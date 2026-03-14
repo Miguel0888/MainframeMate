@@ -83,7 +83,14 @@ public class Regs {
 
     // ── IP access ───────────────────────────────────────────
 
+    /** Get EIP (full 32-bit instruction pointer). */
+    public int getEIP() { return eip; }
+    /** Set EIP (full 32-bit instruction pointer). */
+    public void setEIP(int v) { eip = v; }
+
+    /** Get IP (16-bit, for real mode / 16-bit code). */
     public int getIP() { return eip & 0xFFFF; }
+    /** Set IP (16-bit, preserves upper 16 bits). */
     public void setIP(int v) { eip = (eip & 0xFFFF0000) | (v & 0xFFFF); }
 
     // ── Utility ─────────────────────────────────────────────

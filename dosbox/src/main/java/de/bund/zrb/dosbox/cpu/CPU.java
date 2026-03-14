@@ -39,6 +39,7 @@ public class CPU implements Module {
     // ── 386 prefix state ─────────────────────────────────────
     private boolean prefix66;     // operand size override (16↔32)
     private boolean prefix67;     // address size override (16↔32)
+    private boolean csIs32;       // CS descriptor D-bit (true = 32-bit default)
 
     // ── Protected mode / system registers ────────────────────
     private int cr0;              // Control register 0 (bit 0 = PE)
@@ -136,10 +137,22 @@ public class CPU implements Module {
         return regs.ss;
     }
 
+    /** Get the effective instruction pointer (16 or 32 bit based on CS D-bit). */
+    private int getEffIP() {
+        return csIs32 ? regs.getEIP() : regs.getIP();
+    }
+
+    /** Set the effective instruction pointer (16 or 32 bit based on CS D-bit). */
+    private void setEffIP(int v) {
+        if (csIs32) regs.setEIP(v);
+        else regs.setIP(v);
+    }
+
     /** Fetch a byte at CS:IP and advance IP. */
     private int fetchByte() {
-        int addr = resolveSegOfs(regs.cs, regs.getIP());
-        regs.setIP(regs.getIP() + 1);
+        int ip = getEffIP();
+        int addr = resolveSegOfs(regs.cs, ip);
+        setEffIP(ip + 1);
         return memory.readByte(addr);
     }
 
@@ -246,36 +259,67 @@ public class CPU implements Module {
 
     /** Push a word onto the stack (16-bit). */
     public void push(int value) {
-        regs.setSP(regs.getSP() - 2);
-        memory.writeWord(resolveSegOfs(regs.ss, regs.getSP()), value);
+        if (csIs32) {
+            regs.setESP(regs.getESP() - 2);
+            memory.writeWord(resolveSegOfs(regs.ss, regs.getESP()), value);
+        } else {
+            regs.setSP(regs.getSP() - 2);
+            memory.writeWord(resolveSegOfs(regs.ss, regs.getSP()), value);
+        }
     }
 
     /** Pop a word from the stack (16-bit). */
     public int pop() {
-        int val = memory.readWord(resolveSegOfs(regs.ss, regs.getSP()));
-        regs.setSP(regs.getSP() + 2);
-        return val;
+        if (csIs32) {
+            int val = memory.readWord(resolveSegOfs(regs.ss, regs.getESP()));
+            regs.setESP(regs.getESP() + 2);
+            return val;
+        } else {
+            int val = memory.readWord(resolveSegOfs(regs.ss, regs.getSP()));
+            regs.setSP(regs.getSP() + 2);
+            return val;
+        }
     }
 
     /** Push a dword onto the stack (32-bit). */
     private void push32(int value) {
-        regs.setSP(regs.getSP() - 4);
-        int addr = resolveSegOfs(regs.ss, regs.getSP());
-        memory.writeByte(addr, value & 0xFF);
-        memory.writeByte(addr + 1, (value >> 8) & 0xFF);
-        memory.writeByte(addr + 2, (value >> 16) & 0xFF);
-        memory.writeByte(addr + 3, (value >> 24) & 0xFF);
+        if (csIs32) {
+            regs.setESP(regs.getESP() - 4);
+            int addr = resolveSegOfs(regs.ss, regs.getESP());
+            memory.writeByte(addr, value & 0xFF);
+            memory.writeByte(addr + 1, (value >> 8) & 0xFF);
+            memory.writeByte(addr + 2, (value >> 16) & 0xFF);
+            memory.writeByte(addr + 3, (value >> 24) & 0xFF);
+        } else {
+            regs.setSP(regs.getSP() - 4);
+            int addr = resolveSegOfs(regs.ss, regs.getSP());
+            memory.writeByte(addr, value & 0xFF);
+            memory.writeByte(addr + 1, (value >> 8) & 0xFF);
+            memory.writeByte(addr + 2, (value >> 16) & 0xFF);
+            memory.writeByte(addr + 3, (value >> 24) & 0xFF);
+        }
     }
 
     /** Pop a dword from the stack (32-bit). */
     private int pop32() {
-        int addr = resolveSegOfs(regs.ss, regs.getSP());
-        int val = memory.readByte(addr)
-                | (memory.readByte(addr + 1) << 8)
-                | (memory.readByte(addr + 2) << 16)
-                | (memory.readByte(addr + 3) << 24);
-        regs.setSP(regs.getSP() + 4);
-        return val;
+        int addr;
+        if (csIs32) {
+            addr = resolveSegOfs(regs.ss, regs.getESP());
+            int val = memory.readByte(addr)
+                    | (memory.readByte(addr + 1) << 8)
+                    | (memory.readByte(addr + 2) << 16)
+                    | (memory.readByte(addr + 3) << 24);
+            regs.setESP(regs.getESP() + 4);
+            return val;
+        } else {
+            addr = resolveSegOfs(regs.ss, regs.getSP());
+            int val = memory.readByte(addr)
+                    | (memory.readByte(addr + 1) << 8)
+                    | (memory.readByte(addr + 2) << 16)
+                    | (memory.readByte(addr + 3) << 24);
+            regs.setSP(regs.getSP() + 4);
+            return val;
+        }
     }
 
     /** Push word or dword based on prefix66. */
@@ -304,13 +348,19 @@ public class CPU implements Module {
             int pmOfs = dpmi.getPMIntVector_Ofs(vector);
             if (pmSel != 0) {
                 // Jump to protected mode handler
-                pushOp(regs.flags.getWord());
-                pushOp(regs.cs);
-                pushOp(regs.getIP());
+                if (csIs32) {
+                    pushOp(regs.flags.getDWord());
+                    pushOp(regs.cs);
+                    pushOp(regs.getEIP());
+                } else {
+                    pushOp(regs.flags.getWord());
+                    pushOp(regs.cs);
+                    pushOp(regs.getIP());
+                }
                 regs.flags.setIF(false);
                 regs.flags.setTF(false);
                 regs.cs = pmSel;
-                regs.setIP(pmOfs);
+                setEffIP(pmOfs);
                 return;
             }
             // No PM vector — reflect to real mode via IVT
@@ -681,7 +731,7 @@ public class CPU implements Module {
             // In protected mode, check CS descriptor's D-bit for default operand/address size.
             // If D=1 (32-bit CS), default is 32-bit; 0x66/0x67 prefixes toggle to 16-bit.
             // If D=0 (16-bit CS) or real mode, default is 16-bit; prefixes toggle to 32-bit.
-            boolean csIs32 = false;
+            csIs32 = false;
             if (isProtectedMode() && dpmi != null) {
                 csIs32 = dpmi.is32BitSelector(regs.cs);
             }
@@ -696,7 +746,7 @@ public class CPU implements Module {
     /** Execute a single instruction. */
     private void executeOne() {
         // Save pre-fetch IP for trace
-        int preIP = regs.getIP();
+        int preIP = getEffIP();
         int preCS = regs.cs;
 
         int opcode = fetchByte();
@@ -722,13 +772,13 @@ public class CPU implements Module {
         // Record trace entry (with actual opcode after prefix stripping)
         if (trace.isEnabled()) {
             // Temporarily set IP back to pre-fetch position for trace
-            int savedIP = regs.getIP();
+            int savedIP = getEffIP();
             int savedCS = regs.cs;
             regs.cs = preCS;
-            regs.setIP(preIP);
+            setEffIP(preIP);
             trace.record(this, opcode, totalCycles);
             regs.cs = savedCS;
-            regs.setIP(savedIP);
+            setEffIP(savedIP);
         }
 
         switch (opcode) {
@@ -1049,7 +1099,7 @@ public class CPU implements Module {
             case 0x7C: case 0x7D: case 0x7E: case 0x7F: {
                 int disp = fetchSignedByte();
                 if (evalCondition(opcode - 0x70)) {
-                    regs.setIP(regs.getIP() + disp);
+                    setEffIP(getEffIP() + disp);
                 }
                 break;
             }
@@ -1280,9 +1330,9 @@ public class CPU implements Module {
                 int newIP = prefix66 ? fetchDWord() : fetchWord();
                 int newCS = fetchWord();
                 pushOp(regs.cs);
-                pushOp(regs.getIP());
+                pushOp(getEffIP());
                 regs.cs = newCS;
-                regs.setIP(newIP);
+                setEffIP(newIP);
                 break;
             }
 
@@ -1291,13 +1341,13 @@ public class CPU implements Module {
 
             // ── PUSHF(D) (9C) ───────────────────────────────
             case 0x9C:
-                if (prefix66) push32(regs.flags.getWord() & 0xFFFF);
+                if (prefix66) push32(regs.flags.getDWord());
                 else push(regs.flags.getWord());
                 break;
 
             // ── POPF(D) (9D) ────────────────────────────────
             case 0x9D:
-                if (prefix66) regs.flags.setWord(pop32());
+                if (prefix66) regs.flags.setDWord(pop32());
                 else regs.flags.setWord(pop());
                 break;
 
@@ -1306,7 +1356,11 @@ public class CPU implements Module {
             case 0x9F: regs.setAH(regs.flags.getWord() & 0xFF); break;
 
             // ── MOV AL/AX(EAX), moffs (A0-A1) ──────────────
-            case 0xA0: regs.setAL(memory.readByte(resolveSegOfs(getDS(), fetchWord()))); break;
+            case 0xA0: {
+                int addr = prefix67 ? fetchDWord() : fetchWord();
+                regs.setAL(memory.readByte(resolveSegOfs(getDS(), addr)));
+                break;
+            }
             case 0xA1: {
                 int addr = prefix67 ? fetchDWord() : fetchWord();
                 setAccOp(readMemOp(resolveSegOfs(getDS(), addr)));
@@ -1314,7 +1368,11 @@ public class CPU implements Module {
             }
 
             // ── MOV moffs, AL/AX(EAX) (A2-A3) ──────────────
-            case 0xA2: memory.writeByte(resolveSegOfs(getDS(), fetchWord()), regs.getAL()); break;
+            case 0xA2: {
+                int addr = prefix67 ? fetchDWord() : fetchWord();
+                memory.writeByte(resolveSegOfs(getDS(), addr), regs.getAL());
+                break;
+            }
             case 0xA3: {
                 int addr = prefix67 ? fetchDWord() : fetchWord();
                 writeMemOp(resolveSegOfs(getDS(), addr), getAccOp());
@@ -1414,13 +1472,14 @@ public class CPU implements Module {
             // ── RET near imm16 (C2) ────────────────────────
             case 0xC2: {
                 int n = fetchWord();
-                regs.setIP(popOp());
-                regs.setSP(regs.getSP() + n);
+                setEffIP(popOp());
+                if (csIs32) regs.setESP(regs.getESP() + n);
+                else regs.setSP(regs.getSP() + n);
                 break;
             }
 
             // ── RET near (C3) ──────────────────────────────
-            case 0xC3: regs.setIP(popOp()); break;
+            case 0xC3: setEffIP(popOp()); break;
 
             // ── LES (C4) / LDS (C5) ────────────────────────
             case 0xC4: case 0xC5: {
@@ -1479,22 +1538,28 @@ public class CPU implements Module {
 
             // ── LEAVE (C9) ─────────────────────────────────
             case 0xC9:
-                regs.setSP(regs.getBP());
-                regs.setBP(pop());
+                if (csIs32) {
+                    regs.setESP(regs.getEBP());
+                    regs.setEBP(pop32());
+                } else {
+                    regs.setSP(regs.getBP());
+                    regs.setBP(pop());
+                }
                 break;
 
             // ── RETF imm16 (CA) ────────────────────────────
             case 0xCA: {
                 int n = fetchWord();
-                regs.setIP(popOp());
+                setEffIP(popOp());
                 regs.cs = popOp() & 0xFFFF;
-                regs.setSP(regs.getSP() + n);
+                if (csIs32) regs.setESP(regs.getESP() + n);
+                else regs.setSP(regs.getSP() + n);
                 break;
             }
 
             // ── RETF (CB) ──────────────────────────────────
             case 0xCB:
-                regs.setIP(popOp());
+                setEffIP(popOp());
                 regs.cs = popOp() & 0xFFFF;
                 break;
 
@@ -1511,9 +1576,10 @@ public class CPU implements Module {
 
             // ── IRET (CF) ──────────────────────────────────
             case 0xCF:
-                regs.setIP(popOp());
+                setEffIP(popOp());
                 regs.cs = popOp() & 0xFFFF;
-                regs.flags.setWord(popOp());
+                if (prefix66) regs.flags.setDWord(popOp());
+                else regs.flags.setWord(popOp());
                 break;
 
             // ── Shift/Rotate r/m8, 1 (D0) ──────────────────
@@ -1574,24 +1640,45 @@ public class CPU implements Module {
             // ── LOOPNZ (E0) ────────────────────────────────
             case 0xE0: {
                 int disp = fetchSignedByte();
-                regs.setCX(regs.getCX() - 1);
-                if (regs.getCX() != 0 && !regs.flags.getZF()) regs.setIP(regs.getIP() + disp);
+                int cnt;
+                if (prefix67) {
+                    regs.setECX(regs.getECX() - 1);
+                    cnt = regs.getECX();
+                } else {
+                    regs.setCX(regs.getCX() - 1);
+                    cnt = regs.getCX();
+                }
+                if (cnt != 0 && !regs.flags.getZF()) setEffIP(getEffIP() + disp);
                 break;
             }
 
             // ── LOOPZ (E1) ─────────────────────────────────
             case 0xE1: {
                 int disp = fetchSignedByte();
-                regs.setCX(regs.getCX() - 1);
-                if (regs.getCX() != 0 && regs.flags.getZF()) regs.setIP(regs.getIP() + disp);
+                int cnt;
+                if (prefix67) {
+                    regs.setECX(regs.getECX() - 1);
+                    cnt = regs.getECX();
+                } else {
+                    regs.setCX(regs.getCX() - 1);
+                    cnt = regs.getCX();
+                }
+                if (cnt != 0 && regs.flags.getZF()) setEffIP(getEffIP() + disp);
                 break;
             }
 
             // ── LOOP (E2) ──────────────────────────────────
             case 0xE2: {
                 int disp = fetchSignedByte();
-                regs.setCX(regs.getCX() - 1);
-                if (regs.getCX() != 0) regs.setIP(regs.getIP() + disp);
+                int cnt;
+                if (prefix67) {
+                    regs.setECX(regs.getECX() - 1);
+                    cnt = regs.getECX();
+                } else {
+                    regs.setCX(regs.getCX() - 1);
+                    cnt = regs.getCX();
+                }
+                if (cnt != 0) setEffIP(getEffIP() + disp);
                 break;
             }
 
@@ -1599,7 +1686,7 @@ public class CPU implements Module {
             case 0xE3: {
                 int disp = fetchSignedByte();
                 int counter = prefix67 ? regs.getECX() : regs.getCX();
-                if (counter == 0) regs.setIP(regs.getIP() + disp);
+                if (counter == 0) setEffIP(getEffIP() + disp);
                 break;
             }
 
@@ -1634,8 +1721,8 @@ public class CPU implements Module {
                     disp = fetchWord();
                     if (disp >= 0x8000) disp -= 0x10000;
                 }
-                pushOp(regs.getIP());
-                regs.setIP(regs.getIP() + disp);
+                pushOp(getEffIP());
+                setEffIP(getEffIP() + disp);
                 break;
             }
 
@@ -1648,7 +1735,7 @@ public class CPU implements Module {
                     disp = fetchWord();
                     if (disp >= 0x8000) disp -= 0x10000;
                 }
-                regs.setIP(regs.getIP() + disp);
+                setEffIP(getEffIP() + disp);
                 break;
             }
 
@@ -1656,7 +1743,7 @@ public class CPU implements Module {
             case 0xEA: {
                 int newIP = prefix66 ? fetchDWord() : fetchWord();
                 int newCS = fetchWord();
-                regs.setIP(newIP);
+                setEffIP(newIP);
                 regs.cs = newCS;
                 break;
             }
@@ -1664,7 +1751,7 @@ public class CPU implements Module {
             // ── JMP short (EB) ─────────────────────────────
             case 0xEB: {
                 int disp = fetchSignedByte();
-                regs.setIP(regs.getIP() + disp);
+                setEffIP(getEffIP() + disp);
                 break;
             }
 
@@ -1966,7 +2053,7 @@ public class CPU implements Module {
                     if (disp >= 0x8000) disp -= 0x10000;
                 }
                 if (evalCondition(op2 - 0x80)) {
-                    regs.setIP(regs.getIP() + disp);
+                    setEffIP(getEffIP() + disp);
                 }
                 break;
             }
@@ -3093,22 +3180,32 @@ public class CPU implements Module {
                 if (ea == -1) setRegOp(rm, result); else writeMemOp(ea, result);
                 break;
             }
-            case 2:
-                pushOp(regs.getIP());
-                regs.setIP(val);
+            case 2: // CALL near r/m
+                pushOp(getEffIP());
+                setEffIP(val);
                 break;
-            case 3:
+            case 3: // CALL far m16:16(32)
                 pushOp(regs.cs);
-                pushOp(regs.getIP());
-                regs.setIP(memory.readWord(ea));
-                regs.cs = memory.readWord(ea + (prefix66 ? 4 : 2));
+                pushOp(getEffIP());
+                if (prefix66) {
+                    setEffIP(readMemOp(ea));
+                    regs.cs = memory.readWord(ea + 4);
+                } else {
+                    setEffIP(memory.readWord(ea));
+                    regs.cs = memory.readWord(ea + 2);
+                }
                 break;
-            case 4:
-                regs.setIP(val);
+            case 4: // JMP near r/m
+                setEffIP(val);
                 break;
-            case 5:
-                regs.setIP(memory.readWord(ea));
-                regs.cs = memory.readWord(ea + (prefix66 ? 4 : 2));
+            case 5: // JMP far m16:16(32)
+                if (prefix66) {
+                    setEffIP(readMemOp(ea));
+                    regs.cs = memory.readWord(ea + 4);
+                } else {
+                    setEffIP(memory.readWord(ea));
+                    regs.cs = memory.readWord(ea + 2);
+                }
                 break;
             case 6:
                 pushOp(val);

@@ -34,16 +34,16 @@ public class CpuTrace {
             } else {
                 opcStr = String.format("%02X", opcode & 0xFF);
             }
-            return String.format("%08d %s %04X:%04X [%08X] %-5s %-6s | AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X SP=%04X BP=%04X DS=%04X ES=%04X FL=%04X",
+            return String.format("%08d %s %04X:%08X [%08X] %-5s %-6s | EAX=%08X EBX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X ESP=%08X EBP=%08X DS=%04X ES=%04X FL=%08X",
                     cycle,
                     pm ? "PM" : "RM",
-                    cs & 0xFFFF, ip & 0xFFFF,
+                    cs & 0xFFFF, ip,
                     linearAddr,
                     opcStr,
                     disasm != null ? disasm : "",
-                    ax & 0xFFFF, bx & 0xFFFF, cx & 0xFFFF, dx & 0xFFFF,
-                    si & 0xFFFF, di & 0xFFFF, sp & 0xFFFF, bp & 0xFFFF,
-                    ds & 0xFFFF, es & 0xFFFF, flags & 0xFFFF);
+                    ax, bx, cx, dx,
+                    si, di, sp, bp,
+                    ds & 0xFFFF, es & 0xFFFF, flags);
         }
 
         /** Tab-separated line for export. */
@@ -86,24 +86,24 @@ public class CpuTrace {
         Entry e = buffer[writePos];
         e.cycle = cycle;
         e.cs = cpu.regs.cs;
-        e.ip = cpu.regs.getIP();
+        e.ip = cpu.regs.getEIP();
         e.ss = cpu.regs.ss;
-        e.sp = cpu.regs.getSP();
+        e.sp = cpu.regs.getESP();
         e.ds = cpu.regs.ds;
         e.es = cpu.regs.es;
         e.fs = cpu.regs.fs;
         e.gs = cpu.regs.gs;
-        e.ax = cpu.regs.getAX();
-        e.bx = cpu.regs.getBX();
-        e.cx = cpu.regs.getCX();
-        e.dx = cpu.regs.getDX();
-        e.si = cpu.regs.getSI();
-        e.di = cpu.regs.getDI();
-        e.bp = cpu.regs.getBP();
-        e.flags = cpu.regs.flags.getWord();
+        e.ax = cpu.regs.getEAX();
+        e.bx = cpu.regs.getEBX();
+        e.cx = cpu.regs.getECX();
+        e.dx = cpu.regs.getEDX();
+        e.si = cpu.regs.getESI();
+        e.di = cpu.regs.getEDI();
+        e.bp = cpu.regs.getEBP();
+        e.flags = cpu.regs.flags.getDWord();
         e.opcode = opcode;
         e.pm = cpu.isProtectedMode();
-        e.linearAddr = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getIP());
+        e.linearAddr = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getEIP());
         e.disasm = disassembleSimple(opcode);
 
         writePos = (writePos + 1) % capacity;
