@@ -4,6 +4,7 @@ import de.bund.zrb.files.impl.ftp.jes.JesFtpService;
 import de.bund.zrb.files.impl.ftp.jes.JesJob;
 import de.bund.zrb.files.impl.ftp.jes.JesSpoolFile;
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.ui.FtpTab;
 
@@ -15,6 +16,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -186,6 +188,16 @@ public class JobDetailTab implements FtpTab {
     private final List<int[]> sectionLineRanges = new ArrayList<>();
 
     private void loadSpoolList() {
+        Settings settings = SettingsHelper.load();
+        String ddNameMode = settings.jesSpoolDdNameMode != null ? settings.jesSpoolDdNameMode : "FAST";
+
+        if ("OFF".equalsIgnoreCase(ddNameMode)) {
+            // OFF mode: load full output quickly, all SPOOL#n, then background probe
+            statusLabel.setText("⏳ Lade gesamten Output…");
+            loadFullOutputOffMode();
+            return;
+        }
+
         new SwingWorker<List<JesSpoolFile>, Void>() {
             @Override
             protected List<JesSpoolFile> doInBackground() throws Exception {
@@ -200,6 +212,11 @@ public class JobDetailTab implements FtpTab {
                         spoolModel.setFiles(files);
                         statusLabel.setText(files.size() + " Spool-File(s)");
                         spoolTable.setRowSelectionInterval(0, 0);
+
+                        // FAST mode: optionally start background probe to refine DDNames
+                        if ("FAST".equalsIgnoreCase(ddNameMode) && settings.jesFastBackgroundProbe) {
+                            startBackgroundDdNameProbe(files.size());
+                        }
                     } else {
                         // Spool list parsing returned nothing – load full output and parse sections
                         statusLabel.setText("⏳ Lade gesamten Output und analysiere Sections…");
@@ -209,7 +226,6 @@ public class JobDetailTab implements FtpTab {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     LOG.log(Level.WARNING, "[JES] Failed to load spool list for " + job.getJobId(), cause);
                     statusLabel.setText("⏳ Lade gesamten Output…");
-                    // FTP listing failed entirely – try full output
                     loadFullOutputAndParseSections();
                 }
             }
@@ -445,6 +461,137 @@ public class JobDetailTab implements FtpTab {
     // ═══════════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Background DDName probing
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * OFF mode: Load full output quickly, parse sections with SPOOL#n names,
+     * then start background probe to correct DDNames.
+     */
+    private void loadFullOutputOffMode() {
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                return service.getAllSpoolContent(job.getJobId());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String fullOutput = get();
+                    cachedFullOutput = fullOutput;
+                    contentArea.setText(fullOutput);
+                    contentArea.setCaretPosition(0);
+
+                    // Parse sections but force all DDNames to SPOOL#n
+                    List<JesSpoolFile> sections = parseSpoolSectionsAsNumbered(fullOutput);
+                    if (!sections.isEmpty()) {
+                        computeSectionRanges(fullOutput);
+                        spoolModel.setFiles(sections);
+                        statusLabel.setText(sections.size() + " Section(s) – DDNames werden nachgeladen…");
+                        spoolTable.setRowSelectionInterval(0, 0);
+                        // Start background probe to correct names
+                        startBackgroundDdNameProbe(sections.size());
+                    } else {
+                        statusLabel.setText("✅ Gesamter Output geladen");
+                    }
+                } catch (Exception e) {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    LOG.log(Level.WARNING, "[JES] Failed to load full output (OFF mode)", cause);
+                    statusLabel.setText("❌ Fehler beim Laden");
+                    contentArea.setText("Fehler: " + cause.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Parse sections from full output but label all as SPOOL#n (no content detection).
+     */
+    private static List<JesSpoolFile> parseSpoolSectionsAsNumbered(String fullOutput) {
+        List<JesSpoolFile> sections = JesFtpService.parseSpoolSectionsFromOutput(fullOutput);
+        List<JesSpoolFile> numbered = new ArrayList<>();
+        for (int i = 0; i < sections.size(); i++) {
+            JesSpoolFile orig = sections.get(i);
+            numbered.add(new JesSpoolFile(
+                    orig.getId(),
+                    "SPOOL#" + orig.getId(),
+                    orig.getStepName(),
+                    orig.getProcStep(),
+                    orig.getDsClass(),
+                    orig.getByteCount(),
+                    orig.getRecordCount()
+            ));
+        }
+        return numbered;
+    }
+
+    /**
+     * Start a background SwingWorker that probes DDNames via parallel FTP connections
+     * and updates the spool table as results come in.
+     */
+    private void startBackgroundDdNameProbe(int spoolCount) {
+        Settings settings = SettingsHelper.load();
+        String host = service.getHost();
+        String user = service.getUser();
+        int parallelConns = Math.max(1, settings.jesProbeParallelConnections);
+
+        // Get password from LoginManager cache
+        String password = LoginManager.getInstance().getCachedPassword(host, user);
+        if (password == null) {
+            LOG.warning("[JES] No cached password for background probe – skipping");
+            return;
+        }
+
+        LOG.info("[JES] Starting background DDName probe for " + job.getJobId()
+                + " (" + spoolCount + " files, " + parallelConns + " connections)");
+
+        new SwingWorker<Map<Integer, String>, Void>() {
+            @Override
+            protected Map<Integer, String> doInBackground() {
+                return JesFtpService.probeSpoolDdNamesParallel(
+                        job.getJobId(), host, user, password, spoolCount, parallelConns);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    Map<Integer, String> ddNames = get();
+                    if (ddNames != null && !ddNames.isEmpty()) {
+                        // Update the spool table with corrected DDNames
+                        List<JesSpoolFile> currentFiles = new ArrayList<>();
+                        for (int i = 0; i < spoolModel.getRowCount(); i++) {
+                            JesSpoolFile orig = spoolModel.getFileAt(i);
+                            String newDdName = ddNames.get(orig.getId());
+                            if (newDdName != null && !newDdName.startsWith("SPOOL#")) {
+                                currentFiles.add(new JesSpoolFile(
+                                        orig.getId(), newDdName,
+                                        orig.getStepName(), orig.getProcStep(),
+                                        orig.getDsClass(), orig.getByteCount(),
+                                        orig.getRecordCount()));
+                            } else {
+                                currentFiles.add(orig);
+                            }
+                        }
+                        int selectedRow = spoolTable.getSelectedRow();
+                        spoolModel.setFiles(currentFiles);
+                        if (selectedRow >= 0 && selectedRow < currentFiles.size()) {
+                            spoolTable.setRowSelectionInterval(selectedRow, selectedRow);
+                        }
+                        int updated = (int) ddNames.values().stream()
+                                .filter(n -> !n.startsWith("SPOOL#")).count();
+                        statusLabel.setText("✅ " + updated + "/" + spoolCount
+                                + " DDNames per Probe aktualisiert");
+                        LOG.info("[JES] Background probe updated " + updated + " DDNames");
+                    }
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[JES] Background DDName probe failed", e);
+                }
+            }
+        }.execute();
+    }
 
     private static JPanel createInfoLabel(String label, String value) {
         JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
