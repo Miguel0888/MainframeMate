@@ -556,6 +556,12 @@ public class DOSBox {
                         cpu.regs.getAX(), cpu.regs.getBX(), cpu.regs.getCX(), cpu.regs.getDX());
                 System.out.printf("[DOSBox] Bytes @ %04X:%04X [%08X]: %s%n",
                         cpu.regs.cs, cpu.regs.getIP(), csIP, hexDump.toString().trim());
+                // Show GDT info if in PM
+                if (cpu.isProtectedMode() && dpmi.getGdtrBase() != 0) {
+                    System.out.printf("[DOSBox] GDTR: base=%08X limit=%04X, CS sel=%04X is32=%s%n",
+                            dpmi.getGdtrBase(), dpmi.getGdtrLimit(),
+                            cpu.regs.cs, dpmi.is32BitSelector(cpu.regs.cs));
+                }
             }
 
             // If stuck in a loop for 3 checks (~15 sec), enable trace and dump once

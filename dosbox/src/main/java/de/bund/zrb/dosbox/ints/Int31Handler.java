@@ -254,7 +254,26 @@ public class Int31Handler implements CPU.IntHandler {
                 break; // stub
 
             // ═══════════════════════════════════════════
-            // 0305h: Get State Save/Restore Addresses
+            // 0202h: Get Processor Exception Handler Vector
+            // ═══════════════════════════════════════════
+            case 0x0202: {
+                int excNum = cpu.regs.getBL();
+                cpu.regs.setCX(dpmi.getExceptionHandler_Sel(excNum));
+                cpu.regs.setDX(dpmi.getExceptionHandler_Ofs(excNum));
+                break;
+            }
+
+            // ═══════════════════════════════════════════
+            // 0203h: Set Processor Exception Handler Vector
+            // ═══════════════════════════════════════════
+            case 0x0203: {
+                int excNum = cpu.regs.getBL();
+                dpmi.setExceptionHandler(excNum, cpu.regs.getCX(), cpu.regs.getDX());
+                break;
+            }
+
+            // ═══════════════════════════════════════════
+            // 0204h: Get Protected Mode Interrupt Vector
             // ═══════════════════════════════════════════
             case 0x0305: {
                 // Returns addresses of procedures to save/restore DPMI host state.

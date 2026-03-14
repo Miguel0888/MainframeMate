@@ -8,6 +8,9 @@ import de.bund.zrb.dosbox.hardware.memory.Memory;
  *
  * Provides the runtime environment that DOS/4GW and other
  * DOS extenders expect when running in protected mode.
+ *
+ * Now also supports GDT descriptor resolution: when a selector has TI=0
+ * (GDT), the descriptor is read from memory at gdtr_base + index*8.
  */
 public class DPMIManager {
 
@@ -50,6 +53,10 @@ public class DPMIManager {
     private boolean dpmiActive;
     private final Memory memory;
 
+    // ── GDT tracking (synced from CPU when LGDT is executed) ──
+    private int gdtrBase;
+    private int gdtrLimit;
+
     // ── Real mode interrupt vectors (saved for RM simulation) ──
     private final int[] rmIntVecOfs = new int[256];
     private final int[] rmIntVecSeg = new int[256];
@@ -57,6 +64,10 @@ public class DPMIManager {
     // ── Protected mode interrupt vectors ─────────────────────
     private final int[] pmIntVecOfs = new int[256];
     private final int[] pmIntVecSel = new int[256];
+
+    // ── Processor exception handler vectors (0-31) ──────────
+    private final int[] excHandlerOfs = new int[32];
+    private final int[] excHandlerSel = new int[32];
 
     // DPMI entry point address (in BIOS ROM area)
     public static final int DPMI_ENTRY_SEG = 0xF000;
@@ -87,9 +98,25 @@ public class DPMIManager {
 
     public boolean isDpmiActive() { return dpmiActive; }
 
+    // ── GDTR synchronisation from CPU ───────────────────────
+
+    /** Called by CPU after LGDT instruction to keep DPMI in sync. */
+    public void setGDTR(int base, int limit) {
+        this.gdtrBase = base;
+        this.gdtrLimit = limit;
+    }
+
+    public int getGdtrBase()  { return gdtrBase; }
+    public int getGdtrLimit() { return gdtrLimit; }
+
     // ── Selector ↔ LDT index conversion ─────────────────────
 
-    /** Convert selector to LDT index. Selector format: index*8 + 7 (LDT, ring 3) */
+    /** Check if a selector references the LDT (TI bit = 1). */
+    public boolean isLDTSelector(int sel) {
+        return (sel & 0x04) != 0;  // bit 2 = TI
+    }
+
+    /** Convert selector to table index. Selector format: index*8 + flags */
     public int selectorToIndex(int sel) {
         return (sel >> 3) & (MAX_LDT_ENTRIES - 1);
     }
@@ -97,6 +124,36 @@ public class DPMIManager {
     /** Convert LDT index to selector value */
     public int indexToSelector(int idx) {
         return (idx << 3) | 7; // LDT bit + ring 3
+    }
+
+    // ── GDT descriptor reading from memory ──────────────────
+
+    /**
+     * Read a GDT descriptor from memory at gdtr_base + index*8.
+     * Returns a temporary LDTEntry with the parsed descriptor fields,
+     * or null if the index is out of range.
+     */
+    private LDTEntry readGDTEntry(int index) {
+        if (gdtrBase == 0 && gdtrLimit == 0) return null;
+        int offset = index * 8;
+        if (offset + 7 > gdtrLimit) return null;
+
+        int addr = gdtrBase + offset;
+        int limitLo = memory.readByte(addr) | (memory.readByte(addr + 1) << 8);
+        int baseLo  = memory.readByte(addr + 2) | (memory.readByte(addr + 3) << 8);
+        int baseMid = memory.readByte(addr + 4);
+        int access  = memory.readByte(addr + 5);
+        int limHiFlags = memory.readByte(addr + 6);
+        int baseHi  = memory.readByte(addr + 7);
+
+        LDTEntry e = new LDTEntry();
+        e.base = baseLo | (baseMid << 16) | (baseHi << 24);
+        e.limit = limitLo | ((limHiFlags & 0x0F) << 16);
+        e.accessRights = access | ((limHiFlags & 0xF0) << 8);
+        e.present = (access & 0x80) != 0;
+        e.is32Bit = (limHiFlags & 0x40) != 0;
+        e.pageGranular = (limHiFlags & 0x80) != 0;
+        return e;
     }
 
     // ── DPMI Mode Switch ────────────────────────────────────
@@ -218,6 +275,11 @@ public class DPMIManager {
     // ── INT 31h/0006: Get Segment Base Address ──────────────
 
     public int getSegmentBase(int selector) {
+        // Check GDT first if it's a GDT selector
+        if (!isLDTSelector(selector)) {
+            LDTEntry gdt = readGDTEntry(selectorToIndex(selector));
+            if (gdt != null && gdt.present) return gdt.base;
+        }
         int idx = selectorToIndex(selector);
         if (idx < MAX_LDT_ENTRIES) return ldt[idx].base;
         return 0;
@@ -270,7 +332,14 @@ public class DPMIManager {
 
     public void getDescriptor(int selector, int addr) {
         int idx = selectorToIndex(selector);
-        LDTEntry e = ldt[idx];
+        LDTEntry e;
+        if (!isLDTSelector(selector)) {
+            // GDT selector: read from memory
+            e = readGDTEntry(idx);
+            if (e == null) e = ldt[idx]; // fallback
+        } else {
+            e = ldt[idx];
+        }
         // Write 8-byte x86 descriptor format
         int limitLo = e.limit & 0xFFFF;
         int baseLo = e.base & 0xFFFF;
@@ -315,15 +384,22 @@ public class DPMIManager {
 
     public int createCodeAlias(int selector) {
         int srcIdx = selectorToIndex(selector);
+        LDTEntry src;
+        if (!isLDTSelector(selector)) {
+            src = readGDTEntry(srcIdx);
+            if (src == null) src = ldt[srcIdx];
+        } else {
+            src = ldt[srcIdx];
+        }
         int newSel = allocateDescriptors(1);
         if (newSel < 0) return -1;
         int dstIdx = selectorToIndex(newSel);
-        ldt[dstIdx].base = ldt[srcIdx].base;
-        ldt[dstIdx].limit = ldt[srcIdx].limit;
-        ldt[dstIdx].is32Bit = ldt[srcIdx].is32Bit;
-        ldt[dstIdx].pageGranular = ldt[srcIdx].pageGranular;
+        ldt[dstIdx].base = src.base;
+        ldt[dstIdx].limit = src.limit;
+        ldt[dstIdx].is32Bit = src.is32Bit;
+        ldt[dstIdx].pageGranular = src.pageGranular;
         // Make it a code segment (executable, readable)
-        ldt[dstIdx].accessRights = (ldt[srcIdx].accessRights & 0xFF00) | 0x009A;
+        ldt[dstIdx].accessRights = (src.accessRights & 0xFF00) | 0x009A;
         return newSel;
     }
 
@@ -367,6 +443,23 @@ public class DPMIManager {
     public void setPMIntVector(int intNum, int sel, int ofs) {
         pmIntVecSel[intNum & 0xFF] = sel;
         pmIntVecOfs[intNum & 0xFF] = ofs;
+    }
+
+    // ── Exception handler management (INT 31h/0202-0203) ────
+
+    public int getExceptionHandler_Sel(int excNum) {
+        return (excNum < 32) ? excHandlerSel[excNum] : 0;
+    }
+
+    public int getExceptionHandler_Ofs(int excNum) {
+        return (excNum < 32) ? excHandlerOfs[excNum] : 0;
+    }
+
+    public void setExceptionHandler(int excNum, int sel, int ofs) {
+        if (excNum < 32) {
+            excHandlerSel[excNum] = sel;
+            excHandlerOfs[excNum] = ofs;
+        }
     }
 
     // ── INT 31h/0400: Get DPMI Version ──────────────────────
@@ -444,10 +537,28 @@ public class DPMIManager {
 
     /**
      * Convert a selector:offset pair to a linear address.
-     * Used by the CPU when in protected mode.
-     * If the selector isn't in the LDT, falls back to real-mode addressing.
+     * In real mode: seg*16 + offset.
+     * In protected mode:
+     *   - LDT selector (TI=1): use our LDT array
+     *   - GDT selector (TI=0): read descriptor from memory at gdtr_base + index*8
      */
     public int resolveAddress(int selector, int offset) {
+        if (!isLDTSelector(selector)) {
+            // GDT selector — read descriptor from memory
+            int idx = selectorToIndex(selector);
+            if (idx == 0) {
+                // Null selector — fall back to linear addressing
+                return offset;
+            }
+            LDTEntry gdt = readGDTEntry(idx);
+            if (gdt != null && gdt.present) {
+                return gdt.base + offset;
+            }
+            // GDT not set up yet or invalid — fall back to real-mode style
+            return ((selector & 0xFFFF) << 4) + (offset & 0xFFFF);
+        }
+
+        // LDT selector
         int idx = selectorToIndex(selector);
         if (idx > 0 && idx < MAX_LDT_ENTRIES && ldt[idx].present) {
             return ldt[idx].base + offset;
@@ -460,6 +571,16 @@ public class DPMIManager {
      * Check if a selector has 32-bit default operand size (D/B bit).
      */
     public boolean is32BitSelector(int selector) {
+        if (!isLDTSelector(selector)) {
+            // GDT selector — read from memory
+            int idx = selectorToIndex(selector);
+            LDTEntry gdt = readGDTEntry(idx);
+            if (gdt != null && gdt.present) {
+                return gdt.is32Bit;
+            }
+            return false;
+        }
+        // LDT selector
         int idx = selectorToIndex(selector);
         if (idx < MAX_LDT_ENTRIES && ldt[idx].present) {
             return ldt[idx].is32Bit;
@@ -468,6 +589,10 @@ public class DPMIManager {
     }
 
     public LDTEntry getEntry(int selector) {
+        if (!isLDTSelector(selector)) {
+            LDTEntry gdt = readGDTEntry(selectorToIndex(selector));
+            if (gdt != null) return gdt;
+        }
         return ldt[selectorToIndex(selector)];
     }
 }

@@ -103,11 +103,22 @@ public class CPU implements Module {
     /**
      * Resolve segment:offset to a linear (physical) address.
      * In real mode: seg*16 + offset.
-     * In protected mode: use DPMI LDT descriptor base + offset.
+     * In protected mode:
+     *   - If DPMI active: use DPMI descriptor resolution (handles both GDT and LDT)
+     *   - If PE set but no DPMI: read GDT descriptors directly from memory
      */
     public int resolveSegOfs(int seg, int offset) {
-        if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
-            return dpmi.resolveAddress(seg, offset);
+        if (isProtectedMode()) {
+            if (dpmi != null && dpmi.isDpmiActive()) {
+                return dpmi.resolveAddress(seg, offset);
+            }
+            // PE set without DPMI (DOS extender set PE directly)
+            // Try to resolve via GDT if we have one
+            if (dpmi != null && gdtr_base != 0) {
+                // Sync GDTR and use dpmi's GDT reading capability
+                dpmi.setGDTR(gdtr_base, gdtr_limit);
+                return dpmi.resolveAddress(seg, offset);
+            }
         }
         return Memory.segOfs(seg, offset);
     }
@@ -670,8 +681,10 @@ public class CPU implements Module {
             // In protected mode, check CS descriptor's D-bit for default operand/address size.
             // If D=1 (32-bit CS), default is 32-bit; 0x66/0x67 prefixes toggle to 16-bit.
             // If D=0 (16-bit CS) or real mode, default is 16-bit; prefixes toggle to 32-bit.
-            boolean csIs32 = isProtectedMode() && dpmi != null && dpmi.isDpmiActive()
-                    && dpmi.is32BitSelector(regs.cs);
+            boolean csIs32 = false;
+            if (isProtectedMode() && dpmi != null) {
+                csIs32 = dpmi.is32BitSelector(regs.cs);
+            }
             prefix66 = csIs32;
             prefix67 = csIs32;
             executeOne();
@@ -1788,6 +1801,11 @@ public class CPU implements Module {
                                       | (memory.readByte(ea + 3) << 8)
                                       | (memory.readByte(ea + 4) << 16)
                                       | (memory.readByte(ea + 5) << 24);
+                            // Sync with DPMI manager so it can resolve GDT selectors
+                            if (dpmi != null) {
+                                dpmi.setGDTR(gdtr_base, gdtr_limit);
+                                System.out.printf("[CPU] LGDT: base=%08X limit=%04X%n", gdtr_base, gdtr_limit);
+                            }
                         }
                         break;
                     case 3: // LIDT
@@ -1811,7 +1829,14 @@ public class CPU implements Module {
                         int val;
                         if (ea == -1) { val = regs.getReg16(rm); }
                         else { val = memory.readWord(ea); }
-                        cr0 = (cr0 & 0xFFFF0000) | (cr0 | (val & 0xFFFF));
+                        // LMSW can set PE but not clear it
+                        int newCr0 = (cr0 & 0xFFFF0000) | (val & 0xFFFF);
+                        // PE bit can only be set, not cleared by LMSW
+                        if ((cr0 & 1) != 0) newCr0 |= 1;
+                        if ((newCr0 & 1) != 0 && (cr0 & 1) == 0) {
+                            System.out.printf("[CPU] LMSW: Entering protected mode (CR0=%08X)%n", newCr0);
+                        }
+                        cr0 = newCr0;
                         break;
                     }
                     case 7: // INVLPG (stub)
@@ -1826,16 +1851,46 @@ public class CPU implements Module {
             // ── LAR (0F 02) ─────────────────────────────────
             case 0x02: {
                 int modrm = fetchByte();
-                decodeModRM(modrm);
-                regs.flags.setZF(false);
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM(modrm);
+                int rm = modrm & 7;
+                int sel;
+                if (ea == -1) { sel = getRegOp(rm); } else { sel = readMemOp(ea); }
+                if (dpmi != null) {
+                    DPMIManager.LDTEntry entry = dpmi.getEntry(sel);
+                    if (entry != null && entry.present) {
+                        // Return access rights in upper bytes
+                        setRegOp(reg, (entry.accessRights & 0xFF) << 8);
+                        regs.flags.setZF(true);
+                    } else {
+                        regs.flags.setZF(false);
+                    }
+                } else {
+                    regs.flags.setZF(false);
+                }
                 break;
             }
 
             // ── LSL (0F 03) ─────────────────────────────────
             case 0x03: {
                 int modrm = fetchByte();
-                decodeModRM(modrm);
-                regs.flags.setZF(false);
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM(modrm);
+                int rm = modrm & 7;
+                int sel;
+                if (ea == -1) { sel = getRegOp(rm); } else { sel = readMemOp(ea); }
+                if (dpmi != null) {
+                    DPMIManager.LDTEntry entry = dpmi.getEntry(sel);
+                    if (entry != null && entry.present) {
+                        long effectiveLimit = entry.getEffectiveLimit();
+                        setRegOp(reg, (int) effectiveLimit);
+                        regs.flags.setZF(true);
+                    } else {
+                        regs.flags.setZF(false);
+                    }
+                } else {
+                    regs.flags.setZF(false);
+                }
                 break;
             }
 
@@ -1878,7 +1933,13 @@ public class CPU implements Module {
                 int rm = modrm & 7;
                 int val = regs.getReg32(rm);
                 switch (crn) {
-                    case 0: cr0 = val; break;
+                    case 0:
+                        if ((val & 1) != (cr0 & 1)) {
+                            System.out.printf("[CPU] MOV CR0: PE %s (CR0=%08X → %08X)%n",
+                                    (val & 1) != 0 ? "set" : "cleared", cr0, val);
+                        }
+                        cr0 = val;
+                        break;
                     case 2: cr2 = val; break;
                     case 3: cr3 = val; break;
                     case 4: cr4 = val; break;

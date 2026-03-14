@@ -28,12 +28,18 @@ public class CpuTrace {
 
         @Override
         public String toString() {
-            return String.format("%08d %s %04X:%04X [%08X] %02X %-6s | AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X SP=%04X BP=%04X DS=%04X ES=%04X FL=%04X",
+            String opcStr;
+            if (opcode == 0x0F && opcode2 != 0) {
+                opcStr = String.format("0F %02X", opcode2 & 0xFF);
+            } else {
+                opcStr = String.format("%02X", opcode & 0xFF);
+            }
+            return String.format("%08d %s %04X:%04X [%08X] %-5s %-6s | AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X SP=%04X BP=%04X DS=%04X ES=%04X FL=%04X",
                     cycle,
                     pm ? "PM" : "RM",
                     cs & 0xFFFF, ip & 0xFFFF,
                     linearAddr,
-                    opcode & 0xFF,
+                    opcStr,
                     disasm != null ? disasm : "",
                     ax & 0xFFFF, bx & 0xFFFF, cx & 0xFFFF, dx & 0xFFFF,
                     si & 0xFFFF, di & 0xFFFF, sp & 0xFFFF, bp & 0xFFFF,
