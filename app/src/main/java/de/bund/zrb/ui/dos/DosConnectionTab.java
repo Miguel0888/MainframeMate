@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.dos;
 
 import de.bund.zrb.dosbox.core.DOSBox;
+import de.bund.zrb.dosbox.cpu.CpuTrace;
 import de.bund.zrb.dosbox.gui.SwingDisplay;
 import de.bund.zrb.dosbox.hardware.memory.Memory;
 import de.bund.zrb.dosbox.ints.Int10Handler;
@@ -11,6 +12,8 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 
 /**
  * DOSBox connection tab – embeds a DOS terminal emulator as a MainframeMate tab.
@@ -136,16 +139,136 @@ public class DosConnectionTab implements ConnectionTab {
         doom2Btn.addActionListener(e -> launchDoom2());
         toolbar.add(doom2Btn);
 
+        toolbar.add(Box.createHorizontalStrut(8));
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // ── Trace toggle button ────────────────────────────
+        JToggleButton traceBtn = new JToggleButton("\u26AB Trace");
+        traceBtn.setToolTipText("CPU-Trace ein/ausschalten (zeichnet jeden Befehl auf)");
+        traceBtn.addActionListener(e -> {
+            boolean on = traceBtn.isSelected();
+            dosbox.getCPU().getTrace().setEnabled(on);
+            if (on) {
+                dosbox.getCPU().getTrace().clear();
+                traceBtn.setText("\uD83D\uDD34 Trace");
+                traceBtn.setForeground(Color.RED);
+            } else {
+                traceBtn.setText("\u26AB Trace");
+                traceBtn.setForeground(null);
+            }
+        });
+        toolbar.add(traceBtn);
+
+        // ── Show trace button ───────────────────────────────
+        JButton showTraceBtn = new JButton("\uD83D\uDCC4 Trace anzeigen");
+        showTraceBtn.setToolTipText("Letzte aufgezeichnete CPU-Befehle anzeigen");
+        showTraceBtn.addActionListener(e -> showTraceDialog());
+        toolbar.add(showTraceBtn);
+
+        // ── Save trace button ───────────────────────────────
+        JButton saveTraceBtn = new JButton("\uD83D\uDCBE Trace speichern");
+        saveTraceBtn.setToolTipText("Trace in Datei speichern");
+        saveTraceBtn.addActionListener(e -> saveTraceToFile());
+        toolbar.add(saveTraceBtn);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        toolbar.add(Box.createHorizontalStrut(8));
+
         // ── Emulator status indicator ───────────────────────
-        toolbar.add(Box.createHorizontalStrut(16));
         JLabel statusLabel = new JLabel();
         statusLabel.setText("\u2705 Java-Emulator");
-        statusLabel.setToolTipText("x86 Real Mode Emulation — kein natives DOSBox noetig");
+        statusLabel.setToolTipText("x86 Real Mode Emulation \u2014 kein natives DOSBox noetig");
         statusLabel.setForeground(new Color(0, 128, 0));
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
         toolbar.add(statusLabel);
 
         return toolbar;
+    }
+
+    /**
+     * Show a dialog with the last trace entries.
+     */
+    private void showTraceDialog() {
+        CpuTrace trace = dosbox.getCPU().getTrace();
+        int count = trace.getCount();
+        if (count == 0) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Kein Trace vorhanden!\n\n"
+                    + "Aktiviere Trace mit dem \u26AB Trace Button,\n"
+                    + "f\u00FChre dann ein Programm aus, und klicke hier erneut.",
+                    "Trace leer", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Get the last 2000 entries (or all if fewer)
+        CpuTrace.Entry[] entries = trace.getLastEntries(Math.min(count, 2000));
+
+        // Build text
+        StringBuilder sb = new StringBuilder();
+        sb.append("CPU Trace - letzte ").append(entries.length)
+          .append(" von ").append(count).append(" Befehlen\n\n");
+        sb.append(String.format("%-10s %-4s %-9s %-10s %-7s | %-60s%n",
+                "Cycle", "Mode", "CS:IP", "Linear", "Opcode", "Registers"));
+        for (int i = 0; i < 120; i++) sb.append('=');
+        sb.append("\n");
+
+        for (CpuTrace.Entry e : entries) {
+            sb.append(e.toString()).append('\n');
+        }
+
+        // Show in a scrollable dialog
+        JTextArea textArea = new JTextArea(sb.toString());
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+        textArea.setEditable(false);
+        textArea.setCaretPosition(textArea.getText().length()); // scroll to end
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(1100, 600));
+        scrollPane.getVerticalScrollBar().setValue(scrollPane.getVerticalScrollBar().getMaximum());
+
+        JDialog dialog = new JDialog(
+                SwingUtilities.getWindowAncestor(mainPanel),
+                "CPU Trace (" + count + " Eintr\u00E4ge)",
+                Dialog.ModalityType.MODELESS);
+        dialog.setContentPane(scrollPane);
+        dialog.pack();
+        dialog.setLocationRelativeTo(mainPanel);
+        dialog.setVisible(true);
+
+        // Scroll to bottom after display
+        SwingUtilities.invokeLater(() -> {
+            textArea.setCaretPosition(textArea.getText().length());
+        });
+    }
+
+    /**
+     * Save trace to a file.
+     */
+    private void saveTraceToFile() {
+        CpuTrace trace = dosbox.getCPU().getTrace();
+        if (trace.getCount() == 0) {
+            JOptionPane.showMessageDialog(mainPanel, "Kein Trace vorhanden!", "Trace leer",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setSelectedFile(new File("cpu_trace.txt"));
+        if (fc.showSaveDialog(mainPanel) == JFileChooser.APPROVE_OPTION) {
+            try (FileWriter fw = new FileWriter(fc.getSelectedFile())) {
+                fw.write(trace.exportAsText());
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Trace gespeichert: " + fc.getSelectedFile().getAbsolutePath()
+                        + "\n" + trace.getCount() + " Eintr\u00E4ge",
+                        "Trace gespeichert", JOptionPane.INFORMATION_MESSAGE);
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Fehler beim Speichern: " + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 
     /**
@@ -161,17 +284,27 @@ public class DosConnectionTab implements ConnectionTab {
             return;
         }
 
+        // Auto-enable trace for debugging
+        dosbox.getCPU().getTrace().setEnabled(true);
+        dosbox.getCPU().getTrace().clear();
+
         // Execute via the DOS shell (which uses the Java emulator)
         DosShell shell = dosbox.getShell();
         shell.printLine("");
         shell.printLine("=== DOOM 2: Hell on Earth ===");
-        shell.printLine("Ausfuehrung im Java-Emulator...");
+        shell.printLine("Ausfuehrung im Java-Emulator... (Trace aktiv)");
         shell.printLine("");
 
         // Switch to D: drive and run DOOM2.EXE through the shell
         Thread launchThread = new Thread(() -> {
             shell.executeCommand("D:");
             shell.executeCommand("DOOM2");
+
+            // After Doom2 exits, show trace dialog automatically
+            SwingUtilities.invokeLater(() -> {
+                dosbox.getCPU().getTrace().setEnabled(false);
+                showTraceDialog();
+            });
         }, "Doom2-Launch");
         launchThread.setDaemon(true);
         launchThread.start();

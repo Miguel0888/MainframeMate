@@ -515,6 +515,16 @@ public class DOSBox {
         System.out.printf("[DOSBox] Final: CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
                 cpu.regs.cs, cpu.regs.getIP(), cpu.regs.ss, cpu.regs.getSP(), cpu.regs.ds, cpu.regs.es);
 
+        // Print last 50 trace entries to console
+        if (cpu.getTrace().getCount() > 0) {
+            de.bund.zrb.dosbox.cpu.CpuTrace.Entry[] last = cpu.getTrace().getLastEntries(50);
+            System.out.println("[DOSBox] === LAST " + last.length + " TRACE ENTRIES ===");
+            for (de.bund.zrb.dosbox.cpu.CpuTrace.Entry e : last) {
+                System.out.println(e.toString());
+            }
+            System.out.println("[DOSBox] === END TRACE ===");
+        }
+
         cpu.setRunning(false);
     }
 

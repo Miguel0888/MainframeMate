@@ -54,6 +54,9 @@ public class CPU implements Module {
     private long totalCycles;
     private static final int CYCLES_PER_TICK = 1000; // simplified
 
+    // ── Instruction trace ────────────────────────────────────
+    private final CpuTrace trace = new CpuTrace(100_000); // last 100K instructions
+
     public CPU(Memory memory, IoPortHandler io, PIC pic) {
         this.memory = memory;
         this.io = io;
@@ -639,6 +642,7 @@ public class CPU implements Module {
     public void setRunning(boolean running) { this.running = running; }
     public boolean isRunning() { return running; }
     public long getTotalCycles() { return totalCycles; }
+    public CpuTrace getTrace() { return trace; }
 
     /**
      * Execute a block of instructions.
@@ -673,6 +677,10 @@ public class CPU implements Module {
 
     /** Execute a single instruction. */
     private void executeOne() {
+        // Save pre-fetch IP for trace
+        int preIP = regs.getIP();
+        int preCS = regs.cs;
+
         int opcode = fetchByte();
 
         // Handle prefixes
@@ -691,6 +699,18 @@ public class CPU implements Module {
                 case 0xF3: repPrefix = true; repNE = false; opcode = fetchByte(); continue;
             }
             break;
+        }
+
+        // Record trace entry (with actual opcode after prefix stripping)
+        if (trace.isEnabled()) {
+            // Temporarily set IP back to pre-fetch position for trace
+            int savedIP = regs.getIP();
+            int savedCS = regs.cs;
+            regs.cs = preCS;
+            regs.setIP(preIP);
+            trace.record(this, opcode, totalCycles);
+            regs.cs = savedCS;
+            regs.setIP(savedIP);
         }
 
         switch (opcode) {
