@@ -52,6 +52,7 @@ public class DPMIManager {
     private int extMemNext = EXT_MEM_START; // next free extended memory address
 
     private boolean dpmiActive;
+    private boolean realModeSimulation; // temporarily use real-mode addressing during simulated RM calls
     private final Memory memory;
     private CPU cpu; // set after construction to avoid circular dependency
 
@@ -102,7 +103,14 @@ public class DPMIManager {
         }
     }
 
-    public boolean isDpmiActive() { return dpmiActive; }
+    public boolean isDpmiActive() { return dpmiActive && !realModeSimulation; }
+
+    /** Temporarily switch to real-mode address resolution (for INT 31h/0300,0301). */
+    public void setRealModeSimulation(boolean active) { this.realModeSimulation = active; }
+    public boolean isRealModeSimulation() { return realModeSimulation; }
+
+    /** Check if DPMI has been entered (regardless of simulation state). */
+    public boolean isDpmiEntered() { return dpmiActive; }
 
     /** Set CPU reference (called after construction to avoid circular dependency). */
     public void setCPU(CPU cpu) { this.cpu = cpu; }

@@ -498,35 +498,41 @@ public class Int31Handler implements CPU.IntHandler {
         int savedFS = cpu.regs.fs, savedGS = cpu.regs.gs;
         int savedFlags = cpu.regs.flags.getWord();
 
-        // Load real mode registers
-        cpu.regs.setAX(rax);
-        cpu.regs.setBX(rbx);
-        cpu.regs.setCX(rcx);
-        cpu.regs.setDX(rdx);
-        cpu.regs.setSI(rsi);
-        cpu.regs.setDI(rdi);
-        cpu.regs.setBP(rbp);
-        cpu.regs.es = res;
-        cpu.regs.ds = rds;
-        cpu.regs.fs = rfs;
-        cpu.regs.gs = rgs;
+        // Switch to real-mode address resolution for the duration of the interrupt
+        dpmi.setRealModeSimulation(true);
+        try {
+            // Load real mode registers
+            cpu.regs.setAX(rax);
+            cpu.regs.setBX(rbx);
+            cpu.regs.setCX(rcx);
+            cpu.regs.setDX(rdx);
+            cpu.regs.setSI(rsi);
+            cpu.regs.setDI(rdi);
+            cpu.regs.setBP(rbp);
+            cpu.regs.es = res;
+            cpu.regs.ds = rds;
+            cpu.regs.fs = rfs;
+            cpu.regs.gs = rgs;
 
-        // Execute the interrupt via Java handler
-        cpu.softwareInt(intNum);
+            // Execute the interrupt via Java handler
+            cpu.softwareInt(intNum);
 
-        // Write results back to structure
-        memory.writeWord(structAddr + 0x00, cpu.regs.getDI());
-        memory.writeWord(structAddr + 0x04, cpu.regs.getSI());
-        memory.writeWord(structAddr + 0x08, cpu.regs.getBP());
-        memory.writeWord(structAddr + 0x10, cpu.regs.getBX());
-        memory.writeWord(structAddr + 0x14, cpu.regs.getDX());
-        memory.writeWord(structAddr + 0x18, cpu.regs.getCX());
-        memory.writeWord(structAddr + 0x1C, cpu.regs.getAX());
-        memory.writeWord(structAddr + 0x20, cpu.regs.flags.getWord());
-        memory.writeWord(structAddr + 0x22, cpu.regs.es);
-        memory.writeWord(structAddr + 0x24, cpu.regs.ds);
-        memory.writeWord(structAddr + 0x26, cpu.regs.fs);
-        memory.writeWord(structAddr + 0x28, cpu.regs.gs);
+            // Write results back to structure
+            memory.writeWord(structAddr + 0x00, cpu.regs.getDI());
+            memory.writeWord(structAddr + 0x04, cpu.regs.getSI());
+            memory.writeWord(structAddr + 0x08, cpu.regs.getBP());
+            memory.writeWord(structAddr + 0x10, cpu.regs.getBX());
+            memory.writeWord(structAddr + 0x14, cpu.regs.getDX());
+            memory.writeWord(structAddr + 0x18, cpu.regs.getCX());
+            memory.writeWord(structAddr + 0x1C, cpu.regs.getAX());
+            memory.writeWord(structAddr + 0x20, cpu.regs.flags.getWord());
+            memory.writeWord(structAddr + 0x22, cpu.regs.es);
+            memory.writeWord(structAddr + 0x24, cpu.regs.ds);
+            memory.writeWord(structAddr + 0x26, cpu.regs.fs);
+            memory.writeWord(structAddr + 0x28, cpu.regs.gs);
+        } finally {
+            dpmi.setRealModeSimulation(false);
+        }
 
         // Restore protected mode registers
         cpu.regs.setAX(savedAX);
@@ -545,16 +551,119 @@ public class Int31Handler implements CPU.IntHandler {
 
     /**
      * Simulate a real mode far call from protected mode.
+     * Reads the DPMI call structure at ES:EDI, sets up real-mode registers,
+     * executes real-mode code at CS:IP from the structure until RETF,
+     * then writes results back.
      */
     private void simulateRealModeFarCall(CPU cpu) {
         int structAddr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getDI());
-        // Read CS:IP from structure
+
+        // Read register structure (DPMI real mode call structure)
+        // Offsets 0x00-0x1C: 32-bit DWORD fields (only low 16 used for 16-bit clients)
+        int rdi = memory.readWord(structAddr + 0x00);
+        int rsi = memory.readWord(structAddr + 0x04);
+        int rbp = memory.readWord(structAddr + 0x08);
+        int rbx = memory.readWord(structAddr + 0x10);
+        int rdx = memory.readWord(structAddr + 0x14);
+        int rcx = memory.readWord(structAddr + 0x18);
+        int rax = memory.readWord(structAddr + 0x1C);
+        int rflags = memory.readWord(structAddr + 0x20);
+        int res = memory.readWord(structAddr + 0x22);
+        int rds = memory.readWord(structAddr + 0x24);
+        int rfs = memory.readWord(structAddr + 0x26);
+        int rgs = memory.readWord(structAddr + 0x28);
         int callIP = memory.readWord(structAddr + 0x2A);
         int callCS = memory.readWord(structAddr + 0x2C);
+        int callSP = memory.readWord(structAddr + 0x2E);
+        int callSS = memory.readWord(structAddr + 0x30);
 
-        // For now, just simulate as a NOP (return immediately)
-        // Real implementation would switch to real mode and execute
-        // TODO: Full real mode callback support
+        System.out.printf("[INT31] 0301: FAR CALL to %04X:%04X AX=%04X BX=%04X CX=%04X DX=%04X DS=%04X ES=%04X%n",
+                callCS, callIP, rax, rbx, rcx, rdx, rds, res);
+
+        // Save entire PM state
+        int savedEAX = cpu.regs.getEAX(), savedEBX = cpu.regs.getEBX();
+        int savedECX = cpu.regs.getECX(), savedEDX = cpu.regs.getEDX();
+        int savedESI = cpu.regs.getESI(), savedEDI = cpu.regs.getEDI();
+        int savedEBP = cpu.regs.getEBP(), savedESP = cpu.regs.getESP();
+        int savedEIP = cpu.regs.getEIP();
+        int savedCS = cpu.regs.cs, savedDS = cpu.regs.ds;
+        int savedES = cpu.regs.es, savedSS = cpu.regs.ss;
+        int savedFS = cpu.regs.fs, savedGS = cpu.regs.gs;
+        int savedFlags = cpu.regs.flags.getDWord();
+
+        // Switch to real-mode simulation (DPMI will use real-mode addressing)
+        dpmi.setRealModeSimulation(true);
+        try {
+            // Set up real-mode registers from call structure
+            cpu.regs.setAX(rax);
+            cpu.regs.setBX(rbx);
+            cpu.regs.setCX(rcx);
+            cpu.regs.setDX(rdx);
+            cpu.regs.setSI(rsi);
+            cpu.regs.setDI(rdi);
+            cpu.regs.setBP(rbp);
+            cpu.regs.es = res;
+            cpu.regs.ds = rds;
+            cpu.regs.fs = rfs;
+            cpu.regs.gs = rgs;
+
+            // Set up stack (use provided SS:SP or a temporary one)
+            if (callSS != 0 || callSP != 0) {
+                cpu.regs.ss = callSS;
+                cpu.regs.setSP(callSP);
+            }
+            // Push a sentinel return address so RETF will stop execution
+            // Use F000:FFFF as a halt sentinel
+            cpu.push(0xF000); // CS
+            cpu.push(0xFFFF); // IP
+
+            // Set CS:IP to call target
+            cpu.regs.cs = callCS;
+            cpu.regs.setIP(callIP);
+
+            // Execute real-mode code until we hit the sentinel or max cycles
+            int maxCycles = 100000;
+            for (int i = 0; i < maxCycles; i++) {
+                // Check for sentinel address (F000:FFFF)
+                if (cpu.regs.cs == 0xF000 && cpu.regs.getIP() == 0xFFFF) {
+                    break;
+                }
+                cpu.executeOnePublic();
+            }
+
+            // Write results back to call structure
+            memory.writeWord(structAddr + 0x00, cpu.regs.getDI());
+            memory.writeWord(structAddr + 0x04, cpu.regs.getSI());
+            memory.writeWord(structAddr + 0x08, cpu.regs.getBP());
+            memory.writeWord(structAddr + 0x10, cpu.regs.getBX());
+            memory.writeWord(structAddr + 0x14, cpu.regs.getDX());
+            memory.writeWord(structAddr + 0x18, cpu.regs.getCX());
+            memory.writeWord(structAddr + 0x1C, cpu.regs.getAX());
+            memory.writeWord(structAddr + 0x20, cpu.regs.flags.getWord());
+            memory.writeWord(structAddr + 0x22, cpu.regs.es);
+            memory.writeWord(structAddr + 0x24, cpu.regs.ds);
+            memory.writeWord(structAddr + 0x26, cpu.regs.fs);
+            memory.writeWord(structAddr + 0x28, cpu.regs.gs);
+        } finally {
+            // Restore PM state
+            dpmi.setRealModeSimulation(false);
+            cpu.regs.setEAX(savedEAX);
+            cpu.regs.setEBX(savedEBX);
+            cpu.regs.setECX(savedECX);
+            cpu.regs.setEDX(savedEDX);
+            cpu.regs.setESI(savedESI);
+            cpu.regs.setEDI(savedEDI);
+            cpu.regs.setEBP(savedEBP);
+            cpu.regs.setESP(savedESP);
+            cpu.regs.setEIP(savedEIP);
+            cpu.regs.cs = savedCS;
+            cpu.regs.ds = savedDS;
+            cpu.regs.es = savedES;
+            cpu.regs.ss = savedSS;
+            cpu.regs.fs = savedFS;
+            cpu.regs.gs = savedGS;
+            cpu.regs.flags.setDWord(savedFlags);
+        }
     }
 }
 

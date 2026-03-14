@@ -857,6 +857,22 @@ public class CPU implements Module {
         }
     }
 
+    /**
+     * Execute a single instruction with proper prefix initialization.
+     * Public for use by real-mode simulation (INT 31h/0301).
+     */
+    public void executeOnePublic() {
+        segOverride = -1;
+        repPrefix = false;
+        csIs32 = false;
+        if (dpmi != null && (dpmi.isDpmiActive() || isProtectedMode())) {
+            csIs32 = dpmi.is32BitSelector(regs.cs);
+        }
+        prefix66 = csIs32;
+        prefix67 = csIs32;
+        executeOne();
+    }
+
     /** Execute a single instruction. */
     private void executeOne() {
         // Save pre-fetch IP for trace
@@ -1736,8 +1752,6 @@ public class CPU implements Module {
 
             // ── RETF (CB) ──────────────────────────────────
             case 0xCB: {
-                System.err.printf("[CPU-DBG] RETF(CB) at CS=%04X csIs32=%b p66=%b ESP=%08X%n",
-                        regs.cs, csIs32, prefix66, regs.getESP());
                 int retIP = popOp();
                 int retCS = popOp() & 0xFFFF;
                 setEffIP(retIP);
