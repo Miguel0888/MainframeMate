@@ -1,17 +1,22 @@
 package de.bund.zrb.dosbox.shell;
 
+import de.bund.zrb.dosbox.core.DOSBox;
 import de.bund.zrb.dosbox.dos.DosKernel;
+import de.bund.zrb.dosbox.dos.ProgramLoader;
 import de.bund.zrb.dosbox.ints.Int10Handler;
 import de.bund.zrb.dosbox.ints.Int16Handler;
+import de.bund.zrb.dosbox.hardware.memory.Memory;
 
 import java.io.File;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * DOS command shell — interprets internal commands like DIR, CD, CLS, VER, etc.
- * This is the Java equivalent of DOSBox's src/shell/ directory.
+ * Executes .EXE/.COM/.BAT files via the built-in Java CPU emulator.
  *
  * Ported from: src/shell/shell.cpp, src/shell/shell_cmds.cpp
  */
@@ -20,20 +25,25 @@ public class DosShell {
     private final DosKernel dos;
     private final Int10Handler video;
     private final Int16Handler keyboard;
+    private final DOSBox dosbox;
 
     private boolean running = true;
 
-    public DosShell(DosKernel dos, Int10Handler video, Int16Handler keyboard) {
+    /** Drive mount table: drive letter (0-25) -> host directory path */
+    private final Map<Integer, String> mountTable = new HashMap<>();
+
+    public DosShell(DosKernel dos, Int10Handler video, Int16Handler keyboard, DOSBox dosbox) {
         this.dos = dos;
         this.video = video;
         this.keyboard = keyboard;
+        this.dosbox = dosbox;
     }
 
     /** Print startup banner. */
     public void showBanner() {
-        printLine("JDOSBox - Java DOSBox Port (em-dosbox-svn-sdl2)");
-        printLine("Based on DOSBox (C) The DOSBox Team");
-        printLine("Ported to Java for MainframeMate");
+        printLine("JDOSBox - Java DOSBox Emulator");
+        printLine("Reine Java-Emulation — kein natives DOSBox noetig!");
+        printLine("CPU: x86 Real Mode (16-bit) | Video: VGA Text 80x25");
         printLine("");
         printLine("Type HELP for a list of commands.");
         printLine("");
@@ -140,23 +150,214 @@ public class DosShell {
             case "RD":
             case "RMDIR": printLine("Directory removed. (stub)"); break;
             case "MEM": cmdMem(); break;
+            case "MOUNT": cmdMount(args); break;
             default:
                 // Check if it's a drive letter change (e.g., "C:")
                 if (cmd.length() == 2 && cmd.charAt(1) == ':') {
                     int drive = cmd.charAt(0) - 'A';
                     if (drive >= 0 && drive < 26) {
+                        // If drive has a mount, update hostRootDir
+                        String mountDir = mountTable.get(drive);
+                        if (mountDir != null) {
+                            dos.setHostRootDir(mountDir);
+                        }
                         dos.setCurrentDrive(drive);
+                        dos.setCurrentDir("");
                     } else {
                         printLine("Invalid drive specification");
                     }
                 } else {
-                    printLine("Bad command or file name");
+                    // Try to run as EXE/COM/BAT file
+                    if (!tryRunExecutable(cmd, args)) {
+                        printLine("Bad command or file name");
+                    }
                 }
                 break;
         }
     }
 
+    // ── EXE/COM/BAT execution (Java CPU emulator) ─────────────
+
+    /**
+     * Try to find and run an executable file.
+     * Checks current directory for .EXE, .COM, .BAT files.
+     * Uses the built-in Java CPU emulator for EXE/COM execution.
+     */
+    private boolean tryRunExecutable(String cmd, String args) {
+        // Build search path in current directory
+        String hostDir = dos.getHostRootDir() +
+                (dos.getCurrentDir().isEmpty() ? "" : File.separator + dos.getCurrentDir());
+
+        String[] extensions = { "", ".EXE", ".COM", ".BAT", ".exe", ".com", ".bat" };
+
+        File exeFile = null;
+        for (String ext : extensions) {
+            File candidate = new File(hostDir, cmd + ext);
+            if (candidate.exists() && candidate.isFile()) {
+                exeFile = candidate;
+                break;
+            }
+            // Also try the original case
+            candidate = new File(hostDir, cmd.toLowerCase() + ext);
+            if (candidate.exists() && candidate.isFile()) {
+                exeFile = candidate;
+                break;
+            }
+        }
+
+        if (exeFile == null) return false;
+
+        String name = exeFile.getName().toUpperCase();
+
+        if (name.endsWith(".BAT")) {
+            // Execute batch file line by line
+            executeBatchFile(exeFile);
+            return true;
+        }
+
+        if (name.endsWith(".EXE") || name.endsWith(".COM")) {
+            executeInEmulator(exeFile, args);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Execute a DOS program (.EXE or .COM) using the Java CPU emulator.
+     * No native DOSBox needed — everything runs in Java!
+     */
+    private void executeInEmulator(File exeFile, String args) {
+        printLine("");
+        printLine("Lade " + exeFile.getName().toUpperCase() + " in Java-Emulator...");
+
+        // Set the host root directory to the program's directory
+        // so file operations work relative to the program
+        String previousHostDir = dos.getHostRootDir();
+        String previousDir = dos.getCurrentDir();
+        dos.setHostRootDir(exeFile.getParentFile().getAbsolutePath());
+
+        // Load program into memory
+        ProgramLoader.LoadResult loadResult = ProgramLoader.loadProgram(
+                exeFile, args, dosbox.getMemory(), dosbox.getCPU());
+
+        if (!loadResult.success) {
+            printLine("FEHLER: " + loadResult.errorMessage);
+            printLine("");
+            dos.setHostRootDir(previousHostDir);
+            return;
+        }
+
+        printLine("Typ: " + loadResult.programType +
+                " | Groesse: " + loadResult.codeSize + " Bytes" +
+                " | Segment: " + String.format("0x%04X", loadResult.codeSegment));
+        printLine("Ausfuehrung gestartet...");
+        printLine("");
+
+        // Run the program in the CPU emulator
+        try {
+            dosbox.executeProgramEmulated(5000);
+        } catch (Exception e) {
+            printLine("");
+            printLine("EMULATOR-FEHLER: " + e.getMessage());
+        }
+
+        // Restore shell state
+        dos.setHostRootDir(previousHostDir);
+        dos.setCurrentDir(previousDir);
+
+        printLine("");
+        printLine("Programm beendet.");
+        printLine("");
+    }
+
+    /**
+     * Execute a simple batch file.
+     */
+    private void executeBatchFile(File batFile) {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(batFile))) {
+            String line;
+            while ((line = reader.readLine()) != null && running) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("REM") || line.startsWith("rem")) continue;
+                if (line.startsWith("@")) line = line.substring(1).trim();
+                if (line.startsWith("ECHO OFF") || line.startsWith("echo off")) continue;
+                printLine(line);
+                executeCommand(line);
+            }
+        } catch (java.io.IOException e) {
+            printLine("Error reading batch file: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Mount a host directory as a DOS drive letter.
+     * Syntax: MOUNT D C:\Games\DOOM2
+     */
+    public void mountDrive(int drive, String hostDir) {
+        mountTable.put(drive, hostDir);
+        // If mounting current drive, update hostRootDir
+        if (drive == dos.getCurrentDrive()) {
+            dos.setHostRootDir(hostDir);
+        }
+    }
+
     // ── Internal commands ────────────────────────────────────
+
+    private void cmdMount(String args) {
+        if (args.isEmpty()) {
+            // Show current mounts
+            printLine("Aktuelle Laufwerkszuordnungen:");
+            if (mountTable.isEmpty()) {
+                printLine("  C: -> " + dos.getHostRootDir() + " (Standard)");
+            } else {
+                for (Map.Entry<Integer, String> entry : mountTable.entrySet()) {
+                    char letter = (char) ('A' + entry.getKey());
+                    printLine("  " + letter + ": -> " + entry.getValue());
+                }
+                if (!mountTable.containsKey(2)) {
+                    printLine("  C: -> " + dos.getHostRootDir() + " (Standard)");
+                }
+            }
+            return;
+        }
+
+        // Parse: MOUNT D C:\path\to\dir
+        String[] parts = args.split("\\s+", 2);
+        if (parts.length < 2 || parts[0].length() != 1) {
+            printLine("Syntax: MOUNT <Laufwerksbuchstabe> <Verzeichnis>");
+            printLine("Beispiel: MOUNT D C:\\Games\\DOOM2");
+            return;
+        }
+
+        char letter = parts[0].toUpperCase().charAt(0);
+        int drive = letter - 'A';
+        if (drive < 0 || drive > 25) {
+            printLine("Ungueltiger Laufwerksbuchstabe: " + letter);
+            return;
+        }
+
+        String hostPath = parts[1].trim();
+        // Remove surrounding quotes if present
+        if (hostPath.startsWith("\"") && hostPath.endsWith("\"")) {
+            hostPath = hostPath.substring(1, hostPath.length() - 1);
+        }
+
+        File dir = new File(hostPath);
+        if (!dir.isDirectory()) {
+            printLine("Verzeichnis nicht gefunden: " + hostPath);
+            return;
+        }
+
+        mountTable.put(drive, dir.getAbsolutePath());
+        printLine("Laufwerk " + letter + ": gemountet auf " + dir.getAbsolutePath());
+
+        // If mounting current drive, update immediately
+        if (drive == dos.getCurrentDrive()) {
+            dos.setHostRootDir(dir.getAbsolutePath());
+            dos.setCurrentDir("");
+        }
+    }
 
     private void cmdDir(String args) {
         String path = args.isEmpty() ? "*.*" : args;
@@ -253,24 +454,20 @@ public class DosShell {
     }
 
     private void cmdCls() {
-        // Clear screen via INT 10h AH=06
+        // Direct VRAM clear - proper CLS implementation
         for (int i = 0; i < Int10Handler.ROWS * Int10Handler.COLS; i++) {
             int addr = Int10Handler.TEXT_BASE + i * 2;
-            video.ttyOutput(' ', 0x07); // not ideal, let's just clear VRAM
+            video.getMemory().writeByte(addr, 0x20); // space
+            video.getMemory().writeByte(addr + 1, 0x07); // light gray on black
         }
-        // Better: direct VRAM clear
-        for (int i = 0; i < Int10Handler.ROWS * Int10Handler.COLS; i++) {
-            int addr = Int10Handler.TEXT_BASE + i * 2;
-            // We need memory access. Use the field via video handler
-        }
-        // Simplest approach: scroll everything up
-        printString("\033[2J\033[H"); // won't work in our terminal, so:
-        // TODO: proper CLS via INT 10h
+        // Reset cursor to top-left
+        video.setCursorPos(0, 0);
     }
 
     private void cmdVer() {
-        printLine("JDOSBox version 0.74-SDL2 (Java port)");
-        printLine("DOSBox reports: DOS 5.0");
+        printLine("JDOSBox version 0.74 (Pure Java Emulator)");
+        printLine("CPU: x86 Real Mode (16-bit) | DOS 5.0 kompatibel");
+        printLine("Keine nativen Abhaengigkeiten — laeuft ueberall mit Java!");
     }
 
     private void cmdHelp() {
@@ -289,7 +486,11 @@ public class DosShell {
         printLine("  DEL     - Delete files");
         printLine("  MD      - Create directory");
         printLine("  RD      - Remove directory");
+        printLine("  MOUNT   - Mount host directory as DOS drive");
         printLine("  EXIT    - Exit DOSBox");
+        printLine("");
+        printLine("EXE/COM-Dateien werden im Java-Emulator ausgefuehrt.");
+        printLine("Kein natives DOSBox erforderlich!");
     }
 
     private void cmdType(String args) {

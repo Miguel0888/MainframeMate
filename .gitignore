@@ -41,3 +41,4 @@ bin/
 ### Local libraries (NDV etc.) ###
 lib/
 
+/doom2/

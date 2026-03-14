@@ -364,6 +364,8 @@ public class CPU implements Module {
                 case 0x2E: segOverride = regs.cs; opcode = fetchByte(); continue;
                 case 0x36: segOverride = regs.ss; opcode = fetchByte(); continue;
                 case 0x3E: segOverride = regs.ds; opcode = fetchByte(); continue;
+                case 0x64: segOverride = regs.fs; opcode = fetchByte(); continue; // FS override
+                case 0x65: segOverride = regs.gs; opcode = fetchByte(); continue; // GS override
                 case 0xF2: repPrefix = true; repNE = true; opcode = fetchByte(); continue;
                 case 0xF3: repPrefix = true; repNE = false; opcode = fetchByte(); continue;
             }
@@ -468,14 +470,17 @@ public class CPU implements Module {
             case 0x17: regs.ss = pop() & 0xFFFF; break;
             case 0x1F: regs.ds = pop() & 0xFFFF; break;
 
+            // ── Two-byte opcode escape (0F) ─────────────────
+            case 0x0F: executeTwoByteOpcode(); break;
+
             // ── INC reg16 (40-47) ───────────────────────────
             case 0x40: case 0x41: case 0x42: case 0x43:
             case 0x44: case 0x45: case 0x46: case 0x47: {
                 int idx = opcode - 0x40;
                 int v = regs.getReg16(idx);
                 boolean cf = regs.flags.getCF();
-                int result = alu16(0, v, 1); // ADD
-                regs.flags.setCF(cf); // INC doesn't affect CF
+                int result = alu16(0, v, 1);
+                regs.flags.setCF(cf);
                 regs.setReg16(idx, result);
                 break;
             }
@@ -486,8 +491,8 @@ public class CPU implements Module {
                 int idx = opcode - 0x48;
                 int v = regs.getReg16(idx);
                 boolean cf = regs.flags.getCF();
-                int result = alu16(5, v, 1); // SUB
-                regs.flags.setCF(cf); // DEC doesn't affect CF
+                int result = alu16(5, v, 1);
+                regs.flags.setCF(cf);
                 regs.setReg16(idx, result);
                 break;
             }
@@ -503,6 +508,87 @@ public class CPU implements Module {
             case 0x5C: case 0x5D: case 0x5E: case 0x5F:
                 regs.setReg16(opcode - 0x58, pop());
                 break;
+
+            // ── PUSHA (60) ──────────────────────────────────
+            case 0x60: {
+                int tmp = regs.getSP();
+                push(regs.getAX());
+                push(regs.getCX());
+                push(regs.getDX());
+                push(regs.getBX());
+                push(tmp);
+                push(regs.getBP());
+                push(regs.getSI());
+                push(regs.getDI());
+                break;
+            }
+
+            // ── POPA (61) ───────────────────────────────────
+            case 0x61: {
+                regs.setDI(pop());
+                regs.setSI(pop());
+                regs.setBP(pop());
+                pop(); // skip SP
+                regs.setBX(pop());
+                regs.setDX(pop());
+                regs.setCX(pop());
+                regs.setAX(pop());
+                break;
+            }
+
+            // ── BOUND (62) — stub ───────────────────────────
+            case 0x62: {
+                int modrm = fetchByte();
+                decodeModRM16(modrm); // consume but ignore
+                break;
+            }
+
+            // ── PUSH imm16 (68) ─────────────────────────────
+            case 0x68:
+                push(fetchWord());
+                break;
+
+            // ── IMUL reg16, r/m16, imm16 (69) ──────────────
+            case 0x69: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int imm = fetchWord();
+                if (imm >= 0x8000) imm -= 0x10000;
+                if (val >= 0x8000) val -= 0x10000;
+                int result = val * imm;
+                regs.setReg16(reg, result & 0xFFFF);
+                boolean overflow = (result < -32768 || result > 32767);
+                regs.flags.setCF(overflow);
+                regs.flags.setOF(overflow);
+                break;
+            }
+
+            // ── PUSH sign-ext imm8 (6A) ─────────────────────
+            case 0x6A:
+                push(fetchSignedByte() & 0xFFFF);
+                break;
+
+            // ── IMUL reg16, r/m16, sign-ext imm8 (6B) ──────
+            case 0x6B: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int imm = fetchSignedByte();
+                if (val >= 0x8000) val -= 0x10000;
+                int result = val * imm;
+                regs.setReg16(reg, result & 0xFFFF);
+                boolean overflow = (result < -32768 || result > 32767);
+                regs.flags.setCF(overflow);
+                regs.flags.setOF(overflow);
+                break;
+            }
 
             // ── Jcc short (70-7F) ───────────────────────────
             case 0x70: case 0x71: case 0x72: case 0x73:
@@ -572,7 +658,7 @@ public class CPU implements Module {
                 int rm = modrm & 7;
                 int a;
                 if (ea == -1) { a = regs.getReg8(rm); } else { a = memory.readByte(ea); }
-                alu8(4, a, regs.getReg8(reg)); // AND for flags
+                alu8(4, a, regs.getReg8(reg));
                 break;
             }
 
@@ -675,9 +761,7 @@ public class CPU implements Module {
             case 0x8D: {
                 int modrm = fetchByte();
                 int reg = (modrm >> 3) & 7;
-                // We need the offset part only
                 int ea = decodeModRM16(modrm);
-                // EA is segment:offset physical, get just the offset part
                 regs.setReg16(reg, ea & 0xFFFF);
                 break;
             }
@@ -691,6 +775,16 @@ public class CPU implements Module {
                 int val;
                 if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
                 regs.setSeg(seg, val);
+                break;
+            }
+
+            // ── POP r/m16 (8F) ──────────────────────────────
+            case 0x8F: {
+                int modrm = fetchByte();
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val = pop();
+                if (ea == -1) { regs.setReg16(rm, val); } else { memory.writeWord(ea, val); }
                 break;
             }
 
@@ -715,11 +809,26 @@ public class CPU implements Module {
                 regs.setDX((regs.getAX() & 0x8000) != 0 ? 0xFFFF : 0);
                 break;
 
+            // ── CALL far (9A) ──────────────────────────────
+            case 0x9A: {
+                int newIP = fetchWord();
+                int newCS = fetchWord();
+                push(regs.cs);
+                push(regs.getIP());
+                regs.cs = newCS;
+                regs.setIP(newIP);
+                break;
+            }
+
             // ── PUSHF (9C) ─────────────────────────────────
             case 0x9C: push(regs.flags.getWord()); break;
 
             // ── POPF (9D) ──────────────────────────────────
             case 0x9D: regs.flags.setWord(pop()); break;
+
+            // ── SAHF (9E) / LAHF (9F) ──────────────────────
+            case 0x9E: regs.flags.setWord((regs.flags.getWord() & 0xFF00) | regs.getAH()); break;
+            case 0x9F: regs.setAH(regs.flags.getWord() & 0xFF); break;
 
             // ── MOV AL/AX, moffs (A0-A1) ───────────────────
             case 0xA0: regs.setAL(memory.readByte(Memory.segOfs(getDS(), fetchWord()))); break;
@@ -738,6 +847,15 @@ public class CPU implements Module {
             // ── CMPSB (A6) ─────────────────────────────────
             case 0xA6: execCmpsb(); break;
 
+            // ── CMPSW (A7) ─────────────────────────────────
+            case 0xA7: execCmpsw(); break;
+
+            // ── TEST AL, imm8 (A8) ─────────────────────────
+            case 0xA8: alu8(4, regs.getAL(), fetchByte()); break;
+
+            // ── TEST AX, imm16 (A9) ────────────────────────
+            case 0xA9: alu16(4, regs.getAX(), fetchWord()); break;
+
             // ── STOSB (AA) ─────────────────────────────────
             case 0xAA: execStosb(); break;
 
@@ -753,11 +871,8 @@ public class CPU implements Module {
             // ── SCASB (AE) ─────────────────────────────────
             case 0xAE: execScasb(); break;
 
-            // ── TEST AL, imm8 (A8) ─────────────────────────
-            case 0xA8: alu8(4, regs.getAL(), fetchByte()); break;
-
-            // ── TEST AX, imm16 (A9) ────────────────────────
-            case 0xA9: alu16(4, regs.getAX(), fetchWord()); break;
+            // ── SCASW (AF) ─────────────────────────────────
+            case 0xAF: execScasw(); break;
 
             // ── MOV reg8, imm8 (B0-B7) ─────────────────────
             case 0xB0: case 0xB1: case 0xB2: case 0xB3:
@@ -771,8 +886,37 @@ public class CPU implements Module {
                 regs.setReg16(opcode - 0xB8, fetchWord());
                 break;
 
-            // ── RET near (C3) ──────────────────────────────
-            case 0xC3: regs.setIP(pop()); break;
+            // ── Shift/Rotate r/m8, imm8 (C0) ───────────────
+            case 0xC0: {
+                int modrm = fetchByte();
+                int op = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg8(rm); } else { val = memory.readByte(ea); }
+                int cnt = fetchByte() & 0x1F;
+                if (cnt != 0) {
+                    val = doShift8(op, val, cnt);
+                    if (ea == -1) { regs.setReg8(rm, val); } else { memory.writeByte(ea, val); }
+                }
+                break;
+            }
+
+            // ── Shift/Rotate r/m16, imm8 (C1) ──────────────
+            case 0xC1: {
+                int modrm = fetchByte();
+                int op = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int cnt = fetchByte() & 0x1F;
+                if (cnt != 0) {
+                    val = doShift16(op, val, cnt);
+                    if (ea == -1) { regs.setReg16(rm, val); } else { memory.writeWord(ea, val); }
+                }
+                break;
+            }
 
             // ── RET near imm16 (C2) ────────────────────────
             case 0xC2: {
@@ -781,6 +925,9 @@ public class CPU implements Module {
                 regs.setSP(regs.getSP() + n);
                 break;
             }
+
+            // ── RET near (C3) ──────────────────────────────
+            case 0xC3: regs.setIP(pop()); break;
 
             // ── LES (C4) / LDS (C5) ────────────────────────
             case 0xC4: case 0xC5: {
@@ -813,6 +960,39 @@ public class CPU implements Module {
                 break;
             }
 
+            // ── ENTER (C8) ─────────────────────────────────
+            case 0xC8: {
+                int allocSize = fetchWord();
+                int nestLevel = fetchByte() & 0x1F;
+                push(regs.getBP());
+                int framePtr = regs.getSP();
+                if (nestLevel > 0) {
+                    for (int i = 1; i < nestLevel; i++) {
+                        regs.setBP(regs.getBP() - 2);
+                        push(memory.readWord(Memory.segOfs(regs.ss, regs.getBP())));
+                    }
+                    push(framePtr);
+                }
+                regs.setBP(framePtr);
+                regs.setSP(regs.getSP() - allocSize);
+                break;
+            }
+
+            // ── LEAVE (C9) ─────────────────────────────────
+            case 0xC9:
+                regs.setSP(regs.getBP());
+                regs.setBP(pop());
+                break;
+
+            // ── RETF imm16 (CA) ────────────────────────────
+            case 0xCA: {
+                int n = fetchWord();
+                regs.setIP(pop());
+                regs.cs = pop() & 0xFFFF;
+                regs.setSP(regs.getSP() + n);
+                break;
+            }
+
             // ── RETF (CB) ──────────────────────────────────
             case 0xCB:
                 regs.setIP(pop());
@@ -824,6 +1004,11 @@ public class CPU implements Module {
 
             // ── INT imm8 (CD) ──────────────────────────────
             case 0xCD: softwareInt(fetchByte()); break;
+
+            // ── INTO (CE) ──────────────────────────────────
+            case 0xCE:
+                if (regs.flags.getOF()) softwareInt(4);
+                break;
 
             // ── IRET (CF) ──────────────────────────────────
             case 0xCF:
@@ -844,11 +1029,35 @@ public class CPU implements Module {
             // ── Shift/Rotate r/m16, CL (D3) ────────────────
             case 0xD3: execShift16(regs.getCL()); break;
 
-            // ── LOOP (E2) ──────────────────────────────────
-            case 0xE2: {
+            // ── AAM (D4) ───────────────────────────────────
+            case 0xD4: {
+                int base = fetchByte();
+                if (base == 0) { softwareInt(0); break; }
+                regs.setAH(regs.getAL() / base);
+                regs.setAL(regs.getAL() % base);
+                regs.flags.setSZP8(regs.getAL());
+                break;
+            }
+
+            // ── AAD (D5) ───────────────────────────────────
+            case 0xD5: {
+                int base = fetchByte();
+                regs.setAL((regs.getAH() * base + regs.getAL()) & 0xFF);
+                regs.setAH(0);
+                regs.flags.setSZP8(regs.getAL());
+                break;
+            }
+
+            // ── XLAT (D7) ──────────────────────────────────
+            case 0xD7:
+                regs.setAL(memory.readByte(Memory.segOfs(getDS(), (regs.getBX() + regs.getAL()) & 0xFFFF)));
+                break;
+
+            // ── LOOPNZ (E0) ────────────────────────────────
+            case 0xE0: {
                 int disp = fetchSignedByte();
                 regs.setCX(regs.getCX() - 1);
-                if (regs.getCX() != 0) regs.setIP(regs.getIP() + disp);
+                if (regs.getCX() != 0 && !regs.flags.getZF()) regs.setIP(regs.getIP() + disp);
                 break;
             }
 
@@ -860,11 +1069,18 @@ public class CPU implements Module {
                 break;
             }
 
-            // ── LOOPNZ (E0) ────────────────────────────────
-            case 0xE0: {
+            // ── LOOP (E2) ──────────────────────────────────
+            case 0xE2: {
                 int disp = fetchSignedByte();
                 regs.setCX(regs.getCX() - 1);
-                if (regs.getCX() != 0 && !regs.flags.getZF()) regs.setIP(regs.getIP() + disp);
+                if (regs.getCX() != 0) regs.setIP(regs.getIP() + disp);
+                break;
+            }
+
+            // ── JCXZ (E3) ──────────────────────────────────
+            case 0xE3: {
+                int disp = fetchSignedByte();
+                if (regs.getCX() == 0) regs.setIP(regs.getIP() + disp);
                 break;
             }
 
@@ -925,6 +1141,18 @@ public class CPU implements Module {
             // ── OUT DX, AX (EF) ────────────────────────────
             case 0xEF: io.writeWord(regs.getDX(), regs.getAX()); break;
 
+            // ── HLT (F4) ───────────────────────────────────
+            case 0xF4: halted = true; break;
+
+            // ── CMC (F5) ───────────────────────────────────
+            case 0xF5: regs.flags.setCF(!regs.flags.getCF()); break;
+
+            // ── GRP3 r/m8 (F6) ─────────────────────────────
+            case 0xF6: execGrp3_8(); break;
+
+            // ── GRP3 r/m16 (F7) ────────────────────────────
+            case 0xF7: execGrp3_16(); break;
+
             // ── CLC (F8) ───────────────────────────────────
             case 0xF8: regs.flags.setCF(false); break;
 
@@ -943,42 +1171,323 @@ public class CPU implements Module {
             // ── STD (FD) ───────────────────────────────────
             case 0xFD: regs.flags.setDF(true); break;
 
-            // ── CMC (F5) ───────────────────────────────────
-            case 0xF5: regs.flags.setCF(!regs.flags.getCF()); break;
-
-            // ── HLT (F4) ───────────────────────────────────
-            case 0xF4: halted = true; break;
-
-            // ── GRP3 r/m8 (F6) ─────────────────────────────
-            case 0xF6: execGrp3_8(); break;
-
-            // ── GRP3 r/m16 (F7) ────────────────────────────
-            case 0xF7: execGrp3_16(); break;
+            // ── GRP4 r/m8 (FE) ─────────────────────────────
+            case 0xFE: execGrp4(); break;
 
             // ── GRP5 r/m16 (FF) ────────────────────────────
             case 0xFF: execGrp5(); break;
 
-            // ── GRP4 r/m8 (FE) ─────────────────────────────
-            case 0xFE: execGrp4(); break;
+            default:
+                System.err.printf("Unimplemented opcode: %02X at %04X:%04X%n", opcode, regs.cs, regs.getIP() - 1);
+                // Don't halt, just skip
+                break;
+        }
+    }
 
-            // ── SAHF (9E) / LAHF (9F) ──────────────────────
-            case 0x9E: regs.flags.setWord((regs.flags.getWord() & 0xFF00) | regs.getAH()); break;
-            case 0x9F: regs.setAH(regs.flags.getWord() & 0xFF); break;
+    // ── Two-byte opcode handler (0x0F prefix) ───────────────
 
-            // ── CALL far (9A) ──────────────────────────────
-            case 0x9A: {
-                int newIP = fetchWord();
-                int newCS = fetchWord();
-                push(regs.cs);
-                push(regs.getIP());
-                regs.cs = newCS;
-                regs.setIP(newIP);
+    private void executeTwoByteOpcode() {
+        int op2 = fetchByte();
+        switch (op2) {
+            // ── Jcc near (0F 80 - 0F 8F) ───────────────────
+            case 0x80: case 0x81: case 0x82: case 0x83:
+            case 0x84: case 0x85: case 0x86: case 0x87:
+            case 0x88: case 0x89: case 0x8A: case 0x8B:
+            case 0x8C: case 0x8D: case 0x8E: case 0x8F: {
+                int disp = fetchWord();
+                if (disp >= 0x8000) disp -= 0x10000;
+                if (evalCondition(op2 - 0x80)) {
+                    regs.setIP(regs.getIP() + disp);
+                }
+                break;
+            }
+
+            // ── SETcc r/m8 (0F 90 - 0F 9F) ─────────────────
+            case 0x90: case 0x91: case 0x92: case 0x93:
+            case 0x94: case 0x95: case 0x96: case 0x97:
+            case 0x98: case 0x99: case 0x9A: case 0x9B:
+            case 0x9C: case 0x9D: case 0x9E: case 0x9F: {
+                int modrm = fetchByte();
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val = evalCondition(op2 - 0x90) ? 1 : 0;
+                if (ea == -1) { regs.setReg8(rm, val); } else { memory.writeByte(ea, val); }
+                break;
+            }
+
+            // ── PUSH FS (0F A0) / POP FS (0F A1) ───────────
+            case 0xA0: push(regs.fs); break;
+            case 0xA1: regs.fs = pop() & 0xFFFF; break;
+
+            // ── BT r/m16, reg16 (0F A3) ────────────────────
+            case 0xA3: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int bit = regs.getReg16(reg) & 15;
+                regs.flags.setCF(((val >> bit) & 1) != 0);
+                break;
+            }
+
+            // ── SHLD r/m16, reg16, imm8 (0F A4) ────────────
+            case 0xA4: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int dst;
+                if (ea == -1) { dst = regs.getReg16(rm); } else { dst = memory.readWord(ea); }
+                int src = regs.getReg16(reg);
+                int cnt = fetchByte() & 0x1F;
+                if (cnt != 0) {
+                    int result = ((dst << cnt) | (src >>> (16 - cnt))) & 0xFFFF;
+                    regs.flags.setCF(((dst >> (16 - cnt)) & 1) != 0);
+                    regs.flags.setSZP16(result);
+                    if (ea == -1) { regs.setReg16(rm, result); } else { memory.writeWord(ea, result); }
+                }
+                break;
+            }
+
+            // ── SHLD r/m16, reg16, CL (0F A5) ──────────────
+            case 0xA5: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int dst;
+                if (ea == -1) { dst = regs.getReg16(rm); } else { dst = memory.readWord(ea); }
+                int src = regs.getReg16(reg);
+                int cnt = regs.getCL() & 0x1F;
+                if (cnt != 0) {
+                    int result = ((dst << cnt) | (src >>> (16 - cnt))) & 0xFFFF;
+                    regs.flags.setCF(((dst >> (16 - cnt)) & 1) != 0);
+                    regs.flags.setSZP16(result);
+                    if (ea == -1) { regs.setReg16(rm, result); } else { memory.writeWord(ea, result); }
+                }
+                break;
+            }
+
+            // ── PUSH GS (0F A8) / POP GS (0F A9) ───────────
+            case 0xA8: push(regs.gs); break;
+            case 0xA9: regs.gs = pop() & 0xFFFF; break;
+
+            // ── BTS r/m16, reg16 (0F AB) ────────────────────
+            case 0xAB: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int bit = regs.getReg16(reg) & 15;
+                regs.flags.setCF(((val >> bit) & 1) != 0);
+                val |= (1 << bit);
+                if (ea == -1) { regs.setReg16(rm, val); } else { memory.writeWord(ea, val); }
+                break;
+            }
+
+            // ── SHRD r/m16, reg16, imm8 (0F AC) ────────────
+            case 0xAC: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int dst;
+                if (ea == -1) { dst = regs.getReg16(rm); } else { dst = memory.readWord(ea); }
+                int src = regs.getReg16(reg);
+                int cnt = fetchByte() & 0x1F;
+                if (cnt != 0) {
+                    int result = ((dst >>> cnt) | (src << (16 - cnt))) & 0xFFFF;
+                    regs.flags.setCF(((dst >> (cnt - 1)) & 1) != 0);
+                    regs.flags.setSZP16(result);
+                    if (ea == -1) { regs.setReg16(rm, result); } else { memory.writeWord(ea, result); }
+                }
+                break;
+            }
+
+            // ── SHRD r/m16, reg16, CL (0F AD) ──────────────
+            case 0xAD: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int dst;
+                if (ea == -1) { dst = regs.getReg16(rm); } else { dst = memory.readWord(ea); }
+                int src = regs.getReg16(reg);
+                int cnt = regs.getCL() & 0x1F;
+                if (cnt != 0) {
+                    int result = ((dst >>> cnt) | (src << (16 - cnt))) & 0xFFFF;
+                    regs.flags.setCF(((dst >> (cnt - 1)) & 1) != 0);
+                    regs.flags.setSZP16(result);
+                    if (ea == -1) { regs.setReg16(rm, result); } else { memory.writeWord(ea, result); }
+                }
+                break;
+            }
+
+            // ── IMUL reg16, r/m16 (0F AF) ──────────────────
+            case 0xAF: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int a = regs.getReg16(reg);
+                int b;
+                if (ea == -1) { b = regs.getReg16(rm); } else { b = memory.readWord(ea); }
+                if (a >= 0x8000) a -= 0x10000;
+                if (b >= 0x8000) b -= 0x10000;
+                int result = a * b;
+                regs.setReg16(reg, result & 0xFFFF);
+                boolean overflow = (result < -32768 || result > 32767);
+                regs.flags.setCF(overflow);
+                regs.flags.setOF(overflow);
+                break;
+            }
+
+            // ── BTR r/m16, reg16 (0F B3) ────────────────────
+            case 0xB3: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int bit = regs.getReg16(reg) & 15;
+                regs.flags.setCF(((val >> bit) & 1) != 0);
+                val &= ~(1 << bit);
+                if (ea == -1) { regs.setReg16(rm, val); } else { memory.writeWord(ea, val); }
+                break;
+            }
+
+            // ── MOVZX reg16, r/m8 (0F B6) ──────────────────
+            case 0xB6: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg8(rm); } else { val = memory.readByte(ea); }
+                regs.setReg16(reg, val & 0xFF);
+                break;
+            }
+
+            // ── MOVZX reg16, r/m16 (0F B7) — in 16-bit mode: just MOV
+            case 0xB7: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                regs.setReg16(reg, val & 0xFFFF);
+                break;
+            }
+
+            // ── BT/BTS/BTR/BTC r/m16, imm8 (0F BA) ────────
+            case 0xBA: {
+                int modrm = fetchByte();
+                int subOp = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int bit = fetchByte() & 15;
+                regs.flags.setCF(((val >> bit) & 1) != 0);
+                switch (subOp) {
+                    case 4: break; // BT (test only)
+                    case 5: val |= (1 << bit); break;  // BTS
+                    case 6: val &= ~(1 << bit); break;  // BTR
+                    case 7: val ^= (1 << bit); break;   // BTC
+                }
+                if (subOp >= 5) {
+                    if (ea == -1) { regs.setReg16(rm, val); } else { memory.writeWord(ea, val); }
+                }
+                break;
+            }
+
+            // ── BTC r/m16, reg16 (0F BB) ────────────────────
+            case 0xBB: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                int bit = regs.getReg16(reg) & 15;
+                regs.flags.setCF(((val >> bit) & 1) != 0);
+                val ^= (1 << bit);
+                if (ea == -1) { regs.setReg16(rm, val); } else { memory.writeWord(ea, val); }
+                break;
+            }
+
+            // ── BSF reg16, r/m16 (0F BC) ────────────────────
+            case 0xBC: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                if (val == 0) {
+                    regs.flags.setZF(true);
+                } else {
+                    regs.flags.setZF(false);
+                    int bit = 0;
+                    while (((val >> bit) & 1) == 0) bit++;
+                    regs.setReg16(reg, bit);
+                }
+                break;
+            }
+
+            // ── BSR reg16, r/m16 (0F BD) ────────────────────
+            case 0xBD: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                if (val == 0) {
+                    regs.flags.setZF(true);
+                } else {
+                    regs.flags.setZF(false);
+                    int bit = 15;
+                    while (bit > 0 && ((val >> bit) & 1) == 0) bit--;
+                    regs.setReg16(reg, bit);
+                }
+                break;
+            }
+
+            // ── MOVSX reg16, r/m8 (0F BE) ──────────────────
+            case 0xBE: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg8(rm); } else { val = memory.readByte(ea); }
+                // Sign-extend byte to word
+                if ((val & 0x80) != 0) val |= 0xFF00;
+                regs.setReg16(reg, val & 0xFFFF);
+                break;
+            }
+
+            // ── MOVSX reg16, r/m16 (0F BF) — in 16-bit mode: just MOV
+            case 0xBF: {
+                int modrm = fetchByte();
+                int reg = (modrm >> 3) & 7;
+                int ea = decodeModRM16(modrm);
+                int rm = modrm & 7;
+                int val;
+                if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
+                regs.setReg16(reg, val);
                 break;
             }
 
             default:
-                System.err.printf("Unimplemented opcode: %02X at %04X:%04X%n", opcode, regs.cs, regs.getIP() - 1);
-                // Don't halt, just skip
+                System.err.printf("Unimplemented 0F opcode: 0F %02X at %04X:%04X%n", op2, regs.cs, regs.getIP() - 2);
                 break;
         }
     }
@@ -1043,6 +1552,28 @@ public class CPU implements Module {
         }
     }
 
+    private void execCmpsw() {
+        int dir = regs.flags.getDF() ? -2 : 2;
+        if (repPrefix) {
+            while (regs.getCX() != 0) {
+                int a = memory.readWord(Memory.segOfs(getDS(), regs.getSI()));
+                int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+                alu16(7, a, b); // CMP
+                regs.setSI(regs.getSI() + dir);
+                regs.setDI(regs.getDI() + dir);
+                regs.setCX(regs.getCX() - 1);
+                if (repNE && regs.flags.getZF()) break;   // REPE: stop when not equal
+                if (!repNE && !regs.flags.getZF()) break;  // REPNE: stop when equal
+            }
+        } else {
+            int a = memory.readWord(Memory.segOfs(getDS(), regs.getSI()));
+            int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+            alu16(7, a, b);
+            regs.setSI(regs.getSI() + dir);
+            regs.setDI(regs.getDI() + dir);
+        }
+    }
+
     private void execStosb() {
         int dir = regs.flags.getDF() ? -1 : 1;
         if (repPrefix) {
@@ -1101,6 +1632,24 @@ public class CPU implements Module {
         }
     }
 
+    private void execScasw() {
+        int dir = regs.flags.getDF() ? -2 : 2;
+        if (repPrefix) {
+            while (regs.getCX() != 0) {
+                int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+                alu16(7, regs.getAX(), b); // CMP AX with ES:DI word
+                regs.setDI(regs.getDI() + dir);
+                regs.setCX(regs.getCX() - 1);
+                if (repNE && regs.flags.getZF()) break;
+                if (!repNE && !regs.flags.getZF()) break;
+            }
+        } else {
+            int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+            alu16(7, regs.getAX(), b);
+            regs.setDI(regs.getDI() + dir);
+        }
+    }
+
     // ── Shift/Rotate ────────────────────────────────────────
 
     private void execShift8(int count) {
@@ -1148,7 +1697,25 @@ public class CPU implements Module {
                 regs.flags.setCF((val & 0x80) != 0);
                 if (count == 1) regs.flags.setOF((((val >> 7) ^ (val >> 6)) & 1) != 0);
                 return val;
-            case 4: // SHL
+            case 2: { // RCL (rotate through carry left)
+                for (int i = 0; i < count; i++) {
+                    int oldCF = regs.flags.getCF() ? 1 : 0;
+                    regs.flags.setCF((val & 0x80) != 0);
+                    val = ((val << 1) | oldCF) & 0xFF;
+                }
+                if (count == 1) regs.flags.setOF(((val >> 7) ^ (regs.flags.getCF() ? 1 : 0)) != 0);
+                return val;
+            }
+            case 3: { // RCR (rotate through carry right)
+                for (int i = 0; i < count; i++) {
+                    int oldCF = regs.flags.getCF() ? 1 : 0;
+                    regs.flags.setCF((val & 1) != 0);
+                    val = ((val >> 1) | (oldCF << 7)) & 0xFF;
+                }
+                if (count == 1) regs.flags.setOF((((val >> 7) ^ (val >> 6)) & 1) != 0);
+                return val;
+            }
+            case 4: case 6: // SHL (6 is undocumented alias)
                 result = val << count;
                 regs.flags.setCF((result & 0x100) != 0);
                 result &= 0xFF;
@@ -1190,7 +1757,23 @@ public class CPU implements Module {
                 }
                 regs.flags.setCF((val & 0x8000) != 0);
                 return val;
-            case 4: // SHL
+            case 2: { // RCL
+                for (int i = 0; i < count; i++) {
+                    int oldCF = regs.flags.getCF() ? 1 : 0;
+                    regs.flags.setCF((val & 0x8000) != 0);
+                    val = ((val << 1) | oldCF) & 0xFFFF;
+                }
+                return val;
+            }
+            case 3: { // RCR
+                for (int i = 0; i < count; i++) {
+                    int oldCF = regs.flags.getCF() ? 1 : 0;
+                    regs.flags.setCF((val & 1) != 0);
+                    val = ((val >> 1) | (oldCF << 15)) & 0xFFFF;
+                }
+                return val;
+            }
+            case 4: case 6: // SHL
                 result = val << count;
                 regs.flags.setCF((result & 0x10000) != 0);
                 result &= 0xFFFF;

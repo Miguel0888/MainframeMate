@@ -6,8 +6,10 @@ import de.bund.zrb.dosbox.gui.SwingDisplay;
 import de.bund.zrb.dosbox.hardware.memory.IoPortHandler;
 import de.bund.zrb.dosbox.hardware.memory.Memory;
 import de.bund.zrb.dosbox.hardware.pic.PIC;
+import de.bund.zrb.dosbox.hardware.timer.PIT;
 import de.bund.zrb.dosbox.ints.Int10Handler;
 import de.bund.zrb.dosbox.ints.Int16Handler;
+import de.bund.zrb.dosbox.ints.Int20Handler;
 import de.bund.zrb.dosbox.ints.Int21Handler;
 import de.bund.zrb.dosbox.shell.DosShell;
 
@@ -25,11 +27,13 @@ public class DOSBox {
     private final Memory memory;
     private final IoPortHandler io;
     private final PIC pic;
+    private final PIT pit;
     private final CPU cpu;
 
     // ── BIOS / DOS ──────────────────────────────────────────
     private final Int10Handler int10;
     private final Int16Handler int16;
+    private final Int20Handler int20;
     private final Int21Handler int21;
     private final DosKernel dos;
     private final DosShell shell;
@@ -42,14 +46,17 @@ public class DOSBox {
         memory = new Memory();
         io = new IoPortHandler();
         pic = new PIC();
+        pit = new PIT(pic);
         cpu = new CPU(memory, io, pic);
 
-        // Register PIC I/O ports
+        // Register PIC and PIT I/O ports
         pic.registerPorts(io);
+        pit.registerPorts(io);
 
         // Initialize BIOS handlers
         int10 = new Int10Handler(memory);
         int16 = new Int16Handler();
+        int20 = new Int20Handler();
 
         // Initialize DOS kernel
         dos = new DosKernel(memory);
@@ -57,12 +64,13 @@ public class DOSBox {
         // Initialize INT 21h handler
         int21 = new Int21Handler(memory, dos, int10, int16);
 
-        // Initialize shell
-        shell = new DosShell(dos, int10, int16);
+        // Initialize shell (no longer needs NativeDosLauncher)
+        shell = new DosShell(dos, int10, int16, this);
 
         // Register interrupt handlers with CPU
         cpu.setIntHandler(0x10, int10);
         cpu.setIntHandler(0x16, int16);
+        cpu.setIntHandler(0x20, int20);
         cpu.setIntHandler(0x21, int21);
 
         // Set up initial video mode (80x25 text)
@@ -124,6 +132,7 @@ public class DOSBox {
                 while (cpu.isRunning()) {
                     cpu.executeBlock(10000);
                     pic.advanceTime(1.0);
+                    pit.tick(1.0);
 
                     // Update cursor
                     if (display != null) {
@@ -137,6 +146,38 @@ public class DOSBox {
             cpuThread.setDaemon(true);
             cpuThread.start();
         });
+    }
+
+    /**
+     * Execute a program using the Java CPU emulator.
+     * Called from DosShell when running EXE/COM files.
+     * Runs in the calling thread, blocks until program terminates.
+     *
+     * @param cyclesPerBlock cycles to execute per iteration
+     */
+    public void executeProgramEmulated(int cyclesPerBlock) {
+        int20.reset();
+        int21.resetTerminated();
+        cpu.setRunning(true);
+
+        while (cpu.isRunning() && !int20.isTerminated() && !int21.isTerminated()) {
+            cpu.executeBlock(cyclesPerBlock);
+            pic.advanceTime(0.5);
+            pit.tick(0.5);
+
+            // Update cursor in display
+            if (display != null) {
+                display.setCursorPosition(int10.getCursorRow(), int10.getCursorCol());
+            }
+
+            // Small yield to prevent 100% host CPU usage
+            try { Thread.sleep(1); } catch (InterruptedException e) {
+                cpu.setRunning(false);
+                break;
+            }
+        }
+
+        cpu.setRunning(false);
     }
 
     /**
@@ -167,10 +208,13 @@ public class DOSBox {
     public CPU getCPU() { return cpu; }
     public IoPortHandler getIo() { return io; }
     public PIC getPic() { return pic; }
+    public PIT getPit() { return pit; }
     public DosKernel getDos() { return dos; }
     public DosShell getShell() { return shell; }
     public Int10Handler getInt10() { return int10; }
     public Int16Handler getInt16() { return int16; }
+    public Int20Handler getInt20() { return int20; }
+    public Int21Handler getInt21() { return int21; }
     public SwingDisplay getDisplay() { return display; }
 
     // ── Main entry point ────────────────────────────────────

@@ -117,10 +117,7 @@ public class Int10Handler implements CPU.IntHandler {
         }
     }
 
-    private void setCursorPos(int row, int col) {
-        cursorRow = Math.min(row, ROWS - 1);
-        cursorCol = Math.min(col, COLS - 1);
-    }
+    // Note: public setCursorPos and setCursorPos_internal are defined at bottom of class
 
     /** Teletype-style character output with auto-scroll. */
     public void ttyOutput(int ch, int attr) {
@@ -211,5 +208,18 @@ public class Int10Handler implements CPU.IntHandler {
 
     public int getCursorRow() { return cursorRow; }
     public int getCursorCol() { return cursorCol; }
+
+    /** Direct access to the memory instance (for CLS etc.). */
+    public Memory getMemory() { return memory; }
+
+    /** Set cursor position directly (public for shell CLS). */
+    public void setCursorPos(int row, int col) {
+        setCursorPos_internal(row, col);
+    }
+
+    private void setCursorPos_internal(int row, int col) {
+        cursorRow = Math.min(row, ROWS - 1);
+        cursorCol = Math.min(col, COLS - 1);
+    }
 }
 
