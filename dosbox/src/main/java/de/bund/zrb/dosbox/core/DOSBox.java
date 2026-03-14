@@ -218,15 +218,15 @@ public class DOSBox {
 
     /**
      * Set up the real mode Interrupt Vector Table (IVT) at 0000:0000.
-     * Each vector points to a callback that triggers the Java handler.
+     * Each vector points to an IRET trampoline in the BIOS ROM area.
+     * Java-handled interrupts are intercepted before reaching the trampoline.
      */
     private void setupIVT() {
-        // For each interrupt we handle, set up IVT to point to
-        // a small trampoline in the BIOS ROM area
+        // Set up IRET trampolines for ALL 256 interrupts
+        // Each trampoline is just an IRET instruction at F000:9000+intNum*4
         int trampolineBase = Memory.segOfs(0xF000, 0x9000);
 
-        int[] handledInts = { 0x10, 0x16, 0x20, 0x21, 0x2F, 0x31 };
-        for (int intNum : handledInts) {
+        for (int intNum = 0; intNum < 256; intNum++) {
             int tramAddr = trampolineBase + intNum * 4;
             // Install IRET at each trampoline location
             memory.writeByte(tramAddr, 0xCF); // IRET
@@ -235,10 +235,6 @@ public class DOSBox {
             memory.writeWord(intNum * 4, 0x9000 + intNum * 4); // offset
             memory.writeWord(intNum * 4 + 2, 0xF000);           // segment
         }
-
-        // INT 67h (EMS) - not installed
-        memory.writeWord(0x67 * 4, 0);
-        memory.writeWord(0x67 * 4 + 2, 0);
     }
 
     /**
