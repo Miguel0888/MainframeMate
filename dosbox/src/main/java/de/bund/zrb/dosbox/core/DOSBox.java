@@ -218,20 +218,46 @@ public class DOSBox {
 
     /**
      * Set up the real mode Interrupt Vector Table (IVT) at 0000:0000.
-     * Each vector points to an IRET trampoline in the BIOS ROM area.
-     * Java-handled interrupts are intercepted before reaching the trampoline.
+     *
+     * IMPORTANT: Unused vectors must all point to the SAME address
+     * (simulating a clean DOS where they'd be 0000:0000).
+     * DOS/4GW scans the IVT for duplicate entries to detect if its
+     * resident stub is already installed. If every vector has a unique
+     * address, the scan loops forever.
+     *
+     * We install a single IRET at F000:8F00 as the "unhandled" target,
+     * and unique trampolines only for the interrupts we handle in Java.
      */
     private void setupIVT() {
-        // Set up IRET trampolines for ALL 256 interrupts
-        // Each trampoline is just an IRET instruction at F000:9000+intNum*4
-        int trampolineBase = Memory.segOfs(0xF000, 0x9000);
+        // Install a single IRET at F000:8F00 for all unhandled interrupts
+        int defaultIretAddr = Memory.segOfs(0xF000, 0x8F00);
+        memory.writeByte(defaultIretAddr, 0xCF); // IRET
 
+        // Point ALL 256 IVT entries to the same default IRET
         for (int intNum = 0; intNum < 256; intNum++) {
+            memory.writeWord(intNum * 4, 0x8F00);   // offset
+            memory.writeWord(intNum * 4 + 2, 0xF000); // segment
+        }
+
+        // Now set up UNIQUE trampolines only for interrupts that have Java handlers.
+        // Each gets its own IRET at F000:9000+intNum*4
+        int trampolineBase = Memory.segOfs(0xF000, 0x9000);
+        int[] handledInts = {
+            0x10, // Video BIOS
+            0x16, // Keyboard BIOS
+            0x20, // DOS terminate
+            0x21, // DOS API
+            0x2F, // Multiplex (DPMI detection)
+            0x31, // DPMI services
+            0x33, // Mouse
+            0x67, // EMS
+            DPMIManager.DPMI_CALLBACK_INT // FEh - DPMI callback
+        };
+
+        for (int intNum : handledInts) {
             int tramAddr = trampolineBase + intNum * 4;
-            // Install IRET at each trampoline location
             memory.writeByte(tramAddr, 0xCF); // IRET
 
-            // Set IVT entry to point to trampoline
             memory.writeWord(intNum * 4, 0x9000 + intNum * 4); // offset
             memory.writeWord(intNum * 4 + 2, 0xF000);           // segment
         }
@@ -479,6 +505,9 @@ public class DOSBox {
 
         long startTime = System.currentTimeMillis();
         long blockCount = 0;
+        int prevIP = -1;
+        int loopDetectCount = 0;
+        boolean dumpedLoop = false;
 
         while (cpu.isRunning() && !int20.isTerminated() && !int21.isTerminated()) {
             cpu.executeBlock(cyclesPerBlock);
@@ -491,11 +520,50 @@ public class DOSBox {
                 display.setCursorPosition(int10.getCursorRow(), int10.getCursorCol());
             }
 
-            // Periodic status update
+            // Tight-loop detection: if IP stays in a small range, dump the bytes once
+            int curIP = cpu.regs.getIP();
+            if (prevIP >= 0 && Math.abs(curIP - prevIP) < 32 && cpu.regs.cs == (prevIP >> 16 | cpu.regs.cs)) {
+                loopDetectCount++;
+            } else {
+                loopDetectCount = 0;
+            }
+            prevIP = curIP;
+
+            // Periodic status update (every 10000 blocks) — with instruction dump
             if (blockCount % 10000 == 0) {
-                System.out.printf("[DOSBox] Cycles=%d, CS=%04X IP=%04X, PM=%s%n",
+                int csIP = cpu.resolveSegOfs(cpu.regs.cs, cpu.regs.getIP());
+                StringBuilder hexDump = new StringBuilder();
+                for (int i = -4; i < 32; i++) {
+                    if (i == 0) hexDump.append('[');
+                    hexDump.append(String.format("%02X", memory.readByte(csIP + i)));
+                    if (i == 0) hexDump.append(']');
+                    hexDump.append(' ');
+                }
+                System.out.printf("[DOSBox] Cycles=%d, CS=%04X IP=%04X, PM=%s, AX=%04X BX=%04X CX=%04X DX=%04X%n",
                         cpu.getTotalCycles(), cpu.regs.cs, cpu.regs.getIP(),
-                        cpu.isProtectedMode() ? "yes" : "no");
+                        cpu.isProtectedMode() ? "yes" : "no",
+                        cpu.regs.getAX(), cpu.regs.getBX(), cpu.regs.getCX(), cpu.regs.getDX());
+                System.out.printf("[DOSBox] Bytes @ %04X:%04X [%08X]: %s%n",
+                        cpu.regs.cs, cpu.regs.getIP(), csIP, hexDump.toString().trim());
+            }
+
+            // If stuck in a loop for 3 checks (~15 sec), enable trace and dump once
+            if (loopDetectCount >= 3 && !dumpedLoop) {
+                dumpedLoop = true;
+                // Enable trace briefly to capture the loop
+                boolean wasEnabled = cpu.getTrace().isEnabled();
+                cpu.getTrace().setEnabled(true);
+                cpu.getTrace().clear();
+                // Execute one more block to capture trace
+                cpu.executeBlock(200);
+                cpu.getTrace().setEnabled(wasEnabled);
+
+                System.out.println("[DOSBox] *** TIGHT LOOP DETECTED — dumping trace ***");
+                de.bund.zrb.dosbox.cpu.CpuTrace.Entry[] loopEntries = cpu.getTrace().getLastEntries(100);
+                for (de.bund.zrb.dosbox.cpu.CpuTrace.Entry e : loopEntries) {
+                    System.out.println(e.toString());
+                }
+                System.out.println("[DOSBox] *** END LOOP TRACE ***");
             }
 
             // Small yield to prevent 100% host CPU usage
