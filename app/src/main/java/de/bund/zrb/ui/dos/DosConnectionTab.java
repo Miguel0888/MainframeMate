@@ -39,7 +39,7 @@ public class DosConnectionTab implements ConnectionTab {
         }
 
         // Create the Swing display panel
-        display = new SwingDisplay(dosbox.getMemory(), dosbox.getInt16());
+        display = new SwingDisplay(dosbox.getMemory(), dosbox.getInt16(), dosbox.getInt10());
         display.startRendering();
 
         // Main panel with border

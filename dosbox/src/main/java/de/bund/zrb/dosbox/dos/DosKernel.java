@@ -114,6 +114,77 @@ public class DosKernel {
         }
     }
 
+    /** Create a new file. */
+    public int createFile(String dosPath, int attrib) {
+        String hostPath = dosPathToHost(dosPath);
+        try {
+            File f = new File(hostPath);
+            RandomAccessFile raf = new RandomAccessFile(f, "rw");
+            raf.setLength(0); // truncate
+            int handle = nextHandle++;
+            openFiles.put(handle, new DosFileHandle(raf, f.getName()));
+            return handle;
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    /** Seek file (lseek). Returns new position or -1 on error. */
+    public long seekFile(int handle, long offset, int whence) {
+        DosFileHandle fh = openFiles.get(handle);
+        if (fh == null) return -1;
+        try {
+            long newPos;
+            switch (whence) {
+                case 0: // SEEK_SET
+                    fh.file.seek(offset);
+                    newPos = fh.file.getFilePointer();
+                    break;
+                case 1: // SEEK_CUR
+                    fh.file.seek(fh.file.getFilePointer() + offset);
+                    newPos = fh.file.getFilePointer();
+                    break;
+                case 2: // SEEK_END
+                    fh.file.seek(fh.file.length() + offset);
+                    newPos = fh.file.getFilePointer();
+                    break;
+                default:
+                    return -1;
+            }
+            return newPos;
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    /** Get file size (via seek to end and back). */
+    public long getFileSize(int handle) {
+        DosFileHandle fh = openFiles.get(handle);
+        if (fh == null) return -1;
+        try {
+            return fh.file.length();
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    /** Duplicate file handle. */
+    public int dupHandle(int handle) {
+        DosFileHandle fh = openFiles.get(handle);
+        if (fh == null) return -1;
+        int newHandle = nextHandle++;
+        openFiles.put(newHandle, fh); // share the same underlying file
+        return newHandle;
+    }
+
+    /** Force duplicate to specific handle. */
+    public boolean forceDup(int srcHandle, int dstHandle) {
+        DosFileHandle fh = openFiles.get(srcHandle);
+        if (fh == null) return false;
+        openFiles.put(dstHandle, fh);
+        return true;
+    }
+
     // ── Memory management (simple bump allocator) ───────────
 
     public int allocMemory(int paragraphs) {

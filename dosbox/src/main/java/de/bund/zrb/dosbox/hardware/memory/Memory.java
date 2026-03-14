@@ -9,8 +9,8 @@ package de.bund.zrb.dosbox.hardware.memory;
  */
 public class Memory implements de.bund.zrb.dosbox.core.Module {
 
-    /** Total memory size: 1 MB + 64 KB HMA */
-    public static final int MEMORY_SIZE = 1024 * 1024 + 65536; // 0x110000
+    /** Total memory size: 16 MB (for extended memory / protected mode) */
+    public static final int MEMORY_SIZE = 16 * 1024 * 1024;     // 0x1000000
 
     /** Conventional memory limit */
     public static final int CONVENTIONAL_SIZE = 640 * 1024;     // 0xA0000
@@ -43,13 +43,13 @@ public class Memory implements de.bund.zrb.dosbox.core.Module {
     // ── Byte access ─────────────────────────────────────────
 
     public int readByte(int addr) {
-        addr &= 0x1FFFFF; // mask to 21 bits (A20 gate)
+        addr &= 0xFFFFFF; // 24-bit address space (16 MB)
         if (addr >= MEMORY_SIZE) return 0xFF;
         return ram[addr] & 0xFF;
     }
 
     public void writeByte(int addr, int value) {
-        addr &= 0x1FFFFF;
+        addr &= 0xFFFFFF;
         if (addr >= MEMORY_SIZE) return;
         ram[addr] = (byte) (value & 0xFF);
     }

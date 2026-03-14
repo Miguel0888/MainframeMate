@@ -71,5 +71,10 @@ public class Int16Handler implements CPU.IntHandler {
     public boolean hasKey() {
         return !keyBuffer.isEmpty();
     }
+
+    /** Peek at the next key without removing it. Returns null if empty. */
+    public Integer peekKey() {
+        return keyBuffer.peek();
+    }
 }
 

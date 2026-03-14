@@ -10,8 +10,8 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 
 /**
- * Swing-based VGA text mode display.
- * Renders the 80x25 text mode video RAM (at 0xB8000) as a Swing JPanel.
+ * Swing-based VGA display (text mode + Mode 13h graphics).
+ * Renders the text mode video RAM (at 0xB8000) or Mode 13h (at 0xA0000).
  * Replaces SDL entirely.
  */
 public class SwingDisplay extends JPanel {
@@ -20,12 +20,17 @@ public class SwingDisplay extends JPanel {
     private static final int CHAR_HEIGHT = 16;
     private static final int COLS = Int10Handler.COLS;
     private static final int ROWS = Int10Handler.ROWS;
-    private static final int SCREEN_WIDTH = COLS * CHAR_WIDTH;
-    private static final int SCREEN_HEIGHT = ROWS * CHAR_HEIGHT;
+    private static final int TEXT_SCREEN_WIDTH = COLS * CHAR_WIDTH;
+    private static final int TEXT_SCREEN_HEIGHT = ROWS * CHAR_HEIGHT;
+
+    // VGA Mode 13h dimensions
+    private static final int VGA_WIDTH = Int10Handler.VGA_WIDTH;   // 320
+    private static final int VGA_HEIGHT = Int10Handler.VGA_HEIGHT;  // 200
 
     private final Memory memory;
     private final Int16Handler keyboard;
-    private final BufferedImage screenImage;
+    private final Int10Handler video;
+    private BufferedImage screenImage;
     private final byte[][] fontData;
 
     private boolean cursorVisible = true;
@@ -41,13 +46,18 @@ public class SwingDisplay extends JPanel {
     };
 
     public SwingDisplay(Memory memory, Int16Handler keyboard) {
+        this(memory, keyboard, null);
+    }
+
+    public SwingDisplay(Memory memory, Int16Handler keyboard, Int10Handler video) {
         this.memory = memory;
         this.keyboard = keyboard;
-        this.screenImage = new BufferedImage(SCREEN_WIDTH, SCREEN_HEIGHT, BufferedImage.TYPE_INT_RGB);
+        this.video = video;
+        this.screenImage = new BufferedImage(TEXT_SCREEN_WIDTH, TEXT_SCREEN_HEIGHT, BufferedImage.TYPE_INT_RGB);
         this.fontData = buildFont();
 
-        setPreferredSize(new Dimension(SCREEN_WIDTH, SCREEN_HEIGHT));
-        setMinimumSize(new Dimension(SCREEN_WIDTH, SCREEN_HEIGHT));
+        setPreferredSize(new Dimension(TEXT_SCREEN_WIDTH, TEXT_SCREEN_HEIGHT));
+        setMinimumSize(new Dimension(640, 400)); // allow for Mode 13h scaled
         setBackground(Color.BLACK);
         setFocusable(true);
         setRequestFocusEnabled(true);
@@ -102,7 +112,11 @@ public class SwingDisplay extends JPanel {
     /** Start the 60 Hz rendering timer. */
     public void startRendering() {
         Timer timer = new Timer(1000 / 60, e -> {
-            renderTextMode();
+            if (video != null && video.isGraphicsMode()) {
+                renderMode13h();
+            } else {
+                renderTextMode();
+            }
             repaint();
         });
         timer.start();
@@ -117,13 +131,18 @@ public class SwingDisplay extends JPanel {
     // ── Rendering ───────────────────────────────────────────
 
     private void renderTextMode() {
+        // Ensure correct image size for text mode
+        if (screenImage.getWidth() != TEXT_SCREEN_WIDTH || screenImage.getHeight() != TEXT_SCREEN_HEIGHT) {
+            screenImage = new BufferedImage(TEXT_SCREEN_WIDTH, TEXT_SCREEN_HEIGHT, BufferedImage.TYPE_INT_RGB);
+        }
+
         long now = System.currentTimeMillis();
         if (now - lastBlink > 530) {
             cursorVisible = !cursorVisible;
             lastBlink = now;
         }
 
-        int[] pixels = new int[SCREEN_WIDTH * SCREEN_HEIGHT];
+        int[] pixels = new int[TEXT_SCREEN_WIDTH * TEXT_SCREEN_HEIGHT];
 
         for (int row = 0; row < ROWS; row++) {
             for (int col = 0; col < COLS; col++) {
@@ -144,7 +163,7 @@ public class SwingDisplay extends JPanel {
             int cy = cursorRow * CHAR_HEIGHT + 13; // underline cursor, rows 13-15
             for (int y = 0; y < 3; y++) {
                 for (int x = 0; x < 8; x++) {
-                    int idx = (cy + y) * SCREEN_WIDTH + (cx + x);
+                    int idx = (cy + y) * TEXT_SCREEN_WIDTH + (cx + x);
                     if (idx >= 0 && idx < pixels.length) {
                         pixels[idx] = 0xAAAAAA;
                     }
@@ -152,7 +171,25 @@ public class SwingDisplay extends JPanel {
             }
         }
 
-        screenImage.setRGB(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, pixels, 0, SCREEN_WIDTH);
+        screenImage.setRGB(0, 0, TEXT_SCREEN_WIDTH, TEXT_SCREEN_HEIGHT, pixels, 0, TEXT_SCREEN_WIDTH);
+    }
+
+    /** Render VGA Mode 13h (320x200, 256 colors). */
+    private void renderMode13h() {
+        // Ensure correct image size for Mode 13h
+        if (screenImage.getWidth() != VGA_WIDTH || screenImage.getHeight() != VGA_HEIGHT) {
+            screenImage = new BufferedImage(VGA_WIDTH, VGA_HEIGHT, BufferedImage.TYPE_INT_RGB);
+        }
+
+        int[] palette = (video != null) ? video.getVgaPalette() : PALETTE;
+        int[] pixels = new int[VGA_WIDTH * VGA_HEIGHT];
+
+        for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
+            int colorIdx = memory.readByte(Memory.VIDEO_RAM_START + i) & 0xFF;
+            pixels[i] = (colorIdx < palette.length) ? palette[colorIdx] : 0;
+        }
+
+        screenImage.setRGB(0, 0, VGA_WIDTH, VGA_HEIGHT, pixels, 0, VGA_WIDTH);
     }
 
     private void renderChar(int[] pixels, int x, int y, int ch, int fg, int bg) {
@@ -164,14 +201,14 @@ public class SwingDisplay extends JPanel {
             for (int col = 0; col < CHAR_WIDTH; col++) {
                 int px = x + col;
                 int py = y + row;
-                if (px >= SCREEN_WIDTH || py >= SCREEN_HEIGHT) continue;
+                if (px >= TEXT_SCREEN_WIDTH || py >= TEXT_SCREEN_HEIGHT) continue;
                 boolean set;
                 if (col < 8) {
                     set = (bits & (0x80 >> col)) != 0;
                 } else {
                     set = (ch >= 0xC0 && ch <= 0xDF) && (bits & 1) != 0;
                 }
-                pixels[py * SCREEN_WIDTH + px] = set ? fg : bg;
+                pixels[py * TEXT_SCREEN_WIDTH + px] = set ? fg : bg;
             }
         }
     }
@@ -179,11 +216,13 @@ public class SwingDisplay extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
+        int imgW = screenImage.getWidth();
+        int imgH = screenImage.getHeight();
         // Scale to fill panel while keeping aspect ratio
         int pw = getWidth(), ph = getHeight();
-        double scale = Math.min((double) pw / SCREEN_WIDTH, (double) ph / SCREEN_HEIGHT);
-        int sw = (int) (SCREEN_WIDTH * scale);
-        int sh = (int) (SCREEN_HEIGHT * scale);
+        double scale = Math.min((double) pw / imgW, (double) ph / imgH);
+        int sw = (int) (imgW * scale);
+        int sh = (int) (imgH * scale);
         int ox = (pw - sw) / 2;
         int oy = (ph - sh) / 2;
         g.setColor(Color.BLACK);

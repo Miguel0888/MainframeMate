@@ -19,8 +19,55 @@ public class Int10Handler implements CPU.IntHandler {
     public static final int ROWS = 25;
     public static final int TEXT_BASE = Memory.TEXT_VIDEO_START; // 0xB8000
 
+    // ── VGA Mode 13h (320x200x256) ──────────────────────────
+    public static final int VGA_WIDTH = 320;
+    public static final int VGA_HEIGHT = 200;
+    public static final int VGA_BASE = Memory.VIDEO_RAM_START; // 0xA0000
+
+    // Standard VGA 256-color palette (DAC)
+    private final int[] vgaPalette = new int[256];
+
     public Int10Handler(Memory memory) {
         this.memory = memory;
+        initDefaultPalette();
+    }
+
+    /** Initialize the default VGA 256-color palette. */
+    private void initDefaultPalette() {
+        // Standard 16 CGA colors
+        int[] cga16 = {
+            0x000000, 0x0000AA, 0x00AA00, 0x00AAAA,
+            0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
+            0x555555, 0x5555FF, 0x55FF55, 0x55FFFF,
+            0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
+        };
+        System.arraycopy(cga16, 0, vgaPalette, 0, 16);
+
+        // Colors 16-231: 6x6x6 color cube
+        int idx = 16;
+        for (int r = 0; r < 6; r++) {
+            for (int g = 0; g < 6; g++) {
+                for (int b = 0; b < 6; b++) {
+                    vgaPalette[idx++] = ((r * 51) << 16) | ((g * 51) << 8) | (b * 51);
+                }
+            }
+        }
+        // Colors 232-255: grayscale
+        for (int i = 0; i < 24; i++) {
+            int v = 8 + i * 10;
+            vgaPalette[232 + i] = (v << 16) | (v << 8) | v;
+        }
+    }
+
+    /** Get the VGA palette (for display rendering). */
+    public int[] getVgaPalette() { return vgaPalette; }
+
+    /** Get current video mode. */
+    public int getCurrentMode() { return currentMode; }
+
+    /** Is the current mode a graphics mode? */
+    public boolean isGraphicsMode() {
+        return currentMode == 0x13 || currentMode == 0x12 || currentMode == 0x0D || currentMode == 0x0E;
     }
 
     @Override
@@ -90,7 +137,8 @@ public class Int10Handler implements CPU.IntHandler {
                 cpu.regs.setAH(COLS);
                 cpu.regs.setBH(activePage);
                 break;
-            case 0x10: // Color/palette (stub)
+            case 0x10: // Color/palette functions
+                handlePalette(cpu);
                 break;
             case 0x11: // Character generator (stub)
                 break;
@@ -108,12 +156,26 @@ public class Int10Handler implements CPU.IntHandler {
 
     private void setMode(int mode) {
         currentMode = mode & 0x7F;
+        boolean noClear = (mode & 0x80) != 0;
         cursorRow = 0;
         cursorCol = 0;
-        // Clear screen
-        for (int i = 0; i < COLS * ROWS; i++) {
-            memory.writeByte(TEXT_BASE + i * 2, 0x20); // space
-            memory.writeByte(TEXT_BASE + i * 2 + 1, 0x07); // light gray on black
+
+        if (currentMode == 0x13) {
+            // VGA Mode 13h: 320x200, 256 colors, linear at A0000
+            if (!noClear) {
+                for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
+                    memory.writeByte(VGA_BASE + i, 0);
+                }
+            }
+            System.out.println("[VGA] Switched to Mode 13h (320x200x256)");
+        } else {
+            // Text mode: clear screen
+            if (!noClear) {
+                for (int i = 0; i < COLS * ROWS; i++) {
+                    memory.writeByte(TEXT_BASE + i * 2, 0x20);
+                    memory.writeByte(TEXT_BASE + i * 2 + 1, 0x07);
+                }
+            }
         }
     }
 
@@ -220,6 +282,62 @@ public class Int10Handler implements CPU.IntHandler {
     private void setCursorPos_internal(int row, int col) {
         cursorRow = Math.min(row, ROWS - 1);
         cursorCol = Math.min(col, COLS - 1);
+    }
+
+    // ── VGA Palette (INT 10h, AH=10h) ──────────────────────
+
+    private void handlePalette(CPU cpu) {
+        int al = cpu.regs.getAL();
+        switch (al) {
+            case 0x10: { // Set individual DAC register
+                int regNum = cpu.regs.getBX();
+                // VGA DAC uses 6-bit values (0-63), scale to 8-bit
+                int r = (cpu.regs.getDH() & 0x3F) * 255 / 63;
+                int g = (cpu.regs.getCH() & 0x3F) * 255 / 63;
+                int b = (cpu.regs.getCL() & 0x3F) * 255 / 63;
+                if (regNum >= 0 && regNum < 256) {
+                    vgaPalette[regNum] = (r << 16) | (g << 8) | b;
+                }
+                break;
+            }
+            case 0x12: { // Set block of DAC registers
+                int start = cpu.regs.getBX();
+                int count = cpu.regs.getCX();
+                int addr = Memory.segOfs(cpu.regs.es, cpu.regs.getDX());
+                for (int i = 0; i < count && (start + i) < 256; i++) {
+                    int r = (memory.readByte(addr + i * 3) & 0x3F) * 255 / 63;
+                    int g = (memory.readByte(addr + i * 3 + 1) & 0x3F) * 255 / 63;
+                    int b = (memory.readByte(addr + i * 3 + 2) & 0x3F) * 255 / 63;
+                    vgaPalette[start + i] = (r << 16) | (g << 8) | b;
+                }
+                break;
+            }
+            case 0x15: { // Read individual DAC register
+                int regNum = cpu.regs.getBX();
+                if (regNum >= 0 && regNum < 256) {
+                    int color = vgaPalette[regNum];
+                    cpu.regs.setDH(((color >> 16) & 0xFF) * 63 / 255);
+                    cpu.regs.setCH(((color >> 8) & 0xFF) * 63 / 255);
+                    cpu.regs.setCL((color & 0xFF) * 63 / 255);
+                }
+                break;
+            }
+            case 0x17: { // Read block of DAC registers
+                int start = cpu.regs.getBX();
+                int count = cpu.regs.getCX();
+                int addr = Memory.segOfs(cpu.regs.es, cpu.regs.getDX());
+                for (int i = 0; i < count && (start + i) < 256; i++) {
+                    int color = vgaPalette[start + i];
+                    memory.writeByte(addr + i * 3, ((color >> 16) & 0xFF) * 63 / 255);
+                    memory.writeByte(addr + i * 3 + 1, ((color >> 8) & 0xFF) * 63 / 255);
+                    memory.writeByte(addr + i * 3 + 2, (color & 0xFF) * 63 / 255);
+                }
+                break;
+            }
+            default:
+                // Other palette functions — stub
+                break;
+        }
     }
 }
 

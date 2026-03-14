@@ -156,6 +156,19 @@ public class Int21Handler implements CPU.IntHandler {
                 break;
             }
 
+            case 0x3C: { // Create file
+                String path = memory.readString(Memory.segOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
+                int handle = dos.createFile(path, cpu.regs.getCX());
+                if (handle >= 0) {
+                    cpu.regs.setAX(handle);
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    cpu.regs.setAX(3); // path not found
+                    cpu.regs.flags.setCF(true);
+                }
+                break;
+            }
+
             case 0x3D: { // Open file
                 String path = memory.readString(Memory.segOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
                 int handle = dos.openFile(path, cpu.regs.getAL());
@@ -204,6 +217,84 @@ public class Int21Handler implements CPU.IntHandler {
                     cpu.regs.flags.setCF(false);
                 } else {
                     cpu.regs.setAX(5);
+                    cpu.regs.flags.setCF(true);
+                }
+                break;
+            }
+
+            case 0x42: { // Seek file (LSEEK)
+                int handle = cpu.regs.getBX();
+                long offset = ((long)(cpu.regs.getCX() & 0xFFFF) << 16) | (cpu.regs.getDX() & 0xFFFF);
+                int whence = cpu.regs.getAL();
+                long result = dos.seekFile(handle, offset, whence);
+                if (result >= 0) {
+                    cpu.regs.setDX((int)((result >> 16) & 0xFFFF));
+                    cpu.regs.setAX((int)(result & 0xFFFF));
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    cpu.regs.setAX(6); // invalid handle
+                    cpu.regs.flags.setCF(true);
+                }
+                break;
+            }
+
+            case 0x43: { // Get/Set file attributes
+                if (cpu.regs.getAL() == 0) {
+                    // Get attributes - return normal file
+                    cpu.regs.setCX(0x0020); // archive bit
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    // Set attributes - stub
+                    cpu.regs.flags.setCF(false);
+                }
+                break;
+            }
+
+            case 0x44: { // IOCTL
+                int subFunc = cpu.regs.getAL();
+                int handle = cpu.regs.getBX();
+                switch (subFunc) {
+                    case 0x00: // Get device information
+                        if (handle <= 4) {
+                            // Character device (STDIN/STDOUT/STDERR/STDAUX/STDPRN)
+                            cpu.regs.setDX(0x80D3); // character device
+                        } else {
+                            cpu.regs.setDX(0x0000); // file (not device)
+                        }
+                        cpu.regs.flags.setCF(false);
+                        break;
+                    case 0x01: // Set device information
+                        cpu.regs.flags.setCF(false);
+                        break;
+                    case 0x08: // Check if block device is removable
+                        cpu.regs.setAX(1); // not removable
+                        cpu.regs.flags.setCF(false);
+                        break;
+                    default:
+                        cpu.regs.flags.setCF(true);
+                        cpu.regs.setAX(1);
+                        break;
+                }
+                break;
+            }
+
+            case 0x45: { // Duplicate file handle
+                int newHandle = dos.dupHandle(cpu.regs.getBX());
+                if (newHandle >= 0) {
+                    cpu.regs.setAX(newHandle);
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    cpu.regs.setAX(6);
+                    cpu.regs.flags.setCF(true);
+                }
+                break;
+            }
+
+            case 0x46: { // Force duplicate file handle
+                if (dos.forceDup(cpu.regs.getBX(), cpu.regs.getCX())) {
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    cpu.regs.setAX(6);
                     cpu.regs.flags.setCF(true);
                 }
                 break;
@@ -267,6 +358,23 @@ public class Int21Handler implements CPU.IntHandler {
                 } else {
                     cpu.regs.setAX(18);
                     cpu.regs.flags.setCF(true);
+                }
+                break;
+
+            case 0x50: // Set current PSP
+                // stub: accept and ignore
+                break;
+
+            case 0x51: // Get current PSP (same as 62h)
+                cpu.regs.setBX(dos.getCurrentPSP());
+                break;
+
+            case 0x58: // Get/Set memory allocation strategy
+                if (cpu.regs.getAL() == 0) {
+                    cpu.regs.setAX(0); // first fit
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    cpu.regs.flags.setCF(false); // accept any strategy
                 }
                 break;
 
