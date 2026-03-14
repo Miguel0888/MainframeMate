@@ -12,7 +12,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -51,6 +55,21 @@ public class JesFtpService implements Closeable {
     // Minimal: just id + ddname somewhere in the line
     private static final Pattern SPOOL_MINIMAL = Pattern.compile(
             "^\\s*(\\d{1,4})\\s+.*?(\\S+)\\s*$");
+
+    /**
+     * Generic DDNAME token (z/OS naming: up to 8 chars, first char alpha/$/#/@).
+     */
+    private static final Pattern DDNAME_TOKEN = Pattern.compile("[A-Z$#@][A-Z0-9$#@]{0,7}");
+
+    /**
+     * Typical words in JES header lines that are NOT DD names.
+     */
+    private static final Set<String> NON_DD_TOKENS = new HashSet<String>(Arrays.asList(
+            "JES", "JES2", "JES3", "JOB", "JOBID", "JOBNAME", "OWNER", "STATUS", "CLASS",
+            "STEP", "PROC", "PROCEDURE", "SYSTEM", "MESSAGES", "MESSAGE", "OUTPUT", "INPUT",
+            "ACTIVE", "HELD", "RC", "ABEND", "END", "OF", "SPOOL", "FILE", "RECORD", "RECORDS",
+            "BYTE", "BYTES", "TOTAL", "LINES", "LINE", "LOG"
+    ));
 
     private final FTPClient ftp;
     private final String host;
@@ -261,6 +280,7 @@ public class JesFtpService implements Closeable {
         String upper = trimmed.toUpperCase();
         String compact = upper.replaceAll("\\s+", "");
 
+        // Canonical JES sections first
         if (compact.contains("JES2JOBLOG") || compact.contains("JESJOBLOG")) {
             return "JESMSGLG";
         }
@@ -273,6 +293,18 @@ public class JesFtpService implements Closeable {
                 || compact.contains("JES2SYSTEMMESSAGES")
                 || compact.contains("JESYSMSG")) {
             return "JESYSMSG";
+        }
+
+        // Try direct DD= / DDNAME= forms (if present on this system)
+        String explicit = extractExplicitDdName(upper);
+        if (explicit != null) {
+            return explicit;
+        }
+
+        // Try generic extraction from a potential header line
+        String generic = extractLikelyDdNameFromHeader(upper, compact);
+        if (generic != null) {
+            return generic;
         }
 
         if (compact.contains("SYSPRINT")) {
@@ -351,7 +383,8 @@ public class JesFtpService implements Closeable {
                                                   int startInclusive,
                                                   int endExclusive,
                                                   int sectionId) {
-        int probeEnd = Math.min(endExclusive, startInclusive + 12);
+        // Probe a bit deeper because some JES variants print banner lines first.
+        int probeEnd = Math.min(endExclusive, startInclusive + 40);
 
         for (int i = startInclusive; i < probeEnd; i++) {
             String candidate = detectDdNameFromLine(lines[i]);
@@ -373,6 +406,59 @@ public class JesFtpService implements Closeable {
         }
 
         return "SPOOL#" + sectionId;
+    }
+
+    private static String extractExplicitDdName(String upperLine) {
+        Matcher ddNameEquals = Pattern.compile("\\bDDNAME\\s*[=:]\\s*([A-Z$#@][A-Z0-9$#@]{0,7})\\b").matcher(upperLine);
+        if (ddNameEquals.find()) {
+            return ddNameEquals.group(1);
+        }
+
+        Matcher ddEquals = Pattern.compile("\\bDD\\s*[=:]\\s*([A-Z$#@][A-Z0-9$#@]{0,7})\\b").matcher(upperLine);
+        if (ddEquals.find()) {
+            return ddEquals.group(1);
+        }
+
+        return null;
+    }
+
+    private static String extractLikelyDdNameFromHeader(String upperLine, String compactLine) {
+        // Quick wins for common DD names written with spacing/decoration.
+        if (compactLine.contains("SYSIN")) return "SYSIN";
+        if (compactLine.contains("SYSOUT")) return "SYSOUT";
+        if (compactLine.contains("SYSPRINT")) return "SYSPRINT";
+        if (compactLine.contains("SYSTSPRT")) return "SYSTSPRT";
+
+        // Token-based fallback: pick the first plausible DD token from the right side.
+        Matcher tokenMatcher = DDNAME_TOKEN.matcher(upperLine);
+        String best = null;
+        while (tokenMatcher.find()) {
+            String token = tokenMatcher.group();
+            if (isLikelyDdNameToken(token)) {
+                best = token;
+            }
+        }
+        return best;
+    }
+
+    private static boolean isLikelyDdNameToken(String token) {
+        if (token == null || token.isEmpty()) {
+            return false;
+        }
+
+        String t = token.toUpperCase(Locale.ROOT);
+
+        if (NON_DD_TOKENS.contains(t)) {
+            return false;
+        }
+
+        if (t.matches("(?:JOB|STC|TSU)\\d+")) {
+            return false;
+        }
+
+        // Many DD names include at least one digit or start with SYS/JES,
+        // but we do not require it to allow custom short names.
+        return true;
     }
 
     // ═══════════════════════════════════════════════════════════════════
