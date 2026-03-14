@@ -1401,9 +1401,15 @@ public class CPU implements Module {
                 int val;
                 if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
 
+                // MOV CS is undefined on 386+ — ignore (CS is loaded via far JMP/CALL/RET only)
+                if (seg == 1) {
+                    System.err.printf("[CPU] WARNING: MOV CS,%04X ignored at %04X:%08X cycle %d%n",
+                            val, regs.cs, getEffIP(), totalCycles);
+                    break;
+                }
+
                 // Protected mode: validate selector for data segments (DS=3, ES=0, FS=4, GS=5)
-                if (dpmi != null && dpmi.isDpmiActive()
-                        && seg != 1 /* CS loaded via far jmp/call only */) {
+                if (dpmi != null && dpmi.isDpmiActive()) {
                     if ((val & 0xFFFC) == 0) {
                         // Null selector is allowed for data segments — clears the register
                         regs.setSeg(seg, 0);
@@ -1730,6 +1736,8 @@ public class CPU implements Module {
 
             // ── RETF (CB) ──────────────────────────────────
             case 0xCB: {
+                System.err.printf("[CPU-DBG] RETF(CB) at CS=%04X csIs32=%b p66=%b ESP=%08X%n",
+                        regs.cs, csIs32, prefix66, regs.getESP());
                 int retIP = popOp();
                 int retCS = popOp() & 0xFFFF;
                 setEffIP(retIP);
