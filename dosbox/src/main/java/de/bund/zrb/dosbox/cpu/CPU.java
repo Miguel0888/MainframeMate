@@ -15,6 +15,7 @@ import de.bund.zrb.dosbox.hardware.pic.PIC;
 public class CPU implements Module {
 
     public final Regs regs = new Regs();
+    public final FPU fpu = new FPU();
     private final Memory memory;
     private final IoPortHandler io;
     private final PIC pic;
@@ -738,6 +739,77 @@ public class CPU implements Module {
             case 0x17: regs.ss = popOp() & 0xFFFF; break;
             case 0x1F: regs.ds = popOp() & 0xFFFF; break;
 
+            // ── DAA (27) ────────────────────────────────────
+            case 0x27: {
+                int al = regs.getAL();
+                boolean oldCF = regs.flags.getCF();
+                regs.flags.setCF(false);
+                if ((al & 0x0F) > 9 || regs.flags.getAF()) {
+                    regs.setAL((al + 6) & 0xFF);
+                    regs.flags.setCF(oldCF || ((al + 6) > 0xFF));
+                    regs.flags.setAF(true);
+                } else {
+                    regs.flags.setAF(false);
+                }
+                al = regs.getAL();
+                if (al > 0x99 || oldCF) {
+                    regs.setAL((al + 0x60) & 0xFF);
+                    regs.flags.setCF(true);
+                }
+                regs.flags.setSZP8(regs.getAL());
+                break;
+            }
+
+            // ── DAS (2F) ────────────────────────────────────
+            case 0x2F: {
+                int al = regs.getAL();
+                boolean oldCF = regs.flags.getCF();
+                regs.flags.setCF(false);
+                if ((al & 0x0F) > 9 || regs.flags.getAF()) {
+                    regs.setAL((al - 6) & 0xFF);
+                    regs.flags.setCF(oldCF || (al < 6));
+                    regs.flags.setAF(true);
+                } else {
+                    regs.flags.setAF(false);
+                }
+                al = regs.getAL();
+                if (al > 0x99 || oldCF) {
+                    regs.setAL((al - 0x60) & 0xFF);
+                    regs.flags.setCF(true);
+                }
+                regs.flags.setSZP8(regs.getAL());
+                break;
+            }
+
+            // ── AAA (37) ────────────────────────────────────
+            case 0x37: {
+                if ((regs.getAL() & 0x0F) > 9 || regs.flags.getAF()) {
+                    regs.setAX((regs.getAX() + 0x106) & 0xFFFF);
+                    regs.flags.setAF(true);
+                    regs.flags.setCF(true);
+                } else {
+                    regs.flags.setAF(false);
+                    regs.flags.setCF(false);
+                }
+                regs.setAL(regs.getAL() & 0x0F);
+                break;
+            }
+
+            // ── AAS (3F) ────────────────────────────────────
+            case 0x3F: {
+                if ((regs.getAL() & 0x0F) > 9 || regs.flags.getAF()) {
+                    regs.setAX((regs.getAX() - 6) & 0xFFFF);
+                    regs.setAH((regs.getAH() - 1) & 0xFF);
+                    regs.flags.setAF(true);
+                    regs.flags.setCF(true);
+                } else {
+                    regs.flags.setAF(false);
+                    regs.flags.setCF(false);
+                }
+                regs.setAL(regs.getAL() & 0x0F);
+                break;
+            }
+
             // ── Two-byte opcode escape (0F) ─────────────────
             case 0x0F: executeTwoByteOpcode(); break;
 
@@ -1124,6 +1196,9 @@ public class CPU implements Module {
                 break;
             }
 
+            // ── WAIT/FWAIT (9B) ──────────────────────────────
+            case 0x9B: break; // NOP — FPU is synchronous in our emulation
+
             // ── PUSHF(D) (9C) ───────────────────────────────
             case 0x9C:
                 if (prefix66) push32(regs.flags.getWord() & 0xFFFF);
@@ -1382,10 +1457,29 @@ public class CPU implements Module {
                 break;
             }
 
+            // ── SALC (D6) — undocumented: Set AL from Carry ──
+            case 0xD6:
+                regs.setAL(regs.flags.getCF() ? 0xFF : 0x00);
+                break;
+
             // ── XLAT (D7) ──────────────────────────────────
             case 0xD7:
                 regs.setAL(memory.readByte(Memory.segOfs(getDS(), (regs.getBX() + regs.getAL()) & 0xFFFF)));
                 break;
+
+            // ── FPU escape opcodes (D8-DF) ──────────────────
+            case 0xD8: case 0xD9: case 0xDA: case 0xDB:
+            case 0xDC: case 0xDD: case 0xDE: case 0xDF: {
+                int modrm = fetchByte();
+                int ea = decodeModRM(modrm);
+                // Special case: DF E0 = FNSTSW AX
+                if (opcode == 0xDF && (modrm >> 6) == 3 && ((modrm >> 3) & 7) == 4 && (modrm & 7) == 0) {
+                    regs.setAX(fpu.getStatusWord());
+                } else {
+                    fpu.execute(opcode, modrm, ea, memory);
+                }
+                break;
+            }
 
             // ── LOOPNZ (E0) ────────────────────────────────
             case 0xE0: {
@@ -1549,6 +1643,38 @@ public class CPU implements Module {
     private void executeTwoByteOpcode() {
         int op2 = fetchByte();
         switch (op2) {
+
+            // ── GRP6 (0F 00): SLDT/STR/LLDT/LTR/VERR/VERW ──
+            case 0x00: {
+                int modrm = fetchByte();
+                int subOp = (modrm >> 3) & 7;
+                int ea = decodeModRM(modrm);
+                int rm = modrm & 7;
+                switch (subOp) {
+                    case 0: // SLDT — Store LDT register (stub: return 0)
+                        if (ea == -1) regs.setReg16(rm, 0);
+                        else memory.writeWord(ea, 0);
+                        break;
+                    case 1: // STR — Store Task Register (stub: return 0)
+                        if (ea == -1) regs.setReg16(rm, 0);
+                        else memory.writeWord(ea, 0);
+                        break;
+                    case 2: // LLDT — Load LDT (stub, ignored in real mode)
+                        break;
+                    case 3: // LTR — Load Task Register (stub)
+                        break;
+                    case 4: // VERR — Verify segment readable
+                        regs.flags.setZF(true); // stub: always readable
+                        break;
+                    case 5: // VERW — Verify segment writable
+                        regs.flags.setZF(true); // stub: always writable
+                        break;
+                    default:
+                        System.err.printf("Unimplemented 0F 00 /%d at %04X:%04X%n", subOp, regs.cs, regs.getIP());
+                        break;
+                }
+                break;
+            }
 
             // ── System instructions (0F 01) ──────────────────
             case 0x01: {
