@@ -1,5 +1,6 @@
 package de.bund.zrb.dosbox.dos;
 
+import de.bund.zrb.dosbox.cpu.CPU;
 import de.bund.zrb.dosbox.hardware.memory.Memory;
 
 /**
@@ -52,6 +53,7 @@ public class DPMIManager {
 
     private boolean dpmiActive;
     private final Memory memory;
+    private CPU cpu; // set after construction to avoid circular dependency
 
     // ── GDT tracking (synced from CPU when LGDT is executed) ──
     private int gdtrBase;
@@ -89,6 +91,10 @@ public class DPMIManager {
     public static final int RAW_SWITCH_PM2RM_SEG = 0xF000;
     public static final int RAW_SWITCH_PM2RM_OFS = 0x8214;
 
+    // GDT location in BIOS ROM area (must not collide with other stubs)
+    private static final int GDT_LINEAR_ADDR = 0xF8300; // F000:8300
+    private static final int GDT_NUM_ENTRIES = 5;
+
     public DPMIManager(Memory memory) {
         this.memory = memory;
         for (int i = 0; i < MAX_LDT_ENTRIES; i++) {
@@ -98,12 +104,25 @@ public class DPMIManager {
 
     public boolean isDpmiActive() { return dpmiActive; }
 
+    /** Set CPU reference (called after construction to avoid circular dependency). */
+    public void setCPU(CPU cpu) { this.cpu = cpu; }
+
     // ── GDTR synchronisation from CPU ───────────────────────
 
     /** Called by CPU after LGDT instruction to keep DPMI in sync. */
     public void setGDTR(int base, int limit) {
         this.gdtrBase = base;
         this.gdtrLimit = limit;
+    }
+
+    /**
+     * Sync DPMI's GDTR back to the CPU's internal GDTR registers.
+     * Must be called after setupGDT() and whenever DPMI changes the GDT.
+     */
+    private void syncGDTRtoCPU() {
+        if (cpu != null) {
+            cpu.setGDTR(gdtrBase, gdtrLimit);
+        }
     }
 
     public int getGdtrBase()  { return gdtrBase; }
@@ -179,7 +198,10 @@ public class DPMIManager {
         int csSel = segmentToDescriptor(pspSegment);
         int csIdx = selectorToIndex(csSel);
         ldt[csIdx].accessRights = 0x009A; // code, read, present
-        ldt[csIdx].is32Bit = (clientBits != 0); // 32-bit if client requested
+        // The initial CS maps the PSP's real-mode segment — always 16-bit.
+        // clientBits=1 means the client WANTS 32-bit DPMI features later,
+        // NOT that the PSP segment itself is 32-bit.
+        ldt[csIdx].is32Bit = false;
         ldt[csIdx].limit = 0xFFFF;
 
         // DS selector
@@ -203,6 +225,11 @@ public class DPMIManager {
             ldt[flatIdx].is32Bit = true;
             ldt[flatIdx].accessRights = 0x0092; // data, RW, present
         }
+
+        // ── Set up a proper GDT so that GDT selectors used by DOS/4GW work ──
+        // DOS/4GW and other extenders expect certain GDT entries to be valid,
+        // especially flat code/data selectors.
+        setupGDT();
 
         System.out.printf("[DPMI] Protected mode entered. CS=%04X DS=%04X SS=%04X ES=%04X%n",
                 csSel, dsSel, ssSel, esSel);
@@ -595,12 +622,90 @@ public class DPMIManager {
         return false;
     }
 
+    /**
+     * Get the descriptor entry for a selector.
+     * For GDT selectors, reads from the GDT in memory.
+     * For LDT selectors, returns the LDT array entry.
+     * Returns a non-present entry if the GDT selector cannot be resolved
+     * (never falls through to LDT to avoid false-positive validation).
+     */
     public LDTEntry getEntry(int selector) {
         if (!isLDTSelector(selector)) {
             LDTEntry gdt = readGDTEntry(selectorToIndex(selector));
             if (gdt != null) return gdt;
+            // GDT entry unresolvable — return a non-present dummy entry.
+            // Do NOT fall through to LDT, as that would cause false-positive
+            // validation (GDT index N would match LDT index N by accident).
+            LDTEntry dummy = new LDTEntry();
+            dummy.present = false;
+            return dummy;
         }
         return ldt[selectorToIndex(selector)];
+    }
+
+    // ── GDT Setup ───────────────────────────────────────────
+
+    /**
+     * Set up a minimal GDT in the BIOS ROM area so that DOS extenders
+     * (like DOS/4GW) can use standard GDT selectors.
+     *
+     * Layout:
+     *   GDT[0] = 0x0000  null descriptor
+     *   GDT[1] = 0x0008  flat 32-bit code (base=0, limit=4G, code+read)
+     *   GDT[2] = 0x0010  flat 32-bit data (base=0, limit=4G, data+RW)
+     *   GDT[3] = 0x0018  16-bit code (base=0, limit=1M, code+read)
+     *   GDT[4] = 0x0020  flat 32-bit data (alias, same as GDT[2])
+     */
+    private void setupGDT() {
+        int gdtAddr = GDT_LINEAR_ADDR;
+        int gdtSize = GDT_NUM_ENTRIES * 8;
+
+        // GDT[0]: null descriptor (all zeros)
+        for (int i = 0; i < 8; i++) memory.writeByte(gdtAddr + i, 0);
+
+        // GDT[1]: flat 32-bit code segment (sel=0x0008)
+        writeGDTDescriptor(gdtAddr + 8, 0x00000000, 0xFFFFF, 0x9A, true, true);
+
+        // GDT[2]: flat 32-bit data segment (sel=0x0010)
+        writeGDTDescriptor(gdtAddr + 16, 0x00000000, 0xFFFFF, 0x92, true, true);
+
+        // GDT[3]: 16-bit code segment (sel=0x0018)
+        writeGDTDescriptor(gdtAddr + 24, 0x00000000, 0xFFFFF, 0x9A, false, false);
+
+        // GDT[4]: flat 32-bit data segment (sel=0x0020, alias of GDT[2])
+        writeGDTDescriptor(gdtAddr + 32, 0x00000000, 0xFFFFF, 0x92, true, true);
+
+        // Set GDTR
+        this.gdtrBase = gdtAddr;
+        this.gdtrLimit = gdtSize - 1;
+        syncGDTRtoCPU();
+
+        System.out.printf("[DPMI] GDT set up at %08X, limit=%04X (%d entries)%n",
+                gdtrBase, gdtrLimit, GDT_NUM_ENTRIES);
+    }
+
+    /**
+     * Write a single 8-byte x86 descriptor at the given memory address.
+     */
+    private void writeGDTDescriptor(int addr, int base, int limit20, int access, boolean is32, boolean granularity) {
+        int limitLo = limit20 & 0xFFFF;
+        int limitHi = (limit20 >> 16) & 0x0F;
+        int baseLo = base & 0xFFFF;
+        int baseMid = (base >> 16) & 0xFF;
+        int baseHi = (base >> 24) & 0xFF;
+
+        int flags = 0;
+        if (granularity) flags |= 0x80; // G bit
+        if (is32) flags |= 0x40;        // D/B bit
+
+        memory.writeByte(addr + 0, limitLo & 0xFF);
+        memory.writeByte(addr + 1, (limitLo >> 8) & 0xFF);
+        memory.writeByte(addr + 2, baseLo & 0xFF);
+        memory.writeByte(addr + 3, (baseLo >> 8) & 0xFF);
+        memory.writeByte(addr + 4, baseMid);
+        memory.writeByte(addr + 5, access | 0x80); // present bit
+        memory.writeByte(addr + 6, limitHi | flags);
+        memory.writeByte(addr + 7, baseHi);
     }
 }
 

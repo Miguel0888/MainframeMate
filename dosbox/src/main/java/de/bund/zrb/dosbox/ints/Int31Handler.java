@@ -273,7 +273,7 @@ public class Int31Handler implements CPU.IntHandler {
             }
 
             // ═══════════════════════════════════════════
-            // 0204h: Get Protected Mode Interrupt Vector
+            // 0305h: Get State Save/Restore Addresses
             // ═══════════════════════════════════════════
             case 0x0305: {
                 // Returns addresses of procedures to save/restore DPMI host state.

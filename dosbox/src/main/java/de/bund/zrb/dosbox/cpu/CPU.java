@@ -367,31 +367,35 @@ public class CPU implements Module {
             // No PM vector — reflect to real mode via saved IVT
             // Hardware interrupts (and unhandled software INTs) must be
             // reflected to the real-mode handler that was active before PM entry.
-            int rmSeg = dpmi.getRMIntVector_Seg(vector);
-            int rmOfs = dpmi.getRMIntVector_Ofs(vector);
-            if (rmSeg != 0 || rmOfs != 0) {
-                // Simulate the real-mode interrupt handler inline:
-                // Save PM state, switch to real mode temporarily, execute handler, return.
-                // Simplified approach: just call the RM handler at seg:ofs in real-mode context
-                // by directly executing the memory at the IVT target.
-                // For most hardware IRQs (like INT 08 timer), the BIOS handler just
-                // increments the tick counter and sends EOI — we can simulate that here.
+            // For hardware IRQs, always provide a default handler (timer tick, EOI)
+            // even if the saved RM vector is 0:0, to prevent crashes.
+            boolean isHardwareIRQ = (vector >= 0x08 && vector <= 0x0F) || (vector >= 0x70 && vector <= 0x77);
+
+            if (isHardwareIRQ) {
+                // Handle hardware IRQs inline (timer tick + EOI)
                 if (vector == 0x08) {
-                    // Timer tick: increment BIOS tick count at 0040:006C and send EOI
+                    // Timer tick: increment BIOS tick count at 0040:006C
                     int tickAddr = Memory.segOfs(0x0040, 0x006C);
                     long ticks = memory.readDWord(tickAddr) & 0xFFFFFFFFL;
                     ticks++;
                     memory.writeDWord(tickAddr, (int) ticks);
-                    // Send EOI to master PIC (port 0x20)
-                    if (pic != null) pic.lowerIRQ(0);
-                } else if (vector >= 0x08 && vector <= 0x0F) {
-                    // Other master PIC IRQs: just send EOI
-                    if (pic != null) pic.lowerIRQ(vector - 0x08);
-                } else if (vector >= 0x70 && vector <= 0x77) {
-                    // Slave PIC IRQs: send EOI to both slave and master
-                    if (pic != null) pic.lowerIRQ(vector - 0x70 + 8);
                 }
-                // For non-hardware interrupts, silently ignore
+                // Send EOI for all hardware IRQs
+                if (pic != null) {
+                    if (vector >= 0x08 && vector <= 0x0F) {
+                        pic.lowerIRQ(vector - 0x08);
+                    } else {
+                        pic.lowerIRQ(vector - 0x70 + 8);
+                    }
+                }
+                return;
+            }
+
+            int rmSeg = dpmi.getRMIntVector_Seg(vector);
+            int rmOfs = dpmi.getRMIntVector_Ofs(vector);
+            if (rmSeg != 0 || rmOfs != 0) {
+                // Non-hardware interrupt with an RM vector: silently handle
+                // (We cannot truly switch to RM and execute, so just return)
                 return;
             }
             System.err.printf("[DPMI] Unhandled PM INT %02X at %04X:%04X (no RM vector either)%n",
@@ -1987,45 +1991,84 @@ public class CPU implements Module {
                         break;
                     case 2: // LGDT
                         if (ea != -1) {
-                            gdtr_limit = memory.readWord(ea);
-                            gdtr_base = memory.readByte(ea + 2)
+                            int newLimit = memory.readWord(ea);
+                            int newBase = memory.readByte(ea + 2)
                                       | (memory.readByte(ea + 3) << 8)
                                       | (memory.readByte(ea + 4) << 16)
                                       | (memory.readByte(ea + 5) << 24);
-                            // Sync with DPMI manager so it can resolve GDT selectors
-                            if (dpmi != null) {
-                                dpmi.setGDTR(gdtr_base, gdtr_limit);
-                                System.out.printf("[CPU] LGDT: base=%08X limit=%04X (read from ea=%08X)%n", gdtr_base, gdtr_limit, ea);
-                                // Dump raw bytes of pseudo-descriptor
-                                StringBuilder raw = new StringBuilder("[CPU] LGDT raw bytes at ea: ");
-                                for (int d = 0; d < 6; d++) raw.append(String.format("%02X ", memory.readByte(ea + d)));
-                                System.out.println(raw.toString().trim());
-                                // Dump first 10 GDT entries from the loaded GDT
-                                int maxEntries = Math.min(10, (gdtr_limit + 1) / 8);
-                                System.out.printf("[CPU] GDT dump (first %d entries at base %08X):%n", maxEntries, gdtr_base);
-                                for (int g = 0; g < maxEntries; g++) {
-                                    int gaddr = gdtr_base + g * 8;
+
+                            // In protected mode with DPMI active, virtualize LGDT:
+                            // The DPMI host owns the GDT. We merge the client's GDT entries
+                            // into the DPMI-managed GDT instead of letting the client overwrite it.
+                            if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
+                                int dpmiGdtBase = dpmi.getGdtrBase();
+                                int dpmiGdtLimit = dpmi.getGdtrLimit();
+                                System.out.printf("[CPU] LGDT virtualized in PM: client wants base=%08X limit=%04X, DPMI GDT at %08X limit=%04X%n",
+                                        newBase, newLimit, dpmiGdtBase, dpmiGdtLimit);
+
+                                // Copy client's GDT entries into the DPMI-managed GDT
+                                // Skip entry 0 (null descriptor). Copy as many entries as fit.
+                                int clientEntries = (newLimit + 1) / 8;
+                                int dpmiMaxEntries = (dpmiGdtLimit + 1) / 8;
+
+                                // Expand DPMI GDT if needed
+                                int neededEntries = Math.max(clientEntries, dpmiMaxEntries);
+                                int neededLimit = neededEntries * 8 - 1;
+                                if (neededLimit > dpmiGdtLimit) {
+                                    dpmi.setGDTR(dpmiGdtBase, neededLimit);
+                                    dpmiGdtLimit = neededLimit;
+                                }
+
+                                // Copy client entries (skip entry 0 = null descriptor)
+                                for (int g = 1; g < clientEntries; g++) {
+                                    int srcAddr = newBase + g * 8;
+                                    int dstAddr = dpmiGdtBase + g * 8;
+                                    for (int b = 0; b < 8; b++) {
+                                        memory.writeByte(dstAddr + b, memory.readByte(srcAddr + b));
+                                    }
+                                }
+
+                                // Update CPU GDTR to point to (possibly expanded) DPMI GDT
+                                gdtr_base = dpmiGdtBase;
+                                gdtr_limit = dpmiGdtLimit;
+                                dpmi.setGDTR(dpmiGdtBase, dpmiGdtLimit);
+
+                                System.out.printf("[CPU] LGDT virtualized: merged %d client entries into DPMI GDT at %08X%n",
+                                        clientEntries - 1, dpmiGdtBase);
+
+                                // Dump merged GDT
+                                int maxDump = Math.min(10, (dpmiGdtLimit + 1) / 8);
+                                for (int g = 0; g < maxDump; g++) {
+                                    int gaddr = dpmiGdtBase + g * 8;
                                     int lo = memory.readByte(gaddr) | (memory.readByte(gaddr+1) << 8)
                                            | (memory.readByte(gaddr+2) << 16) | (memory.readByte(gaddr+3) << 24);
                                     int hi = memory.readByte(gaddr+4) | (memory.readByte(gaddr+5) << 8)
                                            | (memory.readByte(gaddr+6) << 16) | (memory.readByte(gaddr+7) << 24);
-                                    // Parse descriptor fields
-                                    int baseLo = (lo >> 16) & 0xFFFF;
-                                    int baseMid = (hi) & 0xFF;
-                                    int baseHi = (hi >> 24) & 0xFF;
-                                    int base = baseLo | (baseMid << 16) | (baseHi << 24);
-                                    int limitLo = lo & 0xFFFF;
+                                    int baseLo2 = (lo >> 16) & 0xFFFF;
+                                    int baseMid2 = (hi) & 0xFF;
+                                    int baseHi2 = (hi >> 24) & 0xFF;
+                                    int base2 = baseLo2 | (baseMid2 << 16) | (baseHi2 << 24);
+                                    int limitLo2 = lo & 0xFFFF;
                                     int limitHi4 = (hi >> 16) & 0x0F;
-                                    int limit = limitLo | (limitHi4 << 16);
-                                    int access = (hi >> 8) & 0xFF;
-                                    int flags = (hi >> 20) & 0x0F;
-                                    boolean present = (access & 0x80) != 0;
-                                    boolean is32 = (flags & 0x04) != 0;
-                                    boolean gran = (flags & 0x08) != 0;
+                                    int limit2 = limitLo2 | (limitHi4 << 16);
+                                    int access2 = (hi >> 8) & 0xFF;
+                                    int flags2 = (hi >> 20) & 0x0F;
+                                    boolean present2 = (access2 & 0x80) != 0;
+                                    boolean is32g = (flags2 & 0x04) != 0;
+                                    boolean gran2 = (flags2 & 0x08) != 0;
                                     System.out.printf("[CPU]   GDT[%d] sel=%04X: base=%08X limit=%05X%s acc=%02X P=%s D=%s %s%n",
-                                            g, g * 8, base, limit, gran ? "*4K" : "",
-                                            access, present ? "Y" : "N", is32 ? "32" : "16",
-                                            (access & 0x08) != 0 ? "CODE" : "DATA");
+                                            g, g * 8, base2, limit2, gran2 ? "*4K" : "",
+                                            access2, present2 ? "Y" : "N", is32g ? "32" : "16",
+                                            (access2 & 0x08) != 0 ? "CODE" : "DATA");
+                                }
+                            } else {
+                                // Real mode or no DPMI: accept LGDT directly
+                                gdtr_limit = newLimit;
+                                gdtr_base = newBase;
+                                // Sync with DPMI manager so it can resolve GDT selectors
+                                if (dpmi != null) {
+                                    dpmi.setGDTR(gdtr_base, gdtr_limit);
+                                    System.out.printf("[CPU] LGDT: base=%08X limit=%04X (read from ea=%08X)%n", gdtr_base, gdtr_limit, ea);
                                 }
                             }
                         }
@@ -3353,5 +3396,11 @@ public class CPU implements Module {
     public PIC getPic() { return pic; }
     public int getCR0() { return cr0; }
     public void setCR0(int v) { cr0 = v; }
+    public int getGdtrBase() { return gdtr_base; }
+    public int getGdtrLimit() { return gdtr_limit; }
+    public void setGDTR(int base, int limit) {
+        this.gdtr_base = base;
+        this.gdtr_limit = limit;
+    }
 }
 

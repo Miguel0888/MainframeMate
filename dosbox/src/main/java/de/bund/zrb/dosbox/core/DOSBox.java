@@ -72,6 +72,7 @@ public class DOSBox {
 
         // Wire DPMI into CPU for protected mode address resolution
         cpu.setDPMI(dpmi);
+        dpmi.setCPU(cpu);
 
         // Initialize INT 21h handler
         int21 = new Int21Handler(memory, dos, int10, int16);
