@@ -100,9 +100,11 @@ public class JesFtpService implements Closeable {
             throw new IOException("Server erlaubt FILETYPE=JES nicht: " + ftp.getReplyString());
         }
 
-        // Request structured spool listings with DDNames (z/OS JES FTP standard)
+        // Try to request structured spool listings with DDNames (z/OS JES FTP standard).
+        // Not all servers support this; if rejected we fall back to content-based detection.
         ftp.sendSiteCommand("JESINTERFACELEVEL=2");
-        LOG.info("[JES] SITE JESINTERFACELEVEL=2 → " + ftp.getReplyString().trim());
+        String jilReply = ftp.getReplyString().trim();
+        LOG.info("[JES] SITE JESINTERFACELEVEL=2 → " + jilReply);
 
         connected = true;
         LOG.info("[JES] Connected to " + host + " as " + user + " in JES mode.");
@@ -176,10 +178,19 @@ public class JesFtpService implements Closeable {
 
     /**
      * List spool files for a specific job.
+     * <p>
+     * Strategy (multi-level):
+     * <ol>
+     *   <li>Try {@code LIST jobId} – works with JESINTERFACELEVEL=2</li>
+     *   <li>Try probing individual spool files via {@code RETR jobId.n} and
+     *       extract DDName from the 125/250 FTP reply string</li>
+     *   <li>Fall through to caller which will use content-based section parsing</li>
+     * </ol>
      */
     public List<JesSpoolFile> listSpoolFiles(String jobId) throws IOException {
         ensureConnected();
 
+        // ── Strategy 1: LIST jobId (JESINTERFACELEVEL=2) ────────────
         FTPFile[] files = ftp.listFiles(jobId);
         List<JesSpoolFile> spoolFiles = new ArrayList<JesSpoolFile>();
 
@@ -194,7 +205,7 @@ public class JesFtpService implements Closeable {
             }
         }
 
-        // Fallback 1: try NLST if listFiles() returned nothing parseable
+        // Fallback 1a: try NLST if listFiles() returned nothing parseable
         if (spoolFiles.isEmpty()) {
             LOG.fine("[JES] Spool listing empty for " + jobId + ", trying NLST fallback…");
             String[] names = ftp.listNames(jobId);
@@ -209,8 +220,122 @@ public class JesFtpService implements Closeable {
             }
         }
 
+        // ── Strategy 2: Probe individual spool files via RETR reply ─
+        if (spoolFiles.isEmpty()) {
+            LOG.info("[JES] Trying spool probe via RETR reply for " + jobId + "…");
+            spoolFiles = probeSpoolFilesViaRetr(jobId);
+        }
+
         LOG.info("[JES] Job " + jobId + " has " + spoolFiles.size() + " spool files.");
         return spoolFiles;
+    }
+
+    /**
+     * Probe spool files by attempting RETR on jobId.1, jobId.2, … and parsing
+     * the FTP 125/250 reply which often contains the DDName.
+     * <p>
+     * Typical z/OS FTP reply for RETR in JES mode:
+     * {@code 125 Sending data set KKR097BF.J0207648.?.JESMSGLG for job J0207648 DSId 2}
+     * or similar patterns containing the DDName.
+     * <p>
+     * Stops probing after the first 404/550 (no more spool files).
+     */
+    private List<JesSpoolFile> probeSpoolFilesViaRetr(String jobId) {
+        List<JesSpoolFile> result = new ArrayList<JesSpoolFile>();
+        // z/OS spool IDs typically start at 1 and are sequential, but may have gaps.
+        // We allow up to 5 consecutive misses before giving up.
+        int consecutiveMisses = 0;
+        int maxConsecutiveMisses = 5;
+        int maxProbe = 200; // safety limit
+
+        for (int spoolId = 1; spoolId <= maxProbe && consecutiveMisses < maxConsecutiveMisses; spoolId++) {
+            try {
+                String remoteName = jobId + "." + spoolId;
+                ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
+                boolean ok = ftp.retrieveFile(remoteName, baos);
+                String reply = ftp.getReplyString();
+
+                if (!ok) {
+                    consecutiveMisses++;
+                    LOG.fine("[JES] Probe " + remoteName + " → not found (" + (reply != null ? reply.trim() : "") + ")");
+                    continue;
+                }
+
+                consecutiveMisses = 0;
+                String ddName = extractDdNameFromReply(reply, spoolId);
+                int lineCount = countLines(baos.toByteArray());
+
+                LOG.info("[JES] Probe " + remoteName + " → DDName=" + ddName
+                        + " (" + lineCount + " lines, reply: " + (reply != null ? reply.trim() : "") + ")");
+
+                result.add(new JesSpoolFile(
+                        spoolId,
+                        ddName,
+                        "",   // stepName – not available from reply
+                        "",   // procStep
+                        "",   // dsClass
+                        baos.size(),
+                        lineCount
+                ));
+            } catch (IOException e) {
+                consecutiveMisses++;
+                LOG.fine("[JES] Probe " + jobId + "." + spoolId + " → IOException: " + e.getMessage());
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Extract DDName from a JES FTP RETR reply string.
+     * <p>
+     * Common formats:
+     * <ul>
+     *   <li>{@code 125 Sending data set USER.JOBnnnnn.?.DDNAME for job JOBnnnnn DSId n}</li>
+     *   <li>{@code 250 Transfer completed for DDNAME}</li>
+     *   <li>Various other formats containing the dataset name with DDName as last qualifier</li>
+     * </ul>
+     */
+    static String extractDdNameFromReply(String reply, int spoolId) {
+        if (reply == null || reply.isEmpty()) {
+            return "SPOOL#" + spoolId;
+        }
+
+        // Pattern: "data set XXXX.XXXX.?.DDNAME" – DDName is the last qualifier after "?"
+        // e.g. "125 Sending data set KKR097BF.J0207648.?.JESMSGLG for job ..."
+        Matcher dsn = Pattern.compile("data\\s+set\\s+\\S+\\.\\?\\.(\\S+?)(?:\\s|$)", Pattern.CASE_INSENSITIVE).matcher(reply);
+        if (dsn.find()) {
+            return dsn.group(1).toUpperCase();
+        }
+
+        // Pattern: "data set XXXX.XXXX.DDNAME" – DDName is the last qualifier
+        Matcher dsn2 = Pattern.compile("data\\s+set\\s+(\\S+?)(?:\\s|$)", Pattern.CASE_INSENSITIVE).matcher(reply);
+        if (dsn2.find()) {
+            String fullDsn = dsn2.group(1);
+            int lastDot = fullDsn.lastIndexOf('.');
+            if (lastDot >= 0 && lastDot < fullDsn.length() - 1) {
+                return fullDsn.substring(lastDot + 1).toUpperCase();
+            }
+        }
+
+        // Pattern: look for known DDNames directly in the reply
+        String upper = reply.toUpperCase();
+        String[] knownDDs = {"JESMSGLG", "JESJCL", "JESYSMSG", "SYSPRINT", "SYSOUT", "SYSTSPRT", "SYSIN"};
+        for (String dd : knownDDs) {
+            if (upper.contains(dd)) {
+                return dd;
+            }
+        }
+
+        return "SPOOL#" + spoolId;
+    }
+
+    private static int countLines(byte[] data) {
+        int count = 0;
+        for (byte b : data) {
+            if (b == '\n') count++;
+        }
+        return count;
     }
 
     /**
