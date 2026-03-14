@@ -12,7 +12,10 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -781,6 +784,182 @@ public class JesFtpService implements Closeable {
         if (s == null) return fallback;
         try { return Long.parseLong(s.trim()); }
         catch (NumberFormatException e) { return fallback; }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Parallel spool DDName probing
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Probe DDNames for spool files in parallel using N separate FTP connections.
+     * Each connection fetches a subset of spool files and detects DDNames from content.
+     * <p>
+     * This method is used by:
+     * <ul>
+     *   <li>PROBE mode: direct parallel loading</li>
+     *   <li>FAST mode (with background probe): background refinement</li>
+     *   <li>OFF mode: background correction of SPOOL#n names</li>
+     * </ul>
+     *
+     * @param jobId              the job ID (e.g. "J0211636")
+     * @param host               FTP host
+     * @param user               FTP user
+     * @param password           FTP password
+     * @param spoolCount         number of spool files to probe (1..spoolCount)
+     * @param parallelConnections number of parallel FTP connections (1-10)
+     * @return map of spoolId → detected DDName
+     */
+    public static Map<Integer, String> probeSpoolDdNamesParallel(
+            String jobId, String host, String user, String password,
+            int spoolCount, int parallelConnections) {
+
+        Map<Integer, String> result = new ConcurrentHashMap<>();
+        int threads = Math.max(1, Math.min(parallelConnections, 10));
+
+        if (threads == 1) {
+            // Single-threaded: use one connection for all
+            probeSingleThread(jobId, host, user, password, spoolCount, result);
+            return result;
+        }
+
+        // Multi-threaded: distribute spool IDs across N connections
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        List<Future<?>> futures = new ArrayList<>();
+
+        for (int t = 0; t < threads; t++) {
+            final int threadIndex = t;
+            futures.add(executor.submit(() -> {
+                FTPClient threadFtp = null;
+                try {
+                    threadFtp = createJesFtpConnection(host, user, password);
+                    Settings settings = SettingsHelper.load();
+                    String enc = settings.encoding != null ? settings.encoding : "UTF-8";
+
+                    for (int spoolId = threadIndex + 1; spoolId <= spoolCount; spoolId += threads) {
+                        try {
+                            String remoteName = jobId + "." + spoolId;
+                            ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
+                            boolean ok = threadFtp.retrieveFile(remoteName, baos);
+
+                            if (ok) {
+                                String content = baos.toString(Charset.forName(enc).name());
+                                String reply = threadFtp.getReplyString();
+                                String ddName = extractDdNameFromReply(reply, spoolId);
+                                if (ddName.startsWith("SPOOL#")) {
+                                    ddName = detectDdNameFromContent(content, spoolId);
+                                }
+                                result.put(spoolId, ddName);
+                                LOG.info("[JES] Parallel probe " + remoteName + " → " + ddName
+                                        + " (thread " + threadIndex + ")");
+                            }
+                        } catch (IOException e) {
+                            LOG.fine("[JES] Parallel probe " + jobId + "." + spoolId
+                                    + " failed: " + e.getMessage());
+                        }
+                    }
+                } catch (IOException e) {
+                    LOG.warning("[JES] Failed to create parallel FTP connection (thread "
+                            + threadIndex + "): " + e.getMessage());
+                } finally {
+                    closeQuietly(threadFtp);
+                }
+            }));
+        }
+
+        // Wait for all threads to complete
+        for (Future<?> f : futures) {
+            try {
+                f.get(120, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                LOG.warning("[JES] Parallel probe thread error: " + e.getMessage());
+            }
+        }
+        executor.shutdown();
+
+        return result;
+    }
+
+    /**
+     * Single-threaded probe fallback (parallelConnections=1).
+     */
+    private static void probeSingleThread(String jobId, String host, String user, String password,
+                                          int spoolCount, Map<Integer, String> result) {
+        FTPClient singleFtp = null;
+        try {
+            singleFtp = createJesFtpConnection(host, user, password);
+            Settings settings = SettingsHelper.load();
+            String enc = settings.encoding != null ? settings.encoding : "UTF-8";
+
+            for (int spoolId = 1; spoolId <= spoolCount; spoolId++) {
+                try {
+                    String remoteName = jobId + "." + spoolId;
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
+                    boolean ok = singleFtp.retrieveFile(remoteName, baos);
+
+                    if (ok) {
+                        String content = baos.toString(Charset.forName(enc).name());
+                        String reply = singleFtp.getReplyString();
+                        String ddName = extractDdNameFromReply(reply, spoolId);
+                        if (ddName.startsWith("SPOOL#")) {
+                            ddName = detectDdNameFromContent(content, spoolId);
+                        }
+                        result.put(spoolId, ddName);
+                        LOG.info("[JES] Probe " + remoteName + " → " + ddName);
+                    }
+                } catch (IOException e) {
+                    LOG.fine("[JES] Probe " + jobId + "." + spoolId + " failed: " + e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            LOG.warning("[JES] Failed to create FTP connection for probe: " + e.getMessage());
+        } finally {
+            closeQuietly(singleFtp);
+        }
+    }
+
+    /**
+     * Create a new FTP connection in JES mode for parallel probing.
+     */
+    private static FTPClient createJesFtpConnection(String host, String user, String password)
+            throws IOException {
+        FTPClient client = new FTPClient();
+        Settings settings = SettingsHelper.load();
+        String encoding = settings.encoding != null ? settings.encoding : "UTF-8";
+        client.setControlEncoding(encoding);
+
+        int connectTimeout = settings.ftpConnectTimeoutMs;
+        if (connectTimeout > 0) {
+            client.setDefaultTimeout(connectTimeout);
+            client.setConnectTimeout(connectTimeout);
+        }
+
+        client.connect(host);
+        if (!FTPReply.isPositiveCompletion(client.getReplyCode())) {
+            throw new IOException("FTP connect failed: " + client.getReplyString());
+        }
+
+        client.setSoTimeout(settings.ftpControlTimeoutMs);
+
+        if (!client.login(user, password)) {
+            throw new IOException("FTP login failed: " + client.getReplyString());
+        }
+
+        client.enterLocalPassiveMode();
+        client.setFileType(FTP.ASCII_FILE_TYPE);
+        client.sendSiteCommand("FILETYPE=JES");
+
+        return client;
+    }
+
+    private static void closeQuietly(FTPClient client) {
+        if (client != null) {
+            try {
+                if (client.isConnected()) {
+                    client.logout();
+                    client.disconnect();
+                }
+            } catch (IOException ignored) { }
+        }
     }
 }
 

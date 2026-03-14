@@ -84,7 +84,9 @@ public class Settings {
     public int betaviewDaysBack = 60;                // Default Tage zurück
 
     // JES Spool Settings
-    public String jesSpoolDdNameMode = "FAST";         // FAST = schnell laden (Content-Fallback), PROBE = einzeln abrufen (langsam, genauer), OFF = keine DDName-Erkennung
+    public String jesSpoolDdNameMode = "FAST";         // FAST = schnell laden + Content-Erkennung, PROBE = parallel einzeln abrufen, OFF = SPOOL#n + Hintergrund-Nachladen
+    public int jesProbeParallelConnections = 1;        // Anzahl paralleler FTP-Verbindungen für Probe (1-10, default 1)
+    public boolean jesFastBackgroundProbe = false;     // Im FAST-Modus DDNames im Hintergrund per Probe nachladen
 
     // TN3270 Terminal Settings
     public int tn3270Port = 992;                       // TN3270 Port (Standard: 992 für TLS, 23 für Klartext)
