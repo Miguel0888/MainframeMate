@@ -100,6 +100,10 @@ public class JesFtpService implements Closeable {
             throw new IOException("Server erlaubt FILETYPE=JES nicht: " + ftp.getReplyString());
         }
 
+        // Request structured spool listings with DDNames (z/OS JES FTP standard)
+        ftp.sendSiteCommand("JESINTERFACELEVEL=2");
+        LOG.info("[JES] SITE JESINTERFACELEVEL=2 → " + ftp.getReplyString().trim());
+
         connected = true;
         LOG.info("[JES] Connected to " + host + " as " + user + " in JES mode.");
     }
@@ -184,7 +188,7 @@ public class JesFtpService implements Closeable {
             for (FTPFile f : files) {
                 String raw = f.getRawListing();
                 if (raw == null) continue;
-                LOG.fine("[JES] Spool raw: " + raw);
+                LOG.info("[JES] Spool raw: " + raw);
                 JesSpoolFile sf = parseSpoolLine(raw.trim());
                 if (sf != null) spoolFiles.add(sf);
             }
@@ -351,7 +355,7 @@ public class JesFtpService implements Closeable {
                                                   int startInclusive,
                                                   int endExclusive,
                                                   int sectionId) {
-        int probeEnd = Math.min(endExclusive, startInclusive + 12);
+        int probeEnd = Math.min(endExclusive, startInclusive + 30);
 
         for (int i = startInclusive; i < probeEnd; i++) {
             String candidate = detectDdNameFromLine(lines[i]);
