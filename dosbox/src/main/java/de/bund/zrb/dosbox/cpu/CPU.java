@@ -108,12 +108,20 @@ public class CPU implements Module {
      * In protected mode:
      *   - If DPMI active: use DPMI descriptor resolution (handles both GDT and LDT)
      *   - If PE set but no DPMI: read GDT descriptors directly from memory
+     *
+     * IMPORTANT: When DPMI is active, we ALWAYS use DPMI resolution, even if PE
+     * has been temporarily cleared (e.g., by DOS/4GW doing MOV CR0 to switch to
+     * real mode). This simulates the x86 segment descriptor cache behavior:
+     * after clearing PE, descriptors remain cached until segment registers are
+     * explicitly reloaded. The DPMI fallback paths handle real-mode segment
+     * values gracefully by falling back to seg*16+offset for unknown selectors.
      */
     public int resolveSegOfs(int seg, int offset) {
+        // When DPMI is active, always use PM resolution (descriptor cache simulation)
+        if (dpmi != null && dpmi.isDpmiActive()) {
+            return dpmi.resolveAddress(seg, offset);
+        }
         if (isProtectedMode()) {
-            if (dpmi != null && dpmi.isDpmiActive()) {
-                return dpmi.resolveAddress(seg, offset);
-            }
             // PE set without DPMI (DOS extender set PE directly)
             // Try to resolve via GDT if we have one (gdtr_limit > 0 means GDT was loaded)
             if (dpmi != null && gdtr_limit > 0) {
@@ -343,8 +351,8 @@ public class CPU implements Module {
             return;
         }
 
-        if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
-            // In protected mode, check if DPMI has a PM vector registered
+        if (dpmi != null && dpmi.isDpmiActive()) {
+            // DPMI active: check if DPMI has a PM vector registered
             int pmSel = dpmi.getPMIntVector_Sel(vector);
             int pmOfs = dpmi.getPMIntVector_Ofs(vector);
             if (pmSel != 0) {
@@ -763,9 +771,10 @@ public class CPU implements Module {
 
             segOverride = -1;
             repPrefix = false;
-            // In protected mode, check CS descriptor's D-bit for default operand/address size.
+            // In protected mode (or DPMI active), check CS descriptor's D-bit for default operand/address size.
+            // When DPMI is active, always check even if PE is temporarily cleared (descriptor cache simulation).
             csIs32 = false;
-            if (isProtectedMode() && dpmi != null) {
+            if (dpmi != null && (dpmi.isDpmiActive() || isProtectedMode())) {
                 csIs32 = dpmi.is32BitSelector(regs.cs);
             }
             prefix66 = csIs32;
@@ -1393,7 +1402,7 @@ public class CPU implements Module {
                 if (ea == -1) { val = regs.getReg16(rm); } else { val = memory.readWord(ea); }
 
                 // Protected mode: validate selector for data segments (DS=3, ES=0, FS=4, GS=5)
-                if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()
+                if (dpmi != null && dpmi.isDpmiActive()
                         && seg != 1 /* CS loaded via far jmp/call only */) {
                     if ((val & 0xFFFC) == 0) {
                         // Null selector is allowed for data segments — clears the register
@@ -1487,6 +1496,9 @@ public class CPU implements Module {
                 pushOp(getEffIP());
                 regs.cs = newCS;
                 setEffIP(newIP);
+                if (dpmi != null && dpmi.isDpmiActive()) {
+                    fixupCSChange("CALL FAR", regs.cs, getEffIP());
+                }
                 break;
             }
 
@@ -1704,18 +1716,29 @@ public class CPU implements Module {
             // ── RETF imm16 (CA) ────────────────────────────
             case 0xCA: {
                 int n = fetchWord();
-                setEffIP(popOp());
-                regs.cs = popOp() & 0xFFFF;
+                int retIP = popOp();
+                int retCS = popOp() & 0xFFFF;
+                setEffIP(retIP);
+                regs.cs = retCS;
+                if (dpmi != null && dpmi.isDpmiActive()) {
+                    fixupCSChange("RETF", retCS, retIP);
+                }
                 if (csIs32) regs.setESP(regs.getESP() + n);
                 else regs.setSP(regs.getSP() + n);
                 break;
             }
 
             // ── RETF (CB) ──────────────────────────────────
-            case 0xCB:
-                setEffIP(popOp());
-                regs.cs = popOp() & 0xFFFF;
+            case 0xCB: {
+                int retIP = popOp();
+                int retCS = popOp() & 0xFFFF;
+                setEffIP(retIP);
+                regs.cs = retCS;
+                if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
+                    fixupCSChange("RETF", retCS, retIP);
+                }
                 break;
+            }
 
             // ── INT 3 (CC) ─────────────────────────────────
             case 0xCC: softwareInt(3); break;
@@ -1899,6 +1922,9 @@ public class CPU implements Module {
                 int newCS = fetchWord();
                 setEffIP(newIP);
                 regs.cs = newCS;
+                if (dpmi != null && dpmi.isDpmiActive()) {
+                    fixupCSChange("JMP FAR", regs.cs, getEffIP());
+                }
                 break;
             }
 
@@ -2043,10 +2069,12 @@ public class CPU implements Module {
                                       | (memory.readByte(ea + 4) << 16)
                                       | (memory.readByte(ea + 5) << 24);
 
-                            // In protected mode with DPMI active, virtualize LGDT:
+                            // Virtualize LGDT when DPMI is active:
                             // The DPMI host owns the GDT. We merge the client's GDT entries
                             // into the DPMI-managed GDT instead of letting the client overwrite it.
-                            if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
+                            // This must also work when PE is temporarily cleared (e.g., DOS/4GW
+                            // doing real-mode transitions via MOV CR0).
+                            if (dpmi != null && dpmi.isDpmiActive()) {
                                 int dpmiGdtBase = dpmi.getGdtrBase();
                                 int dpmiGdtLimit = dpmi.getGdtrLimit();
                                 System.out.printf("[CPU] LGDT virtualized in PM: client wants base=%08X limit=%04X, DPMI GDT at %08X limit=%04X%n",
@@ -3322,7 +3350,7 @@ public class CPU implements Module {
                 long lb = val & 0xFFFFFFFFL;
                 long res = la * lb;
                 regs.setEAX((int) res);
-                regs.setEDX((int)(res >>> 32));
+                regs.setEDX((int)(res >> 32));
                 boolean hi = regs.getEDX() != 0;
                 regs.flags.setCF(hi); regs.flags.setOF(hi);
                 break;
@@ -3418,6 +3446,9 @@ public class CPU implements Module {
                     setEffIP(memory.readWord(ea));
                     regs.cs = memory.readWord(ea + 2);
                 }
+                if (dpmi != null && dpmi.isDpmiActive()) {
+                    fixupCSChange("CALL FAR", regs.cs, getEffIP());
+                }
                 break;
             case 4: // JMP near r/m
                 setEffIP(val);
@@ -3430,6 +3461,9 @@ public class CPU implements Module {
                     setEffIP(memory.readWord(ea));
                     regs.cs = memory.readWord(ea + 2);
                 }
+                if (dpmi != null && dpmi.isDpmiActive()) {
+                    fixupCSChange("JMP FAR", regs.cs, getEffIP());
+                }
                 break;
             case 6:
                 pushOp(val);
@@ -3440,6 +3474,49 @@ public class CPU implements Module {
     public Memory getMemory() { return memory; }
     public IoPortHandler getIo() { return io; }
     public PIC getPic() { return pic; }
+
+    /** Validate a CS change in protected mode and auto-map invalid selectors. */
+    private void fixupCSChange(String source, int newCS, int newIP) {
+        if (dpmi == null) return;
+        int idx = dpmi.selectorToIndex(newCS);
+        boolean isLdt = dpmi.isLDTSelector(newCS);
+        DPMIManager.LDTEntry entry = dpmi.getEntry(newCS);
+
+        if ((newCS & 0xFFFC) == 0) {
+            System.err.printf("[CPU] WARNING: %s to null selector CS=%04X IP=%08X at cycle %d%n",
+                    source, newCS, newIP, totalCycles);
+            return;
+        }
+
+        boolean needsAutoMap = false;
+
+        if (entry == null || !entry.present) {
+            needsAutoMap = true;
+        } else {
+            boolean isCode = (entry.accessRights & 0x08) != 0;
+            if (!isCode) {
+                needsAutoMap = true;
+            }
+        }
+
+        if (needsAutoMap) {
+            // The popped CS is not a valid PM code selector.
+            // Treat it as a real-mode segment and auto-create a mapping.
+            System.out.printf("[CPU] %s: auto-mapping invalid CS=%04X as real-mode segment at cycle %d%n",
+                    source, newCS, totalCycles);
+            int mappedSel = dpmi.autoMapRealModeCS(newCS);
+            if (mappedSel >= 0) {
+                regs.cs = mappedSel;
+                // Also leave PM if this is a return to real-mode code
+                // (the segment points to conventional memory below 1MB)
+            }
+        } else {
+            int linear = entry.base + newIP;
+            System.out.printf("[CPU] %s → CS=%04X (%s[%d]) IP=%08X linear=%08X is32=%b base=%08X limit=%05X access=%04X%n",
+                    source, newCS, isLdt ? "LDT" : "GDT", idx, newIP,
+                    linear, entry.is32Bit, entry.base, entry.limit, entry.accessRights);
+        }
+    }
     public int getCR0() { return cr0; }
     public void setCR0(int v) { cr0 = v; }
     public int getGdtrBase() { return gdtr_base; }

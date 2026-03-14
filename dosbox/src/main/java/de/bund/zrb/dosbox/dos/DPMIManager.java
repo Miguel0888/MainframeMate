@@ -299,6 +299,31 @@ public class DPMIManager {
         return SELECTOR_INCREMENT;
     }
 
+    // ── Auto-map real-mode segment as PM code selector ──────
+
+    /**
+     * When a RETF/JMP FAR loads a CS value that is not a valid PM selector,
+     * the raw value is likely a real-mode segment address pushed before PM entry.
+     * This method creates a code segment descriptor mapping that real-mode segment,
+     * allowing execution to continue at the correct linear address.
+     *
+     * @param realModeSeg the raw 16-bit value popped as CS (interpreted as real-mode segment)
+     * @return a valid PM selector for the new code segment, or -1 on failure
+     */
+    public int autoMapRealModeCS(int realModeSeg) {
+        int sel = allocateDescriptors(1);
+        if (sel < 0) return -1;
+        int idx = selectorToIndex(sel);
+        ldt[idx].base = (realModeSeg & 0xFFFF) << 4;
+        ldt[idx].limit = 0xFFFF;
+        ldt[idx].accessRights = 0x009A; // code, read, present (16-bit)
+        ldt[idx].is32Bit = false;
+        ldt[idx].present = true;
+        System.out.printf("[DPMI] Auto-mapped real-mode segment %04X → selector %04X (LDT[%d], base=%08X)%n",
+                realModeSeg, sel, idx, ldt[idx].base);
+        return sel;
+    }
+
     // ── INT 31h/0006: Get Segment Base Address ──────────────
 
     public int getSegmentBase(int selector) {
@@ -327,13 +352,14 @@ public class DPMIManager {
 
     public boolean setSegmentLimit(int selector, int limit) {
         int idx = selectorToIndex(selector);
-        if (idx < MAX_LDT_ENTRIES) {
-            if (limit > 0xFFFFF) {
+        if (idx < MAX_LDT_ENTRIES && ldt[idx].present) {
+            // Use unsigned comparison — Java int is signed, so limit=0xFFFFFFFF would be negative
+            if (Integer.compareUnsigned(limit, 0xFFFFF) > 0) {
                 // Need page granularity
-                ldt[idx].limit = limit >>> 12;
+                ldt[idx].limit = (limit >>> 12) & 0xFFFFF;
                 ldt[idx].pageGranular = true;
             } else {
-                ldt[idx].limit = limit;
+                ldt[idx].limit = limit & 0xFFFFF;
                 ldt[idx].pageGranular = false;
             }
             return true;
@@ -583,13 +609,13 @@ public class DPMIManager {
             if (gdt != null && gdt.present) {
                 return gdt.base + offset;
             }
-            // GDT entry invalid or out of bounds — log and return linear offset
+            // GDT entry invalid or out of bounds — fall back to real-mode style addressing
             if (resolveAddressErrCount < 10) {
                 resolveAddressErrCount++;
                 System.err.printf("[DPMI] resolveAddress: invalid GDT selector %04X (idx=%d, gdtBase=%08X, gdtLimit=%04X)%n",
                         selector, idx, gdtrBase, gdtrLimit);
             }
-            return offset; // use offset as linear address (better than real-mode calc)
+            return ((selector & 0xFFFF) << 4) + (offset & 0xFFFF);
         }
 
         // LDT selector

@@ -27,6 +27,11 @@ public class Int31Handler implements CPU.IntHandler {
         int ax = cpu.regs.getAX();
         int func = ax;
 
+        // Log all INT 31h calls
+        System.out.printf("[INT31] AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X ES=%04X%n",
+                ax, cpu.regs.getBX(), cpu.regs.getCX(), cpu.regs.getDX(),
+                cpu.regs.getSI(), cpu.regs.getDI(), cpu.regs.es);
+
         // Clear carry flag by default (success)
         cpu.regs.flags.setCF(false);
 
@@ -40,6 +45,8 @@ public class Int31Handler implements CPU.IntHandler {
                 int sel = dpmi.allocateDescriptors(count);
                 if (sel >= 0) {
                     cpu.regs.setAX(sel);
+                    System.out.printf("[INT31] 0000: Allocated %d descriptor(s), first sel=%04X (LDT[%d])%n",
+                            count, sel, dpmi.selectorToIndex(sel));
                 } else {
                     cpu.regs.flags.setCF(true);
                     cpu.regs.setAX(0x8011); // descriptor unavailable
@@ -94,7 +101,10 @@ public class Int31Handler implements CPU.IntHandler {
             // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
             case 0x0007: {
                 int base = (cpu.regs.getCX() << 16) | (cpu.regs.getDX() & 0xFFFF);
-                if (!dpmi.setSegmentBase(cpu.regs.getBX(), base)) {
+                int sel = cpu.regs.getBX();
+                System.out.printf("[INT31] 0007: SetBase sel=%04X (LDT[%d]) base=%08X%n",
+                        sel, dpmi.selectorToIndex(sel), base);
+                if (!dpmi.setSegmentBase(sel, base)) {
                     cpu.regs.flags.setCF(true);
                     cpu.regs.setAX(0x8022);
                 }
@@ -117,7 +127,12 @@ public class Int31Handler implements CPU.IntHandler {
             // 0009h: Set Descriptor Access Rights
             // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
             case 0x0009: {
-                if (!dpmi.setAccessRights(cpu.regs.getBX(), cpu.regs.getCX())) {
+                int sel = cpu.regs.getBX();
+                int rights = cpu.regs.getCX();
+                System.out.printf("[INT31] 0009: SetAccessRights sel=%04X (LDT[%d]) rights=%04X (is32=%b, present=%b, code=%b)%n",
+                        sel, dpmi.selectorToIndex(sel), rights,
+                        (rights & 0x4000) != 0, (rights & 0x0080) != 0, (rights & 0x0008) != 0);
+                if (!dpmi.setAccessRights(sel, rights)) {
                     cpu.regs.flags.setCF(true);
                     cpu.regs.setAX(0x8022);
                 }
@@ -151,10 +166,20 @@ public class Int31Handler implements CPU.IntHandler {
             // 000Ch: Set Descriptor
             // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
             case 0x000C: {
+                int sel = cpu.regs.getBX();
                 int addr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getDI());
-                if (!dpmi.setDescriptor(cpu.regs.getBX(), addr)) {
+                // Log raw descriptor bytes
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < 8; i++) sb.append(String.format("%02X ", memory.readByte(addr + i)));
+                System.out.printf("[INT31] 000C: SetDescriptor sel=%04X (LDT[%d]) addr=%08X bytes=[%s]%n",
+                        sel, dpmi.selectorToIndex(sel), addr, sb.toString().trim());
+                if (!dpmi.setDescriptor(sel, addr)) {
                     cpu.regs.flags.setCF(true);
                     cpu.regs.setAX(0x8022);
+                } else {
+                    DPMIManager.LDTEntry e = dpmi.getEntry(sel);
+                    System.out.printf("[INT31] 000C: Result: base=%08X limit=%05X is32=%b pageGran=%b access=%04X present=%b%n",
+                            e.base, e.limit, e.is32Bit, e.pageGranular, e.accessRights, e.present);
                 }
                 break;
             }
