@@ -221,9 +221,12 @@ public class JesFtpService implements Closeable {
         }
 
         // ── Strategy 2: Probe individual spool files via RETR reply ─
+        // The RETR reply on this server is just "250 Transfer completed successfully."
+        // with no DDName info. So we probe to discover how many spool files exist,
+        // then use content-based detection on each one to determine the DDName.
         if (spoolFiles.isEmpty()) {
-            LOG.info("[JES] Trying spool probe via RETR reply for " + jobId + "…");
-            spoolFiles = probeSpoolFilesViaRetr(jobId);
+            LOG.info("[JES] Trying spool probe for " + jobId + "…");
+            spoolFiles = probeSpoolFilesWithContentDetection(jobId);
         }
 
         LOG.info("[JES] Job " + jobId + " has " + spoolFiles.size() + " spool files.");
@@ -231,21 +234,18 @@ public class JesFtpService implements Closeable {
     }
 
     /**
-     * Probe spool files by attempting RETR on jobId.1, jobId.2, … and parsing
-     * the FTP 125/250 reply which often contains the DDName.
+     * Probe spool files by attempting RETR on jobId.1, jobId.2, … and use
+     * content-based detection to determine the DDName for each spool file.
      * <p>
-     * Typical z/OS FTP reply for RETR in JES mode:
-     * {@code 125 Sending data set KKR097BF.J0207648.?.JESMSGLG for job J0207648 DSId 2}
-     * or similar patterns containing the DDName.
+     * This is the fallback for servers where JESINTERFACELEVEL=2 is not supported
+     * and the RETR reply does not contain DDName information.
      * <p>
-     * Stops probing after the first 404/550 (no more spool files).
+     * Stops probing after 3 consecutive misses (no more spool files).
      */
-    private List<JesSpoolFile> probeSpoolFilesViaRetr(String jobId) {
+    private List<JesSpoolFile> probeSpoolFilesWithContentDetection(String jobId) {
         List<JesSpoolFile> result = new ArrayList<JesSpoolFile>();
-        // z/OS spool IDs typically start at 1 and are sequential, but may have gaps.
-        // We allow up to 5 consecutive misses before giving up.
         int consecutiveMisses = 0;
-        int maxConsecutiveMisses = 5;
+        int maxConsecutiveMisses = 3;
         int maxProbe = 200; // safety limit
 
         for (int spoolId = 1; spoolId <= maxProbe && consecutiveMisses < maxConsecutiveMisses; spoolId++) {
@@ -262,16 +262,25 @@ public class JesFtpService implements Closeable {
                 }
 
                 consecutiveMisses = 0;
-                String ddName = extractDdNameFromReply(reply, spoolId);
+                Settings settings = SettingsHelper.load();
+                String enc = settings.encoding != null ? settings.encoding : "UTF-8";
+                String content = baos.toString(Charset.forName(enc).name());
                 int lineCount = countLines(baos.toByteArray());
 
+                // Try FTP reply first, then content-based detection
+                String ddName = extractDdNameFromReply(reply, spoolId);
+                if (ddName.startsWith("SPOOL#")) {
+                    // Reply didn't help – try content-based detection
+                    ddName = detectDdNameFromContent(content, spoolId);
+                }
+
                 LOG.info("[JES] Probe " + remoteName + " → DDName=" + ddName
-                        + " (" + lineCount + " lines, reply: " + (reply != null ? reply.trim() : "") + ")");
+                        + " (" + lineCount + " lines)");
 
                 result.add(new JesSpoolFile(
                         spoolId,
                         ddName,
-                        "",   // stepName – not available from reply
+                        "",   // stepName
                         "",   // procStep
                         "",   // dsClass
                         baos.size(),
@@ -284,6 +293,63 @@ public class JesFtpService implements Closeable {
         }
 
         return result;
+    }
+
+    /**
+     * Detect DDName from the content of a spool file by examining the first lines.
+     * Uses the same heuristics as {@link #detectDdNameFromSection} but on the actual
+     * content string.
+     */
+    static String detectDdNameFromContent(String content, int spoolId) {
+        if (content == null || content.isEmpty()) {
+            return "SPOOL#" + spoolId;
+        }
+
+        String[] lines = content.split("\\r?\\n");
+        int probeEnd = Math.min(lines.length, 30);
+
+        // First pass: use existing line-level detection
+        for (int i = 0; i < probeEnd; i++) {
+            String candidate = detectDdNameFromLine(lines[i]);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        // Second pass: check for JCL lines
+        for (int i = 0; i < probeEnd; i++) {
+            if (lines[i] != null && lines[i].trim().startsWith("//")) {
+                return "JESJCL";
+            }
+        }
+
+        // Third pass: check for well-known z/OS message prefixes that indicate JESYSMSG
+        for (int i = 0; i < probeEnd; i++) {
+            String trimmed = lines[i] != null ? lines[i].trim() : "";
+            // JESYSMSG typically contains IEF, IGD, ICH messages and "STMT NO. MESSAGE" header
+            if (trimmed.startsWith("STMT NO.") || trimmed.startsWith("STMT  NO.")) {
+                return "JESYSMSG";
+            }
+            if (trimmed.matches("^\\s*\\d+\\s+IEF[A-Z]?\\d+.*") || trimmed.matches("^\\s*\\d+\\s+IGD\\d+.*")) {
+                return "JESYSMSG";
+            }
+            if (trimmed.startsWith("ICH70001I") || trimmed.startsWith("IEF") || trimmed.startsWith("IEFA")) {
+                return "JESYSMSG";
+            }
+        }
+
+        // Fourth pass: check for IDCAMS output → SYSPRINT
+        for (int i = 0; i < probeEnd; i++) {
+            String trimmed = lines[i] != null ? lines[i].trim() : "";
+            if (trimmed.contains("IDCAMS") && trimmed.contains("SYSTEM SERVICES")) {
+                return "SYSPRINT";
+            }
+            if (trimmed.startsWith("IDC0") || trimmed.startsWith("IDC1")) {
+                return "SYSPRINT";
+            }
+        }
+
+        return "SPOOL#" + spoolId;
     }
 
     /**
@@ -302,7 +368,6 @@ public class JesFtpService implements Closeable {
         }
 
         // Pattern: "data set XXXX.XXXX.?.DDNAME" – DDName is the last qualifier after "?"
-        // e.g. "125 Sending data set KKR097BF.J0207648.?.JESMSGLG for job ..."
         Matcher dsn = Pattern.compile("data\\s+set\\s+\\S+\\.\\?\\.(\\S+?)(?:\\s|$)", Pattern.CASE_INSENSITIVE).matcher(reply);
         if (dsn.find()) {
             return dsn.group(1).toUpperCase();
