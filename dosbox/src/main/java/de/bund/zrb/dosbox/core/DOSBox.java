@@ -70,6 +70,9 @@ public class DOSBox {
         // Initialize DPMI manager
         dpmi = new DPMIManager(memory);
 
+        // Wire DPMI into CPU for protected mode address resolution
+        cpu.setDPMI(dpmi);
+
         // Initialize INT 21h handler
         int21 = new Int21Handler(memory, dos, int10, int16);
 
@@ -156,14 +159,53 @@ public class DOSBox {
             int pspSeg = c.regs.es; // ES = PSP selector/segment
 
             System.out.println("[DPMI] Mode switch requested, client bits=" + clientBits);
+            System.out.printf("[DPMI] Current CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
+                    c.regs.cs, c.regs.getIP(), c.regs.ss, c.regs.getSP(), c.regs.ds, c.regs.es);
 
-            dpmi.enterProtectedMode(clientBits, pspSeg);
+            // The stack currently has the FAR CALL return address:
+            //   [SS:SP] = return_IP (word)
+            //   [SS:SP+2] = caller_CS (real-mode segment) (word)
+            int stackAddr = Memory.segOfs(c.regs.ss, c.regs.getSP());
+            int returnIP = memory.readWord(stackAddr);
+            int callerCS = memory.readWord(stackAddr + 2);
+            int callerSS = c.regs.ss;
+
+            System.out.printf("[DPMI] FAR CALL return: CS=%04X IP=%04X, caller SS=%04X%n",
+                    callerCS, returnIP, callerSS);
+
+            int[] selectors = dpmi.enterProtectedMode(clientBits, pspSeg);
+
+            // Create a code selector for the caller's CS segment
+            int callerCSSel = dpmi.segmentToDescriptor(callerCS);
+            int csIdx = dpmi.selectorToIndex(callerCSSel);
+            dpmi.setAccessRights(callerCSSel,
+                    clientBits != 0 ? 0x409A : 0x009A); // code, read, present (32-bit if requested)
+
+            // Create a data selector for the caller's SS segment
+            int callerSSSel = dpmi.segmentToDescriptor(callerSS);
+
+            // Patch the FAR CALL return address on the stack:
+            // Replace real-mode CS with the new PM code selector
+            memory.writeWord(stackAddr + 2, callerCSSel);
+
+            // Set DS, ES to PM selectors (from enterProtectedMode)
+            c.regs.ds = selectors[1]; // DS selector
+            c.regs.es = selectors[3]; // ES selector
+            // Set SS to the new SS selector
+            c.regs.ss = callerSSSel;
+
+            // DON'T change CS here! CS is still F000 (BIOS ROM area).
+            // The RETF instruction at F000:8002 will pop CS from the patched stack,
+            // giving the caller the proper PM code selector.
 
             // Set AX=0 to indicate success
             c.regs.setAX(0);
 
             // Set PE bit in CR0 to indicate protected mode
             c.setCR0(c.getCR0() | 1);
+
+            System.out.printf("[DPMI] Patched return: CS_sel=%04X DS=%04X SS=%04X ES=%04X%n",
+                    callerCSSel, c.regs.ds, c.regs.ss, c.regs.es);
         });
 
         // Also install a callback at F000:8100 for real mode callbacks
@@ -436,14 +478,28 @@ public class DOSBox {
         int21.resetTerminated();
         cpu.setRunning(true);
 
+        System.out.printf("[DOSBox] Starting emulation: CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
+                cpu.regs.cs, cpu.regs.getIP(), cpu.regs.ss, cpu.regs.getSP(), cpu.regs.ds, cpu.regs.es);
+
+        long startTime = System.currentTimeMillis();
+        long blockCount = 0;
+
         while (cpu.isRunning() && !int20.isTerminated() && !int21.isTerminated()) {
             cpu.executeBlock(cyclesPerBlock);
             pic.advanceTime(0.5);
             pit.tick(0.5);
+            blockCount++;
 
             // Update cursor in display
             if (display != null) {
                 display.setCursorPosition(int10.getCursorRow(), int10.getCursorCol());
+            }
+
+            // Periodic status update
+            if (blockCount % 10000 == 0) {
+                System.out.printf("[DOSBox] Cycles=%d, CS=%04X IP=%04X, PM=%s%n",
+                        cpu.getTotalCycles(), cpu.regs.cs, cpu.regs.getIP(),
+                        cpu.isProtectedMode() ? "yes" : "no");
             }
 
             // Small yield to prevent 100% host CPU usage
@@ -452,6 +508,12 @@ public class DOSBox {
                 break;
             }
         }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        System.out.printf("[DOSBox] Emulation ended after %d ms, %d blocks, total cycles=%d, PM=%s%n",
+                elapsed, blockCount, cpu.getTotalCycles(), cpu.isProtectedMode() ? "yes" : "no");
+        System.out.printf("[DOSBox] Final: CS=%04X IP=%04X SS=%04X SP=%04X DS=%04X ES=%04X%n",
+                cpu.regs.cs, cpu.regs.getIP(), cpu.regs.ss, cpu.regs.getSP(), cpu.regs.ds, cpu.regs.es);
 
         cpu.setRunning(false);
     }
@@ -486,6 +548,7 @@ public class DOSBox {
     public PIC getPic() { return pic; }
     public PIT getPit() { return pit; }
     public DosKernel getDos() { return dos; }
+    public DPMIManager getDPMI() { return dpmi; }
     public DosShell getShell() { return shell; }
     public Int10Handler getInt10() { return int10; }
     public Int16Handler getInt16() { return int16; }

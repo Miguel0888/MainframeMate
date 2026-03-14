@@ -70,7 +70,7 @@ public class Int21Handler implements CPU.IntHandler {
                 break;
 
             case 0x09: { // Print string (terminated by '$')
-                int addr = Memory.segOfs(cpu.regs.ds, cpu.regs.getDX());
+                int addr = cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX());
                 for (int i = 0; i < 10000; i++) {
                     int ch = memory.readByte(addr + i);
                     if (ch == '$') break;
@@ -80,7 +80,7 @@ public class Int21Handler implements CPU.IntHandler {
             }
 
             case 0x0A: { // Buffered input
-                int bufAddr = Memory.segOfs(cpu.regs.ds, cpu.regs.getDX());
+                int bufAddr = cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX());
                 int maxLen = memory.readByte(bufAddr);
                 int count = 0;
                 for (int i = 0; i < maxLen; i++) {
@@ -112,7 +112,7 @@ public class Int21Handler implements CPU.IntHandler {
                 break;
 
             case 0x1A: // Set DTA (Disk Transfer Address)
-                dos.setDTA(Memory.segOfs(cpu.regs.ds, cpu.regs.getDX()));
+                dos.setDTA(cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX()));
                 break;
 
             case 0x25: // Set interrupt vector
@@ -157,7 +157,7 @@ public class Int21Handler implements CPU.IntHandler {
             }
 
             case 0x3C: { // Create file
-                String path = memory.readString(Memory.segOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
+                String path = memory.readString(cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
                 int handle = dos.createFile(path, cpu.regs.getCX());
                 if (handle >= 0) {
                     cpu.regs.setAX(handle);
@@ -170,7 +170,7 @@ public class Int21Handler implements CPU.IntHandler {
             }
 
             case 0x3D: { // Open file
-                String path = memory.readString(Memory.segOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
+                String path = memory.readString(cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
                 int handle = dos.openFile(path, cpu.regs.getAL());
                 if (handle >= 0) {
                     cpu.regs.setAX(handle);
@@ -195,7 +195,7 @@ public class Int21Handler implements CPU.IntHandler {
             case 0x3F: { // Read file
                 int handle = cpu.regs.getBX();
                 int count = cpu.regs.getCX();
-                int bufAddr = Memory.segOfs(cpu.regs.ds, cpu.regs.getDX());
+                int bufAddr = cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX());
                 int read = dos.readFile(handle, memory, bufAddr, count);
                 if (read >= 0) {
                     cpu.regs.setAX(read);
@@ -210,7 +210,7 @@ public class Int21Handler implements CPU.IntHandler {
             case 0x40: { // Write file
                 int handle = cpu.regs.getBX();
                 int count = cpu.regs.getCX();
-                int bufAddr = Memory.segOfs(cpu.regs.ds, cpu.regs.getDX());
+                int bufAddr = cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX());
                 int written = dos.writeFile(handle, memory, bufAddr, count);
                 if (written >= 0) {
                     cpu.regs.setAX(written);
@@ -302,7 +302,7 @@ public class Int21Handler implements CPU.IntHandler {
 
             case 0x47: { // Get current directory
                 String dir = dos.getCurrentDir();
-                int bufAddr = Memory.segOfs(cpu.regs.ds, cpu.regs.getSI());
+                int bufAddr = cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getSI());
                 memory.writeString(bufAddr, dir);
                 cpu.regs.flags.setCF(false);
                 break;
@@ -342,7 +342,7 @@ public class Int21Handler implements CPU.IntHandler {
                 break;
 
             case 0x4E: { // FindFirst
-                String pattern = memory.readString(Memory.segOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
+                String pattern = memory.readString(cpu.resolveSegOfs(cpu.regs.ds, cpu.regs.getDX()), 256);
                 if (dos.findFirst(pattern, cpu.regs.getCX())) {
                     cpu.regs.flags.setCF(false);
                 } else {

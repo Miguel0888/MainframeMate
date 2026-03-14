@@ -303,7 +303,7 @@ public class Int10Handler implements CPU.IntHandler {
             case 0x12: { // Set block of DAC registers
                 int start = cpu.regs.getBX();
                 int count = cpu.regs.getCX();
-                int addr = Memory.segOfs(cpu.regs.es, cpu.regs.getDX());
+                int addr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getDX());
                 for (int i = 0; i < count && (start + i) < 256; i++) {
                     int r = (memory.readByte(addr + i * 3) & 0x3F) * 255 / 63;
                     int g = (memory.readByte(addr + i * 3 + 1) & 0x3F) * 255 / 63;
@@ -325,7 +325,7 @@ public class Int10Handler implements CPU.IntHandler {
             case 0x17: { // Read block of DAC registers
                 int start = cpu.regs.getBX();
                 int count = cpu.regs.getCX();
-                int addr = Memory.segOfs(cpu.regs.es, cpu.regs.getDX());
+                int addr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getDX());
                 for (int i = 0; i < count && (start + i) < 256; i++) {
                     int color = vgaPalette[start + i];
                     memory.writeByte(addr + i * 3, ((color >> 16) & 0xFF) * 63 / 255);

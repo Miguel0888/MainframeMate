@@ -1,6 +1,7 @@
 package de.bund.zrb.dosbox.cpu;
 
 import de.bund.zrb.dosbox.core.Module;
+import de.bund.zrb.dosbox.dos.DPMIManager;
 import de.bund.zrb.dosbox.hardware.memory.IoPortHandler;
 import de.bund.zrb.dosbox.hardware.memory.Memory;
 import de.bund.zrb.dosbox.hardware.pic.PIC;
@@ -19,6 +20,7 @@ public class CPU implements Module {
     private final Memory memory;
     private final IoPortHandler io;
     private final PIC pic;
+    private DPMIManager dpmi; // set after construction
 
     /** Interrupt callback table (Java-side handlers for INT n). */
     @FunctionalInterface
@@ -77,10 +79,34 @@ public class CPU implements Module {
         totalCycles = 0;
     }
 
+    // ── DPMI manager (set after construction) ─────────────
+
+    public void setDPMI(DPMIManager dpmi) { this.dpmi = dpmi; }
+    public DPMIManager getDPMI() { return dpmi; }
+
     // ── Interrupt handler registration ──────────────────────
 
     public void setIntHandler(int vector, IntHandler handler) {
         intHandlers[vector & 0xFF] = handler;
+    }
+
+    // ── Protected mode check ────────────────────────────────
+
+    /** Check if CPU is in protected mode (CR0 PE bit). */
+    public boolean isProtectedMode() {
+        return (cr0 & 1) != 0;
+    }
+
+    /**
+     * Resolve segment:offset to a linear (physical) address.
+     * In real mode: seg*16 + offset.
+     * In protected mode: use DPMI LDT descriptor base + offset.
+     */
+    public int resolveSegOfs(int seg, int offset) {
+        if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
+            return dpmi.resolveAddress(seg, offset);
+        }
+        return Memory.segOfs(seg, offset);
     }
 
     // ── Memory access helpers using current segments ────────
@@ -98,7 +124,7 @@ public class CPU implements Module {
 
     /** Fetch a byte at CS:IP and advance IP. */
     private int fetchByte() {
-        int addr = Memory.segOfs(regs.cs, regs.getIP());
+        int addr = resolveSegOfs(regs.cs, regs.getIP());
         regs.setIP(regs.getIP() + 1);
         return memory.readByte(addr);
     }
@@ -207,12 +233,12 @@ public class CPU implements Module {
     /** Push a word onto the stack (16-bit). */
     public void push(int value) {
         regs.setSP(regs.getSP() - 2);
-        memory.writeWord(Memory.segOfs(regs.ss, regs.getSP()), value);
+        memory.writeWord(resolveSegOfs(regs.ss, regs.getSP()), value);
     }
 
     /** Pop a word from the stack (16-bit). */
     public int pop() {
-        int val = memory.readWord(Memory.segOfs(regs.ss, regs.getSP()));
+        int val = memory.readWord(resolveSegOfs(regs.ss, regs.getSP()));
         regs.setSP(regs.getSP() + 2);
         return val;
     }
@@ -220,7 +246,7 @@ public class CPU implements Module {
     /** Push a dword onto the stack (32-bit). */
     private void push32(int value) {
         regs.setSP(regs.getSP() - 4);
-        int addr = Memory.segOfs(regs.ss, regs.getSP());
+        int addr = resolveSegOfs(regs.ss, regs.getSP());
         memory.writeByte(addr, value & 0xFF);
         memory.writeByte(addr + 1, (value >> 8) & 0xFF);
         memory.writeByte(addr + 2, (value >> 16) & 0xFF);
@@ -229,7 +255,7 @@ public class CPU implements Module {
 
     /** Pop a dword from the stack (32-bit). */
     private int pop32() {
-        int addr = Memory.segOfs(regs.ss, regs.getSP());
+        int addr = resolveSegOfs(regs.ss, regs.getSP());
         int val = memory.readByte(addr)
                 | (memory.readByte(addr + 1) << 8)
                 | (memory.readByte(addr + 2) << 16)
@@ -250,14 +276,36 @@ public class CPU implements Module {
 
     // ── INT instruction ─────────────────────────────────────
 
-    /** Software interrupt. Tries Java handler first, then IVT. */
+    /** Software interrupt. Tries Java handler first, then IVT/DPMI vectors. */
     public void softwareInt(int vector) {
         IntHandler handler = intHandlers[vector & 0xFF];
         if (handler != null) {
             handler.handle(this);
             return;
         }
-        // Fall back to IVT (Interrupt Vector Table at 0000:0000)
+
+        if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
+            // In protected mode, check if DPMI has a PM vector registered
+            int pmSel = dpmi.getPMIntVector_Sel(vector);
+            int pmOfs = dpmi.getPMIntVector_Ofs(vector);
+            if (pmSel != 0) {
+                // Jump to protected mode handler
+                pushOp(regs.flags.getWord());
+                pushOp(regs.cs);
+                pushOp(regs.getIP());
+                regs.flags.setIF(false);
+                regs.flags.setTF(false);
+                regs.cs = pmSel;
+                regs.setIP(pmOfs);
+                return;
+            }
+            // No PM vector — reflect to real mode via IVT
+            // For now, just log and return
+            System.err.printf("[DPMI] Unhandled PM INT %02X at %04X:%04X%n", vector, regs.cs, regs.getIP());
+            return;
+        }
+
+        // Real mode: Fall back to IVT (Interrupt Vector Table at 0000:0000)
         push(regs.flags.getWord());
         push(regs.cs);
         push(regs.getIP());
@@ -293,7 +341,7 @@ public class CPU implements Module {
             case 6:
                 if (mod == 0) {
                     addr = fetchWord();
-                    return Memory.segOfs(getDS(), addr);
+                    return resolveSegOfs(getDS(), addr);
                 }
                 addr = regs.getBP();
                 break;
@@ -310,7 +358,7 @@ public class CPU implements Module {
             addr = (addr + fetchWord()) & 0xFFFF;
         }
 
-        return Memory.segOfs(seg, addr);
+        return resolveSegOfs(seg, addr);
     }
 
     /** Decode ModR/M byte with 32-bit addressing (SIB support). */
@@ -360,8 +408,12 @@ public class CPU implements Module {
         // Segment
         int seg = (segOverride >= 0) ? segOverride : (useSS ? regs.ss : regs.ds);
 
-        // In real mode, use segment:offset
-        return ((seg & 0xFFFF) << 4) + (addr & 0xFFFF);
+        // In protected mode, use descriptor base + offset
+        // In real mode, use segment:offset (but with 32-bit offset)
+        if (isProtectedMode() && dpmi != null && dpmi.isDpmiActive()) {
+            return dpmi.resolveAddress(seg, addr);
+        }
+        return ((seg & 0xFFFF) << 4) + addr;
     }
 
     // ── ALU operations ──────────────────────────────────────
@@ -1216,18 +1268,18 @@ public class CPU implements Module {
             case 0x9F: regs.setAH(regs.flags.getWord() & 0xFF); break;
 
             // ── MOV AL/AX(EAX), moffs (A0-A1) ──────────────
-            case 0xA0: regs.setAL(memory.readByte(Memory.segOfs(getDS(), fetchWord()))); break;
+            case 0xA0: regs.setAL(memory.readByte(resolveSegOfs(getDS(), fetchWord()))); break;
             case 0xA1: {
                 int addr = prefix67 ? fetchDWord() : fetchWord();
-                setAccOp(readMemOp(Memory.segOfs(getDS(), addr)));
+                setAccOp(readMemOp(resolveSegOfs(getDS(), addr)));
                 break;
             }
 
             // ── MOV moffs, AL/AX(EAX) (A2-A3) ──────────────
-            case 0xA2: memory.writeByte(Memory.segOfs(getDS(), fetchWord()), regs.getAL()); break;
+            case 0xA2: memory.writeByte(resolveSegOfs(getDS(), fetchWord()), regs.getAL()); break;
             case 0xA3: {
                 int addr = prefix67 ? fetchDWord() : fetchWord();
-                writeMemOp(Memory.segOfs(getDS(), addr), getAccOp());
+                writeMemOp(resolveSegOfs(getDS(), addr), getAccOp());
                 break;
             }
 
@@ -1378,7 +1430,7 @@ public class CPU implements Module {
                 if (nestLevel > 0) {
                     for (int i = 1; i < nestLevel; i++) {
                         regs.setBP(regs.getBP() - 2);
-                        push(memory.readWord(Memory.segOfs(regs.ss, regs.getBP())));
+                        push(memory.readWord(resolveSegOfs(regs.ss, regs.getBP())));
                     }
                     push(framePtr);
                 }
@@ -1464,7 +1516,7 @@ public class CPU implements Module {
 
             // ── XLAT (D7) ──────────────────────────────────
             case 0xD7:
-                regs.setAL(memory.readByte(Memory.segOfs(getDS(), (regs.getBX() + regs.getAL()) & 0xFFFF)));
+                regs.setAL(memory.readByte(resolveSegOfs(getDS(), (regs.getBX() + regs.getAL()) & 0xFFFF)));
                 break;
 
             // ── FPU escape opcodes (D8-DF) ──────────────────
@@ -1633,7 +1685,11 @@ public class CPU implements Module {
             case 0xFF: execGrp5(); break;
 
             default:
-                System.err.printf("Unimplemented opcode: %02X at %04X:%04X%n", opcode, regs.cs, regs.getIP() - 1);
+                System.err.printf("Unimplemented opcode: %02X at %04X:%04X (linear=%08X, PM=%s)%n",
+                        opcode, regs.cs, regs.getIP() - 1,
+                        resolveSegOfs(regs.cs, regs.getIP() - 1),
+                        isProtectedMode() ? "yes" : "no");
+                running = false; // stop to prevent garbage execution
                 break;
         }
     }
@@ -2268,7 +2324,11 @@ public class CPU implements Module {
             }
 
             default:
-                System.err.printf("Unimplemented 0F opcode: 0F %02X at %04X:%04X%n", op2, regs.cs, regs.getIP() - 2);
+                System.err.printf("Unimplemented 0F opcode: 0F %02X at %04X:%04X (linear=%08X, PM=%s)%n",
+                        op2, regs.cs, regs.getIP() - 2,
+                        resolveSegOfs(regs.cs, regs.getIP() - 2),
+                        isProtectedMode() ? "yes" : "no");
+                running = false; // stop to prevent garbage execution
                 break;
         }
     }
@@ -2279,15 +2339,15 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -1 : 1;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                memory.writeByte(Memory.segOfs(regs.es, regs.getDI()),
-                        memory.readByte(Memory.segOfs(getDS(), regs.getSI())));
+                memory.writeByte(resolveSegOfs(regs.es, regs.getDI()),
+                        memory.readByte(resolveSegOfs(getDS(), regs.getSI())));
                 regs.setSI(regs.getSI() + dir);
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
             }
         } else {
-            memory.writeByte(Memory.segOfs(regs.es, regs.getDI()),
-                    memory.readByte(Memory.segOfs(getDS(), regs.getSI())));
+            memory.writeByte(resolveSegOfs(regs.es, regs.getDI()),
+                    memory.readByte(resolveSegOfs(getDS(), regs.getSI())));
             regs.setSI(regs.getSI() + dir);
             regs.setDI(regs.getDI() + dir);
         }
@@ -2297,15 +2357,15 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -2 : 2;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                memory.writeWord(Memory.segOfs(regs.es, regs.getDI()),
-                        memory.readWord(Memory.segOfs(getDS(), regs.getSI())));
+                memory.writeWord(resolveSegOfs(regs.es, regs.getDI()),
+                        memory.readWord(resolveSegOfs(getDS(), regs.getSI())));
                 regs.setSI(regs.getSI() + dir);
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
             }
         } else {
-            memory.writeWord(Memory.segOfs(regs.es, regs.getDI()),
-                    memory.readWord(Memory.segOfs(getDS(), regs.getSI())));
+            memory.writeWord(resolveSegOfs(regs.es, regs.getDI()),
+                    memory.readWord(resolveSegOfs(getDS(), regs.getSI())));
             regs.setSI(regs.getSI() + dir);
             regs.setDI(regs.getDI() + dir);
         }
@@ -2315,8 +2375,8 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -4 : 4;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int sa = Memory.segOfs(getDS(), regs.getSI());
-                int da = Memory.segOfs(regs.es, regs.getDI());
+                int sa = resolveSegOfs(getDS(), regs.getSI());
+                int da = resolveSegOfs(regs.es, regs.getDI());
                 int v = memory.readByte(sa) | (memory.readByte(sa+1)<<8)
                       | (memory.readByte(sa+2)<<16) | (memory.readByte(sa+3)<<24);
                 memory.writeByte(da, v & 0xFF);
@@ -2328,8 +2388,8 @@ public class CPU implements Module {
                 regs.setCX(regs.getCX() - 1);
             }
         } else {
-            int sa = Memory.segOfs(getDS(), regs.getSI());
-            int da = Memory.segOfs(regs.es, regs.getDI());
+            int sa = resolveSegOfs(getDS(), regs.getSI());
+            int da = resolveSegOfs(regs.es, regs.getDI());
             int v = memory.readByte(sa) | (memory.readByte(sa+1)<<8)
                   | (memory.readByte(sa+2)<<16) | (memory.readByte(sa+3)<<24);
             memory.writeByte(da, v & 0xFF);
@@ -2345,8 +2405,8 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -1 : 1;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int a = memory.readByte(Memory.segOfs(getDS(), regs.getSI()));
-                int b = memory.readByte(Memory.segOfs(regs.es, regs.getDI()));
+                int a = memory.readByte(resolveSegOfs(getDS(), regs.getSI()));
+                int b = memory.readByte(resolveSegOfs(regs.es, regs.getDI()));
                 alu8(7, a, b);
                 regs.setSI(regs.getSI() + dir);
                 regs.setDI(regs.getDI() + dir);
@@ -2355,8 +2415,8 @@ public class CPU implements Module {
                 if (!repNE && !regs.flags.getZF()) break;
             }
         } else {
-            int a = memory.readByte(Memory.segOfs(getDS(), regs.getSI()));
-            int b = memory.readByte(Memory.segOfs(regs.es, regs.getDI()));
+            int a = memory.readByte(resolveSegOfs(getDS(), regs.getSI()));
+            int b = memory.readByte(resolveSegOfs(regs.es, regs.getDI()));
             alu8(7, a, b);
             regs.setSI(regs.getSI() + dir);
             regs.setDI(regs.getDI() + dir);
@@ -2367,8 +2427,8 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -2 : 2;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int a = memory.readWord(Memory.segOfs(getDS(), regs.getSI()));
-                int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+                int a = memory.readWord(resolveSegOfs(getDS(), regs.getSI()));
+                int b = memory.readWord(resolveSegOfs(regs.es, regs.getDI()));
                 alu16(7, a, b);
                 regs.setSI(regs.getSI() + dir);
                 regs.setDI(regs.getDI() + dir);
@@ -2377,8 +2437,8 @@ public class CPU implements Module {
                 if (!repNE && !regs.flags.getZF()) break;
             }
         } else {
-            int a = memory.readWord(Memory.segOfs(getDS(), regs.getSI()));
-            int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+            int a = memory.readWord(resolveSegOfs(getDS(), regs.getSI()));
+            int b = memory.readWord(resolveSegOfs(regs.es, regs.getDI()));
             alu16(7, a, b);
             regs.setSI(regs.getSI() + dir);
             regs.setDI(regs.getDI() + dir);
@@ -2389,8 +2449,8 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -4 : 4;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int a = readMemOp(Memory.segOfs(getDS(), regs.getSI()));
-                int b = readMemOp(Memory.segOfs(regs.es, regs.getDI()));
+                int a = readMemOp(resolveSegOfs(getDS(), regs.getSI()));
+                int b = readMemOp(resolveSegOfs(regs.es, regs.getDI()));
                 alu32(7, a, b);
                 regs.setSI(regs.getSI() + dir);
                 regs.setDI(regs.getDI() + dir);
@@ -2399,8 +2459,8 @@ public class CPU implements Module {
                 if (!repNE && !regs.flags.getZF()) break;
             }
         } else {
-            int a = readMemOp(Memory.segOfs(getDS(), regs.getSI()));
-            int b = readMemOp(Memory.segOfs(regs.es, regs.getDI()));
+            int a = readMemOp(resolveSegOfs(getDS(), regs.getSI()));
+            int b = readMemOp(resolveSegOfs(regs.es, regs.getDI()));
             alu32(7, a, b);
             regs.setSI(regs.getSI() + dir);
             regs.setDI(regs.getDI() + dir);
@@ -2411,12 +2471,12 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -1 : 1;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                memory.writeByte(Memory.segOfs(regs.es, regs.getDI()), regs.getAL());
+                memory.writeByte(resolveSegOfs(regs.es, regs.getDI()), regs.getAL());
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
             }
         } else {
-            memory.writeByte(Memory.segOfs(regs.es, regs.getDI()), regs.getAL());
+            memory.writeByte(resolveSegOfs(regs.es, regs.getDI()), regs.getAL());
             regs.setDI(regs.getDI() + dir);
         }
     }
@@ -2425,12 +2485,12 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -2 : 2;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                memory.writeWord(Memory.segOfs(regs.es, regs.getDI()), regs.getAX());
+                memory.writeWord(resolveSegOfs(regs.es, regs.getDI()), regs.getAX());
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
             }
         } else {
-            memory.writeWord(Memory.segOfs(regs.es, regs.getDI()), regs.getAX());
+            memory.writeWord(resolveSegOfs(regs.es, regs.getDI()), regs.getAX());
             regs.setDI(regs.getDI() + dir);
         }
     }
@@ -2439,31 +2499,31 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -4 : 4;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                writeMemOp(Memory.segOfs(regs.es, regs.getDI()), regs.getEAX());
+                writeMemOp(resolveSegOfs(regs.es, regs.getDI()), regs.getEAX());
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
             }
         } else {
-            writeMemOp(Memory.segOfs(regs.es, regs.getDI()), regs.getEAX());
+            writeMemOp(resolveSegOfs(regs.es, regs.getDI()), regs.getEAX());
             regs.setDI(regs.getDI() + dir);
         }
     }
 
     private void execLodsb() {
         int dir = regs.flags.getDF() ? -1 : 1;
-        regs.setAL(memory.readByte(Memory.segOfs(getDS(), regs.getSI())));
+        regs.setAL(memory.readByte(resolveSegOfs(getDS(), regs.getSI())));
         regs.setSI(regs.getSI() + dir);
     }
 
     private void execLodsw() {
         int dir = regs.flags.getDF() ? -2 : 2;
-        regs.setAX(memory.readWord(Memory.segOfs(getDS(), regs.getSI())));
+        regs.setAX(memory.readWord(resolveSegOfs(getDS(), regs.getSI())));
         regs.setSI(regs.getSI() + dir);
     }
 
     private void execLodsd() {
         int dir = regs.flags.getDF() ? -4 : 4;
-        regs.setEAX(readMemOp(Memory.segOfs(getDS(), regs.getSI())));
+        regs.setEAX(readMemOp(resolveSegOfs(getDS(), regs.getSI())));
         regs.setSI(regs.getSI() + dir);
     }
 
@@ -2471,7 +2531,7 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -1 : 1;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int b = memory.readByte(Memory.segOfs(regs.es, regs.getDI()));
+                int b = memory.readByte(resolveSegOfs(regs.es, regs.getDI()));
                 alu8(7, regs.getAL(), b);
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
@@ -2479,7 +2539,7 @@ public class CPU implements Module {
                 if (!repNE && !regs.flags.getZF()) break;
             }
         } else {
-            int b = memory.readByte(Memory.segOfs(regs.es, regs.getDI()));
+            int b = memory.readByte(resolveSegOfs(regs.es, regs.getDI()));
             alu8(7, regs.getAL(), b);
             regs.setDI(regs.getDI() + dir);
         }
@@ -2489,7 +2549,7 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -2 : 2;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+                int b = memory.readWord(resolveSegOfs(regs.es, regs.getDI()));
                 alu16(7, regs.getAX(), b);
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
@@ -2497,7 +2557,7 @@ public class CPU implements Module {
                 if (!repNE && !regs.flags.getZF()) break;
             }
         } else {
-            int b = memory.readWord(Memory.segOfs(regs.es, regs.getDI()));
+            int b = memory.readWord(resolveSegOfs(regs.es, regs.getDI()));
             alu16(7, regs.getAX(), b);
             regs.setDI(regs.getDI() + dir);
         }
@@ -2507,7 +2567,7 @@ public class CPU implements Module {
         int dir = regs.flags.getDF() ? -4 : 4;
         if (repPrefix) {
             while (regs.getCX() != 0) {
-                int b = readMemOp(Memory.segOfs(regs.es, regs.getDI()));
+                int b = readMemOp(resolveSegOfs(regs.es, regs.getDI()));
                 alu32(7, regs.getEAX(), b);
                 regs.setDI(regs.getDI() + dir);
                 regs.setCX(regs.getCX() - 1);
@@ -2515,7 +2575,7 @@ public class CPU implements Module {
                 if (!repNE && !regs.flags.getZF()) break;
             }
         } else {
-            int b = readMemOp(Memory.segOfs(regs.es, regs.getDI()));
+            int b = readMemOp(resolveSegOfs(regs.es, regs.getDI()));
             alu32(7, regs.getEAX(), b);
             regs.setDI(regs.getDI() + dir);
         }

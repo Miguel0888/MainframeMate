@@ -92,8 +92,10 @@ public class DPMIManager {
      * Perform the DPMI mode switch.
      * Called when the program calls the DPMI entry point.
      * Sets up initial selectors and activates protected mode.
+     *
+     * @return array of [csSel, dsSel, ssSel, esSel] initial selectors
      */
-    public void enterProtectedMode(int clientBits, int pspSegment) {
+    public int[] enterProtectedMode(int clientBits, int pspSegment) {
         dpmiActive = true;
 
         // Save real mode IVT
@@ -101,6 +103,41 @@ public class DPMIManager {
             rmIntVecOfs[i] = memory.readWord(i * 4);
             rmIntVecSeg[i] = memory.readWord(i * 4 + 2);
         }
+
+        // Create initial selectors for the program's real mode segments
+        // CS selector
+        int csSel = segmentToDescriptor(pspSegment);
+        int csIdx = selectorToIndex(csSel);
+        ldt[csIdx].accessRights = 0x009A; // code, read, present
+        ldt[csIdx].is32Bit = (clientBits != 0); // 32-bit if client requested
+        ldt[csIdx].limit = 0xFFFF;
+
+        // DS selector
+        int dsSel = segmentToDescriptor(pspSegment);
+
+        // SS selector - same as DS for now
+        int ssSel = segmentToDescriptor(pspSegment);
+
+        // ES selector - same as DS
+        int esSel = segmentToDescriptor(pspSegment);
+
+        // Also create a selector for the environment segment (PSP+0x2C)
+        // and selectors for conventional memory ranges
+        // Create a flat selector for all of real mode memory (0-1MB)
+        int flatSel = allocateDescriptors(1);
+        if (flatSel >= 0) {
+            int flatIdx = selectorToIndex(flatSel);
+            ldt[flatIdx].base = 0;
+            ldt[flatIdx].limit = 0xFFFFF; // 1MB
+            ldt[flatIdx].pageGranular = false;
+            ldt[flatIdx].is32Bit = true;
+            ldt[flatIdx].accessRights = 0x0092; // data, RW, present
+        }
+
+        System.out.printf("[DPMI] Protected mode entered. CS=%04X DS=%04X SS=%04X ES=%04X%n",
+                csSel, dsSel, ssSel, esSel);
+
+        return new int[] { csSel, dsSel, ssSel, esSel };
     }
 
     // ── INT 31h/0000: Allocate LDT Descriptors ──────────────
@@ -394,13 +431,14 @@ public class DPMIManager {
     /**
      * Convert a selector:offset pair to a linear address.
      * Used by the CPU when in protected mode.
+     * If the selector isn't in the LDT, falls back to real-mode addressing.
      */
     public int resolveAddress(int selector, int offset) {
         int idx = selectorToIndex(selector);
-        if (idx < MAX_LDT_ENTRIES && ldt[idx].present) {
+        if (idx > 0 && idx < MAX_LDT_ENTRIES && ldt[idx].present) {
             return ldt[idx].base + offset;
         }
-        // Fall back to real-mode style
+        // Fall back to real-mode style (for unmapped selectors / BIOS ROM area)
         return ((selector & 0xFFFF) << 4) + (offset & 0xFFFF);
     }
 
