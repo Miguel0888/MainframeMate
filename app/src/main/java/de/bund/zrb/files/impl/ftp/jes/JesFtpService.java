@@ -219,47 +219,27 @@ public class JesFtpService implements Closeable {
      */
     public static List<JesSpoolFile> parseSpoolSectionsFromOutput(String fullOutput) {
         List<JesSpoolFile> sections = new ArrayList<JesSpoolFile>();
-        if (fullOutput == null || fullOutput.isEmpty()) return sections;
+        if (fullOutput == null || fullOutput.isEmpty()) {
+            return sections;
+        }
 
         String[] lines = fullOutput.split("\\r?\\n");
-        int sectionId = 0;
-        int sectionStart = 0;
-        String currentDd = null;
-        int lineCount = 0;
+        int sectionStart = findNextNonEmptyLine(lines, 0);
+        int sectionId = 1;
 
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i];
-            String trimmed = line.trim();
-
-            // JES2 separator: "!! END OF JES SPOOL FILE !!" or similar
-            if (trimmed.contains("END OF JES SPOOL FILE")
-                    || trimmed.contains("END OF JES2 SPOOL")
-                    || trimmed.matches("^\\s*!!\\s+END\\s+.*!!\\s*$")) {
-                // Close current section
-                if (currentDd != null) {
-                    sections.add(new JesSpoolFile(sectionId, currentDd, "", "", "", 0, lineCount));
-                }
-                currentDd = null;
-                lineCount = 0;
-                sectionStart = i + 1;
+        for (int i = sectionStart; i < lines.length; i++) {
+            if (!isJesSectionSeparator(lines[i])) {
                 continue;
             }
 
-            // Try to detect DD name from header lines
-            // Typical: "         J E S 2  J O B  L O G  --  S Y S T E M ..."
-            // or first few lines after a separator often contain the DD name
-            if (currentDd == null && i == sectionStart) {
-                sectionId++;
-                // Try to identify the DD from known patterns
-                currentDd = detectDdNameFromLine(trimmed, sectionId);
-            }
-
-            lineCount++;
+            int sectionEnd = i;
+            addSection(sections, lines, sectionStart, sectionEnd, sectionId);
+            sectionId++;
+            sectionStart = findNextNonEmptyLine(lines, i + 1);
         }
 
-        // Close last section
-        if (currentDd != null && lineCount > 0) {
-            sections.add(new JesSpoolFile(sectionId, currentDd, "", "", "", 0, lineCount));
+        if (sectionStart >= 0 && sectionStart < lines.length) {
+            addSection(sections, lines, sectionStart, lines.length, sectionId);
         }
 
         return sections;
@@ -268,25 +248,130 @@ public class JesFtpService implements Closeable {
     /**
      * Try to identify a DD name from a JES output header line.
      */
-    private static String detectDdNameFromLine(String line, int sectionId) {
-        if (line == null || line.isEmpty()) return "SPOOL#" + sectionId;
-        String upper = line.toUpperCase();
-        // JES2 Job Log
-        if (upper.contains("J E S 2  J O B  L O G") || upper.contains("JES2 JOB LOG"))
+    private static String detectDdNameFromLine(String line) {
+        if (line == null) {
+            return null;
+        }
+
+        String trimmed = line.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        String upper = trimmed.toUpperCase();
+        String compact = upper.replaceAll("\\s+", "");
+
+        if (compact.contains("JES2JOBLOG") || compact.contains("JESJOBLOG")) {
             return "JESMSGLG";
-        // JES2 JCL
-        if (upper.contains("J E S 2  J C L") || upper.contains("JES2 JCL"))
+        }
+
+        if (compact.contains("JES2JCL") || compact.contains("JESJCL")) {
             return "JESJCL";
-        // JES2 System Messages / JESYSMSG
-        if (upper.contains("SYSTEM MESSAGES") || upper.contains("S Y S T E M  M E S S A G E S")
-                || upper.contains("JESYSMSG"))
+        }
+
+        if (compact.contains("SYSTEMMESSAGES")
+                || compact.contains("JES2SYSTEMMESSAGES")
+                || compact.contains("JESYSMSG")) {
             return "JESYSMSG";
-        // SYSPRINT, SYSOUT
-        if (upper.contains("SYSPRINT")) return "SYSPRINT";
-        if (upper.contains("SYSOUT")) return "SYSOUT";
-        // SYSTSPRT
-        if (upper.contains("SYSTSPRT")) return "SYSTSPRT";
-        // Default: numbered
+        }
+
+        if (compact.contains("SYSPRINT")) {
+            return "SYSPRINT";
+        }
+
+        if (compact.contains("SYSOUT")) {
+            return "SYSOUT";
+        }
+
+        if (compact.contains("SYSTSPRT")) {
+            return "SYSTSPRT";
+        }
+
+        if (upper.startsWith("//")) {
+            return "JESJCL";
+        }
+
+        return null;
+    }
+
+    private static void addSection(List<JesSpoolFile> sections,
+                                   String[] lines,
+                                   int sectionStart,
+                                   int sectionEnd,
+                                   int sectionId) {
+        if (sectionStart < 0 || sectionStart >= sectionEnd) {
+            return;
+        }
+
+        String ddName = detectDdNameFromSection(lines, sectionStart, sectionEnd, sectionId);
+        int lineCount = countNonSeparatorLines(lines, sectionStart, sectionEnd);
+
+        sections.add(new JesSpoolFile(
+                sectionId,
+                ddName,
+                "",
+                "",
+                "",
+                0,
+                lineCount
+        ));
+    }
+
+    private static int findNextNonEmptyLine(String[] lines, int startIndex) {
+        for (int i = Math.max(0, startIndex); i < lines.length; i++) {
+            if (lines[i] != null && !lines[i].trim().isEmpty()) {
+                return i;
+            }
+        }
+        return lines.length;
+    }
+
+    private static boolean isJesSectionSeparator(String line) {
+        if (line == null) {
+            return false;
+        }
+
+        String trimmed = line.trim();
+        return trimmed.contains("END OF JES SPOOL FILE")
+                || trimmed.contains("END OF JES2 SPOOL")
+                || trimmed.matches("^\\s*!!\\s+END\\s+.*!!\\s*$");
+    }
+
+    private static int countNonSeparatorLines(String[] lines, int startInclusive, int endExclusive) {
+        int count = 0;
+        for (int i = startInclusive; i < endExclusive; i++) {
+            if (!isJesSectionSeparator(lines[i])) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String detectDdNameFromSection(String[] lines,
+                                                  int startInclusive,
+                                                  int endExclusive,
+                                                  int sectionId) {
+        int probeEnd = Math.min(endExclusive, startInclusive + 12);
+
+        for (int i = startInclusive; i < probeEnd; i++) {
+            String candidate = detectDdNameFromLine(lines[i]);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        for (int i = startInclusive; i < probeEnd; i++) {
+            String rawLine = lines[i];
+            if (rawLine == null) {
+                continue;
+            }
+
+            String trimmed = rawLine.trim();
+            if (trimmed.startsWith("//")) {
+                return "JESJCL";
+            }
+        }
+
         return "SPOOL#" + sectionId;
     }
 
