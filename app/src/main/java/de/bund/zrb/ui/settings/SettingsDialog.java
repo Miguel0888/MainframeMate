@@ -16,8 +16,8 @@ import java.util.List;
  */
 public class SettingsDialog {
 
-    public static final int TAB_INDEX_MAILS = 10;
-    public static final int TAB_INDEX_DEBUG = 11;
+    public static final int TAB_INDEX_MAILS = 14;
+    public static final int TAB_INDEX_DEBUG = 15;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -33,6 +33,7 @@ public class SettingsDialog {
         categories.add(new FtpSettingsPanel());
         categories.add(new NdvSettingsPanel());
         categories.add(new BetaViewSettingsPanel());
+        categories.add(new JesSpoolSettingsPanel());
         categories.add(new WikiSettingsPanel());
         categories.add(new Tn3270SettingsPanel());
         categories.add(new AiSettingsPanel());
