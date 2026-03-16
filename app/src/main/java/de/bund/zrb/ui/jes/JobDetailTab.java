@@ -736,6 +736,7 @@ public class JobDetailTab implements FtpTab {
         }
 
         int state = ST_NORMAL;
+        boolean instreamHadData = false;
         StringBuilder sb = new StringBuilder();
         boolean first = true;
 
@@ -770,11 +771,16 @@ public class JobDetailTab implements FtpTab {
                     continue;
                 }
                 if (isRecognisedPrefix(stripped)) {
-                    // JES2 omitted the instream data → back to NORMAL
+                    // JES2 omitted the instream data → insert placeholder, back to NORMAL
+                    if (!instreamHadData) {
+                        sb.append('\n');
+                        sb.append("//* << instream data omitted by JES2 >>");
+                    }
                     state = ST_NORMAL;
                     // fall through to NORMAL processing
                 } else {
                     // actual instream data line → keep
+                    instreamHadData = true;
                     if (!first) sb.append('\n');
                     first = false;
                     sb.append(rtrim(stripped));
@@ -809,6 +815,7 @@ public class JobDetailTab implements FtpTab {
                 // machine will exit ST_INSTREAM immediately when the next // line appears.
                 if (isInstreamDataDd(rtrimmed)) {
                     state = ST_INSTREAM;
+                    instreamHadData = false;
                 }
                 continue;
             }
