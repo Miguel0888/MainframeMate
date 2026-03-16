@@ -690,56 +690,147 @@ public class JobDetailTab implements FtpTab {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Helpers – JES line number stripping
+    //  Helpers – JES spool JCL normalizer
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Strip JES spool line numbers from content.
-     * JES spool output (especially JESJCL) prepends statement numbers like:
+     * Normalize JES spool JCL output into clean, resubmittable JCL.
+     * <p>
+     * JES JESJCL spool format uses a fixed 10-character prefix per line
+     * (right-justified statement number in cols 1–9, space in col 10):
      * <pre>
-     *         1 //JOBNAME  JOB (ACCT),'PGMR'
-     *         2 //STEP1    EXEC PGM=IEFBR14
+     *         1 //KKR097XP JOB (60768,F14,1,999),ZDALADEP,CLASS=A,       J0753875
+     *           //             MSGCLASS=S,NOTIFY=KKR097,REGION=5000K
+     *         4 //LOESCH   EXEC PGM=DSNDEL
+     *        12 XXSORT     EXEC  PGM=ICEMAN              ← PROC expansion
+     *           X/SYSOUT   DD  SYSOUT=*                   ← overridden PROC stmt
+     *           IEFC653I SUBSTITUTION JCL - DSN=...       ← JES message
      * </pre>
-     * Pattern: leading whitespace + digits + at least one space, then actual content.
-     * We detect this pattern and strip it only if most non-empty lines match.
+     * <p>
+     * The normalizer:
+     * <ol>
+     *   <li>Detects JES spool format via {@link #looksLikeJesSpool}</li>
+     *   <li>Strips the 10-char prefix from every line</li>
+     *   <li>Removes {@code XX}-prefixed lines (PROC expansion internals)</li>
+     *   <li>Removes {@code X/}-prefixed lines (overridden PROC originals)</li>
+     *   <li>Removes {@code IEFC*} lines (JES substitution / info messages)</li>
+     *   <li>Right-trims each remaining line</li>
+     * </ol>
+     * The result is the user's original JCL (with user overrides intact),
+     * ready for re-submission.
+     * <p>
+     * If the content does not look like JES spool, it is returned unchanged.
      */
-    static String stripJesLineNumbers(String content) {
+    static String normalizeJesSpoolJcl(String content) {
         if (content == null || content.isEmpty()) return content;
         String[] lines = content.split("\\r?\\n", -1);
         if (lines.length < 2) return content;
 
-        // Check if lines consistently have leading numbers (pattern: \s*\d+\s+)
-        int numberedCount = 0;
-        int nonEmptyCount = 0;
-        int checkLimit = Math.min(lines.length, 60);
-        for (int i = 0; i < checkLimit; i++) {
-            String trimmed = lines[i].trim();
-            if (trimmed.isEmpty()) continue;
-            nonEmptyCount++;
-            if (trimmed.matches("^\\d+\\s+.*")) {
-                numberedCount++;
-            }
+        if (!looksLikeJesSpool(lines)) {
+            return content;
         }
-
-        // Only strip if >= 60% of checked non-empty lines have leading numbers
-        if (nonEmptyCount < 2 || numberedCount < nonEmptyCount * 0.6) return content;
 
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < lines.length; i++) {
-            if (i > 0) sb.append('\n');
-            // Strip leading whitespace + digits + whitespace (the JES line number prefix)
-            sb.append(lines[i].replaceFirst("^\\s*\\d+\\s", ""));
+        boolean first = true;
+
+        for (String line : lines) {
+            // Strip the 10-character prefix (statement number area)
+            String stripped;
+            if (line.length() > 10) {
+                stripped = line.substring(10);
+            } else if (line.length() == 10) {
+                stripped = "";
+            } else {
+                // Very short line – keep trimmed (e.g. empty lines)
+                stripped = line.trim();
+            }
+
+            // Classify line type by what follows the prefix
+            if (stripped.startsWith("XX")) {
+                // PROC expansion internal – not part of the user's JCL → skip
+                continue;
+            }
+            if (stripped.startsWith("X/")) {
+                // Overridden original PROC statement → skip
+                continue;
+            }
+            if (stripped.length() >= 4) {
+                String tag = stripped.substring(0, 4);
+                if (tag.equals("IEFC") || tag.equals("IEF1") || tag.equals("IEF2")
+                        || tag.equals("IEF3") || tag.equals("IEF4") || tag.equals("IEF7")) {
+                    // JES informational / substitution message → skip
+                    continue;
+                }
+            }
+
+            if (!first) sb.append('\n');
+            first = false;
+
+            // Right-trim trailing whitespace (JCL is padded to 80 chars)
+            sb.append(rtrim(stripped));
         }
-        return sb.toString();
+
+        // Strip trailing empty lines
+        String result = sb.toString();
+        while (result.endsWith("\n")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
     }
 
     /**
-     * Cleans and sets content: strips JES line numbers, sets text, applies syntax, fires outline refresh.
+     * Detect whether the content lines follow JES JESJCL spool format.
+     * Checks for the characteristic pattern of numbered JCL lines:
+     * 10-char prefix with right-justified statement number followed by {@code //}.
+     */
+    static boolean looksLikeJesSpool(String[] lines) {
+        int numberedJclLines = 0;
+        int tenSpaceJclLines = 0;
+        int checkLimit = Math.min(lines.length, 50);
+
+        for (int i = 0; i < checkLimit; i++) {
+            String line = lines[i];
+            if (line.length() < 12) continue;
+
+            String prefix = line.substring(0, 10);
+            String after  = line.substring(10);
+
+            // Pattern A: numbered line → prefix has digits + trailing space, content starts with //
+            // e.g. "        1 //KKR097XP JOB ..."
+            if (prefix.charAt(9) == ' ' && prefix.substring(0, 9).trim().matches("\\d+")) {
+                if (after.startsWith("//") || after.startsWith("XX")) {
+                    numberedJclLines++;
+                }
+            }
+            // Pattern B: continuation / expansion → 10 spaces then // or XX or X/ or IEFC
+            if (prefix.equals("          ")) {
+                if (after.startsWith("//") || after.startsWith("XX")
+                        || after.startsWith("X/") || after.startsWith("IEFC")) {
+                    tenSpaceJclLines++;
+                }
+            }
+        }
+
+        // Need at least 3 numbered JCL lines; continuation lines add confidence
+        return numberedJclLines >= 3;
+    }
+
+    /** Right-trim trailing whitespace. */
+    private static String rtrim(String s) {
+        int len = s.length();
+        while (len > 0 && s.charAt(len - 1) <= ' ') {
+            len--;
+        }
+        return s.substring(0, len);
+    }
+
+    /**
+     * Cleans and sets content: normalizes JES spool JCL, sets text, applies syntax, fires outline refresh.
      * @param rawContent  content as retrieved from JES
      * @param ddName      DD name for detection hinting (may be null)
      */
     private void cleanAndSetContent(String rawContent, String ddName) {
-        String cleaned = stripJesLineNumbers(rawContent);
+        String cleaned = normalizeJesSpoolJcl(rawContent);
         contentArea.setText(cleaned);
         contentArea.setCaretPosition(0);
         applySyntaxForContent(cleaned, ddName);
