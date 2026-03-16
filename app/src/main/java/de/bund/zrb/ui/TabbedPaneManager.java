@@ -594,6 +594,9 @@ public class TabbedPaneManager {
             rightDrawer.getOutlinePanel().setLineNavigator(lineNumber -> {
                 navigateToLine(tab, lineNumber);
             });
+
+            // Auto-switch to Outline tab so the user can see the outline
+            rightDrawer.showOutlineTab();
         } else {
             rightDrawer.clearJclOutline();
         }
@@ -605,12 +608,19 @@ public class TabbedPaneManager {
     private boolean isJclContent(String content) {
         if (content == null || content.length() < 3) return false;
 
-        String[] lines = content.split("\\r?\\n", 20);
+        String[] lines = content.split("\\r?\\n", 80);
         int jclLineCount = 0;
 
         for (String line : lines) {
-            if (line.startsWith("//")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("//")) {
                 jclLineCount++;
+            } else {
+                // JES spool output may prepend line numbers, e.g. "   1 //JOBNAME JOB ..."
+                String stripped = trimmed.replaceFirst("^\\d+\\s+", "");
+                if (stripped.startsWith("//")) {
+                    jclLineCount++;
+                }
             }
         }
 

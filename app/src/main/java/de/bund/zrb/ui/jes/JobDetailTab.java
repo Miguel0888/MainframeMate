@@ -154,7 +154,7 @@ public class JobDetailTab implements FtpTab {
         statusLabel = new JLabel("Lade Spool-Liste…");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
-        // Left: Copy button + Language combo
+        // Left: Copy button
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
 
         JButton copyButton = new JButton("📋 Kopieren");
@@ -169,14 +169,6 @@ public class JobDetailTab implements FtpTab {
         });
         leftPanel.add(copyButton);
 
-        // Language dropdown
-        leftPanel.add(new JLabel("Sprache:"));
-        languageCombo = new JComboBox<>(LANGUAGE_OPTIONS);
-        languageCombo.setSelectedItem(LANG_AUTO);
-        languageCombo.setMaximumSize(new Dimension(120, 26));
-        languageCombo.setToolTipText("Syntax-Highlighting / Outline-Sprache wählen");
-        languageCombo.addActionListener(e -> onLanguageChanged());
-        leftPanel.add(languageCombo);
 
         bottomPanel.add(leftPanel, BorderLayout.WEST);
 
@@ -210,8 +202,19 @@ public class JobDetailTab implements FtpTab {
         searchPanel.add(searchButtons, BorderLayout.EAST);
         bottomPanel.add(searchPanel, BorderLayout.CENTER);
 
-        // Add status to right
-        bottomPanel.add(statusLabel, BorderLayout.EAST);
+        // Right: Language combo + Status
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+
+        languageCombo = new JComboBox<>(LANGUAGE_OPTIONS);
+        languageCombo.setSelectedItem(LANG_AUTO);
+        languageCombo.setPreferredSize(new Dimension(100, 24));
+        languageCombo.setToolTipText("Syntax-Highlighting / Outline-Sprache wählen");
+        languageCombo.addActionListener(e -> onLanguageChanged());
+        rightPanel.add(languageCombo);
+
+        rightPanel.add(statusLabel);
+
+        bottomPanel.add(rightPanel, BorderLayout.EAST);
 
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
@@ -241,6 +244,13 @@ public class JobDetailTab implements FtpTab {
      * Called whenever new spool content is loaded (unless a manual language is set).
      */
     private void applySyntaxForContent(String content) {
+        applySyntaxForContent(content, null);
+    }
+
+    /**
+     * Auto-detect language from content and optional DD-name, then apply syntax highlighting.
+     */
+    private void applySyntaxForContent(String content, String ddName) {
         if (languageHint != null) {
             // Manual selection takes precedence
             applySyntaxStyle(resolveLanguageToSyntaxStyle(languageHint));
@@ -250,7 +260,15 @@ public class JobDetailTab implements FtpTab {
             applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
             return;
         }
-        // Auto-detect
+        // DD-name based detection (JESJCL always contains JCL)
+        if (ddName != null) {
+            String upperDd = ddName.toUpperCase();
+            if (upperDd.equals("JESJCL") || upperDd.endsWith(".JCL")) {
+                applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);
+                return;
+            }
+        }
+        // Auto-detect from content
         if (isNaturalContent(content)) {
             applySyntaxStyle(MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL);
         } else if (isJclContent(content)) {
@@ -298,19 +316,36 @@ public class JobDetailTab implements FtpTab {
 
     private static boolean isJclContent(String content) {
         if (content == null || content.length() < 3) return false;
-        String[] lines = content.split("\\r?\\n", 20);
+        String[] lines = content.split("\\r?\\n", 80);
         int jclLineCount = 0;
         int jclKeywordCount = 0;
         for (String line : lines) {
-            if (line.startsWith(JCL_PATTERN_START)) {
+            String trimmed = line.trim();
+            // JES spool output may prepend line numbers → trim before checking
+            if (trimmed.startsWith(JCL_PATTERN_START)) {
                 jclLineCount++;
-                String upperLine = line.toUpperCase();
+                String upperLine = trimmed.toUpperCase();
                 for (String keyword : JCL_KEYWORDS) {
                     if (upperLine.contains(" " + keyword + " ")
                             || upperLine.contains(" " + keyword + ",")
                             || upperLine.contains("//" + keyword + " ")) {
                         jclKeywordCount++;
                         break;
+                    }
+                }
+            } else {
+                // Also detect JCL lines with leading line numbers, e.g. "   1 //JOBNAME JOB ..."
+                String stripped = trimmed.replaceFirst("^\\d+\\s+", "");
+                if (stripped.startsWith(JCL_PATTERN_START)) {
+                    jclLineCount++;
+                    String upperLine = stripped.toUpperCase();
+                    for (String keyword : JCL_KEYWORDS) {
+                        if (upperLine.contains(" " + keyword + " ")
+                                || upperLine.contains(" " + keyword + ",")
+                                || upperLine.contains("//" + keyword + " ")) {
+                            jclKeywordCount++;
+                            break;
+                        }
                     }
                 }
             }
@@ -500,6 +535,7 @@ public class JobDetailTab implements FtpTab {
         if (row < 0) return;
 
         JesSpoolFile sf = spoolModel.getFileAt(row);
+        String ddName = sf.getDdName();
 
         // If we have cached full output with section ranges, scroll to that section
         if (cachedFullOutput != null && row < sectionLineRanges.size()) {
@@ -513,7 +549,7 @@ public class JobDetailTab implements FtpTab {
             String sectionContent = sb.toString();
             contentArea.setText(sectionContent);
             contentArea.setCaretPosition(0);
-            applySyntaxForContent(sectionContent);
+            applySyntaxForContent(sectionContent, ddName);
             fireOutlineRefresh();
             int lineCount = endLine - range[0];
             statusLabel.setText("✅ " + sf.getDdName() + " (" + lineCount + " Zeilen)");
@@ -536,7 +572,7 @@ public class JobDetailTab implements FtpTab {
                     String content = get();
                     contentArea.setText(content);
                     contentArea.setCaretPosition(0);
-                    applySyntaxForContent(content);
+                    applySyntaxForContent(content, ddName);
                     fireOutlineRefresh();
                     statusLabel.setText("✅ " + sf.getDdName() + " geladen (" + sf.getRecordCount() + " Records)");
                 } catch (Exception e) {
