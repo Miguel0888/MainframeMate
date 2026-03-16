@@ -6,6 +6,7 @@ import de.bund.zrb.ui.components.TabbedPaneWithHelpOverlay;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.ui.drawer.RightDrawer;
 import de.bund.zrb.ui.help.HelpContentProvider;
+import de.bund.zrb.ui.jes.JobDetailTab;
 import de.bund.zrb.ui.preview.SplitPreviewTab;
 import de.bund.zrb.util.AppLogger;
 import de.zrb.bund.api.MainframeContext;
@@ -558,6 +559,13 @@ public class TabbedPaneManager {
             content = fileTab.getContent();
             sourceName = fileTab.getPath();
             sentenceType = fileTab.getModel().getSentenceType();
+        } else if (tab instanceof JobDetailTab) {
+            JobDetailTab jesTab = (JobDetailTab) tab;
+            content = jesTab.getContent();
+            sourceName = jesTab.getPath();
+            sentenceType = jesTab.getEffectiveLanguageHint();
+            // Wire outline refresh so language dropdown changes update the outline
+            jesTab.setOutlineRefreshCallback(this::refreshOutlineForActiveTab);
         } else if (tab instanceof SplitPreviewTab) {
             SplitPreviewTab previewTab = (SplitPreviewTab) tab;
             content = previewTab.getContent();
@@ -667,6 +675,14 @@ public class TabbedPaneManager {
             if (tab instanceof FileTabImpl) {
                 FileTabImpl fileTab = (FileTabImpl) tab;
                 org.fife.ui.rsyntaxtextarea.RSyntaxTextArea textArea = fileTab.getRawPane();
+                if (textArea != null) {
+                    int offset = textArea.getLineStartOffset(lineNumber - 1);
+                    textArea.setCaretPosition(offset);
+                    textArea.requestFocusInWindow();
+                }
+            } else if (tab instanceof JobDetailTab) {
+                JobDetailTab jesTab = (JobDetailTab) tab;
+                org.fife.ui.rsyntaxtextarea.RSyntaxTextArea textArea = jesTab.getContentArea();
                 if (textArea != null) {
                     int offset = textArea.getLineStartOffset(lineNumber - 1);
                     textArea.setCaretPosition(offset);

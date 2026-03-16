@@ -6,7 +6,11 @@ import de.bund.zrb.files.impl.ftp.jes.JesSpoolFile;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.zrb.bund.newApi.ui.FtpTab;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -24,12 +28,25 @@ import java.util.logging.Logger;
  * Tab showing spool details for a single JES job.
  * <p>
  * Analogous to FileTab but for JES spool output: lists spool files on the left,
- * shows content of the selected spool file on the right.
+ * shows content of the selected spool file on the right with syntax highlighting
+ * for JCL/COBOL/Natural.
  */
 public class JobDetailTab implements FtpTab {
 
     private static final Logger LOG = Logger.getLogger(JobDetailTab.class.getName());
     private static final String[] SPOOL_COLUMNS = {"#", "DD-Name", "Step", "Proc", "Class", "Records", "Bytes"};
+
+    // JCL detection patterns
+    private static final String JCL_PATTERN_START = "//";
+    private static final String[] JCL_KEYWORDS = {"JOB", "EXEC", "DD", "PROC", "PEND", "SET", "JCLLIB", "INCLUDE"};
+
+    /** Language options for the dropdown */
+    private static final String LANG_AUTO = "Auto";
+    private static final String LANG_JCL = "JCL";
+    private static final String LANG_COBOL = "COBOL";
+    private static final String LANG_NATURAL = "NATURAL";
+    private static final String LANG_PLAIN = "Plain Text";
+    private static final String[] LANGUAGE_OPTIONS = {LANG_AUTO, LANG_JCL, LANG_COBOL, LANG_NATURAL, LANG_PLAIN};
 
     private final JesFtpService service;
     private final JesJob job;
@@ -37,16 +54,26 @@ public class JobDetailTab implements FtpTab {
     private final JPanel mainPanel;
     private final JTable spoolTable;
     private final SpoolTableModel spoolModel;
-    private final JTextArea contentArea;
+    private final RSyntaxTextArea contentArea;
     private final JLabel statusLabel;
     private final JTextField searchField;
     private final JLabel searchCountLabel;
+    private final JComboBox<String> languageCombo;
     private int lastSearchPos = 0;
+
+    /** Currently effective language hint (null = auto-detect) */
+    private String languageHint;
+
+    /** Callback to notify TabbedPaneManager that content/language changed → outline refresh */
+    private Runnable outlineRefreshCallback;
 
     public JobDetailTab(JesFtpService service, JesJob job) {
         this.service = service;
         this.job = job;
         this.spoolModel = new SpoolTableModel();
+
+        // Register custom syntax highlighters (idempotent)
+        MainframeSyntaxSupport.register();
 
         mainPanel = new JPanel(new BorderLayout(0, 4));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
@@ -99,11 +126,16 @@ public class JobDetailTab implements FtpTab {
         JScrollPane spoolScroll = new JScrollPane(spoolTable);
         spoolScroll.setPreferredSize(new Dimension(0, 160));
 
-        contentArea = new JTextArea();
+        // RSyntaxTextArea with syntax highlighting support
+        contentArea = new RSyntaxTextArea();
+        contentArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        contentArea.setCodeFoldingEnabled(false);
         contentArea.setEditable(false);
         contentArea.setFont(new Font("Consolas", Font.PLAIN, 13));
         contentArea.setTabSize(8);
-        JScrollPane contentScroll = new JScrollPane(contentArea);
+        contentArea.setLineWrap(false);
+        contentArea.setWrapStyleWord(false);
+        RTextScrollPane contentScroll = new RTextScrollPane(contentArea);
 
         // Content panel: just the content (search bar moves to bottom)
         JPanel contentPanel = new JPanel(new BorderLayout());
@@ -114,7 +146,7 @@ public class JobDetailTab implements FtpTab {
         splitPane.setResizeWeight(0.3);
         mainPanel.add(splitPane, BorderLayout.CENTER);
 
-        // ── Bottom bar: [Copy] [🔍 Search ↓ count] ... [status] ────
+        // ── Bottom bar: [Copy] [🔍 Search ↓ count] [Language ▼] [status] ────
         JPanel bottomPanel = new JPanel(new BorderLayout(8, 0));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
 
@@ -122,7 +154,9 @@ public class JobDetailTab implements FtpTab {
         statusLabel = new JLabel("Lade Spool-Liste…");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
 
-        // Left: Copy button
+        // Left: Copy button + Language combo
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+
         JButton copyButton = new JButton("📋 Kopieren");
         copyButton.setToolTipText("Angezeigten Inhalt in die Zwischenablage kopieren");
         copyButton.addActionListener(e -> {
@@ -133,7 +167,18 @@ public class JobDetailTab implements FtpTab {
                 statusLabel.setText("✅ In Zwischenablage kopiert");
             }
         });
-        bottomPanel.add(copyButton, BorderLayout.WEST);
+        leftPanel.add(copyButton);
+
+        // Language dropdown
+        leftPanel.add(new JLabel("Sprache:"));
+        languageCombo = new JComboBox<>(LANGUAGE_OPTIONS);
+        languageCombo.setSelectedItem(LANG_AUTO);
+        languageCombo.setMaximumSize(new Dimension(120, 26));
+        languageCombo.setToolTipText("Syntax-Highlighting / Outline-Sprache wählen");
+        languageCombo.addActionListener(e -> onLanguageChanged());
+        leftPanel.add(languageCombo);
+
+        bottomPanel.add(leftPanel, BorderLayout.WEST);
 
         // Center: Search bar (fills remaining space)
         searchField = new JTextField();
@@ -172,6 +217,161 @@ public class JobDetailTab implements FtpTab {
 
         // Load spool files initially
         loadSpoolList();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Language detection & syntax highlighting
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Called when the language dropdown changes. */
+    private void onLanguageChanged() {
+        String selected = (String) languageCombo.getSelectedItem();
+        if (LANG_AUTO.equals(selected)) {
+            languageHint = null;
+            applySyntaxForContent(contentArea.getText());
+        } else {
+            languageHint = selected;
+            applySyntaxStyle(resolveLanguageToSyntaxStyle(selected));
+        }
+        fireOutlineRefresh();
+    }
+
+    /**
+     * Auto-detect language from content and apply syntax highlighting.
+     * Called whenever new spool content is loaded (unless a manual language is set).
+     */
+    private void applySyntaxForContent(String content) {
+        if (languageHint != null) {
+            // Manual selection takes precedence
+            applySyntaxStyle(resolveLanguageToSyntaxStyle(languageHint));
+            return;
+        }
+        if (content == null || content.isEmpty()) {
+            applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+            return;
+        }
+        // Auto-detect
+        if (isNaturalContent(content)) {
+            applySyntaxStyle(MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL);
+        } else if (isJclContent(content)) {
+            applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE);
+        } else if (isCobolContent(content)) {
+            applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        } else {
+            applySyntaxStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        }
+    }
+
+    private void applySyntaxStyle(String style) {
+        contentArea.setSyntaxEditingStyle(style);
+        boolean hasHighlighting = !SyntaxConstants.SYNTAX_STYLE_NONE.equals(style);
+        contentArea.setCodeFoldingEnabled(hasHighlighting);
+    }
+
+    private static String resolveLanguageToSyntaxStyle(String lang) {
+        if (lang == null) return SyntaxConstants.SYNTAX_STYLE_NONE;
+        switch (lang) {
+            case LANG_JCL:     return SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE;
+            case LANG_COBOL:   return SyntaxConstants.SYNTAX_STYLE_NONE;
+            case LANG_NATURAL: return MainframeSyntaxSupport.SYNTAX_STYLE_NATURAL;
+            default:           return SyntaxConstants.SYNTAX_STYLE_NONE;
+        }
+    }
+
+    /**
+     * Returns the effective language hint for outline purposes.
+     * When "Auto" is selected, detects from content.
+     */
+    public String getEffectiveLanguageHint() {
+        if (languageHint != null) return languageHint;
+        // auto-detect
+        String content = contentArea.getText();
+        if (content != null && !content.isEmpty()) {
+            if (isJclContent(content)) return LANG_JCL;
+            if (isCobolContent(content)) return LANG_COBOL;
+            if (isNaturalContent(content)) return LANG_NATURAL;
+        }
+        return null;
+    }
+
+    // ── Content-based language detection (mirrors SplitPreviewTab / TabbedPaneManager logic) ──
+
+    private static boolean isJclContent(String content) {
+        if (content == null || content.length() < 3) return false;
+        String[] lines = content.split("\\r?\\n", 20);
+        int jclLineCount = 0;
+        int jclKeywordCount = 0;
+        for (String line : lines) {
+            if (line.startsWith(JCL_PATTERN_START)) {
+                jclLineCount++;
+                String upperLine = line.toUpperCase();
+                for (String keyword : JCL_KEYWORDS) {
+                    if (upperLine.contains(" " + keyword + " ")
+                            || upperLine.contains(" " + keyword + ",")
+                            || upperLine.contains("//" + keyword + " ")) {
+                        jclKeywordCount++;
+                        break;
+                    }
+                }
+            }
+        }
+        return jclLineCount >= 2 && jclKeywordCount >= 1;
+    }
+
+    private static boolean isCobolContent(String content) {
+        if (content == null) return false;
+        String upper = content.toUpperCase();
+        return upper.contains("IDENTIFICATION DIVISION")
+                || upper.contains("PROCEDURE DIVISION")
+                || upper.contains("DATA DIVISION")
+                || upper.contains("WORKING-STORAGE SECTION");
+    }
+
+    private static boolean isNaturalContent(String content) {
+        if (content == null) return false;
+        String[] lines = content.split("\\r?\\n", 40);
+        int naturalHits = 0;
+        for (String line : lines) {
+            String trimmed = line.trim().toUpperCase();
+            if (trimmed.startsWith("DEFINE DATA")
+                    || trimmed.startsWith("END-DEFINE")
+                    || trimmed.startsWith("DEFINE SUBROUTINE")
+                    || trimmed.startsWith("CALLNAT ")
+                    || trimmed.startsWith("END-SUBROUTINE")
+                    || trimmed.startsWith("LOCAL USING")
+                    || trimmed.startsWith("PARAMETER USING")
+                    || trimmed.startsWith("DECIDE ON")
+                    || trimmed.startsWith("DECIDE FOR")
+                    || trimmed.startsWith("INPUT USING MAP")
+                    || trimmed.startsWith("FETCH RETURN")) {
+                naturalHits++;
+            }
+        }
+        return naturalHits >= 2;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Outline integration
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Set callback for outline refresh (called by TabbedPaneManager when wiring this tab).
+     */
+    public void setOutlineRefreshCallback(Runnable callback) {
+        this.outlineRefreshCallback = callback;
+    }
+
+    private void fireOutlineRefresh() {
+        if (outlineRefreshCallback != null) {
+            outlineRefreshCallback.run();
+        }
+    }
+
+    /**
+     * Get the RSyntaxTextArea for line navigation from the outline panel.
+     */
+    public RSyntaxTextArea getContentArea() {
+        return contentArea;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -310,8 +510,11 @@ public class JobDetailTab implements FtpTab {
             for (int i = range[0]; i < endLine; i++) {
                 sb.append(allLines[i]).append('\n');
             }
-            contentArea.setText(sb.toString());
+            String sectionContent = sb.toString();
+            contentArea.setText(sectionContent);
             contentArea.setCaretPosition(0);
+            applySyntaxForContent(sectionContent);
+            fireOutlineRefresh();
             int lineCount = endLine - range[0];
             statusLabel.setText("✅ " + sf.getDdName() + " (" + lineCount + " Zeilen)");
             return;
@@ -333,6 +536,8 @@ public class JobDetailTab implements FtpTab {
                     String content = get();
                     contentArea.setText(content);
                     contentArea.setCaretPosition(0);
+                    applySyntaxForContent(content);
+                    fireOutlineRefresh();
                     statusLabel.setText("✅ " + sf.getDdName() + " geladen (" + sf.getRecordCount() + " Records)");
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
@@ -348,6 +553,8 @@ public class JobDetailTab implements FtpTab {
         if (cachedFullOutput != null) {
             contentArea.setText(cachedFullOutput);
             contentArea.setCaretPosition(0);
+            applySyntaxForContent(cachedFullOutput);
+            fireOutlineRefresh();
             statusLabel.setText("✅ Gesamter Output angezeigt");
             spoolTable.clearSelection();
             return;
@@ -368,6 +575,8 @@ public class JobDetailTab implements FtpTab {
                     String content = get();
                     contentArea.setText(content);
                     contentArea.setCaretPosition(0);
+                    applySyntaxForContent(content);
+                    fireOutlineRefresh();
                     statusLabel.setText("✅ Gesamter Output geladen");
                     spoolTable.clearSelection();
                 } catch (Exception e) {
@@ -484,6 +693,8 @@ public class JobDetailTab implements FtpTab {
                     cachedFullOutput = fullOutput;
                     contentArea.setText(fullOutput);
                     contentArea.setCaretPosition(0);
+                    applySyntaxForContent(fullOutput);
+                    fireOutlineRefresh();
 
                     // Parse sections but force all DDNames to SPOOL#n
                     List<JesSpoolFile> sections = parseSpoolSectionsAsNumbered(fullOutput);
