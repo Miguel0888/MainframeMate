@@ -332,6 +332,29 @@ public class DPMIManager {
         return sel;
     }
 
+    /**
+     * Auto-map a real-mode segment address as a PM data selector.
+     * When a MOV Sreg instruction loads a value that is not a valid PM selector,
+     * the raw value is likely a real-mode segment address. This method creates
+     * a data segment descriptor mapping that real-mode segment.
+     *
+     * @param realModeSeg the raw 16-bit value (interpreted as real-mode segment)
+     * @return a valid PM selector for the new data segment, or -1 on failure
+     */
+    public int autoMapRealModeDS(int realModeSeg) {
+        int sel = allocateDescriptors(1);
+        if (sel < 0) return -1;
+        int idx = selectorToIndex(sel);
+        ldt[idx].base = (realModeSeg & 0xFFFF) << 4;
+        ldt[idx].limit = 0xFFFF;
+        ldt[idx].accessRights = 0x0092; // data, read/write, present (16-bit)
+        ldt[idx].is32Bit = false;
+        ldt[idx].present = true;
+        System.out.printf("[DPMI] Auto-mapped real-mode data segment %04X → selector %04X (LDT[%d], base=%08X)%n",
+                realModeSeg, sel, idx, ldt[idx].base);
+        return sel;
+    }
+
     // ── INT 31h/0006: Get Segment Base Address ──────────────
 
     public int getSegmentBase(int selector) {

@@ -1473,21 +1473,16 @@ public class CPU implements Module {
                         if (valid) {
                             regs.setSeg(seg, val);
                         } else {
-                            // Invalid selector — #GP(selector)
-                            // DOS/4GW handles #GP by checking if the faulting instruction
-                            // was a segment load and fixing it up. For now, load 0 (null selector)
-                            // to prevent garbage propagation, and invoke exception handler if set.
-                            int excSel = dpmi.getExceptionHandler_Sel(0x0D); // #GP = exception 13
-                            if (excSel != 0) {
-                                // Push error code and jump to exception handler
-                                pushOp(val); // error code = selector
-                                pushOp(regs.flags.getDWord());
-                                pushOp(regs.cs);
-                                pushOp(regs.getEIP());
-                                regs.cs = excSel;
-                                setEffIP(dpmi.getExceptionHandler_Ofs(0x0D));
+                            // Invalid selector — likely a real-mode segment value used in PM.
+                            // DOS/4GW's #GP handler patches these by auto-mapping the real-mode
+                            // segment to a PM data selector. We do this directly to avoid the
+                            // complexity of a proper DPMI exception frame.
+                            // Treat the value as a real-mode segment and create a mapping.
+                            int mappedSel = dpmi.autoMapRealModeDS(val);
+                            if (mappedSel >= 0) {
+                                regs.setSeg(seg, mappedSel);
                             } else {
-                                // No exception handler — silently load null to avoid crash
+                                // Could not allocate — load null selector
                                 regs.setSeg(seg, 0);
                             }
                         }
