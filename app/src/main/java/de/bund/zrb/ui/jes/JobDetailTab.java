@@ -202,7 +202,7 @@ public class JobDetailTab implements FtpTab {
         searchPanel.add(searchButtons, BorderLayout.EAST);
         bottomPanel.add(searchPanel, BorderLayout.CENTER);
 
-        // Right: Language combo + Status
+        // Right: Language combo only (status label is intentionally hidden)
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
 
         languageCombo = new JComboBox<>(LANGUAGE_OPTIONS);
@@ -212,7 +212,6 @@ public class JobDetailTab implements FtpTab {
         languageCombo.addActionListener(e -> onLanguageChanged());
         rightPanel.add(languageCombo);
 
-        rightPanel.add(statusLabel);
 
         bottomPanel.add(rightPanel, BorderLayout.EAST);
 
@@ -483,8 +482,7 @@ public class JobDetailTab implements FtpTab {
                 try {
                     String fullOutput = get();
                     cachedFullOutput = fullOutput;
-                    contentArea.setText(fullOutput);
-                    contentArea.setCaretPosition(0);
+                    cleanAndSetContent(fullOutput, null);
 
                     // Parse sections from the output
                     List<JesSpoolFile> sections = JesFtpService.parseSpoolSectionsFromOutput(fullOutput);
@@ -547,10 +545,7 @@ public class JobDetailTab implements FtpTab {
                 sb.append(allLines[i]).append('\n');
             }
             String sectionContent = sb.toString();
-            contentArea.setText(sectionContent);
-            contentArea.setCaretPosition(0);
-            applySyntaxForContent(sectionContent, ddName);
-            fireOutlineRefresh();
+            cleanAndSetContent(sectionContent, ddName);
             int lineCount = endLine - range[0];
             statusLabel.setText("✅ " + sf.getDdName() + " (" + lineCount + " Zeilen)");
             return;
@@ -570,10 +565,7 @@ public class JobDetailTab implements FtpTab {
             protected void done() {
                 try {
                     String content = get();
-                    contentArea.setText(content);
-                    contentArea.setCaretPosition(0);
-                    applySyntaxForContent(content, ddName);
-                    fireOutlineRefresh();
+                    cleanAndSetContent(content, ddName);
                     statusLabel.setText("✅ " + sf.getDdName() + " geladen (" + sf.getRecordCount() + " Records)");
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
@@ -587,10 +579,7 @@ public class JobDetailTab implements FtpTab {
     private void loadAllSpool() {
         // If we already have the full output cached, just show it
         if (cachedFullOutput != null) {
-            contentArea.setText(cachedFullOutput);
-            contentArea.setCaretPosition(0);
-            applySyntaxForContent(cachedFullOutput);
-            fireOutlineRefresh();
+            cleanAndSetContent(cachedFullOutput, null);
             statusLabel.setText("✅ Gesamter Output angezeigt");
             spoolTable.clearSelection();
             return;
@@ -609,10 +598,7 @@ public class JobDetailTab implements FtpTab {
             protected void done() {
                 try {
                     String content = get();
-                    contentArea.setText(content);
-                    contentArea.setCaretPosition(0);
-                    applySyntaxForContent(content);
-                    fireOutlineRefresh();
+                    cleanAndSetContent(content, null);
                     statusLabel.setText("✅ Gesamter Output geladen");
                     spoolTable.clearSelection();
                 } catch (Exception e) {
@@ -704,8 +690,61 @@ public class JobDetailTab implements FtpTab {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Helpers
+    //  Helpers – JES line number stripping
     // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Strip JES spool line numbers from content.
+     * JES spool output (especially JESJCL) prepends statement numbers like:
+     * <pre>
+     *         1 //JOBNAME  JOB (ACCT),'PGMR'
+     *         2 //STEP1    EXEC PGM=IEFBR14
+     * </pre>
+     * Pattern: leading whitespace + digits + at least one space, then actual content.
+     * We detect this pattern and strip it only if most non-empty lines match.
+     */
+    static String stripJesLineNumbers(String content) {
+        if (content == null || content.isEmpty()) return content;
+        String[] lines = content.split("\\r?\\n", -1);
+        if (lines.length < 2) return content;
+
+        // Check if lines consistently have leading numbers (pattern: \s*\d+\s+)
+        int numberedCount = 0;
+        int nonEmptyCount = 0;
+        int checkLimit = Math.min(lines.length, 60);
+        for (int i = 0; i < checkLimit; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.isEmpty()) continue;
+            nonEmptyCount++;
+            if (trimmed.matches("^\\d+\\s+.*")) {
+                numberedCount++;
+            }
+        }
+
+        // Only strip if >= 60% of checked non-empty lines have leading numbers
+        if (nonEmptyCount < 2 || numberedCount < nonEmptyCount * 0.6) return content;
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append('\n');
+            // Strip leading whitespace + digits + whitespace (the JES line number prefix)
+            sb.append(lines[i].replaceFirst("^\\s*\\d+\\s", ""));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Cleans and sets content: strips JES line numbers, sets text, applies syntax, fires outline refresh.
+     * @param rawContent  content as retrieved from JES
+     * @param ddName      DD name for detection hinting (may be null)
+     */
+    private void cleanAndSetContent(String rawContent, String ddName) {
+        String cleaned = stripJesLineNumbers(rawContent);
+        contentArea.setText(cleaned);
+        contentArea.setCaretPosition(0);
+        applySyntaxForContent(cleaned, ddName);
+        fireOutlineRefresh();
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     //  Background DDName probing
@@ -727,10 +766,7 @@ public class JobDetailTab implements FtpTab {
                 try {
                     String fullOutput = get();
                     cachedFullOutput = fullOutput;
-                    contentArea.setText(fullOutput);
-                    contentArea.setCaretPosition(0);
-                    applySyntaxForContent(fullOutput);
-                    fireOutlineRefresh();
+                    cleanAndSetContent(fullOutput, null);
 
                     // Parse sections but force all DDNames to SPOOL#n
                     List<JesSpoolFile> sections = parseSpoolSectionsAsNumbered(fullOutput);
