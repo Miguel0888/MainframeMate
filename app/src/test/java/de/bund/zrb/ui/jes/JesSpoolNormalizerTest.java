@@ -24,7 +24,7 @@ class JesSpoolNormalizerTest {
             "        3 //DD1      DD DSN=MY.DATA.SET,DISP=SHR\n";
 
     private static final String MINI_EXPECTED =
-            "//TESTJOB  JOB (ACCT),'PGMR',CLASS=A,                      J1234567\n" +
+            "//TESTJOB  JOB (ACCT),'PGMR',CLASS=A,\n" +
             "//             MSGCLASS=S,NOTIFY=USR01\n" +
             "//STEP1    EXEC PGM=IEFBR14\n" +
             "//DD1      DD DSN=MY.DATA.SET,DISP=SHR";
@@ -267,8 +267,12 @@ class JesSpoolNormalizerTest {
     void normalizeComplexSpool() {
         String result = JobDetailTab.normalizeJesSpoolJcl(COMPLEX_SPOOL);
 
+        // ── JOB card: JES job number must be stripped ──
+        assertFalse(result.contains("J1234567"), "JES job number must be removed from JOB card");
+        assertTrue(result.contains("//FIN042LD JOB (12345,A01,1,999),BATCHLDR,CLASS=A,"),
+                "JOB card present without trailing job number");
+
         // ── User JCL must be present ──
-        assertTrue(result.contains("//FIN042LD JOB"), "JOB card present");
         assertTrue(result.contains("//CLEANUP  EXEC PGM=DSNDEL"), "EXEC present");
         assertTrue(result.contains("//SORT1     EXEC  SORTD"), "PROC call present");
         assertTrue(result.contains("//APPSTEP  EXEC MYPROC1,"), "PROC call present");
@@ -300,5 +304,62 @@ class JesSpoolNormalizerTest {
                 );
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  JOB card JES job number stripping
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    void stripJobNumber_removesJesNumber() {
+        assertEquals("//MYJOB  JOB (ACCT),'PGMR',CLASS=A,",
+                JobDetailTab.stripJobNumber("//MYJOB  JOB (ACCT),'PGMR',CLASS=A,                      J1234567"));
+    }
+
+    @Test
+    void stripJobNumber_leavesNonJobCards() {
+        String ddLine = "//STEPLIB DD DSN=MY.LOAD,DISP=SHR";
+        assertEquals(ddLine, JobDetailTab.stripJobNumber(ddLine));
+    }
+
+    @Test
+    void stripJobNumber_leavesJobCardWithoutNumber() {
+        String jobLine = "//MYJOB  JOB (ACCT),'PGMR',CLASS=A,";
+        assertEquals(jobLine, JobDetailTab.stripJobNumber(jobLine));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Instream data: preserved when present, graceful when JES2 omits it
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * JES2 typically does NOT include instream data in JESJCL spool output.
+     * The data is stored in separate spool files. When JES2 omits it, the
+     * normalizer simply sees the next // line and returns to NORMAL state.
+     * This is correct behaviour — the normalizer cannot reconstruct data
+     * that is not present in the spool input.
+     */
+    @Test
+    void normalizeHandlesJes2OmittedInstreamData() {
+        // Typical JES2 JESJCL: after DD * the instream data is missing,
+        // the next line is a JCL comment or the next statement.
+        String spool =
+                "        1 //MYJOB    JOB (ACCT),'PGMR'\n" +
+                "        2 //STEP1    EXEC PGM=DSNDEL\n" +
+                "        3 //SYSIN    DD *\n" +
+                "          //*\n" +
+                "        4 //STEP2    EXEC PGM=IDCAMS\n" +
+                "        5 //SYSIN    DD  *\n" +
+                "          //*\n" +
+                "        6 //SORT1    EXEC SORTD\n";
+
+        String result = JobDetailTab.normalizeJesSpoolJcl(spool);
+
+        // The //* lines are JCL comments (start with //) that end the
+        // instream area. They must be kept in the output.
+        assertTrue(result.contains("//SYSIN    DD *"));
+        assertTrue(result.contains("//*"));
+        assertTrue(result.contains("//STEP2    EXEC PGM=IDCAMS"));
+        assertTrue(result.contains("//SORT1    EXEC SORTD"));
     }
 }

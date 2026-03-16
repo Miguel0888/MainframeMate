@@ -797,9 +797,16 @@ public class JobDetailTab implements FtpTab {
                 if (!first) sb.append('\n');
                 first = false;
                 String rtrimmed = rtrim(stripped);
+
+                // Strip JES job number from JOB card (JES2 puts Jnnnnnnn in cols 73-80)
+                rtrimmed = stripJobNumber(rtrimmed);
+
                 sb.append(rtrimmed);
 
-                // After DD * or DD DATA the next lines are instream data
+                // After DD * or DD DATA the next lines are instream data.
+                // NOTE: JES2 typically omits instream data from JESJCL spool output;
+                // the data is stored in separate spool files. In that case the state
+                // machine will exit ST_INSTREAM immediately when the next // line appears.
                 if (isInstreamDataDd(rtrimmed)) {
                     state = ST_INSTREAM;
                 }
@@ -838,6 +845,28 @@ public class JobDetailTab implements FtpTab {
         if (ddIdx < 0) return false;
         String afterDd = upper.substring(ddIdx + 4).trim();
         return afterDd.startsWith("*") || afterDd.startsWith("DATA");
+    }
+
+    /**
+     * Strip the JES job number from the JOB statement card.
+     * JES2 places the job number (e.g. {@code J0753875}) in columns 73-80
+     * of the JOB card, overwriting the original identification field.
+     * This method detects and removes it.
+     */
+    static String stripJobNumber(String line) {
+        if (line.length() < 20) return line;
+        // Only process JOB cards
+        String upper = line.toUpperCase();
+        if (!upper.contains(" JOB ") && !upper.contains(" JOB(")) return line;
+        // Check if line ends with Jnnnnnnn (JES job number)
+        String trimmed = rtrim(line);
+        if (trimmed.length() >= 8) {
+            String last8 = trimmed.substring(trimmed.length() - 8);
+            if (last8.matches("J\\d{7}")) {
+                return rtrim(trimmed.substring(0, trimmed.length() - 8));
+            }
+        }
+        return line;
     }
 
     /**
