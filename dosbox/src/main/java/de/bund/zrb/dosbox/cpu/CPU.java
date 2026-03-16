@@ -2238,13 +2238,22 @@ public class CPU implements Module {
                 int reg = (modrm >> 3) & 7;
                 int ea = decodeModRM(modrm);
                 int rm = modrm & 7;
+                // Selector is always 16-bit, even with 32-bit operand size
                 int sel;
-                if (ea == -1) { sel = getRegOp(rm); } else { sel = readMemOp(ea); }
+                if (ea == -1) { sel = getRegOp(rm) & 0xFFFF; } else { sel = readMemOp(ea) & 0xFFFF; }
                 if (dpmi != null) {
                     DPMIManager.LDTEntry entry = dpmi.getEntry(sel);
                     if (entry != null && entry.present) {
-                        // Return access rights in upper bytes
-                        setRegOp(reg, (entry.accessRights & 0xFF) << 8);
+                        // Return access rights: 16-bit mode returns byte 5 of descriptor
+                        // shifted to bits 8-15. 32-bit mode returns bytes 5-6 shifted
+                        // to bits 8-23, masked with 00FxFF00h (Intel SDM Vol. 2A).
+                        if (prefix66) {
+                            // 32-bit: include G, D/B, AVL and limit[19:16] from byte 6
+                            setRegOp(reg, (entry.accessRights << 8) & 0x00FFFF00);
+                        } else {
+                            // 16-bit: access byte only
+                            setRegOp(reg, (entry.accessRights & 0xFF) << 8);
+                        }
                         regs.flags.setZF(true);
                     } else {
                         regs.flags.setZF(false);
@@ -2261,8 +2270,9 @@ public class CPU implements Module {
                 int reg = (modrm >> 3) & 7;
                 int ea = decodeModRM(modrm);
                 int rm = modrm & 7;
+                // Selector is always 16-bit, even with 32-bit operand size
                 int sel;
-                if (ea == -1) { sel = getRegOp(rm); } else { sel = readMemOp(ea); }
+                if (ea == -1) { sel = getRegOp(rm) & 0xFFFF; } else { sel = readMemOp(ea) & 0xFFFF; }
                 if (dpmi != null) {
                     DPMIManager.LDTEntry entry = dpmi.getEntry(sel);
                     if (entry != null && entry.present) {

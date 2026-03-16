@@ -471,17 +471,18 @@ public class Int31Handler implements CPU.IntHandler {
      * Uses the register structure at ES:EDI.
      */
     private void simulateRealModeInterrupt(CPU cpu, int intNum) {
-        int structAddr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getDI());
+        int structAddr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getEDI());
 
         // Read register structure (DPMI real mode call structure)
-        int rdi = memory.readWord(structAddr + 0x00);
-        int rsi = memory.readWord(structAddr + 0x04);
-        int rbp = memory.readWord(structAddr + 0x08);
+        // Offsets 0x00-0x1C are 32-bit DWORD fields per DPMI spec
+        int rdi = (int) memory.readDWord(structAddr + 0x00);
+        int rsi = (int) memory.readDWord(structAddr + 0x04);
+        int rbp = (int) memory.readDWord(structAddr + 0x08);
         // 0x0C reserved
-        int rbx = memory.readWord(structAddr + 0x10);
-        int rdx = memory.readWord(structAddr + 0x14);
-        int rcx = memory.readWord(structAddr + 0x18);
-        int rax = memory.readWord(structAddr + 0x1C);
+        int rbx = (int) memory.readDWord(structAddr + 0x10);
+        int rdx = (int) memory.readDWord(structAddr + 0x14);
+        int rcx = (int) memory.readDWord(structAddr + 0x18);
+        int rax = (int) memory.readDWord(structAddr + 0x1C);
         int rflags = memory.readWord(structAddr + 0x20);
         int res = memory.readWord(structAddr + 0x22);
         int rds = memory.readWord(structAddr + 0x24);
@@ -489,26 +490,26 @@ public class Int31Handler implements CPU.IntHandler {
         int rgs = memory.readWord(structAddr + 0x28);
         // 0x2A = IP, 0x2C = CS, 0x2E = SP, 0x30 = SS
 
-        // Save current registers
-        int savedAX = cpu.regs.getAX(), savedBX = cpu.regs.getBX();
-        int savedCX = cpu.regs.getCX(), savedDX = cpu.regs.getDX();
-        int savedSI = cpu.regs.getSI(), savedDI = cpu.regs.getDI();
-        int savedBP = cpu.regs.getBP();
+        // Save current registers (full 32-bit)
+        int savedEAX = cpu.regs.getEAX(), savedEBX = cpu.regs.getEBX();
+        int savedECX = cpu.regs.getECX(), savedEDX = cpu.regs.getEDX();
+        int savedESI = cpu.regs.getESI(), savedEDI = cpu.regs.getEDI();
+        int savedEBP = cpu.regs.getEBP();
         int savedDS = cpu.regs.ds, savedES = cpu.regs.es;
         int savedFS = cpu.regs.fs, savedGS = cpu.regs.gs;
-        int savedFlags = cpu.regs.flags.getWord();
+        int savedFlags = cpu.regs.flags.getDWord();
 
         // Switch to real-mode address resolution for the duration of the interrupt
         dpmi.setRealModeSimulation(true);
         try {
-            // Load real mode registers
-            cpu.regs.setAX(rax);
-            cpu.regs.setBX(rbx);
-            cpu.regs.setCX(rcx);
-            cpu.regs.setDX(rdx);
-            cpu.regs.setSI(rsi);
-            cpu.regs.setDI(rdi);
-            cpu.regs.setBP(rbp);
+            // Load real mode registers (use 16-bit setters for RM context)
+            cpu.regs.setAX(rax & 0xFFFF);
+            cpu.regs.setBX(rbx & 0xFFFF);
+            cpu.regs.setCX(rcx & 0xFFFF);
+            cpu.regs.setDX(rdx & 0xFFFF);
+            cpu.regs.setSI(rsi & 0xFFFF);
+            cpu.regs.setDI(rdi & 0xFFFF);
+            cpu.regs.setBP(rbp & 0xFFFF);
             cpu.regs.es = res;
             cpu.regs.ds = rds;
             cpu.regs.fs = rfs;
@@ -517,14 +518,14 @@ public class Int31Handler implements CPU.IntHandler {
             // Execute the interrupt via Java handler
             cpu.softwareInt(intNum);
 
-            // Write results back to structure
-            memory.writeWord(structAddr + 0x00, cpu.regs.getDI());
-            memory.writeWord(structAddr + 0x04, cpu.regs.getSI());
-            memory.writeWord(structAddr + 0x08, cpu.regs.getBP());
-            memory.writeWord(structAddr + 0x10, cpu.regs.getBX());
-            memory.writeWord(structAddr + 0x14, cpu.regs.getDX());
-            memory.writeWord(structAddr + 0x18, cpu.regs.getCX());
-            memory.writeWord(structAddr + 0x1C, cpu.regs.getAX());
+            // Write results back to structure as 32-bit DWORDs (per DPMI spec)
+            memory.writeDWord(structAddr + 0x00, cpu.regs.getDI() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x04, cpu.regs.getSI() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x08, cpu.regs.getBP() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x10, cpu.regs.getBX() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x14, cpu.regs.getDX() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x18, cpu.regs.getCX() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x1C, cpu.regs.getAX() & 0xFFFF);
             memory.writeWord(structAddr + 0x20, cpu.regs.flags.getWord());
             memory.writeWord(structAddr + 0x22, cpu.regs.es);
             memory.writeWord(structAddr + 0x24, cpu.regs.ds);
@@ -534,19 +535,19 @@ public class Int31Handler implements CPU.IntHandler {
             dpmi.setRealModeSimulation(false);
         }
 
-        // Restore protected mode registers
-        cpu.regs.setAX(savedAX);
-        cpu.regs.setBX(savedBX);
-        cpu.regs.setCX(savedCX);
-        cpu.regs.setDX(savedDX);
-        cpu.regs.setSI(savedSI);
-        cpu.regs.setDI(savedDI);
-        cpu.regs.setBP(savedBP);
+        // Restore protected mode registers (full 32-bit)
+        cpu.regs.setEAX(savedEAX);
+        cpu.regs.setEBX(savedEBX);
+        cpu.regs.setECX(savedECX);
+        cpu.regs.setEDX(savedEDX);
+        cpu.regs.setESI(savedESI);
+        cpu.regs.setEDI(savedEDI);
+        cpu.regs.setEBP(savedEBP);
         cpu.regs.ds = savedDS;
         cpu.regs.es = savedES;
         cpu.regs.fs = savedFS;
         cpu.regs.gs = savedGS;
-        cpu.regs.flags.setWord(savedFlags);
+        cpu.regs.flags.setDWord(savedFlags);
     }
 
     /**
@@ -556,17 +557,17 @@ public class Int31Handler implements CPU.IntHandler {
      * then writes results back.
      */
     private void simulateRealModeFarCall(CPU cpu) {
-        int structAddr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getDI());
+        int structAddr = cpu.resolveSegOfs(cpu.regs.es, cpu.regs.getEDI());
 
         // Read register structure (DPMI real mode call structure)
-        // Offsets 0x00-0x1C: 32-bit DWORD fields (only low 16 used for 16-bit clients)
-        int rdi = memory.readWord(structAddr + 0x00);
-        int rsi = memory.readWord(structAddr + 0x04);
-        int rbp = memory.readWord(structAddr + 0x08);
-        int rbx = memory.readWord(structAddr + 0x10);
-        int rdx = memory.readWord(structAddr + 0x14);
-        int rcx = memory.readWord(structAddr + 0x18);
-        int rax = memory.readWord(structAddr + 0x1C);
+        // Offsets 0x00-0x1C: 32-bit DWORD fields per DPMI spec
+        int rdi = (int) memory.readDWord(structAddr + 0x00);
+        int rsi = (int) memory.readDWord(structAddr + 0x04);
+        int rbp = (int) memory.readDWord(structAddr + 0x08);
+        int rbx = (int) memory.readDWord(structAddr + 0x10);
+        int rdx = (int) memory.readDWord(structAddr + 0x14);
+        int rcx = (int) memory.readDWord(structAddr + 0x18);
+        int rax = (int) memory.readDWord(structAddr + 0x1C);
         int rflags = memory.readWord(structAddr + 0x20);
         int res = memory.readWord(structAddr + 0x22);
         int rds = memory.readWord(structAddr + 0x24);
@@ -631,14 +632,14 @@ public class Int31Handler implements CPU.IntHandler {
                 cpu.executeOnePublic();
             }
 
-            // Write results back to call structure
-            memory.writeWord(structAddr + 0x00, cpu.regs.getDI());
-            memory.writeWord(structAddr + 0x04, cpu.regs.getSI());
-            memory.writeWord(structAddr + 0x08, cpu.regs.getBP());
-            memory.writeWord(structAddr + 0x10, cpu.regs.getBX());
-            memory.writeWord(structAddr + 0x14, cpu.regs.getDX());
-            memory.writeWord(structAddr + 0x18, cpu.regs.getCX());
-            memory.writeWord(structAddr + 0x1C, cpu.regs.getAX());
+            // Write results back to call structure (32-bit DWORDs per DPMI spec)
+            memory.writeDWord(structAddr + 0x00, cpu.regs.getDI() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x04, cpu.regs.getSI() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x08, cpu.regs.getBP() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x10, cpu.regs.getBX() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x14, cpu.regs.getDX() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x18, cpu.regs.getCX() & 0xFFFF);
+            memory.writeDWord(structAddr + 0x1C, cpu.regs.getAX() & 0xFFFF);
             memory.writeWord(structAddr + 0x20, cpu.regs.flags.getWord());
             memory.writeWord(structAddr + 0x22, cpu.regs.es);
             memory.writeWord(structAddr + 0x24, cpu.regs.ds);
