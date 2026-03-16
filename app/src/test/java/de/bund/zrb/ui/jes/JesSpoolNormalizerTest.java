@@ -6,21 +6,25 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for {@link JobDetailTab#normalizeJesSpoolJcl(String)} —
- * the normalizer that converts JES JESJCL spool output into clean,
- * resubmittable JCL.
+ * the three-state normalizer that converts JES JESJCL spool output
+ * into clean, resubmittable JCL.
+ * <p>
+ * All identifiers are fictional and do not represent real systems.
  */
 class JesSpoolNormalizerTest {
 
-    // ── Minimal JES spool snippet for quick unit tests ──────────────
+    // ═══════════════════════════════════════════════════════════════════
+    //  Basic prefix stripping
+    // ═══════════════════════════════════════════════════════════════════
 
     private static final String MINI_SPOOL =
-            "        1 //TESTJOB  JOB (ACCT),'PGMR',CLASS=A,                      J0753875\n" +
+            "        1 //TESTJOB  JOB (ACCT),'PGMR',CLASS=A,                      J1234567\n" +
             "          //             MSGCLASS=S,NOTIFY=USR01\n" +
             "        2 //STEP1    EXEC PGM=IEFBR14\n" +
             "        3 //DD1      DD DSN=MY.DATA.SET,DISP=SHR\n";
 
     private static final String MINI_EXPECTED =
-            "//TESTJOB  JOB (ACCT),'PGMR',CLASS=A,                      J0753875\n" +
+            "//TESTJOB  JOB (ACCT),'PGMR',CLASS=A,                      J1234567\n" +
             "//             MSGCLASS=S,NOTIFY=USR01\n" +
             "//STEP1    EXEC PGM=IEFBR14\n" +
             "//DD1      DD DSN=MY.DATA.SET,DISP=SHR";
@@ -31,7 +35,9 @@ class JesSpoolNormalizerTest {
         assertEquals(MINI_EXPECTED, result);
     }
 
-    // ── XX / X/ / IEFC line removal ──────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    //  XX / X/ / IEFC line removal
+    // ═══════════════════════════════════════════════════════════════════
 
     private static final String SPOOL_WITH_PROC =
             "        1 //MYJOB    JOB (ACCT),'PGMR',CLASS=A\n" +
@@ -53,7 +59,102 @@ class JesSpoolNormalizerTest {
         assertEquals(PROC_EXPECTED, result);
     }
 
-    // ── Detection: non-spool content is returned unchanged ──────────
+    // ═══════════════════════════════════════════════════════════════════
+    //  BUG FIX: multi-line IEFC653I continuation must be fully discarded
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    void normalizeDiscardsMultiLineIefcContinuation() {
+        String spool =
+                "        1 //MYJOB    JOB (ACCT),'PGMR'\n" +
+                "        2 //STEP1    EXEC MYPROC1,\n" +
+                "          //         ZPARM='MADIO=0,MAXCL=0,STACK=(LOGON MYLIB;XPGM)'\n" +
+                "        3 XXMYPROC1  PROC PGMNAME=MYPROG01\n" +
+                "        4 XXSTEP1    EXEC PGM=&PGMNAME,REGION=0M,\n" +
+                "          XX PARM=('DBID=1,',\n" +
+                "          XX     '&ZPARM')\n" +
+                // IEFC message wrapping onto two lines:
+                "          IEFC653I SUBSTITUTION JCL - PGM=MYPROG01,REGION=0M,PARM=('DBID=1,','MADIO=0,STACK=(LOGON \n" +
+                "          MYLIB;XPGM)')\n" +
+                "        5 //STEPLIB  DD\n";
+
+        String result = JobDetailTab.normalizeJesSpoolJcl(spool);
+
+        // Must NOT contain the IEFC continuation fragment
+        assertFalse(result.contains("MYLIB;XPGM')"), "IEFC continuation must be discarded");
+
+        // Must contain the real JCL
+        assertTrue(result.contains("//MYJOB    JOB"));
+        assertTrue(result.contains("ZPARM='MADIO=0,MAXCL=0,STACK=(LOGON MYLIB;XPGM)'"));
+        assertTrue(result.contains("//STEPLIB  DD"));
+
+        // No XX or IEFC lines
+        assertFalse(result.contains("XXMYPROC1"));
+        assertFalse(result.contains("IEFC653I"));
+    }
+
+    @Test
+    void normalizeDiscardsSpaceContinuation() {
+        // IEFC message with continuation "50))" on next line
+        String spool =
+                "        1 //MYJOB    JOB (ACCT),'PGMR'\n" +
+                "        2 //STEP1    EXEC PGM=SORT\n" +
+                "        3 XXDDSORTIN DD DISP=(,DELETE),DSN=&&SORT,UNIT=(SYSDA,,DEFER),\n" +
+                "          XX            DCB=RECFM=FB,SPACE=(CYL,(&SRTSPCE,&SRTSPCE))\n" +
+                "          IEFC653I SUBSTITUTION JCL - DISP=(,DELETE),DSN=&&SORT,SPACE=(CYL,(50,\n" +
+                "          50))\n" +
+                "        4 //SYSOUT   DD SYSOUT=*\n";
+
+        String result = JobDetailTab.normalizeJesSpoolJcl(spool);
+
+        assertFalse(result.contains("50))"), "IEFC continuation '50))' must be discarded");
+        assertTrue(result.contains("//SYSOUT   DD SYSOUT=*"));
+        assertFalse(result.contains("IEFC653I"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  BUG FIX: instream data after DD * must be preserved
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    void normalizePreservesInstreamData() {
+        String spool =
+                "        1 //MYJOB    JOB (ACCT),'PGMR'\n" +
+                "        2 //STEP1    EXEC PGM=DSNDEL\n" +
+                "        3 //SYSIN    DD *\n" +
+                "          DSN=MY.FIRST.DATASET\n" +
+                "          DSN=MY.SECOND.DATASET\n" +
+                "          /*\n" +
+                "        4 //STEP2    EXEC PGM=IEFBR14\n";
+
+        String result = JobDetailTab.normalizeJesSpoolJcl(spool);
+
+        assertTrue(result.contains("//SYSIN    DD *"), "DD * must be present");
+        assertTrue(result.contains("DSN=MY.FIRST.DATASET"), "Instream data must be preserved");
+        assertTrue(result.contains("DSN=MY.SECOND.DATASET"), "Instream data must be preserved");
+        assertTrue(result.contains("/*"), "Instream data delimiter must be present");
+        assertTrue(result.contains("//STEP2    EXEC PGM=IEFBR14"), "Next step must be present");
+    }
+
+    @Test
+    void normalizeHandlesOmittedInstreamData() {
+        // JES2 typically omits instream data in JESJCL; the next // line follows directly
+        String spool =
+                "        1 //MYJOB    JOB (ACCT),'PGMR'\n" +
+                "        2 //SYSIN    DD *\n" +
+                "          //*\n" +
+                "        3 //STEP2    EXEC PGM=IDCAMS\n";
+
+        String result = JobDetailTab.normalizeJesSpoolJcl(spool);
+
+        assertTrue(result.contains("//SYSIN    DD *"));
+        assertTrue(result.contains("//*"));
+        assertTrue(result.contains("//STEP2    EXEC PGM=IDCAMS"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Detection: non-spool content is returned unchanged
+    // ═══════════════════════════════════════════════════════════════════
 
     @Test
     void nonSpoolContentReturnedUnchanged() {
@@ -68,7 +169,9 @@ class JesSpoolNormalizerTest {
         assertEquals("", JobDetailTab.normalizeJesSpoolJcl(""));
     }
 
-    // ── Detection heuristic ─────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    //  Detection heuristic
+    // ═══════════════════════════════════════════════════════════════════
 
     @Test
     void looksLikeJesSpool_detectsTypicalFormat() {
@@ -102,71 +205,92 @@ class JesSpoolNormalizerTest {
         assertFalse(JobDetailTab.looksLikeJesSpool(lines));
     }
 
-    // ── Real-world JESJCL excerpt ───────────────────────────────────
-
-    private static final String REAL_SPOOL_EXCERPT =
-            "        1 //KKR097XP JOB (60768,F14,1,999),ZDALADEP,CLASS=A,                      J0753875\n" +
-            "          //             MSGCLASS=S,NOTIFY=KKR097,REGION=5000K                            \n" +
-            "          //* -------------------------------------------------------------------         \n" +
-            "          //*   FUNKTION       LADEN VON DATEIEN IN DIE DB ZABAK                          \n" +
-            "          //* -------------------------------------------------------------------         \n" +
-            "          //*                                                                             \n" +
-            "        2 //AUS OUTPUT CLASS=S,PAGEDEF=H128,FORMDEF=H128,PRMODE=PAGE,DEST=U1043           \n" +
-            "          //*                                                                             \n" +
-            "        3 //OUTFEHL1 OUTPUT DEST=U0011,CLASS=C,                                           \n" +
-            "          //         USERDATA=('TO:ANGELO.FERNANDEZIGLESIAS@ZRB.BUND.DE',                 \n" +
-            "          //        'SUBJECT:ZABAK FEHLERMELDUNG ')                                       \n" +
-            "          //*                                                                             \n" +
-            "        4 //LOESCH   EXEC PGM=DSNDEL                                                      \n" +
-            "        5 //SYSIN    DD *                                                                 \n" +
-            "          //*                                                                             \n" +
-            "        6 //REPRO1   EXEC PGM=IDCAMS                                                      \n" +
-            "        7 //SYSPRINT DD  SYSOUT=*                                                         \n" +
-            "        8 //DDEIN    DD  DUMMY                                                            \n" +
-            "        9 //DDAUS    DD  DSN=KKR097.ABAKUS.JMJ.O4SEQ,                                     \n" +
-            "          //             DISP=(,CATLG),                                                   \n" +
-            "          //             UNIT=SYSDA,                                                      \n" +
-            "          //             SPACE=(CYL,(10,10),RLSE),                                        \n" +
-            "          //             LRECL=100,RECFM=FB,DSORG=PS                                      \n" +
-            "       10 //SYSIN    DD  *                                                                \n" +
-            "          //*                                                                             \n" +
-            "       11 //SORT1     EXEC  SORTD                                                         \n" +
-            "       12 XXSORT     EXEC  PGM=ICEMAN                                                     \n" +
-            "       13 XXSORTLIB  DD  DSN=SYS1.SORTLIB,DISP=SHR                                        \n" +
-            "       14 XXSORTDIAG DD  DUMMY                                                            \n" +
-            "       15 XXIAMINFO  DD  SYSOUT=*                                                         \n" +
-            "       16 //SYSOUT      DD  SYSOUT=*                                                      \n" +
-            "          X/SYSOUT   DD  SYSOUT=*                                                         \n" +
-            "       17 //SORTIN  DD  DSN=APABB.ZWICL.JMJ.O4SEQ,DISP=SHR                                \n" +
-            "       18 //SORTOUT DD  DSN=KKR097.ABAKUS.JMJ.O4SEQ,DISP=SHR                              \n" +
-            "       19 //SYSIN  DD  *                                                                  \n" +
-            "          //*                                                                             \n" +
-            "       20 //NATURAL1 EXEC NAT1,                                                           \n" +
-            "          //         ZPARM='MADIO=0,MAXCL=0,STACK=(LOGON ABAK-M;ZDALXX0P)'                \n" +
-            "       21 XXNAT1     PROC NATPGM=NAT923BP,        NATURAL PROGRAM NAME                    \n" +
-            "          IEFC653I SUBSTITUTION JCL - PGM=NAT923BP,REGION=0M,PARM=('DBID=1,','MADIO=0')   \n";
+    // ═══════════════════════════════════════════════════════════════════
+    //  DD * / DD DATA detection
+    // ═══════════════════════════════════════════════════════════════════
 
     @Test
-    void normalizeRealWorldExcerpt() {
-        String result = JobDetailTab.normalizeJesSpoolJcl(REAL_SPOOL_EXCERPT);
+    void isInstreamDataDd_detects() {
+        assertTrue(JobDetailTab.isInstreamDataDd("//SYSIN DD *"));
+        assertTrue(JobDetailTab.isInstreamDataDd("//SYSIN    DD  *"));
+        assertTrue(JobDetailTab.isInstreamDataDd("//SYSIN DD *,DLM=XX"));
+        assertTrue(JobDetailTab.isInstreamDataDd("//SYSIN DD DATA"));
+        assertFalse(JobDetailTab.isInstreamDataDd("//SYSOUT DD SYSOUT=*"));
+        assertFalse(JobDetailTab.isInstreamDataDd("//STEPLIB DD DSN=MY.LOAD,DISP=SHR"));
+        assertFalse(JobDetailTab.isInstreamDataDd("//STEPLIB DD"));
+    }
 
-        // Must contain the user's JCL lines
-        assertTrue(result.contains("//KKR097XP JOB"), "JOB card present");
-        assertTrue(result.contains("//LOESCH   EXEC PGM=DSNDEL"), "EXEC present");
+    // ═══════════════════════════════════════════════════════════════════
+    //  Complex real-world-style spool excerpt (all identifiers fictional)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Realistic multi-step JCL spool with PROC expansion, variable substitution,
+     * multi-line IEFC messages, and DD overrides.
+     * All job names, DSNs, user IDs and program names are fictional.
+     */
+    private static final String COMPLEX_SPOOL =
+            "        1 //FIN042LD JOB (12345,A01,1,999),BATCHLDR,CLASS=A,                      J1234567\n" +
+            "          //             MSGCLASS=S,NOTIFY=FIN042,REGION=5000K                            \n" +
+            "          //* -------------------------------------------------------------------         \n" +
+            "        2 //RPTOUT   OUTPUT CLASS=S,PAGEDEF=H128,FORMDEF=H128,PRMODE=PAGE,DEST=R0099      \n" +
+            "        3 //CLEANUP  EXEC PGM=DSNDEL                                                      \n" +
+            "        4 //SYSIN    DD *                                                                 \n" +
+            "          //*                                                                             \n" +
+            "        5 //SORT1     EXEC  SORTD                                                         \n" +
+            "        6 XXSORT     EXEC  PGM=ICEMAN                                                     \n" +
+            "        7 //SYSOUT      DD  SYSOUT=*                                                      \n" +
+            "          X/SYSOUT   DD  SYSOUT=*                                                         \n" +
+            "        8 //APPSTEP  EXEC MYPROC1,                                                        \n" +
+            "          //         ZPARM='MADIO=0,MAXCL=0,STACK=(LOGON MYLIB-M;XBAT0P)'                 \n" +
+            "        9 XXMYPROC1  PROC PGMNAME=MYPROG01                                                \n" +
+            "       10 XXSTEP1    EXEC PGM=&PGMNAME,REGION=0M,                                         \n" +
+            "          XX PARM=('DBID=1,',                                                             \n" +
+            "          XX     '&ZPARM')                                                                \n" +
+            "          IEFC653I SUBSTITUTION JCL - PGM=MYPROG01,REGION=0M,PARM=('DBID=1,','MADIO=0,MAXCL=0,STACK=(LOGON \n" +
+            "          MYLIB-M;XBAT0P)')                                                               \n" +
+            "       11 //STEPLIB  DD                                                                   \n" +
+            "          X/STEPLIB  DD DSN=&NINDX..LOAD,DISP=SHR                                         \n" +
+            "          IEFC653I SUBSTITUTION JCL - DSN=VENDOR.NAT.PROD.LOAD,DISP=SHR                   \n" +
+            "       12 XXSORTLIB  DD DSN=&SRTLIB,DISP=SHR                                              \n" +
+            "          IEFC653I SUBSTITUTION JCL - DSN=SYS1.SORTLIB,DISP=SHR                           \n" +
+            "       13 XXDDSORTIN DD DISP=(,DELETE,DELETE),DSN=&&SORT,UNIT=(SYSDA,,DEFER),             \n" +
+            "          XX            DCB=RECFM=FB,SPACE=(CYL,(&SRTSPCE,&SRTSPCE))                      \n" +
+            "          IEFC653I SUBSTITUTION JCL - DISP=(,DELETE,DELETE),DSN=&&SORT,SPACE=(CYL,(50,     \n" +
+            "          50))                                                                            \n" +
+            "       14 //CMPRINT  DD SYSOUT=*                                                          \n" +
+            "          X/CMPRINT  DD SYSOUT=&SYSOUT                                                    \n" +
+            "          IEFC653I SUBSTITUTION JCL - SYSOUT=*                                            \n" +
+            "       15 //SYSIN   DD *                                                                  \n";
+
+    @Test
+    void normalizeComplexSpool() {
+        String result = JobDetailTab.normalizeJesSpoolJcl(COMPLEX_SPOOL);
+
+        // ── User JCL must be present ──
+        assertTrue(result.contains("//FIN042LD JOB"), "JOB card present");
+        assertTrue(result.contains("//CLEANUP  EXEC PGM=DSNDEL"), "EXEC present");
         assertTrue(result.contains("//SORT1     EXEC  SORTD"), "PROC call present");
-        assertTrue(result.contains("//NATURAL1 EXEC NAT1,"), "NAT1 PROC call present");
-        assertTrue(result.contains("//SYSOUT      DD  SYSOUT=*"), "User override present");
-        assertTrue(result.contains("//SORTIN  DD"), "SORTIN DD present");
-        assertTrue(result.contains("//SORTOUT DD"), "SORTOUT DD present");
+        assertTrue(result.contains("//APPSTEP  EXEC MYPROC1,"), "PROC call present");
+        assertTrue(result.contains("ZPARM='MADIO=0,MAXCL=0,STACK=(LOGON MYLIB-M;XBAT0P)'"),
+                "ZPARM continuation present");
+        assertTrue(result.contains("//STEPLIB  DD"), "STEPLIB override present");
+        assertTrue(result.contains("//CMPRINT  DD SYSOUT=*"), "CMPRINT override present");
 
-        // Must NOT contain PROC expansion, overrides, or JES messages
+        // ── PROC expansion, overrides, JES messages must be gone ──
         assertFalse(result.contains("XXSORT"), "No XX PROC expansion");
-        assertFalse(result.contains("XXSORTLIB"), "No XX lines");
-        assertFalse(result.contains("XXNAT1"), "No XX PROC lines");
+        assertFalse(result.contains("XXMYPROC1"), "No XX PROC lines");
         assertFalse(result.contains("X/SYSOUT"), "No X/ overridden lines");
+        assertFalse(result.contains("X/CMPRINT"), "No X/ overridden lines");
         assertFalse(result.contains("IEFC653I"), "No IEFC messages");
 
-        // Lines must start with // or be instream data (no 10-char prefix)
+        // ── Critical: multi-line IEFC fragments must not leak ──
+        assertFalse(result.contains("MYLIB-M;XBAT0P)')"),
+                "IEFC653I continuation fragment must NOT leak into output");
+        assertFalse(result.contains("50))"),
+                "IEFC653I continuation '50))' must NOT leak into output");
+
+        // ── Every output line must start with // or /* ──
         for (String line : result.split("\\n")) {
             String trimmed = line.trim();
             if (!trimmed.isEmpty()) {
@@ -178,4 +302,3 @@ class JesSpoolNormalizerTest {
         }
     }
 }
-
