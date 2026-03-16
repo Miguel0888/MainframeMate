@@ -362,4 +362,62 @@ class JesSpoolNormalizerTest {
         assertTrue(result.contains("//STEP2    EXEC PGM=IDCAMS"));
         assertTrue(result.contains("//SORT1    EXEC SORTD"));
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  sanitizeSpoolContent — control character removal
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    void sanitizeRemovesNullBytes() {
+        String input = "Hello\0World\0!";
+        String result = JobDetailTab.sanitizeSpoolContent(input);
+        assertEquals("HelloWorld!", result);
+    }
+
+    @Test
+    void sanitizeConvertsFormFeedToNewline() {
+        String input = "Page1\fPage2\fPage3";
+        String result = JobDetailTab.sanitizeSpoolContent(input);
+        assertEquals("Page1\nPage2\nPage3", result);
+    }
+
+    @Test
+    void sanitizeStripsControlCharacters() {
+        // SOH (0x01), STX (0x02), BEL (0x07), ESC (0x1B)
+        String input = "A\u0001B\u0002C\u0007D\u001BE";
+        String result = JobDetailTab.sanitizeSpoolContent(input);
+        assertEquals("ABCDE", result);
+    }
+
+    @Test
+    void sanitizePreservesStandardWhitespace() {
+        String input = "Line1\nLine2\r\nLine3\tTabbed";
+        String result = JobDetailTab.sanitizeSpoolContent(input);
+        assertEquals(input, result);
+    }
+
+    @Test
+    void sanitizePassesThroughCleanContent() {
+        String input = "//MYJOB JOB (ACCT),'PGMR',CLASS=A\n//STEP1 EXEC PGM=IEFBR14";
+        String result = JobDetailTab.sanitizeSpoolContent(input);
+        assertEquals(input, result);
+    }
+
+    @Test
+    void sanitizeHandlesNullAndEmpty() {
+        assertNull(JobDetailTab.sanitizeSpoolContent(null));
+        assertEquals("", JobDetailTab.sanitizeSpoolContent(""));
+    }
+
+    @Test
+    void sanitizeHandlesTypicalJesmsglgWithFormFeeds() {
+        // Simulates JESMSGLG with ASA carriage control translated to form feeds
+        String input = "\f J E S 2  J O B  L O G\n" +
+                " 14.23.38 JOB12345  IRR010I  USERID USR01\n" +
+                "\f14.23.38 JOB12345  $HASP373 TESTJOB  STARTED\n";
+        String result = JobDetailTab.sanitizeSpoolContent(input);
+        assertFalse(result.contains("\f"), "Form feeds must be removed");
+        assertTrue(result.contains("J E S 2  J O B  L O G"), "Content after form feed must be preserved");
+        assertTrue(result.contains("$HASP373"), "All lines must be preserved");
+    }
 }

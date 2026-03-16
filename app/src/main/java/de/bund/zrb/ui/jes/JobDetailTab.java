@@ -160,11 +160,18 @@ public class JobDetailTab implements FtpTab {
         JButton copyButton = new JButton("📋 Kopieren");
         copyButton.setToolTipText("Angezeigten Inhalt in die Zwischenablage kopieren");
         copyButton.addActionListener(e -> {
-            String text = contentArea.getText();
-            if (text != null && !text.isEmpty()) {
-                Toolkit.getDefaultToolkit().getSystemClipboard()
-                        .setContents(new StringSelection(text), null);
-                statusLabel.setText("✅ In Zwischenablage kopiert");
+            try {
+                String text = contentArea.getText();
+                if (text != null && !text.isEmpty()) {
+                    // Re-sanitize before clipboard (belt-and-suspenders against null bytes)
+                    String safe = sanitizeSpoolContent(text);
+                    Toolkit.getDefaultToolkit().getSystemClipboard()
+                            .setContents(new StringSelection(safe), null);
+                    statusLabel.setText("✅ In Zwischenablage kopiert (" + safe.length() + " Zeichen)");
+                }
+            } catch (Exception ex) {
+                LOG.log(Level.WARNING, "[JES] Clipboard copy failed", ex);
+                statusLabel.setText("❌ Kopieren fehlgeschlagen: " + ex.getMessage());
             }
         });
         leftPanel.add(copyButton);
@@ -480,7 +487,7 @@ public class JobDetailTab implements FtpTab {
             @Override
             protected void done() {
                 try {
-                    String fullOutput = get();
+                    String fullOutput = sanitizeSpoolContent(get());
                     cachedFullOutput = fullOutput;
                     cleanAndSetContent(fullOutput, null);
 
@@ -507,25 +514,43 @@ public class JobDetailTab implements FtpTab {
 
     /**
      * Compute line ranges for each section in the full output, delimited by JES separator lines.
+     * <p>
+     * IMPORTANT: Must stay aligned with {@link JesFtpService#parseSpoolSectionsFromOutput}
+     * so that table row N maps to sectionLineRanges[N]. Both methods skip empty sections
+     * (where there are only blank lines between two separators) and advance past leading
+     * blank lines after each separator.
      */
     private void computeSectionRanges(String fullOutput) {
         sectionLineRanges.clear();
         String[] lines = fullOutput.split("\\r?\\n");
-        int sectionStart = 0;
+        int sectionStart = findFirstNonEmpty(lines, 0);
 
-        for (int i = 0; i < lines.length; i++) {
+        for (int i = Math.max(sectionStart, 0); i < lines.length; i++) {
             String trimmed = lines[i].trim();
             if (trimmed.contains("END OF JES SPOOL FILE")
                     || trimmed.contains("END OF JES2 SPOOL")
                     || trimmed.matches("^\\s*!!\\s+END\\s+.*!!\\s*$")) {
-                sectionLineRanges.add(new int[]{sectionStart, i});
-                sectionStart = i + 1;
+                // Only add if the section has content (sectionStart < separator line)
+                if (sectionStart >= 0 && sectionStart < i) {
+                    sectionLineRanges.add(new int[]{sectionStart, i});
+                }
+                sectionStart = findFirstNonEmpty(lines, i + 1);
             }
         }
         // Last section (after last separator or entire output if no separators found)
-        if (sectionStart < lines.length) {
+        if (sectionStart >= 0 && sectionStart < lines.length) {
             sectionLineRanges.add(new int[]{sectionStart, lines.length});
         }
+    }
+
+    /** Find index of the first non-empty line starting at {@code from}, or -1 if none. */
+    private static int findFirstNonEmpty(String[] lines, int from) {
+        for (int i = Math.max(0, from); i < lines.length; i++) {
+            if (lines[i] != null && !lines[i].trim().isEmpty()) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private void loadSelectedSpool() {
@@ -914,16 +939,54 @@ public class JobDetailTab implements FtpTab {
     }
 
     /**
-     * Cleans and sets content: normalizes JES spool JCL, sets text, applies syntax, fires outline refresh.
+     * Cleans and sets content: sanitizes control characters, normalizes JES spool JCL,
+     * sets text, applies syntax, fires outline refresh.
      * @param rawContent  content as retrieved from JES
      * @param ddName      DD name for detection hinting (may be null)
      */
     private void cleanAndSetContent(String rawContent, String ddName) {
-        String cleaned = normalizeJesSpoolJcl(rawContent);
+        String sanitized = sanitizeSpoolContent(rawContent);
+        String cleaned = normalizeJesSpoolJcl(sanitized);
         contentArea.setText(cleaned);
         contentArea.setCaretPosition(0);
         applySyntaxForContent(cleaned, ddName);
         fireOutlineRefresh();
+    }
+
+    /**
+     * Sanitize raw spool content by removing or replacing control characters
+     * that cause problems with display and clipboard operations.
+     * <p>
+     * z/OS JES spool output often contains:
+     * <ul>
+     *   <li>ASA carriage control (form feed {@code \f} from page break '1' in col 1)</li>
+     *   <li>Null bytes ({@code \0}) from EBCDIC padding / fixed-length records</li>
+     *   <li>Other non-printable control characters</li>
+     * </ul>
+     * These characters are valid in Java strings but cause silent truncation
+     * when copied to the Windows system clipboard (which uses C-style null-terminated strings)
+     * and display issues in Swing text components.
+     */
+    static String sanitizeSpoolContent(String content) {
+        if (content == null || content.isEmpty()) return content;
+
+        StringBuilder sb = new StringBuilder(content.length());
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t') {
+                sb.append(c);                       // keep standard whitespace
+            } else if (c == '\f') {
+                // Form feed (ASA page break '1') → blank line separator
+                sb.append('\n');
+            } else if (c == '\0') {
+                // Null byte → skip (clipboard truncation cause)
+            } else if (c < 0x20) {
+                // Other control characters (SOH, STX, …) → skip
+            } else {
+                sb.append(c);                       // printable character
+            }
+        }
+        return sb.toString();
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -944,7 +1007,7 @@ public class JobDetailTab implements FtpTab {
             @Override
             protected void done() {
                 try {
-                    String fullOutput = get();
+                    String fullOutput = sanitizeSpoolContent(get());
                     cachedFullOutput = fullOutput;
                     cleanAndSetContent(fullOutput, null);
 
