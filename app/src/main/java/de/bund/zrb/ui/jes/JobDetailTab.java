@@ -690,34 +690,39 @@ public class JobDetailTab implements FtpTab {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  Helpers – JES spool JCL normalizer
+    //  Helpers – JES spool JCL normalizer (state machine)
     // ═══════════════════════════════════════════════════════════════════
+
+    /** State: processing regular JCL statements. */
+    private static final int ST_NORMAL = 0;
+    /** State: inside instream data (after DD * or DD DATA, until /*). */
+    private static final int ST_INSTREAM = 1;
+    /** State: inside a (possibly multi-line) IEFC/IEF substitution message. */
+    private static final int ST_SUBST_MSG = 2;
 
     /**
      * Normalize JES spool JCL output into clean, resubmittable JCL.
      * <p>
      * JES JESJCL spool format uses a fixed 10-character prefix per line
-     * (right-justified statement number in cols 1–9, space in col 10):
-     * <pre>
-     *         1 //KKR097XP JOB (60768,F14,1,999),ZDALADEP,CLASS=A,       J0753875
-     *           //             MSGCLASS=S,NOTIFY=KKR097,REGION=5000K
-     *         4 //LOESCH   EXEC PGM=DSNDEL
-     *        12 XXSORT     EXEC  PGM=ICEMAN              ← PROC expansion
-     *           X/SYSOUT   DD  SYSOUT=*                   ← overridden PROC stmt
-     *           IEFC653I SUBSTITUTION JCL - DSN=...       ← JES message
-     * </pre>
+     * (right-justified statement number in cols 1–9, space in col 10).
      * <p>
-     * The normalizer:
-     * <ol>
-     *   <li>Detects JES spool format via {@link #looksLikeJesSpool}</li>
-     *   <li>Strips the 10-char prefix from every line</li>
-     *   <li>Removes {@code XX}-prefixed lines (PROC expansion internals)</li>
-     *   <li>Removes {@code X/}-prefixed lines (overridden PROC originals)</li>
-     *   <li>Removes {@code IEFC*} lines (JES substitution / info messages)</li>
-     *   <li>Right-trims each remaining line</li>
-     * </ol>
-     * The result is the user's original JCL (with user overrides intact),
-     * ready for re-submission.
+     * A three-state machine classifies every line after stripping the prefix:
+     * <dl>
+     *   <dt>{@code NORMAL}</dt>
+     *   <dd>{@code //…} → keep; check for {@code DD *}/{@code DD DATA} → enter {@code INSTREAM}.<br>
+     *       {@code XX…} → discard (PROC expansion).<br>
+     *       {@code X/…} → discard (overridden PROC statement).<br>
+     *       {@code IEF…} → discard, enter {@code SUBST_MSG}.<br>
+     *       anything else → discard (JES artefact).</dd>
+     *   <dt>{@code INSTREAM}</dt>
+     *   <dd>All lines kept verbatim until {@code /*} (→ keep, return to {@code NORMAL})
+     *       or until a recognisable JCL prefix ({@code //}, {@code XX}, {@code X/}, {@code IEF})
+     *       appears (→ JES omitted the data, return to {@code NORMAL}).</dd>
+     *   <dt>{@code SUBST_MSG}</dt>
+     *   <dd>Discard every line until a recognisable JCL prefix starts
+     *       ({@code //}, {@code XX}, {@code X/}, {@code IEF}),
+     *       then return to {@code NORMAL} and re-classify.</dd>
+     * </dl>
      * <p>
      * If the content does not look like JES spool, it is returned unchanged.
      */
@@ -730,44 +735,77 @@ public class JobDetailTab implements FtpTab {
             return content;
         }
 
+        int state = ST_NORMAL;
         StringBuilder sb = new StringBuilder();
         boolean first = true;
 
         for (String line : lines) {
-            // Strip the 10-character prefix (statement number area)
+            // ── Strip the 10-character prefix (statement number area) ──
             String stripped;
             if (line.length() > 10) {
                 stripped = line.substring(10);
             } else if (line.length() == 10) {
                 stripped = "";
             } else {
-                // Very short line – keep trimmed (e.g. empty lines)
-                stripped = line.trim();
+                stripped = line.trim();      // very short / empty
             }
 
-            // Classify line type by what follows the prefix
-            if (stripped.startsWith("XX")) {
-                // PROC expansion internal – not part of the user's JCL → skip
-                continue;
+            // ── SUBSTITUTION_MSG state ────────────────────────────────
+            if (state == ST_SUBST_MSG) {
+                if (isRecognisedPrefix(stripped)) {
+                    state = ST_NORMAL;      // fall through to NORMAL below
+                } else {
+                    continue;               // continuation of IEF message → discard
+                }
             }
-            if (stripped.startsWith("X/")) {
-                // Overridden original PROC statement → skip
-                continue;
-            }
-            if (stripped.length() >= 4) {
-                String tag = stripped.substring(0, 4);
-                if (tag.equals("IEFC") || tag.equals("IEF1") || tag.equals("IEF2")
-                        || tag.equals("IEF3") || tag.equals("IEF4") || tag.equals("IEF7")) {
-                    // JES informational / substitution message → skip
+
+            // ── INSTREAM state ────────────────────────────────────────
+            if (state == ST_INSTREAM) {
+                if (stripped.startsWith("/*")) {
+                    // delimiter ends instream data → keep it, back to NORMAL
+                    if (!first) sb.append('\n');
+                    first = false;
+                    sb.append(rtrim(stripped));
+                    state = ST_NORMAL;
+                    continue;
+                }
+                if (isRecognisedPrefix(stripped)) {
+                    // JES2 omitted the instream data → back to NORMAL
+                    state = ST_NORMAL;
+                    // fall through to NORMAL processing
+                } else {
+                    // actual instream data line → keep
+                    if (!first) sb.append('\n');
+                    first = false;
+                    sb.append(rtrim(stripped));
                     continue;
                 }
             }
 
-            if (!first) sb.append('\n');
-            first = false;
+            // ── NORMAL state ──────────────────────────────────────────
+            if (stripped.startsWith("XX")) {
+                continue;                   // PROC expansion → discard
+            }
+            if (stripped.startsWith("X/")) {
+                continue;                   // overridden PROC stmt → discard
+            }
+            if (stripped.startsWith("IEF")) {
+                state = ST_SUBST_MSG;       // JES message (may span lines)
+                continue;
+            }
+            if (stripped.startsWith("//") || stripped.startsWith("/*")) {
+                if (!first) sb.append('\n');
+                first = false;
+                String rtrimmed = rtrim(stripped);
+                sb.append(rtrimmed);
 
-            // Right-trim trailing whitespace (JCL is padded to 80 chars)
-            sb.append(rtrim(stripped));
+                // After DD * or DD DATA the next lines are instream data
+                if (isInstreamDataDd(rtrimmed)) {
+                    state = ST_INSTREAM;
+                }
+                continue;
+            }
+            // Any other unrecognised line → discard (JES artefact / noise)
         }
 
         // Strip trailing empty lines
@@ -779,13 +817,36 @@ public class JobDetailTab implements FtpTab {
     }
 
     /**
+     * Does the stripped line start with a prefix that the spool format uses
+     * for a "real" classified line?  Used by the state machine to detect
+     * when a multi-line IEF message or omitted instream data ends.
+     */
+    private static boolean isRecognisedPrefix(String stripped) {
+        return stripped.startsWith("//")
+                || stripped.startsWith("XX")
+                || stripped.startsWith("X/")
+                || stripped.startsWith("IEF");
+    }
+
+    /**
+     * Check whether a (rtrimmed, prefix-stripped) JCL line declares
+     * instream data, i.e. contains {@code DD *} or {@code DD DATA}.
+     */
+    static boolean isInstreamDataDd(String line) {
+        String upper = line.toUpperCase();
+        int ddIdx = upper.indexOf(" DD ");
+        if (ddIdx < 0) return false;
+        String afterDd = upper.substring(ddIdx + 4).trim();
+        return afterDd.startsWith("*") || afterDd.startsWith("DATA");
+    }
+
+    /**
      * Detect whether the content lines follow JES JESJCL spool format.
      * Checks for the characteristic pattern of numbered JCL lines:
      * 10-char prefix with right-justified statement number followed by {@code //}.
      */
     static boolean looksLikeJesSpool(String[] lines) {
         int numberedJclLines = 0;
-        int tenSpaceJclLines = 0;
         int checkLimit = Math.min(lines.length, 50);
 
         for (int i = 0; i < checkLimit; i++) {
@@ -795,23 +856,15 @@ public class JobDetailTab implements FtpTab {
             String prefix = line.substring(0, 10);
             String after  = line.substring(10);
 
-            // Pattern A: numbered line → prefix has digits + trailing space, content starts with //
+            // Numbered line: prefix has digits + trailing space, content starts with //
             // e.g. "        1 //KKR097XP JOB ..."
             if (prefix.charAt(9) == ' ' && prefix.substring(0, 9).trim().matches("\\d+")) {
                 if (after.startsWith("//") || after.startsWith("XX")) {
                     numberedJclLines++;
                 }
             }
-            // Pattern B: continuation / expansion → 10 spaces then // or XX or X/ or IEFC
-            if (prefix.equals("          ")) {
-                if (after.startsWith("//") || after.startsWith("XX")
-                        || after.startsWith("X/") || after.startsWith("IEFC")) {
-                    tenSpaceJclLines++;
-                }
-            }
         }
 
-        // Need at least 3 numbered JCL lines; continuation lines add confidence
         return numberedJclLines >= 3;
     }
 
