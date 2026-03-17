@@ -2,6 +2,7 @@ package de.bund.zrb.indexing.ui;
 
 import de.bund.zrb.indexing.model.*;
 import de.bund.zrb.indexing.service.IndexingService;
+import de.bund.zrb.security.SecurityFilterService;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -52,6 +53,14 @@ public class IndexingSidebar extends JPanel {
     // Optional custom status supplier — returns [statusText, statusColor, itemCountText, lastIndexedText]
     // When set, refreshStatus() uses this instead of querying the IndexingService pipeline.
     private java.util.function.Supplier<String[]> customStatusSupplier;
+
+    // ── Security Filter ──
+    private final JLabel securityStatusLabel;
+    /** Connection group for security filter (e.g. "FTP", "NDV", "LOCAL"). */
+    private String securityGroup = "";
+    /** Optional supplier for paths to whitelist/blacklist. Returns list of prefixed paths.
+     *  If not set, uses currentPath. */
+    private java.util.function.Supplier<List<String>> securityPathSupplier;
 
     public IndexingSidebar(SourceType sourceType) {
         this.indexingService = IndexingService.getInstance();
@@ -175,12 +184,48 @@ public class IndexingSidebar extends JPanel {
         indexNowButton.addActionListener(e -> indexNow());
         add(indexNowButton);
 
+        add(Box.createVerticalStrut(16));
+
+        // ── Security / Filter ──
+        add(createSectionHeader("\uD83D\uDD12 Sicherheitsfilter"));
+
+        securityStatusLabel = createValueLabel("-");
+        add(createRow("Filter:", securityStatusLabel));
+
+        add(Box.createVerticalStrut(4));
+
+        JButton whitelistButton = new JButton("\u2705 Auf Whitelist setzen");
+        whitelistButton.setAlignmentX(LEFT_ALIGNMENT);
+        whitelistButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        whitelistButton.setToolTipText("Aktuellen Pfad / Auswahl auf die Whitelist setzen (Caching/Indexierung erlauben)");
+        whitelistButton.addActionListener(e -> addCurrentToWhitelist());
+        add(whitelistButton);
+
+        add(Box.createVerticalStrut(4));
+
+        JButton blacklistButton = new JButton("\u26D4 Auf Blacklist setzen");
+        blacklistButton.setAlignmentX(LEFT_ALIGNMENT);
+        blacklistButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        blacklistButton.setToolTipText("Aktuellen Pfad / Auswahl auf die Blacklist setzen (Caching/Indexierung sperren)");
+        blacklistButton.addActionListener(e -> addCurrentToBlacklist());
+        add(blacklistButton);
+
+        add(Box.createVerticalStrut(4));
+
+        JButton removeFilterButton = new JButton("\u21A9 Filter entfernen");
+        removeFilterButton.setAlignmentX(LEFT_ALIGNMENT);
+        removeFilterButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        removeFilterButton.setToolTipText("Aktuellen Pfad von Whitelist und Blacklist entfernen");
+        removeFilterButton.addActionListener(e -> removeCurrentFromFilter());
+        add(removeFilterButton);
+
         add(Box.createVerticalGlue());
 
         // ── Info ──
         JLabel infoLabel = new JLabel("<html><small>"
                 + "\u201EIndexieren\u201C erstellt eine Regel mit dem Standard-Zeitplan aus den Einstellungen.<br>"
-                + "\u201EJetzt Indexieren\u201C f\u00FChrt die Indexierung nur einmal sofort aus."
+                + "\u201EJetzt Indexieren\u201C f\u00FChrt die Indexierung nur einmal sofort aus.<br>"
+                + "\uD83D\uDD12 Der Sicherheitsfilter steuert, ob Dateien gecacht/indexiert werden d\u00FCrfen."
                 + "</small></html>");
         infoLabel.setForeground(Color.GRAY);
         infoLabel.setAlignmentX(LEFT_ALIGNMENT);
@@ -211,6 +256,22 @@ public class IndexingSidebar extends JPanel {
     }
 
     /**
+     * Set the connection group for security filter actions (e.g. "FTP", "NDV", "LOCAL").
+     */
+    public void setSecurityGroup(String group) {
+        this.securityGroup = group != null ? group.toUpperCase() : "";
+    }
+
+    /**
+     * Set a custom supplier for paths to whitelist/blacklist.
+     * Used by connection tabs that have multi-selection.
+     * Should return a list of fully prefixed paths (e.g. ["ftp://host/dir/file.txt"]).
+     */
+    public void setSecurityPathSupplier(java.util.function.Supplier<List<String>> supplier) {
+        this.securityPathSupplier = supplier;
+    }
+
+    /**
      * Update sidebar for the given path.
      */
     public void setCurrentPath(String path) {
@@ -218,6 +279,7 @@ public class IndexingSidebar extends JPanel {
         pathLabel.setText(truncate(path, 30));
         pathLabel.setToolTipText(path);
         refreshStatus();
+        refreshSecurityStatus();
     }
 
     /**
@@ -475,6 +537,87 @@ public class IndexingSidebar extends JPanel {
 
         statusLabel.setText("\u23F3 Wird indexiert...");
         statusLabel.setForeground(new Color(255, 152, 0));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Security Filter Actions
+    // ═══════════════════════════════════════════════════════════════
+
+    private List<String> getSecurityPaths() {
+        if (securityPathSupplier != null) {
+            List<String> paths = securityPathSupplier.get();
+            if (paths != null && !paths.isEmpty()) return paths;
+        }
+        // Fall back to current path
+        if (currentPath != null && !currentPath.isEmpty()) {
+            return Collections.singletonList(currentPath);
+        }
+        return Collections.emptyList();
+    }
+
+    private void addCurrentToWhitelist() {
+        if (securityGroup.isEmpty()) return;
+        List<String> paths = getSecurityPaths();
+        if (paths.isEmpty()) return;
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        for (String p : paths) {
+            sfs.addToWhitelist(securityGroup, p);
+        }
+        refreshSecurityStatus();
+        javax.swing.JOptionPane.showMessageDialog(this,
+                paths.size() + " Pfad(e) auf die Whitelist gesetzt.",
+                "Whitelist", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void addCurrentToBlacklist() {
+        if (securityGroup.isEmpty()) return;
+        List<String> paths = getSecurityPaths();
+        if (paths.isEmpty()) return;
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        for (String p : paths) {
+            sfs.addToBlacklist(securityGroup, p);
+        }
+        refreshSecurityStatus();
+        javax.swing.JOptionPane.showMessageDialog(this,
+                paths.size() + " Pfad(e) auf die Blacklist gesetzt.",
+                "Blacklist", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void removeCurrentFromFilter() {
+        if (securityGroup.isEmpty()) return;
+        List<String> paths = getSecurityPaths();
+        if (paths.isEmpty()) return;
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        for (String p : paths) {
+            sfs.removeFromWhitelist(securityGroup, p);
+            sfs.removeFromBlacklist(securityGroup, p);
+        }
+        refreshSecurityStatus();
+    }
+
+    /**
+     * Refresh the security status label based on the current path.
+     */
+    public void refreshSecurityStatus() {
+        if (securityGroup.isEmpty() || currentPath == null || currentPath.isEmpty()) {
+            securityStatusLabel.setText("-");
+            securityStatusLabel.setForeground(Color.GRAY);
+            return;
+        }
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        if (sfs.isBlacklisted(securityGroup, currentPath)) {
+            securityStatusLabel.setText("\u26D4 Gesperrt");
+            securityStatusLabel.setForeground(new Color(244, 67, 54));
+        } else if (sfs.isWhitelisted(securityGroup, currentPath)) {
+            securityStatusLabel.setText("\u2705 Erlaubt");
+            securityStatusLabel.setForeground(new Color(76, 175, 80));
+        } else if (sfs.isBlacklistAll(securityGroup)) {
+            securityStatusLabel.setText("\u26D4 Nicht auf Whitelist");
+            securityStatusLabel.setForeground(new Color(255, 152, 0));
+        } else {
+            securityStatusLabel.setText("\u2705 Erlaubt (Standard)");
+            securityStatusLabel.setForeground(new Color(76, 175, 80));
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -9,6 +9,7 @@ import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.ndv.core.api.ObjectKind;
 import de.bund.zrb.ndv.core.api.ObjectType;
+import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.service.NdvSourceCacheService;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -87,6 +88,7 @@ public class NdvConnectionTab implements ConnectionTab {
     private final Set<Integer> hiddenTypes = new HashSet<Integer>();
     private boolean showDetails = false;
     private boolean linkWithEditor = false;
+    private boolean hideBlacklisted = false;
 
     // Grouped tree view
     private JTree objectTree;
@@ -314,6 +316,14 @@ public class NdvConnectionTab implements ConnectionTab {
             @Override
             public String[] get() {
                 return computeNdvCacheStatus();
+            }
+        });
+        // Security filter configuration
+        indexingSidebar.setSecurityGroup("NDV");
+        indexingSidebar.setSecurityPathSupplier(new java.util.function.Supplier<List<String>>() {
+            @Override
+            public List<String> get() {
+                return getSelectedPrefixedPaths();
             }
         });
         // Apply restored sidebar visibility
@@ -1035,6 +1045,21 @@ public class NdvConnectionTab implements ConnectionTab {
         expandButton.addActionListener(e -> expandAllTreeNodes());
         toolbar.add(expandButton);
 
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Hide Blacklisted toggle
+        JToggleButton hideBlacklistedToggle = new JToggleButton("\uD83D\uDD12");
+        hideBlacklistedToggle.setToolTipText("Gesperrte Elemente ausblenden (Blacklist)");
+        hideBlacklistedToggle.setMargin(new Insets(1, 4, 1, 4));
+        hideBlacklistedToggle.setFocusable(false);
+        hideBlacklistedToggle.setSelected(hideBlacklisted);
+        hideBlacklistedToggle.addActionListener(e -> {
+            hideBlacklisted = hideBlacklistedToggle.isSelected();
+            saveNavigatorState();
+            applyFilter();
+        });
+        toolbar.add(hideBlacklistedToggle);
+
         return toolbar;
     }
 
@@ -1115,6 +1140,7 @@ public class NdvConnectionTab implements ConnectionTab {
         state.put(STATE_PREFIX + "showDetails", String.valueOf(showDetails));
         state.put(STATE_PREFIX + "linkWithEditor", String.valueOf(linkWithEditor));
         state.put(STATE_PREFIX + "sidebarVisible", String.valueOf(sidebarVisible));
+        state.put(STATE_PREFIX + "hideBlacklisted", String.valueOf(hideBlacklisted));
 
         // Store hidden types as comma-separated int list (e.g. "16,128,8")
         if (hiddenTypes.isEmpty()) {
@@ -1159,6 +1185,9 @@ public class NdvConnectionTab implements ConnectionTab {
 
         String sidebarVal = state.get(STATE_PREFIX + "sidebarVisible");
         if (sidebarVal != null) sidebarVisible = Boolean.parseBoolean(sidebarVal);
+
+        String hideBlVal = state.get(STATE_PREFIX + "hideBlacklisted");
+        if (hideBlVal != null) hideBlacklisted = Boolean.parseBoolean(hideBlVal);
 
         String hiddenVal = state.get(STATE_PREFIX + "hiddenTypes");
         if (hiddenVal != null && !hiddenVal.isEmpty()) {
@@ -1284,6 +1313,32 @@ public class NdvConnectionTab implements ConnectionTab {
             result.add(obj);
         }
         return result;
+    }
+
+    /**
+     * Build prefixed paths from the current selection (for SecurityFilterService).
+     * Format: "ndv://LIBRARY/OBJECT" or "ndv://LIBRARY"
+     * If nothing is selected, returns the current library path.
+     */
+    private List<String> getSelectedPrefixedPaths() {
+        List<Object> selected = collectSelectedItems();
+        if (selected.isEmpty()) {
+            if (currentLibrary != null && !currentLibrary.isEmpty()) {
+                return Collections.singletonList("ndv://" + currentLibrary);
+            }
+            return Collections.emptyList();
+        }
+        List<String> paths = new ArrayList<String>();
+        for (Object item : selected) {
+            if (item instanceof NdvObjectInfo) {
+                NdvObjectInfo obj = (NdvObjectInfo) item;
+                String lib = currentLibrary != null ? currentLibrary : "";
+                paths.add("ndv://" + lib + "/" + obj.getName());
+            } else if (item instanceof String) {
+                paths.add("ndv://" + item); // library name
+            }
+        }
+        return paths;
     }
 
     // ==================== Manual Indexing ====================
@@ -1742,6 +1797,27 @@ public class NdvConnectionTab implements ConnectionTab {
             if (filter.isEmpty() || text.contains(filter)) {
                 filtered.add(item);
             }
+        }
+
+        // Step 1b: Filter out blacklisted items if toggle is active
+        if (hideBlacklisted && currentLibrary != null) {
+            SecurityFilterService sfs = SecurityFilterService.getInstance();
+            List<Object> allowed = new ArrayList<Object>();
+            for (Object item : filtered) {
+                String prefixedPath;
+                if (item instanceof NdvObjectInfo) {
+                    prefixedPath = "ndv://" + currentLibrary + "/" + ((NdvObjectInfo) item).getName();
+                } else if (item instanceof String) {
+                    prefixedPath = "ndv://" + item; // library name
+                } else {
+                    allowed.add(item);
+                    continue;
+                }
+                if (sfs.isAllowed("NDV", prefixedPath)) {
+                    allowed.add(item);
+                }
+            }
+            filtered = allowed;
         }
 
         // Step 2: Sort

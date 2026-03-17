@@ -7,6 +7,7 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.service.FtpSourceCacheService;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
@@ -72,6 +73,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     private boolean groupByExtension = false;
     private SortMode sortMode = SortMode.NAME_ASC;
     private boolean showDetails = false;
+    private boolean hideBlacklisted = false;
 
     // Grouped tree view
     private JTree extensionTree;
@@ -291,6 +293,8 @@ public class ConnectionTabImpl implements ConnectionTab {
         indexingSidebar.setVisible(sidebarVisible);
         indexingSidebar.setCustomIndexAction(this::indexSelectedOrAll);
         indexingSidebar.setCustomStatusSupplier(this::computeFtpCacheStatus);
+        indexingSidebar.setSecurityGroup("FTP");
+        indexingSidebar.setSecurityPathSupplier(this::getSelectedPrefixedPaths);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
 
         mainPanel.add(statusBar, BorderLayout.SOUTH);
@@ -385,6 +389,21 @@ public class ConnectionTabImpl implements ConnectionTab {
         expandButton.setFocusable(false);
         expandButton.addActionListener(e -> expandAllTreeNodes());
         toolbar.add(expandButton);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Hide Blacklisted toggle
+        JToggleButton hideBlacklistedToggle = new JToggleButton("\uD83D\uDD12");
+        hideBlacklistedToggle.setToolTipText("Gesperrte Elemente ausblenden (Blacklist)");
+        hideBlacklistedToggle.setMargin(new Insets(1, 4, 1, 4));
+        hideBlacklistedToggle.setFocusable(false);
+        hideBlacklistedToggle.setSelected(hideBlacklisted);
+        hideBlacklistedToggle.addActionListener(e -> {
+            hideBlacklisted = hideBlacklistedToggle.isSelected();
+            saveNavigatorState();
+            applyFilter();
+        });
+        toolbar.add(hideBlacklistedToggle);
 
         return toolbar;
     }
@@ -715,6 +734,26 @@ public class ConnectionTabImpl implements ConnectionTab {
         return result;
     }
 
+    /**
+     * Build prefixed paths from the current selection (for SecurityFilterService).
+     * Format: "ftp://host/dir/filename"
+     * If nothing is selected, returns the current directory path.
+     */
+    private List<String> getSelectedPrefixedPaths() {
+        List<FileNode> selected = collectSelectedFileNodes();
+        String currentPath = browserState.getCurrentPath();
+        if (selected.isEmpty()) {
+            if (ftpHost.isEmpty() || currentPath == null) return Collections.emptyList();
+            return Collections.singletonList("ftp://" + ftpHost + "/" + currentPath);
+        }
+        List<String> paths = new ArrayList<String>();
+        for (FileNode fn : selected) {
+            String suffix = fn.isDirectory() ? fn.getName() + "/" : fn.getName();
+            paths.add("ftp://" + ftpHost + "/" + currentPath + "/" + suffix);
+        }
+        return paths;
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Item Activation (double-click / enter)
     // ═══════════════════════════════════════════════════════════
@@ -848,7 +887,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     private void applyFilter() {
         String regex = searchField.getText().trim();
 
-        // Step 1: Filter items
+        // Step 1: Filter items by search regex
         List<FileNode> filtered = new ArrayList<FileNode>();
         for (FileNode node : currentDirectoryNodes) {
             try {
@@ -859,6 +898,20 @@ public class ConnectionTabImpl implements ConnectionTab {
             } catch (Exception e) {
                 break; // invalid regex
             }
+        }
+
+        // Step 1b: Filter out blacklisted items if toggle is active
+        if (hideBlacklisted && !ftpHost.isEmpty()) {
+            SecurityFilterService sfs = SecurityFilterService.getInstance();
+            String currentPath = browserState.getCurrentPath();
+            List<FileNode> allowed = new ArrayList<FileNode>();
+            for (FileNode node : filtered) {
+                String prefixedPath = "ftp://" + ftpHost + "/" + currentPath + "/" + node.getName();
+                if (sfs.isAllowed("FTP", prefixedPath)) {
+                    allowed.add(node);
+                }
+            }
+            filtered = allowed;
         }
 
         // Step 2: Sort
@@ -1185,6 +1238,21 @@ public class ConnectionTabImpl implements ConnectionTab {
 
         String currentPath = browserState.getCurrentPath();
 
+        // Filter out blacklisted files
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        List<FileNode> allowedFiles = new ArrayList<FileNode>();
+        for (FileNode fn : filesToIndex) {
+            String prefixedPath = "ftp://" + ftpHost + "/" + currentPath + "/" + fn.getName();
+            if (sfs.isAllowed("FTP", prefixedPath)) {
+                allowedFiles.add(fn);
+            }
+        }
+        filesToIndex = allowedFiles;
+        if (filesToIndex.isEmpty()) {
+            statusLabel.setText("Alle ausgew\u00e4hlten Dateien sind durch den Sicherheitsfilter gesperrt.");
+            return;
+        }
+
         // Update sidebar scope
         String displayPath = "ftp://" + ftpHost + "/" + currentPath;
         indexingSidebar.setCurrentPath(displayPath);
@@ -1274,6 +1342,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         state.put(STATE_PREFIX + "sortMode", sortMode.name());
         state.put(STATE_PREFIX + "showDetails", String.valueOf(showDetails));
         state.put(STATE_PREFIX + "sidebarVisible", String.valueOf(sidebarVisible));
+        state.put(STATE_PREFIX + "hideBlacklisted", String.valueOf(hideBlacklisted));
 
         SettingsHelper.save(settings);
     }
@@ -1297,6 +1366,9 @@ public class ConnectionTabImpl implements ConnectionTab {
 
         String sidebarVal = state.get(STATE_PREFIX + "sidebarVisible");
         if (sidebarVal != null) sidebarVisible = Boolean.parseBoolean(sidebarVal);
+
+        String hideBlVal = state.get(STATE_PREFIX + "hideBlacklisted");
+        if (hideBlVal != null) hideBlacklisted = Boolean.parseBoolean(hideBlVal);
     }
 
     // ═══════════════════════════════════════════════════════════
