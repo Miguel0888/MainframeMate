@@ -6,15 +6,21 @@ import com.sun.jna.platform.win32.WinDef.RECT;
 import com.sun.jna.platform.win32.WinUser;
 import de.bund.zrb.config.VideoConfig;
 import de.bund.zrb.win.WindowCapture;
+import org.jcodec.api.FrameGrab;
 import org.jcodec.api.awt.AWTSequenceEncoder;
+import org.jcodec.common.io.NIOUtils;
+import org.jcodec.common.model.Picture;
+import org.jcodec.scale.AWTUtil;
 
 import javax.sound.sampled.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.Closeable;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,6 +39,14 @@ public class JcodecWindowRecorder implements Closeable {
     private final AtomicInteger frameCount = new AtomicInteger(0);
 
     private Path outFileEffective;
+
+    /** Segment-Dauer in Sekunden – der Encoder flusht alle N Sekunden in eine neue Datei. */
+    private static final int SEGMENT_DURATION_SEC = 30;
+    private final List<Path> segmentFiles = new ArrayList<>();
+    private int segmentIndex;
+    private long segmentStartMs;
+    private int segmentFrameCount;
+    private int effectiveFps;
 
     // Robot-based fallback for Swing windows (Win32 capture often yields black)
     private Robot robot;
@@ -89,14 +103,17 @@ public class JcodecWindowRecorder implements Closeable {
         int h = probe.getHeight();
         if (VideoConfig.isEnforceEvenDims()) { w = makeEven(w); h = makeEven(h); }
 
-        int fps = (fpsArg > 0) ? fpsArg : VideoConfig.getFps();
-        if (fps <= 0) fps = 15;
+        effectiveFps = (fpsArg > 0) ? fpsArg : VideoConfig.getFps();
+        if (effectiveFps <= 0) effectiveFps = 15;
 
         outFileEffective = outFileRequested;
 
-        // AWTSequenceEncoder mit fixer FPS
-        encoder = AWTSequenceEncoder.createSequenceEncoder(new File(outFileEffective.toString()), fps);
-        final int frameIntervalMs = (int) Math.max(1, Math.round(1000.0 / Math.max(1, fps)));
+        // Segment-basiertes Recording: alle SEGMENT_DURATION_SEC Sekunden wird ein neues Segment auf die Platte geschrieben
+        segmentIndex = 0;
+        segmentFiles.clear();
+        startNewSegment();
+
+        final int frameIntervalMs = (int) Math.max(1, Math.round(1000.0 / Math.max(1, effectiveFps)));
 
         // Optionales Audio vorbereiten (separate WAV)
         if (audioEnabled) {
@@ -133,11 +150,25 @@ public class JcodecWindowRecorder implements Closeable {
                                 applyOverlays(frame);
                             }
                             encoder.encodeImage(frame);
+                            segmentFrameCount++;
                             int fc = frameCount.incrementAndGet();
                             if (fc == 1) {
                                 System.out.println("[JcodecRec] Erster Frame encoded: " + frame.getWidth() + "x" + frame.getHeight());
+                            } else if (fc % 200 == 0) {
+                                System.out.println("[JcodecRec] " + fc + " Frames (Segment " + segmentIndex + ")");
                             }
                             nullCount = 0;
+
+                            // Segment-Rotation: periodisch auf die Platte flushen
+                            if (segmentFrameCount > 0
+                                    && System.currentTimeMillis() - segmentStartMs >= SEGMENT_DURATION_SEC * 1000L) {
+                                try {
+                                    rotateSegment();
+                                } catch (Exception e) {
+                                    System.err.println("[JcodecRec] Segment-Rotation fehlgeschlagen: " + e.getMessage());
+                                    running.set(false); // ohne Encoder kann nicht weitergearbeitet werden
+                                }
+                            }
                         } else {
                             nullCount++;
                             if (nullCount <= 3 || nullCount % 50 == 0) {
@@ -164,14 +195,28 @@ public class JcodecWindowRecorder implements Closeable {
 
     public void stop() {
         running.set(false);
-        if (worker != null) { try { worker.join(2000); } catch (InterruptedException ignored) {} }
-        int fc = frameCount.get();
-        System.out.println("[JcodecRec] stop() – " + fc + " Frames encoded, Datei: " + outFileEffective);
+        if (worker != null) { try { worker.join(5000); } catch (InterruptedException ignored) {} }
+
+        // Letztes Segment finalisieren
         try {
-            if (encoder != null) encoder.finish();
+            if (encoder != null) {
+                encoder.finish();
+                encoder = null;
+                if (segmentIndex < segmentFiles.size()) {
+                    System.out.println("[JcodecRec] Segment " + segmentIndex + " gespeichert ("
+                            + segmentFrameCount + " Frames): " + segmentFiles.get(segmentIndex));
+                }
+            }
         } catch (Exception e) {
             System.err.println("[JcodecRec] encoder.finish() Fehler: " + e.getMessage());
         }
+
+        // Segmente zusammenführen
+        mergeSegments();
+
+        int fc = frameCount.get();
+        System.out.println("[JcodecRec] stop() – " + fc + " Frames gesamt, Datei: " + outFileEffective);
+
         // Audio sauber stoppen
         stopAudioCapture();
         if (CURRENT == this) CURRENT = null;
@@ -182,6 +227,108 @@ public class JcodecWindowRecorder implements Closeable {
     public Path getEffectiveOutput() { return outFileEffective != null ? outFileEffective : outFileRequested; }
 
     private static int makeEven(int v) { return (v & 1) == 1 ? v - 1 : v; }
+
+    // ===== Segment Management =====
+
+    /** Erzeugt den Pfad für ein Segment: <stem>_seg000.mp4 */
+    private Path segmentPath(int idx) {
+        String base = outFileRequested.toString();
+        int dot = base.lastIndexOf('.');
+        String stem = dot > 0 ? base.substring(0, dot) : base;
+        String ext = dot > 0 ? base.substring(dot) : ".mp4";
+        return Paths.get(String.format("%s_seg%03d%s", stem, idx, ext));
+    }
+
+    /** Startet ein neues Segment (Encoder + Datei). */
+    private void startNewSegment() throws Exception {
+        Path p = segmentPath(segmentIndex);
+        encoder = AWTSequenceEncoder.createSequenceEncoder(p.toFile(), effectiveFps);
+        segmentFiles.add(p);
+        segmentStartMs = System.currentTimeMillis();
+        segmentFrameCount = 0;
+    }
+
+    /** Schließt das aktuelle Segment und öffnet das nächste. */
+    private void rotateSegment() throws Exception {
+        AWTSequenceEncoder old = encoder;
+        encoder = null;  // Sicherheit: doppeltes finish() verhindern
+        old.finish();
+        System.out.println("[JcodecRec] Segment " + segmentIndex + " gespeichert ("
+                + segmentFrameCount + " Frames): " + segmentFiles.get(segmentIndex));
+        segmentIndex++;
+        startNewSegment();
+    }
+
+    /**
+     * Führt alle Segmentdateien in die finale Ausgabedatei zusammen.
+     * Bei einem einzelnen Segment wird es einfach umbenannt.
+     * Bei mehreren Segmenten werden die Frames re-encoded (verlustfrei für Screenrecordings).
+     * Bei Fehler bleiben die Segmentdateien als Fallback erhalten.
+     */
+    private void mergeSegments() {
+        // Leere / kaputte Segmente aussortieren
+        List<Path> valid = new ArrayList<>();
+        for (Path seg : segmentFiles) {
+            try {
+                if (Files.exists(seg) && Files.size(seg) > 1024) {
+                    valid.add(seg);
+                } else {
+                    try { Files.deleteIfExists(seg); } catch (Throwable ignore) {}
+                }
+            } catch (Exception e) { /* skip */ }
+        }
+
+        if (valid.isEmpty()) {
+            System.err.println("[JcodecRec] Keine gültigen Segmente vorhanden.");
+            return;
+        }
+
+        if (valid.size() == 1) {
+            // Einzelnes Segment → umbenennen
+            try {
+                Files.move(valid.get(0), outFileEffective, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                outFileEffective = valid.get(0);
+            }
+            return;
+        }
+
+        // Mehrere Segmente → zusammenführen
+        System.out.println("[JcodecRec] Führe " + valid.size() + " Segmente zusammen …");
+        long t0 = System.currentTimeMillis();
+        try {
+            AWTSequenceEncoder out = AWTSequenceEncoder.createSequenceEncoder(
+                    outFileEffective.toFile(), effectiveFps);
+            int totalFrames = 0;
+            for (int i = 0; i < valid.size(); i++) {
+                Path seg = valid.get(i);
+                FrameGrab grab = FrameGrab.createFrameGrab(NIOUtils.readableChannel(seg.toFile()));
+                Picture pic;
+                while ((pic = grab.getNativeFrame()) != null) {
+                    out.encodeNativeFrame(pic);
+                    totalFrames++;
+                }
+                System.out.println("[JcodecRec]   Segment " + i + " gelesen (" + totalFrames + " Frames bisher)");
+            }
+            out.finish();
+            long dt = System.currentTimeMillis() - t0;
+            System.out.println("[JcodecRec] Zusammenführung abgeschlossen: " + totalFrames
+                    + " Frames in " + dt + " ms → " + outFileEffective);
+
+            // Segmentdateien löschen
+            for (Path seg : valid) {
+                try { Files.deleteIfExists(seg); } catch (Throwable ignore) {}
+            }
+        } catch (Exception e) {
+            System.err.println("[JcodecRec] Zusammenführung fehlgeschlagen: " + e.getMessage());
+            e.printStackTrace(System.err);
+            System.out.println("[JcodecRec] Segmentdateien bleiben erhalten:");
+            for (Path seg : valid) {
+                System.out.println("  " + seg);
+            }
+            outFileEffective = valid.get(valid.size() - 1);
+        }
+    }
 
     /**
      * Captures a frame using the best available strategy.
