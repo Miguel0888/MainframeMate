@@ -545,8 +545,14 @@ public class IndexingSidebar extends JPanel {
 
     private List<String> getSecurityPaths() {
         if (securityPathSupplier != null) {
-            List<String> paths = securityPathSupplier.get();
-            if (paths != null && !paths.isEmpty()) return paths;
+            try {
+                List<String> paths = securityPathSupplier.get();
+                if (paths != null && !paths.isEmpty()) return paths;
+            } catch (Exception e) {
+                System.err.println("[IndexingSidebar] Error getting security paths from supplier: " + e.getMessage());
+                e.printStackTrace();
+                // Fall through to currentPath fallback
+            }
         }
         // Fall back to current path
         if (currentPath != null && !currentPath.isEmpty()) {
@@ -558,21 +564,31 @@ public class IndexingSidebar extends JPanel {
     private void addCurrentToWhitelist() {
         if (securityGroup.isEmpty()) return;
         List<String> paths = getSecurityPaths();
-        if (paths.isEmpty()) return;
+        if (paths.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Kein Pfad ausgewählt oder verfügbar.\nBitte erst einen Ordner öffnen.",
+                    "Whitelist", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         SecurityFilterService sfs = SecurityFilterService.getInstance();
         for (String p : paths) {
             sfs.addToWhitelist(securityGroup, p);
         }
         refreshSecurityStatus();
-        javax.swing.JOptionPane.showMessageDialog(this,
+        JOptionPane.showMessageDialog(this,
                 paths.size() + " Pfad(e) auf die Whitelist gesetzt.",
-                "Whitelist", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                "Whitelist", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void addCurrentToBlacklist() {
         if (securityGroup.isEmpty()) return;
         List<String> paths = getSecurityPaths();
-        if (paths.isEmpty()) return;
+        if (paths.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Kein Pfad ausgewählt oder verfügbar.\nBitte erst einen Ordner öffnen.",
+                    "Blacklist", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
         // ── Check if any of the paths have cached or indexed data ──
         int cachedCount = 0;

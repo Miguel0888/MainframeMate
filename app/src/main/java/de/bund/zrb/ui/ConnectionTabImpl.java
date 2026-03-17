@@ -107,10 +107,11 @@ public class ConnectionTabImpl implements ConnectionTab {
         // Initialize cache service
         this.cacheService = FtpSourceCacheService.getInstance();
 
-        // Extract host from resource
+        // Extract host from resource (guard against null from getHost())
         if (resource != null && resource.getFtpState() != null
                 && resource.getFtpState().getConnectionId() != null) {
-            this.ftpHost = resource.getFtpState().getConnectionId().getHost();
+            String host = resource.getFtpState().getConnectionId().getHost();
+            this.ftpHost = host != null ? host : "";
         }
 
         boolean mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
@@ -565,24 +566,29 @@ public class ConnectionTabImpl implements ConnectionTab {
      * and selection state.
      */
     private void updateSidebarInfo() {
-        String currentPath = browserState.getCurrentPath();
-        String displayPath = ftpHost.isEmpty()
-                ? "ftp://" + currentPath
-                : "ftp://" + ftpHost + "/" + currentPath;
-        indexingSidebar.setCurrentPath(displayPath);
+        try {
+            String currentPath = browserState.getCurrentPath();
+            String displayPath = (ftpHost == null || ftpHost.isEmpty())
+                    ? "ftp://" + currentPath
+                    : "ftp://" + ftpHost + "/" + currentPath;
+            indexingSidebar.setCurrentPath(displayPath);
 
-        List<FileNode> sel = collectSelectedFileNodes();
-        if (sel.isEmpty()) {
-            List<FileNode> textFiles = getTextFileNodes();
-            indexingSidebar.setScopeInfo("Alle " + textFiles.size() + " Textdateien");
-        } else {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < Math.min(sel.size(), 3); i++) {
-                if (i > 0) sb.append(", ");
-                sb.append(sel.get(i).getName());
+            List<FileNode> sel = collectSelectedFileNodes();
+            if (sel.isEmpty()) {
+                List<FileNode> textFiles = getTextFileNodes();
+                indexingSidebar.setScopeInfo("Alle " + textFiles.size() + " Textdateien");
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < Math.min(sel.size(), 3); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(sel.get(i).getName());
+                }
+                if (sel.size() > 3) sb.append(" … (+" + (sel.size() - 3) + ")");
+                indexingSidebar.setScopeInfo("Auswahl: " + sel.size() + " Dateien");
             }
-            if (sel.size() > 3) sb.append(" … (+" + (sel.size() - 3) + ")");
-            indexingSidebar.setScopeInfo("Auswahl: " + sel.size() + " Dateien");
+        } catch (Exception e) {
+            System.err.println("[ConnectionTab] Error updating sidebar info: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -742,14 +748,20 @@ public class ConnectionTabImpl implements ConnectionTab {
     private List<String> getSelectedPrefixedPaths() {
         List<FileNode> selected = collectSelectedFileNodes();
         String currentPath = browserState.getCurrentPath();
+        String host = ftpHost != null ? ftpHost : "";
+        // Build the FTP prefix: "ftp://host/" or "ftp://" if host is unknown
+        String prefix = host.isEmpty() ? "ftp://" : "ftp://" + host + "/";
         if (selected.isEmpty()) {
-            if (ftpHost.isEmpty() || currentPath == null) return Collections.emptyList();
-            return Collections.singletonList("ftp://" + ftpHost + "/" + currentPath);
+            if (currentPath == null || currentPath.isEmpty()) return Collections.emptyList();
+            return Collections.singletonList(prefix + currentPath);
         }
         List<String> paths = new ArrayList<String>();
         for (FileNode fn : selected) {
             String suffix = fn.isDirectory() ? fn.getName() + "/" : fn.getName();
-            paths.add("ftp://" + ftpHost + "/" + currentPath + "/" + suffix);
+            String base = (currentPath != null && !currentPath.isEmpty())
+                    ? prefix + currentPath + "/" + suffix
+                    : prefix + suffix;
+            paths.add(base);
         }
         return paths;
     }
