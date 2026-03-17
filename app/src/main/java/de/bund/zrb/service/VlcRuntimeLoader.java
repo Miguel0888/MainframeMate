@@ -50,7 +50,8 @@ public final class VlcRuntimeLoader {
 
     public static boolean isVlcjAvailable() {
         try {
-            Class.forName("uk.co.caprica.vlcj.factory.MediaPlayerFactory");
+            // Check for vlcj 3.x classes (Java 8 compatible), not 4.x
+            Class.forName("uk.co.caprica.vlcj.player.MediaPlayerFactory");
             return true;
         } catch (Throwable ignore) {
             return false;
