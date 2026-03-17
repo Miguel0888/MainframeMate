@@ -1,5 +1,6 @@
 package de.bund.zrb.service;
 
+import ai.onnxruntime.OnnxJavaType;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
@@ -11,6 +12,8 @@ import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -264,8 +267,8 @@ public class OnnxChatManager implements ChatManager {
      * Autoregressive Textgenerierung: Tokenisiert den Prompt, führt die Forward-Passes
      * sequentiell durch und decoded die generierten Tokens Token für Token.
      * <p>
-     * Dies ist eine vereinfachte Implementierung ohne KV-Cache.
-     * Für Produktion sollte ONNX Runtime GenAI verwendet werden.
+     * Unterstützt FP16-Modelle (DirectML INT4) und FP32-Modelle.
+     * KV-Cache wird pro Durchlauf leer übergeben (kein inkrementeller Cache).
      */
     private String generate(String prompt, int maxTokens, double temperature,
                             double topP, int topK,
@@ -277,12 +280,25 @@ public class OnnxChatManager implements ChatManager {
         for (long id : inputIds) generated.add(id);
 
         StringBuilder output = new StringBuilder();
+        Set<Integer> eosTokenIds = tokenizer.getEosTokenIds();
         int eosTokenId = tokenizer.getEosTokenId();
+
+        // Modell-Konfiguration für KV-Cache
+        int numLayers = tokenizer.getNumLayers();
+        int headSize = tokenizer.getHeadSize();
+        int numKvHeads = tokenizer.getNumKvHeads();
+
+        // Prüfe ob das Modell position_ids erwartet
+        boolean needsPositionIds = session.getInputNames().contains("position_ids");
+        // Prüfe ob das Modell KV-Cache Inputs hat
+        boolean hasKvCache = session.getInputNames().contains("past_key_values.0.key");
+        // Prüfe ob Logits FP16 sind (DirectML-Modelle)
+        boolean fp16Logits = false;
 
         for (int step = 0; step < maxTokens; step++) {
             if (cancelled.get()) break;
 
-            // Prepare input tensor
+            // Prepare input tensors
             long[] ids = new long[generated.size()];
             for (int i = 0; i < generated.size(); i++) ids[i] = generated.get(i);
 
@@ -295,12 +311,51 @@ public class OnnxChatManager implements ChatManager {
             inputs.put("input_ids", OnnxTensor.createTensor(environment, idShape));
             inputs.put("attention_mask", OnnxTensor.createTensor(environment, maskShape));
 
-            // Forward pass
-            OrtSession.Result result = session.run(inputs);
+            // Position IDs
+            if (needsPositionIds) {
+                long[][] posIds = new long[1][ids.length];
+                for (int i = 0; i < ids.length; i++) posIds[0][i] = i;
+                inputs.put("position_ids", OnnxTensor.createTensor(environment, posIds));
+            }
 
-            // Extract logits from last position
-            float[][][] logits = (float[][][]) result.get(0).getValue();
-            float[] lastLogits = logits[0][logits[0].length - 1];
+            // KV-Cache: leere FP16-Tensoren (kein inkrementeller Cache)
+            if (hasKvCache) {
+                long[] emptyKvShape = {1, numKvHeads, 0, headSize};
+                ByteBuffer emptyFp16 = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder());
+                for (int i = 0; i < numLayers; i++) {
+                    inputs.put("past_key_values." + i + ".key",
+                            OnnxTensor.createTensor(environment, emptyFp16, emptyKvShape, OnnxJavaType.FLOAT16));
+                    inputs.put("past_key_values." + i + ".value",
+                            OnnxTensor.createTensor(environment, emptyFp16, emptyKvShape, OnnxJavaType.FLOAT16));
+                }
+            }
+
+            // Forward pass — nur Logits anfordern
+            OrtSession.Result result = session.run(inputs, Collections.singleton("logits"));
+
+            // Logits auslesen (FP16 oder FP32)
+            float[] lastLogits;
+            OnnxTensor logitsTensor = (OnnxTensor) result.get("logits").get();
+            long[] logitsShape = logitsTensor.getInfo().getShape();
+            int seqLen = (int) logitsShape[1];
+            int vocabSize = (int) logitsShape[2];
+
+            try {
+                // Versuche FP32 zuerst
+                float[][][] logits = (float[][][]) logitsTensor.getValue();
+                lastLogits = logits[0][logits[0].length - 1];
+            } catch (OrtException e) {
+                // FP16-Modell: ByteBuffer auslesen und konvertieren
+                fp16Logits = true;
+                ByteBuffer fp16Buf = logitsTensor.getByteBuffer();
+                fp16Buf.order(ByteOrder.LITTLE_ENDIAN);
+                int offset = (seqLen - 1) * vocabSize * 2;
+                lastLogits = new float[vocabSize];
+                for (int i = 0; i < vocabSize; i++) {
+                    short fp16 = fp16Buf.getShort(offset + i * 2);
+                    lastLogits[i] = fp16ToFloat(fp16);
+                }
+            }
 
             // Close tensors
             for (OnnxTensor t : inputs.values()) t.close();
@@ -308,7 +363,9 @@ public class OnnxChatManager implements ChatManager {
 
             // Sample next token
             int nextTokenId = sampleToken(lastLogits, temperature, topP, topK);
-            if (nextTokenId == eosTokenId) break;
+
+            // EOS Check (multiple EOS tokens für Phi-3)
+            if (eosTokenIds.contains(nextTokenId) || nextTokenId == eosTokenId) break;
 
             generated.add((long) nextTokenId);
 
@@ -319,6 +376,28 @@ public class OnnxChatManager implements ChatManager {
         }
 
         return output.toString();
+    }
+
+    /**
+     * Konvertiert IEEE 754 half-precision (FP16) zu float32.
+     */
+    private static float fp16ToFloat(short fp16) {
+        int h = fp16 & 0xFFFF;
+        int sign = (h >>> 15) & 0x1;
+        int exp  = (h >>> 10) & 0x1F;
+        int mant = h & 0x03FF;
+
+        if (exp == 0) {
+            if (mant == 0) return sign == 1 ? -0.0f : 0.0f;
+            float val = (float) (Math.pow(2, -14) * (mant / 1024.0));
+            return sign == 1 ? -val : val;
+        } else if (exp == 0x1F) {
+            if (mant == 0) return sign == 1 ? Float.NEGATIVE_INFINITY : Float.POSITIVE_INFINITY;
+            return Float.NaN;
+        }
+
+        int fp32 = (sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13);
+        return Float.intBitsToFloat(fp32);
     }
 
     /**

@@ -33,22 +33,35 @@ final class OnnxTokenizer {
     private int eosTokenId = 2;    // default, wird aus config überschrieben
     private int bosTokenId = 1;
     private int padTokenId = 0;
+    private final Set<Integer> eosTokenIds = new HashSet<>();
 
     // BPE Merge-Regeln (Paare in Prioritätsreihenfolge)
     private final List<String[]> merges = new ArrayList<>();
+
+    // Spezial-Token-Liste (sortiert nach Länge absteigend für greedy matching)
+    private final List<String> specialTokens = new ArrayList<>();
+
+    // Leerzeichen-Prefix-Zeichen: '▁' (U+2581, SentencePiece/LLaMA) oder 'Ġ' (U+0120, GPT2)
+    private char spaceChar = '\u2581';
+
+    // Modell-Konfiguration (aus genai_config.json)
+    private int numLayers = 32;
+    private int headSize = 96;
+    private int numKvHeads = 32;
 
     private boolean loaded = false;
 
     OnnxTokenizer(Path modelDir) {
         Path tokenizerJson = modelDir.resolve("tokenizer.json");
         Path tokenizerConfig = modelDir.resolve("tokenizer_config.json");
+        Path genaiConfig = modelDir.resolve("genai_config.json");
 
         if (Files.exists(tokenizerJson)) {
             try {
                 loadTokenizerJson(tokenizerJson);
                 loaded = true;
                 LOG.info("Tokenizer geladen: " + vocab.size() + " Tokens, "
-                        + merges.size() + " Merges, EOS=" + eosTokenId);
+                        + merges.size() + " Merges, EOS=" + eosTokenIds);
             } catch (Exception e) {
                 LOG.warning("Tokenizer konnte nicht geladen werden: " + e.getMessage());
             }
@@ -62,6 +75,14 @@ final class OnnxTokenizer {
             }
         }
 
+        if (Files.exists(genaiConfig)) {
+            try {
+                loadGenaiConfig(genaiConfig);
+            } catch (Exception e) {
+                LOG.warning("genai_config.json konnte nicht gelesen werden: " + e.getMessage());
+            }
+        }
+
         if (!loaded) {
             LOG.warning("Kein tokenizer.json gefunden in " + modelDir
                     + " – Fallback auf einfache Whitespace-Tokenisierung.");
@@ -70,22 +91,63 @@ final class OnnxTokenizer {
 
     int getEosTokenId() { return eosTokenId; }
     int getBosTokenId() { return bosTokenId; }
+    Set<Integer> getEosTokenIds() { return Collections.unmodifiableSet(eosTokenIds); }
+    int getNumLayers() { return numLayers; }
+    int getHeadSize() { return headSize; }
+    int getNumKvHeads() { return numKvHeads; }
 
     /**
      * Encodiert einen String in Token-IDs.
+     * Erkennt Spezial-Tokens (z.B. {@code <|user|>}) und encodiert sie direkt.
      */
     long[] encode(String text) {
         if (!loaded) {
             return encodeFallback(text);
         }
 
-        // Einfaches character-level pre-tokenization mit BPE
-        List<String> tokens = bpeEncode(text);
-        long[] ids = new long[tokens.size()];
-        for (int i = 0; i < tokens.size(); i++) {
-            Integer id = vocab.get(tokens.get(i));
-            ids[i] = id != null ? id : 0; // UNK
+        List<Long> result = new ArrayList<>();
+        int pos = 0;
+        while (pos < text.length()) {
+            // Spezial-Token greedy matchen (längster zuerst)
+            String matchedSpecial = null;
+            for (String special : specialTokens) {
+                if (text.startsWith(special, pos)) {
+                    matchedSpecial = special;
+                    break; // Liste ist nach Länge sortiert
+                }
+            }
+            if (matchedSpecial != null) {
+                Integer id = vocab.get(matchedSpecial);
+                if (id != null) result.add((long) id.intValue());
+                pos += matchedSpecial.length();
+                continue;
+            }
+
+            // Normaler Text bis zum nächsten Spezial-Token oder Ende
+            int end = pos + 1;
+            while (end < text.length()) {
+                boolean isSpecialStart = false;
+                for (String special : specialTokens) {
+                    if (text.startsWith(special, end)) {
+                        isSpecialStart = true;
+                        break;
+                    }
+                }
+                if (isSpecialStart) break;
+                end++;
+            }
+
+            String segment = text.substring(pos, end);
+            List<String> tokens = bpeEncode(segment);
+            for (String tok : tokens) {
+                Integer id = vocab.get(tok);
+                result.add(id != null ? (long) id.intValue() : 0L);
+            }
+            pos = end;
         }
+
+        long[] ids = new long[result.size()];
+        for (int i = 0; i < result.size(); i++) ids[i] = result.get(i);
         return ids;
     }
 
@@ -101,8 +163,8 @@ final class OnnxTokenizer {
         for (long id : ids) {
             String token = reverseVocab.get((int) id);
             if (token != null) {
-                // Hugging Face BPE verwendet 'Ġ' (U+0120) für Leerzeichen-Prefix
-                sb.append(token.replace('\u0120', ' '));
+                // Leerzeichen-Prefix zurückwandeln
+                sb.append(token.replace(spaceChar, ' '));
             }
         }
         return sb.toString();
@@ -111,45 +173,39 @@ final class OnnxTokenizer {
     // ==================== BPE Encoding ====================
 
     private List<String> bpeEncode(String text) {
-        // Pre-tokenize: split on whitespace/punctuation boundaries
-        List<String> words = preTokenize(text);
-        List<String> result = new ArrayList<>();
+        // Pre-tokenize: Leerzeichen durch Space-Prefix-Char ersetzen
+        text = text.replace(' ', spaceChar);
 
-        for (String word : words) {
-            // Split word into characters
-            List<String> symbols = new ArrayList<>();
-            for (int i = 0; i < word.length(); i++) {
-                symbols.add(String.valueOf(word.charAt(i)));
-            }
-
-            // Apply BPE merges iteratively
-            boolean changed = true;
-            while (changed && symbols.size() > 1) {
-                changed = false;
-                int bestMergeRank = Integer.MAX_VALUE;
-                int bestIdx = -1;
-
-                for (int i = 0; i < symbols.size() - 1; i++) {
-                    String pair = symbols.get(i) + " " + symbols.get(i + 1);
-                    int rank = getMergeRank(symbols.get(i), symbols.get(i + 1));
-                    if (rank >= 0 && rank < bestMergeRank) {
-                        bestMergeRank = rank;
-                        bestIdx = i;
-                    }
-                }
-
-                if (bestIdx >= 0) {
-                    String merged = symbols.get(bestIdx) + symbols.get(bestIdx + 1);
-                    symbols.set(bestIdx, merged);
-                    symbols.remove(bestIdx + 1);
-                    changed = true;
-                }
-            }
-
-            result.addAll(symbols);
+        // In Zeichen aufteilen
+        List<String> symbols = new ArrayList<>();
+        for (int i = 0; i < text.length(); i++) {
+            symbols.add(String.valueOf(text.charAt(i)));
         }
 
-        return result;
+        // BPE Merges anwenden
+        boolean changed = true;
+        while (changed && symbols.size() > 1) {
+            changed = false;
+            int bestMergeRank = Integer.MAX_VALUE;
+            int bestIdx = -1;
+
+            for (int i = 0; i < symbols.size() - 1; i++) {
+                int rank = getMergeRank(symbols.get(i), symbols.get(i + 1));
+                if (rank >= 0 && rank < bestMergeRank) {
+                    bestMergeRank = rank;
+                    bestIdx = i;
+                }
+            }
+
+            if (bestIdx >= 0) {
+                String merged = symbols.get(bestIdx) + symbols.get(bestIdx + 1);
+                symbols.set(bestIdx, merged);
+                symbols.remove(bestIdx + 1);
+                changed = true;
+            }
+        }
+
+        return symbols;
     }
 
     private int getMergeRank(String left, String right) {
@@ -159,29 +215,6 @@ final class OnnxTokenizer {
             }
         }
         return -1;
-    }
-
-    private List<String> preTokenize(String text) {
-        // Hugging Face GPT2-style: split on spaces, keeping the space as prefix 'Ġ'
-        List<String> tokens = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == ' ' && current.length() > 0) {
-                tokens.add(current.toString());
-                current.setLength(0);
-                current.append('\u0120'); // Ġ prefix for space
-            } else if (c == ' ' && current.length() == 0) {
-                current.append('\u0120');
-            } else {
-                current.append(c);
-            }
-        }
-        if (current.length() > 0) {
-            tokens.add(current.toString());
-        }
-        return tokens;
     }
 
     // ==================== Tokenizer Loading ====================
@@ -224,18 +257,38 @@ final class OnnxTokenizer {
                 JsonObject tokenObj = elem.getAsJsonObject();
                 String content = tokenObj.has("content") ? tokenObj.get("content").getAsString() : "";
                 int id = tokenObj.has("id") ? tokenObj.get("id").getAsInt() : -1;
+                boolean special = tokenObj.has("special") && tokenObj.get("special").getAsBoolean();
                 if (id >= 0) {
                     vocab.put(content, id);
                     reverseVocab.put(id, content);
 
                     if ("<|endoftext|>".equals(content) || "</s>".equals(content) || "<|end|>".equals(content)) {
                         eosTokenId = id;
+                        eosTokenIds.add(id);
                     }
                     if ("<|startoftext|>".equals(content) || "<s>".equals(content)) {
                         bosTokenId = id;
                     }
+                    if (special) {
+                        specialTokens.add(content);
+                    }
                 }
             }
+        }
+
+        // Spezial-Tokens nach Länge absteigend sortieren (greedy matching)
+        Collections.sort(specialTokens, new Comparator<String>() {
+            @Override
+            public int compare(String a, String b) {
+                return Integer.compare(b.length(), a.length());
+            }
+        });
+
+        // Auto-Detect: '▁' (SentencePiece) vs 'Ġ' (GPT2)
+        if (vocab.containsKey("\u0120")) {
+            spaceChar = '\u0120';
+        } else {
+            spaceChar = '\u2581';
         }
     }
 
@@ -251,6 +304,38 @@ final class OnnxTokenizer {
                 if (id != null) eosTokenId = id;
             }
         }
+    }
+
+    private void loadGenaiConfig(Path path) throws IOException {
+        String json = new String(Files.readAllBytes(path), Charset.forName("UTF-8"));
+        JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+
+        if (root.has("model")) {
+            JsonObject model = root.getAsJsonObject("model");
+
+            // EOS Token IDs aus Config
+            if (model.has("eos_token_id")) {
+                JsonElement eos = model.get("eos_token_id");
+                if (eos.isJsonArray()) {
+                    for (JsonElement e : eos.getAsJsonArray()) {
+                        eosTokenIds.add(e.getAsInt());
+                    }
+                } else if (eos.isJsonPrimitive()) {
+                    eosTokenIds.add(eos.getAsInt());
+                }
+            }
+
+            // Decoder-Konfiguration
+            if (model.has("decoder")) {
+                JsonObject decoder = model.getAsJsonObject("decoder");
+                if (decoder.has("num_hidden_layers")) numLayers = decoder.get("num_hidden_layers").getAsInt();
+                if (decoder.has("head_size")) headSize = decoder.get("head_size").getAsInt();
+                if (decoder.has("num_key_value_heads")) numKvHeads = decoder.get("num_key_value_heads").getAsInt();
+            }
+        }
+
+        LOG.info("Modell-Config: " + numLayers + " Layers, head_size=" + headSize
+                + ", kv_heads=" + numKvHeads + ", EOS=" + eosTokenIds);
     }
 
     // ==================== Fallback (kein Tokenizer geladen) ====================
@@ -277,4 +362,3 @@ final class OnnxTokenizer {
         return sb.toString();
     }
 }
-
