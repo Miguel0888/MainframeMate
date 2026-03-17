@@ -3,8 +3,11 @@ package de.bund.zrb.ui;
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
+import de.bund.zrb.model.Settings;
+import de.bund.zrb.service.FtpSourceCacheService;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -12,11 +15,17 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -24,6 +33,15 @@ public class ConnectionTabImpl implements ConnectionTab {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
+
+    /** Sort modes for file list. */
+    enum SortMode {
+        NAME_ASC("Name \u2191"), NAME_DESC("Name \u2193"),
+        SIZE_DESC("Größe \u2193"), DATE_DESC("Datum \u2193"), EXT("Erweiterung");
+        final String label;
+        SortMode(String l) { this.label = l; }
+        @Override public String toString() { return label; }
+    }
 
     private VirtualResource resource;
     private final FileService fileService;
@@ -33,19 +51,44 @@ public class ConnectionTabImpl implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
-    private final DefaultListModel<String> listModel = new DefaultListModel<>();
-    private final JList<String> fileList = new JList<>(listModel);
+    private DefaultListModel<Object> listModel = new DefaultListModel<Object>();
+    private final JList<Object> fileList;
     private final TabbedPaneManager tabbedPaneManager;
     private JButton backButton;
     private JButton forwardButton;
     private final IndexingSidebar indexingSidebar = new IndexingSidebar(SourceType.FTP);
     private boolean sidebarVisible = false;
+    private JToggleButton detailsButton;
 
     private final JTextField searchField = new JTextField();
     private final JLabel overlayLabel = new JLabel();
-    private final JPanel listContainer = new JPanel(new BorderLayout());
-    private List<String> currentDirectoryFiles = new ArrayList<>();
-    private List<FileNode> currentDirectoryNodes = new ArrayList<>();
+    private final JPanel listContainer;
+    private final JLabel statusLabel = new JLabel(" ");
+
+    // Full data for filtering
+    private List<FileNode> currentDirectoryNodes = new ArrayList<FileNode>();
+
+    // --- Navigator view state ---
+    private boolean groupByExtension = false;
+    private SortMode sortMode = SortMode.NAME_ASC;
+    private boolean showDetails = false;
+
+    // Grouped tree view
+    private JTree extensionTree;
+    private DefaultTreeModel treeModel;
+    private DefaultMutableTreeNode treeRoot;
+    private CardLayout viewCardLayout;
+    private JPanel viewContainer;
+    private JToggleButton groupToggle;
+
+    // FTP source cache service
+    private final FtpSourceCacheService cacheService;
+
+    // Host info (extracted from resource for cache keys)
+    private String ftpHost = "";
+
+    // State persistence prefix
+    private static final String STATE_PREFIX = "ftp.nav.";
 
     /**
      * Constructor using VirtualResource + FileService.
@@ -56,11 +99,23 @@ public class ConnectionTabImpl implements ConnectionTab {
         this.fileService = fileService;
         this.previewOpener = new DocumentPreviewOpener(tabbedPaneManager);
         this.mainPanel = new JPanel(new BorderLayout());
+        this.fileList = new JList<Object>(listModel);
+        this.listContainer = new JPanel();
+
+        // Initialize cache service
+        this.cacheService = FtpSourceCacheService.getInstance();
+
+        // Extract host from resource
+        if (resource != null && resource.getFtpState() != null
+                && resource.getFtpState().getConnectionId() != null) {
+            this.ftpHost = resource.getFtpState().getConnectionId().getHost();
+        }
 
         boolean mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
         this.navigator = new PathNavigator(mvsMode);
         this.browserState = new BrowserSessionState(navigator.normalize(resource.getResolvedPath()));
 
+        restoreNavigatorState();
         initUI(searchPattern);
     }
 
@@ -69,16 +124,15 @@ public class ConnectionTabImpl implements ConnectionTab {
     }
 
     private void initUI(String searchPattern) {
+        // ── Path panel ──
         JPanel pathPanel = new JPanel(new BorderLayout());
 
-        // 🔄 Refresh-Button links
         JButton refreshButton = new JButton("🔄");
         refreshButton.setToolTipText("Aktuellen Pfad neu laden");
         refreshButton.setMargin(new Insets(0, 0, 0, 0));
         refreshButton.setFont(refreshButton.getFont().deriveFont(Font.PLAIN, 18f));
         refreshButton.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // ⏴ Zurück-Button rechts
         backButton = new JButton("⏴");
         backButton.setToolTipText("Zurück zum übergeordneten Verzeichnis");
         backButton.setMargin(new Insets(0, 0, 0, 0));
@@ -91,59 +145,122 @@ public class ConnectionTabImpl implements ConnectionTab {
         forwardButton.setFont(forwardButton.getFont().deriveFont(Font.PLAIN, 20f));
         forwardButton.addActionListener(e -> navigateForward());
 
-        // Öffnen-Button rechts
         JButton goButton = new JButton("Öffnen");
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        // Rechte Buttongruppe (⏴ ⏵ Öffnen 📊)
-        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 5, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
-        JToggleButton detailsButton = new JToggleButton("📊");
+        JButton clearCacheButton = new JButton("🗑");
+        clearCacheButton.setToolTipText("FTP-Cache für dieses Verzeichnis leeren");
+        clearCacheButton.setMargin(new Insets(0, 0, 0, 0));
+        clearCacheButton.setFont(clearCacheButton.getFont().deriveFont(Font.PLAIN, 16f));
+        clearCacheButton.addActionListener(e -> clearDirectoryCache());
+        rightButtons.add(clearCacheButton);
+
+        detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
         detailsButton.setMargin(new Insets(0, 0, 0, 0));
         detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.setSelected(sidebarVisible);
         detailsButton.addActionListener(e -> toggleSidebar());
         rightButtons.add(detailsButton);
 
-        // Panelaufbau
         pathPanel.add(refreshButton, BorderLayout.WEST);
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
-        // Setup overlay label for status messages
+        // ── Overlay setup ──
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
         overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
 
-        // Use layered pane for overlay
-        JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.add(scrollPane, BorderLayout.CENTER);
-
-        mainPanel.add(pathPanel, BorderLayout.NORTH);
-        mainPanel.add(listContainer, BorderLayout.CENTER);
-        indexingSidebar.setVisible(false);
-        mainPanel.add(indexingSidebar, BorderLayout.EAST);
-        mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
-
-        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(mainPanel);
+        // ── List setup (flat view) ──
+        JScrollPane listScrollPane = new JScrollPane(fileList);
+        fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        fileList.setCellRenderer(new FtpCellRenderer());
+        fileList.addListSelectionListener(new javax.swing.event.ListSelectionListener() {
+            @Override
+            public void valueChanged(javax.swing.event.ListSelectionEvent e) {
+                if (!e.getValueIsAdjusting() && sidebarVisible) {
+                    updateSidebarInfo();
+                }
+            }
+        });
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() != 2) return;
-                handleItemActivation(e.isControlDown());
+                if (e.getClickCount() == 2 && !e.isPopupTrigger()) {
+                    handleItemActivation(e.isControlDown());
+                }
+            }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, false);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, false);
             }
         });
 
-        // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
+        // ── Tree setup (grouped view) ──
+        treeRoot = new DefaultMutableTreeNode("root");
+        treeModel = new DefaultTreeModel(treeRoot);
+        extensionTree = new JTree(treeModel);
+        extensionTree.setRootVisible(false);
+        extensionTree.setShowsRootHandles(true);
+        extensionTree.setCellRenderer(new FtpTreeCellRenderer());
+        extensionTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
+        extensionTree.addTreeSelectionListener(new javax.swing.event.TreeSelectionListener() {
+            @Override
+            public void valueChanged(javax.swing.event.TreeSelectionEvent e) {
+                if (sidebarVisible) {
+                    updateSidebarInfo();
+                }
+            }
+        });
+        extensionTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && !e.isPopupTrigger()) {
+                    handleTreeDoubleClick();
+                }
+            }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, true);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, true);
+            }
+        });
+        JScrollPane treeScrollPane = new JScrollPane(extensionTree);
+
+        // Card layout to switch between flat list and grouped tree
+        viewCardLayout = new CardLayout();
+        viewContainer = new JPanel(viewCardLayout);
+        viewContainer.add(listScrollPane, "list");
+        viewContainer.add(treeScrollPane, "tree");
+
+        // Overlay wraps the view container
+        listContainer.setLayout(new OverlayLayout(listContainer));
+        listContainer.add(overlayLabel);
+        listContainer.add(viewContainer);
+
+        // Mouse navigation on all relevant components
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(extensionTree);
+        installMouseNavigation(mainPanel);
+
+        // Keyboard navigation
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
                 fileList, searchField,
                 () -> handleItemActivation(false),
@@ -151,25 +268,130 @@ public class ConnectionTabImpl implements ConnectionTab {
                 this::navigateForward
         );
 
-        // Initial load - only if path is meaningful
+        // ── Navigator toolbar ──
+        JPanel navigatorToolbar = createNavigatorToolbar();
+
+        // ── Status bar ──
+        JPanel statusBar = createStatusBar();
+
+        // ── Top panel: path bar + navigator toolbar ──
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        pathPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        pathPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        navigatorToolbar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        navigatorToolbar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        topPanel.add(pathPanel);
+        topPanel.add(navigatorToolbar);
+
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+        mainPanel.add(listContainer, BorderLayout.CENTER);
+
+        // Sidebar setup
+        indexingSidebar.setVisible(sidebarVisible);
+        indexingSidebar.setCustomIndexAction(this::indexSelectedOrAll);
+        indexingSidebar.setCustomStatusSupplier(this::computeFtpCacheStatus);
+        mainPanel.add(indexingSidebar, BorderLayout.EAST);
+
+        mainPanel.add(statusBar, BorderLayout.SOUTH);
+
+        // Initial load
         String initialPath = browserState.getCurrentPath();
         pathField.setText(initialPath);
 
-        // Don't try to list empty path or MVS root '' - wait for user input
         if (initialPath != null && !initialPath.isEmpty() && !"''".equals(initialPath) && !"/".equals(initialPath)) {
             updateFileList();
         } else {
-            // Show hint for MVS
             showOverlayMessage("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)", Color.GRAY);
         }
 
         if (searchPattern != null && !searchPattern.trim().isEmpty()) {
             searchField.setText(searchPattern.trim());
-            applySearchFilter();
+            applyFilter();
         }
 
         updateNavigationButtons();
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Navigator Toolbar
+    // ═══════════════════════════════════════════════════════════
+
+    private JPanel createNavigatorToolbar() {
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        toolbar.setBorder(BorderFactory.createEmptyBorder(1, 2, 1, 2));
+
+        // Group by Extension toggle
+        groupToggle = new JToggleButton("\uD83D\uDCC1");
+        groupToggle.setToolTipText("Nach Dateierweiterung gruppieren");
+        groupToggle.setMargin(new Insets(1, 4, 1, 4));
+        groupToggle.setFocusable(false);
+        groupToggle.setSelected(groupByExtension);
+        groupToggle.addActionListener(e -> {
+            groupByExtension = groupToggle.isSelected();
+            saveNavigatorState();
+            applyFilter();
+        });
+        toolbar.add(groupToggle);
+
+        // Sort dropdown button
+        JButton sortButton = new JButton("\u2195");
+        sortButton.setToolTipText("Sortierung");
+        sortButton.setMargin(new Insets(1, 4, 1, 4));
+        sortButton.setFocusable(false);
+        sortButton.addActionListener(e -> {
+            JPopupMenu popup = new JPopupMenu();
+            for (final SortMode mode : SortMode.values()) {
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(mode.label, mode == sortMode);
+                item.addActionListener(ev -> {
+                    sortMode = mode;
+                    saveNavigatorState();
+                    applyFilter();
+                });
+                popup.add(item);
+            }
+            popup.show(sortButton, 0, sortButton.getHeight());
+        });
+        toolbar.add(sortButton);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Show Details toggle (size, date)
+        JToggleButton detailsToggle = new JToggleButton("\uD83D\uDCCA");
+        detailsToggle.setToolTipText("Details anzeigen (Größe, Datum)");
+        detailsToggle.setMargin(new Insets(1, 4, 1, 4));
+        detailsToggle.setFocusable(false);
+        detailsToggle.setSelected(showDetails);
+        detailsToggle.addActionListener(e -> {
+            showDetails = detailsToggle.isSelected();
+            saveNavigatorState();
+            applyFilter();
+        });
+        toolbar.add(detailsToggle);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Collapse All (useful for grouped tree)
+        JButton collapseButton = new JButton("\u23F6");
+        collapseButton.setToolTipText("Alle zuklappen");
+        collapseButton.setMargin(new Insets(1, 4, 1, 4));
+        collapseButton.setFocusable(false);
+        collapseButton.addActionListener(e -> collapseAllTreeNodes());
+        toolbar.add(collapseButton);
+
+        JButton expandButton = new JButton("\u23F7");
+        expandButton.setToolTipText("Alle aufklappen");
+        expandButton.setMargin(new Insets(1, 4, 1, 4));
+        expandButton.setFocusable(false);
+        expandButton.addActionListener(e -> expandAllTreeNodes());
+        toolbar.add(expandButton);
+
+        return toolbar;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ConnectionTab interface
+    // ═══════════════════════════════════════════════════════════
 
     @Override
     public String getTitle() {
@@ -188,6 +410,10 @@ public class ConnectionTabImpl implements ConnectionTab {
 
     @Override
     public void onClose() {
+        String currentPath = browserState.getCurrentPath();
+        if (!ftpHost.isEmpty() && currentPath != null) {
+            cacheService.cancelPrefetch(ftpHost, currentPath);
+        }
         try {
             fileService.close();
         } catch (Exception ignore) {
@@ -195,52 +421,9 @@ public class ConnectionTabImpl implements ConnectionTab {
         }
     }
 
-    private void handleItemActivation(boolean ctrlDown) {
-        String selected = fileList.getSelectedValue();
-        if (selected == null) return;
-
-        FileNode node = findNodeByName(selected);
-        if (node != null && node.isDirectory()) {
-            browserState.goTo(node.getPath());
-            pathField.setText(browserState.getCurrentPath());
-            updateFileList();
-            tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
-            return;
-        }
-
-        // Best effort: try to treat as directory first
-        String nextPath = navigator.childOf(browserState.getCurrentPath(), selected);
-        try {
-            List<FileNode> listed = fileService.list(nextPath);
-            currentDirectoryNodes = listed == null ? new ArrayList<>() : listed;
-            browserState.goTo(nextPath);
-            pathField.setText(browserState.getCurrentPath());
-            refreshListModelFromNodes();
-            tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
-            return;
-        } catch (Exception ignore) {
-            // not a directory
-        }
-
-        // CTRL = Raw-Datei öffnen, sonst Document Preview
-        if (ctrlDown) {
-            try {
-                FilePayload payload = fileService.readFile(nextPath);
-                String content = payload.getEditorText();
-                VirtualResource fileResource = buildResourceForPath(nextPath, VirtualResourceKind.FILE);
-                tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
-                        "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        } else {
-            previewOpener.openPreviewAsync(fileService, nextPath, selected, mainPanel);
-        }
-    }
-
     @Override
     public void saveIfApplicable() {
-        // nichts zu speichern
+        // nothing to save
     }
 
     @Override
@@ -253,77 +436,11 @@ public class ConnectionTabImpl implements ConnectionTab {
     }
 
     @Override
-    public void markAsChanged() {
-        // Optional: Visual indication, if ever needed
-    }
+    public void markAsChanged() {}
 
     @Override
     public String getPath() {
         return pathField.getText();
-    }
-
-    public void loadDirectory(String path) {
-        navigateTo(path, true);
-    }
-
-    private void navigateBack() {
-        browserState.back();
-        pathField.setText(browserState.getCurrentPath());
-        updateNavigationButtons();
-        updateFileList();
-        tabbedPaneManager.refreshStarForTab(this);
-    }
-
-    private void navigateForward() {
-        browserState.forward();
-        pathField.setText(browserState.getCurrentPath());
-        updateNavigationButtons();
-        updateFileList();
-        tabbedPaneManager.refreshStarForTab(this);
-    }
-
-    private void navigateTo(String path, boolean addToHistory) {
-        String normalized = navigator.normalize(path);
-        if (addToHistory) {
-            browserState.goTo(normalized);
-        }
-        pathField.setText(browserState.getCurrentPath());
-        updateNavigationButtons();
-        updateFileList();
-        // Update star button to reflect bookmark state for new directory
-        tabbedPaneManager.refreshStarForTab(this);
-    }
-
-    private void updateNavigationButtons() {
-        if (backButton != null) {
-            backButton.setEnabled(browserState.canGoBack());
-        }
-        if (forwardButton != null) {
-            forwardButton.setEnabled(browserState.canGoForward());
-        }
-    }
-
-    private void toggleSidebar() {
-        sidebarVisible = !sidebarVisible;
-        indexingSidebar.setVisible(sidebarVisible);
-        if (sidebarVisible) {
-            indexingSidebar.setCurrentPath(pathField.getText());
-        }
-        mainPanel.revalidate();
-        mainPanel.repaint();
-    }
-
-    private void installMouseNavigation(JComponent component) {
-        component.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
-                }
-            }
-        });
     }
 
     @Override
@@ -340,7 +457,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     public void searchFor(String searchPattern) {
         if (searchPattern == null) return;
         searchField.setText(searchPattern.trim());
-        applySearchFilter();
+        applyFilter();
     }
 
     @Override
@@ -361,6 +478,863 @@ public class ConnectionTabImpl implements ConnectionTab {
         return menu;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Navigation
+    // ═══════════════════════════════════════════════════════════
+
+    public void loadDirectory(String path) {
+        navigateTo(path, true);
+    }
+
+    private void navigateBack() {
+        browserState.back();
+        pathField.setText(browserState.getCurrentPath());
+        updateNavigationButtons();
+        updateFileList();
+        if (sidebarVisible) updateSidebarInfo();
+        tabbedPaneManager.refreshStarForTab(this);
+    }
+
+    private void navigateForward() {
+        browserState.forward();
+        pathField.setText(browserState.getCurrentPath());
+        updateNavigationButtons();
+        updateFileList();
+        if (sidebarVisible) updateSidebarInfo();
+        tabbedPaneManager.refreshStarForTab(this);
+    }
+
+    private void navigateTo(String path, boolean addToHistory) {
+        String normalized = navigator.normalize(path);
+        if (addToHistory) {
+            browserState.goTo(normalized);
+        }
+        pathField.setText(browserState.getCurrentPath());
+        updateNavigationButtons();
+        updateFileList();
+        if (sidebarVisible) updateSidebarInfo();
+        tabbedPaneManager.refreshStarForTab(this);
+    }
+
+    private void updateNavigationButtons() {
+        if (backButton != null) {
+            backButton.setEnabled(browserState.canGoBack());
+        }
+        if (forwardButton != null) {
+            forwardButton.setEnabled(browserState.canGoForward());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Sidebar
+    // ═══════════════════════════════════════════════════════════
+
+    private void toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        indexingSidebar.setVisible(sidebarVisible);
+        detailsButton.setSelected(sidebarVisible);
+        if (sidebarVisible) {
+            updateSidebarInfo();
+        }
+        saveNavigatorState();
+        mainPanel.revalidate();
+        mainPanel.repaint();
+    }
+
+    /**
+     * Update the IndexingSidebar path and scope to reflect the current directory
+     * and selection state.
+     */
+    private void updateSidebarInfo() {
+        String currentPath = browserState.getCurrentPath();
+        String displayPath = ftpHost.isEmpty()
+                ? "ftp://" + currentPath
+                : "ftp://" + ftpHost + "/" + currentPath;
+        indexingSidebar.setCurrentPath(displayPath);
+
+        List<FileNode> sel = collectSelectedFileNodes();
+        if (sel.isEmpty()) {
+            List<FileNode> textFiles = getTextFileNodes();
+            indexingSidebar.setScopeInfo("Alle " + textFiles.size() + " Textdateien");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(sel.size(), 3); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(sel.get(i).getName());
+            }
+            if (sel.size() > 3) sb.append(" … (+" + (sel.size() - 3) + ")");
+            indexingSidebar.setScopeInfo("Auswahl: " + sel.size() + " Dateien");
+        }
+    }
+
+    /**
+     * Compute cache-aware status for the IndexingSidebar's custom status supplier.
+     * Returns [statusText, colorHex, itemCountText, lastIndexedText].
+     */
+    private String[] computeFtpCacheStatus() {
+        SimpleDateFormat fmt = new SimpleDateFormat("dd.MM.yyyy HH:mm");
+        String currentPath = browserState.getCurrentPath();
+
+        if (ftpHost.isEmpty() || currentPath == null || currentPath.isEmpty()) {
+            return new String[]{"⬜ Nicht gecacht", "#999999", "-", "-"};
+        }
+
+        int memCached = cacheService.getMemoryCacheSize(ftpHost, currentPath);
+        int h2Cached = cacheService.getH2CacheSize(ftpHost, currentPath);
+        boolean prefetching = cacheService.isPrefetching(ftpHost, currentPath);
+        int textFileCount = getTextFileNodes().size();
+
+        if (prefetching) {
+            return new String[]{
+                    "\uD83D\uDD04 Wird gecacht...",
+                    "#6495ED",
+                    memCached + " / " + textFileCount,
+                    "-"
+            };
+        }
+
+        int cachedCount = Math.max(memCached, h2Cached);
+        if (cachedCount > 0) {
+            return new String[]{
+                    "✅ Gecacht",
+                    "#4CAF50",
+                    cachedCount + " / " + textFileCount,
+                    fmt.format(new Date(System.currentTimeMillis()))
+            };
+        }
+
+        return new String[]{"⬜ Nicht gecacht", "#999999", "0 / " + textFileCount, "-"};
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Context Menu & Selection
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Show right-click context menu for list or tree view.
+     */
+    private void showContextMenu(MouseEvent e, boolean isTree) {
+        // Right-click on unselected item: select it
+        if (isTree) {
+            int row = extensionTree.getRowForLocation(e.getX(), e.getY());
+            if (row >= 0 && !extensionTree.isRowSelected(row)) {
+                extensionTree.setSelectionRow(row);
+            }
+        } else {
+            int idx = fileList.locationToIndex(e.getPoint());
+            if (idx >= 0 && !fileList.isSelectedIndex(idx)) {
+                fileList.setSelectedIndex(idx);
+            }
+        }
+
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem selectAll = new JMenuItem("Alles auswählen");
+        selectAll.addActionListener(ev -> {
+            if (isTree && groupByExtension) {
+                extensionTree.setSelectionInterval(0, extensionTree.getRowCount() - 1);
+            } else {
+                int size = fileList.getModel().getSize();
+                if (size > 0) fileList.setSelectionInterval(0, size - 1);
+            }
+        });
+        menu.add(selectAll);
+
+        JMenuItem selectNone = new JMenuItem("Nichts auswählen");
+        selectNone.addActionListener(ev -> {
+            if (isTree && groupByExtension) {
+                extensionTree.clearSelection();
+            } else {
+                fileList.clearSelection();
+            }
+        });
+        menu.add(selectNone);
+
+        menu.addSeparator();
+
+        List<FileNode> sel = collectSelectedFileNodes();
+        String label = sel.isEmpty()
+                ? "▶ Alles indexieren"
+                : "▶ Auswahl indexieren (" + sel.size() + ")";
+        JMenuItem indexItem = new JMenuItem(label);
+        indexItem.addActionListener(ev -> indexSelectedOrAll());
+        menu.add(indexItem);
+
+        menu.show(e.getComponent(), e.getX(), e.getY());
+    }
+
+    /**
+     * Collect selected FileNode items from the current active view (list or tree).
+     * For tree group nodes, all child file nodes are included.
+     */
+    private List<FileNode> collectSelectedFileNodes() {
+        List<FileNode> selected = new ArrayList<FileNode>();
+
+        if (groupByExtension) {
+            TreePath[] paths = extensionTree.getSelectionPaths();
+            if (paths != null) {
+                Set<FileNode> added = new HashSet<FileNode>();
+                for (TreePath path : paths) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                    Object userObj = node.getUserObject();
+                    if (userObj instanceof FileNode) {
+                        FileNode fn = (FileNode) userObj;
+                        if (added.add(fn)) selected.add(fn);
+                    } else if (userObj instanceof ExtensionGroupNode) {
+                        // Group node: include all children
+                        for (int i = 0; i < node.getChildCount(); i++) {
+                            DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+                            Object childObj = child.getUserObject();
+                            if (childObj instanceof FileNode && added.add((FileNode) childObj)) {
+                                selected.add((FileNode) childObj);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            List<Object> selValues = fileList.getSelectedValuesList();
+            for (Object item : selValues) {
+                if (item instanceof FileNode) {
+                    selected.add((FileNode) item);
+                }
+            }
+        }
+
+        return selected;
+    }
+
+    /** Get all visible text file nodes (respecting current filter). */
+    private List<FileNode> getTextFileNodes() {
+        List<FileNode> result = new ArrayList<FileNode>();
+        for (FileNode node : currentDirectoryNodes) {
+            if (!node.isDirectory() && FtpSourceCacheService.isTextFile(node.getName())) {
+                result.add(node);
+            }
+        }
+        return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Item Activation (double-click / enter)
+    // ═══════════════════════════════════════════════════════════
+
+    private void handleItemActivation(boolean ctrlDown) {
+        Object selected;
+        if (groupByExtension) {
+            TreePath treePath = extensionTree.getSelectionPath();
+            if (treePath == null) return;
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
+            selected = node.getUserObject();
+            if (selected instanceof ExtensionGroupNode) return; // group nodes expand/collapse
+        } else {
+            selected = fileList.getSelectedValue();
+        }
+        if (selected == null) return;
+
+        if (selected instanceof FileNode) {
+            FileNode node = (FileNode) selected;
+            if (node.isDirectory()) {
+                browserState.goTo(node.getPath());
+                pathField.setText(browserState.getCurrentPath());
+                updateFileList();
+                if (sidebarVisible) updateSidebarInfo();
+                tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
+                return;
+            }
+
+            // File: open it
+            String nextPath = node.getPath();
+            if (nextPath == null || nextPath.isEmpty()) {
+                nextPath = navigator.childOf(browserState.getCurrentPath(), node.getName());
+            }
+
+            if (ctrlDown) {
+                openFileRaw(nextPath, node.getName());
+            } else {
+                previewOpener.openPreviewAsync(fileService, nextPath, node.getName(), mainPanel);
+            }
+        } else if (selected instanceof String) {
+            // Legacy string handling (shouldn't happen with FileNode model)
+            String name = (String) selected;
+            String nextPath = navigator.childOf(browserState.getCurrentPath(), name);
+            try {
+                List<FileNode> listed = fileService.list(nextPath);
+                currentDirectoryNodes = listed == null ? new ArrayList<FileNode>() : listed;
+                browserState.goTo(nextPath);
+                pathField.setText(browserState.getCurrentPath());
+                applyFilter();
+                if (sidebarVisible) updateSidebarInfo();
+                tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
+            } catch (Exception ignore) {
+                if (ctrlDown) {
+                    openFileRaw(nextPath, name);
+                } else {
+                    previewOpener.openPreviewAsync(fileService, nextPath, name, mainPanel);
+                }
+            }
+        }
+    }
+
+    private void handleTreeDoubleClick() {
+        handleItemActivation(false);
+    }
+
+    private void openFileRaw(String path, String name) {
+        try {
+            FilePayload payload = fileService.readFile(path);
+            String content = payload.getEditorText();
+
+            // Update cache with freshly downloaded content
+            if (!ftpHost.isEmpty()) {
+                FileNode node = findNodeByName(name);
+                long size = node != null ? node.getSize() : -1;
+                long mtime = node != null ? node.getLastModifiedMillis() : -1;
+                cacheService.cacheContent(ftpHost, path, name, content, size, mtime);
+            }
+
+            VirtualResource fileResource = buildResourceForPath(path, VirtualResourceKind.FILE);
+            tabbedPaneManager.openFileTab(fileResource, content, null, null, false);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Öffnen:\n" + ex.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Loading & Filtering
+    // ═══════════════════════════════════════════════════════════
+
+    private void updateFileList() {
+        SwingUtilities.invokeLater(() -> {
+            listModel.clear();
+            showOverlayMessage("Lade...", Color.GRAY);
+        });
+
+        new Thread(() -> {
+            try {
+                String currentPath = browserState.getCurrentPath();
+                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI)
+                        .fine("[ConnectionTab] Loading directory: " + currentPath);
+
+                List<FileNode> nodes = fileService.list(currentPath);
+
+                SwingUtilities.invokeLater(() -> {
+                    currentDirectoryNodes = nodes == null ? new ArrayList<FileNode>() : nodes;
+                    applyFilter();
+
+                    if (currentDirectoryNodes.isEmpty()) {
+                        showOverlayMessage("Keine Einträge gefunden", Color.ORANGE.darker());
+                    } else {
+                        hideOverlay();
+                    }
+
+                    statusLabel.setText(currentDirectoryNodes.size() + " Einträge");
+
+                    if (sidebarVisible) updateSidebarInfo();
+
+                    // Auto-prefetch text files for Lucene indexing
+                    triggerSourcePrefetch();
+                });
+            } catch (Exception e) {
+                System.err.println("[ConnectionTab] Error loading directory: " + e.getMessage());
+                SwingUtilities.invokeLater(() -> {
+                    showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
+                });
+            }
+        }).start();
+    }
+
+    private void applyFilter() {
+        String regex = searchField.getText().trim();
+
+        // Step 1: Filter items
+        List<FileNode> filtered = new ArrayList<FileNode>();
+        for (FileNode node : currentDirectoryNodes) {
+            try {
+                if (regex.isEmpty()
+                        || Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(node.getName()).find()) {
+                    filtered.add(node);
+                }
+            } catch (Exception e) {
+                break; // invalid regex
+            }
+        }
+
+        // Step 2: Sort
+        sortItems(filtered);
+
+        // Step 3: Populate the appropriate view
+        if (groupByExtension) {
+            populateGroupedTree(filtered);
+            viewCardLayout.show(viewContainer, "tree");
+        } else {
+            DefaultListModel<Object> newModel = new DefaultListModel<Object>();
+            for (FileNode node : filtered) {
+                newModel.addElement(node);
+            }
+            listModel = newModel;
+            fileList.setModel(listModel);
+            viewCardLayout.show(viewContainer, "list");
+        }
+
+        searchField.setBackground(!filtered.isEmpty() || regex.isEmpty()
+                ? UIManager.getColor("TextField.background")
+                : new Color(255, 200, 200));
+    }
+
+    private void sortItems(List<FileNode> items) {
+        // Directories always first
+        Collections.sort(items, new Comparator<FileNode>() {
+            @Override
+            public int compare(FileNode a, FileNode b) {
+                // Directories first
+                if (a.isDirectory() && !b.isDirectory()) return -1;
+                if (!a.isDirectory() && b.isDirectory()) return 1;
+
+                switch (sortMode) {
+                    case NAME_DESC:
+                        return b.getName().compareToIgnoreCase(a.getName());
+                    case SIZE_DESC:
+                        return Long.compare(b.getSize(), a.getSize());
+                    case DATE_DESC:
+                        return Long.compare(b.getLastModifiedMillis(), a.getLastModifiedMillis());
+                    case EXT:
+                        String extA = extractExtension(a.getName());
+                        String extB = extractExtension(b.getName());
+                        int ec = extA.compareToIgnoreCase(extB);
+                        return ec != 0 ? ec : a.getName().compareToIgnoreCase(b.getName());
+                    case NAME_ASC:
+                    default:
+                        return a.getName().compareToIgnoreCase(b.getName());
+                }
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Grouped Tree View (by Extension)
+    // ═══════════════════════════════════════════════════════════
+
+    /** Wrapper for extension group nodes in the tree. */
+    static class ExtensionGroupNode {
+        final String extension;
+        final String displayText;
+
+        ExtensionGroupNode(String extension, String displayText) {
+            this.extension = extension;
+            this.displayText = displayText;
+        }
+
+        @Override
+        public String toString() {
+            return displayText;
+        }
+    }
+
+    private void populateGroupedTree(List<FileNode> filteredItems) {
+        treeRoot.removeAllChildren();
+
+        // Directories group
+        List<FileNode> directories = new ArrayList<FileNode>();
+        // Group files by extension
+        LinkedHashMap<String, List<FileNode>> groups = new LinkedHashMap<String, List<FileNode>>();
+
+        for (FileNode node : filteredItems) {
+            if (node.isDirectory()) {
+                directories.add(node);
+            } else {
+                String ext = extractExtension(node.getName()).toUpperCase();
+                if (ext.isEmpty()) ext = "(Ohne Erweiterung)";
+                List<FileNode> group = groups.get(ext);
+                if (group == null) {
+                    group = new ArrayList<FileNode>();
+                    groups.put(ext, group);
+                }
+                group.add(node);
+            }
+        }
+
+        // Add directories first
+        if (!directories.isEmpty()) {
+            String dirText = getExtensionIcon("DIR") + " Verzeichnisse (" + directories.size() + ")";
+            DefaultMutableTreeNode dirGroupNode = new DefaultMutableTreeNode(
+                    new ExtensionGroupNode("DIR", dirText));
+            for (FileNode dir : directories) {
+                dirGroupNode.add(new DefaultMutableTreeNode(dir));
+            }
+            treeRoot.add(dirGroupNode);
+        }
+
+        // Add file groups sorted by extension
+        List<String> sortedExts = new ArrayList<String>(groups.keySet());
+        Collections.sort(sortedExts);
+        for (String ext : sortedExts) {
+            List<FileNode> members = groups.get(ext);
+            String icon = getExtensionIcon(ext);
+            String groupText = icon + " " + ext + " (" + members.size() + ")";
+            DefaultMutableTreeNode groupNode = new DefaultMutableTreeNode(
+                    new ExtensionGroupNode(ext, groupText));
+            for (FileNode fn : members) {
+                groupNode.add(new DefaultMutableTreeNode(fn));
+            }
+            treeRoot.add(groupNode);
+        }
+
+        treeModel.reload();
+        // Expand all groups by default
+        expandAllTreeNodes();
+    }
+
+    private static String getExtensionIcon(String ext) {
+        if (ext == null) return "📄";
+        String upper = ext.toUpperCase();
+        if (upper.equals("DIR")) return "📁";
+        if (upper.equals("JCL")) return "⚙";
+        if (upper.equals("CBL") || upper.equals("COB") || upper.equals("CPY")) return "🔷";
+        if (upper.equals("XML") || upper.equals("HTML") || upper.equals("HTM")) return "🌐";
+        if (upper.equals("JSON")) return "📋";
+        if (upper.equals("SQL") || upper.equals("DDL") || upper.equals("DML")) return "🗄";
+        if (upper.equals("REXX")) return "📜";
+        if (upper.equals("ASM")) return "🔧";
+        if (upper.equals("TXT") || upper.equals("LOG")) return "📝";
+        if (upper.equals("CSV") || upper.equals("XLS") || upper.equals("XLSX")) return "📊";
+        if (upper.equals("PDF")) return "📕";
+        return "📄";
+    }
+
+    private void collapseAllTreeNodes() {
+        for (int i = extensionTree.getRowCount() - 1; i >= 0; i--) {
+            extensionTree.collapseRow(i);
+        }
+    }
+
+    private void expandAllTreeNodes() {
+        for (int i = 0; i < extensionTree.getRowCount(); i++) {
+            extensionTree.expandRow(i);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Cell Renderers
+    // ═══════════════════════════════════════════════════════════
+
+    private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("dd.MM.yyyy HH:mm");
+
+    /** List cell renderer — shows icon + name + optional details (size, date). */
+    private class FtpCellRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                                                       int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+
+            if (value instanceof FileNode) {
+                FileNode node = (FileNode) value;
+                String icon = node.isDirectory() ? "📁" : getExtensionIcon(extractExtension(node.getName()));
+                if (showDetails) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(icon).append(" ").append(node.getName());
+                    if (!node.isDirectory()) {
+                        if (node.getSize() > 0) sb.append("  (").append(formatSize(node.getSize())).append(")");
+                        if (node.getLastModifiedMillis() > 0)
+                            sb.append("  ").append(DATE_FMT.format(new Date(node.getLastModifiedMillis())));
+                    }
+                    setText(sb.toString());
+                } else {
+                    setText(icon + " " + node.getName());
+                }
+                setFont(getFont().deriveFont(node.isDirectory() ? Font.BOLD : Font.PLAIN));
+            } else if (value instanceof String) {
+                setText("📁 " + value);
+                setFont(getFont().deriveFont(Font.BOLD));
+            }
+            return this;
+        }
+    }
+
+    /** Tree cell renderer for grouped view. */
+    private class FtpTreeCellRenderer extends DefaultTreeCellRenderer {
+        @Override
+        public Component getTreeCellRendererComponent(JTree tree, Object value,
+                                                       boolean sel, boolean expanded, boolean leaf,
+                                                       int row, boolean hasFocus) {
+            super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+
+            if (value instanceof DefaultMutableTreeNode) {
+                Object userObj = ((DefaultMutableTreeNode) value).getUserObject();
+                if (userObj instanceof ExtensionGroupNode) {
+                    setText(((ExtensionGroupNode) userObj).displayText);
+                    setFont(getFont().deriveFont(Font.BOLD));
+                    setIcon(null);
+                } else if (userObj instanceof FileNode) {
+                    FileNode node = (FileNode) userObj;
+                    String icon = node.isDirectory() ? "📁" : getExtensionIcon(extractExtension(node.getName()));
+                    if (showDetails) {
+                        StringBuilder sb = new StringBuilder();
+                        sb.append(icon).append(" ").append(node.getName());
+                        if (!node.isDirectory()) {
+                            if (node.getSize() > 0) sb.append("  (").append(formatSize(node.getSize())).append(")");
+                            if (node.getLastModifiedMillis() > 0)
+                                sb.append("  ").append(DATE_FMT.format(new Date(node.getLastModifiedMillis())));
+                        }
+                        setText(sb.toString());
+                    } else {
+                        setText(icon + " " + node.getName());
+                    }
+                    setFont(getFont().deriveFont(node.isDirectory() ? Font.BOLD : Font.PLAIN));
+                    setIcon(null);
+                }
+            }
+            return this;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Source Prefetch & Indexing
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Start background prefetching of all text files in the current directory.
+     * Enables SearchEverywhere to find FTP files by content.
+     */
+    private void triggerSourcePrefetch() {
+        if (ftpHost.isEmpty()) return;
+        String currentPath = browserState.getCurrentPath();
+        if (currentPath == null || currentPath.isEmpty()) return;
+        if (cacheService.isPrefetching(ftpHost, currentPath)) return;
+
+        List<FileNode> textFiles = getTextFileNodes();
+        if (textFiles.isEmpty()) return;
+
+        if (sidebarVisible) {
+            String displayPath = "ftp://" + ftpHost + "/" + currentPath;
+            indexingSidebar.setCurrentPath(displayPath);
+            indexingSidebar.setScopeInfo("Auto-Prefetch: " + textFiles.size() + " Textdateien");
+        }
+
+        cacheService.prefetchDirectory(ftpHost, currentPath, textFiles, fileService,
+                new FtpSourceCacheService.PrefetchCallback() {
+            @Override
+            public void onProgress(final int current, final int total, final String fileName) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateProgress(current, total, true);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(final int total, final int indexed) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText(currentDirectoryNodes.size() + " Einträge");
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateComplete(total, indexed, true);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateError(message);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Index the selected files, or all visible text files if nothing is selected.
+     */
+    private void indexSelectedOrAll() {
+        List<FileNode> selected = collectSelectedFileNodes();
+
+        // Make sidebar visible to show progress
+        if (!sidebarVisible) {
+            sidebarVisible = true;
+            indexingSidebar.setVisible(true);
+            detailsButton.setSelected(true);
+            mainPanel.revalidate();
+            mainPanel.repaint();
+        }
+
+        List<FileNode> filesToIndex;
+        boolean wasSelected = !selected.isEmpty();
+        if (selected.isEmpty()) {
+            filesToIndex = getTextFileNodes();
+        } else {
+            filesToIndex = new ArrayList<FileNode>();
+            for (FileNode fn : selected) {
+                if (!fn.isDirectory() && FtpSourceCacheService.isTextFile(fn.getName())) {
+                    filesToIndex.add(fn);
+                }
+            }
+        }
+
+        if (filesToIndex.isEmpty() || ftpHost.isEmpty()) return;
+
+        String currentPath = browserState.getCurrentPath();
+
+        // Update sidebar scope
+        String displayPath = "ftp://" + ftpHost + "/" + currentPath;
+        indexingSidebar.setCurrentPath(displayPath);
+        if (wasSelected) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(filesToIndex.size(), 4); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(filesToIndex.get(i).getName());
+            }
+            if (filesToIndex.size() > 4) sb.append(" … (+" + (filesToIndex.size() - 4) + ")");
+            indexingSidebar.setScopeInfo("Auswahl: " + sb.toString());
+        } else {
+            indexingSidebar.setScopeInfo("Alle " + filesToIndex.size() + " Textdateien");
+        }
+        indexingSidebar.updateProgress(0, filesToIndex.size());
+
+        cacheService.prefetchDirectory(ftpHost, currentPath, filesToIndex, fileService,
+                new FtpSourceCacheService.PrefetchCallback() {
+            @Override
+            public void onProgress(final int current, final int total, final String fileName) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateProgress(current, total);
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(final int total, final int indexed) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateComplete(total, indexed);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateError(message);
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Clear cached FTP sources for the current directory.
+     */
+    private void clearDirectoryCache() {
+        String currentPath = browserState.getCurrentPath();
+        if (ftpHost.isEmpty() || currentPath == null || currentPath.isEmpty()) {
+            statusLabel.setText("Kein Verzeichnis ausgewählt");
+            return;
+        }
+
+        int result = JOptionPane.showConfirmDialog(mainPanel,
+                "Cache für Verzeichnis '" + currentPath + "' leeren?\n\n"
+                        + "Dies entfernt:\n"
+                        + "• Zwischengespeicherte Dateiinhalte\n"
+                        + "• Lucene-Suchindex\n\n"
+                        + "Die Daten werden beim nächsten Öffnen neu geladen.",
+                "Cache leeren", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+        if (result == JOptionPane.YES_OPTION) {
+            cacheService.invalidateDirectory(ftpHost, currentPath);
+            statusLabel.setText("Cache für " + currentPath + " geleert");
+            if (sidebarVisible) {
+                indexingSidebar.refreshStatus();
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Navigator State Persistence
+    // ═══════════════════════════════════════════════════════════
+
+    private void saveNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> state = settings.applicationState;
+
+        state.put(STATE_PREFIX + "groupByExtension", String.valueOf(groupByExtension));
+        state.put(STATE_PREFIX + "sortMode", sortMode.name());
+        state.put(STATE_PREFIX + "showDetails", String.valueOf(showDetails));
+        state.put(STATE_PREFIX + "sidebarVisible", String.valueOf(sidebarVisible));
+
+        SettingsHelper.save(settings);
+    }
+
+    private void restoreNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> state = settings.applicationState;
+
+        String groupVal = state.get(STATE_PREFIX + "groupByExtension");
+        if (groupVal != null) groupByExtension = Boolean.parseBoolean(groupVal);
+
+        String sortVal = state.get(STATE_PREFIX + "sortMode");
+        if (sortVal != null) {
+            try {
+                sortMode = SortMode.valueOf(sortVal);
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        String detailsVal = state.get(STATE_PREFIX + "showDetails");
+        if (detailsVal != null) showDetails = Boolean.parseBoolean(detailsVal);
+
+        String sidebarVal = state.get(STATE_PREFIX + "sidebarVisible");
+        if (sidebarVal != null) sidebarVisible = Boolean.parseBoolean(sidebarVal);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Overlay
+    // ═══════════════════════════════════════════════════════════
+
+    private void showOverlayMessage(String message, Color color) {
+        overlayLabel.setText(message);
+        overlayLabel.setForeground(color);
+        overlayLabel.setBackground(new Color(color.getRed(), color.getGreen(), color.getBlue(), 30));
+        overlayLabel.setVisible(true);
+    }
+
+    private void hideOverlay() {
+        overlayLabel.setVisible(false);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Mouse navigation
+    // ═══════════════════════════════════════════════════════════
+
+    private void installMouseNavigation(JComponent component) {
+        component.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    navigateBack();
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    navigateForward();
+                }
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Status bar
+    // ═══════════════════════════════════════════════════════════
+
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
@@ -376,118 +1350,82 @@ public class ConnectionTabImpl implements ConnectionTab {
         deleteButton.addActionListener(e -> deleteSelectedEntry());
         rightPanel.add(deleteButton);
 
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        // Filter field
+        JPanel filterPanel = new JPanel(new BorderLayout());
+        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
+        filterPanel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
+        filterPanel.add(searchField, BorderLayout.CENTER);
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { applyFilter(); }
+            public void removeUpdate(DocumentEvent e) { applyFilter(); }
+            public void changedUpdate(DocumentEvent e) { applyFilter(); }
+        });
+
+        JPanel statusRow = new JPanel(new BorderLayout());
+        statusRow.add(statusLabel, BorderLayout.CENTER);
+
+        centerPanel.add(filterPanel, BorderLayout.NORTH);
+        centerPanel.add(statusRow, BorderLayout.SOUTH);
+
         statusBar.add(leftPanel, BorderLayout.WEST);
-        statusBar.add(createFilterPanel(), BorderLayout.CENTER);
+        statusBar.add(centerPanel, BorderLayout.CENTER);
         statusBar.add(rightPanel, BorderLayout.EAST);
 
         return statusBar;
     }
 
-    private JPanel createFilterPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
-        panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        panel.add(searchField, BorderLayout.CENTER);
+    // ═══════════════════════════════════════════════════════════
+    //  File operations
+    // ═══════════════════════════════════════════════════════════
 
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) { applySearchFilter(); }
-            public void removeUpdate(DocumentEvent e) { applySearchFilter(); }
-            public void changedUpdate(DocumentEvent e) { applySearchFilter(); }
-        });
+    private void createNewFile() {
+        String name = JOptionPane.showInputDialog(mainPanel, "Name der neuen Datei:", "Neue Datei", JOptionPane.PLAIN_MESSAGE);
+        if (name == null || name.trim().isEmpty()) return;
 
-        return panel;
+        try {
+            String target = navigator.childOf(browserState.getCurrentPath(), name);
+            FilePayload payload = FilePayload.fromBytes(new byte[0], Charset.defaultCharset(), false);
+            fileService.writeFile(target, payload);
+            updateFileList();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
-    private void applySearchFilter() {
-        String regex = searchField.getText().trim();
+    private void deleteSelectedEntry() {
+        Object selected = fileList.getSelectedValue();
+        String name = null;
+        if (selected instanceof FileNode) {
+            name = ((FileNode) selected).getName();
+        } else if (selected instanceof String) {
+            name = (String) selected;
+        }
+        if (name == null) {
+            JOptionPane.showMessageDialog(mainPanel, "Bitte erst eine Datei auswählen.");
+            return;
+        }
 
-        listModel.clear();
+        int confirm = JOptionPane.showConfirmDialog(mainPanel, "Wirklich löschen?\n" + name,
+                "Löschen bestätigen", JOptionPane.YES_NO_OPTION);
 
-        boolean hasMatch = false;
-        for (String file : currentDirectoryFiles) {
-            try {
-                if (Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(file).find()) {
-                    listModel.addElement(file);
-                    hasMatch = true;
-                }
-            } catch (Exception e) {
-                hasMatch = false;
-                break;
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        try {
+            String target = navigator.childOf(browserState.getCurrentPath(), name);
+            if (fileService.delete(target)) {
+                updateFileList();
+            } else {
+                JOptionPane.showMessageDialog(mainPanel, "Löschen fehlgeschlagen!", "Fehler", JOptionPane.ERROR_MESSAGE);
             }
-        }
-
-        searchField.setBackground(hasMatch || regex.isEmpty()
-                ? UIManager.getColor("TextField.background")
-                : new Color(255, 200, 200));
-    }
-
-    private void updateFileList() {
-        SwingUtilities.invokeLater(() -> {
-            listModel.clear();
-            showOverlayMessage("Lade...", Color.GRAY);
-        });
-
-        // Run listing in background to avoid UI freeze
-        new Thread(() -> {
-            try {
-                String currentPath = browserState.getCurrentPath();
-                de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.UI).fine("[ConnectionTab] Loading directory: " + currentPath);
-
-                List<FileNode> nodes = fileService.list(currentPath);
-
-                SwingUtilities.invokeLater(() -> {
-                    currentDirectoryNodes = nodes == null ? new ArrayList<>() : nodes;
-                    refreshListModelFromNodes();
-
-                    if (currentDirectoryNodes.isEmpty()) {
-                        showOverlayMessage("Keine Einträge gefunden", Color.ORANGE.darker());
-                    } else {
-                        hideOverlay();
-                    }
-                });
-            } catch (Exception e) {
-                System.err.println("[ConnectionTab] Error loading directory: " + e.getMessage());
-                SwingUtilities.invokeLater(() -> {
-                    showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
-                });
-            }
-        }).start();
-    }
-
-    /**
-     * Show an overlay message in the file list area.
-     */
-    private void showOverlayMessage(String message, Color color) {
-        overlayLabel.setText(message);
-        overlayLabel.setForeground(color);
-        overlayLabel.setBackground(new Color(255, 255, 255, 200));
-        overlayLabel.setVisible(true);
-
-        // Add overlay to list container if not already there
-        if (overlayLabel.getParent() != listContainer) {
-            listContainer.add(overlayLabel, BorderLayout.CENTER);
-        }
-        listContainer.revalidate();
-        listContainer.repaint();
-    }
-
-    /**
-     * Hide the overlay message.
-     */
-    private void hideOverlay() {
-        overlayLabel.setVisible(false);
-        listContainer.remove(overlayLabel);
-        listContainer.revalidate();
-        listContainer.repaint();
-    }
-
-    private void refreshListModelFromNodes() {
-        currentDirectoryFiles = new ArrayList<>();
-        for (FileNode n : currentDirectoryNodes) {
-            currentDirectoryFiles.add(n.getName());
-            listModel.addElement(n.getName());
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Löschen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════
 
     private FileNode findNodeByName(String name) {
         if (name == null) return null;
@@ -510,41 +1448,15 @@ public class ConnectionTabImpl implements ConnectionTab {
                 resource.getFtpState());
     }
 
-    private void createNewFile() {
-        String name = JOptionPane.showInputDialog(mainPanel, "Name der neuen Datei:", "Neue Datei", JOptionPane.PLAIN_MESSAGE);
-        if (name == null || name.trim().isEmpty()) return;
-
-        try {
-            String target = navigator.childOf(browserState.getCurrentPath(), name);
-            FilePayload payload = FilePayload.fromBytes(new byte[0], Charset.defaultCharset(), false);
-            fileService.writeFile(target, payload);
-            updateFileList();
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
+    private static String extractExtension(String fileName) {
+        if (fileName == null) return "";
+        int dot = fileName.lastIndexOf('.');
+        return dot >= 0 ? fileName.substring(dot + 1) : "";
     }
 
-    private void deleteSelectedEntry() {
-        String selected = fileList.getSelectedValue();
-        if (selected == null) {
-            JOptionPane.showMessageDialog(mainPanel, "Bitte erst eine Datei auswählen.");
-            return;
-        }
-
-        int confirm = JOptionPane.showConfirmDialog(mainPanel, "Wirklich löschen?\n" + selected,
-                "Löschen bestätigen", JOptionPane.YES_NO_OPTION);
-
-        if (confirm != JOptionPane.YES_OPTION) return;
-
-        try {
-            String target = navigator.childOf(browserState.getCurrentPath(), selected);
-            if (fileService.delete(target)) {
-                updateFileList();
-            } else {
-                JOptionPane.showMessageDialog(mainPanel, "Löschen fehlgeschlagen!", "Fehler", JOptionPane.ERROR_MESSAGE);
-            }
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Löschen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
-        }
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 }

@@ -281,8 +281,8 @@ public class SearchService {
         // Mail paths contain # separators (mailbox#folder#nodeId)
         if (docId.contains("#")) return SearchResult.SourceType.MAIL;
 
-        // FTP paths (hypothetical)
-        if (docId.startsWith("ftp://") || docId.startsWith("/")) return SearchResult.SourceType.FTP;
+        // FTP paths
+        if (docId.startsWith("FTP:") || docId.startsWith("ftp://") || docId.startsWith("/")) return SearchResult.SourceType.FTP;
 
         // NDV
         if (docId.contains("NDV:") || docId.contains("ndv:")) return SearchResult.SourceType.NDV;
