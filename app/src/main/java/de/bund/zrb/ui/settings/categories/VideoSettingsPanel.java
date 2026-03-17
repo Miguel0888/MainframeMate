@@ -29,6 +29,7 @@ public class VideoSettingsPanel extends JPanel implements SettingsCategory {
     // --- JCodec ---
     private JComboBox<String> cbJcodecContainer;
     private JCheckBox cbJcodecAudio;
+    private JSpinner spJcodecThreads;
 
     // --- VLC ---
     private JCheckBox cbVlcAutodetect;
@@ -145,6 +146,10 @@ public class VideoSettingsPanel extends JPanel implements SettingsCategory {
 
         cbJcodecContainer = new JComboBox<>(new String[]{"mp4", "avi", "mkv"});
         addRow(p, g, r++, "Container:", cbJcodecContainer);
+
+        spJcodecThreads = new JSpinner(new SpinnerNumberModel(4, 1, 32, 1));
+        spJcodecThreads.setToolTipText("<html>Anzahl CPU-Kerne f\u00fcr parallele Frame-Vorbereitung.<br>1 = sequentiell, 4+ empfohlen f\u00fcr 60 fps.</html>");
+        addRow(p, g, r++, "Threads (Kerne):", spJcodecThreads);
 
         cbJcodecAudio = new JCheckBox("Experimentelles Audio (separate WAV, Java-only)");
         g.gridx = 0; g.gridy = r++; g.gridwidth = 2; g.anchor = GridBagConstraints.WEST;
@@ -435,6 +440,7 @@ public class VideoSettingsPanel extends JPanel implements SettingsCategory {
         String jc = s.get("video.jcodec.container", String.class);
         cbJcodecContainer.setSelectedItem(jc != null && !jc.trim().isEmpty() ? jc.trim() : "mp4");
         cbJcodecAudio.setSelected(Boolean.TRUE.equals(s.get("video.jcodec.audio.enabled", Boolean.class)));
+        setInt(spJcodecThreads, or(s.get("video.jcodec.threads", Integer.class), 4));
 
         // VLC
         Boolean autod = s.get("video.vlc.autodetect", Boolean.class);
@@ -520,6 +526,9 @@ public class VideoSettingsPanel extends JPanel implements SettingsCategory {
         // JCodec
         s.set("video.jcodec.container", String.valueOf(cbJcodecContainer.getSelectedItem()));
         s.set("video.jcodec.audio.enabled", cbJcodecAudio.isSelected());
+        int jcThreads = ((Number) spJcodecThreads.getValue()).intValue();
+        s.set("video.jcodec.threads", jcThreads);
+        try { VideoConfig.setJcodecThreads(jcThreads); } catch (Exception ignore) {}
 
         // VLC
         s.set("video.vlc.autodetect", cbVlcAutodetect.isSelected());

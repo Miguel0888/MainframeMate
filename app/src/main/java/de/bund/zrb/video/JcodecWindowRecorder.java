@@ -9,6 +9,7 @@ import de.bund.zrb.win.WindowCapture;
 import org.jcodec.api.FrameGrab;
 import org.jcodec.api.awt.AWTSequenceEncoder;
 import org.jcodec.common.io.NIOUtils;
+import org.jcodec.common.model.ColorSpace;
 import org.jcodec.common.model.Picture;
 import org.jcodec.scale.AWTUtil;
 
@@ -23,6 +24,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -37,6 +39,15 @@ public class JcodecWindowRecorder implements Closeable {
     private Thread worker;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger frameCount = new AtomicInteger(0);
+
+    // Pipeline: parallele Frame-Vorbereitung
+    private int numThreads;
+    private ExecutorService preparePool;
+    private Thread encoderThread;
+    private final AtomicInteger captureSeq = new AtomicInteger(0);
+    private final ConcurrentSkipListMap<Integer, Picture> preparedMap = new ConcurrentSkipListMap<>();
+    /** Max Frames im Puffer bevor Backpressure einsetzt (verhindert Speicherüberlauf). */
+    private static final int MAX_PREPARED_BACKLOG = 120;
 
     private Path outFileEffective;
 
@@ -123,6 +134,48 @@ public class JcodecWindowRecorder implements Closeable {
 
         running.set(true);
         frameCount.set(0);
+
+        numThreads = VideoConfig.getJcodecThreads();
+        if (numThreads < 1) numThreads = 1;
+
+        if (numThreads <= 1) {
+            startSingleThread(frameIntervalMs);
+        } else {
+            startPipeline(frameIntervalMs, numThreads);
+        }
+    }
+
+    // ===== Frame-Vorbereitung (extrahiert für Wiederverwendung) =====
+
+    /**
+     * Bereitet ein rohes Capture-Bild für den Encoder vor:
+     * Even-Dims erzwingen, Farbtyp auf TYPE_3BYTE_BGR konvertieren, Overlays zeichnen.
+     */
+    private BufferedImage prepareFrame(BufferedImage img) {
+        int iw = img.getWidth(), ih = img.getHeight();
+        int tw = iw, th = ih;
+        if (VideoConfig.isEnforceEvenDims()) { tw = makeEven(iw); th = makeEven(ih); }
+        BufferedImage frame;
+        if (tw != iw || th != ih) {
+            frame = new BufferedImage(tw, th, BufferedImage.TYPE_3BYTE_BGR);
+            Graphics2D g = frame.createGraphics();
+            try { g.drawImage(img, 0, 0, tw, th, null); applyOverlays(frame); } finally { g.dispose(); }
+        } else {
+            if (img.getType() != BufferedImage.TYPE_3BYTE_BGR) {
+                frame = new BufferedImage(iw, ih, BufferedImage.TYPE_3BYTE_BGR);
+                Graphics2D g = frame.createGraphics();
+                try { g.drawImage(img, 0, 0, null); } finally { g.dispose(); }
+            } else {
+                frame = img;
+            }
+            applyOverlays(frame);
+        }
+        return frame;
+    }
+
+    // ===== Single-Thread Modus (Threads=1, kompatibel mit bisherigem Verhalten) =====
+
+    private void startSingleThread(final int frameIntervalMs) {
         worker = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -131,24 +184,7 @@ public class JcodecWindowRecorder implements Closeable {
                     try {
                         BufferedImage img = captureFrame();
                         if (img != null) {
-                            int iw = img.getWidth(), ih = img.getHeight();
-                            int tw = iw, th = ih;
-                            if (VideoConfig.isEnforceEvenDims()) { tw = makeEven(iw); th = makeEven(ih); }
-                            BufferedImage frame;
-                            if (tw != iw || th != ih) {
-                                frame = new BufferedImage(tw, th, BufferedImage.TYPE_3BYTE_BGR);
-                                Graphics2D g = frame.createGraphics();
-                                try { g.drawImage(img, 0, 0, tw, th, null); applyOverlays(frame); } finally { g.dispose(); }
-                            } else {
-                                if (img.getType() != BufferedImage.TYPE_3BYTE_BGR) {
-                                    frame = new BufferedImage(iw, ih, BufferedImage.TYPE_3BYTE_BGR);
-                                    Graphics2D g = frame.createGraphics();
-                                    try { g.drawImage(img, 0, 0, null); } finally { g.dispose(); }
-                                } else {
-                                    frame = img;
-                                }
-                                applyOverlays(frame);
-                            }
+                            BufferedImage frame = prepareFrame(img);
                             encoder.encodeImage(frame);
                             segmentFrameCount++;
                             int fc = frameCount.incrementAndGet();
@@ -159,14 +195,14 @@ public class JcodecWindowRecorder implements Closeable {
                             }
                             nullCount = 0;
 
-                            // Segment-Rotation: periodisch auf die Platte flushen
+                            // Segment-Rotation
                             if (segmentFrameCount > 0
                                     && System.currentTimeMillis() - segmentStartMs >= SEGMENT_DURATION_SEC * 1000L) {
                                 try {
                                     rotateSegment();
                                 } catch (Exception e) {
                                     System.err.println("[JcodecRec] Segment-Rotation fehlgeschlagen: " + e.getMessage());
-                                    running.set(false); // ohne Encoder kann nicht weitergearbeitet werden
+                                    running.set(false);
                                 }
                             }
                         } else {
@@ -193,9 +229,156 @@ public class JcodecWindowRecorder implements Closeable {
         worker.start();
     }
 
+    // ===== Pipeline-Modus (Threads>1: Capture → PreparePool → Encoder) =====
+
+    private void startPipeline(final int frameIntervalMs, int threads) {
+        captureSeq.set(0);
+        preparedMap.clear();
+
+        preparePool = Executors.newFixedThreadPool(threads, new ThreadFactory() {
+            private final AtomicInteger idx = new AtomicInteger(0);
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "jcodec-prepare-" + idx.getAndIncrement());
+                t.setDaemon(true);
+                return t;
+            }
+        });
+
+        System.out.println("[JcodecRec] Pipeline-Modus: " + threads + " Prepare-Threads, "
+                + effectiveFps + " FPS Ziel");
+
+        // --- Capture-Thread: nimmt Bilder auf und gibt sie in den Prepare-Pool ---
+        worker = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int nullCount = 0;
+                while (running.get()) {
+                    try {
+                        // Backpressure: wenn der Encoder nicht hinterherkommt, Frames überspringen
+                        if (preparedMap.size() > MAX_PREPARED_BACKLOG) {
+                            Thread.sleep(1);
+                            continue;
+                        }
+
+                        BufferedImage img = captureFrame();
+                        if (img != null) {
+                            final int seq = captureSeq.getAndIncrement();
+                            final BufferedImage raw = img;
+                            preparePool.submit(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        BufferedImage prepared = prepareFrame(raw);
+                                        Picture pic = AWTUtil.fromBufferedImage(prepared, ColorSpace.RGB);
+                                        preparedMap.put(seq, pic);
+                                    } catch (Throwable t) {
+                                        System.err.println("[JcodecRec] Prepare-Fehler seq=" + seq
+                                                + ": " + t.getMessage());
+                                    }
+                                }
+                            });
+                            nullCount = 0;
+                        } else {
+                            nullCount++;
+                            if (nullCount <= 3 || nullCount % 50 == 0) {
+                                System.err.println("[JcodecRec] Capture liefert null (nullCount=" + nullCount + ")");
+                            }
+                        }
+                        Thread.sleep(frameIntervalMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    } catch (Throwable t) {
+                        System.err.println("[JcodecRec] Capture-Fehler: " + t.getClass().getSimpleName()
+                                + ": " + t.getMessage());
+                        t.printStackTrace(System.err);
+                        break;
+                    }
+                }
+                System.out.println("[JcodecRec] Capture-Thread beendet – "
+                        + captureSeq.get() + " Frames gecaptured");
+            }
+        }, "jcodec-capture");
+        worker.setDaemon(true);
+
+        // --- Encoder-Thread: nimmt vorbereitete Frames IN REIHENFOLGE und encodiert sequentiell ---
+        encoderThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int nextSeq = 0;
+                int idleSpins = 0;
+                while (running.get() || nextSeq < captureSeq.get()) {
+                    Picture pic = preparedMap.remove(nextSeq);
+                    if (pic != null) {
+                        try {
+                            encoder.encodeNativeFrame(pic);
+                            segmentFrameCount++;
+                            int fc = frameCount.incrementAndGet();
+                            if (fc == 1) {
+                                System.out.println("[JcodecRec] Erster Frame encoded: "
+                                        + pic.getWidth() + "x" + pic.getHeight()
+                                        + " (" + numThreads + " Threads)");
+                            } else if (fc % 200 == 0) {
+                                System.out.println("[JcodecRec] " + fc + " Frames (Segment "
+                                        + segmentIndex + ", Backlog: " + preparedMap.size() + ")");
+                            }
+                            nextSeq++;
+                            idleSpins = 0;
+
+                            // Segment-Rotation
+                            if (segmentFrameCount > 0
+                                    && System.currentTimeMillis() - segmentStartMs >= SEGMENT_DURATION_SEC * 1000L) {
+                                try {
+                                    rotateSegment();
+                                } catch (Exception e) {
+                                    System.err.println("[JcodecRec] Segment-Rotation fehlgeschlagen: " + e.getMessage());
+                                    running.set(false);
+                                }
+                            }
+                        } catch (Throwable t) {
+                            System.err.println("[JcodecRec] Encode-Fehler nach " + frameCount.get()
+                                    + " Frames: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                            t.printStackTrace(System.err);
+                            running.set(false);
+                        }
+                    } else {
+                        idleSpins++;
+                        // Nach Stop: 500 ms warten, dann aufgeben (fehlende Frames)
+                        if (!running.get() && idleSpins > 500) {
+                            if (nextSeq < captureSeq.get()) {
+                                System.err.println("[JcodecRec] " + (captureSeq.get() - nextSeq)
+                                        + " Frames konnten nicht encoded werden (Timeout)");
+                            }
+                            break;
+                        }
+                        try { Thread.sleep(1); } catch (InterruptedException ie) { break; }
+                    }
+                }
+                System.out.println("[JcodecRec] Encoder-Thread beendet – "
+                        + frameCount.get() + " Frames encoded");
+            }
+        }, "jcodec-encoder");
+        encoderThread.setDaemon(true);
+
+        worker.start();
+        encoderThread.start();
+    }
+
     public void stop() {
         running.set(false);
+
+        // 1. Capture-Thread stoppen
         if (worker != null) { try { worker.join(5000); } catch (InterruptedException ignored) {} }
+
+        // 2. Prepare-Pool abschließen (verbleibende Tasks abarbeiten lassen)
+        if (preparePool != null) {
+            preparePool.shutdown();
+            try { preparePool.awaitTermination(10, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+        }
+
+        // 3. Encoder-Thread warten (verarbeitet verbleibende prepared Frames)
+        if (encoderThread != null) { try { encoderThread.join(15000); } catch (InterruptedException ignored) {} }
 
         // Letztes Segment finalisieren
         try {
@@ -305,7 +488,9 @@ public class JcodecWindowRecorder implements Closeable {
                 FrameGrab grab = FrameGrab.createFrameGrab(NIOUtils.readableChannel(seg.toFile()));
                 Picture pic;
                 while ((pic = grab.getNativeFrame()) != null) {
-                    out.encodeNativeFrame(pic);
+                    // FrameGrab liefert YUV – über BufferedImage zurück nach RGB für den Encoder
+                    BufferedImage img = AWTUtil.toBufferedImage(pic);
+                    out.encodeImage(img);
                     totalFrames++;
                 }
                 System.out.println("[JcodecRec]   Segment " + i + " gelesen (" + totalFrames + " Frames bisher)");

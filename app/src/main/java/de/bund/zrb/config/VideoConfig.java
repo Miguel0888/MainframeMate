@@ -40,6 +40,7 @@ public final class VideoConfig {
     // Sonstiges
     private static final boolean DEFAULT_ENFORCE_EVEN_DIMS = true;
     private static final int     DEFAULT_THREADS      = 0;            // 0 = ffmpeg wählt
+    private static final int     DEFAULT_JCODEC_THREADS = 4;          // Capture-Pipeline: Prepare-Threads
 
     // Container-Fallback-Reihenfolge (wird probiert, wenn Start fehlschlägt)
     // Achtung: die Extension wird automatisch zum Container gemappt (s. mapContainerToExt)
@@ -70,6 +71,7 @@ public final class VideoConfig {
 
     private static volatile boolean enforceEvenDims = DEFAULT_ENFORCE_EVEN_DIMS;
     private static volatile int     threads     = DEFAULT_THREADS;
+    private static volatile int     jcodecThreads = DEFAULT_JCODEC_THREADS;
 
     // x264/x265 Zusatz
     private static volatile String  preset      = null;   // z.B. "veryfast"
@@ -109,6 +111,7 @@ public final class VideoConfig {
 
     public static boolean isEnforceEvenDims() { return enforceEvenDims; }
     public static int getThreads() { return threads; }
+    public static int getJcodecThreads() { return jcodecThreads; }
 
     public static String getPreset() { return preset; }
     public static String getTune() { return tune; }
@@ -161,6 +164,7 @@ public final class VideoConfig {
 
     public static void setEnforceEvenDims(boolean v) { enforceEvenDims = v; }
     public static void setThreads(int v) { threads = Math.max(0, v); }
+    public static void setJcodecThreads(int v) { jcodecThreads = Math.max(1, Math.min(v, 32)); }
 
     public static void setPreset(String v) { preset = emptyToNull(v); }
     public static void setTune(String v) { tune = emptyToNull(v); }
