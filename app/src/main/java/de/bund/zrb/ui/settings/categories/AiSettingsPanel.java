@@ -1,5 +1,9 @@
 package de.bund.zrb.ui.settings.categories;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.components.ChatMode;
@@ -9,7 +13,11 @@ import de.bund.zrb.util.ExecutableLauncher;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,7 +46,9 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
     private final JButton toolsetButton;
 
     // Ollama
-    private final JTextField ollamaUrlField, ollamaModelField, ollamaKeepAliveField;
+    private final JTextField ollamaUrlField, ollamaKeepAliveField;
+    private final JComboBox<String> ollamaModelCombo;
+    private JLabel ollamaModelStatusLabel;
     // Ollama Proxy Auth & E2E (optional)
     private final JTextField ollamaProxyUsernameField;
     private final JPasswordField ollamaProxyPasswordField;
@@ -46,7 +56,9 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox ollamaProxyAuthBox, ollamaE2eBox;
     // Cloud
     private final JComboBox<String> cloudProviderField;
-    private final JTextField cloudApiKeyField, cloudApiUrlField, cloudModelField;
+    private final JTextField cloudApiKeyField, cloudApiUrlField;
+    private final JComboBox<String> cloudModelCombo;
+    private JLabel cloudModelStatusLabel;
     private final JTextField cloudAuthHeaderField, cloudAuthPrefixField, cloudApiVersionField;
     private final JTextField cloudOrgField, cloudProjectField;
     // Llama
@@ -183,7 +195,16 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         // OLLAMA
         FormBuilder fbOllama = new FormBuilder();
         ollamaUrlField = new JTextField(30); fbOllama.addRow("URL:", ollamaUrlField);
-        ollamaModelField = new JTextField(20); fbOllama.addRow("Modellname:", ollamaModelField);
+        ollamaModelCombo = new JComboBox<>();
+        ollamaModelCombo.setEditable(true);
+        JButton ollamaFetchBtn = new JButton("🔄");
+        ollamaFetchBtn.setToolTipText("Verfügbare Modelle vom Ollama-Server abrufen");
+        ollamaFetchBtn.setMargin(new Insets(2, 4, 2, 4));
+        ollamaModelStatusLabel = new JLabel(" ");
+        ollamaModelStatusLabel.setFont(ollamaModelStatusLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        ollamaFetchBtn.addActionListener(e -> fetchOllamaModels());
+        fbOllama.addRowWithButton("Modellname:", ollamaModelCombo, ollamaFetchBtn);
+        fbOllama.addWide(ollamaModelStatusLabel);
         ollamaKeepAliveField = new JTextField(20); fbOllama.addRow("Beibehalten für:", ollamaKeepAliveField);
 
         // Proxy Auth (optional)
@@ -248,7 +269,16 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         fbCloud.addRow("Cloud-Anbieter:", cloudProviderField);
         cloudApiKeyField = new JTextField(30); fbCloud.addRow("API Key:", cloudApiKeyField);
         cloudApiUrlField = new JTextField(30); fbCloud.addRow("API URL:", cloudApiUrlField);
-        cloudModelField = new JTextField(30); fbCloud.addRow("Modell:", cloudModelField);
+        cloudModelCombo = new JComboBox<>();
+        cloudModelCombo.setEditable(true);
+        JButton cloudFetchBtn = new JButton("🔄");
+        cloudFetchBtn.setToolTipText("Verfügbare Modelle vom Anbieter abrufen");
+        cloudFetchBtn.setMargin(new Insets(2, 4, 2, 4));
+        cloudModelStatusLabel = new JLabel(" ");
+        cloudModelStatusLabel.setFont(cloudModelStatusLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        cloudFetchBtn.addActionListener(e -> fetchCloudModels());
+        fbCloud.addRowWithButton("Modell:", cloudModelCombo, cloudFetchBtn);
+        fbCloud.addWide(cloudModelStatusLabel);
         cloudAuthHeaderField = new JTextField(30); fbCloud.addRow("Auth Header:", cloudAuthHeaderField);
         cloudAuthPrefixField = new JTextField(30); fbCloud.addRow("Auth Prefix:", cloudAuthPrefixField);
         cloudApiVersionField = new JTextField(30); fbCloud.addRow("Anthropic-Version:", cloudApiVersionField);
@@ -308,7 +338,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         providerCombo.setSelectedItem(selectedProvider);
 
         ollamaUrlField.setText(settings.aiConfig.getOrDefault("ollama.url", "http://localhost:11434/api/chat"));
-        ollamaModelField.setText(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
+        ollamaModelCombo.setSelectedItem(settings.aiConfig.getOrDefault("ollama.model", "custom-modell"));
         ollamaKeepAliveField.setText(settings.aiConfig.getOrDefault("ollama.keepalive", "10m"));
         ollamaProxyUsernameField.setText(settings.aiConfig.getOrDefault("ollama.proxy.username", ""));
         ollamaProxyPasswordField.setText(settings.aiConfig.getOrDefault("ollama.proxy.password", ""));
@@ -320,7 +350,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         applyCloudVendorDefaults(false);
         cloudApiKeyField.setText(settings.aiConfig.getOrDefault("cloud.apikey", ""));
         cloudApiUrlField.setText(settings.aiConfig.getOrDefault("cloud.url", cloudDefaultForVendor(initialCloudVendor, "url")));
-        cloudModelField.setText(settings.aiConfig.getOrDefault("cloud.model", cloudDefaultForVendor(initialCloudVendor, "model")));
+        cloudModelCombo.setSelectedItem(settings.aiConfig.getOrDefault("cloud.model", cloudDefaultForVendor(initialCloudVendor, "model")));
         cloudAuthHeaderField.setText(settings.aiConfig.getOrDefault("cloud.authHeader", cloudDefaultForVendor(initialCloudVendor, "authHeader")));
         cloudAuthPrefixField.setText(settings.aiConfig.getOrDefault("cloud.authPrefix", cloudDefaultForVendor(initialCloudVendor, "authPrefix")));
         cloudOrgField.setText(settings.aiConfig.getOrDefault("cloud.organization", ""));
@@ -372,7 +402,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         else s.aiConfig.put("assistant.language", "de");
         s.aiConfig.put("provider", providerCombo.getSelectedItem().toString());
         s.aiConfig.put("ollama.url", ollamaUrlField.getText().trim());
-        s.aiConfig.put("ollama.model", ollamaModelField.getText().trim());
+        s.aiConfig.put("ollama.model", Objects.toString(ollamaModelCombo.getSelectedItem(), "").trim());
         s.aiConfig.put("ollama.keepalive", ollamaKeepAliveField.getText().trim());
         // Proxy Auth (optional — only save when enabled)
         if (ollamaProxyAuthBox.isSelected()) {
@@ -391,7 +421,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         s.aiConfig.put("cloud.vendor", Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI"));
         s.aiConfig.put("cloud.apikey", cloudApiKeyField.getText().trim());
         s.aiConfig.put("cloud.url", cloudApiUrlField.getText().trim());
-        s.aiConfig.put("cloud.model", cloudModelField.getText().trim());
+        s.aiConfig.put("cloud.model", Objects.toString(cloudModelCombo.getSelectedItem(), "").trim());
         s.aiConfig.put("cloud.authHeader", cloudAuthHeaderField.getText().trim());
         s.aiConfig.put("cloud.authPrefix", cloudAuthPrefixField.getText().trim());
         s.aiConfig.put("cloud.anthropicVersion", cloudApiVersionField.getText().trim());
@@ -439,7 +469,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
     private void applyCloudVendorDefaults(boolean clearOptionalFields) {
         String vendor = Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI");
         cloudApiUrlField.setText(cloudDefaultForVendor(vendor, "url"));
-        cloudModelField.setText(cloudDefaultForVendor(vendor, "model"));
+        cloudModelCombo.setSelectedItem(cloudDefaultForVendor(vendor, "model"));
         cloudAuthHeaderField.setText(cloudDefaultForVendor(vendor, "authHeader"));
         cloudAuthPrefixField.setText(cloudDefaultForVendor(vendor, "authPrefix"));
         cloudApiVersionField.setText(cloudDefaultForVendor(vendor, "anthropicVersion"));
@@ -496,6 +526,177 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
             }
         });
         return btn;
+    }
+
+    // ──── Modell-Abruf ────
+
+    /**
+     * Ruft verfügbare Modelle von Ollama ab und befüllt das Dropdown.
+     */
+    private void fetchOllamaModels() {
+        String url = ollamaUrlField.getText().trim();
+        if (url.contains("/api/")) {
+            url = url.substring(0, url.indexOf("/api/"));
+        }
+        fetchModelsAsync(ollamaModelCombo, ollamaModelStatusLabel, url + "/api/tags", null, null);
+    }
+
+    /**
+     * Ruft verfügbare Modelle vom konfigurierten Cloud-Anbieter ab.
+     */
+    private void fetchCloudModels() {
+        String vendor = Objects.toString(cloudProviderField.getSelectedItem(), "OPENAI");
+        String apiKey = cloudApiKeyField.getText().trim();
+        String apiUrl = cloudApiUrlField.getText().trim();
+
+        String modelsUrl;
+        String authHeader = null;
+        String authValue = null;
+
+        switch (vendor) {
+            case "OPENAI":
+                modelsUrl = deriveModelsUrl(apiUrl, "/v1/models");
+                authHeader = "Authorization";
+                authValue = "Bearer " + apiKey;
+                break;
+            case "GROK":
+                modelsUrl = "https://api.x.ai/v1/models";
+                authHeader = "Authorization";
+                authValue = "Bearer " + apiKey;
+                break;
+            case "GEMINI":
+                modelsUrl = "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey;
+                break;
+            case "PERPLEXITY":
+            case "CLAUDE":
+                cloudModelStatusLabel.setText("ℹ️ Kein Modell-Endpunkt für " + vendor);
+                cloudModelStatusLabel.setForeground(Color.DARK_GRAY);
+                return;
+            default:
+                modelsUrl = deriveModelsUrl(apiUrl, "/v1/models");
+                authHeader = "Authorization";
+                authValue = "Bearer " + apiKey;
+        }
+
+        fetchModelsAsync(cloudModelCombo, cloudModelStatusLabel, modelsUrl, authHeader, authValue);
+    }
+
+    /**
+     * Führt den HTTP-Abruf im Hintergrund aus und befüllt das Dropdown.
+     */
+    private void fetchModelsAsync(final JComboBox<String> combo,
+                                  final JLabel statusLabel,
+                                  final String tagsUrl,
+                                  final String authHeader,
+                                  final String authValue) {
+        statusLabel.setText("⏳ Lade Modelle...");
+        statusLabel.setForeground(Color.BLACK);
+
+        new Thread(() -> {
+            java.net.HttpURLConnection conn = null;
+            try {
+                conn = (java.net.HttpURLConnection) new java.net.URL(tagsUrl).openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                if (authHeader != null && !authHeader.isEmpty()
+                        && authValue != null && !authValue.isEmpty()) {
+                    conn.setRequestProperty(authHeader, authValue);
+                }
+
+                int code = conn.getResponseCode();
+                if (code == 200) {
+                    final String body;
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            sb.append(line);
+                        }
+                        body = sb.toString();
+                    }
+
+                    final List<String> models = parseModelsResponse(body);
+                    final String current = Objects.toString(combo.getSelectedItem(), "");
+
+                    SwingUtilities.invokeLater(() -> {
+                        combo.removeAllItems();
+                        for (String m : models) {
+                            combo.addItem(m);
+                        }
+                        combo.setSelectedItem(current);
+                        statusLabel.setText("✅ " + models.size() + " Modelle geladen");
+                        statusLabel.setForeground(new Color(0, 128, 0));
+                    });
+                } else {
+                    final int finalCode = code;
+                    SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("❌ HTTP " + finalCode);
+                        statusLabel.setForeground(Color.RED);
+                    });
+                }
+            } catch (Exception ex) {
+                final String msg = ex.getMessage();
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("❌ " + msg);
+                    statusLabel.setForeground(Color.RED);
+                });
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
+    }
+
+    /**
+     * Parst die JSON-Antwort eines Modell-Endpunkts (Ollama- oder OpenAI-Format).
+     */
+    private List<String> parseModelsResponse(String json) {
+        List<String> names = new ArrayList<>();
+        try {
+            JsonObject obj = new Gson().fromJson(json, JsonObject.class);
+
+            if (obj.has("models") && obj.get("models").isJsonArray()) {
+                JsonArray models = obj.getAsJsonArray("models");
+                for (JsonElement e : models) {
+                    if (e.isJsonObject()) {
+                        JsonObject model = e.getAsJsonObject();
+                        if (model.has("name")) {
+                            String n = model.get("name").getAsString();
+                            if (n.startsWith("models/")) n = n.substring("models/".length());
+                            names.add(n);
+                        }
+                    }
+                }
+            } else if (obj.has("data") && obj.get("data").isJsonArray()) {
+                JsonArray data = obj.getAsJsonArray("data");
+                for (JsonElement e : data) {
+                    if (e.isJsonObject()) {
+                        JsonObject model = e.getAsJsonObject();
+                        if (model.has("id")) {
+                            names.add(model.get("id").getAsString());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Parse-Fehler: leere Liste
+        }
+        return names;
+    }
+
+    /**
+     * Leitet die Modell-Auflistungs-URL von einer API-URL ab.
+     */
+    private String deriveModelsUrl(String apiUrl, String modelsPath) {
+        if (apiUrl.contains("/v1/")) {
+            return apiUrl.substring(0, apiUrl.indexOf("/v1/")) + modelsPath;
+        }
+        if (apiUrl.contains("/v2/")) {
+            return apiUrl.substring(0, apiUrl.indexOf("/v2/")) + modelsPath;
+        }
+        int lastSlash = apiUrl.lastIndexOf('/');
+        return lastSlash > 8 ? apiUrl.substring(0, lastSlash) + modelsPath : apiUrl + modelsPath;
     }
 }
 
