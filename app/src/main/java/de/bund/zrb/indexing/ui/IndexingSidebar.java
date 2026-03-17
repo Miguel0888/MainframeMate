@@ -56,6 +56,7 @@ public class IndexingSidebar extends JPanel {
                     javax.swing.SwingUtilities.invokeLater(() -> {
                         statusLabel.setText("⏳ Wird indexiert...");
                         statusLabel.setForeground(new Color(255, 152, 0));
+                        itemCountLabel.setText("0 / ...");
                     });
                 }
             }
@@ -76,6 +77,17 @@ public class IndexingSidebar extends JPanel {
                     javax.swing.SwingUtilities.invokeLater(() -> {
                         statusLabel.setText("❌ Fehler: " + truncate(error, 25));
                         statusLabel.setForeground(new Color(244, 67, 54));
+                    });
+                }
+            }
+
+            @Override
+            public void onProgress(String sourceId, int current, int total) {
+                if (sourceId.equals(activeSourceId) || activeSourceId == null) {
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        itemCountLabel.setText(current + " / " + total);
+                        statusLabel.setText("⏳ Wird indexiert...");
+                        statusLabel.setForeground(new Color(255, 152, 0));
                     });
                 }
             }
@@ -174,6 +186,47 @@ public class IndexingSidebar extends JPanel {
         pathLabel.setText(truncate(path, 30));
         pathLabel.setToolTipText(path);
         refreshStatus();
+    }
+
+    /**
+     * Update progress display from external source (e.g., NDV prefetch).
+     * Call from EDT.
+     *
+     * @param current number of items processed so far
+     * @param total   total number of items
+     */
+    public void updateProgress(int current, int total) {
+        itemCountLabel.setText(current + " / " + total);
+        statusLabel.setText("⏳ Wird indexiert...");
+        statusLabel.setForeground(new Color(255, 152, 0));
+    }
+
+    /**
+     * Signal that external indexing is complete.
+     * Call from EDT.
+     *
+     * @param total   total items found
+     * @param indexed number successfully indexed
+     */
+    public void updateComplete(int total, int indexed) {
+        itemCountLabel.setText(indexed + " / " + total);
+        if (indexed > 0) {
+            statusLabel.setText("✅ Indexiert");
+            statusLabel.setForeground(new Color(76, 175, 80));
+        } else {
+            statusLabel.setText("⬜ Nicht indexiert");
+            statusLabel.setForeground(Color.GRAY);
+        }
+        lastIndexedLabel.setText(DATE_FMT.format(new Date(System.currentTimeMillis())));
+    }
+
+    /**
+     * Signal that external indexing failed.
+     * Call from EDT.
+     */
+    public void updateError(String message) {
+        statusLabel.setText("❌ " + truncate(message, 25));
+        statusLabel.setForeground(new Color(244, 67, 54));
     }
 
     /**

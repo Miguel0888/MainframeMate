@@ -1,6 +1,7 @@
 package de.bund.zrb.indexing.service;
 
 import de.bund.zrb.indexing.connector.LocalSourceScanner;
+import de.bund.zrb.indexing.connector.NdvSourceScanner;
 import de.bund.zrb.indexing.model.*;
 import de.bund.zrb.indexing.store.IndexSourceRepository;
 import de.bund.zrb.indexing.store.IndexStatusStore;
@@ -49,9 +50,12 @@ public class IndexingService {
         void onRunStarted(String sourceId);
         void onRunCompleted(String sourceId, IndexRunStatus result);
         void onRunFailed(String sourceId, String error);
+        /** Called periodically during indexing to report progress. */
+        default void onProgress(String sourceId, int current, int total) {}
     }
 
     private final de.bund.zrb.indexing.connector.WikiSourceScanner wikiScanner;
+    private final NdvSourceScanner ndvScanner;
 
     private IndexingService() {
         pipeline = new IndexingPipeline(statusStore);
@@ -60,9 +64,10 @@ public class IndexingService {
         pipeline.registerScanner(SourceType.MAIL, new de.bund.zrb.indexing.connector.MailSourceScanner());
         wikiScanner = new de.bund.zrb.indexing.connector.WikiSourceScanner();
         pipeline.registerScanner(SourceType.WIKI, wikiScanner);
+        ndvScanner = new NdvSourceScanner();
+        pipeline.registerScanner(SourceType.NDV, ndvScanner);
         // Register content processor (Tika extraction → RAG chunking → Lucene index)
         pipeline.setContentProcessor(new RagContentProcessor());
-        // FTP, NDV, WEB scanners will be registered as they are implemented
     }
 
     /**
@@ -70,6 +75,13 @@ public class IndexingService {
      */
     public de.bund.zrb.indexing.connector.WikiSourceScanner getWikiScanner() {
         return wikiScanner;
+    }
+
+    /**
+     * Get the NDV scanner so the app can wire in NdvService when a connection is established.
+     */
+    public NdvSourceScanner getNdvScanner() {
+        return ndvScanner;
     }
 
     public static synchronized IndexingService getInstance() {
@@ -134,7 +146,12 @@ public class IndexingService {
         Future<?> future = executor.submit(() -> {
             for (IndexingListener l : listeners) l.onRunStarted(sourceId);
             try {
-                IndexRunStatus result = pipeline.runForSource(source);
+                IndexRunStatus result = pipeline.runForSource(source, new IndexingPipeline.ProgressCallback() {
+                    @Override
+                    public void onProgress(int current, int total) {
+                        for (IndexingListener l : listeners) l.onProgress(sourceId, current, total);
+                    }
+                });
                 for (IndexingListener l : listeners) l.onRunCompleted(sourceId, result);
             } catch (Exception e) {
                 LOG.log(Level.SEVERE, "[Indexing] Run failed", e);
@@ -153,12 +170,18 @@ public class IndexingService {
         executor.submit(() -> {
             for (IndexSource source : sourceRepo.getEnabled()) {
                 if (!runningJobs.containsKey(source.getSourceId())) {
-                    for (IndexingListener l : listeners) l.onRunStarted(source.getSourceId());
+                    final String sid = source.getSourceId();
+                    for (IndexingListener l : listeners) l.onRunStarted(sid);
                     try {
-                        IndexRunStatus result = pipeline.runForSource(source);
-                        for (IndexingListener l : listeners) l.onRunCompleted(source.getSourceId(), result);
+                        IndexRunStatus result = pipeline.runForSource(source, new IndexingPipeline.ProgressCallback() {
+                            @Override
+                            public void onProgress(int current, int total) {
+                                for (IndexingListener l : listeners) l.onProgress(sid, current, total);
+                            }
+                        });
+                        for (IndexingListener l : listeners) l.onRunCompleted(sid, result);
                     } catch (Exception e) {
-                        for (IndexingListener l : listeners) l.onRunFailed(source.getSourceId(), e.getMessage());
+                        for (IndexingListener l : listeners) l.onRunFailed(sid, e.getMessage());
                     }
                 }
             }
@@ -206,7 +229,12 @@ public class IndexingService {
             // 3. Run the pipeline
             for (IndexingListener l : listeners) l.onRunStarted(sourceId);
             try {
-                IndexRunStatus result = pipeline.runForSource(source);
+                IndexRunStatus result = pipeline.runForSource(source, new IndexingPipeline.ProgressCallback() {
+                    @Override
+                    public void onProgress(int current, int total) {
+                        for (IndexingListener l : listeners) l.onProgress(sourceId, current, total);
+                    }
+                });
                 for (IndexingListener l : listeners) l.onRunCompleted(sourceId, result);
             } catch (Exception e) {
                 LOG.log(Level.SEVERE, "[Indexing] Reindex run failed", e);

@@ -59,6 +59,13 @@ public class IndexingPipeline {
         void removeFromIndex(String documentId) throws Exception;
     }
 
+    /**
+     * Callback for reporting progress during a pipeline run.
+     */
+    public interface ProgressCallback {
+        void onProgress(int current, int total);
+    }
+
     public IndexingPipeline(IndexStatusStore statusStore) {
         this.statusStore = statusStore;
     }
@@ -72,12 +79,20 @@ public class IndexingPipeline {
     }
 
     /**
+     * Run the full indexing pipeline for a source (no progress reporting).
+     */
+    public IndexRunStatus runForSource(IndexSource source) {
+        return runForSource(source, null);
+    }
+
+    /**
      * Run the full indexing pipeline for a source.
      *
      * @param source the configured source
+     * @param progressCallback optional callback for progress reporting
      * @return run status with counters
      */
-    public IndexRunStatus runForSource(IndexSource source) {
+    public IndexRunStatus runForSource(IndexSource source, ProgressCallback progressCallback) {
         IndexRunStatus run = new IndexRunStatus();
         run.setSourceId(source.getSourceId());
         run.setStartedAt(System.currentTimeMillis());
@@ -107,10 +122,24 @@ public class IndexingPipeline {
             Iterator<ScannedItem> itemIterator = scanner.scanStreaming(source);
             int scannedCount = 0;
 
+            // For progress reporting, try to get total count (works for batch scanners).
+            // For streaming scanners, total is estimated from existing statuses.
+            int estimatedTotal = existingStatuses.size();
+
             while (itemIterator.hasNext()) {
                 ScannedItem item = itemIterator.next();
                 scannedCount++;
                 seenPaths.add(item.getPath());
+
+                // Update estimated total if we're discovering more items than expected
+                if (scannedCount > estimatedTotal) {
+                    estimatedTotal = scannedCount;
+                }
+
+                // Report progress
+                if (progressCallback != null && (scannedCount % 10 == 0 || scannedCount == 1)) {
+                    progressCallback.onProgress(scannedCount, estimatedTotal);
+                }
 
                 // Check timeout
                 if (System.currentTimeMillis() >= deadline) {
@@ -147,6 +176,11 @@ public class IndexingPipeline {
             }
 
             run.setItemsScanned(scannedCount);
+
+            // Report final scan progress
+            if (progressCallback != null) {
+                progressCallback.onProgress(scannedCount, scannedCount);
+            }
 
             // If timed out, do NOT delete anything – we didn't see all items
             if (!timedOut) {

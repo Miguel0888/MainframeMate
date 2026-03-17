@@ -131,6 +131,10 @@ public class NdvConnectionTab implements ConnectionTab {
         this.cacheService = NdvSourceCacheService.getInstance();
         this.cacheService.setNdvService(service);
 
+        // Wire NDV scanner for indexing pipeline
+        de.bund.zrb.indexing.service.IndexingService.getInstance()
+                .getNdvScanner().setNdvService(service);
+
         fileList.setCellRenderer(new NdvCellRenderer());
 
         restoreNavigatorState();
@@ -688,6 +692,9 @@ public class NdvConnectionTab implements ConnectionTab {
                     @Override
                     public void run() {
                         statusLabel.setText("📥 Indizierung: " + current + "/" + total + " " + objectName);
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateProgress(current, total);
+                        }
                     }
                 });
             }
@@ -699,6 +706,9 @@ public class NdvConnectionTab implements ConnectionTab {
                     public void run() {
                         statusLabel.setText(allItems.size() + " Objekte in " + library
                                 + "  |  📥 " + indexed + " Quellen indiziert");
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateComplete(total, indexed);
+                        }
                     }
                 });
             }
@@ -709,6 +719,9 @@ public class NdvConnectionTab implements ConnectionTab {
                     @Override
                     public void run() {
                         statusLabel.setText("⚠ Indizierung: " + message);
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateError(message);
+                        }
                     }
                 });
             }
