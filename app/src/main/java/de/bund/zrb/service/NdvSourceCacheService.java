@@ -142,6 +142,22 @@ public class NdvSourceCacheService {
      * @param sourceText the source code
      */
     public void cacheSource(String library, String objectName, String extension, String sourceText) {
+        cacheSource(library, objectName, extension, sourceText, -1, null);
+    }
+
+    /**
+     * Put a source text into the cache with NdvObjectInfo server metadata for change detection.
+     * Stores ndv_source_size and ndv_source_date so future prefetches can skip unchanged objects.
+     *
+     * @param library       Natural library name
+     * @param objectName    object name (e.g. "MYPROG")
+     * @param extension     type extension (e.g. "NSP")
+     * @param sourceText    the source code
+     * @param ndvSourceSize server-reported source size (from NdvObjectInfo), or -1 if unknown
+     * @param ndvSourceDate server-reported source date (from NdvObjectInfo), or null if unknown
+     */
+    public void cacheSource(String library, String objectName, String extension,
+                            String sourceText, final int ndvSourceSize, final String ndvSourceDate) {
         if (sourceText == null) return;
 
         String key = cacheKey(library, objectName);
@@ -157,7 +173,7 @@ public class NdvSourceCacheService {
             public void run() {
                 try {
                     // 1) H2 persistent cache
-                    persistToH2(url, title, extension, sourceText);
+                    persistToH2(url, title, extension, sourceText, ndvSourceSize, ndvSourceDate);
 
                     // 2) Lucene full-text index (for SearchEverywhere + RAG)
                     indexInLucene(docId, title, sourceText, library, objectName, extension);
@@ -326,7 +342,10 @@ public class NdvSourceCacheService {
     /**
      * Start background prefetching of all sources in a library.
      * Downloads each source, caches in H2, indexes in Lucene.
-     * Skips objects that are already in the memory cache (recently downloaded).
+     * <p>
+     * <b>Incremental:</b> Before downloading, compares server-reported sourceSize and
+     * sourceDate with the metadata stored in H2 from the last prefetch.
+     * Objects whose size and date haven't changed are skipped.
      * <p>
      * This is idempotent — calling it again for the same library is a no-op if
      * a prefetch is already running.
@@ -354,9 +373,13 @@ public class NdvSourceCacheService {
         Future<?> future = prefetchPool.submit(new Runnable() {
             @Override
             public void run() {
+                // Load existing cache metadata for incremental change detection
+                Map<String, String[]> cachedMeta = loadCacheMetadata(libUpper);
+
                 int total = objects.size();
                 int indexed = 0;
                 int skipped = 0;
+                int unchanged = 0;
 
                 for (int i = 0; i < total; i++) {
                     if (Thread.currentThread().isInterrupted()) break;
@@ -375,6 +398,25 @@ public class NdvSourceCacheService {
                         continue;
                     }
 
+                    // Check persistent cache: compare server-reported size + date
+                    String[] cached = cachedMeta.get(key);
+                    if (cached != null) {
+                        String cachedSize = cached[0];
+                        String cachedDate = cached[1];
+                        boolean sizeMatch = cachedSize != null
+                                && String.valueOf(obj.getSourceSize()).equals(cachedSize);
+                        boolean dateMatch = cachedDate != null
+                                && !cachedDate.isEmpty()
+                                && obj.getSourceDate().equals(cachedDate);
+                        if (sizeMatch && dateMatch) {
+                            unchanged++;
+                            if (callback != null) {
+                                callback.onProgress(i + 1, total, obj.getName());
+                            }
+                            continue; // Object hasn't changed, skip download
+                        }
+                    }
+
                     try {
                         if (callback != null) {
                             callback.onProgress(i + 1, total, obj.getName());
@@ -382,7 +424,8 @@ public class NdvSourceCacheService {
 
                         String source = ndvService.readSource(libUpper, obj);
                         if (source != null && !source.isEmpty()) {
-                            cacheSource(libUpper, obj.getName(), obj.getTypeExtension(), source);
+                            cacheSource(libUpper, obj.getName(), obj.getTypeExtension(),
+                                    source, obj.getSourceSize(), obj.getSourceDate());
                             indexed++;
                         }
 
@@ -403,7 +446,8 @@ public class NdvSourceCacheService {
                 }
 
                 LOG.info("[NdvCache] Prefetch complete for " + libUpper
-                        + ": indexed=" + indexed + ", skipped=" + skipped + ", total=" + total);
+                        + ": indexed=" + indexed + ", unchanged=" + unchanged
+                        + ", skipped=" + skipped + ", total=" + total);
             }
         });
 
@@ -433,6 +477,43 @@ public class NdvSourceCacheService {
     // ═══════════════════════════════════════════════════════════
     //  Stats / queries
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Load existing cache metadata for all objects in a library from H2.
+     * Returns a map of cacheKey → [ndv_source_size, ndv_source_date].
+     * Used for incremental prefetch (skip unchanged objects).
+     */
+    private Map<String, String[]> loadCacheMetadata(String library) {
+        Map<String, String[]> result = new HashMap<String, String[]>();
+        try {
+            CacheRepository repo = CacheRepository.getInstance();
+            String urlPrefix = "ndv://" + library.toUpperCase() + "/";
+            List<ArchiveEntry> entries = repo.findByUrlPrefixWithMetadata(urlPrefix);
+
+            for (ArchiveEntry entry : entries) {
+                String url = entry.getUrl();
+                if (url == null || !url.startsWith(urlPrefix)) continue;
+
+                // Extract object name from URL: "ndv://LIBRARY/OBJNAME.EXT"
+                String nameWithExt = url.substring(urlPrefix.length());
+                int dotIdx = nameWithExt.lastIndexOf('.');
+                String objectName = dotIdx >= 0 ? nameWithExt.substring(0, dotIdx) : nameWithExt;
+
+                String key = cacheKey(library, objectName);
+
+                Map<String, String> meta = entry.getMetadata();
+                String size = meta != null ? meta.get("ndv_source_size") : null;
+                String date = meta != null ? meta.get("ndv_source_date") : null;
+
+                result.put(key, new String[]{size, date});
+            }
+
+            LOG.fine("[NdvCache] Loaded " + result.size() + " cache entries for " + library);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[NdvCache] Failed to load cache metadata for " + library, e);
+        }
+        return result;
+    }
 
     /**
      * Get number of cached sources in memory for a library.
@@ -490,7 +571,8 @@ public class NdvSourceCacheService {
     //  Internal: H2 persistence
     // ═══════════════════════════════════════════════════════════
 
-    private void persistToH2(String url, String title, String extension, String sourceText) {
+    private void persistToH2(String url, String title, String extension, String sourceText,
+                             int ndvSourceSize, String ndvSourceDate) {
         try {
             CacheRepository repo = CacheRepository.getInstance();
 
@@ -520,6 +602,14 @@ public class NdvSourceCacheService {
             }
             meta.put("source_type", "NDV");
             meta.put("extension", extension != null ? extension : "");
+
+            // Store server-reported metadata for incremental change detection
+            if (ndvSourceSize >= 0) {
+                meta.put("ndv_source_size", String.valueOf(ndvSourceSize));
+            }
+            if (ndvSourceDate != null && !ndvSourceDate.isEmpty()) {
+                meta.put("ndv_source_date", ndvSourceDate);
+            }
 
             repo.save(entry);
         } catch (Exception e) {

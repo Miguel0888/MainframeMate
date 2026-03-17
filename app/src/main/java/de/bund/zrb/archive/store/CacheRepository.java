@@ -360,6 +360,30 @@ public class CacheRepository {
         return queryEntries("SELECT * FROM archive_entries WHERE source_id=?", sourceId);
     }
 
+    /**
+     * Find all archive entries whose URL starts with the given prefix, including metadata.
+     * Used by NdvSourceCacheService for incremental change detection (one query per library open).
+     */
+    public List<ArchiveEntry> findByUrlPrefixWithMetadata(String urlPrefix) {
+        List<ArchiveEntry> entries = new ArrayList<ArchiveEntry>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_entries WHERE url LIKE ?");
+            ps.setString(1, urlPrefix + "%");
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                ArchiveEntry entry = mapEntry(rs);
+                entry.setMetadata(loadMetadata(entry.getEntryId()));
+                entries.add(entry);
+            }
+            rs.close();
+            ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findByUrlPrefixWithMetadata failed", e);
+        }
+        return entries;
+    }
+
     public List<ArchiveEntry> findByStatus(ArchiveEntryStatus status) {
         return queryEntries("SELECT * FROM archive_entries WHERE status=?", status.name());
     }
