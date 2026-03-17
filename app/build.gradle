@@ -68,8 +68,8 @@ dependencies {
     compileOnly 'org.bytedeco:javacv:1.5.10'
     compileOnly 'org.bytedeco:javacpp:1.5.10'
     compileOnly 'org.bytedeco:ffmpeg:6.1.1-1.5.10'
-    // JCodec backend (pure Java, no audio)
-    compileOnly 'org.jcodec:jcodec-javase:0.2.5'
+    // JCodec backend (pure Java, no audio) – must be implementation for default backend
+    implementation 'org.jcodec:jcodec-javase:0.2.5'
     // VLC backend (vlcj 3.x for Java 8)
     compileOnly 'uk.co.caprica:vlcj:3.12.1'
 

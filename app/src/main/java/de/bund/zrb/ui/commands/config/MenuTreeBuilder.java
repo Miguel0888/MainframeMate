@@ -53,11 +53,10 @@ public class MenuTreeBuilder {
         ));
         // Extras-Menü Reihenfolge
         SUBMENU_ORDER.put("extras", Arrays.asList(
-                "video"
         ));
         // Hilfe-Menü Reihenfolge
         SUBMENU_ORDER.put("help", Arrays.asList(
-                "features", "---1", "about"
+                "features", "---1", "video", "---2", "about"
         ));
     }
 

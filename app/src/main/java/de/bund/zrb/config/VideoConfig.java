@@ -1,8 +1,5 @@
 package de.bund.zrb.config;
 
-import org.bytedeco.ffmpeg.global.avcodec;
-import org.bytedeco.ffmpeg.global.avutil;
-import org.bytedeco.javacv.FFmpegFrameRecorder;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -308,88 +305,25 @@ public final class VideoConfig {
         }
     }
 
-    /** Mappt Codec-String auf FFmpeg-Codec-ID (soweit sinnvoll). */
+    /** Mappt Codec-String auf FFmpeg-Codec-ID (soweit sinnvoll). Nur aufrufen wenn FFmpeg im Classpath! */
     public static int mapCodecId(String codecName) {
-        String c = codecName == null ? "" : codecName.toLowerCase(Locale.ROOT);
-        switch (c) {
-            case "mjpeg":   return avcodec.AV_CODEC_ID_MJPEG;
-            case "libx264":
-            case "h264":    return avcodec.AV_CODEC_ID_H264;
-            case "libx265":
-            case "hevc":    return avcodec.AV_CODEC_ID_HEVC;
-            default:        return avcodec.AV_CODEC_ID_NONE; // FFmpeg entscheidet evtl. anhand von setVideoCodecName
+        try {
+            return FfmpegConfigHelper.mapCodecId(codecName);
+        } catch (NoClassDefFoundError e) {
+            return 0; // AV_CODEC_ID_NONE
         }
     }
 
     /**
      * Wendet *alle* Video-Optionen auf den Recorder an.
      * (Codec, PixFmt, FPS, Interleaving, Qualität, Farbraum, Filter, Threads, Extras)
+     * Nur aufrufen wenn FFmpeg im Classpath!
      */
-    public static void configureRecorder(FFmpegFrameRecorder rec, int fps) {
-        rec.setFrameRate(fps);
-        rec.setInterleaved(isInterleaved());
-
-        // Codec
-        int codecId = mapCodecId(getCodec());
-        if (codecId != avcodec.AV_CODEC_ID_NONE) {
-            rec.setVideoCodec(codecId);
-        } else {
-            // Fallback: explizit den Codec-String setzen
-            rec.setVideoCodecName(getCodec());
-        }
-
-        // PixFmt
-        rec.setPixelFormat(mapPixelFmt(getPixelFmt()));
-
-        // Qualität
-        switch (getQualityMode()) {
-            case "qscale":
-                rec.setVideoOption("qscale", String.valueOf(getQscale()));
-                break;
-            case "crf":
-                rec.setVideoOption("crf", String.valueOf(getCrf()));
-                break;
-            case "bitrate":
-                if (getBitrateKbps() > 0) rec.setVideoBitrate(getBitrateKbps() * 1000);
-                break;
-        }
-
-        // Farbraum/-range
-        if (notEmpty(getColorRange()))    rec.setVideoOption("color_range", getColorRange());
-        if (notEmpty(getColorspace()))    rec.setVideoOption("colorspace", getColorspace());
-        if (notEmpty(getColorTrc()))      rec.setVideoOption("color_trc", getColorTrc());
-        if (notEmpty(getColorPrimaries()))rec.setVideoOption("color_primaries", getColorPrimaries());
-
-        // Filter
-        if (notEmpty(getVf()))            rec.setVideoOption("vf", getVf());
-
-        // Threads
-        if (getThreads() > 0)             rec.setVideoOption("threads", String.valueOf(getThreads()));
-
-        // x264/x265 Extras
-        if (notEmpty(getPreset()))  rec.setVideoOption("preset", getPreset());
-        if (notEmpty(getTune()))    rec.setVideoOption("tune", getTune());
-        if (notEmpty(getProfile())) rec.setVideoOption("profile", getProfile());
-        if (notEmpty(getLevel()))   rec.setVideoOption("level", getLevel());
-
-        // Beliebige Extra-Optionen
-        for (Map.Entry<String,String> e : getExtraVideoOptions().entrySet()) {
-            if (notEmpty(e.getKey()) && e.getValue() != null) {
-                rec.setVideoOption(e.getKey(), e.getValue());
-            }
-        }
-    }
-
-    private static int mapPixelFmt(String pf) {
-        if (pf == null) return avutil.AV_PIX_FMT_YUV420P;
-        switch (pf.toLowerCase(Locale.ROOT)) {
-            case "yuv420p":  return avutil.AV_PIX_FMT_YUV420P;
-            case "yuvj420p": return avutil.AV_PIX_FMT_YUVJ420P;
-            case "yuv422p":  return avutil.AV_PIX_FMT_YUV422P;
-            case "yuv444p":  return avutil.AV_PIX_FMT_YUV444P;
-            case "bgr24":    return avutil.AV_PIX_FMT_BGR24;
-            case "rgb24":    return avutil.AV_PIX_FMT_RGB24;
-            default:         return avutil.AV_PIX_FMT_YUV420P;
+    public static void configureRecorder(Object rec, int fps) {
+        try {
+            FfmpegConfigHelper.configureRecorder(rec, fps);
+        } catch (NoClassDefFoundError e) {
+            throw new IllegalStateException("FFmpeg/JavaCV nicht im Classpath", e);
         }
     }
 

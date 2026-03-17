@@ -33,7 +33,7 @@ public class ToggleVideoRecordCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "extras.video.toggle";
+        return "help.video";
     }
 
     @Override
@@ -70,10 +70,23 @@ public class ToggleVideoRecordCommand extends ShortcutMenuCommand {
 
                 try {
                     recorder = MediaRuntimeBootstrap.createRecorder();
+                    System.out.println("[Video] Recorder erstellt: " + recorder.getClass().getSimpleName());
                 } catch (Exception ex) {
-                    ApplicationEventBus.getInstance().publish(new StatusMessageEvent(
-                            "Recorder-Init fehlgeschlagen: " + ex.getMessage(), 4000, Severity.ERROR));
-                    return;
+                    System.err.println("[Video] Recorder-Init fehlgeschlagen, versuche interaktiven Fallback: " + ex);
+                    // For FFmpeg backend: offer interactive download of missing libraries
+                    if ("ffmpeg".equals(backend)) {
+                        recorder = MediaRuntimeBootstrap.createRecorderInteractive();
+                        if (recorder == null) {
+                            ApplicationEventBus.getInstance().publish(new StatusMessageEvent(
+                                    "FFmpeg-Libs nicht verfügbar – Download abgebrochen", 4000, Severity.ERROR));
+                            return;
+                        }
+                    } else {
+                        ex.printStackTrace();
+                        ApplicationEventBus.getInstance().publish(new StatusMessageEvent(
+                                "Recorder-Init fehlgeschlagen: " + ex.getMessage(), 4000, Severity.ERROR));
+                        return;
+                    }
                 }
             }
 
@@ -83,6 +96,8 @@ public class ToggleVideoRecordCommand extends ShortcutMenuCommand {
                     new StatusMessageEvent("\uD83C\uDFAC Aufnahme gestartet", 2000));
 
         } catch (Exception ex) {
+            System.err.println("[Video] Aufnahme konnte nicht umgeschaltet werden: " + ex);
+            ex.printStackTrace();
             ApplicationEventBus.getInstance().publish(new StatusMessageEvent(
                     "Aufnahme konnte nicht umgeschaltet werden: " + ex.getMessage(), 4000, Severity.ERROR));
         }
@@ -93,15 +108,33 @@ public class ToggleVideoRecordCommand extends ShortcutMenuCommand {
      * VideoRecordingService so JCodec/FFmpeg backends know which window to capture.
      */
     private void setTargetWindowFromFrame() {
-        if (mainFrame == null) return;
+        if (mainFrame == null) {
+            System.out.println("[Video] mainFrame ist null – HWND kann nicht ermittelt werden");
+            return;
+        }
         try {
             Class.forName("com.sun.jna.platform.win32.WinDef");
+            // Ensure native peer exists
+            if (!mainFrame.isDisplayable()) {
+                System.out.println("[Video] Fenster ist nicht displayable – HWND kann nicht ermittelt werden");
+                return;
+            }
+            com.sun.jna.Pointer ptr = com.sun.jna.Native.getComponentPointer(mainFrame);
+            if (ptr == null) {
+                System.out.println("[Video] getComponentPointer liefert null – versuche Fallback via getWindowPointer");
+                // Fallback: use getWindowPointer instead (works for top-level windows)
+                ptr = com.sun.jna.Native.getWindowPointer(mainFrame);
+            }
+            if (ptr == null) {
+                System.out.println("[Video] HWND konnte nicht ermittelt werden (ptr=null)");
+                return;
+            }
             com.sun.jna.platform.win32.WinDef.HWND hwnd =
-                    new com.sun.jna.platform.win32.WinDef.HWND(
-                            com.sun.jna.Native.getComponentPointer(mainFrame));
+                    new com.sun.jna.platform.win32.WinDef.HWND(ptr);
             de.bund.zrb.service.VideoRecordingService.getInstance().setTargetWindow(hwnd);
-        } catch (Throwable ignore) {
-            // JNA not available or not on Windows – skip; backend will handle the missing HWND
+            System.out.println("[Video] HWND erfolgreich gesetzt: " + hwnd);
+        } catch (Throwable t) {
+            System.out.println("[Video] HWND-Ermittlung fehlgeschlagen: " + t.getClass().getSimpleName() + ": " + t.getMessage());
         }
     }
 
