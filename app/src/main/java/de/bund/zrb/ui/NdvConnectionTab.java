@@ -828,17 +828,19 @@ public class NdvConnectionTab implements ConnectionTab {
         if (library == null || library.isEmpty()) return;
         if (cacheService.isPrefetching(library)) return; // already running
 
-        // Security check: skip auto-caching if path is not allowed
-        String prefixedPath = "ndv://" + library;
-        if (!SecurityFilterService.getInstance().isAllowed("NDV", prefixedPath)) {
-            return;
-        }
-
-        // Collect NdvObjectInfo items from the loaded list
+        // Filter objects by security rules (object-level check).
+        // This handles both library-level and object-level whitelist entries,
+        // and respects individual blacklist entries within an allowed library.
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        String libraryPrefix = "ndv://" + library;
         final List<NdvObjectInfo> objects = new ArrayList<NdvObjectInfo>();
         for (Object item : allItems) {
             if (item instanceof NdvObjectInfo) {
-                objects.add((NdvObjectInfo) item);
+                NdvObjectInfo obj = (NdvObjectInfo) item;
+                String objPath = libraryPrefix + "/" + obj.getName();
+                if (sfs.isAllowed("NDV", objPath)) {
+                    objects.add(obj);
+                }
             }
         }
 

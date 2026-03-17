@@ -1018,21 +1018,27 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         if (currentPath == null || currentPath.isEmpty()) return;
         if (cacheService.isPrefetching(currentPath)) return;
 
-        // Security check: skip auto-caching if path is not allowed
-        String prefixedPath = "local://" + currentPath.replace('\\', '/');
-        if (!SecurityFilterService.getInstance().isAllowed("LOCAL", prefixedPath)) {
-            return;
-        }
-
+        // Filter text files by security rules (file-level check).
+        // This handles both directory-level and file-level whitelist entries,
+        // and respects individual blacklist entries within an allowed directory.
+        SecurityFilterService sfs = SecurityFilterService.getInstance();
+        String pathPrefix = "local://" + currentPath.replace('\\', '/');
         List<FileNode> textFiles = getTextFileNodes();
-        if (textFiles.isEmpty()) return;
+        List<FileNode> allowedFiles = new ArrayList<FileNode>();
+        for (FileNode fn : textFiles) {
+            String filePath = pathPrefix + "/" + fn.getName();
+            if (sfs.isAllowed("LOCAL", filePath)) {
+                allowedFiles.add(fn);
+            }
+        }
+        if (allowedFiles.isEmpty()) return;
 
         if (sidebarVisible) {
             indexingSidebar.setCurrentPath(currentPath);
-            indexingSidebar.setScopeInfo("Auto-Prefetch: " + textFiles.size() + " Textdateien");
+            indexingSidebar.setScopeInfo("Auto-Prefetch: " + allowedFiles.size() + " Textdateien");
         }
 
-        cacheService.prefetchDirectory(currentPath, textFiles,
+        cacheService.prefetchDirectory(currentPath, allowedFiles,
                 new LocalSourceCacheService.PrefetchCallback() {
             @Override
             public void onProgress(final int current, final int total, final String fileName) {
