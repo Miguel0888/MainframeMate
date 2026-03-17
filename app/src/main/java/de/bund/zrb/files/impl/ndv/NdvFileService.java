@@ -8,6 +8,7 @@ import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvObjectInfo;
+import de.bund.zrb.service.NdvSourceCacheService;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -61,6 +62,15 @@ public class NdvFileService implements FileService {
             Charset cs = payload.getCharset() != null ? payload.getCharset() : StandardCharsets.UTF_8;
             String text = new String(payload.getBytes(), cs);
             service.writeSource(library, objectInfo, text);
+
+            // Update cache + Lucene index after successful save
+            try {
+                NdvSourceCacheService.getInstance().onSourceSaved(
+                        library, objectInfo.getName(), objectInfo.getTypeExtension(), text, null);
+            } catch (Exception cacheEx) {
+                // Cache update is best-effort — don't fail the save
+                System.err.println("[NdvFileService] Cache update after save failed: " + cacheEx.getMessage());
+            }
         } catch (Exception e) {
             throw new FileServiceException(FileServiceErrorCode.IO_ERROR,
                     "NDV writeSource failed for " + objectInfo.getName() + ": " + e.getMessage(), e);

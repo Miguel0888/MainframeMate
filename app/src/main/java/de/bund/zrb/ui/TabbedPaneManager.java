@@ -854,6 +854,16 @@ public class TabbedPaneManager {
     }
 
     /**
+     * Remove the dependency graph for a library from the in-memory cache.
+     * Called when the user clears the NDV cache for a library.
+     */
+    public void removeDependencyGraph(String library) {
+        if (library != null) {
+            dependencyGraphs.remove(library.toUpperCase());
+        }
+    }
+
+    /**
      * Build (or rebuild) a dependency graph for a library by scanning all known sources.
      * Call this from a SwingWorker background thread when a library is first opened.
      * Persists the result to the Lucene dependency index for caching.

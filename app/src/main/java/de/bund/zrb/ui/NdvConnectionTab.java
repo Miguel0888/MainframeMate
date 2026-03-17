@@ -6,6 +6,7 @@ import de.bund.zrb.ndv.NdvObjectInfo;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.ndv.core.api.ObjectKind;
+import de.bund.zrb.service.NdvSourceCacheService;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
@@ -64,6 +65,9 @@ public class NdvConnectionTab implements ConnectionTab {
     private final List<String> history = new ArrayList<String>();
     private int historyIndex = -1;
 
+    // NDV source cache service (H2 + Lucene indexing for SearchEverywhere)
+    private final NdvSourceCacheService cacheService;
+
     public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvService service) {
         this(tabbedPaneManager, service, true);
     }
@@ -81,6 +85,10 @@ public class NdvConnectionTab implements ConnectionTab {
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<Object>(listModel);
         this.listContainer = new JPanel();
+
+        // Initialize NDV source cache service
+        this.cacheService = NdvSourceCacheService.getInstance();
+        this.cacheService.setNdvService(service);
 
         fileList.setCellRenderer(new NdvCellRenderer());
 
@@ -116,10 +124,17 @@ public class NdvConnectionTab implements ConnectionTab {
 
         pathField.addActionListener(e -> navigateToPath());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 5, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
+
+        JButton clearCacheButton = new JButton("🗑");
+        clearCacheButton.setToolTipText("NDV-Cache für diese Bibliothek leeren");
+        clearCacheButton.setMargin(new Insets(0, 0, 0, 0));
+        clearCacheButton.setFont(clearCacheButton.getFont().deriveFont(Font.PLAIN, 16f));
+        clearCacheButton.addActionListener(e -> clearLibraryCache());
+        rightButtons.add(clearCacheButton);
 
         JToggleButton detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
@@ -409,6 +424,9 @@ public class NdvConnectionTab implements ConnectionTab {
 
                     // Build dependency graph in background (if not already cached)
                     triggerDependencyGraphBuild(currentLibrary);
+
+                    // Prefetch all sources for Lucene indexing (SearchEverywhere + RAG)
+                    triggerSourcePrefetch(currentLibrary);
                 } catch (Exception e) {
                     if (!allItems.isEmpty()) {
                         // Partial results available
@@ -563,6 +581,87 @@ public class NdvConnectionTab implements ConnectionTab {
         }.execute();
     }
 
+    /**
+     * Start background prefetching of all source code in the library for Lucene indexing.
+     * This enables SearchEverywhere to find Natural sources by content.
+     * Skips objects that are already cached.
+     */
+    @SuppressWarnings("unchecked")
+    private void triggerSourcePrefetch(final String library) {
+        if (library == null || library.isEmpty()) return;
+        if (cacheService.isPrefetching(library)) return; // already running
+
+        // Collect NdvObjectInfo items from the loaded list
+        final List<NdvObjectInfo> objects = new ArrayList<NdvObjectInfo>();
+        for (Object item : allItems) {
+            if (item instanceof NdvObjectInfo) {
+                objects.add((NdvObjectInfo) item);
+            }
+        }
+
+        if (objects.isEmpty()) return;
+
+        cacheService.prefetchLibrary(library, objects, new NdvSourceCacheService.PrefetchCallback() {
+            @Override
+            public void onProgress(final int current, final int total, final String objectName) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText("📥 Indizierung: " + current + "/" + total + " " + objectName);
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(final int total, final int indexed) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText(allItems.size() + " Objekte in " + library
+                                + "  |  📥 " + indexed + " Quellen indiziert");
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText("⚠ Indizierung: " + message);
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Clear all cached NDV sources + Lucene index + dependency graph for the current library.
+     * Triggered by the "Cache leeren" toolbar button.
+     */
+    private void clearLibraryCache() {
+        if (currentLibrary == null) {
+            statusLabel.setText("Keine Bibliothek ausgewählt");
+            return;
+        }
+
+        int result = JOptionPane.showConfirmDialog(mainPanel,
+                "Cache für Bibliothek '" + currentLibrary + "' leeren?\n\n"
+                        + "Dies entfernt:\n"
+                        + "• Zwischengespeicherte Quellcodes\n"
+                        + "• Lucene-Suchindex\n"
+                        + "• Dependency-Graph\n\n"
+                        + "Die Daten werden beim nächsten Öffnen neu geladen.",
+                "Cache leeren", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+        if (result == JOptionPane.YES_OPTION) {
+            cacheService.invalidateLibrary(currentLibrary);
+            // Remove in-memory dependency graph
+            tabbedPaneManager.removeDependencyGraph(currentLibrary);
+            statusLabel.setText("Cache für " + currentLibrary + " geleert");
+        }
+    }
+
     // ==================== Double-click handling ====================
 
     private void handleDoubleClick() {
@@ -608,6 +707,10 @@ public class NdvConnectionTab implements ConnectionTab {
                         statusLabel.setText("Leerer Quellcode");
                         return;
                     }
+
+                    // Update cache with freshly downloaded source (invalidate-on-open)
+                    cacheService.cacheSource(currentLibrary, objInfo.getName(),
+                            objInfo.getTypeExtension(), source);
 
                     // Build a VirtualResource with NDV backend (enables save via FileTabImpl)
                     String fullPath = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();
@@ -747,6 +850,10 @@ public class NdvConnectionTab implements ConnectionTab {
 
     @Override
     public void onClose() {
+        // Cancel any running prefetches (but don't clear the persistent cache)
+        if (currentLibrary != null) {
+            cacheService.cancelPrefetch(currentLibrary);
+        }
         try {
             service.close();
         } catch (IOException e) {
