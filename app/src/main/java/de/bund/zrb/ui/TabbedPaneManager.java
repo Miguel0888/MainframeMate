@@ -761,8 +761,11 @@ public class TabbedPaneManager {
             sentenceType = fileTab.getModel().getSentenceType();
         }
 
+        final de.bund.zrb.service.NaturalAnalysisService analysisService =
+                de.bund.zrb.service.NaturalAnalysisService.getInstance();
+
         // For Natural sources, show real dependencies (active + passive XRefs) + call hierarchy
-        if (content != null && isNaturalSource(content, sentenceType)) {
+        if (content != null && analysisService.isNaturalSource(content, sentenceType)) {
             leftDrawer.showRelationsLoading();
             leftDrawer.showCallHierarchyLoading();
             final String src = content;
@@ -771,7 +774,7 @@ public class TabbedPaneManager {
             new javax.swing.SwingWorker<de.bund.zrb.service.NaturalDependencyService.DependencyResult, Void>() {
                 @Override
                 protected de.bund.zrb.service.NaturalDependencyService.DependencyResult doInBackground() {
-                    return getNaturalDependencyService().analyze(src, name);
+                    return analysisService.analyzeDependencies(src, name);
                 }
 
                 @Override
@@ -802,7 +805,7 @@ public class TabbedPaneManager {
         leftDrawer.clearRelations();
     }
 
-    /** Lazy-init singleton for NaturalDependencyService. */
+    /** @deprecated Use {@link de.bund.zrb.service.NaturalAnalysisService} instead. Kept for backward compatibility. */
     private de.bund.zrb.service.NaturalDependencyService naturalDependencyService;
 
     private de.bund.zrb.service.NaturalDependencyService getNaturalDependencyService() {
@@ -812,61 +815,37 @@ public class TabbedPaneManager {
         return naturalDependencyService;
     }
 
-    /** Dependency graph per library (lazy-built when a library is opened). */
+    /** Dependency graph per library — now delegated to NaturalAnalysisService. */
     private final java.util.Map<String, de.bund.zrb.service.NaturalDependencyGraph> dependencyGraphs =
             new java.util.concurrent.ConcurrentHashMap<String, de.bund.zrb.service.NaturalDependencyGraph>();
 
     /**
      * Get or create a dependency graph for a library.
-     * Checks in-memory cache first, then Lucene persistent cache.
-     * Returns null if no data is available.
+     * Delegates to {@link de.bund.zrb.service.NaturalAnalysisService}.
      */
     public de.bund.zrb.service.NaturalDependencyGraph getDependencyGraph(String library) {
-        if (library == null || library.isEmpty()) return null;
-        String key = library.toUpperCase();
-
-        // In-memory cache
-        de.bund.zrb.service.NaturalDependencyGraph graph = dependencyGraphs.get(key);
-        if (graph != null) return graph;
-
-        // Try Lucene persistent cache
-        try {
-            graph = de.bund.zrb.service.LuceneDependencyIndex.getInstance().restoreGraph(key);
-            if (graph != null) {
-                dependencyGraphs.put(key, graph);
-                return graph;
-            }
-        } catch (Exception e) {
-            System.err.println("[TabbedPaneManager] Failed to restore graph from Lucene: " + e.getMessage());
-        }
-
-        return null;
+        return de.bund.zrb.service.NaturalAnalysisService.getInstance().getGraph(library);
     }
 
     /**
-     * Register an externally-built dependency graph in the in-memory cache.
-     * Called from NdvConnectionTab after building or restoring a graph.
+     * Register an externally-built dependency graph.
+     * Delegates to {@link de.bund.zrb.service.NaturalAnalysisService}.
      */
     public void registerDependencyGraph(String library, de.bund.zrb.service.NaturalDependencyGraph graph) {
-        if (library != null && graph != null) {
-            dependencyGraphs.put(library.toUpperCase(), graph);
-        }
+        de.bund.zrb.service.NaturalAnalysisService.getInstance().registerGraph(library, graph);
     }
 
     /**
-     * Remove the dependency graph for a library from the in-memory cache.
-     * Called when the user clears the NDV cache for a library.
+     * Remove the dependency graph for a library.
+     * Delegates to {@link de.bund.zrb.service.NaturalAnalysisService}.
      */
     public void removeDependencyGraph(String library) {
-        if (library != null) {
-            dependencyGraphs.remove(library.toUpperCase());
-        }
+        de.bund.zrb.service.NaturalAnalysisService.getInstance().removeGraph(library);
     }
 
     /**
      * Build (or rebuild) a dependency graph for a library by scanning all known sources.
-     * Call this from a SwingWorker background thread when a library is first opened.
-     * Persists the result to the Lucene dependency index for caching.
+     * Delegates to {@link de.bund.zrb.service.NaturalAnalysisService}.
      *
      * @param library     library name
      * @param sources     map of objectName → sourceCode for all objects in the library
@@ -874,24 +853,7 @@ public class TabbedPaneManager {
      */
     public de.bund.zrb.service.NaturalDependencyGraph buildDependencyGraph(
             String library, java.util.Map<String, String> sources) {
-        de.bund.zrb.service.NaturalDependencyGraph graph = new de.bund.zrb.service.NaturalDependencyGraph();
-        graph.setLibrary(library);
-
-        for (java.util.Map.Entry<String, String> entry : sources.entrySet()) {
-            graph.addSource(library, entry.getKey(), entry.getValue());
-        }
-        graph.build();
-
-        dependencyGraphs.put(library.toUpperCase(), graph);
-
-        // Persist to Lucene cache for offline availability + AI search
-        try {
-            de.bund.zrb.service.LuceneDependencyIndex.getInstance().storeGraph(graph);
-        } catch (Exception e) {
-            System.err.println("[TabbedPaneManager] Failed to persist dependency graph to Lucene: " + e.getMessage());
-        }
-
-        return graph;
+        return de.bund.zrb.service.NaturalAnalysisService.getInstance().buildGraph(library, sources);
     }
 
     /**
@@ -904,6 +866,9 @@ public class TabbedPaneManager {
         java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
                 new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
         int totalCount = 0;
+
+        final de.bund.zrb.service.NaturalAnalysisService analysisService =
+                de.bund.zrb.service.NaturalAnalysisService.getInstance();
 
         // ── Active XRefs (what this program calls) ──
         if (!result.isEmpty()) {
@@ -928,34 +893,30 @@ public class TabbedPaneManager {
 
         // ── Passive XRefs (who calls this program) from graph ──
         if (library != null) {
-            de.bund.zrb.service.NaturalDependencyGraph graph = getDependencyGraph(library);
-            if (graph != null && graph.isBuilt()) {
-                // Extract object name from path (e.g. "LIBNAME/OBJNAME.NSP" → "OBJNAME")
-                String objName = extractObjectName(sourceName);
-                if (objName != null) {
-                    java.util.Map<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
-                            java.util.List<de.bund.zrb.service.NaturalDependencyGraph.CallerInfo>> callerGroups =
-                            graph.getPassiveXRefsGrouped(objName);
+            String objName = analysisService.extractObjectName(sourceName);
+            if (objName != null) {
+                java.util.Map<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
+                        java.util.List<de.bund.zrb.service.NaturalDependencyGraph.CallerInfo>> callerGroups =
+                        analysisService.getPassiveXRefsGrouped(library, objName);
 
-                    if (!callerGroups.isEmpty()) {
-                        for (java.util.Map.Entry<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
-                                java.util.List<de.bund.zrb.service.NaturalDependencyGraph.CallerInfo>> cgroup
-                                : callerGroups.entrySet()) {
+                if (!callerGroups.isEmpty()) {
+                    for (java.util.Map.Entry<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
+                            java.util.List<de.bund.zrb.service.NaturalDependencyGraph.CallerInfo>> cgroup
+                            : callerGroups.entrySet()) {
 
-                            de.bund.zrb.service.NaturalDependencyService.DependencyKind kind = cgroup.getKey();
-                            java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+                        de.bund.zrb.service.NaturalDependencyService.DependencyKind kind = cgroup.getKey();
+                        java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
 
-                            for (de.bund.zrb.service.NaturalDependencyGraph.CallerInfo caller : cgroup.getValue()) {
-                                String targetPath = (library != null && !library.isEmpty())
-                                        ? "ndv://" + library + "/" + caller.getCallerName()
-                                        : null;
-                                entries.add(new LeftDrawer.RelationEntry(
-                                        caller.getDisplayText(), targetPath, "CALLER_" + kind.getCode()));
-                            }
-
-                            sections.put("⬅ Aufgerufen von (" + kind.getCode() + ")", entries);
-                            totalCount += entries.size();
+                        for (de.bund.zrb.service.NaturalDependencyGraph.CallerInfo caller : cgroup.getValue()) {
+                            String targetPath = (library != null && !library.isEmpty())
+                                    ? "ndv://" + library + "/" + caller.getCallerName()
+                                    : null;
+                            entries.add(new LeftDrawer.RelationEntry(
+                                    caller.getDisplayText(), targetPath, "CALLER_" + kind.getCode()));
                         }
+
+                        sections.put("⬅ Aufgerufen von (" + kind.getCode() + ")", entries);
+                        totalCount += entries.size();
                     }
                 }
             }
@@ -969,14 +930,10 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Extract the object name from a path like "LIBNAME/OBJNAME.NSP" → "OBJNAME".
+     * Extract the object name from a path — delegates to NaturalAnalysisService.
      */
     private String extractObjectName(String path) {
-        if (path == null) return null;
-        int slash = path.lastIndexOf('/');
-        String filename = (slash >= 0) ? path.substring(slash + 1) : path;
-        int dot = filename.lastIndexOf('.');
-        return (dot > 0) ? filename.substring(0, dot).toUpperCase() : filename.toUpperCase();
+        return de.bund.zrb.service.NaturalAnalysisService.getInstance().extractObjectName(path);
     }
 
     /**
@@ -989,15 +946,10 @@ public class TabbedPaneManager {
             return;
         }
 
-        de.bund.zrb.service.NaturalDependencyGraph graph = getDependencyGraph(library);
+        final de.bund.zrb.service.NaturalAnalysisService analysisService =
+                de.bund.zrb.service.NaturalAnalysisService.getInstance();
 
-        // Try restoring from Lucene cache if not yet in memory
-        if (graph == null || !graph.isBuilt()) {
-            graph = de.bund.zrb.service.LuceneDependencyIndex.getInstance().restoreGraph(library);
-            if (graph != null) {
-                dependencyGraphs.put(library.toUpperCase(), graph);
-            }
-        }
+        de.bund.zrb.service.NaturalDependencyGraph graph = analysisService.getGraph(library);
 
         if (graph == null || !graph.isBuilt()) {
             leftDrawer.showCallHierarchyPlaceholder(
@@ -1006,7 +958,7 @@ public class TabbedPaneManager {
             return;
         }
 
-        String objName = extractObjectName(sourceName);
+        String objName = analysisService.extractObjectName(sourceName);
         if (objName == null) {
             leftDrawer.clearCallHierarchy();
             return;
@@ -1014,12 +966,12 @@ public class TabbedPaneManager {
 
         // Build callee hierarchy (what this calls, max depth 5)
         de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode calleesNode =
-                graph.getCallHierarchy(objName, true, 5);
+                analysisService.getCallHierarchy(library, objName, true, 5);
         LeftDrawer.CallHierarchyData calleesData = convertHierarchyNode(calleesNode, library);
 
         // Build caller hierarchy (who calls this, max depth 5)
         de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode callersNode =
-                graph.getCallHierarchy(objName, false, 5);
+                analysisService.getCallHierarchy(library, objName, false, 5);
         LeftDrawer.CallHierarchyData callersData = convertHierarchyNode(callersNode, library);
 
         leftDrawer.updateCallHierarchy(calleesData, callersData, objName);
@@ -1050,26 +1002,10 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Determine if the source content is Natural (by sentence type or heuristic).
+     * Determine if the source content is Natural — delegates to NaturalAnalysisService.
      */
     private boolean isNaturalSource(String content, String sentenceType) {
-        if (sentenceType != null && sentenceType.toUpperCase().contains("NATURAL")) {
-            return true;
-        }
-        // Heuristic: check for typical Natural keywords in the first 40 lines
-        if (content == null) return false;
-        String[] lines = content.split("\\r?\\n", 40);
-        int hits = 0;
-        for (String line : lines) {
-            String t = line.trim().toUpperCase();
-            if (t.startsWith("DEFINE DATA") || t.startsWith("END-DEFINE")
-                    || t.startsWith("CALLNAT ") || t.startsWith("LOCAL USING")
-                    || t.startsWith("PARAMETER USING") || t.startsWith("DECIDE ON")
-                    || t.startsWith("FETCH RETURN") || t.startsWith("INPUT USING MAP")) {
-                hits++;
-            }
-        }
-        return hits >= 2;
+        return de.bund.zrb.service.NaturalAnalysisService.getInstance().isNaturalSource(content, sentenceType);
     }
 
     /**

@@ -131,6 +131,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Dependency Graph Search Tool (searches Natural dependency index)
         toolRegistry.registerTool(new de.bund.zrb.mcp.SearchDependencyTool());
+
+        // Natural Analysis Tool (live dependency + call hierarchy analysis for AI)
+        toolRegistry.registerTool(new de.bund.zrb.mcp.AnalyzeNaturalTool());
     }
 
     @Override

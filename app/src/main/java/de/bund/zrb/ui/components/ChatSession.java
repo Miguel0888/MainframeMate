@@ -328,43 +328,109 @@ public class ChatSession extends JPanel {
      * @return hidden context string or empty
      */
     private String buildHiddenContextFromAttachments(String userQuery) {
-        if (currentAttachmentIds.isEmpty()) {
-            return "";
+        StringBuilder contextParts = new StringBuilder();
+
+        // ── Part 1: Dependency context from active Natural tab ──
+        String depContext = buildActiveTabDependencyContext();
+        if (!depContext.isEmpty()) {
+            contextParts.append(depContext).append("\n\n");
         }
 
-        try {
-            // Use RAG to retrieve only relevant chunks
-            RagService ragService = RagService.getInstance();
-            Set<String> allowedIds = new HashSet<>(currentAttachmentIds);
-
-            // Build context using Top-K retrieval filtered by current attachments
-            RagContextBuilder.BuildResult result = ragService.buildContext(
-                    userQuery,
-                    ragService.getConfig().getFinalTopK(),
-                    allowedIds
-            );
-
-            if (result.hasTruncations()) {
-                setStatus("⚠️ Attachment-Kontext wurde gekürzt");
-            }
-
-            String context = result.getContext();
-            if (context != null && !context.trim().isEmpty()) {
-                return "=== ATTACHMENT CONTEXT (Top-K Relevant Chunks) ===\n" + context + "\n=== END ATTACHMENT CONTEXT ===";
-            }
-            return "";
-        } catch (Exception e) {
-            // Fallback to old method if RAG fails
+        // ── Part 2: RAG-based attachment context ──
+        if (!currentAttachmentIds.isEmpty()) {
             try {
-                AttachmentContextBuilder.BuildResult result = buildHiddenContextUseCase.execute(currentAttachmentIds);
+                // Use RAG to retrieve only relevant chunks
+                RagService ragService = RagService.getInstance();
+                Set<String> allowedIds = new HashSet<>(currentAttachmentIds);
+
+                // Build context using Top-K retrieval filtered by current attachments
+                RagContextBuilder.BuildResult result = ragService.buildContext(
+                        userQuery,
+                        ragService.getConfig().getFinalTopK(),
+                        allowedIds
+                );
+
                 if (result.hasTruncations()) {
-                    setStatus("⚠️ Anhänge wurden gekürzt (Kontextlimit)");
+                    setStatus("⚠️ Attachment-Kontext wurde gekürzt");
                 }
-                return result.getContext();
-            } catch (Exception ex) {
-                setStatus("❌ Fehler beim Erstellen des Attachment-Kontexts");
+
+                String context = result.getContext();
+                if (context != null && !context.trim().isEmpty()) {
+                    contextParts.append("=== ATTACHMENT CONTEXT (Top-K Relevant Chunks) ===\n")
+                            .append(context)
+                            .append("\n=== END ATTACHMENT CONTEXT ===");
+                }
+            } catch (Exception e) {
+                // Fallback to old method if RAG fails
+                try {
+                    AttachmentContextBuilder.BuildResult result = buildHiddenContextUseCase.execute(currentAttachmentIds);
+                    if (result.hasTruncations()) {
+                        setStatus("⚠️ Anhänge wurden gekürzt (Kontextlimit)");
+                    }
+                    String fallbackCtx = result.getContext();
+                    if (fallbackCtx != null && !fallbackCtx.isEmpty()) {
+                        contextParts.append(fallbackCtx);
+                    }
+                } catch (Exception ex) {
+                    setStatus("❌ Fehler beim Erstellen des Attachment-Kontexts");
+                }
+            }
+        }
+
+        return contextParts.toString().trim();
+    }
+
+    /**
+     * Build dependency context from the currently active tab (if it's a Natural source).
+     * This context is injected into AI prompts so the model knows about the program's
+     * dependencies, callers, and call hierarchy without needing a tool call.
+     *
+     * @return dependency context string or empty string if not applicable
+     */
+    private String buildActiveTabDependencyContext() {
+        try {
+            de.bund.zrb.service.NaturalAnalysisService analysisService =
+                    de.bund.zrb.service.NaturalAnalysisService.getInstance();
+
+            // Get the selected tab via MainframeContext
+            java.util.Optional<de.zrb.bund.api.Bookmarkable> optTab = maeinframeContext.getSelectedTab();
+            if (!optTab.isPresent()) return "";
+
+            de.zrb.bund.api.Bookmarkable bookmark = optTab.get();
+            if (!(bookmark instanceof de.bund.zrb.ui.FileTabImpl)) return "";
+
+            de.bund.zrb.ui.FileTabImpl fileTab = (de.bund.zrb.ui.FileTabImpl) bookmark;
+            String content = fileTab.getContent();
+            String sentenceType = fileTab.getModel().getSentenceType();
+
+            if (content == null || !analysisService.isNaturalSource(content, sentenceType)) {
                 return "";
             }
+
+            String path = fileTab.getPath();
+            String objectName = analysisService.extractObjectName(path);
+            String library = analysisService.extractLibrary(path);
+
+            if (objectName == null) return "";
+
+            // Build AI-readable dependency summary
+            String depSummary = analysisService.buildAiDependencySummary(content, objectName, library);
+
+            // Optionally add call chain if graph is available
+            String callChain = "";
+            if (library != null) {
+                callChain = analysisService.buildAiCallChainSummary(library, objectName);
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append(depSummary);
+            if (!callChain.isEmpty()) {
+                sb.append("\n").append(callChain);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            // Best-effort — don't fail the chat if dependency analysis errors out
+            return "";
         }
     }
 
