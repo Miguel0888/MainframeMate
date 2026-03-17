@@ -156,17 +156,11 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         goButton.addActionListener(e -> loadDirectory(pathField.getText()));
         pathField.addActionListener(e -> loadDirectory(pathField.getText()));
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 5, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
-        JButton clearCacheButton = new JButton("🗑");
-        clearCacheButton.setToolTipText("FTP-Cache für dieses Verzeichnis leeren");
-        clearCacheButton.setMargin(new Insets(0, 0, 0, 0));
-        clearCacheButton.setFont(clearCacheButton.getFont().deriveFont(Font.PLAIN, 16f));
-        clearCacheButton.addActionListener(e -> clearDirectoryCache());
-        rightButtons.add(clearCacheButton);
 
         detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
@@ -300,6 +294,7 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         indexingSidebar.setCustomStatusSupplier(this::computeFtpCacheStatus);
         indexingSidebar.setSecurityGroup("FTP");
         indexingSidebar.setSecurityPathSupplier(this::getSelectedPrefixedPaths);
+        indexingSidebar.setClearCacheAction(this::clearDirectoryCache);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
 
         mainPanel.add(statusBar, BorderLayout.SOUTH);
@@ -1230,6 +1225,12 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         String currentPath = browserState.getCurrentPath();
         if (currentPath == null || currentPath.isEmpty()) return;
         if (cacheService.isPrefetching(ftpHost, currentPath)) return;
+
+        // Security check: skip auto-caching if path is not allowed
+        String prefixedPath = "ftp://" + ftpHost + "/" + currentPath;
+        if (!SecurityFilterService.getInstance().isAllowed("FTP", prefixedPath)) {
+            return;
+        }
 
         List<FileNode> textFiles = getTextFileNodes();
         if (textFiles.isEmpty()) return;

@@ -9,6 +9,8 @@ import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.security.SecurityFilterService;
+import de.bund.zrb.service.FtpSourceCacheService;
+import de.bund.zrb.service.LocalSourceCacheService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -46,6 +48,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     }
 
     private final FileService fileService;
+    private final LocalSourceCacheService cacheService;
     private final JPanel mainPanel;
     private final JTextField pathField = new JTextField();
     private DefaultListModel<Object> listModel = new DefaultListModel<Object>();
@@ -97,6 +100,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         this.mainPanel = new JPanel(new BorderLayout());
         this.fileList = new JList<Object>(listModel);
         this.fileService = new FileServiceFactory().createLocal();
+        this.cacheService = LocalSourceCacheService.getInstance();
 
         restoreNavigatorState();
         initUI();
@@ -260,6 +264,11 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         // ── Sidebar setup ──
         indexingSidebar = new IndexingSidebar(SourceType.LOCAL);
         indexingSidebar.setVisible(sidebarVisible);
+        indexingSidebar.setCustomIndexAction(this::indexSelectedOrAll);
+        indexingSidebar.setCustomStatusSupplier(this::computeLocalCacheStatus);
+        indexingSidebar.setSecurityGroup("LOCAL");
+        indexingSidebar.setSecurityPathSupplier(this::getSelectedPrefixedPaths);
+        indexingSidebar.setClearCacheAction(this::clearDirectoryCache);
 
         mainPanel.add(topPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
@@ -424,6 +433,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         } catch (Exception ignore) {
             // ignore
         }
+        cacheService.shutdown();
     }
 
     @Override
@@ -726,6 +736,9 @@ public class LocalConnectionTabImpl implements ConnectionTab {
                     statusLabel.setText(currentNodes.size() + " Einträge");
 
                     if (sidebarVisible) updateSidebarInfo();
+
+                    // Auto-prefetch text files for Lucene indexing
+                    triggerSourcePrefetch();
                 });
             } catch (Exception e) {
                 System.err.println("[LocalConnectionTab] Error loading directory: " + e.getMessage());
@@ -968,6 +981,256 @@ public class LocalConnectionTabImpl implements ConnectionTab {
             }
             return this;
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Source Prefetch & Indexing
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Start background prefetching of all text files in the current directory.
+     * Enables SearchEverywhere to find local files by content.
+     * Respects SecurityFilterService — skips if path is not allowed.
+     */
+    private void triggerSourcePrefetch() {
+        String currentPath = pathField.getText();
+        if (currentPath == null || currentPath.isEmpty()) return;
+        if (cacheService.isPrefetching(currentPath)) return;
+
+        // Security check: skip auto-caching if path is not allowed
+        String prefixedPath = "local://" + currentPath.replace('\\', '/');
+        if (!SecurityFilterService.getInstance().isAllowed("LOCAL", prefixedPath)) {
+            return;
+        }
+
+        List<FileNode> textFiles = getTextFileNodes();
+        if (textFiles.isEmpty()) return;
+
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath(currentPath);
+            indexingSidebar.setScopeInfo("Auto-Prefetch: " + textFiles.size() + " Textdateien");
+        }
+
+        cacheService.prefetchDirectory(currentPath, textFiles,
+                new LocalSourceCacheService.PrefetchCallback() {
+            @Override
+            public void onProgress(final int current, final int total, final String fileName) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateProgress(current, total, true);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(final int total, final int indexed) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        statusLabel.setText(currentNodes.size() + " Einträge");
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateComplete(total, indexed, true);
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (indexingSidebar.isVisible()) {
+                            indexingSidebar.updateError(message);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Index the selected files, or all visible text files if nothing is selected.
+     */
+    private void indexSelectedOrAll() {
+        List<FileNode> selected = collectSelectedFileNodes();
+
+        // Make sidebar visible to show progress
+        if (!sidebarVisible) {
+            sidebarVisible = true;
+            indexingSidebar.setVisible(true);
+            detailsButton.setSelected(true);
+            mainPanel.revalidate();
+            mainPanel.repaint();
+        }
+
+        List<FileNode> filesToIndex;
+        boolean wasSelected = !selected.isEmpty();
+        if (selected.isEmpty()) {
+            filesToIndex = getTextFileNodes();
+        } else {
+            filesToIndex = new ArrayList<FileNode>();
+            for (FileNode fn : selected) {
+                if (!fn.isDirectory() && FtpSourceCacheService.isTextFile(fn.getName())) {
+                    filesToIndex.add(fn);
+                }
+            }
+        }
+
+        if (filesToIndex.isEmpty()) {
+            indexingSidebar.updateError("Keine Textdateien gefunden");
+            return;
+        }
+
+        String currentPath = pathField.getText();
+        indexingSidebar.setCurrentPath(currentPath);
+        if (wasSelected) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(filesToIndex.size(), 4); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(filesToIndex.get(i).getName());
+            }
+            if (filesToIndex.size() > 4) sb.append(" … (+" + (filesToIndex.size() - 4) + ")");
+            indexingSidebar.setScopeInfo("Auswahl: " + filesToIndex.size() + " Dateien");
+        } else {
+            indexingSidebar.setScopeInfo("Alle " + filesToIndex.size() + " Textdateien");
+        }
+
+        cacheService.prefetchDirectory(currentPath, filesToIndex,
+                new LocalSourceCacheService.PrefetchCallback() {
+            @Override
+            public void onProgress(final int current, final int total, final String fileName) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateProgress(current, total);
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(final int total, final int indexed) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateComplete(total, indexed);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateError(message);
+                    }
+                });
+            }
+        });
+    }
+
+    /** Collect only text files (non-directory, text extension) from current directory. */
+    private List<FileNode> getTextFileNodes() {
+        List<FileNode> result = new ArrayList<FileNode>();
+        for (FileNode node : currentNodes) {
+            if (!node.isDirectory() && FtpSourceCacheService.isTextFile(node.getName())) {
+                result.add(node);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Compute cache-aware status for the IndexingSidebar's custom status supplier.
+     * Returns [statusText, colorHex, itemCountText, lastIndexedText].
+     */
+    private String[] computeLocalCacheStatus() {
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm");
+        String currentPath = pathField.getText();
+
+        if (currentPath == null || currentPath.isEmpty()) {
+            return new String[]{"⬜ Nicht gecacht", "#999999", "-", "-"};
+        }
+
+        int memCached = cacheService.getMemoryCacheSize(currentPath);
+        int h2Cached = cacheService.getH2CacheSize(currentPath);
+        boolean prefetching = cacheService.isPrefetching(currentPath);
+        int textFileCount = getTextFileNodes().size();
+
+        if (prefetching) {
+            return new String[]{
+                    "\uD83D\uDD04 Wird gecacht...",
+                    "#6495ED",
+                    memCached + " / " + textFileCount,
+                    "-"
+            };
+        }
+
+        int cachedCount = Math.max(memCached, h2Cached);
+        if (cachedCount > 0) {
+            return new String[]{
+                    "✅ Gecacht",
+                    "#4CAF50",
+                    cachedCount + " / " + textFileCount,
+                    fmt.format(new Date(System.currentTimeMillis()))
+            };
+        }
+
+        return new String[]{"⬜ Nicht gecacht", "#999999", "0 / " + textFileCount, "-"};
+    }
+
+    /**
+     * Clear cached local sources for the current directory.
+     */
+    private void clearDirectoryCache() {
+        String currentPath = pathField.getText();
+        if (currentPath == null || currentPath.isEmpty()) {
+            statusLabel.setText("Kein Verzeichnis ausgewählt");
+            return;
+        }
+
+        int result = JOptionPane.showConfirmDialog(mainPanel,
+                "Cache für Verzeichnis '" + currentPath + "' leeren?\n\n"
+                        + "Dies entfernt:\n"
+                        + "• Zwischengespeicherte Dateiinhalte\n"
+                        + "• Lucene-Suchindex\n\n"
+                        + "Die Daten werden beim nächsten Öffnen neu geladen.",
+                "Cache leeren", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+        if (result == JOptionPane.YES_OPTION) {
+            cacheService.invalidateDirectory(currentPath);
+            statusLabel.setText("Cache für " + currentPath + " geleert");
+            if (sidebarVisible) {
+                indexingSidebar.refreshStatus();
+            }
+        }
+    }
+
+    /**
+     * Build prefixed paths from the current selection (for SecurityFilterService).
+     * Format: "local://path/to/file"
+     */
+    private List<String> getSelectedPrefixedPaths() {
+        List<FileNode> selected = collectSelectedFileNodes();
+        String currentPath = pathField.getText();
+
+        if (selected.isEmpty()) {
+            return Collections.singletonList("local://" + currentPath.replace('\\', '/'));
+        }
+
+        List<String> paths = new ArrayList<String>();
+        for (FileNode fn : selected) {
+            String fullPath = fn.getPath();
+            if (fullPath == null || fullPath.isEmpty()) {
+                fullPath = joinPath(currentPath, fn.getName());
+            }
+            paths.add("local://" + fullPath.replace('\\', '/'));
+        }
+        return paths;
     }
 
     // ═══════════════════════════════════════════════════════════

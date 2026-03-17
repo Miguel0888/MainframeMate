@@ -174,17 +174,11 @@ public class NdvConnectionTab implements ConnectionTab {
 
         pathField.addActionListener(e -> navigateToPath());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 5, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
-        JButton clearCacheButton = new JButton("🗑");
-        clearCacheButton.setToolTipText("NDV-Cache für diese Bibliothek leeren");
-        clearCacheButton.setMargin(new Insets(0, 0, 0, 0));
-        clearCacheButton.setFont(clearCacheButton.getFont().deriveFont(Font.PLAIN, 16f));
-        clearCacheButton.addActionListener(e -> clearLibraryCache());
-        rightButtons.add(clearCacheButton);
 
         detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
@@ -325,6 +319,11 @@ public class NdvConnectionTab implements ConnectionTab {
             public List<String> get() {
                 return getSelectedPrefixedPaths();
             }
+        });
+        // Clear cache action
+        indexingSidebar.setClearCacheAction(new Runnable() {
+            @Override
+            public void run() { clearLibraryCache(); }
         });
         // Apply restored sidebar visibility
         indexingSidebar.setVisible(sidebarVisible);
@@ -808,6 +807,12 @@ public class NdvConnectionTab implements ConnectionTab {
     private void triggerSourcePrefetch(final String library) {
         if (library == null || library.isEmpty()) return;
         if (cacheService.isPrefetching(library)) return; // already running
+
+        // Security check: skip auto-caching if path is not allowed
+        String prefixedPath = "ndv://" + library;
+        if (!SecurityFilterService.getInstance().isAllowed("NDV", prefixedPath)) {
+            return;
+        }
 
         // Collect NdvObjectInfo items from the loaded list
         final List<NdvObjectInfo> objects = new ArrayList<NdvObjectInfo>();

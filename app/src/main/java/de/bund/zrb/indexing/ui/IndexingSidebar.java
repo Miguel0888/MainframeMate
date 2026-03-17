@@ -50,6 +50,10 @@ public class IndexingSidebar extends JPanel {
     // Optional custom action for "Jetzt Indexieren" — set by parent tab (e.g. NdvConnectionTab)
     private Runnable customIndexAction;
 
+    // Optional custom action for "Cache leeren" — set by parent tab
+    private Runnable customClearCacheAction;
+    private JButton clearCacheButton;
+
     // Optional custom status supplier — returns [statusText, statusColor, itemCountText, lastIndexedText]
     // When set, refreshStatus() uses this instead of querying the IndexingService pipeline.
     private java.util.function.Supplier<String[]> customStatusSupplier;
@@ -184,6 +188,20 @@ public class IndexingSidebar extends JPanel {
         indexNowButton.addActionListener(e -> indexNow());
         add(indexNowButton);
 
+        add(Box.createVerticalStrut(4));
+
+        clearCacheButton = new JButton("🗑 Cache leeren");
+        clearCacheButton.setAlignmentX(LEFT_ALIGNMENT);
+        clearCacheButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        clearCacheButton.setToolTipText("Cache für den aktuellen Pfad leeren (Quellcodes, Lucene-Index)");
+        clearCacheButton.addActionListener(e -> {
+            if (customClearCacheAction != null) {
+                customClearCacheAction.run();
+            }
+        });
+        clearCacheButton.setVisible(false); // hidden until setClearCacheAction() is called
+        add(clearCacheButton);
+
         add(Box.createVerticalStrut(16));
 
         // ── Security / Filter ──
@@ -243,6 +261,18 @@ public class IndexingSidebar extends JPanel {
      */
     public void setCustomIndexAction(Runnable action) {
         this.customIndexAction = action;
+    }
+
+    /**
+     * Set a custom action to execute when "Cache leeren" is clicked.
+     * Shows the button when a non-null action is set.
+     * Used by connection tabs to clear their specific cache (NDV, FTP, Local).
+     */
+    public void setClearCacheAction(Runnable action) {
+        this.customClearCacheAction = action;
+        if (clearCacheButton != null) {
+            clearCacheButton.setVisible(action != null);
+        }
     }
 
     /**
