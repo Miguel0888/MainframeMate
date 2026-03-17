@@ -1,5 +1,6 @@
 package de.bund.zrb.indexing.service;
 
+import de.bund.zrb.indexing.connector.FtpSourceScanner;
 import de.bund.zrb.indexing.connector.LocalSourceScanner;
 import de.bund.zrb.indexing.connector.NdvSourceScanner;
 import de.bund.zrb.indexing.model.*;
@@ -56,6 +57,7 @@ public class IndexingService {
 
     private final de.bund.zrb.indexing.connector.WikiSourceScanner wikiScanner;
     private final NdvSourceScanner ndvScanner;
+    private final FtpSourceScanner ftpScanner;
 
     private IndexingService() {
         pipeline = new IndexingPipeline(statusStore);
@@ -66,6 +68,8 @@ public class IndexingService {
         pipeline.registerScanner(SourceType.WIKI, wikiScanner);
         ndvScanner = new NdvSourceScanner();
         pipeline.registerScanner(SourceType.NDV, ndvScanner);
+        ftpScanner = new FtpSourceScanner();
+        pipeline.registerScanner(SourceType.FTP, ftpScanner);
         // Register content processor (Tika extraction → RAG chunking → Lucene index)
         pipeline.setContentProcessor(new RagContentProcessor());
     }
@@ -82,6 +86,13 @@ public class IndexingService {
      */
     public NdvSourceScanner getNdvScanner() {
         return ndvScanner;
+    }
+
+    /**
+     * Get the FTP scanner so the app can wire in FileService when a connection is established.
+     */
+    public FtpSourceScanner getFtpScanner() {
+        return ftpScanner;
     }
 
     public static synchronized IndexingService getInstance() {

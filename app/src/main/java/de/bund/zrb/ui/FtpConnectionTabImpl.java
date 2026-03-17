@@ -132,6 +132,12 @@ public class FtpConnectionTabImpl implements ConnectionTab {
             this.ftpHost = host != null ? host : "";
         }
 
+        // Wire FTP scanner for indexing pipeline
+        de.bund.zrb.indexing.connector.FtpSourceScanner ftpScanner =
+                de.bund.zrb.indexing.service.IndexingService.getInstance().getFtpScanner();
+        ftpScanner.setFileService(fileService);
+        ftpScanner.setFtpHost(this.ftpHost);
+
         boolean mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
         this.mvsMode = mvsMode;
         this.navigator = new PathNavigator(mvsMode);
