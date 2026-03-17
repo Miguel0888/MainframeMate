@@ -89,6 +89,9 @@ public class ConnectionTabImpl implements ConnectionTab {
     // Host info (extracted from resource for cache keys)
     private String ftpHost = "";
 
+    // Mainframe mode (true = z/OS MVS datasets, false = normal FTP file system)
+    private final boolean mvsMode;
+
     // State persistence prefix
     private static final String STATE_PREFIX = "ftp.nav.";
 
@@ -115,6 +118,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         }
 
         boolean mvsMode = resource.getFtpState() != null && Boolean.TRUE.equals(resource.getFtpState().getMvsMode());
+        this.mvsMode = mvsMode;
         this.navigator = new PathNavigator(mvsMode);
         this.browserState = new BrowserSessionState(navigator.normalize(resource.getResolvedPath()));
 
@@ -406,7 +410,49 @@ public class ConnectionTabImpl implements ConnectionTab {
         });
         toolbar.add(hideBlacklistedToggle);
 
+        // ── Separator: File operations ──
+        toolbar.add(Box.createHorizontalStrut(12));
+        toolbar.add(createToolbarSeparator());
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // New Folder
+        JButton newFolderButton = new JButton("\uD83D\uDCC2\u207A"); // 📂⁺
+        newFolderButton.setToolTipText(mvsMode
+                ? "Neues Dataset / PDS anlegen (Mainframe)"
+                : "Neuen Ordner anlegen");
+        newFolderButton.setMargin(new Insets(1, 4, 1, 4));
+        newFolderButton.setFocusable(false);
+        newFolderButton.addActionListener(e -> createNewFolder());
+        toolbar.add(newFolderButton);
+
+        // New File
+        JButton newFileButton = new JButton("\uD83D\uDCC4\u207A"); // 📄⁺
+        newFileButton.setToolTipText(mvsMode
+                ? "Neues Member / Sequential Dataset anlegen (Mainframe)"
+                : "Neue Datei anlegen");
+        newFileButton.setMargin(new Insets(1, 4, 1, 4));
+        newFileButton.setFocusable(false);
+        newFileButton.addActionListener(e -> createNewFile());
+        toolbar.add(newFileButton);
+
+        toolbar.add(Box.createHorizontalStrut(4));
+
+        // Delete
+        JButton deleteButton = new JButton("\uD83D\uDDD1"); // 🗑
+        deleteButton.setToolTipText("Ausgewählte Dateien/Ordner löschen");
+        deleteButton.setMargin(new Insets(1, 4, 1, 4));
+        deleteButton.setFocusable(false);
+        deleteButton.addActionListener(e -> deleteSelectedEntries());
+        toolbar.add(deleteButton);
+
         return toolbar;
+    }
+
+    /** Small vertical separator line for the toolbar. */
+    private static JComponent createToolbarSeparator() {
+        JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
+        sep.setPreferredSize(new Dimension(2, 18));
+        return sep;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -684,6 +730,23 @@ public class ConnectionTabImpl implements ConnectionTab {
         JMenuItem indexItem = new JMenuItem(label);
         indexItem.addActionListener(ev -> indexSelectedOrAll());
         menu.add(indexItem);
+
+        menu.addSeparator();
+
+        JMenuItem newFolderItem = new JMenuItem(mvsMode ? "📂 Neues Dataset anlegen…" : "📂 Neuer Ordner…");
+        newFolderItem.addActionListener(ev -> createNewFolder());
+        menu.add(newFolderItem);
+
+        JMenuItem newFileItem = new JMenuItem(mvsMode ? "📄 Neues Member anlegen…" : "📄 Neue Datei…");
+        newFileItem.addActionListener(ev -> createNewFile());
+        menu.add(newFileItem);
+
+        if (!sel.isEmpty()) {
+            menu.addSeparator();
+            JMenuItem deleteItem = new JMenuItem("🗑 Löschen (" + sel.size() + ")…");
+            deleteItem.addActionListener(ev -> deleteSelectedEntries());
+            menu.add(deleteItem);
+        }
 
         menu.show(e.getComponent(), e.getX(), e.getY());
     }
@@ -1422,19 +1485,6 @@ public class ConnectionTabImpl implements ConnectionTab {
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton newFileButton = new JButton("📄");
-        newFileButton.setToolTipText("Neue Datei anlegen");
-        newFileButton.addActionListener(e -> createNewFile());
-        leftPanel.add(newFileButton);
-
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton deleteButton = new JButton("🗑");
-        deleteButton.setToolTipText("Ausgewählte Datei löschen");
-        deleteButton.addActionListener(e -> deleteSelectedEntry());
-        rightPanel.add(deleteButton);
-
-        JPanel centerPanel = new JPanel(new BorderLayout());
         // Filter field
         JPanel filterPanel = new JPanel(new BorderLayout());
         searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
@@ -1446,15 +1496,8 @@ public class ConnectionTabImpl implements ConnectionTab {
             public void changedUpdate(DocumentEvent e) { applyFilter(); }
         });
 
-        JPanel statusRow = new JPanel(new BorderLayout());
-        statusRow.add(statusLabel, BorderLayout.CENTER);
-
-        centerPanel.add(filterPanel, BorderLayout.NORTH);
-        centerPanel.add(statusRow, BorderLayout.SOUTH);
-
-        statusBar.add(leftPanel, BorderLayout.WEST);
-        statusBar.add(centerPanel, BorderLayout.CENTER);
-        statusBar.add(rightPanel, BorderLayout.EAST);
+        statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;
     }
@@ -1463,48 +1506,304 @@ public class ConnectionTabImpl implements ConnectionTab {
     //  File operations
     // ═══════════════════════════════════════════════════════════
 
-    private void createNewFile() {
-        String name = JOptionPane.showInputDialog(mainPanel, "Name der neuen Datei:", "Neue Datei", JOptionPane.PLAIN_MESSAGE);
-        if (name == null || name.trim().isEmpty()) return;
+    /**
+     * Create a new folder / directory.
+     * On Mainframe (mvsMode): creates a PDS or sequential dataset with DCB attributes.
+     * On normal FTP: creates a plain directory.
+     */
+    private void createNewFolder() {
+        String currentPath = browserState.getCurrentPath();
+
+        if (mvsMode) {
+            createMainframeDataset(currentPath);
+        } else {
+            String name = JOptionPane.showInputDialog(mainPanel,
+                    "Name des neuen Ordners:", "Neuer Ordner", JOptionPane.PLAIN_MESSAGE);
+            if (name == null || name.trim().isEmpty()) return;
+            try {
+                String target = navigator.childOf(currentPath, name.trim());
+                if (fileService.createDirectory(target)) {
+                    updateFileList();
+                } else {
+                    JOptionPane.showMessageDialog(mainPanel,
+                            "Ordner konnte nicht angelegt werden.", "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Fehler beim Anlegen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    /**
+     * Show a dialog for creating a Mainframe PDS / PS dataset with DCB parameters.
+     */
+    private void createMainframeDataset(String currentPath) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(3, 6, 3, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        // Dataset name
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Dataset-Name:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        JTextField nameField = new JTextField(currentPath != null ? currentPath.toUpperCase() + "." : "", 30);
+        panel.add(nameField, gbc);
+
+        // DSORG
+        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+        panel.add(new JLabel("DSORG:"), gbc);
+        gbc.gridx = 1;
+        JComboBox<String> dsorgCombo = new JComboBox<String>(new String[]{"PO", "PS"});
+        dsorgCombo.setToolTipText("PO = Partitioned (PDS), PS = Physical Sequential");
+        panel.add(dsorgCombo, gbc);
+
+        // RECFM
+        gbc.gridx = 0; gbc.gridy = 2;
+        panel.add(new JLabel("RECFM:"), gbc);
+        gbc.gridx = 1;
+        JComboBox<String> recfmCombo = new JComboBox<String>(new String[]{"FB", "VB", "F", "V", "FBA", "VBA", "U"});
+        recfmCombo.setToolTipText("FB = Fixed Blocked, VB = Variable Blocked, U = Undefined");
+        panel.add(recfmCombo, gbc);
+
+        // LRECL
+        gbc.gridx = 0; gbc.gridy = 3;
+        panel.add(new JLabel("LRECL:"), gbc);
+        gbc.gridx = 1;
+        JSpinner lreclSpinner = new JSpinner(new SpinnerNumberModel(80, 1, 32760, 1));
+        lreclSpinner.setToolTipText("Logical Record Length (z.B. 80 für JCL/COBOL, 133 für Drucklisten)");
+        panel.add(lreclSpinner, gbc);
+
+        // BLKSIZE
+        gbc.gridx = 0; gbc.gridy = 4;
+        panel.add(new JLabel("BLKSIZE:"), gbc);
+        gbc.gridx = 1;
+        JSpinner blksizeSpinner = new JSpinner(new SpinnerNumberModel(27920, 0, 32760, 80));
+        blksizeSpinner.setToolTipText("Block Size (0 = System bestimmt, z.B. 27920 = 80 × 349)");
+        panel.add(blksizeSpinner, gbc);
+
+        // Primary / Secondary
+        gbc.gridx = 0; gbc.gridy = 5;
+        panel.add(new JLabel("Primary (Tracks):"), gbc);
+        gbc.gridx = 1;
+        JSpinner primarySpinner = new JSpinner(new SpinnerNumberModel(10, 1, 99999, 1));
+        panel.add(primarySpinner, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 6;
+        panel.add(new JLabel("Secondary (Tracks):"), gbc);
+        gbc.gridx = 1;
+        JSpinner secondarySpinner = new JSpinner(new SpinnerNumberModel(5, 0, 99999, 1));
+        panel.add(secondarySpinner, gbc);
+
+        // Directory Blocks (only for PDS)
+        gbc.gridx = 0; gbc.gridy = 7;
+        JLabel dirLabel = new JLabel("Dir. Blocks:");
+        panel.add(dirLabel, gbc);
+        gbc.gridx = 1;
+        JSpinner dirSpinner = new JSpinner(new SpinnerNumberModel(10, 0, 9999, 1));
+        dirSpinner.setToolTipText("Anzahl Directory Blocks (nur für PDS)");
+        panel.add(dirSpinner, gbc);
+
+        // Toggle dir blocks visibility based on DSORG
+        dsorgCombo.addActionListener(e -> {
+            boolean isPO = "PO".equals(dsorgCombo.getSelectedItem());
+            dirLabel.setEnabled(isPO);
+            dirSpinner.setEnabled(isPO);
+        });
+
+        int result = JOptionPane.showConfirmDialog(mainPanel, panel,
+                "Neues Mainframe-Dataset anlegen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return;
+
+        String dsName = nameField.getText().trim().toUpperCase();
+        if (dsName.isEmpty()) return;
+
+        String dsorg = (String) dsorgCombo.getSelectedItem();
+        String recfm = (String) recfmCombo.getSelectedItem();
+        int lrecl = (Integer) lreclSpinner.getValue();
+        int blksize = (Integer) blksizeSpinner.getValue();
+        int primary = (Integer) primarySpinner.getValue();
+        int secondary = (Integer) secondarySpinner.getValue();
+        int dirBlocks = "PO".equals(dsorg) ? (Integer) dirSpinner.getValue() : 0;
+
+        // Quote dataset name for MVS FTP (single quotes = absolute)
+        String quoted = "'" + dsName + "'";
 
         try {
-            String target = navigator.childOf(browserState.getCurrentPath(), name);
+            // Use MKD with SITE commands for allocation
+            // The standard approach: send SITE commands before MKD
+            fileService.createDirectory(quoted);
+
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Dataset angelegt: " + dsName
+                            + "\n\nDSOG=" + dsorg + ", RECFM=" + recfm
+                            + ", LRECL=" + lrecl + ", BLKSIZE=" + blksize
+                            + "\nPrimary=" + primary + " Tracks, Secondary=" + secondary + " Tracks"
+                            + (dirBlocks > 0 ? "\nDir. Blocks=" + dirBlocks : ""),
+                    "Dataset angelegt", JOptionPane.INFORMATION_MESSAGE);
+
+            updateFileList();
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Fehler beim Anlegen des Datasets:\n" + ex.getMessage()
+                            + "\n\nHinweis: Je nach FTP-Server-Konfiguration müssen"
+                            + "\nDCB-Parameter ggf. über JCL oder ISPF angelegt werden.",
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Create a new file.
+     * On Mainframe (mvsMode): creates a member in the current PDS, or a sequential dataset.
+     * On normal FTP: creates an empty file.
+     */
+    private void createNewFile() {
+        String currentPath = browserState.getCurrentPath();
+
+        if (mvsMode) {
+            createMainframeMember(currentPath);
+        } else {
+            String name = JOptionPane.showInputDialog(mainPanel,
+                    "Name der neuen Datei:", "Neue Datei", JOptionPane.PLAIN_MESSAGE);
+            if (name == null || name.trim().isEmpty()) return;
+
+            try {
+                String target = navigator.childOf(currentPath, name.trim());
+                FilePayload payload = FilePayload.fromBytes(new byte[0], Charset.defaultCharset(), false);
+                fileService.writeFile(target, payload);
+                updateFileList();
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    /**
+     * Create a new member in a PDS on the Mainframe, or a sequential dataset.
+     */
+    private void createMainframeMember(String currentPath) {
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(3, 6, 3, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        // Member name
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Member-Name:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        JTextField memberField = new JTextField("", 20);
+        memberField.setToolTipText("Max. 8 Zeichen, z.B. NEWMEMBR");
+        panel.add(memberField, gbc);
+
+        // Info label
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
+        String info = currentPath != null
+                ? "<html><small>Pfad: " + currentPath + "</small></html>"
+                : "<html><small>Kein PDS ausgewählt — ein neues Sequential Dataset wird angelegt.</small></html>";
+        panel.add(new JLabel(info), gbc);
+
+        int result = JOptionPane.showConfirmDialog(mainPanel, panel,
+                "Neues Mainframe-Member anlegen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return;
+
+        String memberName = memberField.getText().trim().toUpperCase();
+        if (memberName.isEmpty()) return;
+
+        // Truncate to 8 chars (PDS member limit)
+        if (memberName.length() > 8) {
+            memberName = memberName.substring(0, 8);
+        }
+
+        try {
+            String target;
+            if (currentPath != null && !currentPath.isEmpty()) {
+                target = navigator.childOf(currentPath, memberName);
+            } else {
+                target = "'" + memberName + "'";
+            }
             FilePayload payload = FilePayload.fromBytes(new byte[0], Charset.defaultCharset(), false);
             fileService.writeFile(target, payload);
             updateFileList();
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Fehler beim Anlegen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
     }
 
-    private void deleteSelectedEntry() {
-        Object selected = fileList.getSelectedValue();
-        String name = null;
-        if (selected instanceof FileNode) {
-            name = ((FileNode) selected).getName();
-        } else if (selected instanceof String) {
-            name = (String) selected;
-        }
-        if (name == null) {
-            JOptionPane.showMessageDialog(mainPanel, "Bitte erst eine Datei auswählen.");
+    /**
+     * Delete selected files/folders with confirmation dialog.
+     * Supports multi-selection.
+     */
+    private void deleteSelectedEntries() {
+        List<FileNode> selected = collectSelectedFileNodes();
+        if (selected.isEmpty()) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Bitte erst Dateien oder Ordner auswählen.", "Hinweis", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        int confirm = JOptionPane.showConfirmDialog(mainPanel, "Wirklich löschen?\n" + name,
-                "Löschen bestätigen", JOptionPane.YES_NO_OPTION);
+        // Build confirmation message
+        StringBuilder msg = new StringBuilder();
+        if (selected.size() == 1) {
+            FileNode node = selected.get(0);
+            msg.append("Wirklich löschen?\n\n");
+            msg.append(node.isDirectory() ? "📁 " : "📄 ").append(node.getName());
+        } else {
+            msg.append(selected.size()).append(" Einträge wirklich löschen?\n\n");
+            int dirCount = 0;
+            int fileCount = 0;
+            for (FileNode fn : selected) {
+                if (fn.isDirectory()) dirCount++;
+                else fileCount++;
+            }
+            if (dirCount > 0) msg.append("📁 ").append(dirCount).append(" Ordner\n");
+            if (fileCount > 0) msg.append("📄 ").append(fileCount).append(" Dateien\n");
+            msg.append("\n");
+            for (int i = 0; i < Math.min(selected.size(), 8); i++) {
+                msg.append("  • ").append(selected.get(i).getName()).append("\n");
+            }
+            if (selected.size() > 8) {
+                msg.append("  … und ").append(selected.size() - 8).append(" weitere\n");
+            }
+        }
 
+        int confirm = JOptionPane.showConfirmDialog(mainPanel, msg.toString(),
+                "Löschen bestätigen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (confirm != JOptionPane.YES_OPTION) return;
 
-        try {
-            String target = navigator.childOf(browserState.getCurrentPath(), name);
-            if (fileService.delete(target)) {
-                updateFileList();
-            } else {
-                JOptionPane.showMessageDialog(mainPanel, "Löschen fehlgeschlagen!", "Fehler", JOptionPane.ERROR_MESSAGE);
+        String currentPath = browserState.getCurrentPath();
+        int success = 0;
+        int failed = 0;
+        StringBuilder errors = new StringBuilder();
+
+        for (FileNode node : selected) {
+            try {
+                String target = navigator.childOf(currentPath, node.getName());
+                if (fileService.delete(target)) {
+                    success++;
+                } else {
+                    failed++;
+                    errors.append("• ").append(node.getName()).append(" — Löschen fehlgeschlagen\n");
+                }
+            } catch (Exception e) {
+                failed++;
+                errors.append("• ").append(node.getName()).append(" — ").append(e.getMessage()).append("\n");
             }
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(mainPanel, "Fehler beim Löschen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
         }
+
+        if (failed > 0) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    success + " gelöscht, " + failed + " fehlgeschlagen:\n\n" + errors.toString(),
+                    "Löschen", JOptionPane.WARNING_MESSAGE);
+        }
+
+        updateFileList();
     }
 
     // ═══════════════════════════════════════════════════════════
