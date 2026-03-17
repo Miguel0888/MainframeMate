@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+@Deprecated // This class is deprecated and will be removed in future versions. Use the new VFS Version instead.
 public class LocalFileService implements FileService {
 
     private final Path baseRoot;
