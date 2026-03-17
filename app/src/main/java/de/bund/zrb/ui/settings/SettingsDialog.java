@@ -44,6 +44,7 @@ public class SettingsDialog {
         categories.add(new ToolConfigSettingsPanel());
         categories.add(new MailSettingsPanel());
         categories.add(new DebugSettingsPanel());
+        categories.add(new VideoSettingsPanel(parent));
 
         List<JButton> leftButtons = new ArrayList<>();
         JButton folderBtn = new JButton("App-Ordner öffnen");

@@ -103,6 +103,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         // Advanced
         CommandRegistryImpl.register(new BookmarkMenuCommand(this));
 
+        // Video Recording
+        CommandRegistryImpl.register(new ToggleVideoRecordCommand(this));
+
         // Sub Commands
         CommandRegistryImpl.register(new ShowComparePanelCommand(this));
         CommandRegistryImpl.register(new FocusSearchFieldCommand(this));

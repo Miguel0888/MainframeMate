@@ -152,4 +152,7 @@ public class Settings {
     public String logLevel = "INFO";                      // Global log level: OFF, SEVERE, WARNING, INFO, FINE, FINER, FINEST, ALL
     public Map<String, String> logCategoryLevels = new LinkedHashMap<>(); // Per-category overrides e.g. "MAIL" -> "FINE"
 
+    // Video Recording Settings (key-value map for flexibility)
+    public Map<String, Object> videoSettings = new LinkedHashMap<String, Object>();
+
 }
