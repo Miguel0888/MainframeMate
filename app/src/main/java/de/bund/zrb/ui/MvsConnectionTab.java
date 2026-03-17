@@ -1,8 +1,11 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.files.impl.vfs.mvs.*;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
+import de.bund.zrb.model.Settings;
+import de.bund.zrb.security.SecurityFilterService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -12,6 +15,8 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.util.*;
 import java.util.List;
 
 /**
@@ -22,11 +27,24 @@ import java.util.List;
  * - Pagination with first page shown immediately
  * - No "filter frustration" - LoadedModel/ViewModel separation
  * - State-based navigation (HLQ/DATASET/MEMBER)
+ * - Multi-selection with Ctrl/Shift + context menu
+ * - Navigator toolbar with sort, details, blacklist filtering
+ * - Security integration (whitelist/blacklist)
+ * - File operations (new folder, new member, delete)
  */
 public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.BrowserListener {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
+
+    /** Sort modes for resource list. */
+    enum SortMode {
+        NAME_ASC("Name ↑"), NAME_DESC("Name ↓"),
+        DATE_DESC("Datum ↓"), SIZE_DESC("Größe ↓");
+        final String label;
+        SortMode(String l) { this.label = l; }
+        @Override public String toString() { return label; }
+    }
 
     private final TabbedPaneManager tabbedPaneManager;
     private final MvsFtpClient ftpClient;
@@ -44,13 +62,25 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     private JButton backButton;
     private JButton forwardButton;
     private IndexingSidebar indexingSidebar;
+    private JToggleButton detailsButton;
     private boolean sidebarVisible = false;
+
+    // --- Navigator view state ---
+    private SortMode sortMode = SortMode.NAME_ASC;
+    private boolean showDetails = false;
+    private boolean hideBlacklisted = false;
+
+    // Full data for filtering (snapshot of current view model from controller)
+    private List<MvsVirtualResource> currentViewResources = new ArrayList<>();
 
     // Connection info for reopening
     private final String host;
     private final String user;
     private final String password;
     private final String encoding;
+
+    // State persistence prefix
+    private static final String STATE_PREFIX = "mvs.nav.";
 
     /**
      * Create MVS connection tab.
@@ -78,15 +108,18 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         fileList.setCellRenderer(new MvsResourceCellRenderer());
         this.rawFileOpener = new AsyncRawFileOpener(tabbedPaneManager, mainPanel, host, user, password, encoding);
 
+        restoreNavigatorState();
         initUI();
     }
 
     private void initUI() {
-        // Path panel
+        // ── Path panel ──
         JPanel pathPanel = new JPanel(new BorderLayout());
 
         JButton refreshButton = new JButton("🔄");
         refreshButton.setToolTipText("Aktualisieren");
+        refreshButton.setMargin(new Insets(0, 0, 0, 0));
+        refreshButton.setFont(refreshButton.getFont().deriveFont(Font.PLAIN, 18f));
         refreshButton.addActionListener(e -> controller.refresh());
 
         backButton = new JButton("⏴");
@@ -111,10 +144,11 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         rightButtons.add(forwardButton);
         rightButtons.add(goButton);
 
-        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
         detailsButton.setMargin(new Insets(0, 0, 0, 0));
         detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.setSelected(sidebarVisible);
         detailsButton.addActionListener(e -> toggleSidebar());
         rightButtons.add(detailsButton);
 
@@ -122,7 +156,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         pathPanel.add(pathField, BorderLayout.CENTER);
         pathPanel.add(rightButtons, BorderLayout.EAST);
 
-        // Overlay setup
+        // ── Overlay setup ──
         overlayLabel.setHorizontalAlignment(SwingConstants.CENTER);
         overlayLabel.setVerticalAlignment(SwingConstants.CENTER);
         overlayLabel.setFont(overlayLabel.getFont().deriveFont(Font.BOLD, 14f));
@@ -131,7 +165,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         overlayLabel.setAlignmentX(0.5f);
         overlayLabel.setAlignmentY(0.5f);
 
-        // List setup
+        // ── List setup with multi-selection ──
         JScrollPane scrollPane = new JScrollPane(fileList);
         scrollPane.setAlignmentX(0.5f);
         scrollPane.setAlignmentY(0.5f);
@@ -140,18 +174,32 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         listContainer.add(overlayLabel);
         listContainer.add(scrollPane);
 
-        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(mainPanel);
+        fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        fileList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting() && sidebarVisible) {
+                updateSidebarInfo();
+            }
+        });
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && !e.isPopupTrigger()) {
                     handleDoubleClick();
                 }
             }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e);
+            }
         });
+
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(mainPanel);
 
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
@@ -161,13 +209,29 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 this::navigateForward
         );
 
-        // Status bar
+        // ── Navigator toolbar ──
+        JPanel navigatorToolbar = createNavigatorToolbar();
+
+        // ── Status bar ──
         JPanel statusBar = createStatusBar();
 
-        // Main layout
+        // ── Top panel: path bar + navigator toolbar ──
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        pathPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        pathPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        navigatorToolbar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        navigatorToolbar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+        topPanel.add(pathPanel);
+        topPanel.add(navigatorToolbar);
+
+        // ── Sidebar setup ──
         indexingSidebar = new IndexingSidebar(SourceType.FTP);
-        indexingSidebar.setVisible(false);
-        mainPanel.add(pathPanel, BorderLayout.NORTH);
+        indexingSidebar.setVisible(sidebarVisible);
+        indexingSidebar.setSecurityGroup("FTP");
+        indexingSidebar.setSecurityPathSupplier(this::getSelectedPrefixedPaths);
+
+        mainPanel.add(topPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
@@ -176,6 +240,109 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         showOverlayMessage("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)", Color.GRAY);
         updateNavigationButtons();
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Navigator Toolbar
+    // ═══════════════════════════════════════════════════════════
+
+    private JPanel createNavigatorToolbar() {
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        toolbar.setBorder(BorderFactory.createEmptyBorder(1, 2, 1, 2));
+
+        // Sort dropdown button
+        JButton sortButton = new JButton("↕");
+        sortButton.setToolTipText("Sortierung");
+        sortButton.setMargin(new Insets(1, 4, 1, 4));
+        sortButton.setFocusable(false);
+        sortButton.addActionListener(e -> {
+            JPopupMenu popup = new JPopupMenu();
+            for (final SortMode mode : SortMode.values()) {
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(mode.label, mode == sortMode);
+                item.addActionListener(ev -> {
+                    sortMode = mode;
+                    saveNavigatorState();
+                    applyLocalSort();
+                });
+                popup.add(item);
+            }
+            popup.show(sortButton, 0, sortButton.getHeight());
+        });
+        toolbar.add(sortButton);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Show Details toggle (RECFM, LRECL, size)
+        JToggleButton detailsToggle = new JToggleButton("📋");
+        detailsToggle.setToolTipText("Details anzeigen (RECFM, LRECL, Größe)");
+        detailsToggle.setMargin(new Insets(1, 4, 1, 4));
+        detailsToggle.setFocusable(false);
+        detailsToggle.setSelected(showDetails);
+        detailsToggle.addActionListener(e -> {
+            showDetails = detailsToggle.isSelected();
+            saveNavigatorState();
+            fileList.repaint();
+        });
+        toolbar.add(detailsToggle);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Hide Blacklisted toggle
+        JToggleButton hideBlacklistedToggle = new JToggleButton("🔒");
+        hideBlacklistedToggle.setToolTipText("Gesperrte Elemente ausblenden (Blacklist)");
+        hideBlacklistedToggle.setMargin(new Insets(1, 4, 1, 4));
+        hideBlacklistedToggle.setFocusable(false);
+        hideBlacklistedToggle.setSelected(hideBlacklisted);
+        hideBlacklistedToggle.addActionListener(e -> {
+            hideBlacklisted = hideBlacklistedToggle.isSelected();
+            saveNavigatorState();
+            applyLocalSort();
+        });
+        toolbar.add(hideBlacklistedToggle);
+
+        // ── Separator: File operations ──
+        toolbar.add(Box.createHorizontalStrut(12));
+        toolbar.add(createToolbarSeparator());
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // New Folder / Dataset
+        JButton newFolderButton = new JButton("📂⁺");
+        newFolderButton.setToolTipText("Neues Dataset / PDS anlegen (Mainframe)");
+        newFolderButton.setMargin(new Insets(1, 4, 1, 4));
+        newFolderButton.setFocusable(false);
+        newFolderButton.addActionListener(e -> createNewFolder());
+        toolbar.add(newFolderButton);
+
+        // New File / Member
+        JButton newFileButton = new JButton("📄⁺");
+        newFileButton.setToolTipText("Neues Member anlegen");
+        newFileButton.setMargin(new Insets(1, 4, 1, 4));
+        newFileButton.setFocusable(false);
+        newFileButton.addActionListener(e -> createNewMember());
+        toolbar.add(newFileButton);
+
+        toolbar.add(Box.createHorizontalStrut(4));
+
+        // Delete
+        JButton deleteButton = new JButton("🗑");
+        deleteButton.setToolTipText("Ausgewählte Einträge löschen");
+        deleteButton.setMargin(new Insets(1, 4, 1, 4));
+        deleteButton.setFocusable(false);
+        deleteButton.addActionListener(e -> deleteSelectedEntries());
+        toolbar.add(deleteButton);
+
+        return toolbar;
+    }
+
+    /** Small vertical separator line for the toolbar. */
+    private static JComponent createToolbarSeparator() {
+        JSeparator sep = new JSeparator(SwingConstants.VERTICAL);
+        sep.setPreferredSize(new Dimension(2, 18));
+        return sep;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Status Bar
+    // ═══════════════════════════════════════════════════════════
 
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
@@ -195,21 +362,18 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
             public void changedUpdate(DocumentEvent e) { applyFilter(); }
         });
 
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton newFolderButton = new JButton("📁+");
-        newFolderButton.setToolTipText("Neuen Ordner/Qualifier anlegen");
-        newFolderButton.addActionListener(e -> createNewFolder());
-        leftPanel.add(newFolderButton);
-
         // Status
         statusLabel.setForeground(Color.GRAY);
 
-        statusBar.add(leftPanel, BorderLayout.WEST);
         statusBar.add(filterPanel, BorderLayout.CENTER);
         statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Navigation
+    // ═══════════════════════════════════════════════════════════
 
     private void navigateToPath() {
         String path = pathField.getText().trim();
@@ -251,28 +415,124 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Sidebar
+    // ═══════════════════════════════════════════════════════════
+
     private void toggleSidebar() {
         sidebarVisible = !sidebarVisible;
         indexingSidebar.setVisible(sidebarVisible);
+        detailsButton.setSelected(sidebarVisible);
         if (sidebarVisible) {
-            indexingSidebar.setCurrentPath(pathField.getText());
+            updateSidebarInfo();
         }
+        saveNavigatorState();
         mainPanel.revalidate();
         mainPanel.repaint();
     }
 
-    private void installMouseNavigation(JComponent component) {
-        component.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
+    private void updateSidebarInfo() {
+        try {
+            String currentPath = controller.getCurrentPath();
+            String displayPath = "ftp://" + host + "/" + currentPath;
+            indexingSidebar.setCurrentPath(displayPath);
+
+            List<MvsVirtualResource> sel = fileList.getSelectedValuesList();
+            if (sel.isEmpty()) {
+                indexingSidebar.setScopeInfo("Alle " + listModel.getSize() + " Einträge");
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < Math.min(sel.size(), 3); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(sel.get(i).getDisplayName());
                 }
+                if (sel.size() > 3) sb.append(" … (+" + (sel.size() - 3) + ")");
+                indexingSidebar.setScopeInfo("Auswahl: " + sel.size() + " Einträge");
             }
-        });
+        } catch (Exception e) {
+            System.err.println("[MvsConnectionTab] Error updating sidebar info: " + e.getMessage());
+        }
     }
+
+    /**
+     * Build prefixed paths from the current selection (for SecurityFilterService).
+     * Format: "ftp://host/path"
+     */
+    private List<String> getSelectedPrefixedPaths() {
+        try {
+            List<MvsVirtualResource> selected = fileList.getSelectedValuesList();
+            String currentPath = controller.getCurrentPath();
+            String prefix = "ftp://" + host + "/";
+
+            if (selected.isEmpty()) {
+                if (currentPath == null || currentPath.isEmpty()) return Collections.emptyList();
+                return Collections.singletonList(prefix + currentPath);
+            }
+
+            List<String> paths = new ArrayList<>();
+            for (MvsVirtualResource res : selected) {
+                paths.add(prefix + res.getOpenPath());
+            }
+            return paths;
+        } catch (Exception e) {
+            String currentPath = controller.getCurrentPath();
+            if (currentPath != null && !currentPath.isEmpty()) {
+                return Collections.singletonList("ftp://" + host + "/" + currentPath);
+            }
+            return Collections.emptyList();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Context Menu & Selection
+    // ═══════════════════════════════════════════════════════════
+
+    private void showContextMenu(MouseEvent e) {
+        // Right-click on unselected item: select it (without clearing multi-selection)
+        int idx = fileList.locationToIndex(e.getPoint());
+        if (idx >= 0 && !fileList.isSelectedIndex(idx)) {
+            fileList.setSelectedIndex(idx);
+        }
+
+        JPopupMenu menu = new JPopupMenu();
+
+        // Select all / none
+        JMenuItem selectAll = new JMenuItem("Alles auswählen");
+        selectAll.addActionListener(ev -> {
+            int size = fileList.getModel().getSize();
+            if (size > 0) fileList.setSelectionInterval(0, size - 1);
+        });
+        menu.add(selectAll);
+
+        JMenuItem selectNone = new JMenuItem("Nichts auswählen");
+        selectNone.addActionListener(ev -> fileList.clearSelection());
+        menu.add(selectNone);
+
+        menu.addSeparator();
+
+        // File operations
+        JMenuItem newFolderItem = new JMenuItem("📂 Neues Dataset anlegen…");
+        newFolderItem.addActionListener(ev -> createNewFolder());
+        menu.add(newFolderItem);
+
+        JMenuItem newFileItem = new JMenuItem("📄 Neues Member anlegen…");
+        newFileItem.addActionListener(ev -> createNewMember());
+        menu.add(newFileItem);
+
+        List<MvsVirtualResource> sel = fileList.getSelectedValuesList();
+        if (!sel.isEmpty()) {
+            menu.addSeparator();
+            JMenuItem deleteItem = new JMenuItem("🗑 Löschen (" + sel.size() + ")…");
+            deleteItem.addActionListener(ev -> deleteSelectedEntries());
+            menu.add(deleteItem);
+        }
+
+        menu.show(e.getComponent(), e.getX(), e.getY());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Item Activation (double-click)
+    // ═══════════════════════════════════════════════════════════
 
     private void handleDoubleClick() {
         MvsVirtualResource selected = fileList.getSelectedValue();
@@ -309,6 +569,10 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 });
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  File Operations
+    // ═══════════════════════════════════════════════════════════
+
     private void createNewFolder() {
         MvsLocation currentLocation = controller.getCurrentLocation();
         if (currentLocation != null && currentLocation.getType() == MvsLocationType.MEMBER) {
@@ -318,7 +582,7 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
 
         String suggestion = controller.getCurrentPath();
         String input = JOptionPane.showInputDialog(mainPanel,
-                "Name des neuen Ordners/Qualifiers (z.B. USER.TEST):",
+                "Name des neuen Datasets/Qualifiers (z.B. USER.TEST):",
                 suggestion == null ? "" : suggestion);
 
         if (input == null || input.trim().isEmpty()) {
@@ -333,17 +597,258 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 controller.refresh();
             } else {
                 JOptionPane.showMessageDialog(mainPanel,
-                        "Ordner konnte nicht angelegt werden:\n" + ftpClient.getReplyString(),
+                        "Dataset konnte nicht angelegt werden:\n" + ftpClient.getReplyString(),
                         "Fehler",
                         JOptionPane.ERROR_MESSAGE);
             }
         } catch (IOException e) {
             JOptionPane.showMessageDialog(mainPanel,
-                    "Fehler beim Anlegen des Ordners:\n" + e.getMessage(),
+                    "Fehler beim Anlegen:\n" + e.getMessage(),
                     "Fehler",
                     JOptionPane.ERROR_MESSAGE);
         }
     }
+
+    private void createNewMember() {
+        MvsLocation currentLocation = controller.getCurrentLocation();
+        String currentPath = controller.getCurrentPath();
+
+        // Only makes sense when inside a PDS (DATASET level)
+        if (currentLocation == null ||
+                (currentLocation.getType() != MvsLocationType.DATASET
+                        && currentLocation.getType() != MvsLocationType.QUALIFIER_CONTEXT
+                        && currentLocation.getType() != MvsLocationType.HLQ)) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Bitte zuerst in ein Dataset (PDS) navigieren, um ein Member anzulegen.",
+                    "Hinweis", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Build dialog
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 1;
+        panel.add(new JLabel("Member-Name:"), gbc);
+
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        JTextField memberField = new JTextField(15);
+        memberField.setToolTipText("Max. 8 Zeichen, z.B. NEWMEMBR");
+        panel.add(memberField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
+        String info = currentPath != null
+                ? "<html><small>Dataset: " + currentPath + "</small></html>"
+                : "<html><small>Kein Dataset ausgewählt.</small></html>";
+        panel.add(new JLabel(info), gbc);
+
+        int result = JOptionPane.showConfirmDialog(mainPanel, panel,
+                "Neues Mainframe-Member anlegen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return;
+
+        String memberName = memberField.getText().trim().toUpperCase();
+        if (memberName.isEmpty()) return;
+
+        // Truncate to 8 chars (PDS member limit)
+        if (memberName.length() > 8) {
+            memberName = memberName.substring(0, 8);
+        }
+
+        try {
+            // Build the member path: 'DATASET(MEMBER)'
+            String dataset = MvsQuoteNormalizer.unquote(currentPath);
+            String memberPath = MvsQuoteNormalizer.normalize(dataset + "(" + memberName + ")");
+
+            // Write empty content to create the member
+            OutputStream os = ftpClient.getFtpClient().storeFileStream(memberPath);
+            if (os != null) {
+                os.close();
+                ftpClient.getFtpClient().completePendingCommand();
+                controller.refresh();
+            } else {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Member konnte nicht angelegt werden:\n" + ftpClient.getReplyString(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Fehler beim Anlegen:\n" + e.getMessage(), "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Delete selected entries with confirmation dialog.
+     * Supports multi-selection.
+     */
+    private void deleteSelectedEntries() {
+        List<MvsVirtualResource> selected = fileList.getSelectedValuesList();
+        if (selected.isEmpty()) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    "Bitte erst Einträge auswählen.", "Hinweis", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Build confirmation message
+        StringBuilder msg = new StringBuilder();
+        if (selected.size() == 1) {
+            MvsVirtualResource res = selected.get(0);
+            msg.append("Wirklich löschen?\n\n");
+            msg.append(res.isDirectory() ? "📁 " : "📄 ").append(res.getDisplayName());
+        } else {
+            msg.append(selected.size()).append(" Einträge wirklich löschen?\n\n");
+            for (int i = 0; i < Math.min(selected.size(), 8); i++) {
+                msg.append("  • ").append(selected.get(i).getDisplayName()).append("\n");
+            }
+            if (selected.size() > 8) {
+                msg.append("  … und ").append(selected.size() - 8).append(" weitere\n");
+            }
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(mainPanel, msg.toString(),
+                "Löschen bestätigen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        int success = 0;
+        int failed = 0;
+        StringBuilder errors = new StringBuilder();
+
+        for (MvsVirtualResource res : selected) {
+            try {
+                String path = MvsQuoteNormalizer.normalize(res.getOpenPath());
+                boolean deleted;
+                if (res.isDirectory()) {
+                    deleted = ftpClient.getFtpClient().removeDirectory(path);
+                } else {
+                    deleted = ftpClient.getFtpClient().deleteFile(path);
+                }
+                if (deleted) {
+                    success++;
+                } else {
+                    failed++;
+                    errors.append("• ").append(res.getDisplayName())
+                            .append(" — ").append(ftpClient.getReplyString()).append("\n");
+                }
+            } catch (Exception e) {
+                failed++;
+                errors.append("• ").append(res.getDisplayName())
+                        .append(" — ").append(e.getMessage()).append("\n");
+            }
+        }
+
+        if (failed > 0) {
+            JOptionPane.showMessageDialog(mainPanel,
+                    success + " gelöscht, " + failed + " fehlgeschlagen:\n\n" + errors.toString(),
+                    "Löschen", JOptionPane.WARNING_MESSAGE);
+        }
+
+        controller.refresh();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Filtering & Sorting
+    // ═══════════════════════════════════════════════════════════
+
+    private void applyFilter() {
+        String filter = searchField.getText();
+        controller.setFilter(filter);
+    }
+
+    /**
+     * Apply local sort and blacklist filtering on the current view model.
+     * Called when sort mode or hideBlacklisted changes.
+     */
+    private void applyLocalSort() {
+        List<MvsVirtualResource> resources = new ArrayList<>(currentViewResources);
+
+        // Apply blacklist filtering
+        if (hideBlacklisted && host != null && !host.isEmpty()) {
+            SecurityFilterService sfs = SecurityFilterService.getInstance();
+            List<MvsVirtualResource> allowed = new ArrayList<>();
+            for (MvsVirtualResource res : resources) {
+                String prefixedPath = "ftp://" + host + "/" + res.getOpenPath();
+                if (sfs.isAllowed("FTP", prefixedPath)) {
+                    allowed.add(res);
+                }
+            }
+            resources = allowed;
+        }
+
+        // Sort
+        sortResources(resources);
+
+        // Populate list
+        listModel.clear();
+        for (MvsVirtualResource res : resources) {
+            listModel.addElement(res);
+        }
+    }
+
+    private void sortResources(List<MvsVirtualResource> items) {
+        Collections.sort(items, new Comparator<MvsVirtualResource>() {
+            @Override
+            public int compare(MvsVirtualResource a, MvsVirtualResource b) {
+                // Directories first
+                if (a.isDirectory() && !b.isDirectory()) return -1;
+                if (!a.isDirectory() && b.isDirectory()) return 1;
+
+                switch (sortMode) {
+                    case NAME_DESC:
+                        return b.getDisplayName().compareToIgnoreCase(a.getDisplayName());
+                    case SIZE_DESC:
+                        return Long.compare(b.getSize(), a.getSize());
+                    case DATE_DESC:
+                        return Long.compare(b.getLastModified(), a.getLastModified());
+                    case NAME_ASC:
+                    default:
+                        return a.getDisplayName().compareToIgnoreCase(b.getDisplayName());
+                }
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  State Persistence
+    // ═══════════════════════════════════════════════════════════
+
+    private void saveNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> state = settings.applicationState;
+
+        state.put(STATE_PREFIX + "sortMode", sortMode.name());
+        state.put(STATE_PREFIX + "showDetails", String.valueOf(showDetails));
+        state.put(STATE_PREFIX + "sidebarVisible", String.valueOf(sidebarVisible));
+        state.put(STATE_PREFIX + "hideBlacklisted", String.valueOf(hideBlacklisted));
+
+        SettingsHelper.save(settings);
+    }
+
+    private void restoreNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> state = settings.applicationState;
+
+        String sortVal = state.get(STATE_PREFIX + "sortMode");
+        if (sortVal != null) {
+            try {
+                sortMode = SortMode.valueOf(sortVal);
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        String detailsVal = state.get(STATE_PREFIX + "showDetails");
+        if (detailsVal != null) showDetails = Boolean.parseBoolean(detailsVal);
+
+        String sidebarVal = state.get(STATE_PREFIX + "sidebarVisible");
+        if (sidebarVal != null) sidebarVisible = Boolean.parseBoolean(sidebarVal);
+
+        String hideBlVal = state.get(STATE_PREFIX + "hideBlacklisted");
+        if (hideBlVal != null) hideBlacklisted = Boolean.parseBoolean(hideBlVal);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════
 
     private String buildDatasetName(String input) {
         if (input.contains(".")) {
@@ -372,22 +877,52 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         return base + "." + input.toUpperCase();
     }
 
-    private void applyFilter() {
-        String filter = searchField.getText();
-        controller.setFilter(filter);
+    private void installMouseNavigation(JComponent component) {
+        component.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    navigateBack();
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    navigateForward();
+                }
+            }
+        });
     }
 
-    // === MvsBrowserController.BrowserListener ===
+    // ═══════════════════════════════════════════════════════════
+    //  Overlay helpers
+    // ═══════════════════════════════════════════════════════════
+
+    private void showOverlayMessage(String message, Color color) {
+        overlayLabel.setText(message);
+        overlayLabel.setForeground(color);
+        overlayLabel.setBackground(new Color(255, 255, 255, 220));
+        overlayLabel.setVisible(true);
+        listContainer.revalidate();
+        listContainer.repaint();
+    }
+
+    private void hideOverlay() {
+        overlayLabel.setVisible(false);
+        listContainer.revalidate();
+        listContainer.repaint();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  MvsBrowserController.BrowserListener
+    // ═══════════════════════════════════════════════════════════
 
     @Override
     public void onViewModelChanged(final List<MvsVirtualResource> viewModel) {
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
-                listModel.clear();
-                for (MvsVirtualResource resource : viewModel) {
-                    listModel.addElement(resource);
-                }
+                // Save full view model for local sort/filter
+                currentViewResources = new ArrayList<>(viewModel);
+
+                // Apply sort + blacklist filter + populate
+                applyLocalSort();
 
                 if (viewModel.isEmpty() && !controller.isLoading()) {
                     showOverlayMessage("Keine Einträge gefunden", Color.ORANGE.darker());
@@ -398,6 +933,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 // Update path field
                 pathField.setText(controller.getCurrentPath());
                 updateNavigationButtons();
+
+                if (sidebarVisible) updateSidebarInfo();
             }
         });
     }
@@ -450,24 +987,9 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         });
     }
 
-    // === Overlay helpers ===
-
-    private void showOverlayMessage(String message, Color color) {
-        overlayLabel.setText(message);
-        overlayLabel.setForeground(color);
-        overlayLabel.setBackground(new Color(255, 255, 255, 220));
-        overlayLabel.setVisible(true);
-        listContainer.revalidate();
-        listContainer.repaint();
-    }
-
-    private void hideOverlay() {
-        overlayLabel.setVisible(false);
-        listContainer.revalidate();
-        listContainer.repaint();
-    }
-
-    // === ConnectionTab interface ===
+    // ═══════════════════════════════════════════════════════════
+    //  ConnectionTab interface
+    // ═══════════════════════════════════════════════════════════
 
     @Override
     public String getTitle() {
@@ -551,9 +1073,11 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         navigateToPath();
     }
 
-    // === Cell Renderer ===
+    // ═══════════════════════════════════════════════════════════
+    //  Cell Renderer
+    // ═══════════════════════════════════════════════════════════
 
-    private static class MvsResourceCellRenderer extends DefaultListCellRenderer {
+    private class MvsResourceCellRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value,
                                                       int index, boolean isSelected, boolean cellHasFocus) {
@@ -578,10 +1102,33 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                         icon = "📄";
                 }
 
-                setText(icon + " " + resource.getDisplayName());
+                if (showDetails) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(icon).append(" ").append(resource.getDisplayName());
+                    String recfm = resource.getRecordFormat();
+                    int lrecl = resource.getLogicalRecordLength();
+                    long size = resource.getSize();
+                    if (recfm != null && !recfm.isEmpty()) {
+                        sb.append("  [").append(recfm);
+                        if (lrecl > 0) sb.append("/").append(lrecl);
+                        sb.append("]");
+                    }
+                    if (size > 0) {
+                        sb.append("  (").append(formatSize(size)).append(")");
+                    }
+                    setText(sb.toString());
+                } else {
+                    setText(icon + " " + resource.getDisplayName());
+                }
             }
 
             return this;
         }
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
     }
 }
