@@ -256,6 +256,51 @@ public class SecurityFilterService {
         return false;
     }
 
+    /**
+     * Check if any blacklist entry is a descendant of the given path prefix.
+     * E.g. if pathPrefix is "ftp://host/DIR" and the blacklist contains
+     * "ftp://host/DIR/FILE.JCL", this returns true.
+     */
+    public boolean hasBlacklistedDescendants(String group, String pathPrefix) {
+        if (group == null || pathPrefix == null) return false;
+        Set<String> bl = blacklists.get(group.toUpperCase());
+        if (bl == null || bl.isEmpty()) return false;
+        String prefix = pathPrefix.endsWith("/") ? pathPrefix : pathPrefix + "/";
+        for (String rule : bl) {
+            if (rule.startsWith(prefix) || rule.equals(pathPrefix)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Count how many blacklist entries are descendants of the given path prefix.
+     */
+    public int countBlacklistedDescendants(String group, String pathPrefix) {
+        if (group == null || pathPrefix == null) return 0;
+        Set<String> bl = blacklists.get(group.toUpperCase());
+        if (bl == null || bl.isEmpty()) return 0;
+        String prefix = pathPrefix.endsWith("/") ? pathPrefix : pathPrefix + "/";
+        int count = 0;
+        for (String rule : bl) {
+            if (rule.startsWith(prefix) || rule.equals(pathPrefix)) count++;
+        }
+        return count;
+    }
+
+    /**
+     * Check if any whitelist entry is a descendant of the given path prefix.
+     */
+    public boolean hasWhitelistedDescendants(String group, String pathPrefix) {
+        if (group == null || pathPrefix == null) return false;
+        Set<String> wl = whitelists.get(group.toUpperCase());
+        if (wl == null || wl.isEmpty()) return false;
+        String prefix = pathPrefix.endsWith("/") ? pathPrefix : pathPrefix + "/";
+        for (String rule : wl) {
+            if (rule.startsWith(prefix) || rule.equals(pathPrefix)) return true;
+        }
+        return false;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Persistence
     // ═══════════════════════════════════════════════════════════════

@@ -721,22 +721,102 @@ public class IndexingSidebar extends JPanel {
     }
 
     /**
-     * Refresh the security status label based on the current path.
+     * Refresh the security status label based on the current path and the
+     * actual security paths (from the supplier, i.e. selected items or current dir).
+     * <p>
+     * Checks both the directory-level path <b>and</b> the item-level paths so that
+     * blacklisting individual files is properly reflected in the status display.
      */
     public void refreshSecurityStatus() {
-        if (securityGroup.isEmpty() || currentPath == null || currentPath.isEmpty()) {
+        if (securityGroup.isEmpty()) {
             securityStatusLabel.setText("-");
             securityStatusLabel.setForeground(Color.GRAY);
             return;
         }
+
         SecurityFilterService sfs = SecurityFilterService.getInstance();
-        if (sfs.isBlacklisted(securityGroup, currentPath)) {
-            securityStatusLabel.setText("\u26D4 Gesperrt");
-            securityStatusLabel.setForeground(new Color(244, 67, 54));
-        } else if (sfs.isWhitelisted(securityGroup, currentPath)) {
-            securityStatusLabel.setText("\u2705 Erlaubt");
-            securityStatusLabel.setForeground(new Color(76, 175, 80));
-        } else if (sfs.isBlacklistAll(securityGroup)) {
+
+        // 1) Collect the paths that the security buttons would act on
+        List<String> paths = getSecurityPaths();
+
+        // 2) If we have concrete paths, compute an aggregate status over them
+        if (!paths.isEmpty()) {
+            int blacklisted = 0;
+            int whitelisted = 0;
+            for (String p : paths) {
+                if (sfs.isBlacklisted(securityGroup, p)) {
+                    blacklisted++;
+                } else if (sfs.isWhitelisted(securityGroup, p)) {
+                    whitelisted++;
+                }
+            }
+
+            if (blacklisted == paths.size()) {
+                // All items are blacklisted
+                securityStatusLabel.setText("\u26D4 Gesperrt (" + blacklisted + ")");
+                securityStatusLabel.setForeground(new Color(244, 67, 54));
+                return;
+            } else if (blacklisted > 0) {
+                // Some items are blacklisted
+                securityStatusLabel.setText("\u26D4 Teilweise gesperrt (" + blacklisted + "/" + paths.size() + ")");
+                securityStatusLabel.setForeground(new Color(255, 152, 0));
+                return;
+            } else if (whitelisted == paths.size()) {
+                // All items are whitelisted
+                securityStatusLabel.setText("\u2705 Erlaubt (" + whitelisted + ")");
+                securityStatusLabel.setForeground(new Color(76, 175, 80));
+                return;
+            } else if (whitelisted > 0) {
+                // Some items are whitelisted, rest is default
+                if (sfs.isBlacklistAll(securityGroup)) {
+                    int notWhitelisted = paths.size() - whitelisted;
+                    securityStatusLabel.setText("\u26D4 " + notWhitelisted + " nicht auf Whitelist");
+                    securityStatusLabel.setForeground(new Color(255, 152, 0));
+                } else {
+                    securityStatusLabel.setText("\u2705 Erlaubt (" + whitelisted + " WL)");
+                    securityStatusLabel.setForeground(new Color(76, 175, 80));
+                }
+                return;
+            }
+            // None explicitly blacklisted or whitelisted — fall through to default check
+        }
+
+        // 3) Fallback: check the directory-level path itself AND its descendants
+        if (currentPath != null && !currentPath.isEmpty()) {
+            if (sfs.isBlacklisted(securityGroup, currentPath)) {
+                securityStatusLabel.setText("\u26D4 Gesperrt");
+                securityStatusLabel.setForeground(new Color(244, 67, 54));
+                return;
+            } else if (sfs.isWhitelisted(securityGroup, currentPath)) {
+                // Directory is whitelisted, but check if some children are blacklisted
+                int blDescendants = sfs.countBlacklistedDescendants(securityGroup, currentPath);
+                if (blDescendants > 0) {
+                    securityStatusLabel.setText("\u2705 Erlaubt (\u26D4 " + blDescendants + " gesperrt)");
+                    securityStatusLabel.setForeground(new Color(255, 152, 0));
+                } else {
+                    securityStatusLabel.setText("\u2705 Erlaubt");
+                    securityStatusLabel.setForeground(new Color(76, 175, 80));
+                }
+                return;
+            }
+
+            // Directory itself has no explicit rule — check descendants
+            int blDescendants = sfs.countBlacklistedDescendants(securityGroup, currentPath);
+            if (blDescendants > 0) {
+                securityStatusLabel.setText("\u26D4 " + blDescendants + " Einträge gesperrt");
+                securityStatusLabel.setForeground(new Color(255, 152, 0));
+                return;
+            }
+            boolean hasWlDescendants = sfs.hasWhitelistedDescendants(securityGroup, currentPath);
+            if (hasWlDescendants) {
+                securityStatusLabel.setText("\u2705 Teilweise erlaubt");
+                securityStatusLabel.setForeground(new Color(76, 175, 80));
+                return;
+            }
+        }
+
+        // 4) Neither directory nor items have explicit rules
+        if (sfs.isBlacklistAll(securityGroup)) {
             securityStatusLabel.setText("\u26D4 Nicht auf Whitelist");
             securityStatusLabel.setForeground(new Color(255, 152, 0));
         } else {
