@@ -95,6 +95,21 @@ public class FtpConnectionTabImpl implements ConnectionTab {
     // State persistence prefix
     private static final String STATE_PREFIX = "ftp.nav.";
 
+    // Listener for security filter changes → re-trigger auto-prefetch
+    private final Runnable securityChangeListener = new Runnable() {
+        @Override
+        public void run() {
+            SwingUtilities.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    if (!currentDirectoryNodes.isEmpty()) {
+                        triggerSourcePrefetch();
+                    }
+                }
+            });
+        }
+    };
+
     /**
      * Constructor using VirtualResource + FileService.
      */
@@ -299,6 +314,9 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         indexingSidebar.setClearCacheAction(this::clearDirectoryCache);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
 
+        // Re-trigger auto-prefetch when security rules change (e.g. user whitelists a path)
+        SecurityFilterService.getInstance().addChangeListener(securityChangeListener);
+
         mainPanel.add(statusBar, BorderLayout.SOUTH);
 
         // Initial load
@@ -473,6 +491,7 @@ public class FtpConnectionTabImpl implements ConnectionTab {
 
     @Override
     public void onClose() {
+        SecurityFilterService.getInstance().removeChangeListener(securityChangeListener);
         String currentPath = browserState.getCurrentPath();
         if (!ftpHost.isEmpty() && currentPath != null) {
             cacheService.cancelPrefetch(ftpHost, currentPath);

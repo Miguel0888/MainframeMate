@@ -92,6 +92,21 @@ public class LocalConnectionTabImpl implements ConnectionTab {
     // State persistence prefix
     private static final String STATE_PREFIX = "local.nav.";
 
+    // Listener for security filter changes → re-trigger auto-prefetch
+    private final Runnable securityChangeListener = new Runnable() {
+        @Override
+        public void run() {
+            SwingUtilities.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    if (!currentNodes.isEmpty()) {
+                        triggerSourcePrefetch();
+                    }
+                }
+            });
+        }
+    };
+
     private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("dd.MM.yyyy HH:mm");
 
     public LocalConnectionTabImpl(TabbedPaneManager tabbedPaneManager) {
@@ -272,6 +287,9 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         indexingSidebar.setSecurityPathSupplier(this::getSelectedPrefixedPaths);
         indexingSidebar.setClearCacheAction(this::clearDirectoryCache);
 
+        // Re-trigger auto-prefetch when security rules change (e.g. user whitelists a path)
+        SecurityFilterService.getInstance().addChangeListener(securityChangeListener);
+
         mainPanel.add(topPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
@@ -430,6 +448,7 @@ public class LocalConnectionTabImpl implements ConnectionTab {
 
     @Override
     public void onClose() {
+        SecurityFilterService.getInstance().removeChangeListener(securityChangeListener);
         try {
             fileService.close();
         } catch (Exception ignore) {

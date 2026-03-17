@@ -246,14 +246,19 @@ public class SecurityFilterService {
      * A rule entry matches if the path equals it or starts with it (folder prefix match).
      */
     private static boolean matchesAny(Set<String> rules, String path) {
+        String pathNorm = stripTrailingSlash(path);
         for (String rule : rules) {
-            if (rule.equals(path)) return true;
-            // Folder prefix match: rule "ftp://host/dir/" matches "ftp://host/dir/file.txt"
-            // Also match without trailing slash for convenience
-            String prefix = rule.endsWith("/") ? rule : rule + "/";
-            if (path.startsWith(prefix)) return true;
+            String ruleNorm = stripTrailingSlash(rule);
+            // Exact match (ignoring trailing slash differences)
+            if (ruleNorm.equals(pathNorm)) return true;
+            // Folder prefix match: rule "ftp://host/dir" matches "ftp://host/dir/file.txt"
+            if (pathNorm.startsWith(ruleNorm + "/")) return true;
         }
         return false;
+    }
+
+    private static String stripTrailingSlash(String s) {
+        return (s != null && s.endsWith("/")) ? s.substring(0, s.length() - 1) : s;
     }
 
     /**

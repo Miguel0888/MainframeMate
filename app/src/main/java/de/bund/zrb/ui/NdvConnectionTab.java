@@ -113,6 +113,21 @@ public class NdvConnectionTab implements ConnectionTab {
     // NDV source cache service (H2 + Lucene indexing for SearchEverywhere)
     private final NdvSourceCacheService cacheService;
 
+    // Listener for security filter changes → re-trigger auto-prefetch
+    private final Runnable securityChangeListener = new Runnable() {
+        @Override
+        public void run() {
+            SwingUtilities.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    if (currentLibrary != null && !allItems.isEmpty()) {
+                        triggerSourcePrefetch(currentLibrary);
+                    }
+                }
+            });
+        }
+    };
+
     public NdvConnectionTab(TabbedPaneManager tabbedPaneManager, NdvService service) {
         this(tabbedPaneManager, service, true);
     }
@@ -334,6 +349,9 @@ public class NdvConnectionTab implements ConnectionTab {
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
+
+        // Re-trigger auto-prefetch when security rules change (e.g. user whitelists a path)
+        SecurityFilterService.getInstance().addChangeListener(securityChangeListener);
 
         updateNavigationButtons();
     }
@@ -1951,6 +1969,7 @@ public class NdvConnectionTab implements ConnectionTab {
 
     @Override
     public void onClose() {
+        SecurityFilterService.getInstance().removeChangeListener(securityChangeListener);
         // Cancel any running prefetches (but don't clear the persistent cache)
         if (currentLibrary != null) {
             cacheService.cancelPrefetch(currentLibrary);
