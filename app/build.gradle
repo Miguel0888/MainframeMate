@@ -63,6 +63,16 @@ dependencies {
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 
+    // Video Recording – optional compile-time deps (not bundled; downloaded at runtime if needed)
+    // FFmpeg/JavaCV backend
+    compileOnly 'org.bytedeco:javacv:1.5.10'
+    compileOnly 'org.bytedeco:javacpp:1.5.10'
+    compileOnly 'org.bytedeco:ffmpeg:6.1.1-1.5.10'
+    // JCodec backend (pure Java, no audio)
+    compileOnly 'org.jcodec:jcodec-javase:0.2.5'
+    // VLC backend (vlcj 3.x for Java 8)
+    compileOnly 'uk.co.caprica:vlcj:3.12.1'
+
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
     runtimeOnly project(':plugins:webSearch')

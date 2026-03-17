@@ -51,6 +51,10 @@ public class MenuTreeBuilder {
         SUBMENU_ORDER.put("settings", Arrays.asList(
                 "general", "server", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "plugins"
         ));
+        // Extras-Menü Reihenfolge
+        SUBMENU_ORDER.put("extras", Arrays.asList(
+                "video"
+        ));
         // Hilfe-Menü Reihenfolge
         SUBMENU_ORDER.put("help", Arrays.asList(
                 "features", "---1", "about"
