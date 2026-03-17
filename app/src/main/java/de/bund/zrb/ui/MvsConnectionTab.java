@@ -208,6 +208,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
                 this::navigateBack,
                 this::navigateForward
         );
+        // Arrow keys in path field → jump into file list
+        de.bund.zrb.ui.util.ListKeyboardNavigation.installFieldNavigation(pathField, fileList);
 
         // ── Navigator toolbar ──
         JPanel navigatorToolbar = createNavigatorToolbar();

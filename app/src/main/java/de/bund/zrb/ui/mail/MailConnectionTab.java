@@ -198,6 +198,8 @@ public class MailConnectionTab implements ConnectionTab {
                 this::navigateBack,
                 this::navigateForward
         );
+        // Arrow keys in path field → jump into file list
+        de.bund.zrb.ui.util.ListKeyboardNavigation.installFieldNavigation(pathField, fileList);
     }
 
     // ─── Navigation ───

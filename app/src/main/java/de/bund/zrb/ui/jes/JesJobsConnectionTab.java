@@ -157,6 +157,9 @@ public class JesJobsConnectionTab implements ConnectionTab {
         // ── Keyboard navigation: search field ↔ table ───────────────
         ListKeyboardNavigation.install(jobTable, searchField,
                 this::openSelectedJob, null, null);
+        // Arrow keys in filter fields → jump into job table
+        ListKeyboardNavigation.installFieldNavigation(ownerField, jobTable);
+        ListKeyboardNavigation.installFieldNavigation(jobNameField, jobTable);
 
         // ── Initial load ────────────────────────────────────────────
         doSearch();

@@ -151,28 +151,48 @@ public final class ListKeyboardNavigation {
         });
 
         // ── Search field: UP/DOWN jump to component ──
-        if (searchField != null) {
-            searchField.addKeyListener(new KeyAdapter() {
-                @Override
-                public void keyPressed(KeyEvent e) {
-                    int size = comp.getItemCount();
-                    if (size == 0) return;
+        installFieldNavigation(searchField, comp);
+    }
 
-                    if (e.getKeyCode() == KeyEvent.VK_DOWN) {
-                        // Jump to first element
-                        comp.setSelectedIndex(0);
-                        comp.scrollToVisible(0);
-                        comp.requestFocusInWindow();
-                        e.consume();
-                    } else if (e.getKeyCode() == KeyEvent.VK_UP) {
-                        // Jump to last element
-                        comp.setSelectedIndex(size - 1);
-                        comp.scrollToVisible(size - 1);
-                        comp.requestFocusInWindow();
-                        e.consume();
-                    }
+    // ─── Additional text field → component navigation ───────────────
+
+    /**
+     * Install UP/DOWN arrow key navigation from any text field (e.g. address bar / path field)
+     * to a SelectableComponent. DOWN → first element, UP → last element.
+     * <p>
+     * Call this for every additional field (beyond the search field already handled by
+     * {@link #install}) that should support jumping into the list via arrow keys.
+     */
+    public static void installFieldNavigation(final JTextField field, final SelectableComponent comp) {
+        if (field == null) return;
+        field.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                int size = comp.getItemCount();
+                if (size == 0) return;
+
+                if (e.getKeyCode() == KeyEvent.VK_DOWN) {
+                    comp.setSelectedIndex(0);
+                    comp.scrollToVisible(0);
+                    comp.requestFocusInWindow();
+                    e.consume();
+                } else if (e.getKeyCode() == KeyEvent.VK_UP) {
+                    comp.setSelectedIndex(size - 1);
+                    comp.scrollToVisible(size - 1);
+                    comp.requestFocusInWindow();
+                    e.consume();
                 }
-            });
-        }
+            }
+        });
+    }
+
+    /** Convenience: JList variant. */
+    public static void installFieldNavigation(JTextField field, JList<?> list) {
+        installFieldNavigation(field, of(list));
+    }
+
+    /** Convenience: JTable variant. */
+    public static void installFieldNavigation(JTextField field, JTable table) {
+        installFieldNavigation(field, of(table));
     }
 }

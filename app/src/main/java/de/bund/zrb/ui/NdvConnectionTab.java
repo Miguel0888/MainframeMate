@@ -284,6 +284,8 @@ public class NdvConnectionTab implements ConnectionTab {
                 this::navigateBack,
                 this::navigateForward
         );
+        // Arrow keys in path field → jump into file list
+        de.bund.zrb.ui.util.ListKeyboardNavigation.installFieldNavigation(pathField, fileList);
 
         // Navigator toolbar (Natural Navigator style — grouping, sorting, type filter)
         JPanel navigatorToolbar = createNavigatorToolbar();
