@@ -554,6 +554,21 @@ public class NdvSourceCacheService {
     }
 
     /**
+     * Get number of cached sources in H2 (persistent storage) for a library.
+     * Lightweight count query — no full entry loading.
+     */
+    public int getH2CacheSize(String library) {
+        if (library == null) return 0;
+        String urlPrefix = "ndv://" + library.toUpperCase() + "/";
+        try {
+            return CacheRepository.getInstance().countByUrlPrefix(urlPrefix);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[NdvCache] Failed to count H2 entries for " + library, e);
+            return 0;
+        }
+    }
+
+    /**
      * Get a summary string for display in UI.
      */
     public String getSummary(String library) {

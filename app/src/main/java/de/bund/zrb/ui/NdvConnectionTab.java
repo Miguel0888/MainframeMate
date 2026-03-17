@@ -78,6 +78,7 @@ public class NdvConnectionTab implements ConnectionTab {
     private JButton backButton;
     private JButton forwardButton;
     private IndexingSidebar indexingSidebar;
+    private JToggleButton detailsButton;
     private boolean sidebarVisible = false;
 
     // --- Natural Navigator view state ---
@@ -183,7 +184,7 @@ public class NdvConnectionTab implements ConnectionTab {
         clearCacheButton.addActionListener(e -> clearLibraryCache());
         rightButtons.add(clearCacheButton);
 
-        JToggleButton detailsButton = new JToggleButton("📊");
+        detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
         detailsButton.setMargin(new Insets(0, 0, 0, 0));
         detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
@@ -304,11 +305,20 @@ public class NdvConnectionTab implements ConnectionTab {
 
         // Main layout
         indexingSidebar = new IndexingSidebar(SourceType.NDV);
-        indexingSidebar.setVisible(false);
         indexingSidebar.setCustomIndexAction(new Runnable() {
             @Override
             public void run() { indexSelectedOrAll(); }
         });
+        // Custom status supplier: query NdvSourceCacheService for cache-aware status
+        indexingSidebar.setCustomStatusSupplier(new java.util.function.Supplier<String[]>() {
+            @Override
+            public String[] get() {
+                return computeNdvCacheStatus();
+            }
+        });
+        // Apply restored sidebar visibility
+        indexingSidebar.setVisible(sidebarVisible);
+        detailsButton.setSelected(sidebarVisible);
         mainPanel.add(topPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
@@ -346,12 +356,28 @@ public class NdvConnectionTab implements ConnectionTab {
 
     private void navigateToPath() {
         String path = pathField.getText().trim();
-        if (path.isEmpty()) {
+        if (path.isEmpty() || path.equals(host + ":" + service.getPort())) {
             loadLibraries();
             addToHistory("");
         } else {
-            openLibrary(path);
-            addToHistory(path);
+            // Extract library name: strip "host:port/" prefix if present
+            String library = path;
+            String prefix = host + ":" + service.getPort() + "/";
+            if (library.startsWith(prefix)) {
+                library = library.substring(prefix.length());
+            }
+            // Also handle bare "host:port\LIBRARY" or "/" prefix
+            int slashIdx = library.lastIndexOf('/');
+            if (slashIdx >= 0) {
+                library = library.substring(slashIdx + 1);
+            }
+            if (!library.isEmpty()) {
+                openLibrary(library);
+                addToHistory(library);
+            } else {
+                loadLibraries();
+                addToHistory("");
+            }
         }
         tabbedPaneManager.refreshStarForTab(this);
     }
@@ -370,6 +396,9 @@ public class NdvConnectionTab implements ConnectionTab {
             loadLibraries();
             addToHistory("");
         }
+        if (sidebarVisible) {
+            updateSidebarInfo();
+        }
         tabbedPaneManager.refreshStarForTab(this);
     }
 
@@ -383,6 +412,9 @@ public class NdvConnectionTab implements ConnectionTab {
                 openLibraryWithoutHistory(path);
             }
             updateNavigationButtons();
+        }
+        if (sidebarVisible) {
+            updateSidebarInfo();
         }
         tabbedPaneManager.refreshStarForTab(this);
     }
@@ -405,20 +437,23 @@ public class NdvConnectionTab implements ConnectionTab {
     private void toggleSidebar() {
         sidebarVisible = !sidebarVisible;
         indexingSidebar.setVisible(sidebarVisible);
+        detailsButton.setSelected(sidebarVisible);
         if (sidebarVisible) {
             updateSidebarInfo();
         }
+        saveNavigatorState();
         mainPanel.revalidate();
         mainPanel.repaint();
     }
 
     /**
      * Update the IndexingSidebar path and scope to reflect the current navigation level
-     * and selection state.
+     * and selection state. Also triggers a status refresh.
      */
     private void updateSidebarInfo() {
+        String basePath = "ndv://" + host + ":" + service.getPort();
         if (currentLevel == BrowseLevel.LIBRARIES) {
-            indexingSidebar.setCurrentPath("ndv://" + host + ":" + service.getPort());
+            indexingSidebar.setCurrentPath(basePath);
             List<Object> sel = collectSelectedItems();
             if (sel.isEmpty()) {
                 int count = listModel.getSize();
@@ -433,7 +468,7 @@ public class NdvConnectionTab implements ConnectionTab {
                 indexingSidebar.setScopeInfo("Auswahl: " + sb.toString());
             }
         } else if (currentLibrary != null) {
-            indexingSidebar.setCurrentPath("ndv://" + host + "/" + currentLibrary);
+            indexingSidebar.setCurrentPath(basePath + "/" + currentLibrary);
             List<Object> sel = collectSelectedItems();
             if (sel.isEmpty()) {
                 List<NdvObjectInfo> visible = getVisibleObjects();
@@ -473,7 +508,7 @@ public class NdvConnectionTab implements ConnectionTab {
     private void loadLibraries() {
         currentLevel = BrowseLevel.LIBRARIES;
         currentLibrary = null;
-        pathField.setText("");
+        pathField.setText(host + ":" + service.getPort());
         tabbedPaneManager.refreshStarForTab(this);
         showOverlayMessage("Lade Bibliotheken...", Color.GRAY);
         statusLabel.setText("Laden...");
@@ -495,6 +530,9 @@ public class NdvConnectionTab implements ConnectionTab {
                     statusLabel.setText(libs.size() + " Bibliotheken");
                     if (libs.isEmpty()) {
                         showOverlayMessage("Keine Bibliotheken gefunden", new Color(200, 100, 0));
+                    }
+                    if (sidebarVisible) {
+                        updateSidebarInfo();
                     }
                 } catch (Exception e) {
                     showOverlayMessage("Fehler: " + e.getMessage(), Color.RED);
@@ -538,7 +576,7 @@ public class NdvConnectionTab implements ConnectionTab {
     private void openLibraryInternal(String library) {
         currentLevel = BrowseLevel.OBJECTS;
         currentLibrary = library.toUpperCase();
-        pathField.setText(currentLibrary);
+        pathField.setText(host + ":" + service.getPort() + "/" + currentLibrary);
         showOverlayMessage("Lade Objekte aus " + currentLibrary + "...", Color.GRAY);
         statusLabel.setText("Laden...");
         allItems.clear();
@@ -592,6 +630,11 @@ public class NdvConnectionTab implements ConnectionTab {
 
                     // Prefetch all sources for Lucene indexing (SearchEverywhere + RAG)
                     triggerSourcePrefetch(currentLibrary);
+
+                    // Update sidebar info if visible
+                    if (sidebarVisible) {
+                        updateSidebarInfo();
+                    }
                 } catch (Exception e) {
                     if (!allItems.isEmpty()) {
                         // Partial results available
@@ -768,7 +811,7 @@ public class NdvConnectionTab implements ConnectionTab {
 
         // Update sidebar if visible
         if (sidebarVisible) {
-            indexingSidebar.setCurrentPath("ndv://" + host + "/" + library);
+            indexingSidebar.setCurrentPath("ndv://" + host + ":" + service.getPort() + "/" + library);
             indexingSidebar.setScopeInfo("Auto-Prefetch: " + objects.size() + " Objekte");
         }
 
@@ -810,6 +853,60 @@ public class NdvConnectionTab implements ConnectionTab {
                 });
             }
         });
+    }
+
+    /**
+     * Compute cache-aware status for the IndexingSidebar's custom status supplier.
+     * Returns [statusText, colorHex, itemCountText, lastIndexedText].
+     * Checks NdvSourceCacheService for H2 + memory cache entries.
+     */
+    private String[] computeNdvCacheStatus() {
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm");
+
+        if (currentLevel == BrowseLevel.LIBRARIES) {
+            // At library level: show total memory cache size
+            int total = cacheService.getTotalMemoryCacheSize();
+            if (total > 0) {
+                return new String[]{
+                        "✅ Gecacht",
+                        "#4CAF50",
+                        total + " Quellen (Speicher)",
+                        fmt.format(new Date(System.currentTimeMillis()))
+                };
+            }
+            return new String[]{"⬜ Nicht gecacht", "#999999", "-", "-"};
+        }
+
+        if (currentLibrary == null) {
+            return new String[]{"⬜ Nicht gecacht", "#999999", "-", "-"};
+        }
+
+        // At object level: check cache for current library
+        int memCached = cacheService.getMemoryCacheSize(currentLibrary);
+        int h2Cached = cacheService.getH2CacheSize(currentLibrary);
+        boolean prefetching = cacheService.isPrefetching(currentLibrary);
+        int totalObjects = allItems.size();
+
+        if (prefetching) {
+            return new String[]{
+                    "\uD83D\uDD04 Wird gecacht...",
+                    "#6495ED",
+                    memCached + " / " + totalObjects,
+                    "-"
+            };
+        }
+
+        int cachedCount = Math.max(memCached, h2Cached);
+        if (cachedCount > 0) {
+            return new String[]{
+                    "✅ Gecacht",
+                    "#4CAF50",
+                    cachedCount + " / " + totalObjects,
+                    fmt.format(new Date(System.currentTimeMillis()))
+            };
+        }
+
+        return new String[]{"⬜ Nicht gecacht", "#999999", "0 / " + totalObjects, "-"};
     }
 
     /**
@@ -1017,6 +1114,7 @@ public class NdvConnectionTab implements ConnectionTab {
         state.put(STATE_PREFIX + "sortMode", sortMode.name());
         state.put(STATE_PREFIX + "showDetails", String.valueOf(showDetails));
         state.put(STATE_PREFIX + "linkWithEditor", String.valueOf(linkWithEditor));
+        state.put(STATE_PREFIX + "sidebarVisible", String.valueOf(sidebarVisible));
 
         // Store hidden types as comma-separated int list (e.g. "16,128,8")
         if (hiddenTypes.isEmpty()) {
@@ -1058,6 +1156,9 @@ public class NdvConnectionTab implements ConnectionTab {
 
         String linkVal = state.get(STATE_PREFIX + "linkWithEditor");
         if (linkVal != null) linkWithEditor = Boolean.parseBoolean(linkVal);
+
+        String sidebarVal = state.get(STATE_PREFIX + "sidebarVisible");
+        if (sidebarVal != null) sidebarVisible = Boolean.parseBoolean(sidebarVal);
 
         String hiddenVal = state.get(STATE_PREFIX + "hiddenTypes");
         if (hiddenVal != null && !hiddenVal.isEmpty()) {

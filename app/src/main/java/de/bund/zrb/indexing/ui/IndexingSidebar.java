@@ -49,6 +49,10 @@ public class IndexingSidebar extends JPanel {
     // Optional custom action for "Jetzt Indexieren" — set by parent tab (e.g. NdvConnectionTab)
     private Runnable customIndexAction;
 
+    // Optional custom status supplier — returns [statusText, statusColor, itemCountText, lastIndexedText]
+    // When set, refreshStatus() uses this instead of querying the IndexingService pipeline.
+    private java.util.function.Supplier<String[]> customStatusSupplier;
+
     public IndexingSidebar(SourceType sourceType) {
         this.indexingService = IndexingService.getInstance();
         this.sourceType = sourceType;
@@ -197,6 +201,16 @@ public class IndexingSidebar extends JPanel {
     }
 
     /**
+     * Set a custom status supplier for refreshStatus().
+     * Returns a String array: [statusText, colorHex, itemCountText, lastIndexedText].
+     * When set, refreshStatus() uses this instead of querying IndexingService.
+     * Used by NdvConnectionTab to show NDV cache status.
+     */
+    public void setCustomStatusSupplier(java.util.function.Supplier<String[]> supplier) {
+        this.customStatusSupplier = supplier;
+    }
+
+    /**
      * Update sidebar for the given path.
      */
     public void setCurrentPath(String path) {
@@ -298,6 +312,22 @@ public class IndexingSidebar extends JPanel {
      * Refresh the index status display.
      */
     public void refreshStatus() {
+        // Use custom supplier if set (e.g. NDV cache-aware status)
+        if (customStatusSupplier != null) {
+            try {
+                String[] info = customStatusSupplier.get();
+                if (info != null && info.length >= 4) {
+                    statusLabel.setText(info[0]);
+                    statusLabel.setForeground(Color.decode(info[1]));
+                    itemCountLabel.setText(info[2]);
+                    lastIndexedLabel.setText(info[3]);
+                    return;
+                }
+            } catch (Exception ignored) {
+                // fall through to default
+            }
+        }
+
         // Find existing source that covers this path
         IndexSource matchingSource = findMatchingSource();
         if (matchingSource != null) {

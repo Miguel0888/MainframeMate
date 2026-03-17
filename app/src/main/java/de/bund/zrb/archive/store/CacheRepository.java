@@ -384,6 +384,26 @@ public class CacheRepository {
         return entries;
     }
 
+    /**
+     * Count archive entries whose URL starts with the given prefix.
+     * Lightweight alternative to findByUrlPrefixWithMetadata when only the count is needed.
+     */
+    public int countByUrlPrefix(String urlPrefix) {
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT COUNT(*) FROM archive_entries WHERE url LIKE ?");
+            ps.setString(1, urlPrefix + "%");
+            ResultSet rs = ps.executeQuery();
+            int count = rs.next() ? rs.getInt(1) : 0;
+            rs.close();
+            ps.close();
+            return count;
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] countByUrlPrefix failed", e);
+            return 0;
+        }
+    }
+
     public List<ArchiveEntry> findByStatus(ArchiveEntryStatus status) {
         return queryEntries("SELECT * FROM archive_entries WHERE status=?", status.name());
     }
