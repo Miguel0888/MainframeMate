@@ -580,16 +580,63 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
             return;
         }
 
-        String suggestion = controller.getCurrentPath();
-        String input = JOptionPane.showInputDialog(mainPanel,
-                "Name des neuen Datasets/Qualifiers (z.B. USER.TEST):",
-                suggestion == null ? "" : suggestion);
+        String currentPath = controller.getCurrentPath();
+        final String baseQualifier = resolveBaseQualifier(currentPath);
 
-        if (input == null || input.trim().isEmpty()) {
-            return;
-        }
+        // Build dialog with context + live preview
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(3, 6, 3, 6);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        String target = buildDatasetName(input.trim());
+        // Context label
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
+        String ctxText = baseQualifier.isEmpty()
+                ? "<html><b>Kein Kontext</b> — bitte vollständigen Dataset-Namen eingeben</html>"
+                : "<html>Aktueller Kontext: <b>" + baseQualifier + "</b></html>";
+        panel.add(new JLabel(ctxText), gbc);
+
+        // Input field
+        gbc.gridy = 1; gbc.gridwidth = 1;
+        panel.add(new JLabel("Neuer Qualifier:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        final JTextField nameField = new JTextField("", 25);
+        nameField.setToolTipText("<html>Nur den neuen Teil eingeben (z.B. <b>NEW</b>)<br>"
+                + "Für vollständigen Pfad mit Punkt eingeben (z.B. <b>USR1.KOMPLETT.NEU</b>)</html>");
+        panel.add(nameField, gbc);
+
+        // Preview label
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; gbc.weightx = 0;
+        final JLabel previewLabel = new JLabel(" ");
+        previewLabel.setForeground(new Color(0, 100, 0));
+        panel.add(previewLabel, gbc);
+
+        // Live preview update
+        nameField.getDocument().addDocumentListener(new DocumentListener() {
+            private void update() {
+                String text = nameField.getText().trim();
+                if (text.isEmpty()) {
+                    previewLabel.setText(" ");
+                } else {
+                    String full = buildDatasetName(text);
+                    previewLabel.setText("→ " + full);
+                }
+            }
+            public void insertUpdate(DocumentEvent e) { update(); }
+            public void removeUpdate(DocumentEvent e) { update(); }
+            public void changedUpdate(DocumentEvent e) { update(); }
+        });
+
+        int result = JOptionPane.showConfirmDialog(mainPanel, panel,
+                "Neues Mainframe-Dataset anlegen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return;
+
+        String input = nameField.getText().trim();
+        if (input.isEmpty()) return;
+
+        String target = buildDatasetName(input);
 
         try {
             boolean created = ftpClient.getFtpClient().makeDirectory(MvsQuoteNormalizer.normalize(target));
@@ -850,31 +897,42 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
     //  Helpers
     // ═══════════════════════════════════════════════════════════
 
+    /**
+     * Resolve the base qualifier from a current path for auto-prefixing.
+     * Strips quotes, wildcards, and trailing separators.
+     * Example: "'USR1.*'" → "USR1", "'USR1.DATA'" → "USR1.DATA"
+     */
+    private String resolveBaseQualifier(String path) {
+        if (path == null || path.trim().isEmpty()) return "";
+        String base = MvsQuoteNormalizer.unquote(path).toUpperCase().trim();
+        // Strip trailing wildcards and separators
+        while (base.endsWith(".*") || base.endsWith("*") || base.endsWith(".")) {
+            if (base.endsWith(".*")) base = base.substring(0, base.length() - 2);
+            else if (base.endsWith("*")) base = base.substring(0, base.length() - 1);
+            else if (base.endsWith(".")) base = base.substring(0, base.length() - 1);
+        }
+        return base;
+    }
+
+    /**
+     * Build a full dataset name from user input.
+     * If input contains a dot, it's treated as a fully qualified name.
+     * Otherwise, the current path context is prepended automatically.
+     */
     private String buildDatasetName(String input) {
-        if (input.contains(".")) {
-            return input.toUpperCase();
+        String upper = input.toUpperCase().trim();
+        if (upper.contains(".")) {
+            // Fully qualified — user provided the full path
+            return upper;
         }
 
-        String currentPath = controller.getCurrentPath();
-        if (currentPath == null || currentPath.trim().isEmpty()) {
-            return input.toUpperCase();
-        }
-
-        String base = MvsQuoteNormalizer.unquote(currentPath).toUpperCase();
-        if (base.endsWith(".*")) {
-            base = base.substring(0, base.length() - 2);
-        }
-        if (base.endsWith("*")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        if (base.endsWith(".")) {
-            base = base.substring(0, base.length() - 1);
-        }
+        // Short name — prepend current context
+        String base = resolveBaseQualifier(controller.getCurrentPath());
         if (base.isEmpty()) {
-            return input.toUpperCase();
+            return upper;
         }
 
-        return base + "." + input.toUpperCase();
+        return base + "." + upper;
     }
 
     private void installMouseNavigation(JComponent component) {

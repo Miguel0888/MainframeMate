@@ -1538,22 +1538,55 @@ public class FtpConnectionTabImpl implements ConnectionTab {
     /**
      * Show a dialog for creating a Mainframe PDS / PS dataset with DCB parameters.
      */
-    private void createMainframeDataset(String currentPath) {
+    private void createMainframeDataset(final String currentPath) {
+        final String baseQualifier = resolveBaseQualifier(currentPath);
+
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(3, 6, 3, 6);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // Dataset name
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Dataset-Name:"), gbc);
+        // Context label
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
+        String ctxText = baseQualifier.isEmpty()
+                ? "<html><b>Kein Kontext</b> — bitte vollständigen Dataset-Namen eingeben</html>"
+                : "<html>Aktueller Kontext: <b>" + baseQualifier + "</b></html>";
+        panel.add(new JLabel(ctxText), gbc);
+
+        // Dataset name (short qualifier input)
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 1; gbc.weightx = 0;
+        panel.add(new JLabel("Neuer Qualifier:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1.0;
-        JTextField nameField = new JTextField(currentPath != null ? currentPath.toUpperCase() + "." : "", 30);
+        final JTextField nameField = new JTextField("", 30);
+        nameField.setToolTipText("<html>Nur den neuen Teil eingeben (z.B. <b>NEW</b>)<br>"
+                + "Für vollständigen Pfad mit Punkt eingeben (z.B. <b>USR1.KOMPLETT.NEU</b>)</html>");
         panel.add(nameField, gbc);
 
+        // Preview label
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2; gbc.weightx = 0;
+        final JLabel previewLabel = new JLabel(" ");
+        previewLabel.setForeground(new Color(0, 100, 0));
+        panel.add(previewLabel, gbc);
+
+        // Live preview update
+        nameField.getDocument().addDocumentListener(new DocumentListener() {
+            private void update() {
+                String text = nameField.getText().trim();
+                if (text.isEmpty()) {
+                    previewLabel.setText(" ");
+                } else {
+                    String full = buildMvsDatasetName(text, baseQualifier);
+                    previewLabel.setText("→ " + full);
+                }
+            }
+            public void insertUpdate(DocumentEvent e) { update(); }
+            public void removeUpdate(DocumentEvent e) { update(); }
+            public void changedUpdate(DocumentEvent e) { update(); }
+        });
+
         // DSORG
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 1; gbc.weightx = 0;
         panel.add(new JLabel("DSORG:"), gbc);
         gbc.gridx = 1;
         JComboBox<String> dsorgCombo = new JComboBox<String>(new String[]{"PO", "PS"});
@@ -1561,7 +1594,7 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         panel.add(dsorgCombo, gbc);
 
         // RECFM
-        gbc.gridx = 0; gbc.gridy = 2;
+        gbc.gridx = 0; gbc.gridy = 4;
         panel.add(new JLabel("RECFM:"), gbc);
         gbc.gridx = 1;
         JComboBox<String> recfmCombo = new JComboBox<String>(new String[]{"FB", "VB", "F", "V", "FBA", "VBA", "U"});
@@ -1569,7 +1602,7 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         panel.add(recfmCombo, gbc);
 
         // LRECL
-        gbc.gridx = 0; gbc.gridy = 3;
+        gbc.gridx = 0; gbc.gridy = 5;
         panel.add(new JLabel("LRECL:"), gbc);
         gbc.gridx = 1;
         JSpinner lreclSpinner = new JSpinner(new SpinnerNumberModel(80, 1, 32760, 1));
@@ -1577,7 +1610,7 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         panel.add(lreclSpinner, gbc);
 
         // BLKSIZE
-        gbc.gridx = 0; gbc.gridy = 4;
+        gbc.gridx = 0; gbc.gridy = 6;
         panel.add(new JLabel("BLKSIZE:"), gbc);
         gbc.gridx = 1;
         JSpinner blksizeSpinner = new JSpinner(new SpinnerNumberModel(27920, 0, 32760, 80));
@@ -1585,20 +1618,20 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         panel.add(blksizeSpinner, gbc);
 
         // Primary / Secondary
-        gbc.gridx = 0; gbc.gridy = 5;
+        gbc.gridx = 0; gbc.gridy = 7;
         panel.add(new JLabel("Primary (Tracks):"), gbc);
         gbc.gridx = 1;
         JSpinner primarySpinner = new JSpinner(new SpinnerNumberModel(10, 1, 99999, 1));
         panel.add(primarySpinner, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 6;
+        gbc.gridx = 0; gbc.gridy = 8;
         panel.add(new JLabel("Secondary (Tracks):"), gbc);
         gbc.gridx = 1;
         JSpinner secondarySpinner = new JSpinner(new SpinnerNumberModel(5, 0, 99999, 1));
         panel.add(secondarySpinner, gbc);
 
         // Directory Blocks (only for PDS)
-        gbc.gridx = 0; gbc.gridy = 7;
+        gbc.gridx = 0; gbc.gridy = 9;
         JLabel dirLabel = new JLabel("Dir. Blocks:");
         panel.add(dirLabel, gbc);
         gbc.gridx = 1;
@@ -1618,7 +1651,7 @@ public class FtpConnectionTabImpl implements ConnectionTab {
 
         if (result != JOptionPane.OK_OPTION) return;
 
-        String dsName = nameField.getText().trim().toUpperCase();
+        String dsName = buildMvsDatasetName(nameField.getText().trim(), baseQualifier);
         if (dsName.isEmpty()) return;
 
         String dsorg = (String) dsorgCombo.getSelectedItem();
@@ -1809,6 +1842,43 @@ public class FtpConnectionTabImpl implements ConnectionTab {
     // ═══════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Resolve the base qualifier from an MVS path for auto-prefixing.
+     * Strips quotes, wildcards, and trailing separators.
+     * Example: "'USR1.DATA'" → "USR1.DATA", "USR1.*" → "USR1"
+     */
+    private static String resolveBaseQualifier(String path) {
+        if (path == null || path.trim().isEmpty()) return "";
+        String base = path.toUpperCase().trim();
+        // Strip surrounding quotes
+        if (base.startsWith("'") && base.endsWith("'") && base.length() > 2) {
+            base = base.substring(1, base.length() - 1);
+        }
+        // Strip trailing wildcards and separators
+        while (base.endsWith(".*") || base.endsWith("*") || base.endsWith(".")) {
+            if (base.endsWith(".*")) base = base.substring(0, base.length() - 2);
+            else if (base.endsWith("*")) base = base.substring(0, base.length() - 1);
+            else if (base.endsWith(".")) base = base.substring(0, base.length() - 1);
+        }
+        return base;
+    }
+
+    /**
+     * Build a full MVS dataset name from user input and a resolved base qualifier.
+     * If input contains a dot, it's treated as a fully qualified name.
+     * Otherwise, the base qualifier is prepended automatically.
+     */
+    private static String buildMvsDatasetName(String input, String baseQualifier) {
+        String upper = input.toUpperCase().trim();
+        if (upper.contains(".")) {
+            return upper;
+        }
+        if (baseQualifier == null || baseQualifier.isEmpty()) {
+            return upper;
+        }
+        return baseQualifier + "." + upper;
+    }
 
     private FileNode findNodeByName(String name) {
         if (name == null) return null;
