@@ -20,6 +20,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -202,13 +203,21 @@ public class NdvConnectionTab implements ConnectionTab {
 
         // List setup (flat view)
         JScrollPane listScrollPane = new JScrollPane(fileList);
-        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && !e.isPopupTrigger()) {
                     handleDoubleClick();
                 }
+            }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, false);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, false);
             }
         });
 
@@ -219,12 +228,21 @@ public class NdvConnectionTab implements ConnectionTab {
         objectTree.setRootVisible(false);
         objectTree.setShowsRootHandles(true);
         objectTree.setCellRenderer(new NdvTreeCellRenderer());
+        objectTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         objectTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
+                if (e.getClickCount() == 2 && !e.isPopupTrigger()) {
                     handleTreeDoubleClick();
                 }
+            }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, true);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) showContextMenu(e, true);
             }
         });
         JScrollPane treeScrollPane = new JScrollPane(objectTree);
@@ -271,6 +289,10 @@ public class NdvConnectionTab implements ConnectionTab {
         // Main layout
         indexingSidebar = new IndexingSidebar(SourceType.NDV);
         indexingSidebar.setVisible(false);
+        indexingSidebar.setCustomIndexAction(new Runnable() {
+            @Override
+            public void run() { indexSelectedOrAll(); }
+        });
         mainPanel.add(topPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
@@ -368,7 +390,11 @@ public class NdvConnectionTab implements ConnectionTab {
         sidebarVisible = !sidebarVisible;
         indexingSidebar.setVisible(sidebarVisible);
         if (sidebarVisible) {
-            indexingSidebar.setCurrentPath(pathField.getText());
+            if (currentLevel == BrowseLevel.LIBRARIES) {
+                indexingSidebar.setCurrentPath("NDV: " + host);
+            } else if (currentLibrary != null) {
+                indexingSidebar.setCurrentPath(currentLibrary);
+            }
         }
         mainPanel.revalidate();
         mainPanel.repaint();
@@ -691,7 +717,6 @@ public class NdvConnectionTab implements ConnectionTab {
                 SwingUtilities.invokeLater(new Runnable() {
                     @Override
                     public void run() {
-                        statusLabel.setText("📥 Indizierung: " + current + "/" + total + " " + objectName);
                         if (indexingSidebar.isVisible()) {
                             indexingSidebar.updateProgress(current, total);
                         }
@@ -704,8 +729,7 @@ public class NdvConnectionTab implements ConnectionTab {
                 SwingUtilities.invokeLater(new Runnable() {
                     @Override
                     public void run() {
-                        statusLabel.setText(allItems.size() + " Objekte in " + library
-                                + "  |  📥 " + indexed + " Quellen indiziert");
+                        statusLabel.setText(allItems.size() + " Objekte in " + library);
                         if (indexingSidebar.isVisible()) {
                             indexingSidebar.updateComplete(total, indexed);
                         }
@@ -718,7 +742,6 @@ public class NdvConnectionTab implements ConnectionTab {
                 SwingUtilities.invokeLater(new Runnable() {
                     @Override
                     public void run() {
-                        statusLabel.setText("⚠ Indizierung: " + message);
                         if (indexingSidebar.isVisible()) {
                             indexingSidebar.updateError(message);
                         }
@@ -986,6 +1009,244 @@ public class NdvConnectionTab implements ConnectionTab {
                 }
             }
         }
+    }
+
+    // ==================== Context Menu & Selection ====================
+
+    /**
+     * Show right-click context menu for list or tree view.
+     * Provides "Alles auswählen", "Nichts auswählen", and "Auswahl indexieren".
+     */
+    private void showContextMenu(MouseEvent e, boolean isTree) {
+        // Right-click on unselected item: select it (standard UI behavior)
+        if (isTree) {
+            int row = objectTree.getRowForLocation(e.getX(), e.getY());
+            if (row >= 0 && !objectTree.isRowSelected(row)) {
+                objectTree.setSelectionRow(row);
+            }
+        } else {
+            int idx = fileList.locationToIndex(e.getPoint());
+            if (idx >= 0 && !fileList.isSelectedIndex(idx)) {
+                fileList.setSelectedIndex(idx);
+            }
+        }
+
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem selectAll = new JMenuItem("Alles auswählen");
+        selectAll.addActionListener(ev -> {
+            if (isTree && groupByType && currentLevel == BrowseLevel.OBJECTS) {
+                objectTree.setSelectionInterval(0, objectTree.getRowCount() - 1);
+            } else {
+                int size = fileList.getModel().getSize();
+                if (size > 0) fileList.setSelectionInterval(0, size - 1);
+            }
+        });
+        menu.add(selectAll);
+
+        JMenuItem selectNone = new JMenuItem("Nichts auswählen");
+        selectNone.addActionListener(ev -> {
+            if (isTree && groupByType && currentLevel == BrowseLevel.OBJECTS) {
+                objectTree.clearSelection();
+            } else {
+                fileList.clearSelection();
+            }
+        });
+        menu.add(selectNone);
+
+        menu.addSeparator();
+
+        List<Object> sel = collectSelectedItems();
+        String label = sel.isEmpty()
+                ? "\u25B6 Alles indexieren"
+                : "\u25B6 Auswahl indexieren (" + sel.size() + ")";
+        JMenuItem indexItem = new JMenuItem(label);
+        indexItem.addActionListener(ev -> indexSelectedOrAll());
+        menu.add(indexItem);
+
+        menu.show(e.getComponent(), e.getX(), e.getY());
+    }
+
+    /**
+     * Collect selected items from the current active view (list or grouped tree).
+     * For tree group nodes, all child objects are included.
+     *
+     * @return list of selected items (String for libraries, NdvObjectInfo for objects)
+     */
+    private List<Object> collectSelectedItems() {
+        List<Object> selected = new ArrayList<Object>();
+
+        if (groupByType && currentLevel == BrowseLevel.OBJECTS) {
+            // Tree view: collect from tree selection
+            TreePath[] paths = objectTree.getSelectionPaths();
+            if (paths != null) {
+                Set<Object> added = new HashSet<Object>();
+                for (TreePath path : paths) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                    Object userObj = node.getUserObject();
+                    if (userObj instanceof NdvObjectInfo) {
+                        if (added.add(userObj)) selected.add(userObj);
+                    } else if (userObj instanceof TypeGroupNode) {
+                        // Group node selected → include all children
+                        for (int i = 0; i < node.getChildCount(); i++) {
+                            DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+                            Object childObj = child.getUserObject();
+                            if (childObj instanceof NdvObjectInfo && added.add(childObj)) {
+                                selected.add(childObj);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // List view: collect from list selection
+            List<Object> selValues = fileList.getSelectedValuesList();
+            selected.addAll(selValues);
+        }
+
+        return selected;
+    }
+
+    /**
+     * Get all currently visible objects (respecting type filter and text filter).
+     * Used when nothing is selected and "index all" is triggered.
+     */
+    private List<NdvObjectInfo> getVisibleObjects() {
+        List<NdvObjectInfo> result = new ArrayList<NdvObjectInfo>();
+        String filter = searchField.getText().trim().toLowerCase();
+        for (Object item : allItems) {
+            if (!(item instanceof NdvObjectInfo)) continue;
+            NdvObjectInfo obj = (NdvObjectInfo) item;
+            if (!hiddenTypes.isEmpty() && hiddenTypes.contains(obj.getType())) continue;
+            if (!filter.isEmpty() && !obj.toString().toLowerCase().contains(filter)) continue;
+            result.add(obj);
+        }
+        return result;
+    }
+
+    // ==================== Manual Indexing ====================
+
+    /**
+     * Index the selected items, or all visible items if nothing is selected.
+     * At library level: creates IndexSource entries and runs through the pipeline.
+     * At object level: triggers selective prefetch for selected/visible objects.
+     * Type filter is always respected when indexing "all".
+     */
+    private void indexSelectedOrAll() {
+        List<Object> selected = collectSelectedItems();
+
+        // Make sidebar visible to show progress
+        if (!sidebarVisible) {
+            sidebarVisible = true;
+            indexingSidebar.setVisible(true);
+            mainPanel.revalidate();
+            mainPanel.repaint();
+        }
+
+        if (currentLevel == BrowseLevel.LIBRARIES) {
+            List<String> libraries = new ArrayList<String>();
+            if (selected.isEmpty()) {
+                // Nothing selected → all visible libraries
+                for (int i = 0; i < listModel.getSize(); i++) {
+                    Object item = listModel.getElementAt(i);
+                    if (item instanceof String) libraries.add((String) item);
+                }
+            } else {
+                for (Object item : selected) {
+                    if (item instanceof String) libraries.add((String) item);
+                }
+            }
+            indexLibraries(libraries);
+        } else {
+            List<NdvObjectInfo> objects = new ArrayList<NdvObjectInfo>();
+            if (selected.isEmpty()) {
+                // Nothing selected → all visible objects (type filter + text filter applied)
+                objects.addAll(getVisibleObjects());
+            } else {
+                for (Object item : selected) {
+                    if (item instanceof NdvObjectInfo) objects.add((NdvObjectInfo) item);
+                }
+            }
+            if (!objects.isEmpty() && currentLibrary != null) {
+                indexObjects(currentLibrary, objects);
+            }
+        }
+    }
+
+    /**
+     * Index whole libraries through the IndexingService pipeline.
+     * Creates a MANUAL IndexSource for each library and triggers runNow().
+     */
+    private void indexLibraries(final List<String> libraries) {
+        if (libraries.isEmpty()) return;
+
+        String label = libraries.size() == 1 ? libraries.get(0) : libraries.size() + " Bibliotheken";
+        indexingSidebar.setCurrentPath(label);
+        indexingSidebar.updateProgress(0, libraries.size());
+
+        final de.bund.zrb.indexing.service.IndexingService indexingService =
+                de.bund.zrb.indexing.service.IndexingService.getInstance();
+
+        for (String lib : libraries) {
+            de.bund.zrb.indexing.model.IndexSource source = new de.bund.zrb.indexing.model.IndexSource();
+            source.setName("[NDV] " + lib);
+            source.setSourceType(SourceType.NDV);
+            source.setEnabled(true);
+            source.setScheduleMode(de.bund.zrb.indexing.model.ScheduleMode.MANUAL);
+            List<String> paths = new ArrayList<String>();
+            paths.add(lib);
+            source.setScopePaths(paths);
+            source.setMaxDepth(Integer.MAX_VALUE);
+            source.setFulltextEnabled(true);
+            source.setEmbeddingEnabled(false);
+            source.setChangeDetection(de.bund.zrb.indexing.model.ChangeDetectionMode.MTIME_THEN_HASH);
+
+            indexingService.saveSource(source);
+            indexingService.runNow(source.getSourceId());
+        }
+    }
+
+    /**
+     * Index specific objects in a library via NdvSourceCacheService prefetch.
+     * Progress is reported to the IndexingSidebar.
+     */
+    private void indexObjects(final String library, final List<NdvObjectInfo> objects) {
+        if (library == null || objects.isEmpty()) return;
+
+        indexingSidebar.setCurrentPath(library + " (" + objects.size() + " Objekte)");
+        indexingSidebar.updateProgress(0, objects.size());
+
+        cacheService.prefetchLibrary(library, objects, new NdvSourceCacheService.PrefetchCallback() {
+            @Override
+            public void onProgress(final int current, final int total, final String objectName) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateProgress(current, total);
+                    }
+                });
+            }
+
+            @Override
+            public void onComplete(final int total, final int indexed) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateComplete(total, indexed);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        indexingSidebar.updateError(message);
+                    }
+                });
+            }
+        });
     }
 
     // ==================== View Switching ====================

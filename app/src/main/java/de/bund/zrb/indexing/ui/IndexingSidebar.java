@@ -44,6 +44,9 @@ public class IndexingSidebar extends JPanel {
     // Track which source we're currently indexing (for listener updates)
     private volatile String activeSourceId = null;
 
+    // Optional custom action for "Jetzt Indexieren" — set by parent tab (e.g. NdvConnectionTab)
+    private Runnable customIndexAction;
+
     public IndexingSidebar(SourceType sourceType) {
         this.indexingService = IndexingService.getInstance();
         this.sourceType = sourceType;
@@ -177,6 +180,15 @@ public class IndexingSidebar extends JPanel {
     // ═══════════════════════════════════════════════════════════════
     //  Public API
     // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Set a custom action to execute when "Jetzt Indexieren" is clicked.
+     * If set, the default pipeline-based indexing is bypassed.
+     * Used by NdvConnectionTab to route indexing through its own selection-aware logic.
+     */
+    public void setCustomIndexAction(Runnable action) {
+        this.customIndexAction = action;
+    }
 
     /**
      * Update sidebar for the given path.
@@ -328,6 +340,12 @@ public class IndexingSidebar extends JPanel {
      * Does NOT create a recurring rule.
      */
     private void indexNow() {
+        // Delegate to custom action if set (e.g. NDV selection-aware indexing)
+        if (customIndexAction != null) {
+            customIndexAction.run();
+            return;
+        }
+
         if (currentPath == null || currentPath.isEmpty()) return;
 
         // Check if there's already a matching source
