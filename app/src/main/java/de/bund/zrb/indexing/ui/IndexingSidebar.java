@@ -35,11 +35,13 @@ public class IndexingSidebar extends JPanel {
 
     // UI components
     private final JLabel pathLabel;
+    private final JLabel scopeLabel;
     private final JLabel statusLabel;
     private final JLabel lastIndexedLabel;
     private final JLabel itemCountLabel;
     private final JCheckBox includeChildrenCheck;
     private final JSpinner depthSpinner;
+    private JButton indexNowButton;
 
     // Track which source we're currently indexing (for listener updates)
     private volatile String activeSourceId = null;
@@ -109,6 +111,10 @@ public class IndexingSidebar extends JPanel {
         pathLabel.setToolTipText("");
         add(createRow("Pfad:", pathLabel));
 
+        scopeLabel = createValueLabel("Alles");
+        scopeLabel.setForeground(new Color(33, 150, 243));
+        add(createRow("Umfang:", scopeLabel));
+
         statusLabel = createValueLabel("⬜ Nicht indexiert");
         add(createRow("Status:", statusLabel));
 
@@ -158,7 +164,7 @@ public class IndexingSidebar extends JPanel {
 
         add(Box.createVerticalStrut(4));
 
-        JButton indexNowButton = new JButton("▶ Jetzt Indexieren (einmalig)");
+        indexNowButton = new JButton("▶ Jetzt Indexieren (einmalig)");
         indexNowButton.setAlignmentX(LEFT_ALIGNMENT);
         indexNowButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         indexNowButton.setToolTipText("Startet sofortige einmalige Indexierung für diesen Pfad");
@@ -198,6 +204,16 @@ public class IndexingSidebar extends JPanel {
         pathLabel.setText(truncate(path, 30));
         pathLabel.setToolTipText(path);
         refreshStatus();
+    }
+
+    /**
+     * Set the indexing scope description (shown in the "Umfang:" row and on the button tooltip).
+     * E.g. "Auswahl (5 Objekte)" or "Alle 320 Objekte" or "3 Bibliotheken".
+     */
+    public void setScopeInfo(String scopeText) {
+        scopeLabel.setText(truncate(scopeText, 28));
+        scopeLabel.setToolTipText(scopeText);
+        indexNowButton.setToolTipText("Jetzt indexieren: " + scopeText);
     }
 
     /**

@@ -204,6 +204,14 @@ public class NdvConnectionTab implements ConnectionTab {
         // List setup (flat view)
         JScrollPane listScrollPane = new JScrollPane(fileList);
         fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        fileList.addListSelectionListener(new javax.swing.event.ListSelectionListener() {
+            @Override
+            public void valueChanged(javax.swing.event.ListSelectionEvent e) {
+                if (!e.getValueIsAdjusting() && sidebarVisible) {
+                    updateSidebarInfo();
+                }
+            }
+        });
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -229,6 +237,14 @@ public class NdvConnectionTab implements ConnectionTab {
         objectTree.setShowsRootHandles(true);
         objectTree.setCellRenderer(new NdvTreeCellRenderer());
         objectTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
+        objectTree.addTreeSelectionListener(new javax.swing.event.TreeSelectionListener() {
+            @Override
+            public void valueChanged(javax.swing.event.TreeSelectionEvent e) {
+                if (sidebarVisible) {
+                    updateSidebarInfo();
+                }
+            }
+        });
         objectTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -390,14 +406,53 @@ public class NdvConnectionTab implements ConnectionTab {
         sidebarVisible = !sidebarVisible;
         indexingSidebar.setVisible(sidebarVisible);
         if (sidebarVisible) {
-            if (currentLevel == BrowseLevel.LIBRARIES) {
-                indexingSidebar.setCurrentPath("NDV: " + host);
-            } else if (currentLibrary != null) {
-                indexingSidebar.setCurrentPath(currentLibrary);
-            }
+            updateSidebarInfo();
         }
         mainPanel.revalidate();
         mainPanel.repaint();
+    }
+
+    /**
+     * Update the IndexingSidebar path and scope to reflect the current navigation level
+     * and selection state.
+     */
+    private void updateSidebarInfo() {
+        if (currentLevel == BrowseLevel.LIBRARIES) {
+            indexingSidebar.setCurrentPath("ndv://" + host + ":" + service.getPort());
+            List<Object> sel = collectSelectedItems();
+            if (sel.isEmpty()) {
+                int count = listModel.getSize();
+                indexingSidebar.setScopeInfo("Alle " + count + " Bibliotheken");
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < Math.min(sel.size(), 3); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(sel.get(i));
+                }
+                if (sel.size() > 3) sb.append(" … (+" + (sel.size() - 3) + ")");
+                indexingSidebar.setScopeInfo("Auswahl: " + sb.toString());
+            }
+        } else if (currentLibrary != null) {
+            indexingSidebar.setCurrentPath("ndv://" + host + "/" + currentLibrary);
+            List<Object> sel = collectSelectedItems();
+            if (sel.isEmpty()) {
+                List<NdvObjectInfo> visible = getVisibleObjects();
+                indexingSidebar.setScopeInfo("Alle " + visible.size() + " sichtbare Objekte");
+            } else {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < Math.min(sel.size(), 3); i++) {
+                    if (i > 0) sb.append(", ");
+                    Object item = sel.get(i);
+                    if (item instanceof NdvObjectInfo) {
+                        sb.append(((NdvObjectInfo) item).getName());
+                    } else {
+                        sb.append(item);
+                    }
+                }
+                if (sel.size() > 3) sb.append(" … (+" + (sel.size() - 3) + ")");
+                indexingSidebar.setScopeInfo("Auswahl: " + sel.size() + " Objekte");
+            }
+        }
     }
 
     private void installMouseNavigation(JComponent component) {
@@ -710,6 +765,12 @@ public class NdvConnectionTab implements ConnectionTab {
         }
 
         if (objects.isEmpty()) return;
+
+        // Update sidebar if visible
+        if (sidebarVisible) {
+            indexingSidebar.setCurrentPath("ndv://" + host + "/" + library);
+            indexingSidebar.setScopeInfo("Auto-Prefetch: " + objects.size() + " Objekte");
+        }
 
         cacheService.prefetchLibrary(library, objects, new NdvSourceCacheService.PrefetchCallback() {
             @Override
@@ -1159,6 +1220,7 @@ public class NdvConnectionTab implements ConnectionTab {
             indexLibraries(libraries);
         } else {
             List<NdvObjectInfo> objects = new ArrayList<NdvObjectInfo>();
+            boolean wasSelected = !selected.isEmpty();
             if (selected.isEmpty()) {
                 // Nothing selected → all visible objects (type filter + text filter applied)
                 objects.addAll(getVisibleObjects());
@@ -1168,7 +1230,7 @@ public class NdvConnectionTab implements ConnectionTab {
                 }
             }
             if (!objects.isEmpty() && currentLibrary != null) {
-                indexObjects(currentLibrary, objects);
+                indexObjects(currentLibrary, objects, wasSelected);
             }
         }
     }
@@ -1180,8 +1242,19 @@ public class NdvConnectionTab implements ConnectionTab {
     private void indexLibraries(final List<String> libraries) {
         if (libraries.isEmpty()) return;
 
-        String label = libraries.size() == 1 ? libraries.get(0) : libraries.size() + " Bibliotheken";
-        indexingSidebar.setCurrentPath(label);
+        // Set proper path and scope info
+        indexingSidebar.setCurrentPath("ndv://" + host + ":" + service.getPort());
+        if (libraries.size() == 1) {
+            indexingSidebar.setScopeInfo("Bibliothek: " + libraries.get(0));
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(libraries.size(), 3); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(libraries.get(i));
+            }
+            if (libraries.size() > 3) sb.append(" … (+" + (libraries.size() - 3) + ")");
+            indexingSidebar.setScopeInfo(libraries.size() + " Bibliotheken: " + sb.toString());
+        }
         indexingSidebar.updateProgress(0, libraries.size());
 
         final de.bund.zrb.indexing.service.IndexingService indexingService =
@@ -1209,11 +1282,27 @@ public class NdvConnectionTab implements ConnectionTab {
     /**
      * Index specific objects in a library via NdvSourceCacheService prefetch.
      * Progress is reported to the IndexingSidebar.
+     *
+     * @param library     library name
+     * @param objects     objects to index
+     * @param wasSelected true if the objects came from an explicit selection
      */
-    private void indexObjects(final String library, final List<NdvObjectInfo> objects) {
+    private void indexObjects(final String library, final List<NdvObjectInfo> objects, boolean wasSelected) {
         if (library == null || objects.isEmpty()) return;
 
-        indexingSidebar.setCurrentPath(library + " (" + objects.size() + " Objekte)");
+        // Set proper path and scope info
+        indexingSidebar.setCurrentPath("ndv://" + host + "/" + library);
+        if (wasSelected) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(objects.size(), 4); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(objects.get(i).getName());
+            }
+            if (objects.size() > 4) sb.append(" … (+" + (objects.size() - 4) + ")");
+            indexingSidebar.setScopeInfo("Auswahl: " + sb.toString());
+        } else {
+            indexingSidebar.setScopeInfo("Alle " + objects.size() + " sichtbare Objekte");
+        }
         indexingSidebar.updateProgress(0, objects.size());
 
         cacheService.prefetchLibrary(library, objects, new NdvSourceCacheService.PrefetchCallback() {
