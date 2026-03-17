@@ -16,7 +16,6 @@ import javax.annotation.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
-import java.nio.charset.Charset;
 
 /**
  * Central stateless open logic: given a virtual reference, decide whether to open
@@ -258,7 +257,7 @@ public final class VirtualResourceOpener {
         }
 
         // Use legacy connection tab for non-MVS FTP
-        ConnectionTabImpl tab = new ConnectionTabImpl(resource, fs, tabManager, searchPattern);
+        FtpConnectionTabImpl tab = new FtpConnectionTabImpl(resource, fs, tabManager, searchPattern);
         tabManager.addTab(tab);
         tab.loadDirectory(resource.getResolvedPath());
         if (searchPattern != null && !searchPattern.trim().isEmpty()) {

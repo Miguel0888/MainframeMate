@@ -30,7 +30,7 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 
-public class ConnectionTabImpl implements ConnectionTab {
+public class FtpConnectionTabImpl implements ConnectionTab {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
@@ -98,7 +98,7 @@ public class ConnectionTabImpl implements ConnectionTab {
     /**
      * Constructor using VirtualResource + FileService.
      */
-    public ConnectionTabImpl(VirtualResource resource, FileService fileService, TabbedPaneManager tabbedPaneManager, String searchPattern) {
+    public FtpConnectionTabImpl(VirtualResource resource, FileService fileService, TabbedPaneManager tabbedPaneManager, String searchPattern) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.resource = resource;
         this.fileService = fileService;
@@ -126,7 +126,7 @@ public class ConnectionTabImpl implements ConnectionTab {
         initUI(searchPattern);
     }
 
-    public ConnectionTabImpl(VirtualResource resource, FileService fileService, TabbedPaneManager tabbedPaneManager) {
+    public FtpConnectionTabImpl(VirtualResource resource, FileService fileService, TabbedPaneManager tabbedPaneManager) {
         this(resource, fileService, tabbedPaneManager, null);
     }
 
@@ -853,7 +853,7 @@ public class ConnectionTabImpl implements ConnectionTab {
                 pathField.setText(browserState.getCurrentPath());
                 updateFileList();
                 if (sidebarVisible) updateSidebarInfo();
-                tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
+                tabbedPaneManager.refreshStarForTab(FtpConnectionTabImpl.this);
                 return;
             }
 
@@ -879,7 +879,7 @@ public class ConnectionTabImpl implements ConnectionTab {
                 pathField.setText(browserState.getCurrentPath());
                 applyFilter();
                 if (sidebarVisible) updateSidebarInfo();
-                tabbedPaneManager.refreshStarForTab(ConnectionTabImpl.this);
+                tabbedPaneManager.refreshStarForTab(FtpConnectionTabImpl.this);
             } catch (Exception ignore) {
                 if (ctrlDown) {
                     openFileRaw(nextPath, name);

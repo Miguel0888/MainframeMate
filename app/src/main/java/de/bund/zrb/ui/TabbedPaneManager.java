@@ -161,7 +161,7 @@ public class TabbedPaneManager {
             VirtualResource res = ((FileTabImpl) tab).getResource();
             return res != null ? res.getBackendType().name() : "LOCAL";
         }
-        if (tab instanceof ConnectionTabImpl) return "FTP";
+        if (tab instanceof FtpConnectionTabImpl) return "FTP";
         if (tab instanceof MvsConnectionTab) return "FTP";
         if (tab instanceof NdvConnectionTab) return "NDV";
         if (tab instanceof LocalConnectionTabImpl) return "LOCAL";
