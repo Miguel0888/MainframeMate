@@ -749,15 +749,47 @@ public class TabbedPaneManager {
         LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
         if (leftDrawer == null) return;
 
-        // Check if it's a program source (JCL/COBOL/Natural) → show placeholder
+        // Check if it's a Natural source → analyze dependencies
+        String content = null;
+        String sourceName = null;
         String sentenceType = null;
+
         if (tab instanceof FileTabImpl) {
-            sentenceType = ((FileTabImpl) tab).getModel().getSentenceType();
+            FileTabImpl fileTab = (FileTabImpl) tab;
+            content = fileTab.getContent();
+            sourceName = fileTab.getPath();
+            sentenceType = fileTab.getModel().getSentenceType();
         }
 
+        // For Natural sources, show real dependencies
+        if (content != null && isNaturalSource(content, sentenceType)) {
+            leftDrawer.showRelationsLoading();
+            final String src = content;
+            final String name = sourceName;
+            final String lib = extractLibrary(tab);
+            new javax.swing.SwingWorker<de.bund.zrb.service.NaturalDependencyService.DependencyResult, Void>() {
+                @Override
+                protected de.bund.zrb.service.NaturalDependencyService.DependencyResult doInBackground() {
+                    return getNaturalDependencyService().analyze(src, name);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        de.bund.zrb.service.NaturalDependencyService.DependencyResult result = get();
+                        showDependenciesInLeftDrawer(leftDrawer, result, lib);
+                    } catch (Exception ex) {
+                        leftDrawer.showRelationsPlaceholder("Fehler bei Abhängigkeitsanalyse: " + ex.getMessage());
+                    }
+                }
+            }.execute();
+            return;
+        }
+
+        // For JCL/COBOL, show placeholder
         if (sentenceType != null) {
             String upper = sentenceType.toUpperCase();
-            if (upper.contains("JCL") || upper.contains("COBOL") || upper.contains("NATURAL")) {
+            if (upper.contains("JCL") || upper.contains("COBOL")) {
                 leftDrawer.showRelationsPlaceholder("Dependencies werden in einer zukünftigen Version unterstützt.");
                 return;
             }
@@ -766,12 +798,118 @@ public class TabbedPaneManager {
         leftDrawer.clearRelations();
     }
 
+    /** Lazy-init singleton for NaturalDependencyService. */
+    private de.bund.zrb.service.NaturalDependencyService naturalDependencyService;
+
+    private de.bund.zrb.service.NaturalDependencyService getNaturalDependencyService() {
+        if (naturalDependencyService == null) {
+            naturalDependencyService = new de.bund.zrb.service.NaturalDependencyService();
+        }
+        return naturalDependencyService;
+    }
+
+    /**
+     * Determine if the source content is Natural (by sentence type or heuristic).
+     */
+    private boolean isNaturalSource(String content, String sentenceType) {
+        if (sentenceType != null && sentenceType.toUpperCase().contains("NATURAL")) {
+            return true;
+        }
+        // Heuristic: check for typical Natural keywords in the first 40 lines
+        if (content == null) return false;
+        String[] lines = content.split("\\r?\\n", 40);
+        int hits = 0;
+        for (String line : lines) {
+            String t = line.trim().toUpperCase();
+            if (t.startsWith("DEFINE DATA") || t.startsWith("END-DEFINE")
+                    || t.startsWith("CALLNAT ") || t.startsWith("LOCAL USING")
+                    || t.startsWith("PARAMETER USING") || t.startsWith("DECIDE ON")
+                    || t.startsWith("FETCH RETURN") || t.startsWith("INPUT USING MAP")) {
+                hits++;
+            }
+        }
+        return hits >= 2;
+    }
+
+    /**
+     * Extract the library name from a tab's path (for NDV paths like "LIBNAME/OBJNAME.ext").
+     */
+    private String extractLibrary(de.zrb.bund.newApi.ui.FtpTab tab) {
+        String path = tab.getPath();
+        if (path == null) return null;
+        // NDV paths: "LIBNAME/OBJNAME.NSP"
+        int slash = path.indexOf('/');
+        if (slash > 0 && slash < path.length() - 1) {
+            return path.substring(0, slash);
+        }
+        return null;
+    }
+
+    /**
+     * Convert dependency analysis result into LeftDrawer grouped relations.
+     */
+    private void showDependenciesInLeftDrawer(LeftDrawer leftDrawer,
+                                              de.bund.zrb.service.NaturalDependencyService.DependencyResult result,
+                                              String library) {
+        if (result.isEmpty()) {
+            leftDrawer.showRelationsPlaceholder("Keine Abhängigkeiten gefunden.");
+            return;
+        }
+
+        java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
+                new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
+
+        for (java.util.Map.Entry<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
+                java.util.List<de.bund.zrb.service.NaturalDependencyService.Dependency>> group
+                : result.getGrouped().entrySet()) {
+
+            de.bund.zrb.service.NaturalDependencyService.DependencyKind kind = group.getKey();
+            java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+
+            for (de.bund.zrb.service.NaturalDependencyService.Dependency dep : group.getValue()) {
+                // Build target path for navigation (ndv://LIBRARY/OBJECT if library known)
+                String targetPath = buildDependencyTargetPath(dep, library);
+                String depType = "DEPENDENCY_" + kind.getCode();
+                entries.add(new LeftDrawer.RelationEntry(
+                        dep.getDisplayText(), targetPath, depType));
+            }
+
+            sections.put(kind.getDisplayLabel(), entries);
+        }
+
+        leftDrawer.updateRelationsGrouped("Abhängigkeiten", sections, result.getTotalCount());
+    }
+
+    /**
+     * Build a navigable target path for a dependency.
+     * For CALLNAT/FETCH/INCLUDE/USING: ndv://LIBRARY/TARGETNAME  (if library is known)
+     * For DB_ACCESS/VIEW: no navigation target (null)
+     */
+    private String buildDependencyTargetPath(
+            de.bund.zrb.service.NaturalDependencyService.Dependency dep, String library) {
+        switch (dep.getKind()) {
+            case CALLNAT:
+            case FETCH:
+            case CALL:
+            case PERFORM:
+            case INCLUDE:
+            case USING:
+                if (library != null && !library.isEmpty()) {
+                    return "ndv://" + library + "/" + dep.getTargetName();
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
     /**
      * Open a wiki page from a relation entry as a new WikiFileTab.
      * Uses the existing WikiContentService if a WikiConnectionTab is open,
      * otherwise falls back to a fresh service from settings.
      */
     public void openWikiRelationAsTab(String siteId, String pageTitle) {
+
         // Try to find an open WikiConnectionTab to get its service + callback
         for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
             if (entry.getValue() instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
@@ -786,5 +924,37 @@ public class TabbedPaneManager {
         javax.swing.JOptionPane.showMessageDialog(tabbedPane,
                 "Bitte öffnen Sie zuerst einen Wiki-Tab unter Verbindung → Wiki.",
                 "Kein Wiki verbunden", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Open an NDV dependency target by finding an open NdvConnectionTab
+     * and navigating to the specified library/object.
+     *
+     * @param library    target library name
+     * @param objectName target object name (nullable, if null just navigate to library)
+     */
+    public void openNdvDependencyTarget(String library, String objectName) {
+        // Find an open NdvConnectionTab
+        for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
+            if (entry.getValue() instanceof NdvConnectionTab) {
+                NdvConnectionTab ndvTab = (NdvConnectionTab) entry.getValue();
+                // Switch to this tab
+                int idx = tabbedPane.indexOfComponent(entry.getKey());
+                if (idx >= 0) {
+                    tabbedPane.setSelectedIndex(idx);
+                }
+                // Navigate to the library and optionally open the object
+                if (objectName != null && !objectName.isEmpty()) {
+                    ndvTab.navigateToLibraryAndOpen(library, objectName);
+                } else {
+                    ndvTab.navigateToLibrary(library);
+                }
+                return;
+            }
+        }
+        // No NdvConnectionTab found
+        javax.swing.JOptionPane.showMessageDialog(tabbedPane,
+                "Bitte öffnen Sie zuerst eine NDV-Verbindung unter Verbindung → NDV.",
+                "Keine NDV-Verbindung", javax.swing.JOptionPane.INFORMATION_MESSAGE);
     }
 }

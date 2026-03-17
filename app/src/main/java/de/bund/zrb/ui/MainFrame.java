@@ -383,6 +383,12 @@ public class MainFrame extends JFrame implements MainframeContext {
                         openWikiPageAsTab(siteId, pageTitle);
                     }
                 }
+            } else if (entry.getType() != null && entry.getType().startsWith("DEPENDENCY_")) {
+                // NDV dependency navigation: ndv://LIBRARY/OBJECTNAME
+                String targetPath = entry.getTargetPath();
+                if (targetPath != null && targetPath.startsWith("ndv://")) {
+                    openNdvDependencyTarget(targetPath);
+                }
             }
         });
 
@@ -991,6 +997,31 @@ public class MainFrame extends JFrame implements MainframeContext {
     private void openWikiPageAsTab(String siteId, String pageTitle) {
         if (tabManager != null) {
             tabManager.openWikiRelationAsTab(siteId, pageTitle);
+        }
+    }
+
+    /**
+     * Open an NDV dependency target from a relation entry.
+     * Finds an open NdvConnectionTab and navigates to the target object.
+     *
+     * @param ndvUrl ndv://LIBRARY/OBJECTNAME
+     */
+    private void openNdvDependencyTarget(String ndvUrl) {
+        if (ndvUrl == null || !ndvUrl.startsWith("ndv://")) return;
+        String rest = ndvUrl.substring("ndv://".length());
+        int slash = rest.indexOf('/');
+        String library;
+        String objectName;
+        if (slash > 0) {
+            library = rest.substring(0, slash);
+            objectName = rest.substring(slash + 1);
+        } else {
+            library = rest;
+            objectName = null;
+        }
+
+        if (tabManager != null) {
+            tabManager.openNdvDependencyTarget(library, objectName);
         }
     }
 

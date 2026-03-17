@@ -109,7 +109,7 @@ public class LeftDrawer extends JPanel {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * Update the relations tree with the given entries.
+     * Update the relations tree with the given entries (flat list).
      * @param sectionLabel root label, e.g. "Wiki-Links" or "Dependencies"
      * @param entries      list of relation entries to display
      */
@@ -126,6 +126,42 @@ public class LeftDrawer extends JPanel {
 
         relationsModel.reload();
         relationsStatusLabel.setText(entries != null ? entries.size() + " Beziehungen" : " ");
+
+        // Expand all
+        for (int i = 0; i < relationsTree.getRowCount(); i++) {
+            relationsTree.expandRow(i);
+        }
+    }
+
+    /**
+     * Update the relations tree with grouped dependency sections.
+     * Each section is displayed as a collapsible group node with its entries underneath.
+     *
+     * @param sectionLabel overall label (for status bar)
+     * @param sections     ordered map: group label → list of entries
+     * @param totalCount   total number of entries across all groups
+     */
+    public void updateRelationsGrouped(String sectionLabel,
+                                       java.util.Map<String, List<RelationEntry>> sections,
+                                       int totalCount) {
+        relationsRoot.removeAllChildren();
+
+        if (sections == null || sections.isEmpty()) {
+            relationsRoot.add(new DefaultMutableTreeNode("(keine Abhängigkeiten)"));
+        } else {
+            for (java.util.Map.Entry<String, List<RelationEntry>> section : sections.entrySet()) {
+                String groupLabel = section.getKey() + " (" + section.getValue().size() + ")";
+                DefaultMutableTreeNode groupNode = new DefaultMutableTreeNode(groupLabel);
+                for (RelationEntry entry : section.getValue()) {
+                    groupNode.add(new DefaultMutableTreeNode(entry));
+                }
+                relationsRoot.add(groupNode);
+            }
+        }
+
+        relationsModel.reload();
+        relationsStatusLabel.setText(totalCount + " Abhängigkeiten" +
+                (sections != null ? " in " + sections.size() + " Gruppen" : ""));
 
         // Expand all
         for (int i = 0; i < relationsTree.getRowCount(); i++) {
