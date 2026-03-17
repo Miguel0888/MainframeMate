@@ -573,14 +573,123 @@ public class IndexingSidebar extends JPanel {
         if (securityGroup.isEmpty()) return;
         List<String> paths = getSecurityPaths();
         if (paths.isEmpty()) return;
+
+        // ── Check if any of the paths have cached or indexed data ──
+        int cachedCount = 0;
+        int indexedCount = 0;
+        try {
+            de.bund.zrb.archive.store.CacheRepository cacheRepo =
+                    de.bund.zrb.archive.store.CacheRepository.getInstance();
+            de.bund.zrb.rag.service.RagService ragService =
+                    de.bund.zrb.rag.service.RagService.getInstance();
+            Map<String, String> allIndexed = ragService.listAllIndexedDocuments();
+
+            for (String p : paths) {
+                // H2 cache uses the same URL scheme as security paths (ftp://, ndv://, local://)
+                cachedCount += cacheRepo.countByUrlPrefix(p);
+
+                // RAG document IDs use scheme-uppercase prefix: ftp://host/x → FTP:host/x
+                String ragPrefix = toRagPrefix(p);
+                if (ragPrefix != null) {
+                    for (String docId : allIndexed.keySet()) {
+                        if (docId.startsWith(ragPrefix)) {
+                            indexedCount++;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            // If check fails, proceed without warning
+        }
+
+        if (cachedCount > 0 || indexedCount > 0) {
+            StringBuilder msg = new StringBuilder();
+            msg.append("Für die ausgewählten Pfade existieren bereits gespeicherte Daten:\n\n");
+            if (cachedCount > 0) {
+                msg.append("  • ").append(cachedCount).append(" Cache-Einträge (H2)\n");
+            }
+            if (indexedCount > 0) {
+                msg.append("  • ").append(indexedCount).append(" indexierte Dokumente (RAG/Lucene)\n");
+            }
+            msg.append("\nSollen diese Daten gelöscht werden?");
+
+            int choice = JOptionPane.showOptionDialog(this,
+                    msg.toString(),
+                    "Blacklist — Gecachte Daten löschen?",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    new String[]{"Löschen & Blacklisten", "Nur Blacklisten", "Abbrechen"},
+                    "Löschen & Blacklisten");
+
+            if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) {
+                return; // User cancelled
+            }
+
+            if (choice == 0) {
+                // Delete cached/indexed data
+                purgeDataForPaths(paths);
+            }
+        }
+
+        // Add to blacklist
         SecurityFilterService sfs = SecurityFilterService.getInstance();
         for (String p : paths) {
             sfs.addToBlacklist(securityGroup, p);
         }
         refreshSecurityStatus();
-        javax.swing.JOptionPane.showMessageDialog(this,
+        JOptionPane.showMessageDialog(this,
                 paths.size() + " Pfad(e) auf die Blacklist gesetzt.",
-                "Blacklist", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                "Blacklist", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Convert a security-filter path (e.g. "ftp://host/dir") to the RAG document ID prefix
+     * (e.g. "FTP:host/dir"). Returns null if the scheme is unknown.
+     */
+    private static String toRagPrefix(String securityPath) {
+        int schemeEnd = securityPath.indexOf("://");
+        if (schemeEnd < 0) return null;
+        String scheme = securityPath.substring(0, schemeEnd).toUpperCase();
+        String rest = securityPath.substring(schemeEnd + 3);
+        return scheme + ":" + rest;
+    }
+
+    /**
+     * Delete all H2 cache entries and RAG-indexed documents whose URL/docId
+     * matches any of the given security paths (prefix match).
+     */
+    private void purgeDataForPaths(List<String> paths) {
+        try {
+            de.bund.zrb.archive.store.CacheRepository cacheRepo =
+                    de.bund.zrb.archive.store.CacheRepository.getInstance();
+            de.bund.zrb.rag.service.RagService ragService =
+                    de.bund.zrb.rag.service.RagService.getInstance();
+
+            for (String p : paths) {
+                // Remove H2 cache entries by URL prefix
+                List<de.bund.zrb.archive.model.ArchiveEntry> entries =
+                        cacheRepo.findByUrlPrefixWithMetadata(p);
+                for (de.bund.zrb.archive.model.ArchiveEntry entry : entries) {
+                    cacheRepo.delete(entry.getEntryId());
+                }
+
+                // Remove RAG-indexed documents
+                String ragPrefix = toRagPrefix(p);
+                if (ragPrefix != null) {
+                    Map<String, String> allDocs = ragService.listAllIndexedDocuments();
+                    for (String docId : allDocs.keySet()) {
+                        if (docId.startsWith(ragPrefix)) {
+                            ragService.removeDocument(docId);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this,
+                    "Fehler beim Löschen der gecachten Daten:\n" + ex.getMessage(),
+                    "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void removeCurrentFromFilter() {
