@@ -375,6 +375,8 @@ public class NdvSourceCacheService {
             public void run() {
                 // Load existing cache metadata for incremental change detection
                 Map<String, String[]> cachedMeta = loadCacheMetadata(libUpper);
+                LOG.info("[NdvCache] Prefetch started for " + libUpper
+                        + ": " + objects.size() + " objects, " + cachedMeta.size() + " cached entries found");
 
                 int total = objects.size();
                 int indexed = 0;
@@ -403,16 +405,32 @@ public class NdvSourceCacheService {
                     if (cached != null) {
                         String cachedSize = cached[0];
                         String cachedDate = cached[1];
-                        boolean sizeMatch = cachedSize != null
-                                && String.valueOf(obj.getSourceSize()).equals(cachedSize);
-                        boolean dateMatch = cachedDate != null
-                                && !cachedDate.isEmpty()
-                                && obj.getSourceDate().equals(cachedDate);
+
+                        // Size match: both present and equal, OR server reports 0/unknown
+                        int serverSize = obj.getSourceSize();
+                        boolean sizeMatch;
+                        if (serverSize <= 0) {
+                            // Server doesn't report a meaningful size → can't compare, assume OK
+                            sizeMatch = true;
+                        } else {
+                            sizeMatch = String.valueOf(serverSize).equals(cachedSize);
+                        }
+
+                        // Date match: both empty/null → match; both present → string-equal
+                        String serverDate = obj.getSourceDate();
+                        boolean serverDateEmpty = (serverDate == null || serverDate.isEmpty());
+                        boolean cachedDateEmpty = (cachedDate == null || cachedDate.isEmpty());
+                        boolean dateMatch;
+                        if (serverDateEmpty && cachedDateEmpty) {
+                            dateMatch = true; // both unknown → nothing changed
+                        } else if (serverDateEmpty || cachedDateEmpty) {
+                            dateMatch = false; // one has a value, other doesn't → changed
+                        } else {
+                            dateMatch = serverDate.equals(cachedDate);
+                        }
+
                         if (sizeMatch && dateMatch) {
                             unchanged++;
-                            if (callback != null) {
-                                callback.onProgress(i + 1, total, obj.getName());
-                            }
                             continue; // Object hasn't changed, skip download
                         }
                     }
@@ -508,7 +526,7 @@ public class NdvSourceCacheService {
                 result.put(key, new String[]{size, date});
             }
 
-            LOG.fine("[NdvCache] Loaded " + result.size() + " cache entries for " + library);
+            LOG.info("[NdvCache] Loaded " + result.size() + " cache entries for " + library);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[NdvCache] Failed to load cache metadata for " + library, e);
         }
@@ -604,12 +622,9 @@ public class NdvSourceCacheService {
             meta.put("extension", extension != null ? extension : "");
 
             // Store server-reported metadata for incremental change detection
-            if (ndvSourceSize >= 0) {
-                meta.put("ndv_source_size", String.valueOf(ndvSourceSize));
-            }
-            if (ndvSourceDate != null && !ndvSourceDate.isEmpty()) {
-                meta.put("ndv_source_date", ndvSourceDate);
-            }
+            // Always store even if unknown (-1/"") so the comparison can match "both unknown" as unchanged
+            meta.put("ndv_source_size", String.valueOf(ndvSourceSize));
+            meta.put("ndv_source_date", ndvSourceDate != null ? ndvSourceDate : "");
 
             repo.save(entry);
         } catch (Exception e) {

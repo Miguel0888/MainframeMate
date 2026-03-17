@@ -7,6 +7,7 @@ import de.bund.zrb.ndv.transaction.impl.NdvTransaction;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.*;
+import java.util.logging.Logger;
 
 /**
  * Wrapper around the NDV (Natural Development Server) PAL Transactions API.
@@ -14,6 +15,8 @@ import java.util.*;
  * via the NATSPOD protocol.
  */
 public class NdvClient implements Closeable {
+
+    private static final Logger LOG = Logger.getLogger(NdvClient.class.getName());
 
     private IPalTransactions pal;
     private String host;
@@ -365,7 +368,7 @@ public class NdvClient implements Closeable {
         // ── Step 1: Resolve system file for THIS object (not a global guess) ──
         IPalTypeSystemFile sysFile = resolveSystemFileForObject(objInfo);
 
-        System.out.println("[NdvClient] readSource: library=" + library
+        LOG.fine("[NdvClient] readSource: library=" + library
                 + ", obj=" + objInfo.getName() + ", typSchluessel=" + objInfo.getType()
                 + ", obj.dbid/fnr=" + objInfo.getDatabaseId() + "/" + objInfo.getFileNumber()
                 + ", sysFile=dbid/fnr/kind=" + sysFile.getDatabaseId()
@@ -383,7 +386,7 @@ public class NdvClient implements Closeable {
 
             if (result != null) {
                 String[] lines = result.getSource();
-                System.out.println("[NdvClient] readSource: got " + (lines != null ? lines.length : 0) + " lines");
+                LOG.fine("[NdvClient] readSource: got " + (lines != null ? lines.length : 0) + " lines");
                 return joinLines(lines);
             }
             return "";
@@ -417,13 +420,13 @@ public class NdvClient implements Closeable {
         if (dbid > 0 && fnr > 0) {
             // Object has concrete DATENBANK_NUMMER/DATEI_NUMMER from the listing – use them
             int kind = findKindByDbidFnr(dbid, fnr);
-            System.out.println("[NdvClient] resolveSystemFileForObject: using object's own DATENBANK_NUMMER/DATEI_NUMMER: "
+            LOG.fine("[NdvClient] resolveSystemFileForObject: using object's own DATENBANK_NUMMER/DATEI_NUMMER: "
                     + dbid + "/" + fnr + ", kind=" + sysFileKindName(kind));
             return PalTypeSystemFileFactory.newInstance(dbid, fnr, kind);
         }
 
         // Fallback: object didn't carry valid DATENBANK_NUMMER/DATEI_NUMMER – use global strategy
-        System.out.println("[NdvClient] resolveSystemFileForObject: obj DATENBANK_NUMMER/DATEI_NUMMER invalid ("
+        LOG.fine("[NdvClient] resolveSystemFileForObject: obj DATENBANK_NUMMER/DATEI_NUMMER invalid ("
                 + dbid + "/" + fnr + "), falling back to global system file");
         return resolveDownloadSystemFile();
     }
