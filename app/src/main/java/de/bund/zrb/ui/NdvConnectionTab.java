@@ -826,7 +826,7 @@ public class NdvConnectionTab implements ConnectionTab {
         toolbar.add(Box.createHorizontalStrut(8));
 
         // Collapse All (useful for grouped tree)
-        JButton collapseButton = new JButton("\u23F7");
+        JButton collapseButton = new JButton("\u23F6");
         collapseButton.setToolTipText("Alle zuklappen");
         collapseButton.setMargin(new Insets(1, 4, 1, 4));
         collapseButton.setFocusable(false);
@@ -834,7 +834,7 @@ public class NdvConnectionTab implements ConnectionTab {
         toolbar.add(collapseButton);
 
         // Expand All
-        JButton expandButton = new JButton("\u23F6");
+        JButton expandButton = new JButton("\u23F7");
         expandButton.setToolTipText("Alle aufklappen");
         expandButton.setMargin(new Insets(1, 4, 1, 4));
         expandButton.setFocusable(false);
