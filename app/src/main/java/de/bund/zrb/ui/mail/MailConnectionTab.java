@@ -8,8 +8,10 @@ import de.bund.zrb.mail.port.MailboxReader;
 import de.bund.zrb.mail.usecase.ListMailboxItemsUseCase;
 import de.bund.zrb.mail.usecase.ListMailboxesUseCase;
 import de.bund.zrb.mail.usecase.OpenMailMessageUseCase;
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
@@ -94,6 +96,9 @@ public class MailConnectionTab implements ConnectionTab {
     }
     private ViewMode viewMode = ViewMode.MAILBOX_LIST;
 
+    // State persistence prefix
+    private static final String STATE_PREFIX = "mail.nav.";
+
     public MailConnectionTab(TabbedPaneManager tabbedPaneManager, String mailStorePath) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.mailStorePath = mailStorePath;
@@ -103,6 +108,8 @@ public class MailConnectionTab implements ConnectionTab {
         this.listMailboxesUseCase = new ListMailboxesUseCase(mailStore);
         this.listMailboxItemsUseCase = new ListMailboxItemsUseCase(mailboxReader);
         this.openMailMessageUseCase = new OpenMailMessageUseCase(mailboxReader);
+
+        restoreNavigatorState();
 
         this.mainPanel = new JPanel(new BorderLayout());
         buildUI();
@@ -147,6 +154,7 @@ public class MailConnectionTab implements ConnectionTab {
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
         detailsButton.setMargin(new Insets(0, 0, 0, 0));
         detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
+        detailsButton.setSelected(sidebarVisible);
         detailsButton.addActionListener(e -> toggleSidebar());
         rightButtons.add(detailsButton);
 
@@ -156,12 +164,12 @@ public class MailConnectionTab implements ConnectionTab {
         pathPanel.add(rightButtons, BorderLayout.EAST);
         mainPanel.add(pathPanel, BorderLayout.NORTH);
 
-        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
 
-        // Indexing sidebar (initially hidden)
+        // Indexing sidebar (apply restored visibility)
         indexingSidebar = new IndexingSidebar(SourceType.MAIL);
-        indexingSidebar.setVisible(false);
+        indexingSidebar.setVisible(sidebarVisible);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
@@ -721,8 +729,27 @@ public class MailConnectionTab implements ConnectionTab {
         if (sidebarVisible) {
             updateSidebarPath();
         }
+        saveNavigatorState();
         mainPanel.revalidate();
         mainPanel.repaint();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Navigator State Persistence
+    // ═══════════════════════════════════════════════════════════
+
+    private void saveNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        java.util.Map<String, String> state = settings.applicationState;
+        state.put(STATE_PREFIX + "sidebarVisible", String.valueOf(sidebarVisible));
+        SettingsHelper.save(settings);
+    }
+
+    private void restoreNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        java.util.Map<String, String> state = settings.applicationState;
+        String sidebarVal = state.get(STATE_PREFIX + "sidebarVisible");
+        if (sidebarVal != null) sidebarVisible = Boolean.parseBoolean(sidebarVal);
     }
 
     /**
