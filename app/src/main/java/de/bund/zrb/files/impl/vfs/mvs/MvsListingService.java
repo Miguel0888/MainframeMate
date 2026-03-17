@@ -37,6 +37,11 @@ public class MvsListingService {
     /**
      * List children of an MVS location with pagination.
      * Tries multiple strategies until one succeeds.
+     *
+     * Performs a **dual listing** for DATASET locations:
+     * 1. PDS members (e.g. NLST 'USR1.TMP(*)' or NLST 'USR1.TMP')
+     * 2. Sub-datasets (NLST 'USR1.TMP.*')
+     * Both results are merged so the user sees members AND sub-datasets.
      */
     public void listChildren(MvsLocation location, int pageSize, AtomicBoolean cancellation,
                             PageCallback callback) throws IOException {
@@ -57,41 +62,102 @@ public class MvsListingService {
         System.out.println("[MvsListingService] Listing: logicalPathValue=" + location.getLogicalPath() +
                           ", queryPathValue=" + queryPath + ", typSchluessel=" + location.getType());
 
-        // Build query candidates
+        // ── 1. Direct listing: PDS members / direct matches ──
         List<String> queryCandidates = buildQueryCandidates(location, queryPath);
 
-        List<MvsVirtualResource> results = Collections.emptyList();
+        List<MvsVirtualResource> directResults = Collections.emptyList();
+        boolean pagedDelivered = false;
 
-        // Try each candidate with each strategy
         for (String candidate : queryCandidates) {
             if (cancellation.get()) {
                 return;
             }
 
             // Strategy 1: NLST
-            results = tryNlst(candidate, location, cancellation);
-            if (!results.isEmpty()) {
-                System.out.println("[MvsListingService] NLST succeeded with " + results.size() + " results for: " + candidate);
+            directResults = tryNlst(candidate, location, cancellation);
+            if (!directResults.isEmpty()) {
+                System.out.println("[MvsListingService] NLST succeeded with " + directResults.size() + " results for: " + candidate);
                 break;
             }
 
             // Strategy 2: LIST with ParseEngine (paged)
-            results = tryListPaged(candidate, location, pageSize, cancellation, callback);
-            if (!results.isEmpty()) {
-                System.out.println("[MvsListingService] LIST (paged) succeeded with " + results.size() + " results for: " + candidate);
-                return; // Paged already delivered via callback
+            directResults = tryListPaged(candidate, location, pageSize, cancellation, callback);
+            if (!directResults.isEmpty()) {
+                System.out.println("[MvsListingService] LIST (paged) succeeded with " + directResults.size() + " results for: " + candidate);
+                pagedDelivered = true;
+                break;
             }
 
             // Strategy 3: LIST Raw fallback
-            results = tryListRaw(candidate, location, cancellation);
-            if (!results.isEmpty()) {
-                System.out.println("[MvsListingService] LIST (raw) succeeded with " + results.size() + " results for: " + candidate);
+            directResults = tryListRaw(candidate, location, cancellation);
+            if (!directResults.isEmpty()) {
+                System.out.println("[MvsListingService] LIST (raw) succeeded with " + directResults.size() + " results for: " + candidate);
                 break;
             }
         }
 
-        // Deliver results via pagination
-        deliverResultsPaged(results, pageSize, cancellation, callback);
+        // ── 2. Wildcard listing: sub-datasets 'PARENT.*' ──
+        List<MvsVirtualResource> subDatasetResults = Collections.emptyList();
+        String wildcardPath = buildWildcardPath(location);
+        if (wildcardPath != null && !cancellation.get()) {
+            subDatasetResults = tryNlst(wildcardPath,
+                    // Use a qualifier context parent so results are interpreted as sub-datasets
+                    MvsLocation.qualifierContext(MvsQuoteNormalizer.unquote(location.getLogicalPath())),
+                    cancellation);
+            if (!subDatasetResults.isEmpty()) {
+                System.out.println("[MvsListingService] Wildcard NLST returned " + subDatasetResults.size() + " sub-datasets for: " + wildcardPath);
+            }
+        }
+
+        // ── 3. Merge and deduplicate ──
+        Map<String, MvsVirtualResource> merged = new LinkedHashMap<String, MvsVirtualResource>();
+        // Sub-datasets first (they show as directories)
+        for (MvsVirtualResource res : subDatasetResults) {
+            String key = res.getKey();
+            if (!merged.containsKey(key)) {
+                merged.put(key, res);
+            }
+        }
+        // Then direct results (members)
+        for (MvsVirtualResource res : directResults) {
+            String key = res.getKey();
+            if (!merged.containsKey(key)) {
+                merged.put(key, res);
+            }
+        }
+
+        List<MvsVirtualResource> allResults = new ArrayList<MvsVirtualResource>(merged.values());
+
+        if (pagedDelivered && subDatasetResults.isEmpty()) {
+            // Results were already delivered via paged callback, nothing more to do
+            return;
+        }
+
+        if (pagedDelivered && !subDatasetResults.isEmpty()) {
+            // Paged delivery happened but we have additional sub-datasets to add
+            // Deliver them as an additional page
+            callback.onPage(subDatasetResults, true);
+            return;
+        }
+
+        // Deliver merged results via pagination
+        deliverResultsPaged(allResults, pageSize, cancellation, callback);
+    }
+
+    /**
+     * Build wildcard path for sub-dataset listing.
+     * E.g. for DATASET 'USR1.TMP' → "'USR1.TMP.*'"
+     * Returns null for ROOT, MEMBER, or paths already containing wildcards.
+     */
+    private String buildWildcardPath(MvsLocation location) {
+        if (location.getType() == MvsLocationType.ROOT || location.getType() == MvsLocationType.MEMBER) {
+            return null;
+        }
+        String unquoted = MvsQuoteNormalizer.unquote(location.getLogicalPath());
+        if (unquoted.isEmpty() || unquoted.contains("*") || unquoted.contains("(")) {
+            return null;
+        }
+        return MvsQuoteNormalizer.normalize(unquoted + ".*");
     }
 
     /**

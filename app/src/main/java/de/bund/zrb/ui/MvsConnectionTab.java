@@ -660,14 +660,33 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         MvsLocation currentLocation = controller.getCurrentLocation();
         String currentPath = controller.getCurrentPath();
 
-        // Only makes sense when inside a PDS (DATASET level)
-        if (currentLocation == null ||
-                (currentLocation.getType() != MvsLocationType.DATASET
-                        && currentLocation.getType() != MvsLocationType.QUALIFIER_CONTEXT
-                        && currentLocation.getType() != MvsLocationType.HLQ)) {
+        if (currentLocation == null || currentLocation.getType() == MvsLocationType.ROOT) {
             JOptionPane.showMessageDialog(mainPanel,
                     "Bitte zuerst in ein Dataset (PDS) navigieren, um ein Member anzulegen.",
                     "Hinweis", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Check if the current listing actually contains members (= is a PDS)
+        // If only directories are shown, this path is just a qualifier, not a PDS
+        boolean hasMembers = false;
+        for (int i = 0; i < listModel.getSize(); i++) {
+            if (!listModel.getElementAt(i).isDirectory()) {
+                hasMembers = true;
+                break;
+            }
+        }
+
+        if (!hasMembers && listModel.getSize() > 0) {
+            int answer = JOptionPane.showConfirmDialog(mainPanel,
+                    "<html>Der aktuelle Pfad <b>" + currentPath + "</b> enthält nur Sub-Datasets,<br>"
+                            + "ist also kein Partitioned Data Set (PDS).<br><br>"
+                            + "Ein Member kann nur in einem PDS angelegt werden.<br>"
+                            + "Soll zuerst ein neues PDS als Dataset angelegt werden?</html>",
+                    "Kein PDS", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (answer == JOptionPane.YES_OPTION) {
+                createNewFolder();
+            }
             return;
         }
 

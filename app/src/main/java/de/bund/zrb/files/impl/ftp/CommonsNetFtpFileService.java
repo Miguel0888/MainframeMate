@@ -257,8 +257,15 @@ public class CommonsNetFtpFileService implements FileService {
     }
 
     /**
-     * List datasets/members on MVS/zOS using NLST (listNames) as primary strategy.
-     * Falls back to listFiles if NLST fails or returns empty.
+     * List datasets/members on MVS/zOS.
+     *
+     * Performs a **dual listing** to provide Windows-like behaviour:
+     * <ol>
+     *   <li>NLST 'RESOLVED'     → PDS members  (files)</li>
+     *   <li>NLST 'RESOLVED.*'   → sub-datasets  (folders)</li>
+     * </ol>
+     * Both results are merged and deduplicated so the user sees
+     * members <b>and</b> sub-datasets side by side.
      */
     private List<FileNode> listMvs(String resolved) throws IOException {
         // MVS root '' cannot be listed - require HLQ
@@ -267,16 +274,49 @@ public class CommonsNetFtpFileService implements FileService {
             return Collections.emptyList();
         }
 
-        // Primary: Use NLST (listNames) - more reliable on MVS
-        String[] names = ftpClient.listNames(resolved);
+        java.util.Set<String> seenKeys = new java.util.LinkedHashSet<String>();
+        List<FileNode> allNodes = new ArrayList<FileNode>();
 
-        if (names != null && names.length > 0) {
-            System.out.println("[FTP/MVS] listNames returned " + names.length + " entries for: " + resolved);
-            return buildMvsFileNodes(resolved, names);
+        // ── 1. Direct listing: PDS members or matching datasets ──
+        String[] directNames = ftpClient.listNames(resolved);
+        if (directNames != null && directNames.length > 0) {
+            System.out.println("[FTP/MVS] listNames (direct) returned " + directNames.length + " entries for: " + resolved);
+            List<FileNode> directNodes = buildMvsFileNodes(resolved, directNames);
+            for (FileNode node : directNodes) {
+                String key = node.getPath().toUpperCase();
+                if (seenKeys.add(key)) {
+                    allNodes.add(node);
+                }
+            }
         }
 
-        // Fallback: Try listFiles (parser already configured at connect time)
-        System.out.println("[FTP/MVS] listNames empty/null, trying listFiles for: " + resolved + " - reply: " + ftpClient.getReplyString());
+        // ── 2. Wildcard listing: sub-datasets 'RESOLVED.*' ──
+        String wildcardPath = buildMvsWildcardPath(resolved);
+        if (wildcardPath != null) {
+            try {
+                String[] subNames = ftpClient.listNames(wildcardPath);
+                if (subNames != null && subNames.length > 0) {
+                    System.out.println("[FTP/MVS] listNames (wildcard) returned " + subNames.length + " entries for: " + wildcardPath);
+                    List<FileNode> subNodes = buildMvsSubDatasetNodes(resolved, subNames);
+                    for (FileNode node : subNodes) {
+                        String key = node.getPath().toUpperCase();
+                        if (seenKeys.add(key)) {
+                            allNodes.add(node);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                // Wildcard listing failed - not all paths have sub-datasets, that's OK
+                System.out.println("[FTP/MVS] Wildcard listing failed for " + wildcardPath + ": " + e.getMessage());
+            }
+        }
+
+        if (!allNodes.isEmpty()) {
+            return allNodes;
+        }
+
+        // ── 3. Fallback: try listFiles ──
+        System.out.println("[FTP/MVS] Both NLST strategies empty, trying listFiles for: " + resolved + " - reply: " + ftpClient.getReplyString());
 
         FTPFile[] files = ftpClient.listFiles(resolved);
         if (files == null || files.length == 0) {
@@ -303,8 +343,24 @@ public class CommonsNetFtpFileService implements FileService {
     }
 
     /**
-     * Build FileNodes from NLST output on MVS.
-     * NLST returns just names, no metadata - we need to infer directory status.
+     * Build wildcard path for sub-dataset listing.
+     * 'USR1.TMP' → "'USR1.TMP.*'"
+     * Returns null if the path already is a wildcard or member path.
+     */
+    private String buildMvsWildcardPath(String resolved) {
+        String unquoted = unquote(resolved);
+        if (unquoted.isEmpty() || unquoted.endsWith("*") || unquoted.contains("(")) {
+            return null;
+        }
+        return "'" + unquoted + ".*'";
+    }
+
+    /**
+     * Build FileNodes from a direct NLST result (members + possibly sub-datasets).
+     *
+     * Key improvement: names that are fully qualified (start with parent + ".") are
+     * always treated as <b>sub-datasets (directories)</b>, even if the display name
+     * is short enough to look like a member.
      */
     private List<FileNode> buildMvsFileNodes(String parent, String[] names) {
         List<FileNode> nodes = new ArrayList<FileNode>(names.length);
@@ -328,40 +384,108 @@ public class CommonsNetFtpFileService implements FileService {
                 continue;
             }
 
-            // Determine display name and full path
+            // Determine display name, full path, and whether this is a sub-dataset or member
             String displayName;
             String fullPath;
+            boolean isSubDataset = false;
 
             // Check if server returned fully qualified name
             if (unquotedName.startsWith(unquotedParent + ".")) {
-                // Server returned fully qualified - extract relative part
+                // ── Sub-dataset ── (fully qualified path, e.g. USR1.TMP.TMP2 under USR1.TMP)
+                isSubDataset = true;
                 String originalUnquoted = unquote(trimmedName);
                 displayName = originalUnquoted.substring(unquotedParent.length() + 1);
                 fullPath = mvsDialect.toAbsolutePath(originalUnquoted);
-                System.out.println("[FTP/MVS] Fully qualified: " + trimmedName + " -> display: " + displayName);
+                System.out.println("[FTP/MVS] Sub-dataset: " + trimmedName + " -> display: " + displayName);
             } else if (trimmedName.startsWith("'") && trimmedName.endsWith("'")) {
                 // Already quoted absolute path
                 String originalUnquoted = unquote(trimmedName);
                 if (originalUnquoted.toUpperCase().startsWith(unquotedParent + ".")) {
+                    // ── Sub-dataset ── (quoted fully qualified)
+                    isSubDataset = true;
                     displayName = originalUnquoted.substring(unquotedParent.length() + 1);
                 } else {
                     displayName = originalUnquoted;
                 }
                 fullPath = trimmedName;
-                System.out.println("[FTP/MVS] Quoted path: " + trimmedName + " -> display: " + displayName);
+                System.out.println("[FTP/MVS] Quoted path: " + trimmedName + " -> display: " + displayName + " isSubDs=" + isSubDataset);
             } else {
-                // Relative name - join with parent
+                // Relative name → PDS member
                 displayName = trimmedName;
                 fullPath = joinPathMvs(parent, trimmedName);
-                System.out.println("[FTP/MVS] Relative: " + trimmedName + " -> fullPath: " + fullPath);
+                System.out.println("[FTP/MVS] Member: " + trimmedName + " -> fullPath: " + fullPath);
             }
 
-            // On MVS, we can't easily determine if entry is directory without more info
-            // Heuristic: if displayName has no dot and is short, it might be a member
-            // Otherwise assume it's a dataset (directory)
-            boolean isDirectory = !isMemberName(displayName) && !displayName.contains("(");
+            // Determine directory status:
+            // - Sub-datasets (fully qualified names) → always directory
+            // - Relative names that look like PDS members → file
+            // - Everything else → directory (dataset)
+            boolean isDirectory;
+            if (isSubDataset) {
+                isDirectory = true;
+            } else if (displayName.contains("(")) {
+                isDirectory = false; // explicit member reference
+            } else {
+                // Relative name from direct listing → likely PDS member
+                isDirectory = !isMemberName(displayName);
+            }
 
             nodes.add(new FileNode(displayName, fullPath, isDirectory, 0L, 0L));
+        }
+        return nodes;
+    }
+
+    /**
+     * Build FileNodes from a wildcard NLST result (e.g. NLST 'USR1.TMP.*').
+     * All results are sub-datasets → always isDirectory=true.
+     */
+    private List<FileNode> buildMvsSubDatasetNodes(String parent, String[] names) {
+        List<FileNode> nodes = new ArrayList<FileNode>(names.length);
+        String unquotedParent = unquote(parent).toUpperCase();
+
+        for (String name : names) {
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+
+            String trimmedName = name.trim();
+            if (trimmedName.isEmpty()) {
+                continue;
+            }
+
+            String unquotedName = unquote(trimmedName).toUpperCase();
+
+            // Skip parent itself
+            if (unquotedName.equals(unquotedParent)) {
+                continue;
+            }
+
+            String originalUnquoted = unquote(trimmedName);
+            String displayName;
+            String fullPath;
+
+            // Extract display name by removing parent prefix
+            if (unquotedName.startsWith(unquotedParent + ".")) {
+                displayName = originalUnquoted.substring(unquotedParent.length() + 1);
+                fullPath = mvsDialect.toAbsolutePath(originalUnquoted);
+            } else {
+                displayName = originalUnquoted;
+                fullPath = mvsDialect.toAbsolutePath(originalUnquoted);
+            }
+
+            // Strip any remaining multi-level qualifiers to show only the next level
+            // e.g., if parent=USR1.TMP and result=USR1.TMP.A.B, display should be "A"
+            // and fullPath should be 'USR1.TMP.A' (the next navigation level)
+            if (displayName.contains(".")) {
+                String nextLevel = displayName.substring(0, displayName.indexOf('.'));
+                displayName = nextLevel;
+                fullPath = mvsDialect.toAbsolutePath(unquotedParent + "." + nextLevel);
+            }
+
+            System.out.println("[FTP/MVS] Sub-dataset (wildcard): " + trimmedName + " -> display: " + displayName + " path: " + fullPath);
+
+            // Sub-datasets are always directories
+            nodes.add(new FileNode(displayName, fullPath, true, 0L, 0L));
         }
         return nodes;
     }

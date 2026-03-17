@@ -1719,6 +1719,31 @@ public class FtpConnectionTabImpl implements ConnectionTab {
      * Create a new member in a PDS on the Mainframe, or a sequential dataset.
      */
     private void createMainframeMember(String currentPath) {
+        // Check if the current listing actually contains members (= is a PDS)
+        // If only directories are shown, this path is just a qualifier, not a PDS
+        boolean hasMembers = false;
+        boolean hasOnlyDirs = true;
+        for (FileNode fn : currentDirectoryNodes) {
+            if (!fn.isDirectory()) {
+                hasMembers = true;
+                hasOnlyDirs = false;
+                break;
+            }
+        }
+
+        if (!hasMembers && !currentDirectoryNodes.isEmpty() && hasOnlyDirs) {
+            int answer = JOptionPane.showConfirmDialog(mainPanel,
+                    "<html>Der aktuelle Pfad <b>" + currentPath + "</b> enthält nur Sub-Datasets,<br>"
+                            + "ist also kein Partitioned Data Set (PDS).<br><br>"
+                            + "Ein Member kann nur in einem PDS angelegt werden.<br>"
+                            + "Soll zuerst ein neues PDS als Dataset angelegt werden?</html>",
+                    "Kein PDS", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (answer == JOptionPane.YES_OPTION) {
+                createMainframeDataset(currentPath);
+            }
+            return;
+        }
+
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(3, 6, 3, 6);
@@ -1733,10 +1758,11 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         memberField.setToolTipText("Max. 8 Zeichen, z.B. NEWMEMBR");
         panel.add(memberField, gbc);
 
-        // Info label
+        // Info label — show what will be created
         gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
-        String info = currentPath != null
-                ? "<html><small>Pfad: " + currentPath + "</small></html>"
+        String baseQualifier = resolveBaseQualifier(currentPath);
+        String info = !baseQualifier.isEmpty()
+                ? "<html><small>Erstellt Member in PDS: <b>" + baseQualifier + "</b></small></html>"
                 : "<html><small>Kein PDS ausgewählt — ein neues Sequential Dataset wird angelegt.</small></html>";
         panel.add(new JLabel(info), gbc);
 
@@ -1754,9 +1780,11 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         }
 
         try {
+            // Explicitly build DATASET(MEMBER) format — don't rely on childOf() heuristic
             String target;
             if (currentPath != null && !currentPath.isEmpty()) {
-                target = navigator.childOf(currentPath, memberName);
+                String unquoted = resolveBaseQualifier(currentPath);
+                target = "'" + unquoted + "(" + memberName + ")" + "'";
             } else {
                 target = "'" + memberName + "'";
             }
