@@ -73,6 +73,9 @@ dependencies {
     // VLC backend (vlcj 3.x for Java 8)
     compileOnly 'uk.co.caprica:vlcj:3.12.1'
 
+    // ONNX Runtime – lokale LLM-Inferenz (Phi-3/Phi-4 Modelle)
+    implementation 'com.microsoft.onnxruntime:onnxruntime:1.17.3'
+
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
     runtimeOnly project(':plugins:webSearch')

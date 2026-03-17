@@ -186,7 +186,7 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         providerCombo = new JComboBox<>();
         providerCombo.addItem(AiProvider.DISABLED); providerCombo.addItem(AiProvider.OLLAMA);
         providerCombo.addItem(AiProvider.CLOUD); providerCombo.addItem(AiProvider.LOCAL_AI);
-        providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER);
+        providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER); providerCombo.addItem(AiProvider.ONNX_RUNTIME);
         fb.addRow("Provider:", providerCombo);
 
         JPanel providerOptionsPanel = new JPanel(new CardLayout());
@@ -324,6 +324,14 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         llamaTempField = new JTextField(settings.aiConfig.getOrDefault("llama.temp", "0.7"), 5);
         fbLlama.addRow("Temperatur:", llamaTempField);
         providerOptionsPanel.add(fbLlama.getPanel(), AiProvider.LLAMA_CPP_SERVER.name());
+
+        // ONNX Runtime – einfaches Hinweis-Panel (Vollkonfiguration über AiProviderSettingsPanel)
+        JPanel onnxHintPanel = new JPanel(new BorderLayout());
+        onnxHintPanel.add(new JLabel("<html><b>ONNX Runtime</b> – lokale Inferenz mit Phi-3/Phi-4.<br>"
+                + "Konfiguration über die detaillierte Ansicht (RAG-Settings oder AiProviderSettingsPanel).<br><br>"
+                + "Modellpfad und Parameter können dort eingestellt werden.</html>"),
+                BorderLayout.NORTH);
+        providerOptionsPanel.add(onnxHintPanel, AiProvider.ONNX_RUNTIME.name());
 
         List<Component> llamaConfigFields = Arrays.asList(llamaBinaryField, llamaModelField, llamaPortSpinner, llamaThreadsSpinner, llamaContextSpinner, llamaTempField);
         llamaEnabledBox.addActionListener(e -> { boolean en = llamaEnabledBox.isSelected(); for (Component c : llamaConfigFields) c.setEnabled(en); });
