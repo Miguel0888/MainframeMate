@@ -6,6 +6,7 @@ import de.bund.zrb.ndv.NdvObjectInfo;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.ndv.core.api.ObjectKind;
+import de.bund.zrb.ndv.core.api.ObjectType;
 import de.bund.zrb.service.NdvSourceCacheService;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -13,6 +14,10 @@ import de.zrb.bund.newApi.ui.ConnectionTab;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -34,6 +39,25 @@ public class NdvConnectionTab implements ConnectionTab {
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
 
+    /** Sort modes for object list (Natural Navigator style). */
+    enum SortMode {
+        NAME_ASC("Name \u2191"), NAME_DESC("Name \u2193"), TYPE("Typ"),
+        DATE_DESC("Datum \u2193"), SIZE_DESC("Gr\u00f6\u00dfe \u2193");
+        final String label;
+        SortMode(String label) { this.label = label; }
+        @Override public String toString() { return label; }
+    }
+
+    /** Logical display order for type groups (matches NaturalONE Natural Navigator). */
+    private static final int[] TYPE_GROUP_ORDER = {
+        ObjectType.PROGRAM, ObjectType.SUBPROGRAM, ObjectType.SUBROUTINE,
+        ObjectType.HELPROUTINE, ObjectType.FUNCTION, ObjectType.COPYCODE,
+        ObjectType.LDA, ObjectType.GDA, ObjectType.PDA,
+        ObjectType.MAP, ObjectType.DDM, ObjectType.CLASS,
+        ObjectType.DIALOG, ObjectType.TEXT, ObjectType.NCP,
+        ObjectType.ADAPTVIEW, ObjectType.ADAPTER, ObjectType.ERRMSG, ObjectType.RESOURCE
+    };
+
     private final TabbedPaneManager tabbedPaneManager;
     private final NdvService service;
     private final String host;
@@ -52,6 +76,21 @@ public class NdvConnectionTab implements ConnectionTab {
     private JButton forwardButton;
     private IndexingSidebar indexingSidebar;
     private boolean sidebarVisible = false;
+
+    // --- Natural Navigator view state ---
+    private boolean groupByType = false;
+    private SortMode sortMode = SortMode.NAME_ASC;
+    private final Set<Integer> hiddenTypes = new HashSet<Integer>();
+    private boolean showDetails = false;
+    private boolean linkWithEditor = false;
+
+    // Grouped tree view
+    private JTree objectTree;
+    private DefaultTreeModel treeModel;
+    private DefaultMutableTreeNode treeRoot;
+    private CardLayout viewCardLayout;
+    private JPanel viewContainer;
+    private JToggleButton groupToggle;
 
     // Navigation state
     private enum BrowseLevel { LIBRARIES, OBJECTS }
@@ -154,16 +193,9 @@ public class NdvConnectionTab implements ConnectionTab {
         overlayLabel.setOpaque(true);
         overlayLabel.setVisible(false);
 
-        // List setup
-        JScrollPane scrollPane = new JScrollPane(fileList);
-        listContainer.setLayout(new OverlayLayout(listContainer));
-        listContainer.add(overlayLabel);
-        listContainer.add(scrollPane);
-
+        // List setup (flat view)
+        JScrollPane listScrollPane = new JScrollPane(fileList);
         fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(mainPanel);
         fileList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -173,6 +205,40 @@ public class NdvConnectionTab implements ConnectionTab {
             }
         });
 
+        // Tree setup (grouped view — Natural Navigator style)
+        treeRoot = new DefaultMutableTreeNode("root");
+        treeModel = new DefaultTreeModel(treeRoot);
+        objectTree = new JTree(treeModel);
+        objectTree.setRootVisible(false);
+        objectTree.setShowsRootHandles(true);
+        objectTree.setCellRenderer(new NdvTreeCellRenderer());
+        objectTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    handleTreeDoubleClick();
+                }
+            }
+        });
+        JScrollPane treeScrollPane = new JScrollPane(objectTree);
+
+        // Card layout to switch between flat list and grouped tree
+        viewCardLayout = new CardLayout();
+        viewContainer = new JPanel(viewCardLayout);
+        viewContainer.add(listScrollPane, "list");
+        viewContainer.add(treeScrollPane, "tree");
+
+        // Overlay wraps the view container (loading messages overlay both views)
+        listContainer.setLayout(new OverlayLayout(listContainer));
+        listContainer.add(overlayLabel);
+        listContainer.add(viewContainer);
+
+        // Mouse navigation on all relevant components
+        installMouseNavigation(pathField);
+        installMouseNavigation(fileList);
+        installMouseNavigation(objectTree);
+        installMouseNavigation(mainPanel);
+
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
                 fileList, searchField,
@@ -181,13 +247,24 @@ public class NdvConnectionTab implements ConnectionTab {
                 this::navigateForward
         );
 
+        // Navigator toolbar (Natural Navigator style — grouping, sorting, type filter)
+        JPanel navigatorToolbar = createNavigatorToolbar();
+
         // Status bar
         JPanel statusBar = createStatusBar();
+
+        // Top panel: path bar + navigator toolbar
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+        pathPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, pathPanel.getPreferredSize().height));
+        navigatorToolbar.setMaximumSize(new Dimension(Integer.MAX_VALUE, navigatorToolbar.getPreferredSize().height));
+        topPanel.add(pathPanel);
+        topPanel.add(navigatorToolbar);
 
         // Main layout
         indexingSidebar = new IndexingSidebar(SourceType.NDV);
         indexingSidebar.setVisible(false);
-        mainPanel.add(pathPanel, BorderLayout.NORTH);
+        mainPanel.add(topPanel, BorderLayout.NORTH);
         mainPanel.add(listContainer, BorderLayout.CENTER);
         mainPanel.add(indexingSidebar, BorderLayout.EAST);
         mainPanel.add(statusBar, BorderLayout.SOUTH);
@@ -662,6 +739,305 @@ public class NdvConnectionTab implements ConnectionTab {
         }
     }
 
+    // ==================== Natural Navigator Toolbar ====================
+
+    /**
+     * Create the Natural Navigator-style toolbar with grouping, sorting, and filter options.
+     * Mirrors the NaturalONE "Natural Navigator" view menu options.
+     */
+    private JPanel createNavigatorToolbar() {
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        toolbar.setBorder(BorderFactory.createEmptyBorder(1, 2, 1, 2));
+
+        // Group by Type toggle (main feature: "Toggles between grouping by object type and physical representation")
+        groupToggle = new JToggleButton("\uD83D\uDCC1");
+        groupToggle.setToolTipText("Nach Objekttyp gruppieren (Natural Navigator)");
+        groupToggle.setMargin(new Insets(1, 4, 1, 4));
+        groupToggle.setFocusable(false);
+        groupToggle.addActionListener(e -> {
+            groupByType = groupToggle.isSelected();
+            applyFilter();
+        });
+        toolbar.add(groupToggle);
+
+        // Sort dropdown button
+        JButton sortButton = new JButton("\u2195");
+        sortButton.setToolTipText("Sortierung");
+        sortButton.setMargin(new Insets(1, 4, 1, 4));
+        sortButton.setFocusable(false);
+        sortButton.addActionListener(e -> {
+            JPopupMenu popup = new JPopupMenu();
+            for (final SortMode mode : SortMode.values()) {
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(mode.label, mode == sortMode);
+                item.addActionListener(ev -> {
+                    sortMode = mode;
+                    applyFilter();
+                });
+                popup.add(item);
+            }
+            popup.show(sortButton, 0, sortButton.getHeight());
+        });
+        toolbar.add(sortButton);
+
+        // Type filter dropdown
+        JButton filterButton = new JButton("\uD83D\uDD3D");
+        filterButton.setToolTipText("Typfilter \u2014 Objekttypen ein-/ausblenden");
+        filterButton.setMargin(new Insets(1, 4, 1, 4));
+        filterButton.setFocusable(false);
+        filterButton.addActionListener(e -> {
+            JPopupMenu popup = createTypeFilterMenu();
+            popup.show(filterButton, 0, filterButton.getHeight());
+        });
+        toolbar.add(filterButton);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Show Details toggle (date, user, size)
+        JToggleButton detailsToggle = new JToggleButton("\uD83D\uDCCA");
+        detailsToggle.setToolTipText("Details anzeigen (Datum, Benutzer, Gr\u00f6\u00dfe)");
+        detailsToggle.setMargin(new Insets(1, 4, 1, 4));
+        detailsToggle.setFocusable(false);
+        detailsToggle.setSelected(showDetails);
+        detailsToggle.addActionListener(e -> {
+            showDetails = detailsToggle.isSelected();
+            applyFilter();
+        });
+        toolbar.add(detailsToggle);
+
+        // Link with Editor toggle
+        JToggleButton linkButton = new JToggleButton("\uD83D\uDD17");
+        linkButton.setToolTipText("Mit Editor verkn\u00fcpfen");
+        linkButton.setMargin(new Insets(1, 4, 1, 4));
+        linkButton.setFocusable(false);
+        linkButton.addActionListener(e -> linkWithEditor = linkButton.isSelected());
+        toolbar.add(linkButton);
+
+        toolbar.add(Box.createHorizontalStrut(8));
+
+        // Collapse All (useful for grouped tree)
+        JButton collapseButton = new JButton("\u23F7");
+        collapseButton.setToolTipText("Alle zuklappen");
+        collapseButton.setMargin(new Insets(1, 4, 1, 4));
+        collapseButton.setFocusable(false);
+        collapseButton.addActionListener(e -> collapseAllTreeNodes());
+        toolbar.add(collapseButton);
+
+        // Expand All
+        JButton expandButton = new JButton("\u23F6");
+        expandButton.setToolTipText("Alle aufklappen");
+        expandButton.setMargin(new Insets(1, 4, 1, 4));
+        expandButton.setFocusable(false);
+        expandButton.addActionListener(e -> expandAllTreeNodes());
+        toolbar.add(expandButton);
+
+        return toolbar;
+    }
+
+    /**
+     * Create the type filter popup menu with checkboxes for each Natural object type.
+     * Allows hiding/showing specific types (e.g. only Programs, or hide DDMs).
+     */
+    @SuppressWarnings("unchecked")
+    private JPopupMenu createTypeFilterMenu() {
+        JPopupMenu popup = new JPopupMenu();
+
+        // "Show All" resets all filters
+        JMenuItem showAllItem = new JMenuItem("Alle anzeigen");
+        showAllItem.addActionListener(e -> {
+            hiddenTypes.clear();
+            applyFilter();
+        });
+        popup.add(showAllItem);
+        popup.addSeparator();
+
+        Hashtable<Integer, String> groupNames =
+                (Hashtable<Integer, String>) ObjectType.getInstanceIdGroupName();
+        for (int typeId : TYPE_GROUP_ORDER) {
+            String name = groupNames.get(typeId);
+            if (name == null) continue;
+            final int tid = typeId;
+            JCheckBoxMenuItem item = new JCheckBoxMenuItem(
+                    getGroupIcon(typeId) + " " + name, !hiddenTypes.contains(typeId));
+            item.addActionListener(e -> {
+                if (item.isSelected()) {
+                    hiddenTypes.remove(tid);
+                } else {
+                    hiddenTypes.add(tid);
+                }
+                applyFilter();
+            });
+            popup.add(item);
+        }
+        return popup;
+    }
+
+    // ==================== View Switching ====================
+
+    /**
+     * Switch the visible view between flat list and grouped tree.
+     */
+    private void switchView() {
+        if (groupByType && currentLevel == BrowseLevel.OBJECTS) {
+            viewCardLayout.show(viewContainer, "tree");
+        } else {
+            viewCardLayout.show(viewContainer, "list");
+        }
+    }
+
+    private void collapseAllTreeNodes() {
+        for (int i = objectTree.getRowCount() - 1; i >= 0; i--) {
+            objectTree.collapseRow(i);
+        }
+    }
+
+    private void expandAllTreeNodes() {
+        for (int i = 0; i < objectTree.getRowCount(); i++) {
+            objectTree.expandRow(i);
+        }
+    }
+
+    /**
+     * Populate the grouped tree view from filtered items.
+     * Groups NdvObjectInfo items by their ObjectType, ordered by TYPE_GROUP_ORDER.
+     * Empty groups are hidden. Each group shows icon + plural name + count.
+     */
+    @SuppressWarnings("unchecked")
+    private void populateGroupedTree(List<Object> filteredItems) {
+        treeRoot.removeAllChildren();
+
+        // Group items by type in display order
+        LinkedHashMap<Integer, List<NdvObjectInfo>> groups = new LinkedHashMap<Integer, List<NdvObjectInfo>>();
+        for (int typeId : TYPE_GROUP_ORDER) {
+            groups.put(typeId, new ArrayList<NdvObjectInfo>());
+        }
+
+        // Distribute items into groups
+        for (Object item : filteredItems) {
+            if (item instanceof NdvObjectInfo) {
+                NdvObjectInfo obj = (NdvObjectInfo) item;
+                List<NdvObjectInfo> group = groups.get(obj.getType());
+                if (group == null) {
+                    // Unknown type: create ad-hoc group
+                    group = new ArrayList<NdvObjectInfo>();
+                    groups.put(obj.getType(), group);
+                }
+                group.add(obj);
+            }
+        }
+
+        // Build tree nodes (skip empty groups)
+        Hashtable<Integer, String> groupNames =
+                (Hashtable<Integer, String>) ObjectType.getInstanceIdGroupName();
+        for (Map.Entry<Integer, List<NdvObjectInfo>> entry : groups.entrySet()) {
+            List<NdvObjectInfo> members = entry.getValue();
+            if (members.isEmpty()) continue;
+
+            int typeId = entry.getKey();
+            String groupName = groupNames.containsKey(typeId)
+                    ? groupNames.get(typeId) : "Sonstige";
+            String icon = getGroupIcon(typeId);
+
+            DefaultMutableTreeNode groupNode = new DefaultMutableTreeNode(
+                    new TypeGroupNode(typeId, icon + " " + groupName + " (" + members.size() + ")"));
+
+            for (NdvObjectInfo obj : members) {
+                groupNode.add(new DefaultMutableTreeNode(obj));
+            }
+
+            treeRoot.add(groupNode);
+        }
+
+        treeModel.reload();
+
+        // Expand all groups by default for quick overview
+        expandAllTreeNodes();
+    }
+
+    /**
+     * Sort filtered items according to the current sort mode.
+     * Only sorts NdvObjectInfo items; library names (Strings) stay in original order.
+     */
+    private void sortItems(List<Object> items) {
+        boolean hasObjects = !items.isEmpty() && items.get(0) instanceof NdvObjectInfo;
+        if (!hasObjects) return;
+
+        Collections.sort(items, new Comparator<Object>() {
+            @Override
+            public int compare(Object a, Object b) {
+                if (!(a instanceof NdvObjectInfo) || !(b instanceof NdvObjectInfo)) return 0;
+                NdvObjectInfo oa = (NdvObjectInfo) a;
+                NdvObjectInfo ob = (NdvObjectInfo) b;
+                switch (sortMode) {
+                    case NAME_DESC:
+                        return ob.getName().compareToIgnoreCase(oa.getName());
+                    case TYPE:
+                        int tc = oa.getTypeName().compareToIgnoreCase(ob.getTypeName());
+                        return tc != 0 ? tc : oa.getName().compareToIgnoreCase(ob.getName());
+                    case DATE_DESC:
+                        return ob.getSourceDate().compareTo(oa.getSourceDate());
+                    case SIZE_DESC:
+                        return Integer.compare(ob.getSourceSize(), oa.getSourceSize());
+                    case NAME_ASC:
+                    default:
+                        return oa.getName().compareToIgnoreCase(ob.getName());
+                }
+            }
+        });
+    }
+
+    /**
+     * Get the display icon for a Natural object type group (matches NdvObjectInfo.getIcon()).
+     */
+    private static String getGroupIcon(int typeId) {
+        switch (typeId) {
+            case ObjectType.PROGRAM:     return "\u25B6";
+            case ObjectType.SUBPROGRAM:  return "\u2699";
+            case ObjectType.SUBROUTINE:  return "\uD83D\uDD27";
+            case ObjectType.COPYCODE:    return "\uD83D\uDCCB";
+            case ObjectType.MAP:         return "\uD83D\uDDFA";
+            case ObjectType.GDA:         return "\uD83C\uDF10";
+            case ObjectType.LDA:         return "\uD83D\uDCCA";
+            case ObjectType.PDA:         return "\uD83D\uDCD1";
+            case ObjectType.DDM:         return "\uD83D\uDDC4";
+            case ObjectType.HELPROUTINE: return "\u2753";
+            case ObjectType.TEXT:        return "\uD83D\uDCDD";
+            case ObjectType.CLASS:       return "\uD83C\uDFDB";
+            case ObjectType.FUNCTION:    return "\u0192";
+            default:                     return "\uD83D\uDCC1";
+        }
+    }
+
+    /**
+     * Handle double-click in the grouped tree view.
+     * Opens NdvObjectInfo leaf nodes; group nodes expand/collapse automatically.
+     */
+    private void handleTreeDoubleClick() {
+        TreePath path = objectTree.getSelectionPath();
+        if (path == null) return;
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+        Object userObject = node.getUserObject();
+        if (userObject instanceof NdvObjectInfo) {
+            openSource((NdvObjectInfo) userObject);
+        }
+        // Group nodes: JTree toggles expand/collapse automatically on double-click
+    }
+
+    /** Wrapper for type group nodes in the tree (distinguishes from NdvObjectInfo leaf nodes). */
+    static class TypeGroupNode {
+        final int typeId;
+        final String displayText;
+
+        TypeGroupNode(int typeId, String displayText) {
+            this.typeId = typeId;
+            this.displayText = displayText;
+        }
+
+        @Override
+        public String toString() {
+            return displayText;
+        }
+    }
+
     // ==================== Double-click handling ====================
 
     private void handleDoubleClick() {
@@ -774,9 +1150,18 @@ public class NdvConnectionTab implements ConnectionTab {
 
     private void applyFilter() {
         String filter = searchField.getText().trim().toLowerCase();
-        // Build new model off-EDT-event-storm: create a fresh model, populate, then swap
-        DefaultListModel<Object> newModel = new DefaultListModel<Object>();
+
+        // Step 1: Filter items by search text and type visibility
+        List<Object> filtered = new ArrayList<Object>();
         for (Object item : allItems) {
+            // Type filter (only for NdvObjectInfo at object level)
+            if (item instanceof NdvObjectInfo) {
+                NdvObjectInfo obj = (NdvObjectInfo) item;
+                if (!hiddenTypes.isEmpty() && hiddenTypes.contains(obj.getType())) {
+                    continue;
+                }
+            }
+            // Text filter
             String text;
             if (item instanceof String) {
                 text = ((String) item).toLowerCase();
@@ -786,12 +1171,28 @@ public class NdvConnectionTab implements ConnectionTab {
                 text = item.toString().toLowerCase();
             }
             if (filter.isEmpty() || text.contains(filter)) {
-                newModel.addElement(item);
+                filtered.add(item);
             }
         }
-        // Single atomic swap – only one UI repaint
-        listModel = newModel;
-        fileList.setModel(listModel);
+
+        // Step 2: Sort
+        sortItems(filtered);
+
+        // Step 3: Populate the appropriate view
+        if (groupByType && currentLevel == BrowseLevel.OBJECTS) {
+            populateGroupedTree(filtered);
+            viewCardLayout.show(viewContainer, "tree");
+        } else {
+            // Build new model off-EDT-event-storm: create a fresh model, populate, then swap
+            DefaultListModel<Object> newModel = new DefaultListModel<Object>();
+            for (Object item : filtered) {
+                newModel.addElement(item);
+            }
+            // Single atomic swap – only one UI repaint
+            listModel = newModel;
+            fileList.setModel(listModel);
+            viewCardLayout.show(viewContainer, "list");
+        }
     }
 
     // ==================== Overlay ====================
@@ -807,25 +1208,73 @@ public class NdvConnectionTab implements ConnectionTab {
         overlayLabel.setVisible(false);
     }
 
-    // ==================== Cell Renderer ====================
+    // ==================== Cell Renderers ====================
 
-    private static class NdvCellRenderer extends DefaultListCellRenderer {
+    /**
+     * List cell renderer for flat view — shows icon + name + type + optional details.
+     */
+    private class NdvCellRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value,
                                                        int index, boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 
             if (value instanceof String) {
-                // Library
-                setText("📚 " + value);
+                setText("\uD83D\uDCDA " + value);
                 setFont(getFont().deriveFont(Font.BOLD));
             } else if (value instanceof NdvObjectInfo) {
                 NdvObjectInfo obj = (NdvObjectInfo) value;
-                setText(obj.getIcon() + " " + obj.getName() + "  [" + obj.getTypeName() + "]"
-                        + (obj.getUser().isEmpty() ? "" : "  (" + obj.getUser() + ")"));
+                if (showDetails) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(obj.getIcon()).append(" ").append(obj.getName());
+                    sb.append("  [").append(obj.getTypeName()).append("]");
+                    if (!obj.getUser().isEmpty()) sb.append("  (").append(obj.getUser()).append(")");
+                    if (!obj.getSourceDate().isEmpty()) sb.append("  ").append(obj.getSourceDate());
+                    if (obj.getSourceSize() > 0) sb.append("  ").append(obj.getSourceSize()).append("B");
+                    setText(sb.toString());
+                } else {
+                    setText(obj.getIcon() + " " + obj.getName() + "  [" + obj.getTypeName() + "]"
+                            + (obj.getUser().isEmpty() ? "" : "  (" + obj.getUser() + ")"));
+                }
                 setFont(getFont().deriveFont(Font.PLAIN));
             }
 
+            return this;
+        }
+    }
+
+    /**
+     * Tree cell renderer for grouped view — group nodes bold with icon+count, leaf nodes with details.
+     */
+    private class NdvTreeCellRenderer extends DefaultTreeCellRenderer {
+        @Override
+        public Component getTreeCellRendererComponent(JTree tree, Object value,
+                                                       boolean sel, boolean expanded, boolean leaf,
+                                                       int row, boolean hasFocus) {
+            super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+
+            if (value instanceof DefaultMutableTreeNode) {
+                Object userObj = ((DefaultMutableTreeNode) value).getUserObject();
+                if (userObj instanceof TypeGroupNode) {
+                    setText(((TypeGroupNode) userObj).displayText);
+                    setFont(getFont().deriveFont(Font.BOLD));
+                    setIcon(null);
+                } else if (userObj instanceof NdvObjectInfo) {
+                    NdvObjectInfo obj = (NdvObjectInfo) userObj;
+                    if (showDetails) {
+                        StringBuilder sb = new StringBuilder();
+                        sb.append(obj.getIcon()).append(" ").append(obj.getName());
+                        if (!obj.getUser().isEmpty()) sb.append("  (").append(obj.getUser()).append(")");
+                        if (!obj.getSourceDate().isEmpty()) sb.append("  ").append(obj.getSourceDate());
+                        if (obj.getSourceSize() > 0) sb.append("  ").append(obj.getSourceSize()).append("B");
+                        setText(sb.toString());
+                    } else {
+                        setText(obj.getIcon() + " " + obj.getName());
+                    }
+                    setFont(getFont().deriveFont(Font.PLAIN));
+                    setIcon(null);
+                }
+            }
             return this;
         }
     }
