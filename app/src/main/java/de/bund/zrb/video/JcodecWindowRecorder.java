@@ -1,6 +1,9 @@
 package de.bund.zrb.video;
 
+import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
+import com.sun.jna.platform.win32.WinDef.RECT;
+import com.sun.jna.platform.win32.WinUser;
 import de.bund.zrb.config.VideoConfig;
 import de.bund.zrb.win.WindowCapture;
 import org.jcodec.api.awt.AWTSequenceEncoder;
@@ -15,6 +18,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Pure Java window recorder using JCodec (no audio). */
 public class JcodecWindowRecorder implements Closeable {
@@ -26,8 +30,13 @@ public class JcodecWindowRecorder implements Closeable {
     private AWTSequenceEncoder encoder;
     private Thread worker;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicInteger frameCount = new AtomicInteger(0);
 
     private Path outFileEffective;
+
+    // Robot-based fallback for Swing windows (Win32 capture often yields black)
+    private Robot robot;
+    private boolean useRobotCapture;
 
     // Audio (optional)
     private Thread audioThread; // NEU
@@ -67,8 +76,14 @@ public class JcodecWindowRecorder implements Closeable {
         CURRENT = this;
         if (running.get()) return;
 
-        BufferedImage probe = WindowCapture.capture(hWnd);
-        if (probe == null) throw new IllegalStateException("WindowCapture liefert null");
+        // Try Robot-based capture first (reliable for Swing), then Win32 WindowCapture
+        try { robot = new Robot(); } catch (Throwable t) { robot = null; }
+
+        BufferedImage probe = captureFrame();
+        if (probe == null) throw new IllegalStateException("WindowCapture liefert null – weder Robot noch Win32 konnten ein Bild liefern");
+
+        System.out.println("[JcodecRec] Probe OK: " + probe.getWidth() + "x" + probe.getHeight()
+                + " (useRobot=" + useRobotCapture + ")");
 
         int w = probe.getWidth();
         int h = probe.getHeight();
@@ -90,35 +105,57 @@ public class JcodecWindowRecorder implements Closeable {
         }
 
         running.set(true);
-        worker = new Thread(() -> {
-            while (running.get()) {
-                try {
-                    BufferedImage img = WindowCapture.capture(hWnd);
-                    if (img != null) {
-                        int iw = img.getWidth(), ih = img.getHeight();
-                        int tw = iw, th = ih;
-                        if (VideoConfig.isEnforceEvenDims()) { tw = makeEven(iw); th = makeEven(ih); }
-                        BufferedImage frame;
-                        if (tw != iw || th != ih) {
-                            frame = new BufferedImage(tw, th, BufferedImage.TYPE_3BYTE_BGR);
-                            Graphics2D g = frame.createGraphics();
-                            try { g.drawImage(img, 0, 0, tw, th, null); applyOverlays(frame); } finally { g.dispose(); }
-                        } else {
-                            if (img.getType() != BufferedImage.TYPE_3BYTE_BGR) {
-                                frame = new BufferedImage(iw, ih, BufferedImage.TYPE_3BYTE_BGR);
+        frameCount.set(0);
+        worker = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int nullCount = 0;
+                while (running.get()) {
+                    try {
+                        BufferedImage img = captureFrame();
+                        if (img != null) {
+                            int iw = img.getWidth(), ih = img.getHeight();
+                            int tw = iw, th = ih;
+                            if (VideoConfig.isEnforceEvenDims()) { tw = makeEven(iw); th = makeEven(ih); }
+                            BufferedImage frame;
+                            if (tw != iw || th != ih) {
+                                frame = new BufferedImage(tw, th, BufferedImage.TYPE_3BYTE_BGR);
                                 Graphics2D g = frame.createGraphics();
-                                try { g.drawImage(img, 0, 0, null); } finally { g.dispose(); }
+                                try { g.drawImage(img, 0, 0, tw, th, null); applyOverlays(frame); } finally { g.dispose(); }
                             } else {
-                                frame = img;
+                                if (img.getType() != BufferedImage.TYPE_3BYTE_BGR) {
+                                    frame = new BufferedImage(iw, ih, BufferedImage.TYPE_3BYTE_BGR);
+                                    Graphics2D g = frame.createGraphics();
+                                    try { g.drawImage(img, 0, 0, null); } finally { g.dispose(); }
+                                } else {
+                                    frame = img;
+                                }
+                                applyOverlays(frame);
                             }
-                            applyOverlays(frame);
+                            encoder.encodeImage(frame);
+                            int fc = frameCount.incrementAndGet();
+                            if (fc == 1) {
+                                System.out.println("[JcodecRec] Erster Frame encoded: " + frame.getWidth() + "x" + frame.getHeight());
+                            }
+                            nullCount = 0;
+                        } else {
+                            nullCount++;
+                            if (nullCount <= 3 || nullCount % 50 == 0) {
+                                System.err.println("[JcodecRec] Capture liefert null (nullCount=" + nullCount + ")");
+                            }
                         }
-                        encoder.encodeImage(frame);
+                        Thread.sleep(frameIntervalMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        running.set(false);
+                    } catch (Throwable t) {
+                        System.err.println("[JcodecRec] Fehler in Capture-Loop nach " + frameCount.get()
+                                + " Frames: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                        t.printStackTrace(System.err);
+                        running.set(false);
                     }
-                    Thread.sleep(frameIntervalMs);
-                } catch (Throwable t) {
-                    running.set(false);
                 }
+                System.out.println("[JcodecRec] Worker beendet – " + frameCount.get() + " Frames aufgenommen");
             }
         }, "jcodec-window-recorder");
         worker.setDaemon(true);
@@ -128,7 +165,13 @@ public class JcodecWindowRecorder implements Closeable {
     public void stop() {
         running.set(false);
         if (worker != null) { try { worker.join(2000); } catch (InterruptedException ignored) {} }
-        try { if (encoder != null) encoder.finish(); } catch (Exception ignored) {}
+        int fc = frameCount.get();
+        System.out.println("[JcodecRec] stop() – " + fc + " Frames encoded, Datei: " + outFileEffective);
+        try {
+            if (encoder != null) encoder.finish();
+        } catch (Exception e) {
+            System.err.println("[JcodecRec] encoder.finish() Fehler: " + e.getMessage());
+        }
         // Audio sauber stoppen
         stopAudioCapture();
         if (CURRENT == this) CURRENT = null;
@@ -139,6 +182,84 @@ public class JcodecWindowRecorder implements Closeable {
     public Path getEffectiveOutput() { return outFileEffective != null ? outFileEffective : outFileRequested; }
 
     private static int makeEven(int v) { return (v & 1) == 1 ? v - 1 : v; }
+
+    /**
+     * Captures a frame using the best available strategy.
+     * First call probes both Win32 and Robot to decide which works;
+     * subsequent calls use the chosen strategy for performance.
+     */
+    private BufferedImage captureFrame() {
+        // Once we decided on Robot, stay with it
+        if (useRobotCapture) {
+            return captureViaRobot();
+        }
+
+        // Try Win32 WindowCapture first
+        BufferedImage img = null;
+        try {
+            img = WindowCapture.capture(hWnd);
+        } catch (Throwable t) {
+            // Win32 capture failed
+        }
+
+        // Check if we got a usable (non-black) image
+        if (img != null && !isBlackImage(img)) {
+            return img;
+        }
+
+        // Fallback: Robot-based screen capture of window bounds
+        BufferedImage robotImg = captureViaRobot();
+        if (robotImg != null) {
+            // Win32 failed, Robot works → switch permanently
+            if (!useRobotCapture) {
+                useRobotCapture = true;
+                System.out.println("[JcodecRec] Wechsel zu Robot-Capture (Win32 liefert "
+                        + (img == null ? "null" : "schwarzes Bild") + ")");
+            }
+            return robotImg;
+        }
+
+        // Both failed – return whatever we got (may be null or black)
+        return img;
+    }
+
+    /**
+     * Captures the window's client area via java.awt.Robot (screen capture).
+     * This is very reliable for Swing windows since it simply reads the screen pixels.
+     * Caveat: if other windows overlap, they appear in the capture.
+     */
+    private BufferedImage captureViaRobot() {
+        if (robot == null) return null;
+        try {
+            // Get client area bounds in screen coordinates via WINDOWINFO
+            WinUser.WINDOWINFO wi = new WinUser.WINDOWINFO();
+            wi.cbSize = wi.size();
+            if (!User32.INSTANCE.GetWindowInfo(hWnd, wi)) return null;
+            RECT rc = wi.rcClient;
+            int x = rc.left;
+            int y = rc.top;
+            int w = rc.right - rc.left;
+            int h = rc.bottom - rc.top;
+            if (w <= 0 || h <= 0) return null;
+            return robot.createScreenCapture(new Rectangle(x, y, w, h));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Quick check: sample a few pixels to detect all-black images. */
+    private static boolean isBlackImage(BufferedImage img) {
+        if (img == null) return true;
+        int w = img.getWidth(), h = img.getHeight();
+        int stepX = Math.max(1, w / 12);
+        int stepY = Math.max(1, h / 12);
+        for (int y = 0; y < h; y += stepY) {
+            for (int x = 0; x < w; x += stepX) {
+                if ((img.getRGB(x, y) & 0xFFFFFF) != 0) return false;
+            }
+        }
+        return true;
+    }
 
     private void applyOverlays(BufferedImage frame) {
         caption.paint(frame);
