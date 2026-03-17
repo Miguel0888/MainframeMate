@@ -1,5 +1,7 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.ndv.NdvService;
 import de.bund.zrb.ndv.NdvException;
 import de.bund.zrb.ndv.NdvObjectInfo;
@@ -131,6 +133,7 @@ public class NdvConnectionTab implements ConnectionTab {
 
         fileList.setCellRenderer(new NdvCellRenderer());
 
+        restoreNavigatorState();
         initUI();
         if (autoLoadLibraries) {
             loadLibraries();
@@ -754,8 +757,10 @@ public class NdvConnectionTab implements ConnectionTab {
         groupToggle.setToolTipText("Nach Objekttyp gruppieren (Natural Navigator)");
         groupToggle.setMargin(new Insets(1, 4, 1, 4));
         groupToggle.setFocusable(false);
+        groupToggle.setSelected(groupByType);
         groupToggle.addActionListener(e -> {
             groupByType = groupToggle.isSelected();
+            saveNavigatorState();
             applyFilter();
         });
         toolbar.add(groupToggle);
@@ -771,6 +776,7 @@ public class NdvConnectionTab implements ConnectionTab {
                 JCheckBoxMenuItem item = new JCheckBoxMenuItem(mode.label, mode == sortMode);
                 item.addActionListener(ev -> {
                     sortMode = mode;
+                    saveNavigatorState();
                     applyFilter();
                 });
                 popup.add(item);
@@ -800,6 +806,7 @@ public class NdvConnectionTab implements ConnectionTab {
         detailsToggle.setSelected(showDetails);
         detailsToggle.addActionListener(e -> {
             showDetails = detailsToggle.isSelected();
+            saveNavigatorState();
             applyFilter();
         });
         toolbar.add(detailsToggle);
@@ -809,7 +816,11 @@ public class NdvConnectionTab implements ConnectionTab {
         linkButton.setToolTipText("Mit Editor verkn\u00fcpfen");
         linkButton.setMargin(new Insets(1, 4, 1, 4));
         linkButton.setFocusable(false);
-        linkButton.addActionListener(e -> linkWithEditor = linkButton.isSelected());
+        linkButton.setSelected(linkWithEditor);
+        linkButton.addActionListener(e -> {
+            linkWithEditor = linkButton.isSelected();
+            saveNavigatorState();
+        });
         toolbar.add(linkButton);
 
         toolbar.add(Box.createHorizontalStrut(8));
@@ -845,9 +856,30 @@ public class NdvConnectionTab implements ConnectionTab {
         JMenuItem showAllItem = new JMenuItem("Alle anzeigen");
         showAllItem.addActionListener(e -> {
             hiddenTypes.clear();
+            saveNavigatorState();
             applyFilter();
         });
         popup.add(showAllItem);
+
+        // "Invert Selection" toggles visibility of all types
+        JMenuItem invertItem = new JMenuItem("Auswahl invertieren");
+        invertItem.addActionListener(e -> {
+            Set<Integer> allTypes = new HashSet<Integer>();
+            for (int typeId : TYPE_GROUP_ORDER) {
+                allTypes.add(typeId);
+            }
+            Set<Integer> newHidden = new HashSet<Integer>();
+            for (int typeId : allTypes) {
+                if (!hiddenTypes.contains(typeId)) {
+                    newHidden.add(typeId);
+                }
+            }
+            hiddenTypes.clear();
+            hiddenTypes.addAll(newHidden);
+            saveNavigatorState();
+            applyFilter();
+        });
+        popup.add(invertItem);
         popup.addSeparator();
 
         Hashtable<Integer, String> groupNames =
@@ -864,11 +896,83 @@ public class NdvConnectionTab implements ConnectionTab {
                 } else {
                     hiddenTypes.add(tid);
                 }
+                saveNavigatorState();
                 applyFilter();
             });
             popup.add(item);
         }
         return popup;
+    }
+
+    // ==================== Navigator State Persistence ====================
+
+    private static final String STATE_PREFIX = "ndv.nav.";
+
+    /**
+     * Save all Natural Navigator settings to applicationState (persisted in settings.json).
+     * Called whenever any navigator toggle/sort/filter changes.
+     */
+    private void saveNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> state = settings.applicationState;
+
+        state.put(STATE_PREFIX + "groupByType", String.valueOf(groupByType));
+        state.put(STATE_PREFIX + "sortMode", sortMode.name());
+        state.put(STATE_PREFIX + "showDetails", String.valueOf(showDetails));
+        state.put(STATE_PREFIX + "linkWithEditor", String.valueOf(linkWithEditor));
+
+        // Store hidden types as comma-separated int list (e.g. "16,128,8")
+        if (hiddenTypes.isEmpty()) {
+            state.put(STATE_PREFIX + "hiddenTypes", "");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (Integer typeId : hiddenTypes) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(typeId);
+            }
+            state.put(STATE_PREFIX + "hiddenTypes", sb.toString());
+        }
+
+        SettingsHelper.save(settings);
+    }
+
+    /**
+     * Restore Natural Navigator settings from applicationState.
+     * Called during construction, before initUI() so toggle buttons reflect saved state.
+     */
+    private void restoreNavigatorState() {
+        Settings settings = SettingsHelper.load();
+        Map<String, String> state = settings.applicationState;
+
+        String groupVal = state.get(STATE_PREFIX + "groupByType");
+        if (groupVal != null) groupByType = Boolean.parseBoolean(groupVal);
+
+        String sortVal = state.get(STATE_PREFIX + "sortMode");
+        if (sortVal != null) {
+            try {
+                sortMode = SortMode.valueOf(sortVal);
+            } catch (IllegalArgumentException ignored) {
+                // keep default
+            }
+        }
+
+        String detailsVal = state.get(STATE_PREFIX + "showDetails");
+        if (detailsVal != null) showDetails = Boolean.parseBoolean(detailsVal);
+
+        String linkVal = state.get(STATE_PREFIX + "linkWithEditor");
+        if (linkVal != null) linkWithEditor = Boolean.parseBoolean(linkVal);
+
+        String hiddenVal = state.get(STATE_PREFIX + "hiddenTypes");
+        if (hiddenVal != null && !hiddenVal.isEmpty()) {
+            hiddenTypes.clear();
+            for (String part : hiddenVal.split(",")) {
+                try {
+                    hiddenTypes.add(Integer.parseInt(part.trim()));
+                } catch (NumberFormatException ignored) {
+                    // skip invalid entries
+                }
+            }
+        }
     }
 
     // ==================== View Switching ====================
