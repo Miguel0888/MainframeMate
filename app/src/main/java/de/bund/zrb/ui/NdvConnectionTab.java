@@ -779,7 +779,7 @@ public class NdvConnectionTab implements ConnectionTab {
                     @Override
                     public void run() {
                         if (indexingSidebar.isVisible()) {
-                            indexingSidebar.updateProgress(current, total);
+                            indexingSidebar.updateProgress(current, total, true);
                         }
                     }
                 });
@@ -792,7 +792,7 @@ public class NdvConnectionTab implements ConnectionTab {
                     public void run() {
                         statusLabel.setText(allItems.size() + " Objekte in " + library);
                         if (indexingSidebar.isVisible()) {
-                            indexingSidebar.updateComplete(total, indexed);
+                            indexingSidebar.updateComplete(total, indexed, true);
                         }
                     }
                 });
@@ -1551,9 +1551,10 @@ public class NdvConnectionTab implements ConnectionTab {
                         return;
                     }
 
-                    // Update cache with freshly downloaded source (invalidate-on-open)
+                    // Update cache with freshly downloaded source (always overwrite)
                     cacheService.cacheSource(currentLibrary, objInfo.getName(),
-                            objInfo.getTypeExtension(), source);
+                            objInfo.getTypeExtension(), source,
+                            objInfo.getSourceSize(), objInfo.getSourceDate());
 
                     // Build a VirtualResource with NDV backend (enables save via FileTabImpl)
                     String fullPath = currentLibrary + "/" + objInfo.getName() + "." + objInfo.getTypeExtension();

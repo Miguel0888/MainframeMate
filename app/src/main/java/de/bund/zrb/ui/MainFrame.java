@@ -820,6 +820,12 @@ public class MainFrame extends JFrame implements MainframeContext {
                     String source = get();
                     if (source == null) source = "";
 
+                    // Update cache with freshly downloaded source (always overwrite)
+                    de.bund.zrb.service.NdvSourceCacheService.getInstance()
+                            .cacheSource(fLibrary, objInfo.getName(),
+                                    objInfo.getTypeExtension(), source,
+                                    objInfo.getSourceSize(), objInfo.getSourceDate());
+
                     NdvResourceState ndvState = new NdvResourceState(service, fLibrary, objInfo);
                     VirtualResource resource = new VirtualResource(
                             de.bund.zrb.files.path.VirtualResourceRef.of(fullPath),

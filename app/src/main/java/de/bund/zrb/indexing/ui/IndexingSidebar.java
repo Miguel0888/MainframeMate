@@ -218,15 +218,32 @@ public class IndexingSidebar extends JPanel {
 
     /**
      * Update progress display from external source (e.g., NDV prefetch).
-     * Call from EDT.
+     * Uses "Wird indexiert..." label. Call from EDT.
      *
      * @param current number of items processed so far
      * @param total   total number of items
      */
     public void updateProgress(int current, int total) {
+        updateProgress(current, total, false);
+    }
+
+    /**
+     * Update progress display from external source.
+     * Call from EDT.
+     *
+     * @param current    number of items processed so far
+     * @param total      total number of items
+     * @param isCaching  true for automatic background caching, false for explicit user-triggered indexing
+     */
+    public void updateProgress(int current, int total, boolean isCaching) {
         itemCountLabel.setText(current + " / " + total);
-        statusLabel.setText("⏳ Wird indexiert...");
-        statusLabel.setForeground(new Color(255, 152, 0));
+        if (isCaching) {
+            statusLabel.setText("\uD83D\uDD04 Wird gecacht...");
+            statusLabel.setForeground(new Color(100, 149, 237)); // cornflower blue
+        } else {
+            statusLabel.setText("⏳ Wird indexiert...");
+            statusLabel.setForeground(new Color(255, 152, 0));   // orange
+        }
     }
 
     /**
@@ -237,12 +254,32 @@ public class IndexingSidebar extends JPanel {
      * @param indexed number successfully indexed
      */
     public void updateComplete(int total, int indexed) {
+        updateComplete(total, indexed, false);
+    }
+
+    /**
+     * Signal that external caching/indexing is complete.
+     * Call from EDT.
+     *
+     * @param total      total items found
+     * @param indexed    number successfully indexed/cached
+     * @param isCaching  true for automatic background caching, false for explicit user-triggered indexing
+     */
+    public void updateComplete(int total, int indexed, boolean isCaching) {
         itemCountLabel.setText(indexed + " / " + total);
         if (indexed > 0) {
-            statusLabel.setText("✅ Indexiert");
+            if (isCaching) {
+                statusLabel.setText("✅ Gecacht");
+            } else {
+                statusLabel.setText("✅ Indexiert");
+            }
             statusLabel.setForeground(new Color(76, 175, 80));
         } else {
-            statusLabel.setText("⬜ Nicht indexiert");
+            if (isCaching) {
+                statusLabel.setText("⬜ Keine Änderungen");
+            } else {
+                statusLabel.setText("⬜ Nicht indexiert");
+            }
             statusLabel.setForeground(Color.GRAY);
         }
         lastIndexedLabel.setText(DATE_FMT.format(new Date(System.currentTimeMillis())));

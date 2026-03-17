@@ -605,6 +605,14 @@ public class SearchTab extends JPanel implements FtpTab {
                 return;
             }
 
+            // NDV results: documentId has format "NDV:LIBRARY/OBJNAME.EXT"
+            // Strip the "NDV:" prefix so the path becomes "LIBRARY/OBJNAME.EXT"
+            // before prepending the "ndv://" URL scheme.
+            if (result.getSource() == SearchResult.SourceType.NDV
+                    && rawPath.startsWith("NDV:")) {
+                rawPath = rawPath.substring("NDV:".length());
+            }
+
             // Build prefixed path based on source typSchluessel so the routing in
             // MainFrame.openFileOrDirectory() can dispatch to the correct backend
             String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.buildPrefixedPath(
