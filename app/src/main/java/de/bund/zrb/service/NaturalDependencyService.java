@@ -49,6 +49,8 @@ public class NaturalDependencyService {
         INCLUDE("📎 INCLUDE (Copycode)", "INCLUDE"),
         /** LOCAL USING / PARAMETER USING / GLOBAL USING → data area reference */
         USING("📦 USING (Data Area)", "USING"),
+        /** INPUT MAP / WRITE MAP → map reference */
+        INPUT_MAP("🖥 MAP (Input/Write)", "INPUT_MAP"),
         /** VIEW OF → DDM reference */
         VIEW("📊 VIEW (DDM)", "VIEW"),
         /** READ / FIND / HISTOGRAM / STORE / UPDATE / DELETE / GET → database access */
@@ -271,6 +273,17 @@ public class NaturalDependencyService {
                 if (ddm != null && !ddm.isEmpty()) {
                     return new Dependency(DependencyKind.VIEW,
                             ddm, elem.getLineNumber(), elem.getRawText(), null);
+                }
+                return null;
+            }
+
+            case NAT_INPUT:
+            case NAT_WRITE: {
+                String map = param(elem, "MAP", null);
+                if (map != null && !map.isEmpty()) {
+                    String stmtType = type == JclElementType.NAT_INPUT ? "INPUT" : "WRITE";
+                    return new Dependency(DependencyKind.INPUT_MAP,
+                            map, elem.getLineNumber(), elem.getRawText(), stmtType);
                 }
                 return null;
             }

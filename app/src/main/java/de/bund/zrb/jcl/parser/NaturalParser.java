@@ -147,12 +147,17 @@ public class NaturalParser {
     private static final Pattern REPEAT = Pattern.compile(
             "^\\s*REPEAT\\b", Pattern.CASE_INSENSITIVE);
 
-    // INPUT (USING MAP 'name' | inline)
+    // INPUT (USING MAP 'name' | MAP 'name' | inline)
     private static final Pattern INPUT = Pattern.compile(
-            "^\\s*INPUT\\s+(?:USING\\s+MAP\\s+['\"]?([A-Za-z][A-Za-z0-9_.#@$-]*)['\"]?)?",
+            "^\\s*INPUT\\s+(?:.*?(?:USING\\s+MAP|MAP)\\s+['\"]?([A-Za-z][A-Za-z0-9_.#@$-]*)['\"]?)?",
             Pattern.CASE_INSENSITIVE);
 
-    // WRITE / DISPLAY / PRINT
+    // WRITE [(...)] [NOTITLE] [NOHDR] [USING] FORM|MAP 'name'
+    private static final Pattern WRITE_MAP = Pattern.compile(
+            "^\\s*WRITE\\b.*?(?:FORM|MAP|USING\\s+(?:FORM|MAP))\\s+['\"]?([A-Za-z][A-Za-z0-9_.#@$-]*)['\"]?",
+            Pattern.CASE_INSENSITIVE);
+
+    // WRITE / DISPLAY / PRINT (general)
     private static final Pattern WRITE = Pattern.compile(
             "^\\s*(WRITE|DISPLAY|PRINT)\\b", Pattern.CASE_INSENSITIVE);
 
@@ -491,6 +496,16 @@ public class NaturalParser {
                     inp.addParameter("MAP", m.group(1));
                 }
                 model.addElement(inp);
+                continue;
+            }
+
+            // ── WRITE MAP / WRITE FORM ──────────────────────────────
+            m = WRITE_MAP.matcher(trimmed);
+            if (m.find()) {
+                JclElement wm = new JclElement(JclElementType.NAT_WRITE,
+                        "", lineNum, trimmed);
+                wm.addParameter("MAP", m.group(1));
+                model.addElement(wm);
                 continue;
             }
 

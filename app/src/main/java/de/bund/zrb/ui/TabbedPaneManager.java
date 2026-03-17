@@ -761,7 +761,7 @@ public class TabbedPaneManager {
             sentenceType = fileTab.getModel().getSentenceType();
         }
 
-        // For Natural sources, show real dependencies
+        // For Natural sources, show real dependencies (active + passive XRefs)
         if (content != null && isNaturalSource(content, sentenceType)) {
             leftDrawer.showRelationsLoading();
             final String src = content;
@@ -777,7 +777,7 @@ public class TabbedPaneManager {
                 protected void done() {
                     try {
                         de.bund.zrb.service.NaturalDependencyService.DependencyResult result = get();
-                        showDependenciesInLeftDrawer(leftDrawer, result, lib);
+                        showFullDependenciesInLeftDrawer(leftDrawer, result, lib, name);
                     } catch (Exception ex) {
                         leftDrawer.showRelationsPlaceholder("Fehler bei Abhängigkeitsanalyse: " + ex.getMessage());
                     }
@@ -806,6 +806,125 @@ public class TabbedPaneManager {
             naturalDependencyService = new de.bund.zrb.service.NaturalDependencyService();
         }
         return naturalDependencyService;
+    }
+
+    /** Dependency graph per library (lazy-built when a library is opened). */
+    private final java.util.Map<String, de.bund.zrb.service.NaturalDependencyGraph> dependencyGraphs =
+            new java.util.concurrent.ConcurrentHashMap<String, de.bund.zrb.service.NaturalDependencyGraph>();
+
+    /**
+     * Get or create a dependency graph for a library. Returns null if no NDV connection is active.
+     */
+    public de.bund.zrb.service.NaturalDependencyGraph getDependencyGraph(String library) {
+        if (library == null || library.isEmpty()) return null;
+        return dependencyGraphs.get(library.toUpperCase());
+    }
+
+    /**
+     * Build (or rebuild) a dependency graph for a library by scanning all known sources.
+     * Call this from a SwingWorker background thread when a library is first opened.
+     *
+     * @param library     library name
+     * @param sources     map of objectName → sourceCode for all objects in the library
+     * @return the built graph
+     */
+    public de.bund.zrb.service.NaturalDependencyGraph buildDependencyGraph(
+            String library, java.util.Map<String, String> sources) {
+        de.bund.zrb.service.NaturalDependencyGraph graph = new de.bund.zrb.service.NaturalDependencyGraph();
+        graph.setLibrary(library);
+
+        for (java.util.Map.Entry<String, String> entry : sources.entrySet()) {
+            graph.addSource(library, entry.getKey(), entry.getValue());
+        }
+        graph.build();
+
+        dependencyGraphs.put(library.toUpperCase(), graph);
+        return graph;
+    }
+
+    /**
+     * Show both active and passive XRefs in the LeftDrawer.
+     * Active XRefs come from the direct analysis; passive XRefs come from the library graph (if available).
+     */
+    private void showFullDependenciesInLeftDrawer(LeftDrawer leftDrawer,
+                                                   de.bund.zrb.service.NaturalDependencyService.DependencyResult result,
+                                                   String library, String sourceName) {
+        java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
+                new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
+        int totalCount = 0;
+
+        // ── Active XRefs (what this program calls) ──
+        if (!result.isEmpty()) {
+            for (java.util.Map.Entry<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
+                    java.util.List<de.bund.zrb.service.NaturalDependencyService.Dependency>> group
+                    : result.getGrouped().entrySet()) {
+
+                de.bund.zrb.service.NaturalDependencyService.DependencyKind kind = group.getKey();
+                java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+
+                for (de.bund.zrb.service.NaturalDependencyService.Dependency dep : group.getValue()) {
+                    String targetPath = buildDependencyTargetPath(dep, library);
+                    String depType = "DEPENDENCY_" + kind.getCode();
+                    entries.add(new LeftDrawer.RelationEntry(
+                            dep.getDisplayText(), targetPath, depType));
+                }
+
+                sections.put("➡ " + kind.getDisplayLabel(), entries);
+                totalCount += entries.size();
+            }
+        }
+
+        // ── Passive XRefs (who calls this program) from graph ──
+        if (library != null) {
+            de.bund.zrb.service.NaturalDependencyGraph graph = getDependencyGraph(library);
+            if (graph != null && graph.isBuilt()) {
+                // Extract object name from path (e.g. "LIBNAME/OBJNAME.NSP" → "OBJNAME")
+                String objName = extractObjectName(sourceName);
+                if (objName != null) {
+                    java.util.Map<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
+                            java.util.List<de.bund.zrb.service.NaturalDependencyGraph.CallerInfo>> callerGroups =
+                            graph.getPassiveXRefsGrouped(objName);
+
+                    if (!callerGroups.isEmpty()) {
+                        for (java.util.Map.Entry<de.bund.zrb.service.NaturalDependencyService.DependencyKind,
+                                java.util.List<de.bund.zrb.service.NaturalDependencyGraph.CallerInfo>> cgroup
+                                : callerGroups.entrySet()) {
+
+                            de.bund.zrb.service.NaturalDependencyService.DependencyKind kind = cgroup.getKey();
+                            java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+
+                            for (de.bund.zrb.service.NaturalDependencyGraph.CallerInfo caller : cgroup.getValue()) {
+                                String targetPath = (library != null && !library.isEmpty())
+                                        ? "ndv://" + library + "/" + caller.getCallerName()
+                                        : null;
+                                entries.add(new LeftDrawer.RelationEntry(
+                                        caller.getDisplayText(), targetPath, "CALLER_" + kind.getCode()));
+                            }
+
+                            sections.put("⬅ Aufgerufen von (" + kind.getCode() + ")", entries);
+                            totalCount += entries.size();
+                        }
+                    }
+                }
+            }
+        }
+
+        if (totalCount == 0) {
+            leftDrawer.showRelationsPlaceholder("Keine Abhängigkeiten gefunden.");
+        } else {
+            leftDrawer.updateRelationsGrouped("Abhängigkeiten", sections, totalCount);
+        }
+    }
+
+    /**
+     * Extract the object name from a path like "LIBNAME/OBJNAME.NSP" → "OBJNAME".
+     */
+    private String extractObjectName(String path) {
+        if (path == null) return null;
+        int slash = path.lastIndexOf('/');
+        String filename = (slash >= 0) ? path.substring(slash + 1) : path;
+        int dot = filename.lastIndexOf('.');
+        return (dot > 0) ? filename.substring(0, dot).toUpperCase() : filename.toUpperCase();
     }
 
     /**
@@ -894,6 +1013,7 @@ public class TabbedPaneManager {
             case PERFORM:
             case INCLUDE:
             case USING:
+            case INPUT_MAP:
                 if (library != null && !library.isEmpty()) {
                     return "ndv://" + library + "/" + dep.getTargetName();
                 }
