@@ -128,6 +128,9 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Global Search Tool (searches Lucene index across all sources)
         toolRegistry.registerTool(new de.bund.zrb.mcp.SearchIndexTool(this));
+
+        // Dependency Graph Search Tool (searches Natural dependency index)
+        toolRegistry.registerTool(new de.bund.zrb.mcp.SearchDependencyTool());
     }
 
     @Override

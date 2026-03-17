@@ -23,12 +23,19 @@ public class LeftDrawer extends JPanel {
     private final JTabbedPane tabbedPane;
     private final JPanel bookmarkPanel;
 
-    // ── Relations tab ──
+    // ── Relations tab (split: Dependencies top, Call Hierarchy bottom) ──
     private final JTree relationsTree;
     private final DefaultTreeModel relationsModel;
     private final DefaultMutableTreeNode relationsRoot;
     private final JPanel relationsPanel;
     private final JLabel relationsStatusLabel;
+
+    // ── Call Hierarchy sub-panel (bottom half of split) ──
+    private final JTree callHierarchyTree;
+    private final DefaultTreeModel callHierarchyModel;
+    private final DefaultMutableTreeNode callHierarchyRoot;
+    private final JLabel callHierarchyStatusLabel;
+    private final JSplitPane relationsSplitPane;
 
     /** Callback for opening a relation target (e.g. wiki link). */
     private Consumer<RelationEntry> onRelationOpen;
@@ -64,8 +71,10 @@ public class LeftDrawer extends JPanel {
 
         tabbedPane.addTab("📁 Bookmarks", bookmarkPanel);
 
-        // ── Tab 2: Relations ──
+        // ── Tab 2: Relations (split: Dependencies top, Call Hierarchy bottom) ──
         relationsPanel = new JPanel(new BorderLayout());
+
+        // === Top: Dependencies tree ===
         relationsRoot = new DefaultMutableTreeNode("Beziehungen");
         relationsModel = new DefaultTreeModel(relationsRoot);
         relationsTree = new JTree(relationsModel);
@@ -94,8 +103,59 @@ public class LeftDrawer extends JPanel {
         relationsStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         relationsStatusLabel.setFont(relationsStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
 
-        relationsPanel.add(new JScrollPane(relationsTree), BorderLayout.CENTER);
-        relationsPanel.add(relationsStatusLabel, BorderLayout.SOUTH);
+        JPanel depTopPanel = new JPanel(new BorderLayout());
+        JLabel depHeader = new JLabel("  📦 Abhängigkeiten");
+        depHeader.setFont(depHeader.getFont().deriveFont(Font.BOLD, 11f));
+        depHeader.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
+        depTopPanel.add(depHeader, BorderLayout.NORTH);
+        depTopPanel.add(new JScrollPane(relationsTree), BorderLayout.CENTER);
+        depTopPanel.add(relationsStatusLabel, BorderLayout.SOUTH);
+
+        // === Bottom: Call Hierarchy tree ===
+        callHierarchyRoot = new DefaultMutableTreeNode("Call Hierarchy");
+        callHierarchyModel = new DefaultTreeModel(callHierarchyRoot);
+        callHierarchyTree = new JTree(callHierarchyModel);
+        callHierarchyTree.setRootVisible(false);
+        callHierarchyTree.setShowsRootHandles(true);
+
+        callHierarchyTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    TreePath path = callHierarchyTree.getPathForLocation(e.getX(), e.getY());
+                    if (path != null) {
+                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                        if (node.getUserObject() instanceof RelationEntry) {
+                            RelationEntry entry = (RelationEntry) node.getUserObject();
+                            if (onRelationOpen != null) {
+                                onRelationOpen.accept(entry);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        callHierarchyStatusLabel = new JLabel(" ");
+        callHierarchyStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        callHierarchyStatusLabel.setFont(callHierarchyStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+
+        JPanel callHierarchyPanel = new JPanel(new BorderLayout());
+        JLabel callHeader = new JLabel("  📞 Call Hierarchy");
+        callHeader.setFont(callHeader.getFont().deriveFont(Font.BOLD, 11f));
+        callHeader.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
+        callHierarchyPanel.add(callHeader, BorderLayout.NORTH);
+        callHierarchyPanel.add(new JScrollPane(callHierarchyTree), BorderLayout.CENTER);
+        callHierarchyPanel.add(callHierarchyStatusLabel, BorderLayout.SOUTH);
+
+        // === Split pane (movable divider) ===
+        relationsSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, depTopPanel, callHierarchyPanel);
+        relationsSplitPane.setResizeWeight(0.6); // 60% top, 40% bottom default
+        relationsSplitPane.setDividerSize(6);
+        relationsSplitPane.setContinuousLayout(true);
+        relationsSplitPane.setOneTouchExpandable(true);
+
+        relationsPanel.add(relationsSplitPane, BorderLayout.CENTER);
 
         tabbedPane.addTab("🔗 Beziehungen", relationsPanel);
 
@@ -190,16 +250,145 @@ public class LeftDrawer extends JPanel {
     }
 
     /**
-     * Clear relations (no tab selected).
+     * Clear relations and call hierarchy (no tab selected).
      */
     public void clearRelations() {
         relationsRoot.removeAllChildren();
         relationsModel.reload();
         relationsStatusLabel.setText(" ");
+        clearCallHierarchy();
     }
 
     public void setOnRelationOpen(Consumer<RelationEntry> callback) {
         this.onRelationOpen = callback;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Call Hierarchy API (bottom half of split)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Update the call hierarchy tree with a hierarchy tree node (recursive).
+     *
+     * @param calleesRoot  call hierarchy root for callees (what this calls) — may be null
+     * @param callersRoot  call hierarchy root for callers (who calls this) — may be null
+     * @param objectName   name of the object for the status label
+     */
+    public void updateCallHierarchy(CallHierarchyData calleesRoot,
+                                    CallHierarchyData callersRoot,
+                                    String objectName) {
+        callHierarchyRoot.removeAllChildren();
+
+        int totalNodes = 0;
+
+        // ── Callees (what this program calls, recursive) ──
+        if (calleesRoot != null && !calleesRoot.getChildren().isEmpty()) {
+            DefaultMutableTreeNode calleesGroup = new DefaultMutableTreeNode(
+                    "➡ Ruft auf (" + calleesRoot.getChildren().size() + ")");
+            addHierarchyChildren(calleesGroup, calleesRoot.getChildren());
+            callHierarchyRoot.add(calleesGroup);
+            totalNodes += countNodes(calleesRoot);
+        }
+
+        // ── Callers (who calls this program, recursive) ──
+        if (callersRoot != null && !callersRoot.getChildren().isEmpty()) {
+            DefaultMutableTreeNode callersGroup = new DefaultMutableTreeNode(
+                    "⬅ Aufgerufen von (" + callersRoot.getChildren().size() + ")");
+            addHierarchyChildren(callersGroup, callersRoot.getChildren());
+            callHierarchyRoot.add(callersGroup);
+            totalNodes += countNodes(callersRoot);
+        }
+
+        if (callHierarchyRoot.getChildCount() == 0) {
+            callHierarchyRoot.add(new DefaultMutableTreeNode("(kein Call-Graph verfügbar)"));
+        }
+
+        callHierarchyModel.reload();
+        callHierarchyStatusLabel.setText(objectName != null
+                ? objectName + " — " + totalNodes + " Knoten"
+                : " ");
+
+        // Expand first two levels
+        for (int i = 0; i < Math.min(callHierarchyTree.getRowCount(), 20); i++) {
+            callHierarchyTree.expandRow(i);
+        }
+    }
+
+    /**
+     * Show a loading indicator in the call hierarchy panel.
+     */
+    public void showCallHierarchyLoading() {
+        callHierarchyRoot.removeAllChildren();
+        callHierarchyRoot.add(new DefaultMutableTreeNode("⏳ Lade Call Hierarchy…"));
+        callHierarchyModel.reload();
+        callHierarchyStatusLabel.setText(" ");
+    }
+
+    /**
+     * Clear the call hierarchy tree.
+     */
+    public void clearCallHierarchy() {
+        callHierarchyRoot.removeAllChildren();
+        callHierarchyModel.reload();
+        callHierarchyStatusLabel.setText(" ");
+    }
+
+    /**
+     * Show a placeholder message in the call hierarchy panel.
+     */
+    public void showCallHierarchyPlaceholder(String message) {
+        callHierarchyRoot.removeAllChildren();
+        callHierarchyRoot.add(new DefaultMutableTreeNode(message));
+        callHierarchyModel.reload();
+        callHierarchyStatusLabel.setText(" ");
+    }
+
+    private void addHierarchyChildren(DefaultMutableTreeNode parent, List<CallHierarchyData> children) {
+        for (CallHierarchyData child : children) {
+            // Create a RelationEntry so double-click navigation works
+            RelationEntry entry = new RelationEntry(
+                    child.getDisplayText(),
+                    child.getTargetPath(),
+                    child.isRecursive() ? "CALL_RECURSIVE" : "CALL_HIERARCHY"
+            );
+            DefaultMutableTreeNode node = new DefaultMutableTreeNode(entry);
+            if (!child.getChildren().isEmpty()) {
+                addHierarchyChildren(node, child.getChildren());
+            }
+            parent.add(node);
+        }
+    }
+
+    private int countNodes(CallHierarchyData node) {
+        int count = 0;
+        for (CallHierarchyData child : node.getChildren()) {
+            count += 1 + countNodes(child);
+        }
+        return count;
+    }
+
+    /**
+     * Data model for a single node in the call hierarchy tree (UI-agnostic).
+     * Created by TabbedPaneManager from NaturalDependencyGraph.CallHierarchyNode.
+     */
+    public static class CallHierarchyData {
+        private final String displayText;
+        private final String targetPath;   // e.g. "ndv://LIB/OBJECT"
+        private final boolean recursive;
+        private final List<CallHierarchyData> children;
+
+        public CallHierarchyData(String displayText, String targetPath, boolean recursive,
+                                 List<CallHierarchyData> children) {
+            this.displayText = displayText;
+            this.targetPath = targetPath;
+            this.recursive = recursive;
+            this.children = children != null ? children : java.util.Collections.<CallHierarchyData>emptyList();
+        }
+
+        public String getDisplayText() { return displayText; }
+        public String getTargetPath() { return targetPath; }
+        public boolean isRecursive() { return recursive; }
+        public List<CallHierarchyData> getChildren() { return children; }
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -761,9 +761,10 @@ public class TabbedPaneManager {
             sentenceType = fileTab.getModel().getSentenceType();
         }
 
-        // For Natural sources, show real dependencies (active + passive XRefs)
+        // For Natural sources, show real dependencies (active + passive XRefs) + call hierarchy
         if (content != null && isNaturalSource(content, sentenceType)) {
             leftDrawer.showRelationsLoading();
+            leftDrawer.showCallHierarchyLoading();
             final String src = content;
             final String name = sourceName;
             final String lib = extractLibrary(tab);
@@ -778,8 +779,11 @@ public class TabbedPaneManager {
                     try {
                         de.bund.zrb.service.NaturalDependencyService.DependencyResult result = get();
                         showFullDependenciesInLeftDrawer(leftDrawer, result, lib, name);
+                        // Also populate call hierarchy from graph (if available)
+                        populateCallHierarchy(leftDrawer, lib, name);
                     } catch (Exception ex) {
                         leftDrawer.showRelationsPlaceholder("Fehler bei Abhängigkeitsanalyse: " + ex.getMessage());
+                        leftDrawer.clearCallHierarchy();
                     }
                 }
             }.execute();
@@ -813,16 +817,46 @@ public class TabbedPaneManager {
             new java.util.concurrent.ConcurrentHashMap<String, de.bund.zrb.service.NaturalDependencyGraph>();
 
     /**
-     * Get or create a dependency graph for a library. Returns null if no NDV connection is active.
+     * Get or create a dependency graph for a library.
+     * Checks in-memory cache first, then Lucene persistent cache.
+     * Returns null if no data is available.
      */
     public de.bund.zrb.service.NaturalDependencyGraph getDependencyGraph(String library) {
         if (library == null || library.isEmpty()) return null;
-        return dependencyGraphs.get(library.toUpperCase());
+        String key = library.toUpperCase();
+
+        // In-memory cache
+        de.bund.zrb.service.NaturalDependencyGraph graph = dependencyGraphs.get(key);
+        if (graph != null) return graph;
+
+        // Try Lucene persistent cache
+        try {
+            graph = de.bund.zrb.service.LuceneDependencyIndex.getInstance().restoreGraph(key);
+            if (graph != null) {
+                dependencyGraphs.put(key, graph);
+                return graph;
+            }
+        } catch (Exception e) {
+            System.err.println("[TabbedPaneManager] Failed to restore graph from Lucene: " + e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Register an externally-built dependency graph in the in-memory cache.
+     * Called from NdvConnectionTab after building or restoring a graph.
+     */
+    public void registerDependencyGraph(String library, de.bund.zrb.service.NaturalDependencyGraph graph) {
+        if (library != null && graph != null) {
+            dependencyGraphs.put(library.toUpperCase(), graph);
+        }
     }
 
     /**
      * Build (or rebuild) a dependency graph for a library by scanning all known sources.
      * Call this from a SwingWorker background thread when a library is first opened.
+     * Persists the result to the Lucene dependency index for caching.
      *
      * @param library     library name
      * @param sources     map of objectName → sourceCode for all objects in the library
@@ -839,6 +873,14 @@ public class TabbedPaneManager {
         graph.build();
 
         dependencyGraphs.put(library.toUpperCase(), graph);
+
+        // Persist to Lucene cache for offline availability + AI search
+        try {
+            de.bund.zrb.service.LuceneDependencyIndex.getInstance().storeGraph(graph);
+        } catch (Exception e) {
+            System.err.println("[TabbedPaneManager] Failed to persist dependency graph to Lucene: " + e.getMessage());
+        }
+
         return graph;
     }
 
@@ -925,6 +967,76 @@ public class TabbedPaneManager {
         String filename = (slash >= 0) ? path.substring(slash + 1) : path;
         int dot = filename.lastIndexOf('.');
         return (dot > 0) ? filename.substring(0, dot).toUpperCase() : filename.toUpperCase();
+    }
+
+    /**
+     * Populate the Call Hierarchy (bottom split) from the library's dependency graph.
+     * Shows both callees (what this calls, recursive) and callers (who calls this, recursive).
+     */
+    private void populateCallHierarchy(LeftDrawer leftDrawer, String library, String sourceName) {
+        if (library == null) {
+            leftDrawer.showCallHierarchyPlaceholder("Bibliothek unbekannt — kein Call-Graph.");
+            return;
+        }
+
+        de.bund.zrb.service.NaturalDependencyGraph graph = getDependencyGraph(library);
+
+        // Try restoring from Lucene cache if not yet in memory
+        if (graph == null || !graph.isBuilt()) {
+            graph = de.bund.zrb.service.LuceneDependencyIndex.getInstance().restoreGraph(library);
+            if (graph != null) {
+                dependencyGraphs.put(library.toUpperCase(), graph);
+            }
+        }
+
+        if (graph == null || !graph.isBuilt()) {
+            leftDrawer.showCallHierarchyPlaceholder(
+                    "Graph wird beim Öffnen der Bibliothek erstellt.\n" +
+                    "Öffnen Sie den NDV-Browser und navigieren Sie zur Bibliothek.");
+            return;
+        }
+
+        String objName = extractObjectName(sourceName);
+        if (objName == null) {
+            leftDrawer.clearCallHierarchy();
+            return;
+        }
+
+        // Build callee hierarchy (what this calls, max depth 5)
+        de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode calleesNode =
+                graph.getCallHierarchy(objName, true, 5);
+        LeftDrawer.CallHierarchyData calleesData = convertHierarchyNode(calleesNode, library);
+
+        // Build caller hierarchy (who calls this, max depth 5)
+        de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode callersNode =
+                graph.getCallHierarchy(objName, false, 5);
+        LeftDrawer.CallHierarchyData callersData = convertHierarchyNode(callersNode, library);
+
+        leftDrawer.updateCallHierarchy(calleesData, callersData, objName);
+    }
+
+    /**
+     * Convert a NaturalDependencyGraph.CallHierarchyNode to a LeftDrawer.CallHierarchyData (UI model).
+     */
+    private LeftDrawer.CallHierarchyData convertHierarchyNode(
+            de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode node, String library) {
+
+        java.util.List<LeftDrawer.CallHierarchyData> children =
+                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        for (de.bund.zrb.service.NaturalDependencyGraph.CallHierarchyNode child : node.getChildren()) {
+            children.add(convertHierarchyNode(child, library));
+        }
+
+        String targetPath = (library != null && !library.isEmpty())
+                ? "ndv://" + library + "/" + node.getObjectName()
+                : null;
+
+        return new LeftDrawer.CallHierarchyData(
+                node.getDisplayText(),
+                targetPath,
+                node.isRecursive(),
+                children
+        );
     }
 
     /**

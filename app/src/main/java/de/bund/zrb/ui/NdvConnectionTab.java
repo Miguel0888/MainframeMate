@@ -406,6 +406,9 @@ public class NdvConnectionTab implements ConnectionTab {
                     }
                     // Auto-open pending object from bookmark
                     autoOpenPendingObject();
+
+                    // Build dependency graph in background (if not already cached)
+                    triggerDependencyGraphBuild(currentLibrary);
                 } catch (Exception e) {
                     if (!allItems.isEmpty()) {
                         // Partial results available
@@ -459,6 +462,105 @@ public class NdvConnectionTab implements ConnectionTab {
         } else if (currentLibrary != null) {
             openLibraryInternal(currentLibrary);
         }
+    }
+
+    /**
+     * Build the dependency graph for the current library in a background thread.
+     * Checks Lucene cache first — if a recent graph exists, skips the expensive
+     * server download. Stores the result in both in-memory and Lucene caches.
+     */
+    private void triggerDependencyGraphBuild(final String library) {
+        if (library == null || library.isEmpty()) return;
+
+        // Check if already in-memory
+        de.bund.zrb.service.NaturalDependencyGraph existing =
+                tabbedPaneManager.getDependencyGraph(library);
+        if (existing != null && existing.isBuilt()) {
+            System.out.println("[NdvConnectionTab] Graph already in memory for: " + library);
+            return;
+        }
+
+        // Check Lucene cache (fast — no server access needed)
+        final de.bund.zrb.service.LuceneDependencyIndex depIndex =
+                de.bund.zrb.service.LuceneDependencyIndex.getInstance();
+        if (depIndex.hasLibrary(library)) {
+            long buildTime = depIndex.getLibraryBuildTime(library);
+            long ageHours = (System.currentTimeMillis() - buildTime) / (1000 * 60 * 60);
+            if (ageHours < 24) {
+                // Cache is recent enough, restore from Lucene in background
+                new SwingWorker<de.bund.zrb.service.NaturalDependencyGraph, Void>() {
+                    @Override
+                    protected de.bund.zrb.service.NaturalDependencyGraph doInBackground() {
+                        return depIndex.restoreGraph(library);
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+                            de.bund.zrb.service.NaturalDependencyGraph graph = get();
+                            if (graph != null) {
+                                // Register in TabbedPaneManager's memory cache
+                                tabbedPaneManager.registerDependencyGraph(library, graph);
+                                statusLabel.setText(statusLabel.getText()
+                                        + "  |  🔗 Graph aus Cache geladen");
+                            }
+                        } catch (Exception e) {
+                            System.err.println("[NdvConnectionTab] Cache restore failed: " + e.getMessage());
+                        }
+                    }
+                }.execute();
+                return;
+            }
+        }
+
+        // Build fresh from server
+        new SwingWorker<de.bund.zrb.service.NaturalDependencyGraph, String>() {
+            @Override
+            protected de.bund.zrb.service.NaturalDependencyGraph doInBackground() throws Exception {
+                de.bund.zrb.service.NaturalDependencyGraphBuilder builder =
+                        new de.bund.zrb.service.NaturalDependencyGraphBuilder(service);
+                return builder.buildForLibrary(library,
+                        new de.bund.zrb.service.NaturalDependencyGraphBuilder.ProgressCallback() {
+                            @Override
+                            public void onProgress(int current, int total, String objectName) {
+                                publish("🔗 Graph: " + current + "/" + total + " " + objectName);
+                            }
+
+                            @Override
+                            public void onComplete(de.bund.zrb.service.NaturalDependencyGraph graph) {
+                                // stored via done()
+                            }
+
+                            @Override
+                            public void onError(String message, Exception e) {
+                                publish("⚠ Graph-Fehler: " + message);
+                            }
+                        });
+            }
+
+            @Override
+            protected void process(java.util.List<String> messages) {
+                if (!messages.isEmpty()) {
+                    statusLabel.setText(messages.get(messages.size() - 1));
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    de.bund.zrb.service.NaturalDependencyGraph graph = get();
+                    if (graph != null && graph.isBuilt()) {
+                        tabbedPaneManager.registerDependencyGraph(library, graph);
+                        // Persist to Lucene
+                        depIndex.storeGraph(graph);
+                        statusLabel.setText(statusLabel.getText()
+                                + "  |  🔗 " + graph.getKnownSources().size() + " Quellen analysiert");
+                    }
+                } catch (Exception e) {
+                    System.err.println("[NdvConnectionTab] Graph build failed: " + e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     // ==================== Double-click handling ====================

@@ -178,6 +178,20 @@ public class NaturalDependencyGraph {
     }
 
     /**
+     * Add pre-analyzed dependencies from cache (e.g. restored from Lucene index).
+     * Use this instead of {@link #addSource} when source code is not available.
+     * Call {@link #build()} after all cached deps are added to compute passive XRefs.
+     *
+     * @param objectName object name (e.g. "MYPROG")
+     * @param dependencies pre-analyzed dependency list
+     */
+    public void addCachedDependencies(String objectName, List<Dependency> dependencies) {
+        String key = objectName.toUpperCase();
+        knownSources.add(key);
+        activeXRefs.put(key, new DependencyResult(objectName, dependencies));
+    }
+
+    /**
      * Add a source object to the graph. Parses immediately for active XRefs.
      * Call {@link #build()} after adding all sources to compute passive XRefs.
      *
