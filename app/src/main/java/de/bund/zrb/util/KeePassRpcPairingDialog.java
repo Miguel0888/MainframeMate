@@ -259,13 +259,9 @@ public final class KeePassRpcPairingDialog {
                 .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
 
-        final java.util.concurrent.CountDownLatch connectLatch =
-                new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.CountDownLatch responseLatch =
+        final java.util.concurrent.CountDownLatch latch =
                 new java.util.concurrent.CountDownLatch(1);
         final AtomicReference<String> error = new AtomicReference<String>(null);
-        final AtomicReference<String> lastMessage = new AtomicReference<String>(null);
-        final AtomicReference<okhttp3.WebSocket> wsRef = new AtomicReference<okhttp3.WebSocket>(null);
 
         okhttp3.Request req = new okhttp3.Request.Builder()
                 .url("ws://" + host + ":" + port + "/")
@@ -274,11 +270,8 @@ public final class KeePassRpcPairingDialog {
         okhttp3.WebSocket ws = client.newWebSocket(req, new okhttp3.WebSocketListener() {
             @Override
             public void onOpen(okhttp3.WebSocket webSocket, okhttp3.Response response) {
-                wsRef.set(webSocket);
-                connectLatch.countDown();
-
-                // KeePassRPC does NOT send a hello — client must send first message.
-                // Send SRP identifyToServer immediately in onOpen to trigger pairing dialog.
+                // Connection succeeded — send SRP identifyToServer to trigger
+                // KeePass pairing dialog, then signal the main thread.
                 try {
                     String clientId = "MainframeMate-" + Long.toHexString(System.currentTimeMillis());
 
@@ -316,22 +309,21 @@ public final class KeePassRpcPairingDialog {
                     LOG.fine("[KeePassRPC Pairing] SRP identifyToServer sent (clientId=" + clientId + ", ok=" + sent + ")");
 
                     if (!sent) {
-                        error.set("Nachricht konnte nicht gesendet werden — WebSocket war bereits geschlossen.");
-                        responseLatch.countDown();
+                        error.set("SRP-Nachricht konnte nicht gesendet werden.");
                     }
                 } catch (Exception ex) {
                     LOG.warning("[KeePassRPC Pairing] Failed to send SRP initiate: " + ex.getMessage());
                     error.set("Fehler beim Senden der Client-Identifikation: " + ex.getMessage());
-                    responseLatch.countDown();
                 }
+                latch.countDown();
             }
 
             @Override
             public void onMessage(okhttp3.WebSocket webSocket, String text) {
                 LOG.fine("[KeePassRPC Pairing] Server message: "
                         + (text.length() > 100 ? text.substring(0, 100) + "…" : text));
-                lastMessage.set(text);
-                responseLatch.countDown();
+                // Server responded — pairing dialog should be showing
+                latch.countDown();
             }
 
             @Override
@@ -339,14 +331,12 @@ public final class KeePassRpcPairingDialog {
                 String detail = t.getMessage() != null ? t.getMessage() : t.toString();
                 error.set("Verbindung fehlgeschlagen: " + detail
                         + "\nIst KeePass mit KeePassRPC auf Port " + port + " gestartet?");
-                connectLatch.countDown();
-                responseLatch.countDown();
+                latch.countDown();
             }
         });
 
-        // ── Phase 1: wait for connect + SRP send (happens in onOpen) ──
         try {
-            if (!connectLatch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!latch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
                 ws.close(1000, "timeout");
                 return "Timeout — keine Antwort von KeePassRPC auf Port " + port + ".";
             }
@@ -357,35 +347,19 @@ public final class KeePassRpcPairingDialog {
 
         String err = error.get();
         if (err != null) {
+            ws.close(1000, "error");
             return err;
         }
 
-        // ── Phase 2: wait for server response to confirm pairing dialog was shown ──
+        // Give KeePass a moment to process SRP and show pairing dialog,
+        // then CLOSE the WebSocket so the port is free for testSrpKey().
         try {
-            boolean gotResponse = responseLatch.await(8, java.util.concurrent.TimeUnit.SECONDS);
-            if (gotResponse) {
-                String resp = lastMessage.get();
-                LOG.fine("[KeePassRPC Pairing] Server responded to SRP initiate: "
-                        + (resp != null && resp.length() > 100 ? resp.substring(0, 100) + "…" : resp));
-
-                // Check if server sent an error
-                if (resp != null && resp.contains("\"error\"") && resp.contains("VERSION_CLIENT_TOO_LOW")) {
-                    return "KeePassRPC-Version nicht kompatibel. Bitte KeePassRPC-Plugin aktualisieren.";
-                }
-            } else {
-                LOG.fine("[KeePassRPC Pairing] No response to SRP initiate within 8s — "
-                        + "KeePass may be showing the pairing dialog and waiting for user input.");
-            }
+            Thread.sleep(1500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        ws.close(1000, "pairing trigger done");
 
-        err = error.get();
-        if (err != null) {
-            return err;
-        }
-
-        // Leave WebSocket open so KeePass keeps the dialog visible
         return null;
     }
 
