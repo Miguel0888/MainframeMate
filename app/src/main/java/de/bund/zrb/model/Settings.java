@@ -50,11 +50,26 @@ public class Settings {
     /** Shared SRP key for KeePassRPC authentication (from KeePass pairing dialog). */
     public String keepassRpcKey = "";
 
+    /** Origin scheme prefix for WebSocket connections to KeePassRPC (e.g. "chrome-extension://"). */
+    public String keepassRpcOriginScheme = "chrome-extension://";
+
+    /** Origin identifier appended to the scheme (e.g. "mainframemate" or a UUID). */
+    public String keepassRpcOriginId = "mainframemate";
+
     /** Returns the effective RPC host, falling back to {@link #DEFAULT_RPC_HOST} if null/empty. */
     public String getEffectiveRpcHost() {
         return (keepassRpcHost != null && !keepassRpcHost.trim().isEmpty())
                 ? keepassRpcHost.trim()
                 : DEFAULT_RPC_HOST;
+    }
+
+    /** Returns the full Origin header value for KeePassRPC WebSocket connections. */
+    public String getEffectiveRpcOrigin() {
+        String scheme = (keepassRpcOriginScheme != null && !keepassRpcOriginScheme.isEmpty())
+                ? keepassRpcOriginScheme : "chrome-extension://";
+        String id = (keepassRpcOriginId != null && !keepassRpcOriginId.isEmpty())
+                ? keepassRpcOriginId : "mainframemate";
+        return scheme + id;
     }
 
     public boolean lockEnabled = true;

@@ -40,6 +40,8 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JTextField keepassRpcHostField;
     private final JSpinner keepassRpcPortSpinner;
     private final JPasswordField keepassRpcKeyField;
+    private final JComboBox<String> keepassRpcOriginSchemeBox;
+    private final JTextField keepassRpcOriginIdField;
     private final JPanel keepassPsPanel;
     private final JPanel keepassRpcPanel;
     private final JCheckBox historyEnabledBox;
@@ -146,6 +148,23 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         keepassRpcPortSpinner = new JSpinner(new SpinnerNumberModel(settings.keepassRpcPort, 1, 65535, 1));
         keepassRpcKeyField = new JPasswordField(safe(settings.keepassRpcKey), 30);
 
+        keepassRpcOriginSchemeBox = new JComboBox<>(new String[]{
+                "chrome-extension://", "moz-extension://", "safari-web-extension://",
+                "ms-browser-extension://", "resource://gre-resources/"
+        });
+        String savedScheme = safe(settings.keepassRpcOriginScheme);
+        if (!savedScheme.isEmpty()) {
+            keepassRpcOriginSchemeBox.setSelectedItem(savedScheme);
+            // if the saved value isn't in the list, add it
+            if (!savedScheme.equals(keepassRpcOriginSchemeBox.getSelectedItem())) {
+                keepassRpcOriginSchemeBox.addItem(savedScheme);
+                keepassRpcOriginSchemeBox.setSelectedItem(savedScheme);
+            }
+        }
+        keepassRpcOriginSchemeBox.setEditable(true);
+        keepassRpcOriginIdField = new JTextField(safe(settings.keepassRpcOriginId).isEmpty()
+                ? "mainframemate" : settings.keepassRpcOriginId, 18);
+
         boolean isRpc = "RPC".equalsIgnoreCase(settings.keepassAccessMethod);
         keepassAccessMethodBox.setSelectedIndex(isRpc ? 1 : 0);
 
@@ -228,7 +247,36 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         rpcHint.setForeground(java.awt.Color.GRAY);
         keepassRpcPanel.add(rpcHint, rc);
 
-        rc.gridy = 4; rc.gridx = 0; rc.gridwidth = 2;
+        // Origin row
+        rc.gridy = 4; rc.gridwidth = 1;
+        rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
+        keepassRpcPanel.add(new JLabel("Origin:"), rc);
+
+        rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
+        JPanel originPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints oc = new GridBagConstraints();
+        oc.insets = new Insets(0, 0, 0, 3);
+        oc.gridy = 0;
+        oc.gridx = 0; oc.fill = GridBagConstraints.NONE; oc.weightx = 0;
+        originPanel.add(keepassRpcOriginSchemeBox, oc);
+        oc.gridx = 1; oc.fill = GridBagConstraints.HORIZONTAL; oc.weightx = 1;
+        originPanel.add(keepassRpcOriginIdField, oc);
+        oc.gridx = 2; oc.fill = GridBagConstraints.NONE; oc.weightx = 0;
+        JButton uuidButton = new JButton("\uD83C\uDFB2"); // 🎲
+        uuidButton.setMargin(new Insets(2, 6, 2, 6));
+        uuidButton.setToolTipText("Zufällige UUID generieren");
+        uuidButton.addActionListener(e ->
+                keepassRpcOriginIdField.setText(java.util.UUID.randomUUID().toString()));
+        originPanel.add(uuidButton, oc);
+        keepassRpcPanel.add(originPanel, rc);
+
+        rc.gridy = 5; rc.gridx = 0; rc.gridwidth = 2;
+        JLabel originHint = new JLabel("<html><small>KeePassRPC prüft den Origin-Header. "
+                + "Standardmäßig sind Browser-Extensions (chrome-extension://, moz-extension://, …) erlaubt.</small></html>");
+        originHint.setForeground(java.awt.Color.GRAY);
+        keepassRpcPanel.add(originHint, rc);
+
+        rc.gridy = 6; rc.gridx = 0; rc.gridwidth = 2;
         rc.fill = GridBagConstraints.NONE; rc.anchor = GridBagConstraints.WEST;
         JButton pairingButton = new JButton("🔗 Pairing starten…");
         pairingButton.setToolTipText("Startet den KeePassRPC-Pairing-Dialog zum automatischen Setzen des SRP-Schlüssels");
@@ -370,6 +418,8 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.keepassRpcHost = keepassRpcHostField.getText().trim();
         s.keepassRpcPort = ((Number) keepassRpcPortSpinner.getValue()).intValue();
         s.keepassRpcKey = new String(keepassRpcKeyField.getPassword()).trim();
+        s.keepassRpcOriginScheme = String.valueOf(keepassRpcOriginSchemeBox.getSelectedItem()).trim();
+        s.keepassRpcOriginId = keepassRpcOriginIdField.getText().trim();
         s.historyEnabled = historyEnabledBox.isSelected();
         s.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
         s.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();

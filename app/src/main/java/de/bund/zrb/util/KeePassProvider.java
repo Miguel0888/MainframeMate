@@ -456,7 +456,8 @@ final class KeePassProvider {
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
                 settings.getEffectiveRpcHost(), settings.keepassRpcPort,
-                "MainframeMate", settings.keepassRpcKey.trim());
+                "MainframeMate", settings.keepassRpcKey.trim(),
+                settings.getEffectiveRpcOrigin());
         try {
             client.connect();
             String entry = settings.keepassEntryTitle.trim();
@@ -474,7 +475,8 @@ final class KeePassProvider {
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
                 settings.getEffectiveRpcHost(), settings.keepassRpcPort,
-                "MainframeMate", settings.keepassRpcKey.trim());
+                "MainframeMate", settings.keepassRpcKey.trim(),
+                settings.getEffectiveRpcOrigin());
         try {
             client.connect();
             return client.listEntries();

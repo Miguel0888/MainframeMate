@@ -37,6 +37,7 @@ public final class KeePassRpcPairingDialog {
         Settings settings = SettingsHelper.load();
         int port = settings.keepassRpcPort;
         String host = settings.getEffectiveRpcHost();
+        String origin = settings.getEffectiveRpcOrigin();
 
         // Build dialog content
         JPanel panel = new JPanel(new GridBagLayout());
@@ -120,7 +121,7 @@ public final class KeePassRpcPairingDialog {
             new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() {
-                    return triggerPairingDialog(host, port);
+                    return triggerPairingDialog(host, port, origin);
                 }
 
                 @Override
@@ -172,7 +173,7 @@ public final class KeePassRpcPairingDialog {
             new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() {
-                    return testSrpKey(host, port, key);
+                    return testSrpKey(host, port, key, origin);
                 }
 
                 @Override
@@ -233,7 +234,7 @@ public final class KeePassRpcPairingDialog {
      *
      * @return {@code null} on success, or an error message
      */
-    private static String triggerPairingDialog(String configuredHost, int port) {
+    private static String triggerPairingDialog(String configuredHost, int port, String origin) {
         // Build ordered candidate list: configured host first, then fallbacks (LinkedHashSet skips duplicates)
         java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<String>();
         candidates.add(configuredHost);
@@ -242,7 +243,7 @@ public final class KeePassRpcPairingDialog {
 
         String lastError = null;
         for (String host : candidates) {
-            String result = attemptTrigger(host, port);
+            String result = attemptTrigger(host, port, origin);
             if (result == null) {
                 return null; // success
             }
@@ -253,7 +254,7 @@ public final class KeePassRpcPairingDialog {
         return lastError;
     }
 
-    private static String attemptTrigger(String host, int port) {
+    private static String attemptTrigger(String host, int port, String origin) {
         final java.util.concurrent.CountDownLatch latch =
                 new java.util.concurrent.CountDownLatch(1);
         final AtomicReference<String> error = new AtomicReference<String>(null);
@@ -337,6 +338,7 @@ public final class KeePassRpcPairingDialog {
             }
         };
 
+        ws.addHeader("Origin", origin);
         ws.setConnectionLostTimeout(0); // disable ping — KeePassRPC doesn't support it
         try {
             ws.connectBlocking(5, java.util.concurrent.TimeUnit.SECONDS);
@@ -379,8 +381,8 @@ public final class KeePassRpcPairingDialog {
      *
      * @return {@code null} on success, or an error message
      */
-    private static String testSrpKey(String host, int port, String srpKey) {
-        KeePassRpcClient client = new KeePassRpcClient(host, port, "MainframeMate", srpKey);
+    private static String testSrpKey(String host, int port, String srpKey, String origin) {
+        KeePassRpcClient client = new KeePassRpcClient(host, port, "MainframeMate", srpKey, origin);
         try {
             client.connect();
             return null; // success

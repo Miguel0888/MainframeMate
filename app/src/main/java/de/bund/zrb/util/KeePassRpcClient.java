@@ -67,6 +67,7 @@ final class KeePassRpcClient {
     private final int port;
     private final String clientId;
     private final String srpKey;          // shared pairing key (the "password" for SRP)
+    private final String origin;          // Origin header for WebSocket handshake
 
     private WebSocketClient ws;
     private final AtomicInteger rpcId = new AtomicInteger(1);
@@ -78,11 +79,12 @@ final class KeePassRpcClient {
     private final AtomicReference<String> mailbox = new AtomicReference<String>();
     private volatile CountDownLatch latch;
 
-    KeePassRpcClient(String host, int port, String clientId, String srpKey) {
+    KeePassRpcClient(String host, int port, String clientId, String srpKey, String origin) {
         this.host = host;
         this.port = port;
         this.clientId = clientId;
         this.srpKey = srpKey;
+        this.origin = (origin != null && !origin.isEmpty()) ? origin : "chrome-extension://mainframemate";
     }
 
     // ── Public API ──────────────────────────────────────────────────────
@@ -131,9 +133,7 @@ final class KeePassRpcClient {
         // KeePassRPC validates the Origin header — connections without a permitted
         // origin are silently rejected.  The default whitelist includes the browser-
         // extension prefixes (chrome-extension://, moz-extension://, …).
-        // We use "chrome-extension://mainframemate" so the handshake passes without
-        // requiring the user to reconfigure KeePassRPC's PermittedOrigins.
-        ws.addHeader("Origin", "chrome-extension://mainframemate");
+        ws.addHeader("Origin", origin);
         ws.setConnectionLostTimeout(0);
 
         try {
