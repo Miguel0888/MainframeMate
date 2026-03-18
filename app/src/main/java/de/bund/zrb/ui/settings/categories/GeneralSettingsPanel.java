@@ -221,6 +221,21 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         rpcHint.setForeground(java.awt.Color.GRAY);
         keepassRpcPanel.add(rpcHint, rc);
 
+        rc.gridy = 3; rc.gridx = 0; rc.gridwidth = 2;
+        rc.fill = GridBagConstraints.NONE; rc.anchor = GridBagConstraints.WEST;
+        JButton pairingButton = new JButton("🔗 Pairing starten…");
+        pairingButton.setToolTipText("Startet den KeePassRPC-Pairing-Dialog zum automatischen Setzen des SRP-Schlüssels");
+        pairingButton.addActionListener(e -> {
+            String key = de.bund.zrb.util.KeePassRpcPairingDialog.showAndPair();
+            if (key != null && !key.trim().isEmpty()) {
+                keepassRpcKeyField.setText(key);
+                JOptionPane.showMessageDialog(this,
+                        "Pairing erfolgreich! Der SRP-Schlüssel wurde übernommen.",
+                        "KeePassRPC", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+        keepassRpcPanel.add(pairingButton, rc);
+
         kc.gridy = 4; kc.gridx = 0; kc.gridwidth = 3;
         kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
         keepassConfigPanel.add(keepassRpcPanel, kc);

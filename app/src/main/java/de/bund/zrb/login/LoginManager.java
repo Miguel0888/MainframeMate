@@ -182,10 +182,11 @@ public class LoginManager {
     }
 
     public String requestFreshPassword(String host, String username) {
-        Settings settings = SettingsHelper.load();
-
         // Ensure cached/stored password is not reused for this host/user
         invalidatePassword(host, username);
+
+        // Load settings AFTER invalidation so encryptedPassword is null
+        Settings settings = SettingsHelper.load();
 
         return requestCredentialsAndPersist(host, username, settings);
     }

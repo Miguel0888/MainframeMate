@@ -303,6 +303,10 @@ public final class VirtualResourceOpener {
                     tabManager, host, user, password, settings.encoding);
             tabManager.addTab(tab);
 
+            // Mark login as successful immediately after connection is confirmed working
+            // (before loadDirectory, which could fail independently)
+            LoginManager.getInstance().onLoginSuccess(host, user);
+
             // Determine initial path
             String initialPath = resource.getResolvedPath();
 
@@ -335,8 +339,6 @@ public final class VirtualResourceOpener {
                 tab.loadDirectory(initialPath);
             }
 
-            // Mark login as successful
-            LoginManager.getInstance().onLoginSuccess(host, user);
 
             return tab;
         } catch (IOException e) {
