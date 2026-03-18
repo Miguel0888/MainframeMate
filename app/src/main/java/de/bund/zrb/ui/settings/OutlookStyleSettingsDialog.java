@@ -183,21 +183,7 @@ public class OutlookStyleSettingsDialog extends JDialog {
             }
         }
         for (SettingsCategory cat : categories) {
-            try {
-                cat.apply();
-            } catch (de.bund.zrb.util.JnaBlockedException ex) {
-                JOptionPane.showMessageDialog(this,
-                        ex.getMessage(),
-                        "Verschlüsselung blockiert",
-                        JOptionPane.ERROR_MESSAGE);
-                return false;
-            } catch (de.bund.zrb.util.PowerShellBlockedException ex) {
-                JOptionPane.showMessageDialog(this,
-                        ex.getMessage(),
-                        "Verschlüsselung blockiert",
-                        JOptionPane.ERROR_MESSAGE);
-                return false;
-            }
+            cat.apply();
         }
         applied = true;
         return true;

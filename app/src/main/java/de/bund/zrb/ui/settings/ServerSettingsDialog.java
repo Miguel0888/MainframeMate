@@ -115,17 +115,7 @@ public class ServerSettingsDialog {
         } else if (!passStr.equals("********") && passChars.length > 0) {
             // User entered a new password (not the placeholder)
             if (settings.savePassword) {
-                try {
-                    settings.encryptedPassword = WindowsCryptoUtil.encrypt(passStr);
-                } catch (de.bund.zrb.util.JnaBlockedException e) {
-                    JOptionPane.showMessageDialog(parent, e.getMessage(),
-                            "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE);
-                    return;
-                } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-                    JOptionPane.showMessageDialog(parent, e.getMessage(),
-                            "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
+                settings.encryptedPassword = WindowsCryptoUtil.encrypt(passStr);
             } else {
                 settings.encryptedPassword = null;
             }

@@ -75,10 +75,6 @@ public final class JesFtpJobSubmitter {
                     .orElseThrow(() -> new JesSubmitException("Keine Anmeldeinformationen verfügbar."));
         } catch (JesSubmitException e) {
             throw e;
-        } catch (de.bund.zrb.util.JnaBlockedException e) {
-            throw e; // must not be swallowed — user needs to switch password method
-        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-            throw e; // must not be swallowed — user needs to switch password method
         } catch (Exception e) {
             throw new JesSubmitException("Fehler beim Auflösen der Anmeldeinformationen: " + e.getMessage(), e);
         }

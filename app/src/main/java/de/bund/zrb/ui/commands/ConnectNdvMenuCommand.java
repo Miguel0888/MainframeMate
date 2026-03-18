@@ -63,18 +63,7 @@ public class ConnectNdvMenuCommand extends ShortcutMenuCommand {
         String defaultLibrary = settings.ndvDefaultLibrary != null ? settings.ndvDefaultLibrary.trim() : "";
 
         // Get password via LoginManager (cached, stored, or interactive prompt)
-        String password;
-        try {
-            password = LoginManager.getInstance().getPassword(host, user);
-        } catch (de.bund.zrb.util.JnaBlockedException e) {
-            JOptionPane.showMessageDialog(parent, e.getMessage(),
-                    "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE);
-            return;
-        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-            JOptionPane.showMessageDialog(parent, e.getMessage(),
-                    "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        String password = LoginManager.getInstance().getPassword(host, user);
         if (password == null || password.isEmpty()) {
             // User cancelled the password dialog
             return;

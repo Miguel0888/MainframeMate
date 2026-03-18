@@ -596,14 +596,6 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 model.resetChanged();
                 tabbedPaneManager.updateTitleFor(this);
             }
-        } catch (de.bund.zrb.util.JnaBlockedException e) {
-            JOptionPane.showMessageDialog(this,
-                    e.getMessage(),
-                    "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE);
-        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-            JOptionPane.showMessageDialog(this,
-                    e.getMessage(),
-                    "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                     "Fehler beim Speichern (FileService):\n" + e.getMessage(),
@@ -686,16 +678,6 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 System.out.println("[FileTabImpl] Upload successful: " + selected.getName() +
                         " (" + fileBytes.length + " bytes) → " + resolvedPath);
 
-            } catch (de.bund.zrb.util.JnaBlockedException e) {
-                SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(this,
-                                e.getMessage(),
-                                "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE));
-            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-                SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(this,
-                                e.getMessage(),
-                                "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE));
             } catch (Exception e) {
                 System.err.println("[FileTabImpl] Upload failed: " + e.getMessage());
                 e.printStackTrace();
@@ -773,16 +755,6 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
                 // Use ingestion pipeline to extract text and render
                 renderBinaryContent(binaryData, resolvedPath, fileType);
 
-            } catch (de.bund.zrb.util.JnaBlockedException e) {
-                SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(FileTabImpl.this,
-                                e.getMessage(),
-                                "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE));
-            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-                SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(FileTabImpl.this,
-                                e.getMessage(),
-                                "Verschlüsselung blockiert", JOptionPane.ERROR_MESSAGE));
             } catch (Exception e) {
                 System.err.println("[FileTabImpl] Failed to reload as binary: " + e.getMessage());
                 SwingUtilities.invokeLater(() ->
@@ -1229,11 +1201,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         String title;
         String message;
 
-        if (cause instanceof de.bund.zrb.util.JnaBlockedException
-                || cause instanceof de.bund.zrb.util.PowerShellBlockedException) {
-            title = "Verschlüsselung blockiert";
-            message = cause.getMessage();
-        } else if (cause instanceof JesSubmitException) {
+        if (cause instanceof JesSubmitException) {
             // Check if it's a JES permission issue
             String msg = cause.getMessage();
             if (msg != null && (msg.contains("FILETYPE=JES") || msg.contains("JES-Submit nicht möglich"))) {
