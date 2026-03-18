@@ -14,6 +14,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,6 +27,7 @@ import java.util.logging.Logger;
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static final Logger LOG = Logger.getLogger(ShowPasswordsMenuCommand.class.getName());
+    private static final List<String> CATEGORIES = Arrays.asList("General", "Wiki");
 
     private final JFrame parent;
 
@@ -107,17 +109,19 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         final JTable table = new JTable(model);
         table.setRowHeight(24);
-        table.getColumnModel().getColumn(0).setPreferredWidth(180); // Titel
-        table.getColumnModel().getColumn(1).setPreferredWidth(140); // Benutzername
-        table.getColumnModel().getColumn(2).setPreferredWidth(120); // Passwort
-        table.getColumnModel().getColumn(3).setPreferredWidth(250); // URL
-        table.getColumnModel().getColumn(4).setPreferredWidth(36);  // 👁
-        table.getColumnModel().getColumn(4).setMaxWidth(40);
+        table.getColumnModel().getColumn(0).setPreferredWidth(70);  // Kategorie
+        table.getColumnModel().getColumn(1).setPreferredWidth(120); // ID
+        table.getColumnModel().getColumn(2).setPreferredWidth(130); // Anzeigename
+        table.getColumnModel().getColumn(3).setPreferredWidth(120); // Benutzername
+        table.getColumnModel().getColumn(4).setPreferredWidth(100); // Passwort
+        table.getColumnModel().getColumn(5).setPreferredWidth(200); // URL
+        table.getColumnModel().getColumn(6).setPreferredWidth(36);  // 👁
+        table.getColumnModel().getColumn(6).setMaxWidth(40);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
 
         // Eye column: renderer + click handler
-        table.getColumnModel().getColumn(4).setCellRenderer(new DefaultTableCellRenderer() {
+        table.getColumnModel().getColumn(6).setCellRenderer(new DefaultTableCellRenderer() {
             {
                 setHorizontalAlignment(SwingConstants.CENTER);
             }
@@ -137,7 +141,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             public void mouseClicked(MouseEvent e) {
                 int col = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
-                if (col == 4 && row >= 0) {
+                if (col == 6 && row >= 0) {
                     int modelRow = table.convertRowIndexToModel(row);
                     visible[modelRow] = !visible[modelRow];
                     model.fireTableRowsUpdated(modelRow, modelRow);
@@ -146,7 +150,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         });
 
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(800, 380));
+        scrollPane.setPreferredSize(new Dimension(920, 380));
 
         // ── Bottom button bar ──
         JCheckBox showAll = new JCheckBox("Alle Passwörter anzeigen");
@@ -283,70 +287,141 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
      * @return the new/updated entry, or {@code null} if the user cancelled
      */
     private KeePassEntry showEntryEditor(KeePassEntry existing, String dialogTitle) {
-        JTextField titleField = new JTextField(existing != null ? existing.title : "", 25);
-        JTextField userField  = new JTextField(existing != null ? existing.userName : "", 25);
-        JPasswordField passField = new JPasswordField(existing != null ? existing.password : "", 25);
-        JTextField urlField   = new JTextField(existing != null ? existing.url : "", 25);
+        JComboBox<String> categoryBox = new JComboBox<String>(CATEGORIES.toArray(new String[0]));
+        if (existing != null) {
+            categoryBox.setSelectedItem(existing.category);
+        }
+
+        JTextField idField          = new JTextField(existing != null ? existing.title : "", 25);
+        JTextField displayNameField = new JTextField(existing != null ? existing.displayName : "", 25);
+        JTextField userField        = new JTextField(existing != null ? existing.userName : "", 25);
+        JPasswordField passField    = new JPasswordField(existing != null ? existing.password : "", 25);
+        JTextField urlField         = new JTextField(existing != null ? existing.url : "", 25);
+
+        JCheckBox loginCb    = new JCheckBox("Login erforderlich");
+        JCheckBox proxyCb    = new JCheckBox("Proxy verwenden");
+        JCheckBox autoIdxCb  = new JCheckBox("Auto-Index");
+
+        if (existing != null) {
+            loginCb.setSelected(existing.requiresLogin);
+            proxyCb.setSelected(existing.useProxy);
+            autoIdxCb.setSelected(existing.autoIndex);
+        }
 
         // Show/hide password toggle
         JCheckBox showPass = new JCheckBox("anzeigen");
-        showPass.addActionListener(e -> {
-            passField.setEchoChar(showPass.isSelected() ? (char) 0 : '•');
-        });
+        showPass.addActionListener(e ->
+                passField.setEchoChar(showPass.isSelected() ? (char) 0 : '•'));
 
         JPanel passPanel = new JPanel(new BorderLayout(4, 0));
         passPanel.add(passField, BorderLayout.CENTER);
         passPanel.add(showPass, BorderLayout.EAST);
 
-        // If editing, title is read-only (it's the key)
+        // If editing, ID is read-only (it's the KeePass title / key)
         if (existing != null) {
-            titleField.setEditable(false);
-            titleField.setBackground(UIManager.getColor("TextField.inactiveBackground"));
+            idField.setEditable(false);
+            idField.setBackground(UIManager.getColor("TextField.inactiveBackground"));
+        }
+
+        // URL label — will be updated based on category
+        JLabel urlLabel = new JLabel("URL:");
+
+        // Update URL requirement when category changes
+        categoryBox.addActionListener(e -> {
+            boolean isWiki = "Wiki".equals(categoryBox.getSelectedItem());
+            urlLabel.setText(isWiki ? "URL: *" : "URL:");
+        });
+        // Set initial state
+        if (existing != null && "Wiki".equals(existing.category)) {
+            urlLabel.setText("URL: *");
         }
 
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 4);
         gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
 
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Titel:"), gbc);
+        gbc.gridx = 0; gbc.gridy = row;
+        panel.add(new JLabel("Kategorie:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(titleField, gbc);
+        panel.add(categoryBox, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("ID:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(idField, gbc);
+
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Anzeigename:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(displayNameField, gbc);
+
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Benutzername:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(userField, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Passwort:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(passPanel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("URL:"), gbc);
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(urlLabel, gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(urlField, gbc);
+
+        // ── Separator + Checkboxes ──
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(new JSeparator(), gbc);
+        gbc.gridwidth = 1;
+
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Optionen:"), gbc);
+        gbc.gridx = 1;
+        JPanel cbPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        cbPanel.add(loginCb);
+        cbPanel.add(proxyCb);
+        cbPanel.add(autoIdxCb);
+        panel.add(cbPanel, gbc);
 
         int result = JOptionPane.showConfirmDialog(parent, panel, dialogTitle,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result != JOptionPane.OK_OPTION) return null;
 
-        String title = titleField.getText().trim();
-        String user  = userField.getText().trim();
-        String pass  = new String(passField.getPassword());
-        String url   = urlField.getText().trim();
+        String category    = (String) categoryBox.getSelectedItem();
+        String id          = idField.getText().trim();
+        String displayName = displayNameField.getText().trim();
+        String user        = userField.getText().trim();
+        String pass        = new String(passField.getPassword());
+        String url         = urlField.getText().trim();
 
-        if (title.isEmpty()) {
-            JOptionPane.showMessageDialog(parent, "Der Titel darf nicht leer sein.",
+        if (id.isEmpty()) {
+            JOptionPane.showMessageDialog(parent, "Die ID darf nicht leer sein.",
                     "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
             return null;
         }
 
-        return new KeePassEntry(title, user, pass, url,
-                existing != null ? existing.uniqueID : "");
+        if ("Wiki".equals(category) && url.isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Für Wiki-Einträge ist die URL ein Pflichtfeld.",
+                    "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+
+        return new KeePassEntry(category, id, displayName, user, pass, url,
+                existing != null ? existing.uniqueID : "",
+                loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected());
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -354,7 +429,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     // ═══════════════════════════════════════════════════════════
 
     private static class EntryTableModel extends AbstractTableModel {
-        private static final String[] COLUMNS = {"Titel", "Benutzername", "Passwort", "URL", ""};
+        private static final String[] COLUMNS = {
+                "Kategorie", "ID", "Anzeigename", "Benutzername", "Passwort", "URL", ""
+        };
         private final List<KeePassEntry> entries;
         private final boolean[] visible;
 
@@ -363,27 +440,21 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             this.visible = visible;
         }
 
-        @Override
-        public int getRowCount() { return entries.size(); }
-
-        @Override
-        public int getColumnCount() { return COLUMNS.length; }
-
-        @Override
-        public String getColumnName(int col) { return COLUMNS[col]; }
-
-        @Override
-        public boolean isCellEditable(int row, int col) { return false; }
+        @Override public int getRowCount() { return entries.size(); }
+        @Override public int getColumnCount() { return COLUMNS.length; }
+        @Override public String getColumnName(int col) { return COLUMNS[col]; }
 
         @Override
         public Object getValueAt(int row, int col) {
             KeePassEntry e = entries.get(row);
             switch (col) {
-                case 0: return e.title;
-                case 1: return e.userName;
-                case 2: return visible[row] ? e.password : "••••••••";
-                case 3: return e.url;
-                case 4: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
+                case 0: return e.category;
+                case 1: return e.title;
+                case 2: return e.displayName;
+                case 3: return e.userName;
+                case 4: return visible[row] ? e.password : "••••••••";
+                case 5: return e.url;
+                case 6: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
                 default: return "";
             }
         }
@@ -393,25 +464,10 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     //  Parsing
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * Parses the PowerShell/KeePassLib entry listing output.
-     * <p>
-     * Expected format per entry block (separated by blank lines):
-     * <pre>
-     * Title: MyEntry
-     * UserName: myuser
-     * Password: secret
-     * URL: https://example.com
-     * UniqueID: abcdef123456
-     * ...
-     * </pre>
-     * The last line "OK: Operation completed successfully." is stripped.
-     */
     private static List<KeePassEntry> parseEntries(String raw) {
         List<KeePassEntry> entries = new ArrayList<KeePassEntry>();
         if (raw == null || raw.trim().isEmpty()) return entries;
 
-        // Remove trailing status line
         String cleaned = raw.trim();
         int lastNewline = cleaned.lastIndexOf('\n');
         if (lastNewline > 0) {
@@ -420,10 +476,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 cleaned = cleaned.substring(0, lastNewline).trim();
             }
         } else if (cleaned.startsWith("OK:")) {
-            return entries; // empty database
+            return entries;
         }
 
-        // Split on blank lines (entry separator)
         String[] blocks = cleaned.split("\\n\\s*\\n");
 
         for (String block : blocks) {
@@ -442,28 +497,45 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 else if (line.startsWith("UniqueID: "))  uniqueID = line.substring("UniqueID: ".length()).trim();
             }
 
-            // Only add entries with a title (skip header/empty blocks)
             if (!title.isEmpty()) {
-                entries.add(new KeePassEntry(title, userName, password, url, uniqueID));
+                // Default category "General", displayName = title
+                entries.add(new KeePassEntry("General", title, title, userName, password, url, uniqueID,
+                        false, false, false));
             }
         }
 
         return entries;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Entry model
+    // ═══════════════════════════════════════════════════════════
+
     private static class KeePassEntry {
-        final String title;
+        final String category;
+        final String title;         // = ID (KeePass Title field, immutable)
+        final String displayName;   // user-facing display name
         final String userName;
         final String password;
         final String url;
         final String uniqueID;
+        final boolean requiresLogin;
+        final boolean useProxy;
+        final boolean autoIndex;
 
-        KeePassEntry(String title, String userName, String password, String url, String uniqueID) {
+        KeePassEntry(String category, String title, String displayName,
+                     String userName, String password, String url, String uniqueID,
+                     boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+            this.category = category;
             this.title = title;
+            this.displayName = displayName;
             this.userName = userName;
             this.password = password;
             this.url = url;
             this.uniqueID = uniqueID;
+            this.requiresLogin = requiresLogin;
+            this.useProxy = useProxy;
+            this.autoIndex = autoIndex;
         }
     }
 }
