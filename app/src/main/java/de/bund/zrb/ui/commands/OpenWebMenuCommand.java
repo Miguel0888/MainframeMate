@@ -101,6 +101,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception e) {
                 LOG.warning("[Wiki] Failed to decrypt credentials for site '" + siteKey + "': " + e.getMessage());
             }
@@ -120,6 +122,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception e) {
                 LOG.warning("[Wiki] Failed to save credentials for site '" + siteId.value() + "': " + e.getMessage());
             }
@@ -313,6 +317,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             throw e; // must not be swallowed — user needs to switch password method
         } catch (de.bund.zrb.util.PowerShellBlockedException e) {
             throw e; // must not be swallowed — user needs to switch password method
+        } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+            throw e; // must not be swallowed — user needs to check KeePass config
         } catch (Exception e) {
             // decryption failed
         }

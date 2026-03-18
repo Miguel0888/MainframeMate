@@ -152,6 +152,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception ignore) {
                 // corrupted credential, start fresh
             }

@@ -71,6 +71,9 @@ public final class VirtualResourceOpener {
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 showErrorDialog("Verschlüsselung blockiert", e.getMessage());
                 return null;
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                showErrorDialog("KeePass-Fehler", e.getMessage());
+                return null;
             } catch (FileServiceException e) {
                 // Benutzer hat abgebrochen - sofort beenden ohne Fehlermeldung
                 if (isAuthCancelled(e)) {
@@ -130,6 +133,10 @@ public final class VirtualResourceOpener {
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 closeQuietly(fs);
                 showErrorDialog("Verschlüsselung blockiert", e.getMessage());
+                return null;
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                closeQuietly(fs);
+                showErrorDialog("KeePass-Fehler", e.getMessage());
                 return null;
             } catch (Exception e) {
                 closeQuietly(fs);

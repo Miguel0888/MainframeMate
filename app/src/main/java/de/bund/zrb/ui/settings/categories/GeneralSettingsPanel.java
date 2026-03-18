@@ -28,6 +28,10 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner lockPre;
     private final JComboBox<LockerStyle> lockStyleBox;
     private final JComboBox<PasswordMethod> passwordMethodBox;
+    private final JTextField keepassKpScriptField;
+    private final JTextField keepassDatabaseField;
+    private final JTextField keepassEntryTitleField;
+    private final JPanel keepassConfigPanel;
     private final JCheckBox historyEnabledBox;
     private final JSpinner historyMaxVersionsSpinner;
     private final JSpinner historyMaxAgeDaysSpinner;
@@ -116,8 +120,47 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
                 + "Kann auf gehärteten Systemen (Win 11 / AppLocker) blockiert werden.<br>"
                 + "<b>Windows DPAPI (PowerShell):</b> Gleiche DPAPI-Sicherheit, aber ohne JNA. "
                 + "Benötigt <code>powershell.exe</code> — kann bei restriktiver Execution Policy blockiert sein.<br>"
-                + "<b>Java AES-256:</b> Plattformunabhängig, reines Java — Master-Key in <code>~/.mainframemate/.master.key</code>."
+                + "<b>Java AES-256:</b> Plattformunabhängig, reines Java — Master-Key in <code>~/.mainframemate/.master.key</code>.<br>"
+                + "<b>KeePass:</b> Passwörter werden in einer KeePass-Datenbank gespeichert. "
+                + "Benötigt <code>KPScript.exe</code> (KeePass 2.x)."
                 + "</small></html>");
+
+        // ── KeePass configuration (shown/hidden based on selected method) ──
+        keepassKpScriptField = new JTextField(safe(settings.keepassKpScriptPath), 30);
+        keepassDatabaseField = new JTextField(safe(settings.keepassDatabasePath), 30);
+        keepassEntryTitleField = new JTextField(safe(settings.keepassEntryTitle), 20);
+
+        keepassConfigPanel = new JPanel(new java.awt.GridLayout(0, 1, 2, 2));
+        keepassConfigPanel.setBorder(BorderFactory.createTitledBorder("KeePass-Konfiguration"));
+
+        JPanel row1 = new JPanel(new java.awt.BorderLayout(4, 0));
+        row1.add(new JLabel("KPScript.exe:"), java.awt.BorderLayout.WEST);
+        row1.add(keepassKpScriptField, java.awt.BorderLayout.CENTER);
+        JButton browseKpScript = new JButton("…");
+        browseKpScript.addActionListener(e -> browseFile(keepassKpScriptField, "KPScript.exe", "exe"));
+        row1.add(browseKpScript, java.awt.BorderLayout.EAST);
+        keepassConfigPanel.add(row1);
+
+        JPanel row2 = new JPanel(new java.awt.BorderLayout(4, 0));
+        row2.add(new JLabel("Datenbank (.kdbx):"), java.awt.BorderLayout.WEST);
+        row2.add(keepassDatabaseField, java.awt.BorderLayout.CENTER);
+        JButton browseDb = new JButton("…");
+        browseDb.addActionListener(e -> browseFile(keepassDatabaseField, "KeePass-Datenbank", "kdbx"));
+        row2.add(browseDb, java.awt.BorderLayout.EAST);
+        keepassConfigPanel.add(row2);
+
+        JPanel row3 = new JPanel(new java.awt.BorderLayout(4, 0));
+        row3.add(new JLabel("Eintragstitel:"), java.awt.BorderLayout.WEST);
+        row3.add(keepassEntryTitleField, java.awt.BorderLayout.CENTER);
+        keepassConfigPanel.add(row3);
+
+        fb.addWide(keepassConfigPanel);
+
+        // Toggle KeePass config visibility
+        keepassConfigPanel.setVisible(currentMethod == PasswordMethod.KEEPASS);
+        passwordMethodBox.addActionListener(e ->
+                keepassConfigPanel.setVisible(passwordMethodBox.getSelectedItem() == PasswordMethod.KEEPASS));
+
 
         fb.addSection("Bildschirmsperre");
 
@@ -191,9 +234,33 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.lockStyle = lockStyleBox.getSelectedIndex();
         PasswordMethod selectedMethod = (PasswordMethod) passwordMethodBox.getSelectedItem();
         s.passwordMethod = selectedMethod != null ? selectedMethod.name() : PasswordMethod.WINDOWS_DPAPI.name();
+        s.keepassKpScriptPath = keepassKpScriptField.getText().trim();
+        s.keepassDatabasePath = keepassDatabaseField.getText().trim();
+        s.keepassEntryTitle = keepassEntryTitleField.getText().trim();
         s.historyEnabled = historyEnabledBox.isSelected();
         s.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
         s.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();
+    }
+
+    private void browseFile(JTextField target, String description, String extension) {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle(description + " auswählen");
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                description + " (*." + extension + ")", extension));
+        String current = target.getText().trim();
+        if (!current.isEmpty()) {
+            java.io.File f = new java.io.File(current);
+            if (f.getParentFile() != null && f.getParentFile().isDirectory()) {
+                fc.setCurrentDirectory(f.getParentFile());
+            }
+        }
+        if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            target.setText(fc.getSelectedFile().getAbsolutePath());
+        }
+    }
+
+    private static String safe(String s) {
+        return s == null ? "" : s;
     }
 }
 

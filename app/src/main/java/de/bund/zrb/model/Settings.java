@@ -23,8 +23,17 @@ public class Settings {
     public int importDelay = 3;
     public List<String> supportedFiles = Arrays.asList( ".xls", ".xlsx", ".xlsm");
 
-    /** Password encryption method: "WINDOWS_DPAPI" (default) or "JAVA_AES". */
+    /** Password encryption method: "WINDOWS_DPAPI" (default), "POWERSHELL_DPAPI", "JAVA_AES", or "KEEPASS". */
     public String passwordMethod = "WINDOWS_DPAPI";
+
+    /** Path to KPScript.exe (only used when passwordMethod = KEEPASS). */
+    public String keepassKpScriptPath = "";
+
+    /** Path to the .kdbx database file (only used when passwordMethod = KEEPASS). */
+    public String keepassDatabasePath = "";
+
+    /** Entry title inside the KeePass database to read/write credentials (only used when passwordMethod = KEEPASS). */
+    public String keepassEntryTitle = "MainframeMate";
 
     public boolean lockEnabled = true;
     public int lockDelay = 180_000;

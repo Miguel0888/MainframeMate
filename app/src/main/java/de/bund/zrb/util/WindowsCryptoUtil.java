@@ -25,14 +25,24 @@ public class WindowsCryptoUtil {
 
     private static final Logger LOG = Logger.getLogger(WindowsCryptoUtil.class.getName());
 
+    /**
+     * Marker stored in {@code settings.encryptedPassword} when KeePass is the
+     * active method. The actual password lives in the KeePass database.
+     */
+    static final String KEEPASS_MARKER = "keepass:";
+
     private WindowsCryptoUtil() { /* utility */ }
 
     /**
      * Encrypt a plaintext password using the currently configured method.
+     * <p>
+     * For {@link PasswordMethod#KEEPASS}, the password is stored in KeePass
+     * and a marker string {@code "keepass:"} is returned instead of ciphertext.
      *
      * @param plainText the secret to protect
-     * @return opaque Base64-encoded ciphertext
+     * @return opaque Base64-encoded ciphertext (or marker for KeePass)
      * @throws JnaBlockedException if DPAPI is selected but JNA is blocked
+     * @throws KeePassNotAvailableException if KeePass is selected but KPScript fails
      * @throws IllegalStateException on any other encryption failure
      */
     public static String encrypt(String plainText) {
@@ -46,6 +56,9 @@ public class WindowsCryptoUtil {
                 return PowerShellCryptoProvider.encrypt(plainText);
             case JAVA_AES:
                 return AesCryptoProvider.encrypt(plainText);
+            case KEEPASS:
+                KeePassProvider.putPassword(plainText);
+                return KEEPASS_MARKER;
             default:
                 throw new IllegalStateException("Unknown password method: " + method);
         }
@@ -53,11 +66,15 @@ public class WindowsCryptoUtil {
 
     /**
      * Decrypt a ciphertext produced by {@link #encrypt(String)}.
+     * <p>
+     * For {@link PasswordMethod#KEEPASS}, the password is read from KeePass
+     * (the {@code base64} parameter is ignored — it is just a marker).
      *
-     * @param base64 the encoded ciphertext
+     * @param base64 the encoded ciphertext (or KeePass marker)
      * @return the original plaintext
      * @throws JnaBlockedException if DPAPI is selected but JNA is blocked
      * @throws PowerShellBlockedException if PowerShell DPAPI is selected but PS is blocked
+     * @throws KeePassNotAvailableException if KeePass is selected but KPScript fails
      * @throws IllegalStateException on any other decryption failure
      */
     public static String decrypt(String base64) {
@@ -71,6 +88,8 @@ public class WindowsCryptoUtil {
                 return PowerShellCryptoProvider.decrypt(base64);
             case JAVA_AES:
                 return AesCryptoProvider.decrypt(base64);
+            case KEEPASS:
+                return KeePassProvider.getPassword();
             default:
                 throw new IllegalStateException("Unknown password method: " + method);
         }

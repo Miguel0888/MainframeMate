@@ -31,7 +31,18 @@ public enum PasswordMethod {
      * <p>
      * No native dependencies. Works on any OS with Java 8+.
      */
-    JAVA_AES("Java AES-256 (plattformunabhängig)");
+    JAVA_AES("Java AES-256 (plattformunabhängig)"),
+
+    /**
+     * KeePass as external secret store via KPScript.
+     * <p>
+     * Passwords are read from / written to a KeePass {@code .kdbx} database
+     * using the {@code KPScript.exe} command-line tool. The database is
+     * unlocked by KeePass itself (Master Password / Key File / Windows User Account).
+     * The application does not store any encrypted password — it delegates
+     * storage entirely to KeePass.
+     */
+    KEEPASS("KeePass (externer Passwort-Store)");
 
     private final String displayName;
 

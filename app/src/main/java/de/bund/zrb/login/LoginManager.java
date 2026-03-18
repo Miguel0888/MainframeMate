@@ -132,6 +132,8 @@ public class LoginManager {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception e) {
                 // Ignore error and fall back to interactive prompt
             }
@@ -169,6 +171,8 @@ public class LoginManager {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception ignore) {
                 // ignore and return null
             }
@@ -371,6 +375,9 @@ public class LoginManager {
                 // Not critical — password is still in RAM cache for this session
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 System.err.println("[LoginManager] Cannot persist password (PowerShell blocked): " + e.getMessage());
+                // Not critical — password is still in RAM cache for this session
+            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+                System.err.println("[LoginManager] Cannot persist password (KeePass): " + e.getMessage());
                 // Not critical — password is still in RAM cache for this session
             } catch (Exception e) {
                 System.err.println("[LoginManager] Cannot persist password: " + e.getMessage());

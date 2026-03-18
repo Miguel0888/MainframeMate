@@ -99,6 +99,8 @@ public class VirtualResourceResolver {
             throw e;
         } catch (de.bund.zrb.util.PowerShellBlockedException e) {
             throw e;
+        } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+            throw e;
         } catch (Exception e) {
             // On FTP auth failure, clear the password immediately
             String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
