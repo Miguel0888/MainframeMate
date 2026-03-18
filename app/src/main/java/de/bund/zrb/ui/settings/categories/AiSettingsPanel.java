@@ -76,7 +76,6 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
 
     // ONNX Runtime
     private final JTextField onnxModelPathField, onnxTemperatureField, onnxTopPField;
-    private final JComboBox<String> onnxExecutionProviderCombo;
     private final JSpinner onnxMaxTokensSpinner, onnxTopKSpinner;
 
     public AiSettingsPanel() {
@@ -377,10 +376,6 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         onnxPathPanel.add(onnxBtnPanel, BorderLayout.EAST);
 
         fbOnnx.addRow("Modellpfad:", onnxPathPanel);
-        onnxExecutionProviderCombo = new JComboBox<>(new String[]{"cpu", "directml"});
-        onnxExecutionProviderCombo.setSelectedItem(settings.aiConfig.getOrDefault("onnx.execution.provider", "cpu"));
-        onnxExecutionProviderCombo.setToolTipText("CPU = universell; DirectML = GPU-Beschleunigung (Windows 11)");
-        fbOnnx.addRow("Execution Provider:", onnxExecutionProviderCombo);
         onnxMaxTokensSpinner = new JSpinner(new SpinnerNumberModel(
                 Integer.parseInt(settings.aiConfig.getOrDefault("onnx.max.tokens", "256")), 1, 4096, 64));
         fbOnnx.addRow("Max Tokens:", onnxMaxTokensSpinner);
@@ -505,7 +500,6 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         s.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
         // ONNX Runtime
         s.aiConfig.put("onnx.model.path", onnxModelPathField.getText().trim());
-        s.aiConfig.put("onnx.execution.provider", Objects.toString(onnxExecutionProviderCombo.getSelectedItem(), "cpu"));
         s.aiConfig.put("onnx.max.tokens", onnxMaxTokensSpinner.getValue().toString());
         s.aiConfig.put("onnx.temperature", onnxTemperatureField.getText().trim());
         s.aiConfig.put("onnx.top.p", onnxTopPField.getText().trim());

@@ -187,6 +187,7 @@ public class OnnxChatManager implements ChatManager {
 
     /**
      * Lädt das ONNX-Modell (lazy, nur wenn sich der Pfad geändert hat).
+     * Versucht zuerst DirectML (GPU), fällt automatisch auf CPU zurück.
      */
     private synchronized void ensureModelLoaded(String modelPath) throws OrtException, IOException {
         if (session != null && modelPath.equals(loadedModelPath)) {
@@ -208,31 +209,25 @@ public class OnnxChatManager implements ChatManager {
         environment = OrtEnvironment.getEnvironment();
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
 
-        // Execution Provider konfigurieren
-        String ep = config().getOrDefault("onnx.execution.provider", "cpu").toLowerCase(Locale.ROOT);
-        if ("directml".equals(ep)) {
-            try {
-                options.addDirectML(0);
-                LOG.info("ONNX Execution Provider: DirectML (GPU)");
-            } catch (Throwable t) {
-                LOG.warning("DirectML nicht verfügbar, Fallback auf CPU: " + t.getMessage());
-            }
-        } else {
-            LOG.info("ONNX Execution Provider: CPU");
+        // Immer DirectML zuerst versuchen, CPU als stiller Fallback
+        boolean usingDirectMl = false;
+        try {
+            options.addDirectML(0);
+            usingDirectMl = true;
+            LOG.info("ONNX Execution Provider: DirectML (GPU)");
+        } catch (Throwable t) {
+            LOG.info("DirectML nicht verfügbar, verwende CPU: " + t.getMessage());
         }
 
         session = environment.createSession(modelFile.toString(), options);
         loadedModelPath = modelPath;
 
         long dt = System.currentTimeMillis() - t0;
-        LOG.info("ONNX-Modell geladen in " + dt + " ms – Inputs: " + session.getInputNames()
+        LOG.info("ONNX-Modell geladen in " + dt + " ms (" + (usingDirectMl ? "DirectML" : "CPU")
+                + ") – Inputs: " + session.getInputNames()
                 + ", Outputs: " + session.getOutputNames());
 
-        // Tokenizer laden (falls vorhanden)
-        Path tokenizerPath = modelDir.resolve("tokenizer.json");
-        if (!Files.exists(tokenizerPath)) {
-            tokenizerPath = modelDir.resolve("tokenizer_config.json");
-        }
+        // Tokenizer laden
         tokenizer = new OnnxTokenizer(modelDir);
     }
 
@@ -280,118 +275,206 @@ public class OnnxChatManager implements ChatManager {
     // ==================== Autoregressive Generate Loop ====================
 
     /**
-     * Autoregressive Textgenerierung: Tokenisiert den Prompt, führt die Forward-Passes
-     * sequentiell durch und decoded die generierten Tokens Token für Token.
+     * Autoregressive Textgenerierung mit inkrementellem KV-Cache.
      * <p>
-     * Unterstützt FP16-Modelle (DirectML INT4) und FP32-Modelle.
-     * KV-Cache wird pro Durchlauf leer übergeben (kein inkrementeller Cache).
+     * Phase 1 (Prefill): Gesamter Prompt wird verarbeitet, KV-Cache wird aufgebaut.
+     * Phase 2 (Decode):  Pro Schritt wird nur 1 Token verarbeitet, KV-Cache wird weitergeführt.
+     * <p>
+     * Dies ist ~100× schneller als ohne KV-Cache, da der Prompt nicht bei jedem Token
+     * neu verarbeitet werden muss.
      */
     private String generate(String prompt, int maxTokens, double temperature,
                             double topP, int topK,
                             AtomicBoolean cancelled, ChatStreamListener listener)
             throws OrtException {
 
-        long[] inputIds = tokenizer.encode(prompt);
-        List<Long> generated = new ArrayList<>();
-        for (long id : inputIds) generated.add(id);
+        long[] promptIds = tokenizer.encode(prompt);
 
         StringBuilder output = new StringBuilder();
         Set<Integer> eosTokenIds = tokenizer.getEosTokenIds();
         int eosTokenId = tokenizer.getEosTokenId();
-
-        // Modell-Konfiguration für KV-Cache
         int numLayers = tokenizer.getNumLayers();
         int headSize = tokenizer.getHeadSize();
         int numKvHeads = tokenizer.getNumKvHeads();
 
-        // Prüfe ob das Modell position_ids erwartet
         boolean needsPositionIds = session.getInputNames().contains("position_ids");
-        // Prüfe ob das Modell KV-Cache Inputs hat
         boolean hasKvCache = session.getInputNames().contains("past_key_values.0.key");
-        // Prüfe ob Logits FP16 sind (DirectML-Modelle)
-        boolean fp16Logits = false;
+
+        LOG.info("Generate: prompt=" + promptIds.length + " tokens, maxTokens=" + maxTokens
+                + ", kvCache=" + hasKvCache + ", positionIds=" + needsPositionIds);
+
+        // Welche Outputs sollen angefordert werden?
+        Set<String> requestedOutputs = new LinkedHashSet<>();
+        requestedOutputs.add("logits");
+        if (hasKvCache) {
+            for (int i = 0; i < numLayers; i++) {
+                requestedOutputs.add("present." + i + ".key");
+                requestedOutputs.add("present." + i + ".value");
+            }
+        }
+
+        // KV-Cache Buffers (null = noch nicht initialisiert)
+        ByteBuffer[] kvKeys = null;
+        ByteBuffer[] kvValues = null;
+        int pastSeqLen = 0;
+        int totalSeqLen = promptIds.length;
+        long lastTokenId = 0;
+
+        long t0 = System.currentTimeMillis();
 
         for (int step = 0; step < maxTokens; step++) {
             if (cancelled.get()) break;
 
-            // Prepare input tensors
-            long[] ids = new long[generated.size()];
-            for (int i = 0; i < generated.size(); i++) ids[i] = generated.get(i);
-
-            long[] attentionMask = new long[ids.length];
-            Arrays.fill(attentionMask, 1L);
-
             Map<String, OnnxTensor> inputs = new HashMap<>();
-            long[][] idShape = {ids};
-            long[][] maskShape = {attentionMask};
-            inputs.put("input_ids", OnnxTensor.createTensor(environment, idShape));
-            inputs.put("attention_mask", OnnxTensor.createTensor(environment, maskShape));
 
-            // Position IDs
-            if (needsPositionIds) {
-                long[][] posIds = new long[1][ids.length];
-                for (int i = 0; i < ids.length; i++) posIds[0][i] = i;
-                inputs.put("position_ids", OnnxTensor.createTensor(environment, posIds));
+            // ── input_ids ──
+            if (step == 0) {
+                inputs.put("input_ids", OnnxTensor.createTensor(environment, new long[][]{promptIds}));
+            } else {
+                inputs.put("input_ids", OnnxTensor.createTensor(environment, new long[][]{{lastTokenId}}));
             }
 
-            // KV-Cache: leere FP16-Tensoren (kein inkrementeller Cache)
-            if (hasKvCache) {
-                long[] emptyKvShape = {1, numKvHeads, 0, headSize};
-                ByteBuffer emptyFp16 = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder());
-                for (int i = 0; i < numLayers; i++) {
-                    inputs.put("past_key_values." + i + ".key",
-                            OnnxTensor.createTensor(environment, emptyFp16, emptyKvShape, OnnxJavaType.FLOAT16));
-                    inputs.put("past_key_values." + i + ".value",
-                            OnnxTensor.createTensor(environment, emptyFp16, emptyKvShape, OnnxJavaType.FLOAT16));
+            // ── attention_mask (gesamte Sequenzlänge) ──
+            long[] mask = new long[totalSeqLen];
+            Arrays.fill(mask, 1L);
+            inputs.put("attention_mask", OnnxTensor.createTensor(environment, new long[][]{mask}));
+
+            // ── position_ids ──
+            if (needsPositionIds) {
+                if (step == 0) {
+                    long[] posIds = new long[promptIds.length];
+                    for (int i = 0; i < promptIds.length; i++) posIds[i] = i;
+                    inputs.put("position_ids", OnnxTensor.createTensor(environment, new long[][]{posIds}));
+                } else {
+                    inputs.put("position_ids", OnnxTensor.createTensor(environment, new long[][]{{totalSeqLen - 1}}));
                 }
             }
 
-            // Forward pass — nur Logits anfordern
-            OrtSession.Result result = session.run(inputs, Collections.singleton("logits"));
+            // ── KV-Cache ──
+            if (hasKvCache) {
+                if (kvKeys == null) {
+                    // Erster Schritt: leerer Past-Cache
+                    long[] emptyShape = {1, numKvHeads, 0, headSize};
+                    ByteBuffer emptyBuf = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder());
+                    for (int i = 0; i < numLayers; i++) {
+                        inputs.put("past_key_values." + i + ".key",
+                                OnnxTensor.createTensor(environment, emptyBuf, emptyShape, OnnxJavaType.FLOAT16));
+                        inputs.put("past_key_values." + i + ".value",
+                                OnnxTensor.createTensor(environment, emptyBuf, emptyShape, OnnxJavaType.FLOAT16));
+                    }
+                } else {
+                    // Folgeschritte: KV-Cache vom vorherigen Schritt
+                    long[] pastShape = {1, numKvHeads, pastSeqLen, headSize};
+                    for (int i = 0; i < numLayers; i++) {
+                        kvKeys[i].rewind();
+                        kvValues[i].rewind();
+                        inputs.put("past_key_values." + i + ".key",
+                                OnnxTensor.createTensor(environment, kvKeys[i], pastShape, OnnxJavaType.FLOAT16));
+                        inputs.put("past_key_values." + i + ".value",
+                                OnnxTensor.createTensor(environment, kvValues[i], pastShape, OnnxJavaType.FLOAT16));
+                    }
+                }
+            }
 
-            // Logits auslesen (FP16 oder FP32)
-            float[] lastLogits;
-            OnnxTensor logitsTensor = (OnnxTensor) result.get("logits").get();
-            long[] logitsShape = logitsTensor.getInfo().getShape();
-            int seqLen = (int) logitsShape[1];
-            int vocabSize = (int) logitsShape[2];
+            // ── Forward Pass ──
+            long tStep = System.currentTimeMillis();
+            OrtSession.Result result;
+            try {
+                result = session.run(inputs, requestedOutputs);
+            } finally {
+                for (OnnxTensor t : inputs.values()) t.close();
+            }
 
             try {
-                // Versuche FP32 zuerst
-                float[][][] logits = (float[][][]) logitsTensor.getValue();
-                lastLogits = logits[0][logits[0].length - 1];
-            } catch (OrtException e) {
-                // FP16-Modell: ByteBuffer auslesen und konvertieren
-                fp16Logits = true;
-                ByteBuffer fp16Buf = logitsTensor.getByteBuffer();
-                fp16Buf.order(ByteOrder.LITTLE_ENDIAN);
-                int offset = (seqLen - 1) * vocabSize * 2;
-                lastLogits = new float[vocabSize];
-                for (int i = 0; i < vocabSize; i++) {
-                    short fp16 = fp16Buf.getShort(offset + i * 2);
-                    lastLogits[i] = fp16ToFloat(fp16);
+                if (step == 0) {
+                    LOG.info("Prefill: " + (System.currentTimeMillis() - tStep) + " ms ("
+                            + promptIds.length + " tokens)");
                 }
+
+                // ── Logits extrahieren (letztes Token) ──
+                float[] lastLogits = extractLastLogits(result);
+
+                // ── KV-Cache für nächsten Schritt kopieren ──
+                if (hasKvCache) {
+                    if (kvKeys == null) {
+                        kvKeys = new ByteBuffer[numLayers];
+                        kvValues = new ByteBuffer[numLayers];
+                    }
+                    for (int i = 0; i < numLayers; i++) {
+                        OnnxTensor keyOut = (OnnxTensor) result.get("present." + i + ".key").get();
+                        OnnxTensor valOut = (OnnxTensor) result.get("present." + i + ".value").get();
+                        kvKeys[i] = copyDirectBuffer(keyOut.getByteBuffer());
+                        kvValues[i] = copyDirectBuffer(valOut.getByteBuffer());
+                        if (i == 0) {
+                            pastSeqLen = (int) keyOut.getInfo().getShape()[2];
+                        }
+                    }
+                }
+
+                // ── Token samplen ──
+                int nextTokenId = sampleToken(lastLogits, temperature, topP, topK);
+
+                if (eosTokenIds.contains(nextTokenId) || nextTokenId == eosTokenId) {
+                    LOG.info("EOS nach " + (step + 1) + " Tokens, "
+                            + (System.currentTimeMillis() - t0) + " ms");
+                    break;
+                }
+
+                lastTokenId = nextTokenId;
+                totalSeqLen++;
+
+                String tokenText = tokenizer.decode(new long[]{nextTokenId});
+                output.append(tokenText);
+                listener.onStreamChunk(tokenText);
+
+            } finally {
+                result.close();
             }
+        }
 
-            // Close tensors
-            for (OnnxTensor t : inputs.values()) t.close();
-            result.close();
-
-            // Sample next token
-            int nextTokenId = sampleToken(lastLogits, temperature, topP, topK);
-
-            // EOS Check (multiple EOS tokens für Phi-3)
-            if (eosTokenIds.contains(nextTokenId) || nextTokenId == eosTokenId) break;
-
-            generated.add((long) nextTokenId);
-
-            // Decode and stream
-            String tokenText = tokenizer.decode(new long[]{nextTokenId});
-            output.append(tokenText);
-            listener.onStreamChunk(tokenText);
+        long totalMs = System.currentTimeMillis() - t0;
+        int generatedTokens = totalSeqLen - promptIds.length;
+        if (generatedTokens > 0) {
+            LOG.info("Generiert: " + generatedTokens + " Tokens in " + totalMs + " ms ("
+                    + String.format("%.1f", generatedTokens * 1000.0 / totalMs) + " tok/s)");
         }
 
         return output.toString();
+    }
+
+    /**
+     * Extrahiert die Logits des letzten Tokens aus dem Ergebnis.
+     * Unterstützt sowohl FP32- als auch FP16-Modelle.
+     */
+    private float[] extractLastLogits(OrtSession.Result result) throws OrtException {
+        OnnxTensor logitsTensor = (OnnxTensor) result.get("logits").get();
+        long[] shape = logitsTensor.getInfo().getShape();
+        int seqLen = (int) shape[1];
+        int vocabSize = (int) shape[2];
+
+        try {
+            float[][][] logits = (float[][][]) logitsTensor.getValue();
+            return logits[0][logits[0].length - 1];
+        } catch (OrtException e) {
+            // FP16-Modell: ByteBuffer auslesen und konvertieren
+            ByteBuffer fp16Buf = logitsTensor.getByteBuffer();
+            fp16Buf.order(ByteOrder.LITTLE_ENDIAN);
+            int offset = (seqLen - 1) * vocabSize * 2;
+            float[] lastLogits = new float[vocabSize];
+            for (int i = 0; i < vocabSize; i++) {
+                lastLogits[i] = fp16ToFloat(fp16Buf.getShort(offset + i * 2));
+            }
+            return lastLogits;
+        }
+    }
+
+    /** Kopiert einen DirectByteBuffer (nötig da ONNX Runtime die Originaldaten beim Result.close() freigibt). */
+    private static ByteBuffer copyDirectBuffer(ByteBuffer src) {
+        src.rewind();
+        ByteBuffer copy = ByteBuffer.allocateDirect(src.remaining()).order(src.order());
+        copy.put(src);
+        copy.flip();
+        return copy;
     }
 
     /**
@@ -440,7 +523,6 @@ public class OnnxChatManager implements ChatManager {
 
         // Top-K: behalte nur die K wahrscheinlichsten Tokens
         if (topK > 0 && topK < probs.length) {
-            // Find the top-K threshold
             float[] sorted = probs.clone();
             Arrays.sort(sorted);
             float threshold = sorted[sorted.length - topK];
@@ -451,7 +533,6 @@ public class OnnxChatManager implements ChatManager {
 
         // Top-P (Nucleus): behalte Tokens bis kumulative Wahrscheinlichkeit >= topP
         if (topP > 0 && topP < 1.0) {
-            // Sort indices by probability descending
             Integer[] indices = new Integer[probs.length];
             for (int i = 0; i < indices.length; i++) indices[i] = i;
             Arrays.sort(indices, new Comparator<Integer>() {
@@ -476,7 +557,7 @@ public class OnnxChatManager implements ChatManager {
         // Renormalize
         float total = 0;
         for (float p : probs) total += p;
-        if (total <= 0) return 0; // Fallback
+        if (total <= 0) return 0;
         for (int i = 0; i < probs.length; i++) probs[i] /= total;
 
         // Sample
