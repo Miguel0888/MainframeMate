@@ -15,9 +15,10 @@ import java.util.logging.Logger;
  * Reads and writes passwords from/to a KeePass {@code .kdbx} database
  * via <b>PowerShell</b> and the {@code KeePass.exe} assembly from KeePass 2.x.
  * <p>
- * No separate {@code KPScript.exe} or {@code KeePassLib.dll} is required —
- * the KeePassLib namespace is compiled directly into {@code KeePass.exe}.
- * PowerShell loads it via {@code Add-Type -Path KeePass.exe}.
+ * No separate {@code KPScript.exe} is required — the KeePassLib namespace is
+ * compiled directly into {@code KeePass.exe}.  PowerShell loads it via
+ * {@code [Reflection.Assembly]::LoadFrom('KeePass.exe')} (not {@code Add-Type},
+ * which rejects {@code .exe} extensions).
  * <p>
  * The database is opened with the <b>Windows User Account</b> composite key
  * ({@code KcpUserAccount}), which uses DPAPI to derive the key from the
@@ -79,19 +80,10 @@ final class KeePassProvider {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
 
-        String dllPath = resolveDllPath(settings);
         String dbPath = settings.keepassDatabasePath.trim();
         String entry = settings.keepassEntryTitle.trim();
 
-        // PowerShell script: find entry → update or create, then save
-        String script =
-                "Add-Type -Path '" + esc(dllPath) + "'\n"
-                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
-                + "$io.Path = '" + esc(dbPath) + "'\n"
-                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
-                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
-                + "$db = New-Object KeePassLib.PwDatabase\n"
-                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+        String script = preamble(settings)
                 + "$found = $false\n"
                 + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
                 + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(entry) + "') {\n"
@@ -128,17 +120,7 @@ final class KeePassProvider {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
 
-        String dllPath = resolveDllPath(settings);
-        String dbPath = settings.keepassDatabasePath.trim();
-
-        String script =
-                "Add-Type -Path '" + esc(dllPath) + "'\n"
-                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
-                + "$io.Path = '" + esc(dbPath) + "'\n"
-                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
-                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
-                + "$db = New-Object KeePassLib.PwDatabase\n"
-                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+        String script = preamble(settings)
                 + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
                 + "  Write-Output (\"Title: \" + $e.Strings.ReadSafe('Title'))\n"
                 + "  Write-Output (\"UserName: \" + $e.Strings.ReadSafe('UserName'))\n"
@@ -154,6 +136,23 @@ final class KeePassProvider {
 
     // ── Internals ───────────────────────────────────────────────────────────
 
+    /**
+     * Common PowerShell preamble: load KeePass.exe assembly, open database.
+     * Returns a script prefix that leaves {@code $db} open and ready to use.
+     */
+    private static String preamble(Settings settings) {
+        String exePath = resolveExePath(settings);
+        String dbPath = settings.keepassDatabasePath.trim();
+
+        return "[Reflection.Assembly]::LoadFrom('" + esc(exePath) + "') | Out-Null\n"
+                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
+                + "$io.Path = '" + esc(dbPath) + "'\n"
+                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
+                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
+                + "$db = New-Object KeePassLib.PwDatabase\n"
+                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n";
+    }
+
     private static void validateConfig(Settings settings) {
         String installPath = settings.keepassInstallPath;
         if (installPath == null || installPath.trim().isEmpty()) {
@@ -161,7 +160,7 @@ final class KeePassProvider {
                     "KeePass-Installationsverzeichnis ist nicht konfiguriert.\n"
                     + "Bitte unter Einstellungen \u2192 Allgemein \u2192 Sicherheit den Pfad angeben.");
         }
-        String exePath = resolveDllPath(settings);
+        String exePath = resolveExePath(settings);
         if (!new File(exePath).isFile()) {
             throw new KeePassNotAvailableException(
                     "KeePass.exe nicht gefunden: " + exePath + "\n"
@@ -185,17 +184,9 @@ final class KeePassProvider {
      * Build a PowerShell script that reads a single field from a KeePass entry.
      */
     private static String buildGetFieldScript(Settings settings, String fieldName) {
-        String dllPath = resolveDllPath(settings);
-        String dbPath = settings.keepassDatabasePath.trim();
         String entry = settings.keepassEntryTitle.trim();
 
-        return "Add-Type -Path '" + esc(dllPath) + "'\n"
-                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
-                + "$io.Path = '" + esc(dbPath) + "'\n"
-                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
-                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
-                + "$db = New-Object KeePassLib.PwDatabase\n"
-                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+        return preamble(settings)
                 + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
                 + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(entry) + "') {\n"
                 + "    Write-Output $e.Strings.ReadSafe('" + fieldName + "')\n"
@@ -206,12 +197,10 @@ final class KeePassProvider {
     }
 
     /**
-     * Resolve the path to KeePass.exe (which contains the KeePassLib namespace)
-     * from the installation directory.
+     * Resolve the path to KeePass.exe from the installation directory.
      */
-    private static String resolveDllPath(Settings settings) {
+    private static String resolveExePath(Settings settings) {
         String installDir = settings.keepassInstallPath.trim();
-        // Handle both directory and direct KeePass.exe path
         File dir = new File(installDir);
         if (dir.isFile()) {
             return dir.getAbsolutePath(); // user pointed directly to KeePass.exe
