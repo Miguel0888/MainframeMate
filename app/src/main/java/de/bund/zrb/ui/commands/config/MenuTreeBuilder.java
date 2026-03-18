@@ -49,14 +49,14 @@ public class MenuTreeBuilder {
         ));
         // Einstellungen-Menü Reihenfolge
         SUBMENU_ORDER.put("settings", Arrays.asList(
-                "general", "server", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "plugins"
+                "general", "passwords", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "plugins"
         ));
         // Extras-Menü Reihenfolge
         SUBMENU_ORDER.put("extras", Arrays.asList(
         ));
         // Hilfe-Menü Reihenfolge
         SUBMENU_ORDER.put("help", Arrays.asList(
-                "features", "---1", "passwords", "---2", "video", "---3", "about"
+                "features", "---1", "video", "---2", "about"
         ));
     }
 

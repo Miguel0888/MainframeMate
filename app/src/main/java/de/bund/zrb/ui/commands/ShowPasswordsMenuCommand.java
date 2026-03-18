@@ -3,6 +3,7 @@ package de.bund.zrb.ui.commands;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.CredentialStore;
+import de.bund.zrb.util.PasswordMethod;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
@@ -19,9 +20,13 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Menu command under <em>Hilfe → Passwörter (KeePass)</em>.
+ * Menu command under <em>Einstellungen → Passwörter</em>.
  * <p>
- * Full CRUD support for KeePass entries (via RPC or PowerShell).
+ * Central CRUD for password entries. Metadata is stored in
+ * {@code settings.passwordEntries}, credentials encrypted in
+ * {@code settings.componentCredentials} using the configured method.
+ * <p>
+ * On first open, existing KeePass entries are migrated automatically.
  */
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
@@ -36,7 +41,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getId() {
-        return "help.passwords";
+        return "settings.passwords";
     }
 
     @Override
