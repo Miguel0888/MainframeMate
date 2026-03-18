@@ -315,10 +315,14 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         // Toggle sub-panel visibility based on access method
         keepassPsPanel.setVisible(!isRpc);
         keepassRpcPanel.setVisible(isRpc);
+        keepassDatabaseField.setEnabled(!isRpc);
+        browseDb.setEnabled(!isRpc);
         keepassAccessMethodBox.addActionListener(e -> {
             boolean rpc = keepassAccessMethodBox.getSelectedIndex() == 1;
             keepassPsPanel.setVisible(!rpc);
             keepassRpcPanel.setVisible(rpc);
+            keepassDatabaseField.setEnabled(!rpc);
+            browseDb.setEnabled(!rpc);
             keepassConfigPanel.revalidate();
         });
 
