@@ -149,6 +149,26 @@ final class KeePassProvider {
         }
     }
 
+    /**
+     * List all entries from the KeePass database.
+     * Returns the raw KPScript output for {@code -c:ListEntries}.
+     *
+     * @return raw output from KPScript (entry details)
+     * @throws KeePassNotAvailableException on any failure
+     */
+    static String listEntries() {
+        Settings settings = SettingsHelper.load();
+        validateConfig(settings);
+
+        String kpScript = settings.keepassKpScriptPath.trim();
+        String db = settings.keepassDatabasePath.trim();
+
+        return exec(kpScript,
+                "-c:ListEntries",
+                db
+        );
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────
 
     private static void validateConfig(Settings settings) {

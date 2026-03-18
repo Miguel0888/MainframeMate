@@ -56,7 +56,7 @@ public class MenuTreeBuilder {
         ));
         // Hilfe-Menü Reihenfolge
         SUBMENU_ORDER.put("help", Arrays.asList(
-                "features", "---1", "video", "---2", "about"
+                "features", "---1", "passwords", "---2", "video", "---3", "about"
         ));
     }
 

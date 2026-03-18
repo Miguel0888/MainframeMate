@@ -177,5 +177,18 @@ public final class CredentialStore {
             return null;
         }
     }
+
+    // ── KeePass integration ─────────────────────────────────────────────────
+
+    /**
+     * List all entries from the KeePass database via KPScript {@code -c:ListEntries}.
+     * Only works when the password method is {@link PasswordMethod#KEEPASS}.
+     *
+     * @return raw KPScript output (entry details)
+     * @throws KeePassNotAvailableException if KeePass is misconfigured or the call fails
+     */
+    public static String listKeePassEntries() {
+        return KeePassProvider.listEntries();
+    }
 }
 
