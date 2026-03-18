@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for the password encryption facade {@link WindowsCryptoUtil}
- * and both underlying providers ({@link AesCryptoProvider}, {@link DpapiCryptoProvider}).
+ * and all underlying providers.
  */
 class WindowsCryptoUtilTest {
 
@@ -130,6 +130,69 @@ class WindowsCryptoUtilTest {
         JnaBlockedException ex = new JnaBlockedException(new UnsatisfiedLinkError("test"));
         assertTrue(ex.getMessage().contains("Einstellungen"));
         assertTrue(ex.getMessage().contains(PasswordMethod.JAVA_AES.getDisplayName()));
+        assertTrue(ex.getMessage().contains(PasswordMethod.POWERSHELL_DPAPI.getDisplayName()));
+    }
+
+    // ── PowerShell DPAPI provider tests ─────────────────────────────
+
+    @Test
+    void powershell_encryptAndDecryptRoundTrip() {
+        setMethod(PasswordMethod.POWERSHELL_DPAPI);
+        try {
+            String secret = "psTest!€123";
+            String encrypted = WindowsCryptoUtil.encrypt(secret);
+            assertNotNull(encrypted);
+            assertNotEquals(secret, encrypted);
+            assertEquals(secret, WindowsCryptoUtil.decrypt(encrypted));
+        } catch (PowerShellBlockedException e) {
+            // PowerShell blocked on this machine — that's the exact case we handle
+            assertTrue(e.getMessage().contains("Einstellungen"),
+                    "PowerShellBlockedException should advise switching in settings");
+        }
+    }
+
+    @Test
+    void powershell_unicodeRoundTrip() {
+        setMethod(PasswordMethod.POWERSHELL_DPAPI);
+        try {
+            String unicode = "Ñoño Ümläut";
+            String encrypted = WindowsCryptoUtil.encrypt(unicode);
+            assertEquals(unicode, WindowsCryptoUtil.decrypt(encrypted));
+        } catch (PowerShellBlockedException e) {
+            // PowerShell not available — acceptable
+        }
+    }
+
+    @Test
+    void powershell_pipeDelimitedCredentialRoundTrip() {
+        setMethod(PasswordMethod.POWERSHELL_DPAPI);
+        try {
+            String credentials = "wikiUser|secretPass!";
+            String encrypted = WindowsCryptoUtil.encrypt(credentials);
+            String decrypted = WindowsCryptoUtil.decrypt(encrypted);
+            assertEquals(credentials, decrypted);
+        } catch (PowerShellBlockedException e) {
+            // PowerShell not available — acceptable
+        }
+    }
+
+    @Test
+    void powershell_blockedExceptionHasHelpfulMessage() {
+        PowerShellBlockedException ex = new PowerShellBlockedException(
+                new java.io.IOException("CreateProcess error=2"));
+        assertTrue(ex.getMessage().contains("Einstellungen"));
+        assertTrue(ex.getMessage().contains(PasswordMethod.JAVA_AES.getDisplayName()));
+    }
+
+    @Test
+    void powershell_directProviderRoundTrip() {
+        try {
+            String secret = "directPsTest";
+            String encrypted = PowerShellCryptoProvider.encrypt(secret);
+            assertEquals(secret, PowerShellCryptoProvider.decrypt(encrypted));
+        } catch (PowerShellBlockedException e) {
+            assertNotNull(e.getCause());
+        }
     }
 
     // ── Cross-method test ───────────────────────────────────────────

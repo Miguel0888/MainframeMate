@@ -13,7 +13,8 @@ public class JnaBlockedException extends RuntimeException {
     private static final String MESSAGE =
             "JNA konnte nicht geladen werden — die native Bibliothek wird vom Betriebssystem blockiert.\n\n"
             + "Bitte wechseln Sie in den Einstellungen (Allgemein → Sicherheit → Passwort-Verschlüsselung) "
-            + "auf \"" + PasswordMethod.JAVA_AES.getDisplayName() + "\".";
+            + "auf \"" + PasswordMethod.POWERSHELL_DPAPI.getDisplayName() + "\" oder \""
+            + PasswordMethod.JAVA_AES.getDisplayName() + "\".";
 
     public JnaBlockedException(Throwable cause) {
         super(MESSAGE, cause);

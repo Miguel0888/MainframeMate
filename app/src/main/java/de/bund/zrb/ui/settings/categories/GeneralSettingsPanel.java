@@ -114,6 +114,8 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         fb.addInfo("<html><small>"
                 + "<b>Windows DPAPI (JNA):</b> Verschlüsselung durch Windows — an den Benutzer gebunden. "
                 + "Kann auf gehärteten Systemen (Win 11 / AppLocker) blockiert werden.<br>"
+                + "<b>Windows DPAPI (PowerShell):</b> Gleiche DPAPI-Sicherheit, aber ohne JNA. "
+                + "Benötigt <code>powershell.exe</code> — kann bei restriktiver Execution Policy blockiert sein.<br>"
                 + "<b>Java AES-256:</b> Plattformunabhängig, reines Java — Master-Key in <code>~/.mainframemate/.master.key</code>."
                 + "</small></html>");
 

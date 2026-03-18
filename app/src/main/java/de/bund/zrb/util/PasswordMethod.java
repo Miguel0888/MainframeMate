@@ -16,6 +16,16 @@ public enum PasswordMethod {
     WINDOWS_DPAPI("Windows DPAPI (JNA)"),
 
     /**
+     * Windows DPAPI via PowerShell ({@code ConvertFrom-SecureString} /
+     * {@code ConvertTo-SecureString}).
+     * <p>
+     * Passwords are bound to the current Windows user account — same security
+     * model as {@link #WINDOWS_DPAPI}, but without JNA. Requires that
+     * {@code powershell.exe} is available and not blocked by policy.
+     */
+    POWERSHELL_DPAPI("Windows DPAPI (PowerShell)"),
+
+    /**
      * Pure-Java AES-256-GCM with a file-based master key
      * ({@code ~/.mainframemate/.master.key}).
      * <p>

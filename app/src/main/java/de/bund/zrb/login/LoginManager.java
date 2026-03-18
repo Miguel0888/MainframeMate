@@ -124,6 +124,8 @@ public class LoginManager {
                 return decrypted;
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception e) {
                 // Ignore error and fall back to interactive prompt
             }
@@ -152,6 +154,8 @@ public class LoginManager {
             try {
                 return WindowsCryptoUtil.decrypt(settings.encryptedPassword);
             } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception ignore) {
                 // ignore and return null

@@ -13,6 +13,7 @@ import java.util.logging.Logger;
  * {@link Settings#passwordMethod} (Einstellungen → Allgemein → Sicherheit):
  * <ul>
  *   <li>{@link PasswordMethod#WINDOWS_DPAPI} — Windows DPAPI via JNA (default)</li>
+ *   <li>{@link PasswordMethod#POWERSHELL_DPAPI} — Windows DPAPI via PowerShell (no JNA)</li>
  *   <li>{@link PasswordMethod#JAVA_AES} — pure-Java AES-256-GCM with file-based key</li>
  * </ul>
  * <p>
@@ -41,6 +42,8 @@ public class WindowsCryptoUtil {
         switch (method) {
             case WINDOWS_DPAPI:
                 return DpapiCryptoProvider.encrypt(plainText);
+            case POWERSHELL_DPAPI:
+                return PowerShellCryptoProvider.encrypt(plainText);
             case JAVA_AES:
                 return AesCryptoProvider.encrypt(plainText);
             default:
@@ -54,6 +57,7 @@ public class WindowsCryptoUtil {
      * @param base64 the encoded ciphertext
      * @return the original plaintext
      * @throws JnaBlockedException if DPAPI is selected but JNA is blocked
+     * @throws PowerShellBlockedException if PowerShell DPAPI is selected but PS is blocked
      * @throws IllegalStateException on any other decryption failure
      */
     public static String decrypt(String base64) {
@@ -63,6 +67,8 @@ public class WindowsCryptoUtil {
         switch (method) {
             case WINDOWS_DPAPI:
                 return DpapiCryptoProvider.decrypt(base64);
+            case POWERSHELL_DPAPI:
+                return PowerShellCryptoProvider.decrypt(base64);
             case JAVA_AES:
                 return AesCryptoProvider.decrypt(base64);
             default:

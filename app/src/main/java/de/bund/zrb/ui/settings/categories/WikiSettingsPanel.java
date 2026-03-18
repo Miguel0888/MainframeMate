@@ -150,6 +150,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 }
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception ignore) {
                 // corrupted credential, start fresh
             }
