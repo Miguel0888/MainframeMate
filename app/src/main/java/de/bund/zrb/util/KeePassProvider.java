@@ -407,11 +407,21 @@ final class KeePassProvider {
 
     private static void validateRpcConfig(Settings settings) {
         if (settings.keepassRpcKey == null || settings.keepassRpcKey.trim().isEmpty()) {
-            // No SRP key configured — trigger pairing dialog
-            String key = null;
+            // No SRP key configured — show the pairing dialog
             if (javax.swing.SwingUtilities.isEventDispatchThread()) {
-                key = KeePassRpcPairingDialog.showAndPair();
+                String key = KeePassRpcPairingDialog.showAndPair();
+                if (key != null && !key.trim().isEmpty()) {
+                    // Reload settings to pick up the newly saved key
+                    Settings fresh = SettingsHelper.load();
+                    settings.keepassRpcKey = fresh.keepassRpcKey;
+                } else {
+                    throw new KeePassNotAvailableException(
+                            "KeePassRPC-Pairing wurde abgebrochen.\n"
+                          + "Bitte starten Sie den Vorgang erneut oder konfigurieren Sie den "
+                          + "SRP-Schlüssel manuell unter Einstellungen \u2192 Allgemein \u2192 Sicherheit.");
+                }
             } else {
+                // Not on EDT — try to show the dialog on the EDT and wait for the result
                 final java.util.concurrent.atomic.AtomicReference<String> result =
                         new java.util.concurrent.atomic.AtomicReference<String>(null);
                 try {
@@ -425,17 +435,15 @@ final class KeePassProvider {
                     throw new KeePassNotAvailableException(
                             "KeePassRPC-Pairing konnte nicht gestartet werden: " + e.getMessage());
                 }
-                key = result.get();
-            }
-            if (key != null && !key.trim().isEmpty()) {
-                // showAndPair() already saved to disk — reload into current settings object
-                Settings fresh = SettingsHelper.load();
-                settings.keepassRpcKey = fresh.keepassRpcKey;
-            } else {
-                throw new KeePassNotAvailableException(
-                        "KeePassRPC-Pairing wurde abgebrochen.\n"
-                      + "Bitte starten Sie den Vorgang erneut oder konfigurieren Sie den "
-                      + "SRP-Schlüssel manuell unter Einstellungen \u2192 Allgemein \u2192 KeePass-Konfiguration.");
+                if (result.get() != null && !result.get().trim().isEmpty()) {
+                    Settings fresh = SettingsHelper.load();
+                    settings.keepassRpcKey = fresh.keepassRpcKey;
+                } else {
+                    throw new KeePassNotAvailableException(
+                            "KeePassRPC-Pairing wurde abgebrochen.\n"
+                          + "Bitte starten Sie den Vorgang erneut oder konfigurieren Sie den "
+                          + "SRP-Schlüssel manuell unter Einstellungen \u2192 Allgemein \u2192 Sicherheit.");
+                }
             }
         }
         String entry = settings.keepassEntryTitle;

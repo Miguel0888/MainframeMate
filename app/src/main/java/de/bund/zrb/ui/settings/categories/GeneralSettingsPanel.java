@@ -1,6 +1,5 @@
 package de.bund.zrb.ui.settings.categories;
 
-import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.lock.LockerStyle;
@@ -302,6 +301,9 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
             String key = de.bund.zrb.util.KeePassRpcPairingDialog.showAndPair();
             if (key != null && !key.trim().isEmpty()) {
                 keepassRpcKeyField.setText(key);
+                JOptionPane.showMessageDialog(this,
+                        "Pairing erfolgreich! Der SRP-Schlüssel wurde übernommen.",
+                        "KeePassRPC", JOptionPane.INFORMATION_MESSAGE);
             }
         });
         keepassRpcPanel.add(pairingButton, rc);
@@ -486,16 +488,11 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private List<CredentialRow> loadCredentialRows() {
         List<CredentialRow> rows = new ArrayList<CredentialRow>();
         Map<String, String> all = CredentialStore.getAll();
-        // When password method is KEEPASS, decrypting credentials would trigger
-        // the full KeePass/RPC flow (including pairing dialogs).  Skip resolution
-        // in that case — just show '?' for the username column.
-        Settings s = SettingsHelper.load();
-        boolean canResolve = !"KEEPASS".equalsIgnoreCase(s.passwordMethod);
         for (Map.Entry<String, String> entry : all.entrySet()) {
             String key = entry.getKey();
             String component = CredentialStore.componentLabel(key);
             String id = CredentialStore.componentId(key);
-            String user = canResolve ? CredentialStore.resolveUserNameQuietly(key) : null;
+            String user = CredentialStore.resolveUserNameQuietly(key);
             rows.add(new CredentialRow(key, component, id, user != null ? user : "?", user != null));
         }
         return rows;
