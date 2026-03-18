@@ -226,14 +226,37 @@ public final class KeePassRpcPairingDialog {
     }
 
     /**
+     * Hosts to try in order — IPv4 first because KeePassRPC typically
+     * only binds to 127.0.0.1 and {@code localhost} may resolve to
+     * IPv6 {@code ::1}, causing "Connection reset".
+     */
+    private static final String[] HOSTS = {"127.0.0.1", "localhost"};
+
+    /**
      * Attempt a WebSocket connection to KeePassRPC to trigger its pairing dialog.
-     * This is a brief connection that lets KeePass know a new client wants to pair.
+     * Tries IPv4 (127.0.0.1) first, then falls back to localhost.
      *
      * @return {@code null} on success, or an error message
      */
+
     private static String triggerPairingDialog(int port) {
+        String lastError = null;
+
+        for (String host : HOSTS) {
+            String result = attemptTrigger(host, port);
+            if (result == null) {
+                return null; // success
+            }
+            LOG.fine("[KeePassRPC Pairing] " + host + " failed: " + result);
+            lastError = result;
+        }
+
+        return lastError;
+    }
+
+    private static String attemptTrigger(String host, int port) {
         okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
 
@@ -241,7 +264,7 @@ public final class KeePassRpcPairingDialog {
         final AtomicReference<String> error = new AtomicReference<String>(null);
 
         okhttp3.Request req = new okhttp3.Request.Builder()
-                .url("ws://localhost:" + port + "/")
+                .url("ws://" + host + ":" + port + "/")
                 .build();
 
         okhttp3.WebSocket ws = client.newWebSocket(req, new okhttp3.WebSocketListener() {
@@ -267,13 +290,18 @@ public final class KeePassRpcPairingDialog {
         });
 
         try {
-            if (!latch.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!latch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
                 ws.close(1000, "timeout");
                 return "Timeout — keine Antwort von KeePassRPC auf Port " + port + ".";
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "Unterbrochen.";
+        }
+
+        String err = error.get();
+        if (err != null) {
+            return err;
         }
 
         // Wait a moment to let KeePass show its pairing dialog
@@ -286,7 +314,7 @@ public final class KeePassRpcPairingDialog {
         // Close the connection — we just wanted to trigger the pairing dialog
         ws.close(1000, "pairing trigger");
 
-        return error.get();
+        return null;
     }
 
     /**
@@ -295,7 +323,7 @@ public final class KeePassRpcPairingDialog {
      * @return {@code null} on success, or an error message
      */
     private static String testSrpKey(int port, String srpKey) {
-        KeePassRpcClient client = new KeePassRpcClient("localhost", port, "MainframeMate", srpKey);
+        KeePassRpcClient client = new KeePassRpcClient("127.0.0.1", port, "MainframeMate", srpKey);
         try {
             client.connect();
             return null; // success
