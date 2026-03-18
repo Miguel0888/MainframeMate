@@ -366,9 +366,12 @@ final class KeePassRpcClient {
      */
     void removeEntry(String uniqueID) {
         // RemoveEntry(uuid, dbFileName)
+        String dbFile = getDatabaseFileName();
+        if (dbFile.isEmpty()) dbFile = "*";
+
         JsonArray params = new JsonArray();
         params.add(uniqueID);
-        params.add("");  // dbFileName — empty = default
+        params.add(dbFile);
 
         String response = rpcCall("RemoveEntry", params);
         try {
