@@ -257,12 +257,12 @@ public final class KeePassRpcPairingDialog {
     private static String attemptTrigger(String host, int port) {
         okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
 
-        final java.util.concurrent.CountDownLatch openLatch = new java.util.concurrent.CountDownLatch(1);
-        final java.util.concurrent.CountDownLatch helloLatch = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
         final AtomicReference<String> error = new AtomicReference<String>(null);
+        final AtomicReference<okhttp3.WebSocket> wsRef = new AtomicReference<okhttp3.WebSocket>(null);
 
         okhttp3.Request req = new okhttp3.Request.Builder()
                 .url("ws://" + host + ":" + port + "/")
@@ -271,52 +271,48 @@ public final class KeePassRpcPairingDialog {
         okhttp3.WebSocket ws = client.newWebSocket(req, new okhttp3.WebSocketListener() {
             @Override
             public void onOpen(okhttp3.WebSocket webSocket, okhttp3.Response response) {
-                LOG.fine("[KeePassRPC Pairing] WebSocket open to " + host + ":" + port);
-                openLatch.countDown();
+                wsRef.set(webSocket);
+                latch.countDown();
             }
 
             @Override
             public void onMessage(okhttp3.WebSocket webSocket, String text) {
-                LOG.fine("[KeePassRPC Pairing] ← " +
-                        (text.length() > 120 ? text.substring(0, 120) + "…" : text));
-                helloLatch.countDown();
+                LOG.fine("[KeePassRPC Pairing] Server message: "
+                        + (text.length() > 100 ? text.substring(0, 100) + "…" : text));
+                // We received a message (likely the server hello) — KeePass should now show pairing dialog
+                latch.countDown();
             }
 
             @Override
             public void onFailure(okhttp3.WebSocket webSocket, Throwable t, okhttp3.Response response) {
-                error.set("Verbindung fehlgeschlagen (" + host + "): " + t.getMessage()
+                error.set("Verbindung fehlgeschlagen: " + t.getMessage()
                         + "\nIst KeePass mit KeePassRPC auf Port " + port + " gestartet?");
-                openLatch.countDown();
-                helloLatch.countDown();
+                latch.countDown();
             }
         });
 
-        // ── Phase 1: wait for WebSocket open ──
         try {
-            if (!openLatch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!latch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
                 ws.close(1000, "timeout");
-                return "Timeout — keine Verbindung zu KeePassRPC auf " + host + ":" + port + ".";
+                return "Timeout — keine Antwort von KeePassRPC auf Port " + port + ".";
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "Unterbrochen.";
         }
-        if (error.get() != null) return error.get();
 
-        // ── Phase 2: wait for server hello ──
-        try {
-            if (!helloLatch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
-                ws.close(1000, "timeout");
-                return "Timeout — kein Server-Hello von KeePassRPC erhalten.";
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Unterbrochen.";
+        String err = error.get();
+        if (err != null) {
+            return err;
         }
-        if (error.get() != null) return error.get();
 
-        // ── Phase 3: send SRP identifyToServer to trigger KeePass pairing dialog ──
+        // Connection established — now send SRP identifyToServer.
+        // KeePassRPC shows its pairing dialog when an unknown client identifies.
         try {
+            // Wait briefly for the server hello to arrive (if latch was
+            // triggered by onOpen rather than onMessage)
+            Thread.sleep(500);
+
             java.math.BigInteger a = new java.math.BigInteger(256, new java.security.SecureRandom());
             java.math.BigInteger N = new java.math.BigInteger(
                     "EEAF0AB9ADB38DD69C33F80AFA8FC5E86072618775FF3C0B9EA2314C"
@@ -336,19 +332,16 @@ public final class KeePassRpcPairingDialog {
             srp.addProperty("securityLevel", 2);
             initiate.add("srpinitiate", srp);
 
-            String json = new com.google.gson.Gson().toJson(initiate);
-            LOG.fine("[KeePassRPC Pairing] → " + (json.length() > 120 ? json.substring(0, 120) + "…" : json));
-            ws.send(json);
+            ws.send(new com.google.gson.Gson().toJson(initiate));
+            LOG.fine("[KeePassRPC Pairing] SRP identifyToServer sent");
         } catch (Exception ex) {
             LOG.warning("[KeePassRPC Pairing] Failed to send SRP initiate: " + ex.getMessage());
-            ws.close(1000, "error");
-            return "Fehler beim Senden der Client-Identifikation: " + ex.getMessage();
         }
 
-        // Give KeePass time to display the pairing dialog, then leave WS open
-        // so KeePass keeps the dialog visible until the user copies the key.
-        try { Thread.sleep(1500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        // Give KeePass time to show the pairing dialog
+        try { Thread.sleep(1000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
+        // Leave WebSocket open so KeePass keeps the dialog visible
         return null;
     }
 
