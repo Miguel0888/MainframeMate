@@ -72,31 +72,19 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             return resolveCredentials(siteId);
         });
 
-        // Wire up credentials callback: resolves encrypted credentials from settings
+        // Wire up credentials callback: resolves encrypted credentials from componentCredentials
         // (loads settings fresh each time to pick up credentials set after tab was opened)
         tab.setCredentialsCallback(siteId -> {
-            Settings currentSettings = SettingsHelper.load();
             String siteKey = siteId.value();
-            String encrypted = currentSettings.wikiCredentials.get(siteKey);
-            LOG.fine("[Wiki] CredentialsCallback for site '" + siteKey + "': encrypted="
-                    + (encrypted == null ? "null" : (encrypted.isEmpty() ? "(empty)" : encrypted.substring(0, Math.min(20, encrypted.length())) + "…"))
-                    + " | wikiCredentials keys=" + currentSettings.wikiCredentials.keySet());
-            if (encrypted == null || encrypted.isEmpty()) {
-                LOG.fine("[Wiki] No credentials stored for site '" + siteKey + "'");
-                return null;
-            }
+            String credKey = de.bund.zrb.util.CredentialStore.wikiKey(siteKey);
+            LOG.fine("[Wiki] CredentialsCallback for site '" + siteKey + "' credKey='" + credKey + "'");
             try {
-                String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(encrypted);
-                int sep = decrypted.indexOf('|');
-                if (sep >= 0) {
-                    String user = decrypted.substring(0, sep);
-                    String pass = decrypted.substring(sep + 1);
-                    if (!user.isEmpty()) {
-                        LOG.fine("[Wiki] Resolved credentials: user='" + user + "' for site '" + siteKey + "'");
-                        return new WikiCredentials(user, pass.toCharArray());
-                    }
+                String[] cred = de.bund.zrb.util.CredentialStore.resolve(credKey);
+                if (cred != null) {
+                    LOG.fine("[Wiki] Resolved credentials: user='" + cred[0] + "' for site '" + siteKey + "'");
+                    return new WikiCredentials(cred[0], cred[1].toCharArray());
                 }
-                LOG.warning("[Wiki] Decrypted credential has unexpected format for site '" + siteKey + "'");
+                LOG.fine("[Wiki] No credentials stored for site '" + siteKey + "'");
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
@@ -104,19 +92,18 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
                 throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception e) {
-                LOG.warning("[Wiki] Failed to decrypt credentials for site '" + siteKey + "': " + e.getMessage());
+                LOG.warning("[Wiki] Failed to resolve credentials for site '" + siteKey + "': " + e.getMessage());
             }
             return null;
         });
 
         // Wire up save callback: when user enters credentials via the login prompt,
-        // encrypt and persist them to settings immediately
+        // encrypt and persist them to componentCredentials via CredentialStore
         tab.setCredentialsSaveCallback((siteId, username, password) -> {
             try {
-                String encrypted = de.bund.zrb.util.WindowsCryptoUtil.encrypt(username + "|" + password);
-                Settings s = SettingsHelper.load();
-                s.wikiCredentials.put(siteId.value(), encrypted);
-                SettingsHelper.save(s);
+                de.bund.zrb.util.CredentialStore.store(
+                        de.bund.zrb.util.CredentialStore.wikiKey(siteId.value()),
+                        username, password);
                 LOG.info("[Wiki] Credentials saved for site '" + siteId.value() + "' user='" + username + "'");
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
@@ -300,18 +287,11 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
     }
 
     private WikiCredentials resolveCredentials(WikiSiteId siteId) {
-        Settings settings = SettingsHelper.load();
-        String encrypted = settings.wikiCredentials.get(siteId.value());
-        if (encrypted == null || encrypted.isEmpty()) return WikiCredentials.anonymous();
         try {
-            String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(encrypted);
-            int sep = decrypted.indexOf('|');
-            if (sep >= 0) {
-                String user = decrypted.substring(0, sep);
-                String pass = decrypted.substring(sep + 1);
-                if (!user.isEmpty()) {
-                    return new WikiCredentials(user, pass.toCharArray());
-                }
+            String[] cred = de.bund.zrb.util.CredentialStore.resolve(
+                    de.bund.zrb.util.CredentialStore.wikiKey(siteId.value()));
+            if (cred != null) {
+                return new WikiCredentials(cred[0], cred[1].toCharArray());
             }
         } catch (de.bund.zrb.util.JnaBlockedException e) {
             throw e; // must not be swallowed — user needs to switch password method

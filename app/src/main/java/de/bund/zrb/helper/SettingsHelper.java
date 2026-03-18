@@ -8,6 +8,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
@@ -28,13 +29,19 @@ public class SettingsHelper {
     );
 
     public static Settings load() {
-        if (!SETTINGS_FILE.exists()) return new Settings();
-        try (Reader reader = new InputStreamReader(new FileInputStream(SETTINGS_FILE), StandardCharsets.UTF_8)) {
-            return GSON.fromJson(reader, Settings.class);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return new Settings();
+        Settings settings;
+        if (!SETTINGS_FILE.exists()) {
+            settings = new Settings();
+        } else {
+            try (Reader reader = new InputStreamReader(new FileInputStream(SETTINGS_FILE), StandardCharsets.UTF_8)) {
+                settings = GSON.fromJson(reader, Settings.class);
+            } catch (IOException e) {
+                e.printStackTrace();
+                settings = new Settings();
+            }
         }
+        migrateCredentials(settings);
+        return settings;
     }
 
     public static void save(Settings settings) {
@@ -70,6 +77,31 @@ public class SettingsHelper {
 
     public static File getSettingsFolder() {
         return SETTINGS_FILE.getParentFile();
+    }
+
+    /**
+     * Migrate legacy {@code wikiCredentials} entries into {@code componentCredentials}
+     * using the "wiki:&lt;siteId&gt;" key convention. Only migrates entries that are
+     * not yet present in componentCredentials. Clears wikiCredentials after migration.
+     */
+    @SuppressWarnings("deprecation")
+    private static void migrateCredentials(Settings settings) {
+        if (settings.wikiCredentials == null || settings.wikiCredentials.isEmpty()) return;
+        if (settings.componentCredentials == null) {
+            settings.componentCredentials = new java.util.LinkedHashMap<>();
+        }
+        boolean migrated = false;
+        for (Map.Entry<String, String> entry : settings.wikiCredentials.entrySet()) {
+            String newKey = "wiki:" + entry.getKey();
+            if (!settings.componentCredentials.containsKey(newKey)) {
+                settings.componentCredentials.put(newKey, entry.getValue());
+                migrated = true;
+            }
+        }
+        if (migrated) {
+            settings.wikiCredentials.clear();
+            save(settings);
+        }
     }
 
     @Deprecated

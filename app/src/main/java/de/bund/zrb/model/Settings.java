@@ -27,10 +27,10 @@ public class Settings {
     public String passwordMethod = "WINDOWS_DPAPI";
 
     /** Path to KPScript.exe (only used when passwordMethod = KEEPASS). */
-    public String keepassKpScriptPath = "";
+    public String keepassKpScriptPath = resolveKeePassDefault();
 
     /** Path to the .kdbx database file (only used when passwordMethod = KEEPASS). */
-    public String keepassDatabasePath = "";
+    public String keepassDatabasePath = "G:\\Datenbank.kdbx";
 
     /** Entry title inside the KeePass database to read/write credentials (only used when passwordMethod = KEEPASS). */
     public String keepassEntryTitle = "MainframeMate";
@@ -126,8 +126,20 @@ public class Settings {
             "wikipedia_en|Wikipedia (EN)|https://en.wikipedia.org/w/|false"
     ));
 
-    /** Encrypted wiki credentials per site. Key = siteId, Value = "encryptedUser|encryptedPassword". */
+    /**
+     * Encrypted wiki credentials per site. Key = siteId, Value = encrypted "user|password".
+     * @deprecated Use {@link #componentCredentials} with "wiki:&lt;siteId&gt;" keys instead.
+     */
+    @Deprecated
     public Map<String, String> wikiCredentials = new HashMap<>();
+
+    /**
+     * Generalized credential store. Any component can store credentials here.
+     * <p>Key = component identifier (e.g. "wiki:wikipedia_de", "betaview", "ftp:myhost"),
+     * Value = encrypted "user|password" (via {@link de.bund.zrb.util.WindowsCryptoUtil}).
+     * <p>Managed centrally in Einstellungen → Allgemein → Sicherheit.
+     */
+    public Map<String, String> componentCredentials = new LinkedHashMap<>();
 
     /** Maximum size in MB for volatile (prefetch) wiki cache entries. Default: 50 MB. */
     public int wikiPrefetchCacheMaxMb = 50;
@@ -170,4 +182,15 @@ public class Settings {
     // Video Recording Settings (key-value map for flexibility)
     public Map<String, Object> videoSettings = new LinkedHashMap<String, Object>();
 
+    /**
+     * Resolves the default KPScript.exe path using %ProgramFiles(x86)%.
+     * Falls back to empty string if the environment variable is not set.
+     */
+    private static String resolveKeePassDefault() {
+        String pf86 = System.getenv("ProgramFiles(x86)");
+        if (pf86 != null && !pf86.isEmpty()) {
+            return pf86 + "\\KeePass Password Safe 2\\KPScript.exe";
+        }
+        return "";
+    }
 }

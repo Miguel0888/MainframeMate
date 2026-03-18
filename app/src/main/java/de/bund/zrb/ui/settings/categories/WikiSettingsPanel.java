@@ -7,9 +7,7 @@ import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Settings panel for Wiki site configuration.
@@ -23,8 +21,6 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner prefetchConcurrencySpinner;
     private final JSpinner prefetchCacheMaxMbSpinner;
 
-    /** Credentials edited via the dialog – kept separately so they survive settings reload in apply(). */
-    private final Map<String, String> pendingCredentials = new HashMap<String, String>();
 
     public WikiSettingsPanel() {
         super("wiki", "Wiki");
@@ -59,18 +55,18 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         addBtn.addActionListener(e -> addSite());
         JButton removeBtn = new JButton("➖ Entfernen");
         removeBtn.addActionListener(e -> removeSite());
-        JButton credBtn = new JButton("🔑 Zugangsdaten…");
-        credBtn.setToolTipText("Benutzername und Passwort für das ausgewählte Wiki setzen");
-        credBtn.addActionListener(e -> editCredentials());
         JButton defaultBtn = new JButton("📦 Standard-Wikis laden");
         defaultBtn.setToolTipText("Wikipedia (DE + EN) als Standard hinzufügen");
         defaultBtn.addActionListener(e -> loadDefaults());
         buttons.add(addBtn);
         buttons.add(removeBtn);
-        buttons.add(credBtn);
         buttons.add(Box.createHorizontalStrut(16));
         buttons.add(defaultBtn);
         fb.addWide(buttons);
+
+        fb.addInfo("💡 Zugangsdaten für Wiki-Sites werden zentral unter "
+                + "<b>Allgemein → Sicherheit → Gespeicherte Zugangsdaten</b> verwaltet. "
+                + "Verwenden Sie dort Schlüssel im Format <code>wiki:&lt;site-id&gt;</code>.");
 
         // ── Prefetch settings ──
         fb.addSection("Vorabladen (Prefetch)");
@@ -123,105 +119,6 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         }
     }
 
-    private void editCredentials() {
-        int row = siteTable.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(siteTable, "Bitte zuerst ein Wiki auswählen.",
-                    "Kein Wiki ausgewählt", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-        WikiSiteRow site = tableModel.getRow(row);
-
-        // Load existing credentials (decrypt)
-        String existingUser = "";
-        String existingPass = "";
-        String existingEncrypted = settings.wikiCredentials.get(site.id);
-        // Also check pendingCredentials (may have been set in this session)
-        if ((existingEncrypted == null || existingEncrypted.isEmpty()) && pendingCredentials.containsKey(site.id)) {
-            existingEncrypted = pendingCredentials.get(site.id);
-        }
-        if (existingEncrypted != null && !existingEncrypted.isEmpty()) {
-            try {
-                String decrypted = de.bund.zrb.util.WindowsCryptoUtil.decrypt(existingEncrypted);
-                int sep = decrypted.indexOf('|');
-                if (sep >= 0) {
-                    existingUser = decrypted.substring(0, sep);
-                    existingPass = decrypted.substring(sep + 1);
-                }
-            } catch (de.bund.zrb.util.JnaBlockedException e) {
-                throw e; // must not be swallowed — user needs to switch password method
-            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
-                throw e; // must not be swallowed — user needs to switch password method
-            } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
-                throw e; // must not be swallowed — user needs to check KeePass config
-            } catch (Exception ignore) {
-                // corrupted credential, start fresh
-            }
-        }
-
-        JTextField userField = new JTextField(existingUser, 20);
-        JPasswordField passField = new JPasswordField(existingPass, 20);
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.anchor = GridBagConstraints.WEST;
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Wiki:"), gbc);
-        gbc.gridx = 1;
-        panel.add(new JLabel(site.displayName + " (" + site.id + ")"), gbc);
-
-        // Status indicator
-        boolean hasExistingCreds = !existingUser.isEmpty() && !existingPass.isEmpty();
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
-        JLabel statusHint = new JLabel(hasExistingCreds
-                ? "✅ Zugangsdaten sind gespeichert."
-                : "⚠️ Noch keine Zugangsdaten hinterlegt.");
-        statusHint.setFont(statusHint.getFont().deriveFont(Font.ITALIC, 11f));
-        panel.add(statusHint, gbc);
-        gbc.gridwidth = 1;
-
-        gbc.gridx = 0; gbc.gridy = 2;
-        panel.add(new JLabel("Benutzername:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(userField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Passwort:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(passField, gbc);
-
-        int result = JOptionPane.showConfirmDialog(siteTable, panel,
-                "Wiki-Zugangsdaten: " + site.displayName,
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-
-        if (result != JOptionPane.OK_OPTION) return;
-
-        String user = userField.getText().trim();
-        String pass = new String(passField.getPassword());
-
-        if (user.isEmpty() && pass.isEmpty()) {
-            // Clear credentials
-            settings.wikiCredentials.remove(site.id);
-            pendingCredentials.remove(site.id);
-        } else {
-            // Encrypt and store
-            String encrypted = de.bund.zrb.util.WindowsCryptoUtil.encrypt(user + "|" + pass);
-            settings.wikiCredentials.put(site.id, encrypted);
-            pendingCredentials.put(site.id, encrypted);
-
-            // Also persist immediately so credentials survive settings reload
-            Settings diskSettings = de.bund.zrb.helper.SettingsHelper.load();
-            diskSettings.wikiCredentials.put(site.id, encrypted);
-            de.bund.zrb.helper.SettingsHelper.save(diskSettings);
-        }
-
-        // Also enable requiresLogin if credentials are set
-        if (!user.isEmpty()) {
-            site.requiresLogin = true;
-            tableModel.fireTableRowsUpdated(row, row);
-        }
-    }
 
     @Override
     protected void applyToSettings(Settings s) {
@@ -237,10 +134,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         }
         s.wikiSites = serialized;
 
-        // Credentials: merge pending edits into the freshly loaded settings
-        // (apply() reloads settings from disk, which already has the immediately-saved creds,
-        //  but pendingCredentials is the authoritative source for this session)
-        s.wikiCredentials.putAll(pendingCredentials);
+        // Credentials are now managed centrally in componentCredentials
+        // (Einstellungen → Allgemein → Sicherheit → Gespeicherte Zugangsdaten)
 
         s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
         s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();
