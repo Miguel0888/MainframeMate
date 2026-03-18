@@ -108,7 +108,16 @@ public class LoginManager {
 
         // 1) Use RAM cache only if allowed
         if (settings.autoConnect && encryptedPasswordCache.containsKey(key)) {
-            return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+            try {
+                return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
+            } catch (Exception e) {
+                // Decryption failed (e.g. method changed) — fall through to interactive prompt
+                encryptedPasswordCache.remove(key);
+            }
         }
 
         // 2) Use stored password only if allowed and matching host/user
@@ -144,7 +153,16 @@ public class LoginManager {
         Settings settings = SettingsHelper.load();
 
         if (settings.autoConnect && encryptedPasswordCache.containsKey(key)) {
-            return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+            try {
+                return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
+            } catch (Exception e) {
+                // Decryption failed (e.g. method changed) — remove invalid cache entry
+                encryptedPasswordCache.remove(key);
+            }
         }
 
         if (settings.savePassword
@@ -217,8 +235,18 @@ public class LoginManager {
         if (!encryptedPasswordCache.containsKey(key)) {
             return false;
         }
-        String expected = WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
-        return expected.equals(plainPassword);
+        try {
+            String expected = WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+            return expected.equals(plainPassword);
+        } catch (de.bund.zrb.util.JnaBlockedException e) {
+            throw e; // must not be swallowed — user needs to switch password method
+        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+            throw e; // must not be swallowed — user needs to switch password method
+        } catch (Exception e) {
+            // Decryption failed — password cannot be verified
+            encryptedPasswordCache.remove(key);
+            return false;
+        }
     }
 
     public boolean isLoginBlocked() {

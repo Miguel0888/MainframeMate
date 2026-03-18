@@ -123,6 +123,14 @@ public class JobPollingTab implements FtpTab {
         } catch (FileServiceException ex) {
             // Typically NOT_FOUND while still waiting. Keep retry unless disabled.
             statusLabel.setText("❌ Datei noch nicht vorhanden");
+        } catch (de.bund.zrb.util.JnaBlockedException ex) {
+            retryTimer.stop();
+            animatedCircle.stop();
+            statusLabel.setText("⚠ " + ex.getMessage());
+        } catch (de.bund.zrb.util.PowerShellBlockedException ex) {
+            retryTimer.stop();
+            animatedCircle.stop();
+            statusLabel.setText("⚠ " + ex.getMessage());
         } catch (Exception ex) {
             statusLabel.setText("Fehler beim Laden: " + ex.getMessage());
         }

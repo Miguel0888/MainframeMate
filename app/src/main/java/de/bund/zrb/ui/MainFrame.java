@@ -642,7 +642,18 @@ public class MainFrame extends JFrame implements MainframeContext {
             return;
         }
 
-        String password = LoginManager.getInstance().getPassword(host, user);
+        String password;
+        try {
+            password = LoginManager.getInstance().getPassword(host, user);
+        } catch (de.bund.zrb.util.JnaBlockedException e) {
+            javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Verschlüsselung blockiert", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+            javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Verschlüsselung blockiert", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
         if (password == null || password.isEmpty()) return;
 
         // Parse macro steps from bookmark
@@ -699,7 +710,18 @@ public class MainFrame extends JFrame implements MainframeContext {
             return;
         }
 
-        String password = LoginManager.getInstance().getPassword(host, user);
+        String password;
+        try {
+            password = LoginManager.getInstance().getPassword(host, user);
+        } catch (de.bund.zrb.util.JnaBlockedException e) {
+            javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Verschlüsselung blockiert", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+            javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Verschlüsselung blockiert", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
         if (password == null || password.isEmpty()) return;
 
         // Parse library and object name from rawPath
@@ -790,7 +812,18 @@ public class MainFrame extends JFrame implements MainframeContext {
             return;
         }
 
-        String password = LoginManager.getInstance().getPassword(host, user);
+        String password;
+        try {
+            password = LoginManager.getInstance().getPassword(host, user);
+        } catch (de.bund.zrb.util.JnaBlockedException e) {
+            javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Verschlüsselung blockiert", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+            javax.swing.JOptionPane.showMessageDialog(this, e.getMessage(),
+                    "Verschlüsselung blockiert", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
         if (password == null || password.isEmpty()) return;
 
         // Use NdvService resolver to parse the path and reconstruct NdvObjectInfo
