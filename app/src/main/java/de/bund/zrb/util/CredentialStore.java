@@ -200,5 +200,51 @@ public final class CredentialStore {
     public static String listKeePassEntries() {
         return KeePassProvider.listEntries();
     }
+
+    /**
+     * Create a new entry in KeePass.
+     * Uses RPC or PowerShell depending on the configured access method.
+     */
+    public static void addKeePassEntry(String title, String userName, String password, String url) {
+        Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            KeePassProvider.rpcAddEntry(title, userName, password, url);
+        } else {
+            KeePassProvider.psAddEntry(title, userName, password);
+        }
+    }
+
+    /**
+     * Update an existing entry in KeePass.
+     * Uses RPC or PowerShell depending on the configured access method.
+     */
+    public static void updateKeePassEntry(String title, String userName, String password) {
+        Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            KeePassProvider.rpcUpdateEntry(title, userName, password);
+        } else {
+            KeePassProvider.psUpdateEntry(title, userName, password);
+        }
+    }
+
+    /**
+     * Remove an entry from KeePass.
+     * Uses RPC (by uniqueID) or PowerShell (by title) depending on the configured access method.
+     *
+     * @param title    entry title (used for PowerShell mode)
+     * @param uniqueID entry unique ID (used for RPC mode, may be {@code null})
+     */
+    public static void removeKeePassEntry(String title, String uniqueID) {
+        Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            if (uniqueID == null || uniqueID.isEmpty()) {
+                throw new KeePassNotAvailableException(
+                        "Zum Löschen via RPC wird die uniqueID benötigt.");
+            }
+            KeePassProvider.rpcRemoveEntry(uniqueID);
+        } else {
+            KeePassProvider.psRemoveEntry(title);
+        }
+    }
 }
 

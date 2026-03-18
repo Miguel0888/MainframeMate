@@ -324,6 +324,48 @@ final class KeePassRpcClient {
     }
 
     /**
+     * Remove an entry from KeePass by its uniqueID.
+     *
+     * @param uniqueID the unique identifier of the entry
+     */
+    void removeEntry(String uniqueID) {
+        // RemoveEntry(uuid, dbFileName)
+        JsonArray params = new JsonArray();
+        params.add(uniqueID);
+        params.add("");  // dbFileName — empty = default
+
+        String response = rpcCall("RemoveEntry", params);
+        try {
+            JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
+            if (resp.has("error") && !resp.get("error").isJsonNull()) {
+                throw new KeePassNotAvailableException(
+                        "KeePassRPC RemoveEntry fehlgeschlagen: " + resp.get("error"));
+            }
+        } catch (KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("[KeePassRPC] RemoveEntry response parse: " + e.getMessage());
+        }
+        LOG.info("[KeePassRPC] Entry removed: " + uniqueID);
+    }
+
+    /**
+     * Return all entries as a raw JsonArray (for CRUD operations in the UI).
+     */
+    JsonArray getAllEntriesRaw() {
+        String response = rpcCall("GetAllEntries", new JsonArray());
+        try {
+            JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
+            if (resp.has("result") && resp.get("result").isJsonArray()) {
+                return resp.getAsJsonArray("result");
+            }
+        } catch (Exception e) {
+            LOG.warning("[KeePassRPC] Failed to parse entries: " + e.getMessage());
+        }
+        return new JsonArray();
+    }
+
+    /**
      * List all entries visible to KeePassRPC.
      */
     String listEntries() {
@@ -619,6 +661,7 @@ final class KeePassRpcClient {
                 sb.append("Password: ").append(pass != null ? pass : "").append('\n');
 
                 sb.append("URL: ").append(jsonStr(e, "url", "uRLs")).append('\n');
+                sb.append("UniqueID: ").append(jsonStr(e, "uniqueID")).append('\n');
                 sb.append('\n');
             }
         }

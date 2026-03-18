@@ -150,6 +150,7 @@ final class KeePassProvider {
                 + "  Write-Output (\"UserName: \" + $e.Strings.ReadSafe('UserName'))\n"
                 + "  Write-Output (\"Password: \" + $e.Strings.ReadSafe('Password'))\n"
                 + "  Write-Output (\"URL: \" + $e.Strings.ReadSafe('URL'))\n"
+                + "  Write-Output (\"UniqueID: \" + $e.Uuid.ToHexString())\n"
                 + "  Write-Output ''\n"
                 + "}\n"
                 + "$db.Close()\n"
@@ -558,6 +559,140 @@ final class KeePassProvider {
             return client.listEntries();
         } finally {
             client.close();
+        }
+    }
+
+    // ── CRUD via RPC (called from ShowPasswordsMenuCommand) ──────────────
+
+    /**
+     * Create a new entry in KeePass via RPC.
+     */
+    static void rpcAddEntry(String title, String userName, String password, String url) {
+        Settings settings = SettingsHelper.load();
+        validateRpcConfig(settings);
+        KeePassRpcClient client = new KeePassRpcClient(
+                settings.getEffectiveRpcHost(), settings.keepassRpcPort,
+                "MainframeMate", settings.keepassRpcKey.trim(),
+                settings.getEffectiveRpcOrigin());
+        try {
+            client.connect();
+            client.addLogin(title, userName, password, url);
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Update an existing entry in KeePass via RPC.
+     */
+    static void rpcUpdateEntry(String title, String userName, String password) {
+        Settings settings = SettingsHelper.load();
+        validateRpcConfig(settings);
+        KeePassRpcClient client = new KeePassRpcClient(
+                settings.getEffectiveRpcHost(), settings.keepassRpcPort,
+                "MainframeMate", settings.keepassRpcKey.trim(),
+                settings.getEffectiveRpcOrigin());
+        try {
+            client.connect();
+            client.updateLogin(title, userName, password);
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Remove an entry from KeePass by uniqueID via RPC.
+     */
+    static void rpcRemoveEntry(String uniqueID) {
+        Settings settings = SettingsHelper.load();
+        validateRpcConfig(settings);
+        KeePassRpcClient client = new KeePassRpcClient(
+                settings.getEffectiveRpcHost(), settings.keepassRpcPort,
+                "MainframeMate", settings.keepassRpcKey.trim(),
+                settings.getEffectiveRpcOrigin());
+        try {
+            client.connect();
+            client.removeEntry(uniqueID);
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Create a new entry in KeePass via PowerShell.
+     */
+    static void psAddEntry(String title, String userName, String password) {
+        Settings settings = SettingsHelper.load();
+        validateConfig(settings);
+        createEntry(settings, title, userName, password);
+    }
+
+    /**
+     * Update an existing entry in KeePass via PowerShell.
+     * If the entry does not exist, it is created.
+     */
+    static void psUpdateEntry(String title, String userName, String password) {
+        Settings settings = SettingsHelper.load();
+        validateConfig(settings);
+
+        String script = preamble(settings)
+                + "$found = $false\n"
+                + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
+                + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(title) + "') {\n"
+                + "    $e.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
+                + "    $e.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + "    $found = $true; break\n"
+                + "  }\n"
+                + "}\n"
+                + "if (-not $found) {\n"
+                + "  $ne = New-Object KeePassLib.PwEntry($db.RootGroup, $true, $true)\n"
+                + "  $ne.Strings.Set('Title', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(title) + "')))\n"
+                + "  $ne.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
+                + "  $ne.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + "  $db.RootGroup.AddEntry($ne, $true)\n"
+                + "}\n"
+                + "$db.Save((New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "$db.Close()\n"
+                + "Write-Output 'OK'";
+
+        String result = execPowerShell(script).trim();
+        if (!result.contains("OK")) {
+            throw new KeePassNotAvailableException(
+                    "KeePass-Eintrag konnte nicht aktualisiert werden: " + sanitize(result));
+        }
+    }
+
+    /**
+     * Delete an entry from KeePass via PowerShell.
+     */
+    static void psRemoveEntry(String title) {
+        Settings settings = SettingsHelper.load();
+        validateConfig(settings);
+
+        String script = preamble(settings)
+                + "$found = $false\n"
+                + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
+                + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(title) + "') {\n"
+                + "    $e.ParentGroup.Entries.Remove($e) | Out-Null\n"
+                + "    $found = $true; break\n"
+                + "  }\n"
+                + "}\n"
+                + "if ($found) {\n"
+                + "  $db.Save((New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "  Write-Output 'OK'\n"
+                + "} else {\n"
+                + "  Write-Output 'NOT_FOUND'\n"
+                + "}\n"
+                + "$db.Close()";
+
+        String result = execPowerShell(script).trim();
+        if (result.contains("NOT_FOUND")) {
+            throw new KeePassNotAvailableException(
+                    "KeePass-Eintrag \"" + title + "\" wurde nicht gefunden.");
+        }
+        if (!result.contains("OK")) {
+            throw new KeePassNotAvailableException(
+                    "KeePass-Eintrag konnte nicht gelöscht werden: " + sanitize(result));
         }
     }
 }

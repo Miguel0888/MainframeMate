@@ -8,8 +8,11 @@ import de.bund.zrb.util.PasswordMethod;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -18,9 +21,7 @@ import java.util.logging.Logger;
 /**
  * Menu command under <em>Hilfe → Passwörter (KeePass)</em>.
  * <p>
- * If the password method is set to {@link PasswordMethod#KEEPASS},
- * lists all entries from the configured KeePass database via PowerShell + KeePass.exe.
- * Otherwise shows a hint that KeePass must be configured first.
+ * Full CRUD support for KeePass entries (via RPC or PowerShell).
  */
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
@@ -99,79 +100,64 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     // ═══════════════════════════════════════════════════════════
 
     private void showEntriesDialog(String rawOutput) {
-        List<KeePassEntry> entries = parseEntries(rawOutput);
+        final List<KeePassEntry> entries = parseEntries(rawOutput);
+        final boolean[] visible = new boolean[1024]; // per-row password visibility
 
-        if (entries.isEmpty()) {
-            JOptionPane.showMessageDialog(parent,
-                    "Keine Einträge in der KeePass-Datenbank gefunden.",
-                    "KeePass – Passwörter", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
+        final EntryTableModel model = new EntryTableModel(entries, visible);
 
-        // Track which rows have their password visible
-        final boolean[] visible = new boolean[entries.size()];
-
-        // Build table model
-        String[] columns = {"Titel", "Benutzername", "URL", "Passwort", ""};
-        DefaultTableModel model = new DefaultTableModel(columns, 0) {
-            @Override
-            public boolean isCellEditable(int row, int col) {
-                return col == 4; // only the button column is "editable" (clickable)
-            }
-        };
-        for (KeePassEntry entry : entries) {
-            model.addRow(new Object[]{entry.title, entry.userName, entry.url, "••••••••", "\uD83D\uDC41"});
-        }
-
-        JTable table = new JTable(model);
-        table.setRowHeight(22);
-        table.getColumnModel().getColumn(0).setPreferredWidth(180);
-        table.getColumnModel().getColumn(1).setPreferredWidth(140);
-        table.getColumnModel().getColumn(2).setPreferredWidth(250);
-        table.getColumnModel().getColumn(3).setPreferredWidth(120);
-        table.getColumnModel().getColumn(4).setPreferredWidth(32);
-        table.getColumnModel().getColumn(4).setMaxWidth(36);
+        final JTable table = new JTable(model);
+        table.setRowHeight(24);
+        table.getColumnModel().getColumn(0).setPreferredWidth(180); // Titel
+        table.getColumnModel().getColumn(1).setPreferredWidth(140); // Benutzername
+        table.getColumnModel().getColumn(2).setPreferredWidth(120); // Passwort
+        table.getColumnModel().getColumn(3).setPreferredWidth(250); // URL
+        table.getColumnModel().getColumn(4).setPreferredWidth(36);  // 👁
+        table.getColumnModel().getColumn(4).setMaxWidth(40);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
 
-        // Button renderer + editor for the eye column
-        table.getColumnModel().getColumn(4).setCellRenderer(new javax.swing.table.TableCellRenderer() {
-            private final JButton btn = new JButton("\uD83D\uDC41");
+        // Eye column: renderer + click handler
+        table.getColumnModel().getColumn(4).setCellRenderer(new DefaultTableCellRenderer() {
             {
-                btn.setMargin(new Insets(0, 0, 0, 0));
-                btn.setToolTipText("Passwort anzeigen / verbergen");
+                setHorizontalAlignment(SwingConstants.CENTER);
             }
             @Override
-            public Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean foc, int r, int c) {
-                return btn;
+            public Component getTableCellRendererComponent(JTable t, Object v,
+                    boolean sel, boolean foc, int r, int c) {
+                super.getTableCellRendererComponent(t, v, sel, foc, r, c);
+                int modelRow = t.convertRowIndexToModel(r);
+                setText(visible[modelRow] ? "\uD83D\uDD13" : "\uD83D\uDC41");
+                setToolTipText("Passwort anzeigen / verbergen");
+                return this;
             }
         });
-        table.getColumnModel().getColumn(4).setCellEditor(new DefaultCellEditor(new JCheckBox()) {
+
+        table.addMouseListener(new MouseAdapter() {
             @Override
-            public Component getTableCellEditorComponent(JTable t, Object v, boolean sel, int row, int col) {
-                int modelRow = t.convertRowIndexToModel(row);
-                visible[modelRow] = !visible[modelRow];
-                model.setValueAt(visible[modelRow] ? entries.get(modelRow).password : "••••••••", modelRow, 3);
-                fireEditingStopped();
-                return null;
+            public void mouseClicked(MouseEvent e) {
+                int col = table.columnAtPoint(e.getPoint());
+                int row = table.rowAtPoint(e.getPoint());
+                if (col == 4 && row >= 0) {
+                    int modelRow = table.convertRowIndexToModel(row);
+                    visible[modelRow] = !visible[modelRow];
+                    model.fireTableRowsUpdated(modelRow, modelRow);
+                }
             }
         });
 
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(780, 350));
+        scrollPane.setPreferredSize(new Dimension(800, 380));
 
-        // Toggle ALL password visibility
-        JCheckBox showPasswords = new JCheckBox("Alle Passwörter anzeigen");
-        showPasswords.addActionListener(e -> {
-            boolean show = showPasswords.isSelected();
-            for (int row = 0; row < entries.size(); row++) {
-                visible[row] = show;
-                model.setValueAt(show ? entries.get(row).password : "••••••••", row, 3);
-            }
+        // ── Bottom button bar ──
+        JCheckBox showAll = new JCheckBox("Alle Passwörter anzeigen");
+        showAll.addActionListener(e -> {
+            boolean show = showAll.isSelected();
+            for (int i = 0; i < entries.size(); i++) visible[i] = show;
+            model.fireTableDataChanged();
         });
 
-        // Copy password button
-        JButton copyBtn = new JButton("📋 Passwort kopieren");
+        JButton copyBtn = new JButton("📋 Kopieren");
+        copyBtn.setToolTipText("Passwort des ausgewählten Eintrags in die Zwischenablage kopieren");
         copyBtn.addActionListener(e -> {
             int row = table.getSelectedRow();
             if (row < 0) {
@@ -181,19 +167,97 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }
             int modelRow = table.convertRowIndexToModel(row);
             String pw = entries.get(modelRow).password;
-            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+            Toolkit.getDefaultToolkit().getSystemClipboard()
                     .setContents(new java.awt.datatransfer.StringSelection(pw), null);
             JOptionPane.showMessageDialog(parent,
                     "Passwort für \"" + entries.get(modelRow).title + "\" in die Zwischenablage kopiert.",
                     "Kopiert", JOptionPane.INFORMATION_MESSAGE);
         });
 
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        buttonPanel.add(showPasswords);
+        JButton addBtn = new JButton("➕ Neu");
+        addBtn.setToolTipText("Neuen KeePass-Eintrag anlegen");
+        addBtn.addActionListener(e -> {
+            KeePassEntry created = showEntryEditor(null, "Neuen Eintrag anlegen");
+            if (created != null) {
+                try {
+                    CredentialStore.addKeePassEntry(
+                            created.title, created.userName, created.password, created.url);
+                    entries.add(created);
+                    model.fireTableDataChanged();
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "AddEntry failed", ex);
+                    JOptionPane.showMessageDialog(parent,
+                            "Eintrag konnte nicht angelegt werden:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+
+        JButton editBtn = new JButton("✏️ Bearbeiten");
+        editBtn.setToolTipText("Ausgewählten KeePass-Eintrag bearbeiten");
+        editBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                JOptionPane.showMessageDialog(parent, "Bitte zuerst einen Eintrag auswählen.",
+                        "Kein Eintrag", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int modelRow = table.convertRowIndexToModel(row);
+            KeePassEntry existing = entries.get(modelRow);
+            KeePassEntry updated = showEntryEditor(existing, "Eintrag bearbeiten");
+            if (updated != null) {
+                try {
+                    CredentialStore.updateKeePassEntry(
+                            updated.title, updated.userName, updated.password);
+                    entries.set(modelRow, updated);
+                    model.fireTableDataChanged();
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "UpdateEntry failed", ex);
+                    JOptionPane.showMessageDialog(parent,
+                            "Eintrag konnte nicht aktualisiert werden:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+
+        JButton deleteBtn = new JButton("🗑 Löschen");
+        deleteBtn.setToolTipText("Ausgewählten KeePass-Eintrag löschen");
+        deleteBtn.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                JOptionPane.showMessageDialog(parent, "Bitte zuerst einen Eintrag auswählen.",
+                        "Kein Eintrag", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int modelRow = table.convertRowIndexToModel(row);
+            KeePassEntry entry = entries.get(modelRow);
+            int confirm = JOptionPane.showConfirmDialog(parent,
+                    "Eintrag \"" + entry.title + "\" wirklich löschen?\n"
+                            + "Diese Aktion kann nicht rückgängig gemacht werden.",
+                    "Eintrag löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm != JOptionPane.YES_OPTION) return;
+
+            try {
+                CredentialStore.removeKeePassEntry(entry.title, entry.uniqueID);
+                entries.remove(modelRow);
+                model.fireTableDataChanged();
+            } catch (Exception ex) {
+                LOG.log(Level.WARNING, "RemoveEntry failed", ex);
+                JOptionPane.showMessageDialog(parent,
+                        "Eintrag konnte nicht gelöscht werden:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        buttonPanel.add(showAll);
+        buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(copyBtn);
+        buttonPanel.add(addBtn);
+        buttonPanel.add(editBtn);
+        buttonPanel.add(deleteBtn);
 
         JPanel mainPanel = new JPanel(new BorderLayout(0, 8));
-        Settings s = SettingsHelper.load();
         mainPanel.add(new JLabel("KeePass  (" + entries.size() + " Einträge)"),
                 BorderLayout.NORTH);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
@@ -205,6 +269,124 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         dialog.pack();
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Entry editor dialog (for Add / Edit)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Show a modal dialog to create/edit a KeePass entry.
+     *
+     * @param existing the entry to edit, or {@code null} for a new entry
+     * @param dialogTitle the title for the dialog
+     * @return the new/updated entry, or {@code null} if the user cancelled
+     */
+    private KeePassEntry showEntryEditor(KeePassEntry existing, String dialogTitle) {
+        JTextField titleField = new JTextField(existing != null ? existing.title : "", 25);
+        JTextField userField  = new JTextField(existing != null ? existing.userName : "", 25);
+        JPasswordField passField = new JPasswordField(existing != null ? existing.password : "", 25);
+        JTextField urlField   = new JTextField(existing != null ? existing.url : "", 25);
+
+        // Show/hide password toggle
+        JCheckBox showPass = new JCheckBox("anzeigen");
+        showPass.addActionListener(e -> {
+            passField.setEchoChar(showPass.isSelected() ? (char) 0 : '•');
+        });
+
+        JPanel passPanel = new JPanel(new BorderLayout(4, 0));
+        passPanel.add(passField, BorderLayout.CENTER);
+        passPanel.add(showPass, BorderLayout.EAST);
+
+        // If editing, title is read-only (it's the key)
+        if (existing != null) {
+            titleField.setEditable(false);
+            titleField.setBackground(UIManager.getColor("TextField.inactiveBackground"));
+        }
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Titel:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(titleField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Benutzername:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(userField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Passwort:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(passPanel, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("URL:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(urlField, gbc);
+
+        int result = JOptionPane.showConfirmDialog(parent, panel, dialogTitle,
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return null;
+
+        String title = titleField.getText().trim();
+        String user  = userField.getText().trim();
+        String pass  = new String(passField.getPassword());
+        String url   = urlField.getText().trim();
+
+        if (title.isEmpty()) {
+            JOptionPane.showMessageDialog(parent, "Der Titel darf nicht leer sein.",
+                    "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+
+        return new KeePassEntry(title, user, pass, url,
+                existing != null ? existing.uniqueID : "");
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Table model
+    // ═══════════════════════════════════════════════════════════
+
+    private static class EntryTableModel extends AbstractTableModel {
+        private static final String[] COLUMNS = {"Titel", "Benutzername", "Passwort", "URL", ""};
+        private final List<KeePassEntry> entries;
+        private final boolean[] visible;
+
+        EntryTableModel(List<KeePassEntry> entries, boolean[] visible) {
+            this.entries = entries;
+            this.visible = visible;
+        }
+
+        @Override
+        public int getRowCount() { return entries.size(); }
+
+        @Override
+        public int getColumnCount() { return COLUMNS.length; }
+
+        @Override
+        public String getColumnName(int col) { return COLUMNS[col]; }
+
+        @Override
+        public boolean isCellEditable(int row, int col) { return false; }
+
+        @Override
+        public Object getValueAt(int row, int col) {
+            KeePassEntry e = entries.get(row);
+            switch (col) {
+                case 0: return e.title;
+                case 1: return e.userName;
+                case 2: return visible[row] ? e.password : "••••••••";
+                case 3: return e.url;
+                case 4: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
+                default: return "";
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -220,6 +402,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
      * UserName: myuser
      * Password: secret
      * URL: https://example.com
+     * UniqueID: abcdef123456
      * ...
      * </pre>
      * The last line "OK: Operation completed successfully." is stripped.
@@ -248,18 +431,20 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             String userName = "";
             String password = "";
             String url = "";
+            String uniqueID = "";
 
             for (String line : block.split("\\n")) {
                 line = line.trim();
-                if (line.startsWith("Title: "))    title    = line.substring("Title: ".length()).trim();
-                else if (line.startsWith("UserName: ")) userName = line.substring("UserName: ".length()).trim();
-                else if (line.startsWith("Password: ")) password = line.substring("Password: ".length()).trim();
-                else if (line.startsWith("URL: "))      url      = line.substring("URL: ".length()).trim();
+                if (line.startsWith("Title: "))       title    = line.substring("Title: ".length()).trim();
+                else if (line.startsWith("UserName: "))  userName = line.substring("UserName: ".length()).trim();
+                else if (line.startsWith("Password: "))  password = line.substring("Password: ".length()).trim();
+                else if (line.startsWith("URL: "))       url      = line.substring("URL: ".length()).trim();
+                else if (line.startsWith("UniqueID: "))  uniqueID = line.substring("UniqueID: ".length()).trim();
             }
 
             // Only add entries with a title (skip header/empty blocks)
             if (!title.isEmpty()) {
-                entries.add(new KeePassEntry(title, userName, password, url));
+                entries.add(new KeePassEntry(title, userName, password, url, uniqueID));
             }
         }
 
@@ -271,12 +456,14 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         final String userName;
         final String password;
         final String url;
+        final String uniqueID;
 
-        KeePassEntry(String title, String userName, String password, String url) {
+        KeePassEntry(String title, String userName, String password, String url, String uniqueID) {
             this.title = title;
             this.userName = userName;
             this.password = password;
             this.url = url;
+            this.uniqueID = uniqueID;
         }
     }
 }
