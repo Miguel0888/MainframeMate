@@ -228,7 +228,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (confirm != JOptionPane.YES_OPTION) return;
 
             try {
-                deleteEntry(entry.title);
+                deleteEntry(entry);
                 entries.remove(modelRow);
                 model.fireTableDataChanged();
             } catch (Exception ex) {
@@ -535,17 +535,28 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Settings-based persistence
+    //  Dual persistence: KeePass or Settings
     // ═══════════════════════════════════════════════════════════
 
     /** Credential-store key prefix for password entries. */
     private static final String PWD_PREFIX = "pwd:";
 
-    /**
-     * Load all password entries from {@code settings.passwordEntries} and
-     * decrypt their credentials from {@code componentCredentials}.
-     */
+    /** Is the user's password method set to KeePass? */
+    private static boolean isKeePass() {
+        try {
+            return PasswordMethod.valueOf(SettingsHelper.load().passwordMethod) == PasswordMethod.KEEPASS;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ── Load ────────────────────────────────────────────────────
+
     private static List<KeePassEntry> loadEntries() {
+        return isKeePass() ? loadFromKeePass() : loadFromSettings();
+    }
+
+    private static List<KeePassEntry> loadFromSettings() {
         Settings settings = SettingsHelper.load();
         List<KeePassEntry> entries = new ArrayList<KeePassEntry>();
         for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
@@ -563,13 +574,24 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         return entries;
     }
 
-    /**
-     * Save (create or update) a password entry in Settings + CredentialStore.
-     */
+    private static List<KeePassEntry> loadFromKeePass() {
+        String raw = CredentialStore.listKeePassEntries();
+        return parseKeePassOutput(raw);
+    }
+
+    // ── Save ────────────────────────────────────────────────────
+
     private static void saveEntry(KeePassEntry entry) {
+        if (isKeePass()) {
+            saveToKeePass(entry);
+        } else {
+            saveToSettings(entry);
+        }
+    }
+
+    private static void saveToSettings(KeePassEntry entry) {
         Settings settings = SettingsHelper.load();
 
-        // Remove existing metadata with the same id
         Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
         while (it.hasNext()) {
             if (entry.title.equals(it.next().id)) {
@@ -578,7 +600,6 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }
         }
 
-        // Add new metadata
         Settings.PasswordEntryMeta meta = new Settings.PasswordEntryMeta();
         meta.id = entry.title;
         meta.category = entry.category;
@@ -592,24 +613,86 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         settings.passwordEntries.add(meta);
         SettingsHelper.save(settings);
 
-        // Store encrypted credentials (user|password) via the configured method
         CredentialStore.store(PWD_PREFIX + entry.title, entry.userName, entry.password);
     }
 
-    /**
-     * Delete a password entry from Settings + CredentialStore.
-     */
-    private static void deleteEntry(String id) {
-        Settings settings = SettingsHelper.load();
-        Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
-        while (it.hasNext()) {
-            if (id.equals(it.next().id)) {
-                it.remove();
-                break;
+    private static void saveToKeePass(KeePassEntry entry) {
+        // Try update first (works for new entries too — addLogin fallback inside)
+        CredentialStore.updateKeePassEntry(
+                entry.title, entry.userName, entry.password,
+                entry.displayName, entry.category,
+                entry.requiresLogin, entry.useProxy, entry.autoIndex);
+    }
+
+    // ── Delete ──────────────────────────────────────────────────
+
+    private static void deleteEntry(KeePassEntry entry) {
+        if (isKeePass()) {
+            CredentialStore.removeKeePassEntry(entry.title, entry.uniqueID);
+        } else {
+            Settings settings = SettingsHelper.load();
+            Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
+            while (it.hasNext()) {
+                if (entry.title.equals(it.next().id)) {
+                    it.remove();
+                    break;
+                }
+            }
+            SettingsHelper.save(settings);
+            CredentialStore.remove(PWD_PREFIX + entry.title);
+        }
+    }
+
+    // ── KeePass output parser ───────────────────────────────────
+
+    private static List<KeePassEntry> parseKeePassOutput(String raw) {
+        List<KeePassEntry> entries = new ArrayList<KeePassEntry>();
+        if (raw == null || raw.trim().isEmpty()) return entries;
+
+        String cleaned = raw.trim();
+        int lastNl = cleaned.lastIndexOf('\n');
+        if (lastNl > 0 && cleaned.substring(lastNl + 1).trim().startsWith("OK:")) {
+            cleaned = cleaned.substring(0, lastNl).trim();
+        } else if (cleaned.startsWith("OK:")) {
+            return entries;
+        }
+
+        for (String block : cleaned.split("\\n\\s*\\n")) {
+            String title = "", userName = "", password = "", url = "", uniqueID = "";
+            String mmCat = "", mmDisp = "";
+            String mmLogin = "false", mmProxy = "false", mmIdx = "false";
+            String mmSavePw = "false", mmSession = "false";
+
+            for (String line : block.split("\\n")) {
+                line = line.trim();
+                if      (line.startsWith("Title: "))              title     = line.substring(7).trim();
+                else if (line.startsWith("UserName: "))           userName  = line.substring(10).trim();
+                else if (line.startsWith("Password: "))           password  = line.substring(10).trim();
+                else if (line.startsWith("URL: "))                url       = line.substring(5).trim();
+                else if (line.startsWith("UniqueID: "))           uniqueID  = line.substring(10).trim();
+                else if (line.startsWith("MM_Category: "))        mmCat     = line.substring(13).trim();
+                else if (line.startsWith("MM_DisplayName: "))     mmDisp    = line.substring(16).trim();
+                else if (line.startsWith("MM_RequiresLogin: "))   mmLogin   = line.substring(18).trim();
+                else if (line.startsWith("MM_UseProxy: "))        mmProxy   = line.substring(13).trim();
+                else if (line.startsWith("MM_AutoIndex: "))       mmIdx     = line.substring(14).trim();
+                else if (line.startsWith("MM_SavePassword: "))    mmSavePw  = line.substring(17).trim();
+                else if (line.startsWith("MM_SessionCache: "))    mmSession = line.substring(17).trim();
+            }
+
+            if (!title.isEmpty()) {
+                entries.add(new KeePassEntry(
+                        !mmCat.isEmpty() ? mmCat : "Mainframe",
+                        title,
+                        !mmDisp.isEmpty() ? mmDisp : title,
+                        userName, password, url, uniqueID,
+                        "true".equalsIgnoreCase(mmLogin),
+                        "true".equalsIgnoreCase(mmProxy),
+                        "true".equalsIgnoreCase(mmIdx),
+                        "true".equalsIgnoreCase(mmSavePw),
+                        "true".equalsIgnoreCase(mmSession)));
             }
         }
-        SettingsHelper.save(settings);
-        CredentialStore.remove(PWD_PREFIX + id);
+        return entries;
     }
 
     // ═══════════════════════════════════════════════════════════

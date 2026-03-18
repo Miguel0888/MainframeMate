@@ -258,6 +258,8 @@ final class KeePassRpcClient {
         addCustomFormField(formFields, "MM_RequiresLogin", String.valueOf(requiresLogin));
         addCustomFormField(formFields, "MM_UseProxy", String.valueOf(useProxy));
         addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
+        addCustomFormField(formFields, "MM_SavePassword", "false");
+        addCustomFormField(formFields, "MM_SessionCache", "false");
 
         // Build login object
         JsonObject login = new JsonObject();
@@ -347,6 +349,8 @@ final class KeePassRpcClient {
         addCustomFormField(formFields, "MM_RequiresLogin", String.valueOf(requiresLogin));
         addCustomFormField(formFields, "MM_UseProxy", String.valueOf(useProxy));
         addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
+        addCustomFormField(formFields, "MM_SavePassword", "false");
+        addCustomFormField(formFields, "MM_SessionCache", "false");
 
         JsonObject login = new JsonObject();
         login.addProperty("title", title);
@@ -745,6 +749,10 @@ final class KeePassRpcClient {
                 sb.append("MM_UseProxy: ").append(mmProxy != null ? mmProxy : "false").append('\n');
                 String mmIdx = formFieldByName(e, "MM_AutoIndex");
                 sb.append("MM_AutoIndex: ").append(mmIdx != null ? mmIdx : "false").append('\n');
+                String mmSavePw = formFieldByName(e, "MM_SavePassword");
+                sb.append("MM_SavePassword: ").append(mmSavePw != null ? mmSavePw : "false").append('\n');
+                String mmSession = formFieldByName(e, "MM_SessionCache");
+                sb.append("MM_SessionCache: ").append(mmSession != null ? mmSession : "false").append('\n');
 
                 sb.append('\n');
             }

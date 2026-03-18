@@ -156,6 +156,8 @@ final class KeePassProvider {
                 + "  Write-Output (\"MM_RequiresLogin: \" + $e.Strings.ReadSafe('MM_RequiresLogin'))\n"
                 + "  Write-Output (\"MM_UseProxy: \" + $e.Strings.ReadSafe('MM_UseProxy'))\n"
                 + "  Write-Output (\"MM_AutoIndex: \" + $e.Strings.ReadSafe('MM_AutoIndex'))\n"
+                + "  Write-Output (\"MM_SavePassword: \" + $e.Strings.ReadSafe('MM_SavePassword'))\n"
+                + "  Write-Output (\"MM_SessionCache: \" + $e.Strings.ReadSafe('MM_SessionCache'))\n"
                 + "  Write-Output ''\n"
                 + "}\n"
                 + "$db.Close()\n"
