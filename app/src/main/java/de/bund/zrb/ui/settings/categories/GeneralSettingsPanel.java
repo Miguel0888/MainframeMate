@@ -240,7 +240,24 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
         keepassRpcPanel.add(new JLabel("SRP-Schlüssel:"), rc);
         rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
-        keepassRpcPanel.add(keepassRpcKeyField, rc);
+        JPanel keyPanel = new JPanel(new BorderLayout(4, 0));
+        keyPanel.add(keepassRpcKeyField, BorderLayout.CENTER);
+        final char echoDefault = keepassRpcKeyField.getEchoChar();
+        JButton showKeyButton = new JButton("\uD83D\uDC41"); // 👁
+        showKeyButton.setToolTipText("Schlüssel anzeigen / verbergen");
+        showKeyButton.setMargin(new Insets(0, 4, 0, 4));
+        showKeyButton.setFocusable(false);
+        showKeyButton.addActionListener(ev -> {
+            if (keepassRpcKeyField.getEchoChar() == 0) {
+                keepassRpcKeyField.setEchoChar(echoDefault);
+                showKeyButton.setText("\uD83D\uDC41"); // 👁
+            } else {
+                keepassRpcKeyField.setEchoChar((char) 0);
+                showKeyButton.setText("\uD83D\uDE48"); // 🙈
+            }
+        });
+        keyPanel.add(showKeyButton, BorderLayout.EAST);
+        keepassRpcPanel.add(keyPanel, rc);
         rc.gridy = 3; rc.gridx = 0; rc.gridwidth = 2;
         JLabel rpcHint = new JLabel("<html><small>Den Schlüssel erhalten Sie aus KeePass beim ersten "
                 + "Verbindungsaufbau (Pairing-Dialog).</small></html>");
