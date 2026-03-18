@@ -215,29 +215,22 @@ final class KeePassRpcClient {
 
     /**
      * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call.
-     *
-     * @param title    entry title
-     * @param userName username
-     * @param password password
-     * @param url      URL (may be empty)
      */
     void addLogin(String title, String userName, String password, String url) {
-        addLogin(title, userName, password, url, null, null);
+        addLogin(title, userName, password, url, null, null, false, false, false);
     }
 
     /**
      * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call,
-     * optionally storing a display name in the Notes field and a category in Tags.
-     *
-     * @param title       entry title
-     * @param userName    username
-     * @param password    password
-     * @param url         URL (may be empty)
-     * @param displayName display name to store in the Notes field (may be {@code null})
-     * @param category    category to store in the Tags field (may be {@code null})
+     * storing metadata as custom form fields (Advanced String Fields via formFieldList).
+     * <p>
+     * KeePassRPC v1 does NOT support {@code notes} or {@code tags} in the DTO,
+     * so we use custom {@code FFTtext} entries in {@code formFieldList} with
+     * {@code MM_*} prefixed names instead.
      */
     void addLogin(String title, String userName, String password, String url,
-                  String displayName, String category) {
+                  String displayName, String category,
+                  boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         // Build form field list (V1 DTO)
         JsonArray formFields = new JsonArray();
 
@@ -259,21 +252,18 @@ final class KeePassRpcClient {
         passField.addProperty("page", -1);
         formFields.add(passField);
 
+        // Custom MM_* fields for app metadata (stored as formFieldList entries)
+        addCustomFormField(formFields, "MM_DisplayName", displayName);
+        addCustomFormField(formFields, "MM_Category", category);
+        addCustomFormField(formFields, "MM_RequiresLogin", String.valueOf(requiresLogin));
+        addCustomFormField(formFields, "MM_UseProxy", String.valueOf(useProxy));
+        addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
+
         // Build login object
         JsonObject login = new JsonObject();
         login.addProperty("title", title);
         login.add("formFieldList", formFields);
 
-        // Notes → displayName (best-effort; may be ignored by older KeePassRPC versions)
-        if (displayName != null && !displayName.isEmpty()) {
-            login.addProperty("notes", displayName);
-        }
-        // Tags → category (best-effort)
-        if (category != null && !category.isEmpty()) {
-            JsonArray tagsArr = new JsonArray();
-            tagsArr.add(category);
-            login.add("tags", tagsArr);
-        }
 
         JsonArray urls = new JsonArray();
         if (url != null && !url.isEmpty()) {
@@ -306,32 +296,24 @@ final class KeePassRpcClient {
 
     /**
      * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call.
-     *
-     * @param title    entry title (used to find existing entry)
-     * @param userName new username
-     * @param password new password
      */
     void updateLogin(String title, String userName, String password) {
-        updateLogin(title, userName, password, null, null);
+        updateLogin(title, userName, password, null, null, false, false, false);
     }
 
     /**
      * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call,
-     * optionally storing a display name in the Notes field and a category in Tags.
-     *
-     * @param title       entry title (used to find existing entry)
-     * @param userName    new username
-     * @param password    new password
-     * @param displayName display name to store in the Notes field (may be {@code null})
-     * @param category    category to store in the Tags field (may be {@code null})
+     * storing metadata as custom form fields ({@code MM_*} in formFieldList).
      */
     void updateLogin(String title, String userName, String password,
-                     String displayName, String category) {
+                     String displayName, String category,
+                     boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         // First find the existing entry to get its uniqueID
         JsonArray entries = findLoginsByTitle(title);
         if (entries == null || entries.size() == 0) {
             // Entry doesn't exist yet — create it
-            addLogin(title, userName, password, "", displayName, category);
+            addLogin(title, userName, password, "", displayName, category,
+                    requiresLogin, useProxy, autoIndex);
             return;
         }
 
@@ -359,21 +341,18 @@ final class KeePassRpcClient {
         passField.addProperty("page", -1);
         formFields.add(passField);
 
+        // Custom MM_* fields for app metadata
+        addCustomFormField(formFields, "MM_DisplayName", displayName);
+        addCustomFormField(formFields, "MM_Category", category);
+        addCustomFormField(formFields, "MM_RequiresLogin", String.valueOf(requiresLogin));
+        addCustomFormField(formFields, "MM_UseProxy", String.valueOf(useProxy));
+        addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
+
         JsonObject login = new JsonObject();
         login.addProperty("title", title);
         login.add("formFieldList", formFields);
         login.addProperty("uniqueID", uniqueID);
 
-        // Notes → displayName (best-effort; may be ignored by older KeePassRPC versions)
-        if (displayName != null && !displayName.isEmpty()) {
-            login.addProperty("notes", displayName);
-        }
-        // Tags → category (best-effort)
-        if (category != null && !category.isEmpty()) {
-            JsonArray tagsArr = new JsonArray();
-            tagsArr.add(category);
-            login.add("tags", tagsArr);
-        }
 
         // Preserve existing URLs
         if (existing.has("uRLs")) {
@@ -754,19 +733,18 @@ final class KeePassRpcClient {
 
                 sb.append("URL: ").append(jsonStr(e, "url", "uRLs")).append('\n');
                 sb.append("UniqueID: ").append(jsonStr(e, "uniqueID")).append('\n');
-                sb.append("Notes: ").append(jsonStr(e, "notes")).append('\n');
 
-                // Tags — may be a JSON array of strings
-                StringBuilder tags = new StringBuilder();
-                if (e.has("tags") && e.get("tags").isJsonArray()) {
-                    for (JsonElement t : e.getAsJsonArray("tags")) {
-                        if (tags.length() > 0) tags.append(',');
-                        tags.append(t.getAsString());
-                    }
-                } else {
-                    tags.append(jsonStr(e, "tags"));
-                }
-                sb.append("Tags: ").append(tags).append('\n');
+                // Custom MM_* metadata from formFieldList
+                String mmCat = formFieldByName(e, "MM_Category");
+                sb.append("MM_Category: ").append(mmCat != null ? mmCat : "").append('\n');
+                String mmDisp = formFieldByName(e, "MM_DisplayName");
+                sb.append("MM_DisplayName: ").append(mmDisp != null ? mmDisp : "").append('\n');
+                String mmLogin = formFieldByName(e, "MM_RequiresLogin");
+                sb.append("MM_RequiresLogin: ").append(mmLogin != null ? mmLogin : "false").append('\n');
+                String mmProxy = formFieldByName(e, "MM_UseProxy");
+                sb.append("MM_UseProxy: ").append(mmProxy != null ? mmProxy : "false").append('\n');
+                String mmIdx = formFieldByName(e, "MM_AutoIndex");
+                sb.append("MM_AutoIndex: ").append(mmIdx != null ? mmIdx : "false").append('\n');
 
                 sb.append('\n');
             }
@@ -792,6 +770,41 @@ final class KeePassRpcClient {
             }
         }
         return null;
+    }
+
+    /**
+     * Extract a value from the {@code formFieldList} by field <b>name</b>.
+     * Used for our custom {@code MM_*} metadata fields.
+     */
+    private static String formFieldByName(JsonObject entry, String fieldName) {
+        if (!entry.has("formFieldList")) return null;
+        JsonElement ffl = entry.get("formFieldList");
+        if (!ffl.isJsonArray()) return null;
+        for (JsonElement fe : ffl.getAsJsonArray()) {
+            if (!fe.isJsonObject()) continue;
+            JsonObject field = fe.getAsJsonObject();
+            String name = field.has("name") ? field.get("name").getAsString() : "";
+            if (fieldName.equals(name) && field.has("value")) {
+                return field.get("value").getAsString();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Append a custom {@code MM_*} metadata entry to the formFieldList.
+     * Uses {@code type: "FFTtext"} so KeePassRPC stores it alongside the
+     * regular username/password form fields.
+     */
+    private static void addCustomFormField(JsonArray formFields, String key, String value) {
+        JsonObject field = new JsonObject();
+        field.addProperty("name", key);
+        field.addProperty("displayName", key);
+        field.addProperty("value", value != null ? value : "");
+        field.addProperty("type", "FFTtext");
+        field.addProperty("id", key);
+        field.addProperty("page", -1);
+        formFields.add(field);
     }
 
     private static String jsonStr(JsonObject o, String... keys) {

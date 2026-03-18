@@ -206,12 +206,15 @@ public final class CredentialStore {
      * Uses RPC or PowerShell depending on the configured access method.
      */
     public static void addKeePassEntry(String title, String userName, String password, String url,
-                                       String displayName, String category) {
+                                       String displayName, String category,
+                                       boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            KeePassProvider.rpcAddEntry(title, userName, password, url, displayName, category);
+            KeePassProvider.rpcAddEntry(title, userName, password, url,
+                    displayName, category, requiresLogin, useProxy, autoIndex);
         } else {
-            KeePassProvider.psAddEntry(title, userName, password, displayName, category);
+            KeePassProvider.psAddEntry(title, userName, password, url,
+                    displayName, category, requiresLogin, useProxy, autoIndex);
         }
     }
 
@@ -220,12 +223,15 @@ public final class CredentialStore {
      * Uses RPC or PowerShell depending on the configured access method.
      */
     public static void updateKeePassEntry(String title, String userName, String password,
-                                          String displayName, String category) {
+                                          String displayName, String category,
+                                          boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            KeePassProvider.rpcUpdateEntry(title, userName, password, displayName, category);
+            KeePassProvider.rpcUpdateEntry(title, userName, password,
+                    displayName, category, requiresLogin, useProxy, autoIndex);
         } else {
-            KeePassProvider.psUpdateEntry(title, userName, password, displayName, category);
+            KeePassProvider.psUpdateEntry(title, userName, password,
+                    displayName, category, requiresLogin, useProxy, autoIndex);
         }
     }
 

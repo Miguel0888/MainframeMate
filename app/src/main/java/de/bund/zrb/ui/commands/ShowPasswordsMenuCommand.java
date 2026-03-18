@@ -186,7 +186,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 try {
                     CredentialStore.addKeePassEntry(
                             created.title, created.userName, created.password, created.url,
-                            created.displayName, created.category);
+                            created.displayName, created.category,
+                            created.requiresLogin, created.useProxy, created.autoIndex);
                     entries.add(created);
                     model.fireTableDataChanged();
                 } catch (Exception ex) {
@@ -214,7 +215,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 try {
                     CredentialStore.updateKeePassEntry(
                             updated.title, updated.userName, updated.password,
-                            updated.displayName, updated.category);
+                            updated.displayName, updated.category,
+                            updated.requiresLogin, updated.useProxy, updated.autoIndex);
                     entries.set(modelRow, updated);
                     model.fireTableDataChanged();
                 } catch (Exception ex) {
@@ -489,26 +491,34 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             String password = "";
             String url = "";
             String uniqueID = "";
-            String notes = "";
-            String tags = "";
+            String mmCategory = "";
+            String mmDisplayName = "";
+            String mmRequiresLogin = "false";
+            String mmUseProxy = "false";
+            String mmAutoIndex = "false";
 
             for (String line : block.split("\\n")) {
                 line = line.trim();
-                if (line.startsWith("Title: "))       title    = line.substring("Title: ".length()).trim();
-                else if (line.startsWith("UserName: "))  userName = line.substring("UserName: ".length()).trim();
-                else if (line.startsWith("Password: "))  password = line.substring("Password: ".length()).trim();
-                else if (line.startsWith("URL: "))       url      = line.substring("URL: ".length()).trim();
-                else if (line.startsWith("UniqueID: "))  uniqueID = line.substring("UniqueID: ".length()).trim();
-                else if (line.startsWith("Notes: "))     notes    = line.substring("Notes: ".length()).trim();
-                else if (line.startsWith("Tags: "))      tags     = line.substring("Tags: ".length()).trim();
+                if (line.startsWith("Title: "))              title            = line.substring("Title: ".length()).trim();
+                else if (line.startsWith("UserName: "))      userName         = line.substring("UserName: ".length()).trim();
+                else if (line.startsWith("Password: "))      password         = line.substring("Password: ".length()).trim();
+                else if (line.startsWith("URL: "))           url              = line.substring("URL: ".length()).trim();
+                else if (line.startsWith("UniqueID: "))      uniqueID         = line.substring("UniqueID: ".length()).trim();
+                else if (line.startsWith("MM_Category: "))   mmCategory       = line.substring("MM_Category: ".length()).trim();
+                else if (line.startsWith("MM_DisplayName: "))mmDisplayName    = line.substring("MM_DisplayName: ".length()).trim();
+                else if (line.startsWith("MM_RequiresLogin: "))mmRequiresLogin= line.substring("MM_RequiresLogin: ".length()).trim();
+                else if (line.startsWith("MM_UseProxy: "))   mmUseProxy       = line.substring("MM_UseProxy: ".length()).trim();
+                else if (line.startsWith("MM_AutoIndex: "))  mmAutoIndex      = line.substring("MM_AutoIndex: ".length()).trim();
             }
 
             if (!title.isEmpty()) {
-                // Notes → displayName, Tags → category
-                String displayName = !notes.isEmpty() ? notes : title;
-                String category = !tags.isEmpty() ? tags : "General";
+                String displayName = !mmDisplayName.isEmpty() ? mmDisplayName : title;
+                String category = !mmCategory.isEmpty() ? mmCategory : "General";
+                boolean reqLogin = "true".equalsIgnoreCase(mmRequiresLogin);
+                boolean proxy    = "true".equalsIgnoreCase(mmUseProxy);
+                boolean autoIdx  = "true".equalsIgnoreCase(mmAutoIndex);
                 entries.add(new KeePassEntry(category, title, displayName, userName, password, url, uniqueID,
-                        false, false, false));
+                        reqLogin, proxy, autoIdx));
             }
         }
 

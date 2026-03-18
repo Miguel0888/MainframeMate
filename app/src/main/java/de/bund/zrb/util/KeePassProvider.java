@@ -151,10 +151,11 @@ final class KeePassProvider {
                 + "  Write-Output (\"Password: \" + $e.Strings.ReadSafe('Password'))\n"
                 + "  Write-Output (\"URL: \" + $e.Strings.ReadSafe('URL'))\n"
                 + "  Write-Output (\"UniqueID: \" + $e.Uuid.ToHexString())\n"
-                + "  Write-Output (\"Notes: \" + $e.Strings.ReadSafe('Notes'))\n"
-                + "  $tagStr = ''\n"
-                + "  if ($e.Tags -ne $null -and $e.Tags.Count -gt 0) { $tagStr = [string]::Join(',', $e.Tags) }\n"
-                + "  Write-Output (\"Tags: \" + $tagStr)\n"
+                + "  Write-Output (\"MM_Category: \" + $e.Strings.ReadSafe('MM_Category'))\n"
+                + "  Write-Output (\"MM_DisplayName: \" + $e.Strings.ReadSafe('MM_DisplayName'))\n"
+                + "  Write-Output (\"MM_RequiresLogin: \" + $e.Strings.ReadSafe('MM_RequiresLogin'))\n"
+                + "  Write-Output (\"MM_UseProxy: \" + $e.Strings.ReadSafe('MM_UseProxy'))\n"
+                + "  Write-Output (\"MM_AutoIndex: \" + $e.Strings.ReadSafe('MM_AutoIndex'))\n"
                 + "  Write-Output ''\n"
                 + "}\n"
                 + "$db.Close()\n"
@@ -366,32 +367,30 @@ final class KeePassProvider {
 
 
         // PowerShell mode: create the entry with both username and password
-        createEntry(settings, entryTitle, user, pass, null, null);
+        createEntry(settings, entryTitle, user, pass, "", null, null, false, false, false);
         LOG.info("[KeePass] Entry \"" + entryTitle + "\" created for user \"" + user + "\"");
         return pass;
     }
 
     /**
-     * Create a new KeePass entry with title, username, password, displayName and category via PowerShell.
+     * Create a new KeePass entry via PowerShell with MM_* Advanced String Fields.
      */
     private static void createEntry(Settings settings, String title, String userName, String password,
-                                    String displayName, String category) {
-        String notesLine = "";
-        if (displayName != null && !displayName.isEmpty()) {
-            notesLine = "$ne.Strings.Set('Notes', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(displayName) + "')))\n";
+                                    String url, String displayName, String category,
+                                    boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+        String urlLine = "";
+        if (url != null && !url.isEmpty()) {
+            urlLine = "$ne.Strings.Set('URL', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(url) + "')))\n";
         }
-        String tagsLine = "";
-        if (category != null && !category.isEmpty()) {
-            tagsLine = "$ne.Tags.Add('" + esc(category) + "')\n";
-        }
+        String mmLines = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex);
 
         String script = preamble(settings)
                 + "$ne = New-Object KeePassLib.PwEntry($db.RootGroup, $true, $true)\n"
                 + "$ne.Strings.Set('Title', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(title) + "')))\n"
                 + "$ne.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
                 + "$ne.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
-                + notesLine
-                + tagsLine
+                + urlLine
+                + mmLines
                 + "$db.RootGroup.AddEntry($ne, $true)\n"
                 + "$db.Save((New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
                 + "$db.Close()\n"
@@ -402,6 +401,44 @@ final class KeePassProvider {
             throw new KeePassNotAvailableException(
                     "KeePass-Eintrag \"" + title + "\" konnte nicht angelegt werden: " + sanitize(out));
         }
+    }
+
+    /**
+     * Build PowerShell snippet to SET MM_* Advanced String Fields on an <b>existing</b> entry {@code $e}.
+     */
+    private static String buildMmUpdateScript(String displayName, String category,
+                                              boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("    $e.Strings.Set('MM_DisplayName', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(esc(displayName != null ? displayName : "")).append("')))\n");
+        sb.append("    $e.Strings.Set('MM_Category', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(esc(category != null ? category : "")).append("')))\n");
+        sb.append("    $e.Strings.Set('MM_RequiresLogin', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(requiresLogin).append("')))\n");
+        sb.append("    $e.Strings.Set('MM_UseProxy', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(useProxy).append("')))\n");
+        sb.append("    $e.Strings.Set('MM_AutoIndex', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(autoIndex).append("')))\n");
+        return sb.toString();
+    }
+
+    /**
+     * Build PowerShell snippet to SET MM_* Advanced String Fields on a <b>new</b> entry {@code $ne}.
+     */
+    private static String buildMmCreateScript(String displayName, String category,
+                                              boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("  $ne.Strings.Set('MM_DisplayName', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(esc(displayName != null ? displayName : "")).append("')))\n");
+        sb.append("  $ne.Strings.Set('MM_Category', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(esc(category != null ? category : "")).append("')))\n");
+        sb.append("  $ne.Strings.Set('MM_RequiresLogin', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(requiresLogin).append("')))\n");
+        sb.append("  $ne.Strings.Set('MM_UseProxy', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(useProxy).append("')))\n");
+        sb.append("  $ne.Strings.Set('MM_AutoIndex', (New-Object KeePassLib.Security.ProtectedString($false, '")
+                .append(autoIndex).append("')))\n");
+        return sb.toString();
     }
 
     // ── KeePassRPC helpers ──────────────────────────────────────────────
@@ -584,7 +621,8 @@ final class KeePassProvider {
      * Create a new entry in KeePass via RPC.
      */
     static void rpcAddEntry(String title, String userName, String password, String url,
-                            String displayName, String category) {
+                            String displayName, String category,
+                            boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
@@ -593,7 +631,8 @@ final class KeePassProvider {
                 settings.getEffectiveRpcOrigin());
         try {
             client.connect();
-            client.addLogin(title, userName, password, url, displayName, category);
+            client.addLogin(title, userName, password, url, displayName, category,
+                    requiresLogin, useProxy, autoIndex);
         } finally {
             client.close();
         }
@@ -603,7 +642,8 @@ final class KeePassProvider {
      * Update an existing entry in KeePass via RPC.
      */
     static void rpcUpdateEntry(String title, String userName, String password,
-                               String displayName, String category) {
+                               String displayName, String category,
+                               boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
@@ -612,7 +652,8 @@ final class KeePassProvider {
                 settings.getEffectiveRpcOrigin());
         try {
             client.connect();
-            client.updateLogin(title, userName, password, displayName, category);
+            client.updateLogin(title, userName, password, displayName, category,
+                    requiresLogin, useProxy, autoIndex);
         } finally {
             client.close();
         }
@@ -639,11 +680,13 @@ final class KeePassProvider {
     /**
      * Create a new entry in KeePass via PowerShell.
      */
-    static void psAddEntry(String title, String userName, String password,
-                           String displayName, String category) {
+    static void psAddEntry(String title, String userName, String password, String url,
+                           String displayName, String category,
+                           boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
-        createEntry(settings, title, userName, password, displayName, category);
+        createEntry(settings, title, userName, password, url,
+                displayName, category, requiresLogin, useProxy, autoIndex);
     }
 
     /**
@@ -651,24 +694,14 @@ final class KeePassProvider {
      * If the entry does not exist, it is created.
      */
     static void psUpdateEntry(String title, String userName, String password,
-                              String displayName, String category) {
+                              String displayName, String category,
+                              boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
 
-        // Build inline PS snippets for Notes / Tags
-        String notesUpdate = "";
-        String notesCreate = "";
-        if (displayName != null && !displayName.isEmpty()) {
-            String psNotes = "(New-Object KeePassLib.Security.ProtectedString($false, '" + esc(displayName) + "'))";
-            notesUpdate = "    $e.Strings.Set('Notes', " + psNotes + ")\n";
-            notesCreate = "  $ne.Strings.Set('Notes', " + psNotes + ")\n";
-        }
-        String tagsUpdate = "";
-        String tagsCreate = "";
-        if (category != null && !category.isEmpty()) {
-            tagsUpdate = "    $e.Tags.Clear()\n    $e.Tags.Add('" + esc(category) + "')\n";
-            tagsCreate = "  $ne.Tags.Add('" + esc(category) + "')\n";
-        }
+        // Build inline PS snippets for MM_* Advanced String Fields
+        String mmUpdate = buildMmUpdateScript(displayName, category, requiresLogin, useProxy, autoIndex);
+        String mmCreate = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex);
 
         String script = preamble(settings)
                 + "$found = $false\n"
@@ -676,8 +709,7 @@ final class KeePassProvider {
                 + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(title) + "') {\n"
                 + "    $e.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
                 + "    $e.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
-                + notesUpdate
-                + tagsUpdate
+                + mmUpdate
                 + "    $found = $true; break\n"
                 + "  }\n"
                 + "}\n"
@@ -686,8 +718,7 @@ final class KeePassProvider {
                 + "  $ne.Strings.Set('Title', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(title) + "')))\n"
                 + "  $ne.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
                 + "  $ne.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
-                + notesCreate
-                + tagsCreate
+                + mmCreate
                 + "  $db.RootGroup.AddEntry($ne, $true)\n"
                 + "}\n"
                 + "$db.Save((New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
