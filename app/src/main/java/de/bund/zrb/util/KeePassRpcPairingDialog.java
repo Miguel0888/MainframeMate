@@ -398,6 +398,8 @@ public final class KeePassRpcPairingDialog {
             }
             state.salt = srvSrp.get("s").getAsString();
             String bRaw = srvSrp.get("B").getAsString();
+            LOG.info("[KeePassRPC Pairing] Received identifyToClient: salt length="
+                    + state.salt.length() + ", B length=" + bRaw.length());
             if (bRaw.length() % 2 != 0) bRaw = "0" + bRaw;
             BigInteger B = new BigInteger(bRaw, 16);
             if (B.mod(N).equals(BigInteger.ZERO)) {
@@ -421,6 +423,15 @@ public final class KeePassRpcPairingDialog {
 
     private static String verifySrpKey(SrpState state, String srpKey) {
         try {
+            LOG.info("[KeePassRPC Pairing] Verifying key (length=" + srpKey.length()
+                    + ", chars=" + srpKey.substring(0, Math.min(3, srpKey.length())) + "…)");
+
+            // Check WebSocket is still open
+            if (!state.ws.isOpen()) {
+                LOG.warning("[KeePassRPC Pairing] WebSocket no longer open before proofToServer");
+                return "WebSocket-Verbindung wurde geschlossen. Bitte erneut verbinden.";
+            }
+
             BigInteger B = new BigInteger(state.bHex, 16);
 
             // u = SHA256(A_hex + B_hex)
@@ -443,27 +454,41 @@ public final class KeePassRpcPairingDialog {
             byte[] mBytes = sha256str(state.aHex + state.bHex + sHex);
             String mHex = bytesToHex(mBytes);
 
+            LOG.fine("[KeePassRPC Pairing] SRP computed: M=" + mHex.substring(0, 16) + "…"
+                    + " salt=" + state.salt.substring(0, Math.min(8, state.salt.length())) + "…");
+
             // Send proofToServer on the SAME WebSocket
             state.latch = new CountDownLatch(1);
+            state.mailbox.set(null);
             JsonObject proof = buildSetupMessage();
             JsonObject srpProof = new JsonObject();
             srpProof.addProperty("stage", "proofToServer");
             srpProof.addProperty("M", mHex);
             srpProof.addProperty("securityLevel", 2);
             proof.add("srp", srpProof);
-            state.ws.send(GSON.toJson(proof));
+
+            String proofJson = GSON.toJson(proof);
+            LOG.fine("[KeePassRPC Pairing] → proofToServer: " + proofJson.substring(0, Math.min(120, proofJson.length())) + "…");
+            state.ws.send(proofJson);
 
             // Wait for proofToClient
             if (!state.latch.await(10, TimeUnit.SECONDS)) {
-                return "Timeout bei Schlüsselprüfung.";
+                return "Timeout bei Schlüsselprüfung — keine Antwort vom Server.";
             }
 
             String verifyText = state.mailbox.get();
             if (verifyText == null) return "Keine Antwort auf SRP-Proof.";
 
+            LOG.info("[KeePassRPC Pairing] ← proofToClient: "
+                    + (verifyText.length() > 200 ? verifyText.substring(0, 200) + "…" : verifyText));
+
             JsonObject verify = JsonParser.parseString(verifyText).getAsJsonObject();
             if (verify.has("error") && !verify.get("error").isJsonNull()) {
-                return "Schlüssel ungültig. Bitte prüfen Sie den Schlüssel aus dem KeePass-Pairing-Dialog.";
+                String serverError = verify.get("error").toString();
+                LOG.warning("[KeePassRPC Pairing] Server rejected proof: " + serverError);
+                return "<html>Schlüssel ungültig (Server: " + serverError + ").<br>"
+                     + "Bitte den Schlüssel <b>exakt</b> aus dem KeePass-Pairing-Dialog kopieren.<br>"
+                     + "Hinweis: Bei jedem Klick auf \"Verbindung herstellen\" wird ein <b>neuer</b> Schlüssel generiert.</html>";
             }
 
             // Verify M2
@@ -473,6 +498,8 @@ public final class KeePassRpcPairingDialog {
                 byte[] expectedM2 = sha256str(state.aHex + mHex.toLowerCase() + sHex);
                 String expectedM2Hex = bytesToHex(expectedM2);
                 if (!m2Received.equalsIgnoreCase(expectedM2Hex)) {
+                    LOG.warning("[KeePassRPC Pairing] M2 mismatch: received=" + m2Received
+                            + " expected=" + expectedM2Hex);
                     return "Server-Verifizierung M2 fehlgeschlagen.";
                 }
             }
@@ -484,6 +511,7 @@ public final class KeePassRpcPairingDialog {
             Thread.currentThread().interrupt();
             return "Unterbrochen.";
         } catch (Exception e) {
+            LOG.warning("[KeePassRPC Pairing] SRP error: " + e.getMessage());
             return "Fehler bei SRP-Berechnung: " + e.getMessage();
         }
     }
