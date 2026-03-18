@@ -17,32 +17,48 @@ import java.util.logging.Logger;
  * Liest {@code tokenizer.json} aus dem Modellverzeichnis (Hugging Face Format)
  * und implementiert BPE-basiertes Encoding/Decoding.
  * <p>
- * Falls kein {@code tokenizer.json} vorhanden ist, fällt er auf eine einfache
- * Whitespace-Tokenisierung zurück (nur für Tests geeignet).
+ * Decoder-Pipeline laut tokenizer.json:
+ * <ol>
+ *   <li>Replace: {@code ▁} → Leerzeichen</li>
+ *   <li>ByteFallback: {@code <0xNN>} → Byte NN</li>
+ *   <li>Fuse: Byte-Sequenzen als UTF-8 zusammenführen</li>
+ *   <li>Strip: 1 führendes Leerzeichen entfernen</li>
+ * </ol>
+ * <p>
+ * Normalizer-Pipeline (Encode):
+ * <ol>
+ *   <li>Prepend: {@code ▁} vor den gesamten Text stellen</li>
+ *   <li>Replace: Leerzeichen → {@code ▁}</li>
+ * </ol>
  */
 final class OnnxTokenizer {
 
     private static final Logger LOG = Logger.getLogger(OnnxTokenizer.class.getName());
 
+    /** SentencePiece space marker (U+2581 LOWER ONE EIGHTH BLOCK). */
+    private static final String SPIECE_SPACE = "\u2581";
+
     // Token → ID
-    private final Map<String, Integer> vocab = new LinkedHashMap<>();
+    private final Map<String, Integer> vocab = new LinkedHashMap<String, Integer>();
     // ID → Token
-    private final Map<Integer, String> reverseVocab = new HashMap<>();
+    private final Map<Integer, String> reverseVocab = new HashMap<Integer, String>();
 
     // Spezial-Tokens
-    private int eosTokenId = 2;    // default, wird aus config überschrieben
+    private int eosTokenId = 2;
     private int bosTokenId = 1;
     private int padTokenId = 0;
-    private final Set<Integer> eosTokenIds = new HashSet<>();
+    private final Set<Integer> eosTokenIds = new HashSet<Integer>();
 
     // BPE Merge-Regeln (Paare in Prioritätsreihenfolge)
-    private final List<String[]> merges = new ArrayList<>();
+    private final List<String[]> merges = new ArrayList<String[]>();
+    // Merge-Index für schnellen Lookup
+    private final Map<String, Integer> mergeRanks = new HashMap<String, Integer>();
 
     // Spezial-Token-Liste (sortiert nach Länge absteigend für greedy matching)
-    private final List<String> specialTokens = new ArrayList<>();
+    private final List<String> specialTokens = new ArrayList<String>();
 
     // Leerzeichen-Prefix-Zeichen: '▁' (U+2581, SentencePiece/LLaMA) oder 'Ġ' (U+0120, GPT2)
-    private char spaceChar = '\u2581';
+    private String spacePrefix = SPIECE_SPACE;
 
     // Modell-Konfiguration (aus genai_config.json)
     private int numLayers = 32;
@@ -61,7 +77,9 @@ final class OnnxTokenizer {
                 loadTokenizerJson(tokenizerJson);
                 loaded = true;
                 LOG.info("Tokenizer geladen: " + vocab.size() + " Tokens, "
-                        + merges.size() + " Merges, EOS=" + eosTokenIds);
+                        + merges.size() + " Merges, spacePrefix="
+                        + (SPIECE_SPACE.equals(spacePrefix) ? "U+2581" : "U+0120")
+                        + ", EOS=" + eosTokenIds);
             } catch (Exception e) {
                 LOG.warning("Tokenizer konnte nicht geladen werden: " + e.getMessage());
             }
@@ -96,16 +114,19 @@ final class OnnxTokenizer {
     int getHeadSize() { return headSize; }
     int getNumKvHeads() { return numKvHeads; }
 
+    // ==================== Encode ====================
+
     /**
      * Encodiert einen String in Token-IDs.
      * Erkennt Spezial-Tokens (z.B. {@code <|user|>}) und encodiert sie direkt.
+     * Wendet den Normalizer an (Prepend ▁ + Replace ' ' → ▁) auf jedes Text-Segment.
      */
     long[] encode(String text) {
         if (!loaded) {
             return encodeFallback(text);
         }
 
-        List<Long> result = new ArrayList<>();
+        List<Long> result = new ArrayList<Long>();
         int pos = 0;
         while (pos < text.length()) {
             // Spezial-Token greedy matchen (längster zuerst)
@@ -113,7 +134,7 @@ final class OnnxTokenizer {
             for (String special : specialTokens) {
                 if (text.startsWith(special, pos)) {
                     matchedSpecial = special;
-                    break; // Liste ist nach Länge sortiert
+                    break;
                 }
             }
             if (matchedSpecial != null) {
@@ -138,10 +159,18 @@ final class OnnxTokenizer {
             }
 
             String segment = text.substring(pos, end);
-            List<String> tokens = bpeEncode(segment);
+
+            // Normalizer: 1) Prepend ▁   2) Replace ' ' → ▁
+            String normalized = spacePrefix + segment.replace(" ", spacePrefix);
+
+            List<String> tokens = bpeEncode(normalized);
             for (String tok : tokens) {
                 Integer id = vocab.get(tok);
-                result.add(id != null ? (long) id.intValue() : 0L);
+                if (id != null) {
+                    result.add((long) id.intValue());
+                } else {
+                    LOG.fine("Unknown BPE token (skipped): " + tok);
+                }
             }
             pos = end;
         }
@@ -151,38 +180,94 @@ final class OnnxTokenizer {
         return ids;
     }
 
+    // ==================== Decode ====================
+
     /**
-     * Decoded Token-IDs zurück in Text.
+     * Decodiert Token-IDs zurück in Text.
+     * <p>
+     * Decoder-Pipeline:
+     * <ol>
+     *   <li>Token-Strings aus reverseVocab holen</li>
+     *   <li>{@code ▁} durch Leerzeichen ersetzen</li>
+     *   <li>{@code <0xNN>} Byte-Fallback-Tokens in Bytes umwandeln</li>
+     *   <li>Byte-Sequenzen als UTF-8 zusammenführen</li>
+     * </ol>
      */
     String decode(long[] ids) {
         if (!loaded) {
             return decodeFallback(ids);
         }
 
-        StringBuilder sb = new StringBuilder();
+        // Phase 1: Token-Strings sammeln, ▁ → Space, Byte-Fallback erkennen
+        List<Object> parts = new ArrayList<Object>(); // String oder byte[]
         for (long id : ids) {
             String token = reverseVocab.get((int) id);
-            if (token != null) {
-                // Leerzeichen-Prefix zurückwandeln
-                sb.append(token.replace(spaceChar, ' '));
+            if (token == null) {
+                continue;
+            }
+
+            // Byte-Fallback: <0xNN> → einzelnes Byte
+            if (token.length() == 6 && token.startsWith("<0x") && token.endsWith(">")) {
+                try {
+                    int byteVal = Integer.parseInt(token.substring(3, 5), 16);
+                    parts.add(new byte[] { (byte) byteVal });
+                    continue;
+                } catch (NumberFormatException ignore) {
+                    // Kein gültiges Byte-Token → als normaler String behandeln
+                }
+            }
+
+            // ▁ → Leerzeichen
+            String decoded = token.replace(spacePrefix, " ");
+            parts.add(decoded);
+        }
+
+        // Phase 2: Fuse – aufeinanderfolgende Bytes zusammenfügen und als UTF-8 decodieren
+        StringBuilder sb = new StringBuilder();
+        List<Byte> byteBuffer = new ArrayList<Byte>();
+
+        for (Object part : parts) {
+            if (part instanceof byte[]) {
+                byte[] b = (byte[]) part;
+                for (byte val : b) {
+                    byteBuffer.add(val);
+                }
+            } else {
+                // Byte-Buffer flush
+                if (!byteBuffer.isEmpty()) {
+                    sb.append(decodeUtf8Bytes(byteBuffer));
+                    byteBuffer.clear();
+                }
+                sb.append((String) part);
             }
         }
+        // Remaining bytes flush
+        if (!byteBuffer.isEmpty()) {
+            sb.append(decodeUtf8Bytes(byteBuffer));
+        }
+
         return sb.toString();
+    }
+
+    /** Converts a list of bytes to a UTF-8 string. */
+    private static String decodeUtf8Bytes(List<Byte> bytes) {
+        byte[] arr = new byte[bytes.size()];
+        for (int i = 0; i < bytes.size(); i++) {
+            arr[i] = bytes.get(i);
+        }
+        return new String(arr, Charset.forName("UTF-8"));
     }
 
     // ==================== BPE Encoding ====================
 
     private List<String> bpeEncode(String text) {
-        // Pre-tokenize: Leerzeichen durch Space-Prefix-Char ersetzen
-        text = text.replace(' ', spaceChar);
-
         // In Zeichen aufteilen
-        List<String> symbols = new ArrayList<>();
+        List<String> symbols = new ArrayList<String>();
         for (int i = 0; i < text.length(); i++) {
             symbols.add(String.valueOf(text.charAt(i)));
         }
 
-        // BPE Merges anwenden
+        // BPE Merges anwenden (mit schnellem Rank-Lookup)
         boolean changed = true;
         while (changed && symbols.size() > 1) {
             changed = false;
@@ -190,8 +275,9 @@ final class OnnxTokenizer {
             int bestIdx = -1;
 
             for (int i = 0; i < symbols.size() - 1; i++) {
-                int rank = getMergeRank(symbols.get(i), symbols.get(i + 1));
-                if (rank >= 0 && rank < bestMergeRank) {
+                String key = symbols.get(i) + " " + symbols.get(i + 1);
+                Integer rank = mergeRanks.get(key);
+                if (rank != null && rank < bestMergeRank) {
                     bestMergeRank = rank;
                     bestIdx = i;
                 }
@@ -206,15 +292,6 @@ final class OnnxTokenizer {
         }
 
         return symbols;
-    }
-
-    private int getMergeRank(String left, String right) {
-        for (int i = 0; i < merges.size(); i++) {
-            if (merges.get(i)[0].equals(left) && merges.get(i)[1].equals(right)) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     // ==================== Tokenizer Loading ====================
@@ -240,11 +317,12 @@ final class OnnxTokenizer {
             // BPE merges
             if (model.has("merges")) {
                 JsonArray mergesArr = model.getAsJsonArray("merges");
-                for (JsonElement elem : mergesArr) {
-                    String merge = elem.getAsString();
+                for (int i = 0; i < mergesArr.size(); i++) {
+                    String merge = mergesArr.get(i).getAsString();
                     String[] parts = merge.split(" ", 2);
                     if (parts.length == 2) {
                         merges.add(parts);
+                        mergeRanks.put(merge, i);
                     }
                 }
             }
@@ -286,9 +364,9 @@ final class OnnxTokenizer {
 
         // Auto-Detect: '▁' (SentencePiece) vs 'Ġ' (GPT2)
         if (vocab.containsKey("\u0120")) {
-            spaceChar = '\u0120';
+            spacePrefix = "\u0120";
         } else {
-            spaceChar = '\u2581';
+            spacePrefix = SPIECE_SPACE;
         }
     }
 
@@ -340,10 +418,6 @@ final class OnnxTokenizer {
 
     // ==================== Fallback (kein Tokenizer geladen) ====================
 
-    /**
-     * Fallback-Encoding: Jedes Zeichen wird als eigener Token behandelt.
-     * NUR für Tests / Debugging wenn kein tokenizer.json vorhanden.
-     */
     private long[] encodeFallback(String text) {
         long[] ids = new long[text.length()];
         for (int i = 0; i < text.length(); i++) {
