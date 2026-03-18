@@ -524,8 +524,10 @@ public class DOSBox {
         int loopDetectCount = 0;
         boolean dumpedLoop = false;
 
+        int prevCS = -1;
+
         while (cpu.isRunning() && !int20.isTerminated() && !int21.isTerminated()
-                && cpu.getTotalCycles() < 500000) {
+                && cpu.getTotalCycles() < 500_000_000L) {
             cpu.executeBlock(cyclesPerBlock);
             pic.advanceTime(0.5);
             pit.tick(0.5);
@@ -536,14 +538,16 @@ public class DOSBox {
                 display.setCursorPosition(int10.getCursorRow(), int10.getCursorCol());
             }
 
-            // Tight-loop detection: if IP stays in a small range, dump the bytes once
+            // Tight-loop detection: if IP and CS stay in a small range
             int curIP = cpu.regs.getEIP();
-            if (prevIP >= 0 && Math.abs(curIP - prevIP) < 32 && cpu.regs.cs == (prevIP >> 16 | cpu.regs.cs)) {
+            int curCS = cpu.regs.cs;
+            if (prevIP >= 0 && prevCS == curCS && Math.abs(curIP - prevIP) < 32) {
                 loopDetectCount++;
             } else {
                 loopDetectCount = 0;
             }
             prevIP = curIP;
+            prevCS = curCS;
 
             // Periodic status update (every 10000 blocks) — with instruction dump
             if (blockCount % 10000 == 0) {
@@ -603,10 +607,12 @@ public class DOSBox {
                 }
             }
 
-            // Small yield to prevent 100% host CPU usage
-            try { Thread.sleep(1); } catch (InterruptedException e) {
-                cpu.setRunning(false);
-                break;
+            // Small yield to prevent 100% host CPU usage (only when display is active)
+            if (display != null && blockCount % 100 == 0) {
+                try { Thread.sleep(1); } catch (InterruptedException e) {
+                    cpu.setRunning(false);
+                    break;
+                }
             }
         }
 

@@ -332,7 +332,15 @@ public class Int21Handler implements CPU.IntHandler {
                 break;
 
             case 0x4A: { // Resize memory block
-                cpu.regs.flags.setCF(false); // stub: always success
+                int segment = cpu.regs.es;
+                int newParas = cpu.regs.getBX();
+                if (dos.resizeMemory(segment, newParas)) {
+                    cpu.regs.flags.setCF(false);
+                } else {
+                    cpu.regs.setAX(8); // insufficient memory
+                    cpu.regs.setBX(dos.getLargestFreeBlock());
+                    cpu.regs.flags.setCF(true);
+                }
                 break;
             }
 
@@ -362,7 +370,7 @@ public class Int21Handler implements CPU.IntHandler {
                 break;
 
             case 0x50: // Set current PSP
-                // stub: accept and ignore
+                dos.setCurrentPSP(cpu.regs.getBX());
                 break;
 
             case 0x51: // Get current PSP (same as 62h)

@@ -2057,10 +2057,13 @@ public class CPU implements Module {
                 int ea = decodeModRM(modrm);
                 int rm = modrm & 7;
                 switch (subOp) {
-                    case 0: // SLDT — Store LDT register (stub: return 0)
-                        if (ea == -1) regs.setReg16(rm, 0);
-                        else memory.writeWord(ea, 0);
+                    case 0: // SLDT — Store LDT register
+                    {
+                        int ldtSel = (dpmi != null) ? dpmi.getLDTSelector() : 0;
+                        if (ea == -1) regs.setReg16(rm, ldtSel);
+                        else memory.writeWord(ea, ldtSel);
                         break;
+                    }
                     case 1: // STR — Store Task Register (stub: return 0)
                         if (ea == -1) regs.setReg16(rm, 0);
                         else memory.writeWord(ea, 0);

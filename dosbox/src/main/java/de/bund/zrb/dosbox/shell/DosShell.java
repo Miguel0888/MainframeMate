@@ -254,9 +254,20 @@ public class DosShell {
         printLine("Ausfuehrung gestartet...");
         printLine("");
 
-        // Run the program in the CPU emulator
+        // ── Set up DOS state for the loaded program ──
+        // 1. Set PSP to the loaded program's PSP (fixes INT 21h/51h, /62h)
+        dos.setCurrentPSP(loadResult.pspSegment);
+        // 2. DTA is now automatically set to PSP:0080 by setCurrentPSP()
+        // 3. Register program's memory block so resize (INT 21h/4Ah) works
+        //    DOS gives ALL remaining memory to a loaded program.
+        //    The program then shrinks itself via INT 21h/4Ah.
+        int programEndSeg = loadResult.pspSegment + (loadResult.codeSize + 15) / 16 + 0x10;
+        int totalParas = 0x9FFF - loadResult.pspSegment; // all memory from PSP to top
+        dos.registerBlock(loadResult.pspSegment, totalParas);
+
+        // Run the program in the CPU emulator (50000 cycles per block for better throughput)
         try {
-            dosbox.executeProgramEmulated(5000);
+            dosbox.executeProgramEmulated(50000);
         } catch (Exception e) {
             printLine("");
             printLine("EMULATOR-FEHLER: " + e.getMessage());

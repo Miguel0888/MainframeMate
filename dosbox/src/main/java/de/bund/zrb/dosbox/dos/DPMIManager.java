@@ -94,7 +94,12 @@ public class DPMIManager {
 
     // GDT location in BIOS ROM area (must not collide with other stubs)
     private static final int GDT_LINEAR_ADDR = 0xF8300; // F000:8300
-    private static final int GDT_NUM_ENTRIES = 5;
+    private static final int GDT_NUM_ENTRIES = 6; // 0=null, 1=code32, 2=data32, 3=code16, 4=data32alias, 5=LDT
+
+    // LDT memory-backed address (materialized LDT in RAM for DOS extender scanning)
+    private int ldtLinearBase;     // linear address of LDT in RAM (set in enterProtectedMode)
+    private int ldtGdtSelector;   // GDT selector pointing to the LDT descriptor (0x0028)
+    private int ldtHighWaterMark;  // highest allocated LDT index + 1 (used to set LDT limit)
 
     public DPMIManager(Memory memory) {
         this.memory = memory;
@@ -135,6 +140,9 @@ public class DPMIManager {
 
     public int getGdtrBase()  { return gdtrBase; }
     public int getGdtrLimit() { return gdtrLimit; }
+
+    /** Return the GDT selector for the LDT (used by SLDT instruction). */
+    public int getLDTSelector() { return ldtGdtSelector; }
 
     // ── Selector ↔ LDT index conversion ─────────────────────
 
@@ -211,6 +219,7 @@ public class DPMIManager {
         // NOT that the initial CS segment itself is 32-bit.
         ldt[csIdx].is32Bit = false;
         ldt[csIdx].limit = 0xFFFF;
+        syncLDTEntryToMemory(csIdx);
 
         // DS selector — map caller's DS
         int dsSel = segmentToDescriptor(callerDS);
@@ -232,6 +241,7 @@ public class DPMIManager {
             ldt[flatIdx].pageGranular = false;
             ldt[flatIdx].is32Bit = true;
             ldt[flatIdx].accessRights = 0x0092; // data, RW, present
+            syncLDTEntryToMemory(flatIdx);
         }
 
         // ── Set up a proper GDT so that GDT selectors used by DOS/4GW work ──
@@ -264,6 +274,7 @@ public class DPMIManager {
                         ldt[j].accessRights = 0x0092; // data, RW, present
                         ldt[j].is32Bit = false;
                         ldt[j].pageGranular = false;
+                        syncLDTEntryToMemory(j);
                     }
                     return indexToSelector(firstFree);
                 }
@@ -283,6 +294,7 @@ public class DPMIManager {
             ldt[idx].present = false;
             ldt[idx].base = 0;
             ldt[idx].limit = 0;
+            syncLDTEntryToMemory(idx);
             return true;
         }
         return false;
@@ -298,6 +310,7 @@ public class DPMIManager {
         ldt[idx].limit = 0xFFFF;
         ldt[idx].accessRights = 0x0092; // data, RW, present
         ldt[idx].is32Bit = false;
+        syncLDTEntryToMemory(idx);
         return sel;
     }
 
@@ -327,6 +340,7 @@ public class DPMIManager {
         ldt[idx].accessRights = 0x009A; // code, read, present (16-bit)
         ldt[idx].is32Bit = false;
         ldt[idx].present = true;
+        syncLDTEntryToMemory(idx);
         System.out.printf("[DPMI] Auto-mapped real-mode segment %04X → selector %04X (LDT[%d], base=%08X)%n",
                 realModeSeg, sel, idx, ldt[idx].base);
         return sel;
@@ -350,6 +364,7 @@ public class DPMIManager {
         ldt[idx].accessRights = 0x0092; // data, read/write, present (16-bit)
         ldt[idx].is32Bit = false;
         ldt[idx].present = true;
+        syncLDTEntryToMemory(idx);
         System.out.printf("[DPMI] Auto-mapped real-mode data segment %04X → selector %04X (LDT[%d], base=%08X)%n",
                 realModeSeg, sel, idx, ldt[idx].base);
         return sel;
@@ -374,6 +389,7 @@ public class DPMIManager {
         int idx = selectorToIndex(selector);
         if (idx < MAX_LDT_ENTRIES) {
             ldt[idx].base = base;
+            syncLDTEntryToMemory(idx);
             return true;
         }
         return false;
@@ -393,6 +409,7 @@ public class DPMIManager {
                 ldt[idx].limit = limit & 0xFFFFF;
                 ldt[idx].pageGranular = false;
             }
+            syncLDTEntryToMemory(idx);
             return true;
         }
         return false;
@@ -407,6 +424,7 @@ public class DPMIManager {
             ldt[idx].present = (rights & 0x0080) != 0;   // bit 7 = Present bit
             ldt[idx].is32Bit = (rights & 0x4000) != 0;   // bit 14 = D/B bit
             ldt[idx].pageGranular = (rights & 0x8000) != 0; // bit 15 = G bit
+            syncLDTEntryToMemory(idx);
             return true;
         }
         return false;
@@ -461,6 +479,7 @@ public class DPMIManager {
         e.present = (access & 0x80) != 0;
         e.is32Bit = (limHiFlags & 0x40) != 0;
         e.pageGranular = (limHiFlags & 0x80) != 0;
+        syncLDTEntryToMemory(idx);
         return true;
     }
 
@@ -484,6 +503,7 @@ public class DPMIManager {
         ldt[dstIdx].pageGranular = src.pageGranular;
         // Make it a code segment (executable, readable)
         ldt[dstIdx].accessRights = (src.accessRights & 0xFF00) | 0x009A;
+        syncLDTEntryToMemory(dstIdx);
         return newSel;
     }
 
@@ -498,6 +518,7 @@ public class DPMIManager {
         if (sel < 0) return null;
         int idx = selectorToIndex(sel);
         ldt[idx].limit = paragraphs * 16 - 1;
+        syncLDTEntryToMemory(idx);
         nextHandle++;
         return new int[] { seg, sel };
     }
@@ -714,6 +735,14 @@ public class DPMIManager {
      *   GDT[4] = 0x0020  flat 32-bit data (alias, same as GDT[2])
      */
     private void setupGDT() {
+        // ── Allocate memory for the LDT (materialized in RAM) ──
+        // 8192 entries × 8 bytes = 64 KB
+        int ldtSize = MAX_LDT_ENTRIES * 8;
+        ldtLinearBase = extMemNext;
+        extMemNext += ldtSize;
+        // Zero-fill the LDT memory
+        memory.fill(ldtLinearBase, ldtSize, 0);
+
         int gdtAddr = GDT_LINEAR_ADDR;
         int gdtSize = GDT_NUM_ENTRIES * 8;
 
@@ -732,13 +761,100 @@ public class DPMIManager {
         // GDT[4]: flat 32-bit data segment (sel=0x0020, alias of GDT[2])
         writeGDTDescriptor(gdtAddr + 32, 0x00000000, 0xFFFFF, 0x92, true, true);
 
+        // GDT[5]: LDT descriptor (sel=0x0028) — points to the materialized LDT in RAM
+        // Access byte 0x82 = present + system segment type 2 (LDT)
+        // Use tight limit based on actual LDT usage (not full 64KB!)
+        ldtGdtSelector = 0x0028; // GDT index 5 × 8
+
+        // Calculate high water mark from currently present entries
+        ldtHighWaterMark = 0;
+        for (int i = 0; i < MAX_LDT_ENTRIES; i++) {
+            if (ldt[i].present) ldtHighWaterMark = i + 1;
+        }
+        int ldtEntries = ((ldtHighWaterMark + 7) / 8) * 8;
+        if (ldtEntries < 8) ldtEntries = 8;
+        int ldtDescLimit = ldtEntries * 8 - 1;
+        writeGDTDescriptor(gdtAddr + 40, ldtLinearBase, ldtDescLimit & 0xFFFFF, 0x82, false, false);
+
         // Set GDTR
         this.gdtrBase = gdtAddr;
         this.gdtrLimit = gdtSize - 1;
         syncGDTRtoCPU();
 
+        // Materialize all currently present LDT entries to RAM
+        for (int i = 0; i < MAX_LDT_ENTRIES; i++) {
+            if (ldt[i].present) {
+                syncLDTEntryToMemory(i);
+            }
+        }
+
         System.out.printf("[DPMI] GDT set up at %08X, limit=%04X (%d entries)%n",
                 gdtrBase, gdtrLimit, GDT_NUM_ENTRIES);
+        System.out.printf("[DPMI] LDT materialized at %08X, %d entries, GDT sel=%04X%n",
+                ldtLinearBase, MAX_LDT_ENTRIES, ldtGdtSelector);
+    }
+
+    // ── LDT Memory Sync ────────────────────────────────────
+
+    /**
+     * Synchronize a single LDT entry from Java object to emulated RAM.
+     * Must be called whenever an LDT entry is modified so that DOS extenders
+     * (like DOS/4GW) that scan the LDT directly from memory see correct data.
+     */
+    private void syncLDTEntryToMemory(int index) {
+        if (ldtLinearBase == 0) return; // LDT not yet materialized
+        if (index < 0 || index >= MAX_LDT_ENTRIES) return;
+
+        // Update high water mark if this is a new highest entry
+        if (ldt[index].present && index >= ldtHighWaterMark) {
+            ldtHighWaterMark = index + 1;
+            updateLDTLimitInGDT();
+        }
+
+        int addr = ldtLinearBase + index * 8;
+        LDTEntry e = ldt[index];
+
+        if (!e.present) {
+            // Write all zeros for non-present entries
+            for (int i = 0; i < 8; i++) memory.writeByte(addr + i, 0);
+            return;
+        }
+
+        int limitLo = e.limit & 0xFFFF;
+        int limitHi = (e.limit >> 16) & 0x0F;
+        int baseLo = e.base & 0xFFFF;
+        int baseMid = (e.base >> 16) & 0xFF;
+        int baseHi = (e.base >> 24) & 0xFF;
+        int access = e.accessRights & 0xFF;
+        int flags = 0;
+        if (e.pageGranular) flags |= 0x80; // G bit
+        if (e.is32Bit) flags |= 0x40;      // D/B bit
+
+        memory.writeByte(addr + 0, limitLo & 0xFF);
+        memory.writeByte(addr + 1, (limitLo >> 8) & 0xFF);
+        memory.writeByte(addr + 2, baseLo & 0xFF);
+        memory.writeByte(addr + 3, (baseLo >> 8) & 0xFF);
+        memory.writeByte(addr + 4, baseMid);
+        memory.writeByte(addr + 5, access | 0x80); // present bit
+        memory.writeByte(addr + 6, limitHi | flags);
+        memory.writeByte(addr + 7, baseHi);
+    }
+
+    /**
+     * Update the LDT descriptor's limit in the GDT to match the actual
+     * high water mark. DOS extenders read this limit to know how many
+     * LDT entries to scan — keeping it tight prevents infinite scanning loops.
+     */
+    private void updateLDTLimitInGDT() {
+        if (ldtLinearBase == 0) return;
+        // LDT limit = (highWaterMark entries) × 8 bytes - 1
+        // Add some headroom (round up to next 8-entry boundary)
+        int entries = ((ldtHighWaterMark + 7) / 8) * 8;
+        if (entries < 8) entries = 8; // minimum 8 entries
+        int newLimit = entries * 8 - 1;
+        // Update GDT[5] (LDT descriptor) — rewrite with new limit
+        int gdtAddr = GDT_LINEAR_ADDR + 40; // GDT entry 5
+        writeGDTDescriptor(gdtAddr, ldtLinearBase, newLimit & 0xFFFFF, 0x82, false, false);
     }
 
     /**

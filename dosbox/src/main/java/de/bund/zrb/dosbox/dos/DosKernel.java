@@ -4,6 +4,7 @@ import de.bund.zrb.dosbox.hardware.memory.Memory;
 
 import java.io.*;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -17,14 +18,16 @@ public class DosKernel {
 
     private int currentDrive = 2; // C:
     private String currentDir = "";
-    private int dtaAddress = 0x80;
+    private int dtaAddress = 0x80; // will be fixed to PSP:0080 when PSP is set
     private int currentPSP = 0x100;
 
     // File handle table
     private final Map<Integer, DosFileHandle> openFiles = new HashMap<>();
     private int nextHandle = 5; // 0-4 reserved for STDIN, STDOUT, STDERR, STDAUX, STDPRN
 
-    // Simple memory allocation (paragraph-based)
+    // ── Memory management (tracked block allocator) ─────────
+    // Tracks allocated blocks: segment -> size in paragraphs
+    private final LinkedHashMap<Integer, Integer> memBlocks = new LinkedHashMap<>();
     private int nextFreeSeg = 0x1000; // Start allocating at segment 0x1000
     private int memoryTop = 0x9FFF;   // Top of conventional memory
 
@@ -49,11 +52,21 @@ public class DosKernel {
     public void setHostRootDir(String dir) { this.hostRootDir = dir; }
     public String getHostRootDir() { return hostRootDir; }
 
-    // ── DTA ─────────────────────────────────────────────────
+    // ── PSP & DTA ───────────────────────────────────────────
 
     public int getDTA() { return dtaAddress; }
     public void setDTA(int addr) { dtaAddress = addr; }
     public int getCurrentPSP() { return currentPSP; }
+
+    /**
+     * Set the current PSP segment. Also updates the default DTA
+     * to PSP:0080 (linear address) unless DTA has been explicitly set.
+     */
+    public void setCurrentPSP(int pspSegment) {
+        this.currentPSP = pspSegment;
+        // Default DTA is always at PSP:0080
+        this.dtaAddress = Memory.segOfs(pspSegment, 0x0080);
+    }
 
     // ── File operations ─────────────────────────────────────
 
@@ -185,22 +198,108 @@ public class DosKernel {
         return true;
     }
 
-    // ── Memory management (simple bump allocator) ───────────
+    // ── Memory management (tracked block allocator) ─────────
+
+    /**
+     * Register a memory block that was allocated externally (e.g. by ProgramLoader).
+     * This is needed so that resize/free can find the block later.
+     */
+    public void registerBlock(int segment, int paragraphs) {
+        memBlocks.put(segment, paragraphs);
+        int end = segment + paragraphs;
+        if (end > nextFreeSeg) {
+            nextFreeSeg = end;
+        }
+        System.out.printf("[DOS-MEM] Registered block: seg=%04X size=%04X paras (end=%04X)%n",
+                segment, paragraphs, end);
+    }
 
     public int allocMemory(int paragraphs) {
+        // First try to allocate from the top of free space
         if (nextFreeSeg + paragraphs > memoryTop) return -1;
         int seg = nextFreeSeg;
         nextFreeSeg += paragraphs;
+        memBlocks.put(seg, paragraphs);
+        System.out.printf("[DOS-MEM] Alloc: seg=%04X size=%04X paras (nextFree=%04X)%n",
+                seg, paragraphs, nextFreeSeg);
         return seg;
     }
 
     public boolean freeMemory(int segment) {
-        // Simple implementation: we don't actually free
+        Integer size = memBlocks.remove(segment);
+        if (size == null) {
+            System.out.printf("[DOS-MEM] Free FAILED: seg=%04X not found%n", segment);
+            return false;
+        }
+        System.out.printf("[DOS-MEM] Free: seg=%04X size=%04X paras%n", segment, size);
+        // If this was the topmost block, reclaim space
+        if (segment + size == nextFreeSeg) {
+            recalcNextFree();
+        }
         return true;
+    }
+
+    /**
+     * Resize a memory block. ES=segment, BX=new size in paragraphs.
+     * Returns true on success. On failure, caller should set CF and report largest free.
+     */
+    public boolean resizeMemory(int segment, int newParagraphs) {
+        Integer oldSize = memBlocks.get(segment);
+        if (oldSize == null) {
+            // Block not tracked — try to handle gracefully
+            // This can happen for the initial program block if it wasn't registered
+            System.out.printf("[DOS-MEM] Resize: seg=%04X NOT FOUND, registering as new block of %04X paras%n",
+                    segment, newParagraphs);
+            // Register it and succeed (best-effort)
+            if (segment + newParagraphs > memoryTop) return false;
+            memBlocks.put(segment, newParagraphs);
+            int end = segment + newParagraphs;
+            if (end > nextFreeSeg) nextFreeSeg = end;
+            return true;
+        }
+
+        int oldEnd = segment + oldSize;
+        int newEnd = segment + newParagraphs;
+
+        if (newParagraphs <= oldSize) {
+            // Shrink: always OK
+            memBlocks.put(segment, newParagraphs);
+            if (oldEnd == nextFreeSeg) {
+                nextFreeSeg = newEnd;
+            }
+            System.out.printf("[DOS-MEM] Resize SHRINK: seg=%04X %04X->%04X paras (nextFree=%04X)%n",
+                    segment, oldSize, newParagraphs, nextFreeSeg);
+            return true;
+        }
+
+        // Grow: check if this is the last block and there's space
+        if (oldEnd == nextFreeSeg) {
+            if (newEnd > memoryTop) return false;
+            memBlocks.put(segment, newParagraphs);
+            nextFreeSeg = newEnd;
+            System.out.printf("[DOS-MEM] Resize GROW: seg=%04X %04X->%04X paras (nextFree=%04X)%n",
+                    segment, oldSize, newParagraphs, nextFreeSeg);
+            return true;
+        }
+
+        // Can't grow non-last block
+        System.out.printf("[DOS-MEM] Resize FAILED: seg=%04X can't grow %04X->%04X (not last block)%n",
+                segment, oldSize, newParagraphs);
+        return false;
     }
 
     public int getLargestFreeBlock() {
         return memoryTop - nextFreeSeg;
+    }
+
+    private void recalcNextFree() {
+        int maxEnd = 0x1000; // base allocation start
+        for (Map.Entry<Integer, Integer> entry : memBlocks.entrySet()) {
+            int end = entry.getKey() + entry.getValue();
+            if (end > maxEnd) maxEnd = end;
+        }
+        nextFreeSeg = maxEnd;
+        System.out.printf("[DOS-MEM] Recalc nextFree=%04X%n", nextFreeSeg);
     }
 
     // ── FindFirst / FindNext ────────────────────────────────
