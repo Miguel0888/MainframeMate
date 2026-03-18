@@ -49,6 +49,8 @@ public class JclDependencyService {
         PROGRAM("▶ Programme (PGM)", "PGM"),
         /** EXEC PROC=xxx or EXEC xxx — cataloged procedure */
         PROCEDURE("📦 Prozeduren (PROC)", "PROC"),
+        /** Natural program extracted from PARM/ZPARM STACK=(LOGON lib;prog) */
+        NATURAL_PROGRAM("🌿 Natural-Programme", "NAT"),
         /** INCLUDE MEMBER=xxx — included JCL member */
         INCLUDE("📎 INCLUDE Member", "INCLUDE"),
         /** JCLLIB ORDER=(dsn,...) — procedure library */
@@ -77,14 +79,24 @@ public class JclDependencyService {
         private final int lineNumber;
         private final String sourceLine;
         private final String detail;  // e.g. step name, DD name
+        private final String naturalLibrary;  // only for NATURAL_PROGRAM: the STEPLIB library
+        private final String naturalProgram;  // only for NATURAL_PROGRAM: the program name
 
         public JclDependency(JclDependencyKind kind, String targetName, int lineNumber,
                              String sourceLine, String detail) {
+            this(kind, targetName, lineNumber, sourceLine, detail, null, null);
+        }
+
+        public JclDependency(JclDependencyKind kind, String targetName, int lineNumber,
+                             String sourceLine, String detail,
+                             String naturalLibrary, String naturalProgram) {
             this.kind = kind;
             this.targetName = targetName;
             this.lineNumber = lineNumber;
             this.sourceLine = sourceLine;
             this.detail = detail;
+            this.naturalLibrary = naturalLibrary;
+            this.naturalProgram = naturalProgram;
         }
 
         public JclDependencyKind getKind() { return kind; }
@@ -92,6 +104,8 @@ public class JclDependencyService {
         public int getLineNumber() { return lineNumber; }
         public String getSourceLine() { return sourceLine; }
         public String getDetail() { return detail; }
+        public String getNaturalLibrary() { return naturalLibrary; }
+        public String getNaturalProgram() { return naturalProgram; }
 
         /**
          * Display label for tree nodes, e.g. "IDCAMS  (Step: STEP01)  [Zeile 5]"
@@ -182,6 +196,8 @@ public class JclDependencyService {
         private final String icon;
         private final int lineNumber;
         private final List<JclCallNode> children;
+        /** If non-null, this node represents a Natural program entry; value is "LIB;PROG". */
+        private String naturalRef;
 
         public JclCallNode(String displayText, String icon, int lineNumber) {
             this.displayText = displayText;
@@ -194,6 +210,8 @@ public class JclDependencyService {
         public String getIcon() { return icon; }
         public int getLineNumber() { return lineNumber; }
         public List<JclCallNode> getChildren() { return children; }
+        public String getNaturalRef() { return naturalRef; }
+        public void setNaturalRef(String naturalRef) { this.naturalRef = naturalRef; }
 
         public void addChild(JclCallNode child) {
             children.add(child);
@@ -327,6 +345,26 @@ public class JclDependencyService {
         String stepLabel = buildExecLabel(exec);
         JclCallNode execNode = new JclCallNode(stepLabel, "▶", exec.getLineNumber());
 
+        // Check for Natural program in PARM/ZPARM
+        String rawText = exec.getRawText();
+        String parm = param(exec, "PARM", null);
+        String zparm = param(exec, "ZPARM", null);
+        String[] sources = { parm, zparm, rawText };
+        for (String src : sources) {
+            if (src == null || src.isEmpty()) continue;
+            java.util.regex.Matcher matcher = STACK_LOGON_PATTERN.matcher(src);
+            if (matcher.find()) {
+                String lib = matcher.group(1).toUpperCase();
+                String prog = matcher.group(2).toUpperCase();
+                JclCallNode natNode = new JclCallNode(
+                        "🌿 " + prog + " (Lib: " + lib + ")  [Zeile " + exec.getLineNumber() + "]",
+                        "🌿", exec.getLineNumber());
+                natNode.setNaturalRef(lib + ";" + prog);
+                execNode.addChild(natNode);
+                break;
+            }
+        }
+
         for (JclElement child : exec.getChildren()) {
             if (child.getType() == JclElementType.DD) {
                 execNode.addChild(buildDdNode(child));
@@ -449,6 +487,8 @@ public class JclDependencyService {
                                 proc.toUpperCase(), elem.getLineNumber(), elem.getRawText(), detail));
                     }
                 }
+                // Extract Natural programs from PARM/ZPARM: STACK=(LOGON library;program)
+                extractNaturalFromParm(elem, deps);
                 break;
             }
 
@@ -503,6 +543,52 @@ public class JclDependencyService {
         // Recursively process children (e.g. DDs under EXEC steps)
         for (JclElement child : elem.getChildren()) {
             extractDependencies(child, deps);
+        }
+    }
+
+    /**
+     * Regex pattern to extract Natural programs from PARM/ZPARM parameters.
+     * Matches STACK=(LOGON library;program) — with optional whitespace.
+     * Group 1 = library, Group 2 = program.
+     */
+    private static final java.util.regex.Pattern STACK_LOGON_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "STACK\\s*=\\s*\\(\\s*LOGON\\s+([A-Za-z0-9_-]+)\\s*;\\s*([A-Za-z0-9_-]+)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Extract Natural program references from PARM/ZPARM of an EXEC element.
+     * <p>
+     * Natural steps typically look like:
+     * <pre>
+     *   //NATURAL1 EXEC NAT1,ZPARM='MADIO=0,MAXCL=0,STACK=(LOGON ABAK-M;ZDALXX0P)'
+     * </pre>
+     * or via PARM= with symbolic substitution containing STACK=(LOGON ...).
+     * We scan the raw text of the element for the pattern.
+     */
+    private void extractNaturalFromParm(JclElement elem, List<JclDependency> deps) {
+        // First try structured parameters
+        String parm = param(elem, "PARM", null);
+        String zparm = param(elem, "ZPARM", null);
+        // Also scan full raw text to catch multi-line continuations and substitutions
+        String rawText = elem.getRawText();
+
+        String[] sources = { parm, zparm, rawText };
+        for (String src : sources) {
+            if (src == null || src.isEmpty()) continue;
+            java.util.regex.Matcher matcher = STACK_LOGON_PATTERN.matcher(src);
+            while (matcher.find()) {
+                String library = matcher.group(1).toUpperCase();
+                String program = matcher.group(2).toUpperCase();
+                String stepName = elem.getName();
+                String detail = (stepName != null && !stepName.isEmpty())
+                        ? "Step: " + stepName + ", Lib: " + library
+                        : "Lib: " + library;
+                deps.add(new JclDependency(JclDependencyKind.NATURAL_PROGRAM,
+                        program, elem.getLineNumber(), elem.getRawText(), detail,
+                        library, program));
+                return; // one Natural ref per EXEC step is typical
+            }
         }
     }
 

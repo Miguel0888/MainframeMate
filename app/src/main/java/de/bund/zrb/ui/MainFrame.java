@@ -396,11 +396,33 @@ public class MainFrame extends JFrame implements MainframeContext {
                         openWikiPageAsTab(siteId, pageTitle);
                     }
                 }
+            } else if (entry.getType() != null && entry.getType().startsWith("JCL_NAT_")) {
+                // Natural program from JCL — open via NDV with library mapping
+                openNaturalFromJcl(entry);
             } else if (entry.getType() != null && entry.getType().startsWith("DEPENDENCY_")) {
                 // NDV dependency navigation: ndv://LIBRARY/OBJECTNAME
                 String targetPath = entry.getTargetPath();
                 if (targetPath != null && targetPath.startsWith("ndv://")) {
                     openNdvDependencyTarget(targetPath);
+                }
+            } else if (entry.getType() != null && (
+                    "CALL_HIERARCHY".equals(entry.getType()) || "CALL_RECURSIVE".equals(entry.getType()))) {
+                // Call hierarchy entries may also have nat-jcl:// or ndv:// paths
+                String targetPath = entry.getTargetPath();
+                if (targetPath != null && targetPath.startsWith("nat-jcl://")) {
+                    openNaturalFromJcl(entry);
+                } else if (targetPath != null && targetPath.startsWith("ndv://")) {
+                    openNdvDependencyTarget(targetPath);
+                }
+            }
+        });
+
+        // When user single-clicks a relation with lineNumber → navigate in current editor
+        leftDrawer.setOnLineNavigate(lineNumber -> {
+            if (tabManager != null) {
+                java.util.Optional<de.zrb.bund.newApi.ui.FtpTab> selectedOpt = tabManager.getSelectedTab();
+                if (selectedOpt.isPresent()) {
+                    tabManager.navigateToLineInTab(selectedOpt.get(), lineNumber);
                 }
             }
         });
@@ -1041,6 +1063,78 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         if (tabManager != null) {
             tabManager.openNdvDependencyTarget(library, objectName);
+        }
+    }
+
+    /**
+     * Open a Natural program from JCL (via STEPLIB mapping).
+     * <p>
+     * The entry has a targetPath of "nat-jcl://STEPLIB_LIB/PROGRAM" or the type "JCL_NAT_LIB".
+     * We look up the STEPLIB library in Settings.naturalLibraryMappings to find the NDV library.
+     * If no mapping exists, prompt the user for it and save it for future use.
+     */
+    private void openNaturalFromJcl(de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry entry) {
+        String targetPath = entry.getTargetPath();
+        String stepLib = null;
+        String program = null;
+
+        if (targetPath != null && targetPath.startsWith("nat-jcl://")) {
+            String rest = targetPath.substring("nat-jcl://".length());
+            int slash = rest.indexOf('/');
+            if (slash > 0) {
+                stepLib = rest.substring(0, slash);
+                program = rest.substring(slash + 1);
+            }
+        }
+
+        // Fallback: try to extract from the type (JCL_NAT_LIBNAME)
+        if (stepLib == null && entry.getType() != null && entry.getType().startsWith("JCL_NAT_")) {
+            stepLib = entry.getType().substring("JCL_NAT_".length());
+        }
+
+        if (stepLib == null || program == null) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Konnte Natural-Programm nicht identifizieren.",
+                    "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Look up mapping: STEPLIB → NDV library
+        Settings settings = SettingsHelper.load();
+        String ndvLibrary = settings.naturalLibraryMappings.get(stepLib.toUpperCase());
+
+        if (ndvLibrary == null || ndvLibrary.isEmpty()) {
+            // Suggest a default: replace trailing letter with T (e.g. ABAK-M → ABAK-T)
+            String suggested = stepLib;
+            if (suggested.length() > 2 && suggested.charAt(suggested.length() - 2) == '-') {
+                suggested = suggested.substring(0, suggested.length() - 1) + "T";
+            }
+
+            // Prompt the user for the mapping
+            ndvLibrary = (String) javax.swing.JOptionPane.showInputDialog(
+                    this,
+                    "In der JCL wird die STEPLIB \"" + stepLib + "\" verwendet.\n"
+                            + "Welche NDV-Bibliothek entspricht dieser STEPLIB?\n\n"
+                            + "Beispiel: " + stepLib + " → " + suggested + "\n\n"
+                            + "Das Mapping wird für zukünftige Zugriffe gespeichert.",
+                    "Natural-Bibliothek Mapping",
+                    javax.swing.JOptionPane.QUESTION_MESSAGE,
+                    null, null,
+                    suggested);
+
+            if (ndvLibrary == null || ndvLibrary.trim().isEmpty()) {
+                return; // User cancelled
+            }
+            ndvLibrary = ndvLibrary.trim().toUpperCase();
+
+            // Save mapping for future use
+            settings.naturalLibraryMappings.put(stepLib.toUpperCase(), ndvLibrary);
+            SettingsHelper.save(settings);
+        }
+
+        // Open via NDV
+        if (tabManager != null) {
+            tabManager.openNdvDependencyTarget(ndvLibrary, program);
         }
     }
 

@@ -40,6 +40,9 @@ public class LeftDrawer extends JPanel {
     /** Callback for opening a relation target (e.g. wiki link). */
     private Consumer<RelationEntry> onRelationOpen;
 
+    /** Callback for navigating to a source line in the editor (single click). */
+    private java.util.function.IntConsumer onLineNavigate;
+
     public LeftDrawer(Consumer<BookmarkEntry> onBookmarkOpen) {
         this.onBookmarkOpen = onBookmarkOpen;
 
@@ -80,21 +83,23 @@ public class LeftDrawer extends JPanel {
         relationsTree = new JTree(relationsModel);
         relationsTree.setRootVisible(false);
         relationsTree.setShowsRootHandles(true);
+        relationsTree.setCellRenderer(new RelationTreeCellRenderer());
 
+        // Single click → navigate to line in editor; Double click → open target (NDV, etc.)
         relationsTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    TreePath path = relationsTree.getPathForLocation(e.getX(), e.getY());
-                    if (path != null) {
-                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-                        if (node.getUserObject() instanceof RelationEntry) {
-                            RelationEntry entry = (RelationEntry) node.getUserObject();
-                            if (onRelationOpen != null) {
-                                onRelationOpen.accept(entry);
-                            }
-                        }
-                    }
+                TreePath path = relationsTree.getPathForLocation(e.getX(), e.getY());
+                if (path == null) return;
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                if (!(node.getUserObject() instanceof RelationEntry)) return;
+                RelationEntry entry = (RelationEntry) node.getUserObject();
+
+                if (e.getClickCount() == 1 && entry.getLineNumber() > 0 && onLineNavigate != null) {
+                    onLineNavigate.accept(entry.getLineNumber());
+                }
+                if (e.getClickCount() == 2 && onRelationOpen != null) {
+                    onRelationOpen.accept(entry);
                 }
             }
         });
@@ -117,21 +122,22 @@ public class LeftDrawer extends JPanel {
         callHierarchyTree = new JTree(callHierarchyModel);
         callHierarchyTree.setRootVisible(false);
         callHierarchyTree.setShowsRootHandles(true);
+        callHierarchyTree.setCellRenderer(new RelationTreeCellRenderer());
 
         callHierarchyTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    TreePath path = callHierarchyTree.getPathForLocation(e.getX(), e.getY());
-                    if (path != null) {
-                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-                        if (node.getUserObject() instanceof RelationEntry) {
-                            RelationEntry entry = (RelationEntry) node.getUserObject();
-                            if (onRelationOpen != null) {
-                                onRelationOpen.accept(entry);
-                            }
-                        }
-                    }
+                TreePath path = callHierarchyTree.getPathForLocation(e.getX(), e.getY());
+                if (path == null) return;
+                DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+                if (!(node.getUserObject() instanceof RelationEntry)) return;
+                RelationEntry entry = (RelationEntry) node.getUserObject();
+
+                if (e.getClickCount() == 1 && entry.getLineNumber() > 0 && onLineNavigate != null) {
+                    onLineNavigate.accept(entry.getLineNumber());
+                }
+                if (e.getClickCount() == 2 && onRelationOpen != null) {
+                    onRelationOpen.accept(entry);
                 }
             }
         });
@@ -261,6 +267,10 @@ public class LeftDrawer extends JPanel {
 
     public void setOnRelationOpen(Consumer<RelationEntry> callback) {
         this.onRelationOpen = callback;
+    }
+
+    public void setOnLineNavigate(java.util.function.IntConsumer callback) {
+        this.onLineNavigate = callback;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -625,17 +635,24 @@ public class LeftDrawer extends JPanel {
     public static class RelationEntry {
         private final String label;
         private final String targetPath;  // e.g. "wiki://wikipedia_de/Seite" or later "ndv://LIB/OBJ"
-        private final String type;        // "WIKI_LINK", "DEPENDENCY", etc.
+        private final String type;        // "WIKI_LINK", "DEPENDENCY", "JCL_NAT_xxx", etc.
+        private final int lineNumber;     // source line number for in-editor navigation (0 = unknown)
 
         public RelationEntry(String label, String targetPath, String type) {
+            this(label, targetPath, type, 0);
+        }
+
+        public RelationEntry(String label, String targetPath, String type, int lineNumber) {
             this.label = label;
             this.targetPath = targetPath;
             this.type = type;
+            this.lineNumber = lineNumber;
         }
 
         public String getLabel() { return label; }
         public String getTargetPath() { return targetPath; }
         public String getType() { return type; }
+        public int getLineNumber() { return lineNumber; }
 
         @Override
         public String toString() {
@@ -670,6 +687,47 @@ public class LeftDrawer extends JPanel {
                     String raw = entry.getRawPath();
                     setToolTipText("[" + backend + "] " + raw);
                     setIcon(fileIcon);
+                }
+            }
+
+            return comp;
+        }
+    }
+
+    /**
+     * Renderer for the relations/dependencies tree.
+     * Natural programs are highlighted with a green background badge and bold text.
+     */
+    private static class RelationTreeCellRenderer extends DefaultTreeCellRenderer {
+        private static final Color NAT_BG = new Color(34, 139, 34);  // forest green
+
+        @Override
+        public Component getTreeCellRendererComponent(
+                JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
+
+            Component comp = super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) value;
+            Object userObj = node.getUserObject();
+
+            if (userObj instanceof RelationEntry) {
+                RelationEntry entry = (RelationEntry) userObj;
+                String type = entry.getType();
+                boolean isNatural = (type != null && type.startsWith("JCL_NAT_"))
+                        || (entry.getTargetPath() != null && entry.getTargetPath().startsWith("nat-jcl://"));
+                if (isNatural) {
+                    // Natural program entry — render with green highlight
+                    setFont(getFont().deriveFont(java.awt.Font.BOLD));
+                    if (!sel) {
+                        setForeground(NAT_BG);
+                    }
+                    String label = entry.getLabel();
+                    if (!label.startsWith("🌿")) {
+                        label = "🌿 " + label;
+                    }
+                    setText(label);
+                    setToolTipText("Natural-Programm — Doppelklick zum Öffnen via NDV");
+                } else if (type != null && type.startsWith("DEPENDENCY_")) {
+                    setToolTipText(entry.getTargetPath());
                 }
             }
 

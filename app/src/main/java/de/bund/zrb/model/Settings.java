@@ -71,6 +71,9 @@ public class Settings {
     public String ndvDefaultLibrary = "";           // Default-Bibliothek (optional, leer = keine)
     public String ndvLibPath = "";                  // Pfad zu NDV-JARs (leer = ~/.mainframemate/lib/)
 
+    /** JCL-Steplib → NDV library mapping for Natural programs (e.g. "ABAK-M" → "ABAK-T"). */
+    public Map<String, String> naturalLibraryMappings = new LinkedHashMap<>();
+
     // BetaView Settings
     public String betaviewUrl = "";                 // BetaView Base URL (z.B. https://betaview.example.com/betaview/)
     public boolean betaviewUseSharedCredentials = true;  // true = use host/user from Server Settings (FTP/NDV)

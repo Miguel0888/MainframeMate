@@ -712,6 +712,16 @@ public class TabbedPaneManager {
         }
     }
 
+    /**
+     * Navigate to a specific line in the given tab's editor (public facade).
+     *
+     * @param tab        the tab to navigate in
+     * @param lineNumber 1-based line number
+     */
+    public void navigateToLineInTab(FtpTab tab, int lineNumber) {
+        navigateToLine(tab, lineNumber);
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Relations (LeftDrawer) support
     // ═══════════════════════════════════════════════════════════
@@ -973,7 +983,8 @@ public class TabbedPaneManager {
     }
 
     /**
-     * Show JCL dependencies (PGM, PROC, INCLUDE, JCLLIB, DSN) in the LeftDrawer.
+     * Show JCL dependencies (PGM, PROC, INCLUDE, JCLLIB, DSN, Natural) in the LeftDrawer.
+     * Natural program entries get a special type prefix (JCL_NAT_) for visual highlighting.
      */
     private void showJclDependenciesInLeftDrawer(LeftDrawer leftDrawer,
                                                   de.bund.zrb.service.JclDependencyService.JclDependencyResult result) {
@@ -994,10 +1005,18 @@ public class TabbedPaneManager {
             java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
 
             for (de.bund.zrb.service.JclDependencyService.JclDependency dep : group.getValue()) {
-                // No navigation target for JCL dependencies (system programs, datasets, etc.)
-                String depType = "JCL_DEP_" + kind.getCode();
+                String depType;
+                String targetPath = null;
+                if (kind == de.bund.zrb.service.JclDependencyService.JclDependencyKind.NATURAL_PROGRAM) {
+                    // Natural program → special type for highlighting + navigation
+                    depType = "JCL_NAT_" + dep.getNaturalLibrary();
+                    // targetPath encodes library;program for double-click NDV navigation
+                    targetPath = "nat-jcl://" + dep.getNaturalLibrary() + "/" + dep.getNaturalProgram();
+                } else {
+                    depType = "JCL_DEP_" + kind.getCode();
+                }
                 entries.add(new LeftDrawer.RelationEntry(
-                        dep.getDisplayText(), null, depType));
+                        dep.getDisplayText(), targetPath, depType, dep.getLineNumber()));
             }
 
             sections.put(kind.getDisplayLabel(), entries);
@@ -1033,6 +1052,7 @@ public class TabbedPaneManager {
 
     /**
      * Recursively convert a JclCallNode to LeftDrawer.CallHierarchyData.
+     * Natural program nodes get a targetPath of "nat-jcl://LIB/PROG" for navigation.
      */
     private LeftDrawer.CallHierarchyData convertJclCallNode(
             de.bund.zrb.service.JclDependencyService.JclCallNode node) {
@@ -1043,9 +1063,16 @@ public class TabbedPaneManager {
             children.add(convertJclCallNode(child));
         }
 
+        String targetPath = null;
+        String natRef = node.getNaturalRef();
+        if (natRef != null && natRef.contains(";")) {
+            String[] parts = natRef.split(";", 2);
+            targetPath = "nat-jcl://" + parts[0] + "/" + parts[1];
+        }
+
         return new LeftDrawer.CallHierarchyData(
                 node.getDisplayText(),
-                null,  // no navigation target for JCL
+                targetPath,
                 false, // not recursive
                 children
         );
