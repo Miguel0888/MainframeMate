@@ -759,6 +759,11 @@ public class TabbedPaneManager {
             content = fileTab.getContent();
             sourceName = fileTab.getPath();
             sentenceType = fileTab.getModel().getSentenceType();
+        } else if (tab instanceof de.bund.zrb.ui.jes.JobDetailTab) {
+            de.bund.zrb.ui.jes.JobDetailTab jesTab = (de.bund.zrb.ui.jes.JobDetailTab) tab;
+            content = jesTab.getContent();
+            sourceName = jesTab.getPath();
+            sentenceType = jesTab.getEffectiveLanguageHint();
         }
 
         final de.bund.zrb.service.NaturalAnalysisService analysisService =
@@ -793,11 +798,37 @@ public class TabbedPaneManager {
             return;
         }
 
-        // For JCL/COBOL, show placeholder
+        // For JCL sources, show real dependencies (PGM, PROC, INCLUDE, JCLLIB, DSN)
+        final de.bund.zrb.service.JclDependencyService jclDependencyService =
+                de.bund.zrb.service.JclDependencyService.getInstance();
+        if (content != null && jclDependencyService.isJclSource(content, sentenceType)) {
+            leftDrawer.showRelationsLoading();
+            final String jclContent = content;
+            final String jclName = sourceName;
+            new javax.swing.SwingWorker<de.bund.zrb.service.JclDependencyService.JclDependencyResult, Void>() {
+                @Override
+                protected de.bund.zrb.service.JclDependencyService.JclDependencyResult doInBackground() {
+                    return jclDependencyService.analyze(jclContent, jclName);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        de.bund.zrb.service.JclDependencyService.JclDependencyResult result = get();
+                        showJclDependenciesInLeftDrawer(leftDrawer, result);
+                    } catch (Exception ex) {
+                        leftDrawer.showRelationsPlaceholder("Fehler bei JCL-Abhängigkeitsanalyse: " + ex.getMessage());
+                    }
+                }
+            }.execute();
+            return;
+        }
+
+        // For COBOL, show placeholder (future)
         if (sentenceType != null) {
             String upper = sentenceType.toUpperCase();
-            if (upper.contains("JCL") || upper.contains("COBOL")) {
-                leftDrawer.showRelationsPlaceholder("Dependencies werden in einer zukünftigen Version unterstützt.");
+            if (upper.contains("COBOL")) {
+                leftDrawer.showRelationsPlaceholder("COBOL-Dependencies werden in einer zukünftigen Version unterstützt.");
                 return;
             }
         }
@@ -927,6 +958,41 @@ public class TabbedPaneManager {
         } else {
             leftDrawer.updateRelationsGrouped("Abhängigkeiten", sections, totalCount);
         }
+    }
+
+    /**
+     * Show JCL dependencies (PGM, PROC, INCLUDE, JCLLIB, DSN) in the LeftDrawer.
+     */
+    private void showJclDependenciesInLeftDrawer(LeftDrawer leftDrawer,
+                                                  de.bund.zrb.service.JclDependencyService.JclDependencyResult result) {
+        if (result.isEmpty()) {
+            leftDrawer.showRelationsPlaceholder("Keine JCL-Abhängigkeiten gefunden.");
+            return;
+        }
+
+        java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
+                new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
+        int totalCount = 0;
+
+        for (java.util.Map.Entry<de.bund.zrb.service.JclDependencyService.JclDependencyKind,
+                java.util.List<de.bund.zrb.service.JclDependencyService.JclDependency>> group
+                : result.getGrouped().entrySet()) {
+
+            de.bund.zrb.service.JclDependencyService.JclDependencyKind kind = group.getKey();
+            java.util.List<LeftDrawer.RelationEntry> entries = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+
+            for (de.bund.zrb.service.JclDependencyService.JclDependency dep : group.getValue()) {
+                // No navigation target for JCL dependencies (system programs, datasets, etc.)
+                String depType = "JCL_DEP_" + kind.getCode();
+                entries.add(new LeftDrawer.RelationEntry(
+                        dep.getDisplayText(), null, depType));
+            }
+
+            sections.put(kind.getDisplayLabel(), entries);
+            totalCount += entries.size();
+        }
+
+        leftDrawer.updateRelationsGrouped("JCL-Abhängigkeiten", sections, totalCount);
     }
 
     /**
