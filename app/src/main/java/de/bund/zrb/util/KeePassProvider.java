@@ -455,7 +455,7 @@ final class KeePassProvider {
     private static String rpcGetField(Settings settings, String field) {
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
-                settings.keepassRpcHost, settings.keepassRpcPort,
+                "127.0.0.1", settings.keepassRpcPort,
                 "MainframeMate", settings.keepassRpcKey.trim());
         try {
             client.connect();
@@ -473,7 +473,7 @@ final class KeePassProvider {
     private static String rpcListEntries(Settings settings) {
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
-                settings.keepassRpcHost, settings.keepassRpcPort,
+                "127.0.0.1", settings.keepassRpcPort,
                 "MainframeMate", settings.keepassRpcKey.trim());
         try {
             client.connect();

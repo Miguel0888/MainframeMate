@@ -37,7 +37,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JTextField keepassEntryTitleField;
     private final JPanel keepassConfigPanel;
     private final JComboBox<String> keepassAccessMethodBox;
-    private final JTextField keepassRpcHostField;
     private final JSpinner keepassRpcPortSpinner;
     private final JPasswordField keepassRpcKeyField;
     private final JPanel keepassPsPanel;
@@ -142,7 +141,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         keepassDatabaseField = new JTextField(safe(settings.keepassDatabasePath), 30);
         keepassEntryTitleField = new JTextField(safe(settings.keepassEntryTitle), 20);
         keepassAccessMethodBox = new JComboBox<>(new String[]{"PowerShell", "KeePassRPC"});
-        keepassRpcHostField = new JTextField(safe(settings.keepassRpcHost), 15);
         keepassRpcPortSpinner = new JSpinner(new SpinnerNumberModel(settings.keepassRpcPort, 1, 65535, 1));
         keepassRpcKeyField = new JPasswordField(safe(settings.keepassRpcKey), 30);
 
@@ -209,26 +207,21 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         rc.anchor = GridBagConstraints.WEST;
         rc.gridy = 0;
         rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
-        keepassRpcPanel.add(new JLabel("Host:"), rc);
-        rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
-        keepassRpcPanel.add(keepassRpcHostField, rc);
-        rc.gridy = 1;
-        rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
         keepassRpcPanel.add(new JLabel("Port:"), rc);
         rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
         keepassRpcPanel.add(keepassRpcPortSpinner, rc);
-        rc.gridy = 2;
+        rc.gridy = 1;
         rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
         keepassRpcPanel.add(new JLabel("SRP-Schlüssel:"), rc);
         rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
         keepassRpcPanel.add(keepassRpcKeyField, rc);
-        rc.gridy = 3; rc.gridx = 0; rc.gridwidth = 2;
+        rc.gridy = 2; rc.gridx = 0; rc.gridwidth = 2;
         JLabel rpcHint = new JLabel("<html><small>Den Schlüssel erhalten Sie aus KeePass beim ersten "
                 + "Verbindungsaufbau (Pairing-Dialog).</small></html>");
         rpcHint.setForeground(java.awt.Color.GRAY);
         keepassRpcPanel.add(rpcHint, rc);
 
-        rc.gridy = 4; rc.gridx = 0; rc.gridwidth = 2;
+        rc.gridy = 3; rc.gridx = 0; rc.gridwidth = 2;
         rc.fill = GridBagConstraints.NONE; rc.anchor = GridBagConstraints.WEST;
         JButton pairingButton = new JButton("🔗 Pairing starten…");
         pairingButton.setToolTipText("Startet den KeePassRPC-Pairing-Dialog zum automatischen Setzen des SRP-Schlüssels");
@@ -367,7 +360,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.keepassDatabasePath = keepassDatabaseField.getText().trim();
         s.keepassEntryTitle = keepassEntryTitleField.getText().trim();
         s.keepassAccessMethod = keepassAccessMethodBox.getSelectedIndex() == 1 ? "RPC" : "POWERSHELL";
-        s.keepassRpcHost = keepassRpcHostField.getText().trim();
         s.keepassRpcPort = ((Number) keepassRpcPortSpinner.getValue()).intValue();
         s.keepassRpcKey = new String(keepassRpcKeyField.getPassword()).trim();
         s.historyEnabled = historyEnabledBox.isSelected();
