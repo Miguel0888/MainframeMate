@@ -334,7 +334,11 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         FormBuilder fbOnnx = new FormBuilder();
         fbOnnx.addInfo("<html><b>ONNX Runtime</b> – lokale LLM-Inferenz mit Phi-3/Phi-4 Modellen.<br>"
                 + "Modell als ONNX-Verzeichnis von Hugging Face herunterladen.</html>");
-        onnxModelPathField = new JTextField(settings.aiConfig.getOrDefault("onnx.model.path", ""), 30);
+        String defaultPath = settings.aiConfig.getOrDefault("onnx.model.path", "");
+        if (defaultPath.isEmpty() && OnnxModelDownloader.isModelPresent(OnnxModelDownloader.getDefaultModelDir())) {
+            defaultPath = OnnxModelDownloader.getDefaultModelDir().toAbsolutePath().toString();
+        }
+        onnxModelPathField = new JTextField(defaultPath, 30);
         onnxModelPathField.setToolTipText("Pfad zum ONNX-Modellverzeichnis (z.B. C:\\models\\Phi-3-mini-4k-instruct-onnx)");
         JButton onnxBrowseBtn = new JButton("\u2026");
         onnxBrowseBtn.setMargin(new Insets(0, 4, 0, 4));
@@ -347,7 +351,18 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
                 onnxModelPathField.setText(fc.getSelectedFile().getAbsolutePath());
             }
         });
-        fbOnnx.addRowWithButton("Modellpfad:", onnxModelPathField, onnxBrowseBtn);
+
+        JPanel onnxPathPanel = new JPanel(new BorderLayout(4, 0));
+        onnxPathPanel.add(onnxModelPathField, BorderLayout.CENTER);
+        JPanel onnxBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        onnxBtnPanel.add(onnxBrowseBtn);
+        JButton onnxDownloadBtn = new JButton("\u2B07 Download");
+        onnxDownloadBtn.setToolTipText("Phi-3 Mini ONNX-Modell (~2 GB) nach ~/.mainframemate/model/ herunterladen");
+        onnxDownloadBtn.addActionListener(e -> OnnxModelDownloader.downloadModel(this, path -> onnxModelPathField.setText(path)));
+        onnxBtnPanel.add(onnxDownloadBtn);
+        onnxPathPanel.add(onnxBtnPanel, BorderLayout.EAST);
+
+        fbOnnx.addRow("Modellpfad:", onnxPathPanel);
         onnxExecutionProviderCombo = new JComboBox<>(new String[]{"cpu", "directml"});
         onnxExecutionProviderCombo.setSelectedItem(settings.aiConfig.getOrDefault("onnx.execution.provider", "cpu"));
         onnxExecutionProviderCombo.setToolTipText("CPU = universell; DirectML = GPU-Beschleunigung (Windows 11)");
