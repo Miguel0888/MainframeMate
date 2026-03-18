@@ -243,6 +243,14 @@ public final class KeePassRpcPairingDialog {
 
         okButton.addActionListener(e -> {
             closeSrpState(stateRef);
+            // Save key to settings IMMEDIATELY on OK click
+            String key = validatedKey.get();
+            if (key != null) {
+                Settings fresh = SettingsHelper.load();
+                fresh.keepassRpcKey = key;
+                SettingsHelper.save(fresh);
+                LOG.info("[KeePassRPC] Pairing successful, SRP key saved.");
+            }
             optionPane.setValue(okButton);
             dialog.dispose();
         });
@@ -257,12 +265,7 @@ public final class KeePassRpcPairingDialog {
 
         Object value = optionPane.getValue();
         if (value == okButton && validatedKey.get() != null) {
-            String key = validatedKey.get();
-            settings = SettingsHelper.load();
-            settings.keepassRpcKey = key;
-            SettingsHelper.save(settings);
-            LOG.info("[KeePassRPC] Pairing successful, SRP key saved.");
-            return key;
+            return validatedKey.get();
         }
         return null;
     }
