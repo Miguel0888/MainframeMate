@@ -18,7 +18,8 @@ import java.util.logging.Logger;
 /**
  * Generic model downloader with progress dialog, resume support, and proxy awareness.
  * <p>
- * Before the download starts, an input dialog is shown where the user can review/edit
+ * All information (base URL, files, target directory name) comes from a {@link ModelManifest}.
+ * Before the download starts an input dialog is shown where the user can review/edit
  * the base URL and see the target installation directory.
  * <p>
  * Proxy settings are resolved via {@link ProxyResolver} using the central Proxy tab configuration.
@@ -31,43 +32,42 @@ public final class ModelDownloader {
 
     // ─── public API ──────────────────────────────────────────
 
-    /** Descriptor for a single file to download. */
-    public static final class FileEntry {
-        private final String name;
-        private final long expectedSize;
-
-        /**
-         * @param name         file name (appended to the base URL)
-         * @param expectedSize expected size in bytes; {@code -1} if unknown
-         */
-        public FileEntry(String name, long expectedSize) {
-            this.name = name;
-            this.expectedSize = expectedSize;
-        }
-
-        public String getName() { return name; }
-        public long getExpectedSize() { return expectedSize; }
+    /**
+     * Returns the default model root directory ({@code ~/.mainframemate/model/}).
+     */
+    public static Path getModelRoot() {
+        return SettingsHelper.getSettingsFolder().toPath().resolve("model");
     }
 
     /**
-     * Opens a URL-confirmation dialog, then downloads all listed files into {@code targetDir}.
+     * Returns the target directory for a specific manifest
+     * ({@code ~/.mainframemate/model/<modelName>/}).
+     */
+    public static Path getModelDir(ModelManifest manifest) {
+        return getModelRoot().resolve(manifest.getModelName());
+    }
+
+    /**
+     * Opens a URL-confirmation dialog, then downloads all files listed in the manifest.
+     * Files are stored under {@code ~/.mainframemate/model/<modelName>/}.
      *
-     * @param parent         parent component for dialogs
-     * @param dialogTitle    title for the progress dialog
-     * @param defaultBaseUrl pre-filled base URL (user may edit)
-     * @param files          files to download, relative to the base URL
-     * @param targetDir      local directory to store the files
-     * @param onDone         callback invoked on the EDT with the target directory path on success
+     * @param parent   parent component for dialogs
+     * @param manifest model manifest describing what to download
+     * @param onDone   callback invoked on the EDT with the model directory path on success
      */
     public static void download(Component parent,
-                                String dialogTitle,
-                                String defaultBaseUrl,
-                                List<FileEntry> files,
-                                Path targetDir,
+                                ModelManifest manifest,
                                 java.util.function.Consumer<String> onDone) {
 
+        String dialogTitle = manifest.getDisplayName() != null
+                ? manifest.getDisplayName() + " herunterladen"
+                : "Modell herunterladen";
+
+        Path targetDir = getModelDir(manifest);
+        List<ModelManifest.FileEntry> files = manifest.getFiles();
+
         // ── 1. URL-Eingabedialog ──────────────────────────────
-        String confirmedUrl = showUrlInputDialog(parent, dialogTitle, defaultBaseUrl, targetDir);
+        String confirmedUrl = showUrlInputDialog(parent, dialogTitle, manifest.getBaseUrl(), targetDir);
         if (confirmedUrl == null) return; // cancelled
 
         // Normalize: ensure trailing slash
@@ -94,8 +94,8 @@ public final class ModelDownloader {
 
         // ── 4. Calculate total size ───────────────────────────
         long totalBytes = 0;
-        for (FileEntry f : files) {
-            if (f.expectedSize > 0) totalBytes += f.expectedSize;
+        for (ModelManifest.FileEntry f : files) {
+            if (f.getSize() > 0) totalBytes += f.getSize();
         }
 
         // ── 5. Build progress dialog ─────────────────────────
@@ -151,14 +151,14 @@ public final class ModelDownloader {
                 long downloaded = 0;
                 for (int i = 0; i < files.size(); i++) {
                     if (cancelled[0]) return null;
-                    FileEntry entry = files.get(i);
+                    ModelManifest.FileEntry entry = files.get(i);
                     final int fileIdx = i + 1;
                     final int fileCount = files.size();
                     SwingUtilities.invokeLater(() ->
-                            statusLabel.setText("Datei " + fileIdx + "/" + fileCount + ": " + entry.name));
+                            statusLabel.setText("Datei " + fileIdx + "/" + fileCount + ": " + entry.getName()));
 
-                    Path targetFile = targetDir.resolve(entry.name);
-                    downloaded = downloadFile(baseUrl + entry.name, entry.expectedSize,
+                    Path targetFile = targetDir.resolve(entry.getName());
+                    downloaded = downloadFile(baseUrl + entry.getName(), entry.getSize(),
                             targetFile, downloaded, totalBytesF,
                             proxy, progressBar, detailLabel, cancelled);
 
@@ -184,7 +184,6 @@ public final class ModelDownloader {
                     }
                 } catch (Exception ex) {
                     LOG.log(Level.WARNING, "Download fehlgeschlagen", ex);
-                    // Unwrap ExecutionException
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     JOptionPane.showMessageDialog(parent,
                             "Download fehlgeschlagen:\n" + cause.getMessage(),
@@ -198,22 +197,29 @@ public final class ModelDownloader {
     }
 
     /**
-     * Checks whether all files with known sizes are present in the directory.
+     * Checks whether all files listed in the manifest are present (with correct sizes).
      */
-    public static boolean areFilesPresent(Path dir, List<FileEntry> files) {
+    public static boolean areFilesPresent(Path dir, List<ModelManifest.FileEntry> files) {
         if (!Files.isDirectory(dir)) return false;
-        for (FileEntry f : files) {
-            Path p = dir.resolve(f.name);
+        for (ModelManifest.FileEntry f : files) {
+            Path p = dir.resolve(f.getName());
             if (!Files.exists(p)) return false;
-            if (f.expectedSize > 0) {
+            if (f.getSize() > 0) {
                 try {
-                    if (Files.size(p) != f.expectedSize) return false;
+                    if (Files.size(p) != f.getSize()) return false;
                 } catch (IOException e) {
                     return false;
                 }
             }
         }
         return true;
+    }
+
+    /**
+     * Checks whether all files of the given manifest are present in their target directory.
+     */
+    public static boolean isModelPresent(ModelManifest manifest) {
+        return areFilesPresent(getModelDir(manifest), manifest.getFiles());
     }
 
     /**
@@ -247,7 +253,6 @@ public final class ModelDownloader {
 
         JTextField urlField = new JTextField(defaultUrl, 55);
         urlField.setFont(urlField.getFont().deriveFont(Font.PLAIN, 12f));
-        // Select all text so the user can easily replace it
         urlField.selectAll();
         panel.add(urlField, BorderLayout.CENTER);
 

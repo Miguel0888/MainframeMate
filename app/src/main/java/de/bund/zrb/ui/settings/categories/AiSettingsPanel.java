@@ -6,9 +6,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import de.bund.zrb.model.AiProvider;
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.net.ModelDownloader;
-import de.bund.zrb.net.ModelDownloader.FileEntry;
+import de.bund.zrb.net.ModelManifest;
 import de.bund.zrb.ui.components.ChatMode;
 import de.bund.zrb.ui.settings.FormBuilder;
 import de.bund.zrb.ui.settings.ModeToolsetDialog;
@@ -20,29 +19,20 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.logging.Logger;
 
 public class AiSettingsPanel extends AbstractSettingsPanel {
 
-    /** HuggingFace "resolve" base URL for Phi-3 ONNX DirectML INT4 model. */
-    private static final String ONNX_HF_BASE_URL =
-            "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/directml/directml-int4-awq-block-128/";
+    private static final Logger LOG = Logger.getLogger(AiSettingsPanel.class.getName());
 
-    /** Files to download for the ONNX model — large file last. */
-    private static final List<FileEntry> ONNX_FILES = Arrays.asList(
-            new FileEntry("genai_config.json",       1_679L),
-            new FileEntry("special_tokens_map.json",   599L),
-            new FileEntry("tokenizer_config.json",   3_441L),
-            new FileEntry("tokenizer.json",      1_937_869L),
-            new FileEntry("model.onnx",          2_109_332L),
-            new FileEntry("model.onnx.data", 2_131_292_928L)
-    );
+    /** ONNX model manifest loaded from classpath resource. {@code null} if not available. */
+    private static final ModelManifest ONNX_MANIFEST = loadManifest("/model-manifest.json");
 
     /**
      * In-memory buffer for aiConfig keys that are edited via sub-dialogs
@@ -352,10 +342,9 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         FormBuilder fbOnnx = new FormBuilder();
         fbOnnx.addInfo("<html><b>ONNX Runtime</b> – lokale LLM-Inferenz mit Phi-3/Phi-4 Modellen.<br>"
                 + "Modell als ONNX-Verzeichnis von Hugging Face herunterladen.</html>");
-        Path onnxDefaultDir = SettingsHelper.getSettingsFolder().toPath().resolve("model");
         String defaultPath = settings.aiConfig.getOrDefault("onnx.model.path", "");
-        if (defaultPath.isEmpty() && ModelDownloader.areFilesPresent(onnxDefaultDir, ONNX_FILES)) {
-            defaultPath = onnxDefaultDir.toAbsolutePath().toString();
+        if (defaultPath.isEmpty() && ONNX_MANIFEST != null && ModelDownloader.isModelPresent(ONNX_MANIFEST)) {
+            defaultPath = ModelDownloader.getModelDir(ONNX_MANIFEST).toAbsolutePath().toString();
         }
         onnxModelPathField = new JTextField(defaultPath, 30);
         onnxModelPathField.setToolTipText("Pfad zum ONNX-Modellverzeichnis (z.B. C:\\models\\Phi-3-mini-4k-instruct-onnx)");
@@ -377,9 +366,13 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         onnxBtnPanel.add(onnxBrowseBtn);
         JButton onnxDownloadBtn = new JButton("\u2B07 Download");
         onnxDownloadBtn.setToolTipText("Phi-3 Mini ONNX-Modell (~2 GB) nach ~/.mainframemate/model/ herunterladen");
-        onnxDownloadBtn.addActionListener(e -> ModelDownloader.download(
-                this, "ONNX-Modell herunterladen", ONNX_HF_BASE_URL, ONNX_FILES,
-                onnxDefaultDir, path -> onnxModelPathField.setText(path)));
+        if (ONNX_MANIFEST != null) {
+            onnxDownloadBtn.addActionListener(e -> ModelDownloader.download(
+                    this, ONNX_MANIFEST, path -> onnxModelPathField.setText(path)));
+        } else {
+            onnxDownloadBtn.setEnabled(false);
+            onnxDownloadBtn.setToolTipText("model-manifest.json nicht gefunden – Download nicht verfügbar");
+        }
         onnxBtnPanel.add(onnxDownloadBtn);
         onnxPathPanel.add(onnxBtnPanel, BorderLayout.EAST);
 
@@ -779,6 +772,17 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         }
         int lastSlash = apiUrl.lastIndexOf('/');
         return lastSlash > 8 ? apiUrl.substring(0, lastSlash) + modelsPath : apiUrl + modelsPath;
+    }
+
+    /** Loads a {@link ModelManifest} from a classpath resource, returning {@code null} on failure. */
+    private static ModelManifest loadManifest(String resourcePath) {
+        try {
+            return ModelManifest.fromResource(resourcePath);
+        } catch (Exception e) {
+            Logger.getLogger(AiSettingsPanel.class.getName())
+                    .warning("Konnte Manifest nicht laden: " + resourcePath + " – " + e.getMessage());
+            return null;
+        }
     }
 }
 
