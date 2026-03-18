@@ -38,6 +38,9 @@ public class Settings {
     /** KeePass access method: "POWERSHELL" (default) or "RPC" (KeePassRPC plugin). */
     public String keepassAccessMethod = "POWERSHELL";
 
+    /** KeePassRPC host address (default 127.0.0.1). Only used when keepassAccessMethod = RPC. */
+    public String keepassRpcHost = "127.0.0.1";
+
     /** KeePassRPC port (default 12546). Only used when keepassAccessMethod = RPC. */
     public int keepassRpcPort = 12546;
 
