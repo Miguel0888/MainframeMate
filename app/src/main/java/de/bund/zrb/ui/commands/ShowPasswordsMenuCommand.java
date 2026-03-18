@@ -108,16 +108,19 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             return;
         }
 
+        // Track which rows have their password visible
+        final boolean[] visible = new boolean[entries.size()];
+
         // Build table model
-        String[] columns = {"Titel", "Benutzername", "URL", "Passwort"};
+        String[] columns = {"Titel", "Benutzername", "URL", "Passwort", ""};
         DefaultTableModel model = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
-                return false;
+                return col == 4; // only the button column is "editable" (clickable)
             }
         };
         for (KeePassEntry entry : entries) {
-            model.addRow(new Object[]{entry.title, entry.userName, entry.url, "••••••••"});
+            model.addRow(new Object[]{entry.title, entry.userName, entry.url, "••••••••", "\uD83D\uDC41"});
         }
 
         JTable table = new JTable(model);
@@ -126,17 +129,43 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         table.getColumnModel().getColumn(1).setPreferredWidth(140);
         table.getColumnModel().getColumn(2).setPreferredWidth(250);
         table.getColumnModel().getColumn(3).setPreferredWidth(120);
+        table.getColumnModel().getColumn(4).setPreferredWidth(32);
+        table.getColumnModel().getColumn(4).setMaxWidth(36);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
 
-        JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(750, 350));
+        // Button renderer + editor for the eye column
+        table.getColumnModel().getColumn(4).setCellRenderer(new javax.swing.table.TableCellRenderer() {
+            private final JButton btn = new JButton("\uD83D\uDC41");
+            {
+                btn.setMargin(new Insets(0, 0, 0, 0));
+                btn.setToolTipText("Passwort anzeigen / verbergen");
+            }
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean foc, int r, int c) {
+                return btn;
+            }
+        });
+        table.getColumnModel().getColumn(4).setCellEditor(new DefaultCellEditor(new JCheckBox()) {
+            @Override
+            public Component getTableCellEditorComponent(JTable t, Object v, boolean sel, int row, int col) {
+                int modelRow = t.convertRowIndexToModel(row);
+                visible[modelRow] = !visible[modelRow];
+                model.setValueAt(visible[modelRow] ? entries.get(modelRow).password : "••••••••", modelRow, 3);
+                fireEditingStopped();
+                return null;
+            }
+        });
 
-        // Toggle password visibility
-        JCheckBox showPasswords = new JCheckBox("Passwörter anzeigen");
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setPreferredSize(new Dimension(780, 350));
+
+        // Toggle ALL password visibility
+        JCheckBox showPasswords = new JCheckBox("Alle Passwörter anzeigen");
         showPasswords.addActionListener(e -> {
             boolean show = showPasswords.isSelected();
             for (int row = 0; row < entries.size(); row++) {
+                visible[row] = show;
                 model.setValueAt(show ? entries.get(row).password : "••••••••", row, 3);
             }
         });
@@ -165,7 +194,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         JPanel mainPanel = new JPanel(new BorderLayout(0, 8));
         Settings s = SettingsHelper.load();
-        mainPanel.add(new JLabel("KeePass-Datenbank: " + s.keepassDatabasePath + "  (" + entries.size() + " Einträge)"),
+        mainPanel.add(new JLabel("KeePass  (" + entries.size() + " Einträge)"),
                 BorderLayout.NORTH);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);

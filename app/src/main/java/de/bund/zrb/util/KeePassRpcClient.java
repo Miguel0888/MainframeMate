@@ -166,7 +166,8 @@ final class KeePassRpcClient {
         JsonArray entries = findLoginsByTitle(entryTitle);
         if (entries == null || entries.size() == 0) return null;
         JsonObject first = entries.get(0).getAsJsonObject();
-        return first.has("password") ? first.get("password").getAsString() : null;
+        if (first.has("password")) return first.get("password").getAsString();
+        return formFieldValue(first, "FFTpassword");
     }
 
     /**
@@ -178,7 +179,7 @@ final class KeePassRpcClient {
         JsonObject first = entries.get(0).getAsJsonObject();
         if (first.has("usernameValue")) return first.get("usernameValue").getAsString();
         if (first.has("username"))      return first.get("username").getAsString();
-        return null;
+        return formFieldValue(first, "FFTusername");
     }
 
     /**
@@ -467,14 +468,40 @@ final class KeePassRpcClient {
                 if (!el.isJsonObject()) continue;
                 JsonObject e = el.getAsJsonObject();
                 sb.append("Title: ").append(jsonStr(e, "title")).append('\n');
-                sb.append("UserName: ").append(jsonStr(e, "usernameValue", "username")).append('\n');
-                sb.append("Password: ").append(jsonStr(e, "password")).append('\n');
+
+                String user = jsonStr(e, "usernameValue", "username");
+                if (user.isEmpty()) user = formFieldValue(e, "FFTusername");
+                sb.append("UserName: ").append(user != null ? user : "").append('\n');
+
+                String pass = jsonStr(e, "password");
+                if (pass.isEmpty()) pass = formFieldValue(e, "FFTpassword");
+                sb.append("Password: ").append(pass != null ? pass : "").append('\n');
+
                 sb.append("URL: ").append(jsonStr(e, "url", "uRLs")).append('\n');
                 sb.append('\n');
             }
         }
         sb.append("OK: Operation completed successfully.");
         return sb.toString();
+    }
+
+    /**
+     * Extract a value from the KeePassRPC v1 DTO {@code formFieldList} array.
+     * Each entry has {@code type} (e.g. "FFTpassword", "FFTusername") and {@code value}.
+     */
+    private static String formFieldValue(JsonObject entry, String fieldType) {
+        if (!entry.has("formFieldList")) return null;
+        JsonElement ffl = entry.get("formFieldList");
+        if (!ffl.isJsonArray()) return null;
+        for (JsonElement fe : ffl.getAsJsonArray()) {
+            if (!fe.isJsonObject()) continue;
+            JsonObject field = fe.getAsJsonObject();
+            String type = field.has("type") ? field.get("type").getAsString() : "";
+            if (fieldType.equals(type) && field.has("value")) {
+                return field.get("value").getAsString();
+            }
+        }
+        return null;
     }
 
     private static String jsonStr(JsonObject o, String... keys) {
