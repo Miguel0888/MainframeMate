@@ -13,29 +13,21 @@ import java.util.logging.Logger;
 
 /**
  * Reads and writes passwords from/to a KeePass {@code .kdbx} database
- * via {@code KPScript.exe} (single-command operations).
+ * via <b>PowerShell</b> and the {@code KeePassLib.dll} that ships with KeePass 2.x.
  * <p>
- * <b>Read</b> ({@link #getPassword}): calls
- * {@code KPScript -c:GetEntryString <db> -ref-Title:<entry> -Field:Password}
+ * No separate {@code KPScript.exe} is required — only the standard KeePass 2.x
+ * installation (containing {@code KeePassLib.dll}).
  * <p>
- * <b>Write</b> ({@link #putPassword}): calls
- * {@code KPScript -c:EditEntry <db> -ref-Title:<entry> -set-Password:<pw>}
- * and falls back to {@code -c:AddEntry} if the entry does not exist yet.
- * <p>
- * The database master key is handled by KPScript itself; the user may be
- * prompted by KeePass for the master password if the database is locked.
- * Use {@code -pw-stdin} if you want to pipe the master password.
- * <p>
- * <b>Security:</b> The FTP password appears as a KPScript command-line
- * argument. This is acceptable in a single-user desktop context.
- * KPScript does not offer a stdin-based way to set field values.
+ * The database is opened with the <b>Windows User Account</b> composite key
+ * ({@code KcpUserAccount}), which uses DPAPI to derive the key from the
+ * currently logged-in Windows user.  If the database requires a different
+ * master key (password, key file), the operation will fail with a clear error.
  *
- * @see <a href="https://keepass.info/help/v2_dev/scr_sc_index.html">KPScript Single Command Operations</a>
+ * @see <a href="https://keepass.info/help/v2_dev/plg_index.html">KeePass Plugin Development</a>
  */
 final class KeePassProvider {
 
     private static final Logger LOG = Logger.getLogger(KeePassProvider.class.getName());
-
     private static final int TIMEOUT_SECONDS = 30;
 
     private KeePassProvider() {}
@@ -46,33 +38,18 @@ final class KeePassProvider {
      * Read the password for the configured entry from KeePass.
      *
      * @return the plaintext password
-     * @throws KeePassNotAvailableException if KPScript/database is not configured or call fails
+     * @throws KeePassNotAvailableException if config is invalid or call fails
      */
     static String getPassword() {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
-
-        String kpScript = settings.keepassKpScriptPath.trim();
-        String db = settings.keepassDatabasePath.trim();
-        String entry = settings.keepassEntryTitle.trim();
-
-        String output = exec(kpScript,
-                "-c:GetEntryString",
-                db,
-                "-ref-Title:" + entry,
-                "-Field:Password",
-                "-Spr",         // resolve field references
-                "-FailIfNoEntry"
-        );
-
-        // KPScript prints the field value followed by "OK: Operation completed successfully."
-        // We need to strip the status line.
-        String password = stripStatusLine(output);
-        if (password == null || password.isEmpty()) {
+        String script = buildGetFieldScript(settings, "Password");
+        String result = execPowerShell(script).trim();
+        if (result.isEmpty()) {
             throw new KeePassNotAvailableException(
-                    "Kein Passwort im KeePass-Eintrag \"" + entry + "\" gefunden.");
+                    "Kein Passwort im KeePass-Eintrag \"" + settings.keepassEntryTitle.trim() + "\" gefunden.");
         }
-        return password;
+        return result;
     }
 
     /**
@@ -83,22 +60,9 @@ final class KeePassProvider {
     static String getUserName() {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
-
-        String kpScript = settings.keepassKpScriptPath.trim();
-        String db = settings.keepassDatabasePath.trim();
-        String entry = settings.keepassEntryTitle.trim();
-
         try {
-            String output = exec(kpScript,
-                    "-c:GetEntryString",
-                    db,
-                    "-ref-Title:" + entry,
-                    "-Field:UserName",
-                    "-Spr",
-                    "-FailIfNoEntry"
-            );
-            String value = stripStatusLine(output);
-            return (value != null && !value.isEmpty()) ? value : null;
+            String result = execPowerShell(buildGetFieldScript(settings, "UserName")).trim();
+            return result.isEmpty() ? null : result;
         } catch (KeePassNotAvailableException e) {
             LOG.fine("Could not read UserName from KeePass: " + e.getMessage());
             return null;
@@ -107,7 +71,7 @@ final class KeePassProvider {
 
     /**
      * Store (or update) a password in the KeePass database.
-     * Tries {@code EditEntry} first; if the entry doesn't exist, uses {@code AddEntry}.
+     * If the entry does not exist, it is created.
      *
      * @param password the plaintext password to store
      * @throws KeePassNotAvailableException on any failure
@@ -116,69 +80,93 @@ final class KeePassProvider {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
 
-        String kpScript = settings.keepassKpScriptPath.trim();
-        String db = settings.keepassDatabasePath.trim();
+        String dllPath = resolveDllPath(settings);
+        String dbPath = settings.keepassDatabasePath.trim();
         String entry = settings.keepassEntryTitle.trim();
 
-        try {
-            // Try to update existing entry
-            exec(kpScript,
-                    "-c:EditEntry",
-                    db,
-                    "-ref-Title:" + entry,
-                    "-set-Password:" + password,
-                    "-FailIfNoEntry"
-            );
-            LOG.fine("Updated KeePass entry: " + entry);
-        } catch (KeePassNotAvailableException editFail) {
-            // Entry doesn't exist yet — create it
-            LOG.fine("Entry not found, creating new entry: " + entry);
-            try {
-                exec(kpScript,
-                        "-c:AddEntry",
-                        db,
-                        "-Title:" + entry,
-                        "-Password:" + password
-                );
-                LOG.fine("Created KeePass entry: " + entry);
-            } catch (KeePassNotAvailableException addFail) {
-                throw new KeePassNotAvailableException(
-                        "Eintrag \"" + entry + "\" konnte weder aktualisiert noch angelegt werden.",
-                        addFail);
-            }
+        // PowerShell script: find entry → update or create, then save
+        String script =
+                "Add-Type -Path '" + esc(dllPath) + "'\n"
+                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
+                + "$io.Path = '" + esc(dbPath) + "'\n"
+                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
+                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
+                + "$db = New-Object KeePassLib.PwDatabase\n"
+                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "$found = $false\n"
+                + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
+                + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(entry) + "') {\n"
+                + "    $e.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + "    $found = $true; break\n"
+                + "  }\n"
+                + "}\n"
+                + "if (-not $found) {\n"
+                + "  $ne = New-Object KeePassLib.PwEntry($db.RootGroup, $true, $true)\n"
+                + "  $ne.Strings.Set('Title', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(entry) + "')))\n"
+                + "  $ne.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + "  $db.RootGroup.AddEntry($ne, $true)\n"
+                + "}\n"
+                + "$db.Save((New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "$db.Close()\n"
+                + "Write-Output 'OK'";
+
+        String result = execPowerShell(script).trim();
+        if (!result.contains("OK")) {
+            throw new KeePassNotAvailableException(
+                    "KeePass-Eintrag konnte nicht geschrieben werden: " + sanitize(result));
         }
+        LOG.fine("KeePass entry updated: " + entry);
     }
 
     /**
      * List all entries from the KeePass database.
-     * Returns the raw KPScript output for {@code -c:ListEntries}.
+     * Returns a formatted string with entry details.
      *
-     * @return raw output from KPScript (entry details)
+     * @return formatted entry list
      * @throws KeePassNotAvailableException on any failure
      */
     static String listEntries() {
         Settings settings = SettingsHelper.load();
         validateConfig(settings);
 
-        String kpScript = settings.keepassKpScriptPath.trim();
-        String db = settings.keepassDatabasePath.trim();
+        String dllPath = resolveDllPath(settings);
+        String dbPath = settings.keepassDatabasePath.trim();
 
-        return exec(kpScript,
-                "-c:ListEntries",
-                db
-        );
+        String script =
+                "Add-Type -Path '" + esc(dllPath) + "'\n"
+                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
+                + "$io.Path = '" + esc(dbPath) + "'\n"
+                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
+                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
+                + "$db = New-Object KeePassLib.PwDatabase\n"
+                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
+                + "  Write-Output (\"Title: \" + $e.Strings.ReadSafe('Title'))\n"
+                + "  Write-Output (\"UserName: \" + $e.Strings.ReadSafe('UserName'))\n"
+                + "  Write-Output (\"Password: \" + $e.Strings.ReadSafe('Password'))\n"
+                + "  Write-Output (\"URL: \" + $e.Strings.ReadSafe('URL'))\n"
+                + "  Write-Output ''\n"
+                + "}\n"
+                + "$db.Close()\n"
+                + "Write-Output 'OK: Operation completed successfully.'";
+
+        return execPowerShell(script);
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
 
     private static void validateConfig(Settings settings) {
-        String kpScript = settings.keepassKpScriptPath;
-        if (kpScript == null || kpScript.trim().isEmpty()) {
-            throw new KeePassNotAvailableException("Pfad zu KPScript.exe ist nicht konfiguriert.");
-        }
-        if (!new File(kpScript.trim()).isFile()) {
+        String installPath = settings.keepassInstallPath;
+        if (installPath == null || installPath.trim().isEmpty()) {
             throw new KeePassNotAvailableException(
-                    "KPScript.exe nicht gefunden: " + kpScript.trim());
+                    "KeePass-Installationsverzeichnis ist nicht konfiguriert.\n"
+                    + "Bitte unter Einstellungen \u2192 Allgemein \u2192 Sicherheit den Pfad angeben.");
+        }
+        String dllPath = resolveDllPath(settings);
+        if (!new File(dllPath).isFile()) {
+            throw new KeePassNotAvailableException(
+                    "KeePassLib.dll nicht gefunden: " + dllPath + "\n"
+                    + "Bitte pr\u00fcfen Sie, ob KeePass 2.x im angegebenen Verzeichnis installiert ist.");
         }
         String db = settings.keepassDatabasePath;
         if (db == null || db.trim().isEmpty()) {
@@ -195,15 +183,54 @@ final class KeePassProvider {
     }
 
     /**
-     * Execute KPScript with the given arguments and return stdout.
+     * Build a PowerShell script that reads a single field from a KeePass entry.
      */
-    private static String exec(String kpScript, String... args) {
-        try {
-            String[] cmd = new String[args.length + 1];
-            cmd[0] = kpScript;
-            System.arraycopy(args, 0, cmd, 1, args.length);
+    private static String buildGetFieldScript(Settings settings, String fieldName) {
+        String dllPath = resolveDllPath(settings);
+        String dbPath = settings.keepassDatabasePath.trim();
+        String entry = settings.keepassEntryTitle.trim();
 
-            ProcessBuilder pb = new ProcessBuilder(cmd);
+        return "Add-Type -Path '" + esc(dllPath) + "'\n"
+                + "$io = New-Object KeePassLib.Serialization.IOConnectionInfo\n"
+                + "$io.Path = '" + esc(dbPath) + "'\n"
+                + "$key = New-Object KeePassLib.Keys.CompositeKey\n"
+                + "$key.AddUserKey((New-Object KeePassLib.Keys.KcpUserAccount))\n"
+                + "$db = New-Object KeePassLib.PwDatabase\n"
+                + "$db.Open($io, $key, (New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
+                + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(entry) + "') {\n"
+                + "    Write-Output $e.Strings.ReadSafe('" + fieldName + "')\n"
+                + "    break\n"
+                + "  }\n"
+                + "}\n"
+                + "$db.Close()";
+    }
+
+    /**
+     * Resolve the path to KeePassLib.dll from the installation directory.
+     */
+    private static String resolveDllPath(Settings settings) {
+        String installDir = settings.keepassInstallPath.trim();
+        // Handle both directory and direct KeePass.exe path
+        File dir = new File(installDir);
+        if (dir.isFile()) {
+            dir = dir.getParentFile(); // user pointed to KeePass.exe → use parent dir
+        }
+        return new File(dir, "KeePassLib.dll").getAbsolutePath();
+    }
+
+    /**
+     * Execute a PowerShell script and return stdout.
+     */
+    private static String execPowerShell(String script) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass",
+                    "-Command", script
+            );
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
@@ -213,25 +240,24 @@ final class KeePassProvider {
             if (!finished) {
                 process.destroyForcibly();
                 throw new KeePassNotAvailableException(
-                        "KPScript-Timeout nach " + TIMEOUT_SECONDS + " Sekunden.");
+                        "PowerShell-Timeout nach " + TIMEOUT_SECONDS + " Sekunden.\n"
+                        + "M\u00f6glicherweise wartet KeePass auf die Eingabe des Master-Passworts.");
             }
 
             int exitCode = process.exitValue();
             if (exitCode != 0) {
-                // Sanitize output to avoid leaking passwords in error messages
-                String safeOutput = sanitize(output);
                 throw new KeePassNotAvailableException(
-                        "KPScript beendet mit Exit-Code " + exitCode + ": " + safeOutput);
+                        "PowerShell beendet mit Exit-Code " + exitCode + ":\n" + sanitize(output));
             }
 
             return output;
         } catch (KeePassNotAvailableException e) {
             throw e;
         } catch (IOException e) {
-            throw new KeePassNotAvailableException("KPScript konnte nicht gestartet werden.", e);
+            throw new KeePassNotAvailableException("PowerShell konnte nicht gestartet werden.", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new KeePassNotAvailableException("KPScript wurde unterbrochen.", e);
+            throw new KeePassNotAvailableException("PowerShell wurde unterbrochen.", e);
         }
     }
 
@@ -246,34 +272,20 @@ final class KeePassProvider {
     }
 
     /**
-     * Strip the KPScript status line ("OK: Operation completed successfully.") from output.
-     * Returns the content before the status line.
+     * Escape single quotes for PowerShell string literals.
+     * PowerShell escapes {@code '} as {@code ''} inside single-quoted strings.
      */
-    private static String stripStatusLine(String output) {
-        if (output == null) return null;
-        // KPScript appends "OK: ..." as the last line
-        int lastNewline = output.lastIndexOf('\n');
-        if (lastNewline > 0) {
-            String lastLine = output.substring(lastNewline + 1).trim();
-            if (lastLine.startsWith("OK:")) {
-                return output.substring(0, lastNewline).trim();
-            }
-        }
-        // Single-line output that starts with "OK:" means empty result
-        if (output.trim().startsWith("OK:")) {
-            return "";
-        }
-        return output.trim();
+    private static String esc(String s) {
+        return s == null ? "" : s.replace("'", "''");
     }
 
     /**
-     * Remove potential password values from error output.
+     * Limit error output length to avoid leaking sensitive data.
      */
     private static String sanitize(String output) {
         if (output == null) return "";
-        // Limit length for error messages
         if (output.length() > 500) {
-            output = output.substring(0, 500) + "…";
+            output = output.substring(0, 500) + "\u2026";
         }
         return output;
     }

@@ -34,11 +34,11 @@ public enum PasswordMethod {
     JAVA_AES("Java AES-256 (plattformunabhängig)"),
 
     /**
-     * KeePass as external secret store via KPScript.
+     * KeePass as external secret store via PowerShell + KeePassLib.dll.
      * <p>
      * Passwords are read from / written to a KeePass {@code .kdbx} database
-     * using the {@code KPScript.exe} command-line tool. The database is
-     * unlocked by KeePass itself (Master Password / Key File / Windows User Account).
+     * using PowerShell and the {@code KeePassLib.dll} from the KeePass 2.x
+     * installation. The database is unlocked via the Windows User Account key.
      * The application does not store any encrypted password — it delegates
      * storage entirely to KeePass.
      */

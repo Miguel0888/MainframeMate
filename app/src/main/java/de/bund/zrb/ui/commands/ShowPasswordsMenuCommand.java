@@ -19,7 +19,7 @@ import java.util.logging.Logger;
  * Menu command under <em>Hilfe → Passwörter (KeePass)</em>.
  * <p>
  * If the password method is set to {@link PasswordMethod#KEEPASS},
- * lists all entries from the configured KeePass database via KPScript.
+ * lists all entries from the configured KeePass database via PowerShell + KeePassLib.dll.
  * Otherwise shows a hint that KeePass must be configured first.
  */
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
@@ -59,8 +59,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                             + "<p>Diese Funktion zeigt alle Passwörter aus einer KeePass-Datenbank an.</p>"
                             + "<p>Bitte konfigurieren Sie zuerst unter<br>"
                             + "<b>Einstellungen → Allgemein → Sicherheit</b><br>"
-                            + "die Passwort-Methode <b>KeePass</b> und geben Sie den Pfad zu "
-                            + "<code>KPScript.exe</code> sowie zur <code>.kdbx</code>-Datenbank an.</p>"
+                            + "die Passwort-Methode <b>KeePass</b> und geben Sie das "
+                            + "KeePass-Installationsverzeichnis sowie den Pfad zur <code>.kdbx</code>-Datenbank an.</p>"
                             + "</body></html>",
                     "KeePass nicht aktiv",
                     JOptionPane.INFORMATION_MESSAGE);
@@ -183,7 +183,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * Parses the raw KPScript {@code -c:ListEntries} output.
+     * Parses the PowerShell/KeePassLib entry listing output.
      * <p>
      * Expected format per entry block (separated by blank lines):
      * <pre>

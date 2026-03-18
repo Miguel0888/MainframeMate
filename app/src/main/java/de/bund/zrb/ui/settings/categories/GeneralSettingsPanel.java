@@ -128,11 +128,11 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
                 + "Benötigt <code>powershell.exe</code> — kann bei restriktiver Execution Policy blockiert sein.<br>"
                 + "<b>Java AES-256:</b> Plattformunabhängig, reines Java — Master-Key in <code>~/.mainframemate/.master.key</code>.<br>"
                 + "<b>KeePass:</b> Passwörter werden in einer KeePass-Datenbank gespeichert. "
-                + "Benötigt <code>KPScript.exe</code> (KeePass 2.x)."
+                + "Benötigt KeePass 2.x mit <code>KeePassLib.dll</code> (wird per PowerShell geladen)."
                 + "</small></html>");
 
         // ── KeePass configuration (shown/hidden based on selected method) ──
-        keepassKpScriptField = new JTextField(safe(settings.keepassKpScriptPath), 30);
+        keepassKpScriptField = new JTextField(safe(settings.keepassInstallPath), 30);
         keepassDatabaseField = new JTextField(safe(settings.keepassDatabasePath), 30);
         keepassEntryTitleField = new JTextField(safe(settings.keepassEntryTitle), 20);
 
@@ -140,11 +140,11 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         keepassConfigPanel.setBorder(BorderFactory.createTitledBorder("KeePass-Konfiguration"));
 
         JPanel row1 = new JPanel(new java.awt.BorderLayout(4, 0));
-        row1.add(new JLabel("KPScript.exe:"), java.awt.BorderLayout.WEST);
+        row1.add(new JLabel("KeePass-Verzeichnis:"), java.awt.BorderLayout.WEST);
         row1.add(keepassKpScriptField, java.awt.BorderLayout.CENTER);
-        JButton browseKpScript = new JButton("…");
-        browseKpScript.addActionListener(e -> browseFile(keepassKpScriptField, "KPScript.exe", "exe"));
-        row1.add(browseKpScript, java.awt.BorderLayout.EAST);
+        JButton browseKpDir = new JButton("…");
+        browseKpDir.addActionListener(e -> browseDirectory(keepassKpScriptField, "KeePass-Installationsverzeichnis"));
+        row1.add(browseKpDir, java.awt.BorderLayout.EAST);
         keepassConfigPanel.add(row1);
 
         JPanel row2 = new JPanel(new java.awt.BorderLayout(4, 0));
@@ -265,7 +265,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.lockStyle = lockStyleBox.getSelectedIndex();
         PasswordMethod selectedMethod = (PasswordMethod) passwordMethodBox.getSelectedItem();
         s.passwordMethod = selectedMethod != null ? selectedMethod.name() : PasswordMethod.WINDOWS_DPAPI.name();
-        s.keepassKpScriptPath = keepassKpScriptField.getText().trim();
+        s.keepassInstallPath = keepassKpScriptField.getText().trim();
         s.keepassDatabasePath = keepassDatabaseField.getText().trim();
         s.keepassEntryTitle = keepassEntryTitleField.getText().trim();
         s.historyEnabled = historyEnabledBox.isSelected();
@@ -282,6 +282,24 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         if (!current.isEmpty()) {
             java.io.File f = new java.io.File(current);
             if (f.getParentFile() != null && f.getParentFile().isDirectory()) {
+                fc.setCurrentDirectory(f.getParentFile());
+            }
+        }
+        if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            target.setText(fc.getSelectedFile().getAbsolutePath());
+        }
+    }
+
+    private void browseDirectory(JTextField target, String description) {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle(description + " auswählen");
+        fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        String current = target.getText().trim();
+        if (!current.isEmpty()) {
+            java.io.File f = new java.io.File(current);
+            if (f.isDirectory()) {
+                fc.setCurrentDirectory(f);
+            } else if (f.getParentFile() != null && f.getParentFile().isDirectory()) {
                 fc.setCurrentDirectory(f.getParentFile());
             }
         }

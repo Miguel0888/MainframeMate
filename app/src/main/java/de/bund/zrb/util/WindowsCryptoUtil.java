@@ -42,7 +42,7 @@ public class WindowsCryptoUtil {
      * @param plainText the secret to protect
      * @return opaque Base64-encoded ciphertext (or marker for KeePass)
      * @throws JnaBlockedException if DPAPI is selected but JNA is blocked
-     * @throws KeePassNotAvailableException if KeePass is selected but KPScript fails
+     * @throws KeePassNotAvailableException if KeePass is selected but PowerShell/KeePassLib fails
      * @throws IllegalStateException on any other encryption failure
      */
     public static String encrypt(String plainText) {
@@ -74,7 +74,7 @@ public class WindowsCryptoUtil {
      * @return the original plaintext
      * @throws JnaBlockedException if DPAPI is selected but JNA is blocked
      * @throws PowerShellBlockedException if PowerShell DPAPI is selected but PS is blocked
-     * @throws KeePassNotAvailableException if KeePass is selected but KPScript fails
+     * @throws KeePassNotAvailableException if KeePass is selected but PowerShell/KeePassLib fails
      * @throws IllegalStateException on any other decryption failure
      */
     public static String decrypt(String base64) {

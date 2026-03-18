@@ -26,8 +26,8 @@ public class Settings {
     /** Password encryption method: "WINDOWS_DPAPI" (default), "POWERSHELL_DPAPI", "JAVA_AES", or "KEEPASS". */
     public String passwordMethod = "WINDOWS_DPAPI";
 
-    /** Path to KPScript.exe (only used when passwordMethod = KEEPASS). */
-    public String keepassKpScriptPath = resolveKeePassDefault();
+    /** Path to KeePass 2.x installation directory (containing KeePassLib.dll). Only used when passwordMethod = KEEPASS. */
+    public String keepassInstallPath = resolveKeePassDefault();
 
     /** Path to the .kdbx database file (only used when passwordMethod = KEEPASS). */
     public String keepassDatabasePath = "G:\\Datenbank.kdbx";
@@ -183,13 +183,13 @@ public class Settings {
     public Map<String, Object> videoSettings = new LinkedHashMap<String, Object>();
 
     /**
-     * Resolves the default KPScript.exe path using %ProgramFiles(x86)%.
+     * Resolves the default KeePass 2.x installation directory using %ProgramFiles(x86)%.
      * Falls back to empty string if the environment variable is not set.
      */
     private static String resolveKeePassDefault() {
         String pf86 = System.getenv("ProgramFiles(x86)");
         if (pf86 != null && !pf86.isEmpty()) {
-            return pf86 + "\\KeePass2x\\KPScript.exe";
+            return pf86 + "\\KeePass2x";
         }
         return "";
     }

@@ -181,10 +181,10 @@ public final class CredentialStore {
     // ── KeePass integration ─────────────────────────────────────────────────
 
     /**
-     * List all entries from the KeePass database via KPScript {@code -c:ListEntries}.
+     * List all entries from the KeePass database via PowerShell + KeePassLib.dll.
      * Only works when the password method is {@link PasswordMethod#KEEPASS}.
      *
-     * @return raw KPScript output (entry details)
+     * @return formatted entry list output
      * @throws KeePassNotAvailableException if KeePass is misconfigured or the call fails
      */
     public static String listKeePassEntries() {
