@@ -113,27 +113,9 @@ public final class KeePassRpcPairingDialog {
         gbc.gridy = 2; gbc.gridwidth = 1; gbc.weightx = 0;
         panel.add(new JLabel("SRP-Schlüssel:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
-        final JPasswordField keyField = new JPasswordField(30);
+        JTextField keyField = new JTextField(30);
         keyField.setToolTipText("Den Schlüssel aus dem KeePass-Pairing-Dialog hier einfügen");
-        final char echoDefault = keyField.getEchoChar();
-
-        JPanel keyPanel = new JPanel(new BorderLayout(4, 0));
-        keyPanel.add(keyField, BorderLayout.CENTER);
-        JButton showKeyButton = new JButton("\uD83D\uDC41"); // 👁
-        showKeyButton.setToolTipText("Schlüssel anzeigen / verbergen");
-        showKeyButton.setMargin(new Insets(0, 4, 0, 4));
-        showKeyButton.setFocusable(false);
-        showKeyButton.addActionListener(ev -> {
-            if (keyField.getEchoChar() == 0) {
-                keyField.setEchoChar(echoDefault);
-                showKeyButton.setText("\uD83D\uDC41"); // 👁
-            } else {
-                keyField.setEchoChar((char) 0);
-                showKeyButton.setText("\uD83D\uDE48"); // 🙈
-            }
-        });
-        keyPanel.add(showKeyButton, BorderLayout.EAST);
-        panel.add(keyPanel, gbc);
+        panel.add(keyField, gbc);
 
         gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weightx = 1;
         JLabel statusLabel = new JLabel(" ");
@@ -199,7 +181,7 @@ public final class KeePassRpcPairingDialog {
         });
 
         keyField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            private void check() { testButton.setEnabled(!new String(keyField.getPassword()).trim().isEmpty()); }
+            private void check() { testButton.setEnabled(!keyField.getText().trim().isEmpty()); }
             public void insertUpdate(javax.swing.event.DocumentEvent e) { check(); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { check(); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { check(); }
@@ -207,7 +189,7 @@ public final class KeePassRpcPairingDialog {
 
         // ── "Schlüssel prüfen" ───────────────────────────────────────────
         testButton.addActionListener(e -> {
-            String key = new String(keyField.getPassword()).trim();
+            String key = keyField.getText().trim();
             if (key.isEmpty()) {
                 statusLabel.setForeground(Color.RED);
                 statusLabel.setText("Bitte geben Sie den SRP-Schlüssel ein.");
@@ -254,7 +236,7 @@ public final class KeePassRpcPairingDialog {
                         closeSrpState(stateRef);
                         connectButton.setEnabled(true);
                     }
-                    testButton.setEnabled(!new String(keyField.getPassword()).trim().isEmpty() && stateRef.get() != null);
+                    testButton.setEnabled(!keyField.getText().trim().isEmpty() && stateRef.get() != null);
                 }
             }.execute();
         });
