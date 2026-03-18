@@ -148,7 +148,7 @@ final class KeePassRpcClient {
         }
 
         awaitLatch("WebSocket connect");   // wait for onOpen
-        performSrpAuth();                  // client sends first message
+        performKcrAuth();                  // authenticate with stored session key
     }
 
     /** Close the WebSocket connection. */
@@ -198,118 +198,80 @@ final class KeePassRpcClient {
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    //  SRP Authentication — matches gkp (Go) and KeePassRPC server (C#)
+    //  Key Challenge-Response Authentication (for established pairings)
+    //  Server stores a session key after initial SRP pairing.
+    //  Subsequent connections use KCR to authenticate with that key.
     // ═════════════════════════════════════════════════════════════════════
 
-    private void performSrpAuth() {
-        SecureRandom random = new SecureRandom();
-
-        // Client ephemeral: a (private), A = g^a mod N (public)
-        BigInteger a = new BigInteger(256, random);
-        BigInteger A = g.modPow(a, N);
-
-        // ── Step 1: identifyToServer ──
+    private void performKcrAuth() {
+        // ── Step 1: send username to server ──
         JsonObject msg = buildSetupMessage();
-        JsonObject srp = new JsonObject();
-        srp.addProperty("stage", "identifyToServer");
-        srp.addProperty("I", clientId);
-        srp.addProperty("A", toHex(A));
-        srp.addProperty("securityLevel", 2);
-        msg.add("srp", srp);
-        sendAndWait(msg, "SRP identifyToServer");
+        JsonObject key = new JsonObject();
+        key.addProperty("username", clientId);
+        key.addProperty("securityLevel", 2);
+        msg.add("key", key);
+        sendAndWait(msg, "KCR identify");
 
-        // ── Step 2: parse identifyToClient response ──
+        // ── Step 2: parse server challenge ──
         String challengeMsg = mailbox.get();
         JsonObject challenge = parseOrThrow(challengeMsg);
 
         if (challenge.has("error") && !challenge.get("error").isJsonNull()) {
             throw new KeePassNotAvailableException(
-                    "SRP-Fehler vom Server: " + challenge.get("error"));
+                    "KCR-Fehler vom Server: " + challenge.get("error") + "\n"
+                  + "Möglicherweise muss das Pairing erneut durchgeführt werden.");
         }
 
-        JsonObject srvSrp = challenge.getAsJsonObject("srp");
-        if (srvSrp == null) {
+        JsonObject srvKey = challenge.getAsJsonObject("key");
+        if (srvKey == null || !srvKey.has("sc")) {
             throw new KeePassNotAvailableException(
-                    "Unerwartete SRP-Antwort (kein 'srp'-Objekt): " + truncate(challengeMsg));
+                    "Unerwartete KCR-Antwort (kein 'key.sc'): " + truncate(challengeMsg));
         }
 
-        String saltStr = srvSrp.get("s").getAsString();
-        String bHex = srvSrp.get("B").getAsString();
+        String sc = srvKey.get("sc").getAsString();
 
-        // Pad B to even length (as gkp does)
-        if (bHex.length() % 2 != 0) bHex = "0" + bHex;
-        BigInteger B = new BigInteger(bHex, 16);
+        // ── Step 3: compute response and send client challenge ──
+        // Generate random client challenge
+        byte[] ccBytes = new byte[32];
+        new SecureRandom().nextBytes(ccBytes);
+        BigInteger ccBi = new BigInteger(1, ccBytes);
+        String cc = ccBi.toString().toLowerCase();
 
-        if (B.mod(N).equals(BigInteger.ZERO)) {
-            throw new KeePassNotAvailableException("SRP: Ungültiger Server-Wert B.");
-        }
+        // cr = hex(SHA256("1" + sessionKey + sc + cc)).toLowerCase()
+        String cr = bytesToHex(sha256str("1" + srpKey + sc + cc));
 
-        // ── Compute SRP values ──
-        // All hex formatting uses UPPERCASE to match gkp's %X
-        String aHex = toHex(A);
-        String bHexNorm = toHex(B);
+        JsonObject resp = buildSetupMessage();
+        JsonObject keyResp = new JsonObject();
+        keyResp.addProperty("cc", cc);
+        keyResp.addProperty("cr", cr);
+        keyResp.addProperty("securityLevel", 2);
+        resp.add("key", keyResp);
+        sendAndWait(resp, "KCR proof");
 
-        // u = SHA256(A_hex + B_hex)  — hex string concatenation, NOT byte concat
-        BigInteger u = new BigInteger(1, sha256str(aHex + bHexNorm));
-        if (u.equals(BigInteger.ZERO)) {
-            throw new KeePassNotAvailableException("SRP: Ungültiger u-Wert.");
-        }
-
-        // x = SHA256(salt_string + password_string) — plain string concatenation
-        // KeePassRPC: _x = new BigInteger(Utils.Hash(_s + password))
-        BigInteger x = new BigInteger(1, sha256str(saltStr + srpKey));
-
-        // S = (B - k * g^x)^(a + u*x) mod N
-        BigInteger gx = g.modPow(x, N);
-        BigInteger kgx = k.multiply(gx).mod(N);
-        BigInteger diff = B.subtract(kgx).mod(N);
-        if (diff.signum() < 0) diff = diff.add(N);
-        BigInteger exp = a.add(u.multiply(x));
-        BigInteger S = diff.modPow(exp, N);
-
-        String sHex = toHex(S);
-
-        // M = SHA256(A_hex + B_hex + S_hex) — hex string concatenation
-        byte[] mBytes = sha256str(aHex + bHexNorm + sHex);
-        String mHex = bytesToHex(mBytes);
-
-        // ── Step 3: proofToServer ──
-        JsonObject proof = buildSetupMessage();
-        JsonObject srpProof = new JsonObject();
-        srpProof.addProperty("stage", "proofToServer");
-        srpProof.addProperty("M", mHex);
-        srpProof.addProperty("securityLevel", 2);
-        proof.add("srp", srpProof);
-        sendAndWait(proof, "SRP proofToServer");
-
-        // ── Step 4: verify proofToClient ──
+        // ── Step 4: verify server response ──
         String verifyMsg = mailbox.get();
         JsonObject verify = parseOrThrow(verifyMsg);
 
         if (verify.has("error") && !verify.get("error").isJsonNull()) {
             throw new KeePassNotAvailableException(
-                    "SRP-Authentifizierung fehlgeschlagen. "
-                  + "Bitte prüfen Sie den KeePassRPC-Schlüssel.\n"
+                    "KCR-Authentifizierung fehlgeschlagen.\n"
+                  + "Bitte Pairing erneut durchführen.\n"
                   + "Server: " + truncate(verifyMsg));
         }
 
-        JsonObject verifySrp = verify.getAsJsonObject("srp");
-        if (verifySrp != null && verifySrp.has("M2")) {
-            String m2Received = verifySrp.get("M2").getAsString();
-            // M2 = SHA256(A_hex + M_lowercase + S_hex)
-            byte[] expectedM2 = sha256str(aHex + mHex.toLowerCase() + sHex);
-            String expectedM2Hex = bytesToHex(expectedM2);
-            if (!m2Received.equalsIgnoreCase(expectedM2Hex)) {
-                throw new KeePassNotAvailableException("SRP: Server-Verifizierung M2 fehlgeschlagen.");
+        JsonObject verifyKey = verify.getAsJsonObject("key");
+        if (verifyKey != null && verifyKey.has("sr")) {
+            String srReceived = verifyKey.get("sr").getAsString();
+            String expectedSr = bytesToHex(sha256str("0" + srpKey + sc + cc));
+            if (!srReceived.equalsIgnoreCase(expectedSr)) {
+                throw new KeePassNotAvailableException("KCR: Server-Verifizierung fehlgeschlagen.");
             }
         }
 
-        // Session key: K = lowercase_hex(SHA256(S_hex))
-        // Must be 64 chars (zero-padded) — stored as hex key for AES
-        byte[] keyHash = sha256str(sHex);
-        sessionKeyHex = bytesToHex(keyHash);
+        // The stored session key IS the AES key for encrypted JSON-RPC
+        sessionKeyHex = srpKey;
 
-        LOG.info("[KeePassRPC] SRP authentication successful");
+        LOG.info("[KeePassRPC] KCR authentication successful");
     }
 
     /**

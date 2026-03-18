@@ -214,18 +214,19 @@ public final class KeePassRpcPairingDialog {
                 @Override protected void done() {
                     try {
                         String result = get();
-                        if (result == null) {
+                        if (result != null && result.length() == 64 && result.matches("[0-9a-f]+")) {
+                            // Success — result is the 64-char hex session key
                             statusLabel.setForeground(new Color(0, 128, 0));
                             statusLabel.setText("✓ Schlüssel gültig! Verbindung erfolgreich.");
-                            validatedKey.set(key);
+                            validatedKey.set(result); // store session key, not pairing password
                             okButton.setEnabled(true);
                             okButton.requestFocusInWindow();
                         } else {
+                            // Error message
                             statusLabel.setForeground(Color.RED);
-                            statusLabel.setText(result);
+                            statusLabel.setText(result != null ? result : "Unbekannter Fehler.");
                             validatedKey.set(null);
                             okButton.setEnabled(false);
-                            // Connection is now dead — user must reconnect
                             closeSrpState(stateRef);
                             connectButton.setEnabled(true);
                         }
@@ -508,7 +509,12 @@ public final class KeePassRpcPairingDialog {
             }
 
             LOG.info("[KeePassRPC Pairing] SRP proof verified — key is valid.");
-            return null; // success
+
+            // Compute session key K = sha256(S_hex) — this is what the server stores
+            // and what KCR needs for subsequent connections.
+            byte[] keyHash = sha256str(sHex);
+            String sessionKey = bytesToHex(keyHash);
+            return sessionKey;
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
