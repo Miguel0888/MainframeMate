@@ -301,9 +301,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
             String key = de.bund.zrb.util.KeePassRpcPairingDialog.showAndPair();
             if (key != null && !key.trim().isEmpty()) {
                 keepassRpcKeyField.setText(key);
-                JOptionPane.showMessageDialog(this,
-                        "Pairing erfolgreich! Der SRP-Schlüssel wurde übernommen.",
-                        "KeePassRPC", JOptionPane.INFORMATION_MESSAGE);
             }
         });
         keepassRpcPanel.add(pairingButton, rc);

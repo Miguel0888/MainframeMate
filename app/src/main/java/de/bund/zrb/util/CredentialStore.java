@@ -168,9 +168,19 @@ public final class CredentialStore {
     /**
      * Try to extract the username from a stored credential without
      * throwing on crypto failures (returns {@code null} on error).
+     * <p>
+     * When the password method is {@link PasswordMethod#KEEPASS},
+     * {@link WindowsCryptoUtil#decrypt} does not actually decrypt the
+     * stored value — it fetches the main password from KeePass, which
+     * would trigger the full KeePass/RPC flow (including pairing).
+     * We must not let that happen for a simple username lookup.
      */
     public static String resolveUserNameQuietly(String componentKey) {
         try {
+            Settings settings = SettingsHelper.load();
+            if ("KEEPASS".equalsIgnoreCase(settings.passwordMethod)) {
+                return null;
+            }
             String[] cred = resolve(componentKey);
             return cred != null ? cred[0] : null;
         } catch (Exception e) {
