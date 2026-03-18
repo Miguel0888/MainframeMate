@@ -114,14 +114,20 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         table.getColumnModel().getColumn(2).setPreferredWidth(130); // Anzeigename
         table.getColumnModel().getColumn(3).setPreferredWidth(120); // Benutzername
         table.getColumnModel().getColumn(4).setPreferredWidth(100); // Passwort
-        table.getColumnModel().getColumn(5).setPreferredWidth(200); // URL
-        table.getColumnModel().getColumn(6).setPreferredWidth(36);  // 👁
-        table.getColumnModel().getColumn(6).setMaxWidth(40);
+        table.getColumnModel().getColumn(5).setPreferredWidth(180); // URL
+        table.getColumnModel().getColumn(6).setPreferredWidth(50);  // Login
+        table.getColumnModel().getColumn(6).setMaxWidth(60);
+        table.getColumnModel().getColumn(7).setPreferredWidth(50);  // Proxy
+        table.getColumnModel().getColumn(7).setMaxWidth(60);
+        table.getColumnModel().getColumn(8).setPreferredWidth(60);  // Auto-Idx
+        table.getColumnModel().getColumn(8).setMaxWidth(70);
+        table.getColumnModel().getColumn(9).setPreferredWidth(36);  // 👁
+        table.getColumnModel().getColumn(9).setMaxWidth(40);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
 
-        // Eye column: renderer + click handler
-        table.getColumnModel().getColumn(6).setCellRenderer(new DefaultTableCellRenderer() {
+        // Eye column (index 9): renderer + click handler
+        table.getColumnModel().getColumn(9).setCellRenderer(new DefaultTableCellRenderer() {
             {
                 setHorizontalAlignment(SwingConstants.CENTER);
             }
@@ -141,7 +147,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             public void mouseClicked(MouseEvent e) {
                 int col = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
-                if (col == 6 && row >= 0) {
+                if (col == 9 && row >= 0) {
                     int modelRow = table.convertRowIndexToModel(row);
                     visible[modelRow] = !visible[modelRow];
                     model.fireTableRowsUpdated(modelRow, modelRow);
@@ -150,7 +156,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         });
 
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(920, 380));
+        scrollPane.setPreferredSize(new Dimension(1080, 380));
 
         // ── Bottom button bar ──
         JCheckBox showAll = new JCheckBox("Alle Passwörter anzeigen");
@@ -434,7 +440,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static class EntryTableModel extends AbstractTableModel {
         private static final String[] COLUMNS = {
-                "Kategorie", "ID", "Anzeigename", "Benutzername", "Passwort", "URL", ""
+                "Kategorie", "ID", "Anzeigename", "Benutzername", "Passwort", "URL",
+                "Login", "Proxy", "Auto-Idx", ""
         };
         private final List<KeePassEntry> entries;
         private final boolean[] visible;
@@ -449,6 +456,12 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         @Override public String getColumnName(int col) { return COLUMNS[col]; }
 
         @Override
+        public Class<?> getColumnClass(int col) {
+            // Columns 6,7,8 are boolean checkboxes
+            return (col >= 6 && col <= 8) ? Boolean.class : Object.class;
+        }
+
+        @Override
         public Object getValueAt(int row, int col) {
             KeePassEntry e = entries.get(row);
             switch (col) {
@@ -458,7 +471,10 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 case 3: return e.userName;
                 case 4: return visible[row] ? e.password : "••••••••";
                 case 5: return e.url;
-                case 6: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
+                case 6: return e.requiresLogin;
+                case 7: return e.useProxy;
+                case 8: return e.autoIndex;
+                case 9: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
                 default: return "";
             }
         }
