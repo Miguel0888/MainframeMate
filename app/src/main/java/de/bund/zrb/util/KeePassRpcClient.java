@@ -128,6 +128,12 @@ final class KeePassRpcClient {
                 if (l != null) l.countDown();
             }
         };
+        // KeePassRPC validates the Origin header — connections without a permitted
+        // origin are silently rejected.  The default whitelist includes the browser-
+        // extension prefixes (chrome-extension://, moz-extension://, …).
+        // We use "chrome-extension://mainframemate" so the handshake passes without
+        // requiring the user to reconfigure KeePassRPC's PermittedOrigins.
+        ws.addHeader("Origin", "chrome-extension://mainframemate");
         ws.setConnectionLostTimeout(0);
 
         try {
