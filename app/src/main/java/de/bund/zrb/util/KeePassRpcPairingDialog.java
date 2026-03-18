@@ -306,7 +306,7 @@ public final class KeePassRpcPairingDialog {
         state.a = new BigInteger(256, random);
         BigInteger A = g.modPow(state.a, N);
         state.aHex = toHex(A);
-        String clientId = "MainframeMate-" + Long.toHexString(System.currentTimeMillis());
+        String clientId = "MainframeMate";
 
         state.ws = new WebSocketClient(uri) {
             @Override
