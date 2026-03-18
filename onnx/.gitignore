@@ -1,5 +1,10 @@
-# ONNX Model weights (2GB+) – nicht ins Git!
-# model.onnx (2MB) ist klein und bleibt im Repo.
-# model.onnx.data (2GB) muss separat heruntergeladen werden (siehe download.url).
+# ONNX Model weights – nicht ins Git!
+# Kleine Dateien (config, tokenizer, manifest) bleiben im Repo.
+# Große Gewichtsdateien (.onnx.data) werden per model-manifest.json heruntergeladen.
+
+# DirectML INT4 variant (~2 GB)
 Phi-3-mini-4k-instruct-onnx/model.onnx.data
+
+# CUDA FP16 variant (~7.6 GB)
+Phi-3-mini-4k-instruct-cuda-fp16/phi3-mini-4k-instruct-cuda-fp16.onnx.data
 

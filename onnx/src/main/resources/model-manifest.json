@@ -1,0 +1,14 @@
+{
+  "modelName": "Phi-3-mini-4k-instruct-onnx-directml-int4",
+  "displayName": "Phi-3 Mini 4K Instruct (ONNX DirectML INT4)",
+  "baseUrl": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-onnx/resolve/main/directml/directml-int4-awq-block-128/",
+  "files": [
+    { "name": "genai_config.json",       "size": 1679 },
+    { "name": "special_tokens_map.json", "size": 599 },
+    { "name": "tokenizer_config.json",   "size": 3441 },
+    { "name": "tokenizer.json",          "size": 1937869 },
+    { "name": "model.onnx",              "size": 2109332 },
+    { "name": "model.onnx.data",         "size": 2131292928 }
+  ]
+}
+
