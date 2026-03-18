@@ -798,26 +798,38 @@ public class TabbedPaneManager {
             return;
         }
 
-        // For JCL sources, show real dependencies (PGM, PROC, INCLUDE, JCLLIB, DSN)
+        // For JCL sources, show real dependencies (PGM, PROC, INCLUDE, JCLLIB, DSN) + call hierarchy
         final de.bund.zrb.service.JclDependencyService jclDependencyService =
                 de.bund.zrb.service.JclDependencyService.getInstance();
         if (content != null && jclDependencyService.isJclSource(content, sentenceType)) {
             leftDrawer.showRelationsLoading();
+            leftDrawer.showCallHierarchyLoading();
             final String jclContent = content;
             final String jclName = sourceName;
-            new javax.swing.SwingWorker<de.bund.zrb.service.JclDependencyService.JclDependencyResult, Void>() {
+            new javax.swing.SwingWorker<Object[], Void>() {
                 @Override
-                protected de.bund.zrb.service.JclDependencyService.JclDependencyResult doInBackground() {
-                    return jclDependencyService.analyze(jclContent, jclName);
+                protected Object[] doInBackground() {
+                    de.bund.zrb.service.JclDependencyService.JclDependencyResult deps =
+                            jclDependencyService.analyze(jclContent, jclName);
+                    java.util.List<de.bund.zrb.service.JclDependencyService.JclCallNode> hierarchy =
+                            jclDependencyService.buildCallHierarchy(jclContent, jclName);
+                    return new Object[]{deps, hierarchy};
                 }
 
                 @Override
+                @SuppressWarnings("unchecked")
                 protected void done() {
                     try {
-                        de.bund.zrb.service.JclDependencyService.JclDependencyResult result = get();
-                        showJclDependenciesInLeftDrawer(leftDrawer, result);
+                        Object[] results = get();
+                        de.bund.zrb.service.JclDependencyService.JclDependencyResult depsResult =
+                                (de.bund.zrb.service.JclDependencyService.JclDependencyResult) results[0];
+                        java.util.List<de.bund.zrb.service.JclDependencyService.JclCallNode> hierarchy =
+                                (java.util.List<de.bund.zrb.service.JclDependencyService.JclCallNode>) results[1];
+                        showJclDependenciesInLeftDrawer(leftDrawer, depsResult);
+                        showJclCallHierarchy(leftDrawer, hierarchy, jclName);
                     } catch (Exception ex) {
                         leftDrawer.showRelationsPlaceholder("Fehler bei JCL-Abhängigkeitsanalyse: " + ex.getMessage());
+                        leftDrawer.clearCallHierarchy();
                     }
                 }
             }.execute();
@@ -993,6 +1005,50 @@ public class TabbedPaneManager {
         }
 
         leftDrawer.updateRelationsGrouped("JCL-Abhängigkeiten", sections, totalCount);
+    }
+
+    /**
+     * Show JCL call hierarchy (JOB → EXEC steps → DD) in the LeftDrawer call hierarchy panel.
+     */
+    private void showJclCallHierarchy(LeftDrawer leftDrawer,
+                                       java.util.List<de.bund.zrb.service.JclDependencyService.JclCallNode> roots,
+                                       String sourceName) {
+        if (roots == null || roots.isEmpty()) {
+            leftDrawer.showCallHierarchyPlaceholder("Keine JCL-Ausführungshierarchie gefunden.");
+            return;
+        }
+
+        // Convert roots to CallHierarchyData and show as callees
+        java.util.List<LeftDrawer.CallHierarchyData> children =
+                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        for (de.bund.zrb.service.JclDependencyService.JclCallNode root : roots) {
+            children.add(convertJclCallNode(root));
+        }
+
+        LeftDrawer.CallHierarchyData calleesRoot = new LeftDrawer.CallHierarchyData(
+                "JCL Ausführung", null, false, children);
+
+        leftDrawer.updateCallHierarchy(calleesRoot, null, sourceName);
+    }
+
+    /**
+     * Recursively convert a JclCallNode to LeftDrawer.CallHierarchyData.
+     */
+    private LeftDrawer.CallHierarchyData convertJclCallNode(
+            de.bund.zrb.service.JclDependencyService.JclCallNode node) {
+
+        java.util.List<LeftDrawer.CallHierarchyData> children =
+                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+        for (de.bund.zrb.service.JclDependencyService.JclCallNode child : node.getChildren()) {
+            children.add(convertJclCallNode(child));
+        }
+
+        return new LeftDrawer.CallHierarchyData(
+                node.getDisplayText(),
+                null,  // no navigation target for JCL
+                false, // not recursive
+                children
+        );
     }
 
     /**

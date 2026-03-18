@@ -170,6 +170,37 @@ public class JclDependencyService {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  Call Hierarchy model
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * A node in the JCL call hierarchy tree.
+     * Represents the hierarchical execution flow: JOB → EXEC (PGM/PROC) → DD (DSN).
+     */
+    public static class JclCallNode {
+        private final String displayText;
+        private final String icon;
+        private final int lineNumber;
+        private final List<JclCallNode> children;
+
+        public JclCallNode(String displayText, String icon, int lineNumber) {
+            this.displayText = displayText;
+            this.icon = icon;
+            this.lineNumber = lineNumber;
+            this.children = new ArrayList<JclCallNode>();
+        }
+
+        public String getDisplayText() { return displayText; }
+        public String getIcon() { return icon; }
+        public int getLineNumber() { return lineNumber; }
+        public List<JclCallNode> getChildren() { return children; }
+
+        public void addChild(JclCallNode child) {
+            children.add(child);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  Analysis
     // ═══════════════════════════════════════════════════════════
 
@@ -195,6 +226,175 @@ public class JclDependencyService {
         }
 
         return new JclDependencyResult(sourceName, deps);
+    }
+
+    /**
+     * Build a call hierarchy tree from JCL content.
+     * <p>
+     * The hierarchy reflects the JCL execution flow:
+     * <pre>
+     *   📋 JOBNAME (JOB)
+     *     ▶ STEP01 → PGM=IDCAMS  [Zeile 5]
+     *       📄 SYSIN → DSN=...   [Zeile 6]
+     *       📄 SYSPRINT → SYSOUT=A  [Zeile 7]
+     *     ▶ STEP02 → PROC=MYPROC  [Zeile 10]
+     *       📄 INPUT → DSN=...   [Zeile 11]
+     * </pre>
+     *
+     * @param jclContent  the JCL source text
+     * @param sourceName  name of the source (for display)
+     * @return list of root-level call hierarchy nodes (typically JOBs, or EXEC steps if no JOB found)
+     */
+    public List<JclCallNode> buildCallHierarchy(String jclContent, String sourceName) {
+        if (jclContent == null || jclContent.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        JclOutlineModel model = parser.parse(jclContent, sourceName);
+        List<JclCallNode> roots = new ArrayList<JclCallNode>();
+
+        // Collect JOBs as root nodes
+        List<JclElement> jobs = model.getJobs();
+        if (!jobs.isEmpty()) {
+            for (JclElement job : jobs) {
+                JclCallNode jobNode = buildJobNode(job);
+                roots.add(jobNode);
+            }
+        }
+
+        // If no JOB found, collect EXEC steps as roots (e.g. in-stream PROCs or standalone steps)
+        if (roots.isEmpty()) {
+            for (JclElement elem : model.getElements()) {
+                if (elem.getType() == JclElementType.EXEC) {
+                    roots.add(buildExecNode(elem));
+                } else if (elem.getType() == JclElementType.PROC) {
+                    JclCallNode procNode = new JclCallNode(
+                            "📦 PROC " + safeLabel(elem.getName()) + "  [Zeile " + elem.getLineNumber() + "]",
+                            "📦", elem.getLineNumber());
+                    // Add children of the PROC (EXEC steps inside the PROC)
+                    for (JclElement child : elem.getChildren()) {
+                        if (child.getType() == JclElementType.EXEC) {
+                            procNode.addChild(buildExecNode(child));
+                        }
+                    }
+                    roots.add(procNode);
+                }
+            }
+        }
+
+        // If still nothing, add INCLUDE/JCLLIB as informational nodes
+        if (roots.isEmpty()) {
+            for (JclElement elem : model.getElements()) {
+                if (elem.getType() == JclElementType.INCLUDE) {
+                    String member = param(elem, "MEMBER", null);
+                    roots.add(new JclCallNode(
+                            "📎 INCLUDE " + safeLabel(member) + "  [Zeile " + elem.getLineNumber() + "]",
+                            "📎", elem.getLineNumber()));
+                } else if (elem.getType() == JclElementType.JCLLIB) {
+                    String order = param(elem, "ORDER", null);
+                    roots.add(new JclCallNode(
+                            "📚 JCLLIB " + safeLabel(order) + "  [Zeile " + elem.getLineNumber() + "]",
+                            "📚", elem.getLineNumber()));
+                }
+            }
+        }
+
+        return roots;
+    }
+
+    /**
+     * Build a call hierarchy node for a JOB element with its child EXEC steps.
+     */
+    private JclCallNode buildJobNode(JclElement job) {
+        String jobName = safeLabel(job.getName());
+        JclCallNode jobNode = new JclCallNode(
+                "📋 " + jobName + "  [Zeile " + job.getLineNumber() + "]",
+                "📋", job.getLineNumber());
+
+        for (JclElement child : job.getChildren()) {
+            if (child.getType() == JclElementType.EXEC) {
+                jobNode.addChild(buildExecNode(child));
+            }
+        }
+
+        return jobNode;
+    }
+
+    /**
+     * Build a call hierarchy node for an EXEC step with its child DD statements.
+     */
+    private JclCallNode buildExecNode(JclElement exec) {
+        String stepLabel = buildExecLabel(exec);
+        JclCallNode execNode = new JclCallNode(stepLabel, "▶", exec.getLineNumber());
+
+        for (JclElement child : exec.getChildren()) {
+            if (child.getType() == JclElementType.DD) {
+                execNode.addChild(buildDdNode(child));
+            }
+        }
+
+        return execNode;
+    }
+
+    /**
+     * Build a call hierarchy node for a DD statement.
+     */
+    private JclCallNode buildDdNode(JclElement dd) {
+        String ddName = safeLabel(dd.getName());
+        StringBuilder sb = new StringBuilder();
+        sb.append("📄 ").append(ddName);
+
+        String dsn = param(dd, "DSN", null);
+        if (dsn == null) dsn = param(dd, "DSNAME", null);
+        if (dsn != null && !dsn.isEmpty()) {
+            sb.append(" → ").append(dsn);
+        } else {
+            // Check for SYSOUT
+            String sysout = param(dd, "SYSOUT", null);
+            if (sysout != null) {
+                sb.append(" → SYSOUT=").append(sysout);
+            }
+        }
+
+        String disp = param(dd, "DISP", null);
+        if (disp != null) {
+            sb.append("  [").append(disp).append("]");
+        }
+
+        sb.append("  [Zeile ").append(dd.getLineNumber()).append("]");
+
+        return new JclCallNode(sb.toString(), "📄", dd.getLineNumber());
+    }
+
+    /**
+     * Build a display label for an EXEC step.
+     */
+    private String buildExecLabel(JclElement exec) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("▶ ");
+        String stepName = exec.getName();
+        if (stepName != null && !stepName.isEmpty()) {
+            sb.append(stepName);
+        } else {
+            sb.append("(unnamed)");
+        }
+
+        String pgm = param(exec, "PGM", null);
+        if (pgm != null && !pgm.isEmpty()) {
+            sb.append(" → PGM=").append(pgm.toUpperCase());
+        } else {
+            String proc = param(exec, "PROC", null);
+            if (proc != null && !proc.isEmpty()) {
+                sb.append(" → PROC=").append(proc.toUpperCase());
+            }
+        }
+
+        sb.append("  [Zeile ").append(exec.getLineNumber()).append("]");
+        return sb.toString();
+    }
+
+    private static String safeLabel(String s) {
+        return (s != null && !s.isEmpty()) ? s : "(unnamed)";
     }
 
     /**
