@@ -222,7 +222,9 @@ public class MainFrame extends JFrame implements MainframeContext {
             case CUSTOM:
                 return new CustomChatManager(); // selbstgehosteter Server mit erweiterten Optionen
             case ONNX_RUNTIME:
-                return new OnnxChatManager(settings.aiConfig);   // lokale Inferenz via ONNX Runtime (Phi-3/4)
+                return new OnnxChatManager(new java.util.function.Supplier<Map<String, String>>() {
+                    @Override public Map<String, String> get() { return SettingsHelper.load().aiConfig; }
+                });   // lokale Inferenz via ONNX Runtime (Phi-3/4)
             default:
                 return null; // DISABLED oder unbekannt
         }

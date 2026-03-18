@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
@@ -43,7 +44,7 @@ public class OnnxChatManager implements ChatManager {
 
     private static final Logger LOG = Logger.getLogger(OnnxChatManager.class.getName());
 
-    private final Map<String, String> aiConfig;
+    private final Supplier<Map<String, String>> configSupplier;
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
     private final Map<UUID, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -57,10 +58,23 @@ public class OnnxChatManager implements ChatManager {
     private volatile OnnxTokenizer tokenizer;
 
     /**
-     * @param aiConfig die KI-Konfiguration (normalerweise {@code settings.aiConfig})
+     * @param configSupplier liefert bei jedem Aufruf die aktuelle KI-Konfiguration
+     *                       (normalerweise {@code () -> SettingsHelper.load().aiConfig})
      */
-    public OnnxChatManager(Map<String, String> aiConfig) {
-        this.aiConfig = aiConfig != null ? aiConfig : Collections.<String, String>emptyMap();
+    public OnnxChatManager(Supplier<Map<String, String>> configSupplier) {
+        this.configSupplier = configSupplier != null
+                ? configSupplier
+                : new Supplier<Map<String, String>>() {
+                      @Override public Map<String, String> get() {
+                          return Collections.emptyMap();
+                      }
+                  };
+    }
+
+    /** Returns the current config snapshot (re-read from settings on every call). */
+    private Map<String, String> config() {
+        Map<String, String> c = configSupplier.get();
+        return c != null ? c : Collections.<String, String>emptyMap();
     }
 
     // ==================== ChatManager Interface ====================
@@ -104,11 +118,12 @@ public class OnnxChatManager implements ChatManager {
                                 ChatStreamListener listener, boolean keepAlive) throws IOException {
         if (sessionId == null) return false;
 
-        String modelPath = aiConfig.getOrDefault("onnx.model.path", "");
-        int maxTokens = parseInt(aiConfig.getOrDefault("onnx.max.tokens", "256"), 256);
-        double temperature = parseDouble(aiConfig.getOrDefault("onnx.temperature", "0.7"), 0.7);
-        double topP = parseDouble(aiConfig.getOrDefault("onnx.top.p", "0.9"), 0.9);
-        int topK = parseInt(aiConfig.getOrDefault("onnx.top.k", "40"), 40);
+        Map<String, String> cfg = config();
+        String modelPath = cfg.getOrDefault("onnx.model.path", "");
+        int maxTokens = parseInt(cfg.getOrDefault("onnx.max.tokens", "256"), 256);
+        double temperature = parseDouble(cfg.getOrDefault("onnx.temperature", "0.7"), 0.7);
+        double topP = parseDouble(cfg.getOrDefault("onnx.top.p", "0.9"), 0.9);
+        int topK = parseInt(cfg.getOrDefault("onnx.top.k", "40"), 40);
 
         if (modelPath.isEmpty()) {
             listener.onError(new IOException("ONNX Modellpfad nicht konfiguriert. Bitte in den Einstellungen angeben."));
@@ -194,7 +209,7 @@ public class OnnxChatManager implements ChatManager {
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
 
         // Execution Provider konfigurieren
-        String ep = aiConfig.getOrDefault("onnx.execution.provider", "cpu").toLowerCase(Locale.ROOT);
+        String ep = config().getOrDefault("onnx.execution.provider", "cpu").toLowerCase(Locale.ROOT);
         if ("directml".equals(ep)) {
             try {
                 options.addDirectML(0);
