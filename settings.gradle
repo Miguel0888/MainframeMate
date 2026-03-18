@@ -14,4 +14,4 @@ include 'betaview-integration'
 include 'wiki-integration'
 include 'dosbox'
 
-include 'phi3-model-windows'
+include 'onnx'
