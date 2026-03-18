@@ -55,13 +55,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         addBtn.addActionListener(e -> addSite());
         JButton removeBtn = new JButton("➖ Entfernen");
         removeBtn.addActionListener(e -> removeSite());
-        JButton defaultBtn = new JButton("📦 Standard-Wikis laden");
-        defaultBtn.setToolTipText("Wikipedia (DE + EN) als Standard hinzufügen");
-        defaultBtn.addActionListener(e -> loadDefaults());
         buttons.add(addBtn);
         buttons.add(removeBtn);
-        buttons.add(Box.createHorizontalStrut(16));
-        buttons.add(defaultBtn);
         fb.addWide(buttons);
 
         fb.addInfo("💡 Zugangsdaten für Wiki-Sites werden zentral unter "
@@ -100,24 +95,6 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         }
     }
 
-    private void loadDefaults() {
-        List<WikiSiteRow> defaults = new ArrayList<WikiSiteRow>();
-        defaults.add(new WikiSiteRow("wikipedia_de", "Wikipedia (DE)", "https://de.wikipedia.org/w/", false, false, false));
-        defaults.add(new WikiSiteRow("wikipedia_en", "Wikipedia (EN)", "https://en.wikipedia.org/w/", false, false, false));
-
-        for (WikiSiteRow def : defaults) {
-            boolean exists = false;
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                if (tableModel.getRow(i).id.equals(def.id)) {
-                    exists = true;
-                    break;
-                }
-            }
-            if (!exists) {
-                tableModel.addRow(def);
-            }
-        }
-    }
 
 
     @Override

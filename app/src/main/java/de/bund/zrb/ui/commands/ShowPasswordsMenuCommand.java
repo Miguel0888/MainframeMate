@@ -263,6 +263,22 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }
         });
 
+        JButton defaultsBtn = new JButton("📦 Standard-Wikis");
+        defaultsBtn.setToolTipText("Wikipedia (DE + EN) als Standard-Wiki-Einträge in KeePass anlegen");
+        defaultsBtn.addActionListener(e -> {
+            int created = loadWikiDefaults(entries);
+            if (created > 0) {
+                model.fireTableDataChanged();
+                JOptionPane.showMessageDialog(parent,
+                        created + " Standard-Wiki-Eintrag/-Einträge in KeePass angelegt.",
+                        "Standard-Wikis", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(parent,
+                        "Alle Standard-Wikis existieren bereits.",
+                        "Standard-Wikis", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         buttonPanel.add(showAll);
         buttonPanel.add(Box.createHorizontalStrut(10));
@@ -270,6 +286,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         buttonPanel.add(addBtn);
         buttonPanel.add(editBtn);
         buttonPanel.add(deleteBtn);
+        buttonPanel.add(Box.createHorizontalStrut(16));
+        buttonPanel.add(defaultsBtn);
 
         JPanel mainPanel = new JPanel(new BorderLayout(0, 8));
         mainPanel.add(new JLabel("KeePass  (" + entries.size() + " Einträge)"),
@@ -432,6 +450,58 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         return new KeePassEntry(category, id, displayName, user, pass, url,
                 existing != null ? existing.uniqueID : "",
                 loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Default Wiki entries
+    // ═══════════════════════════════════════════════════════════
+
+    /** Standard wiki definitions: {id, displayName, apiUrl} */
+    private static final String[][] WIKI_DEFAULTS = {
+            {"wikipedia_de", "Wikipedia (DE)", "https://de.wikipedia.org/w/"},
+            {"wikipedia_en", "Wikipedia (EN)", "https://en.wikipedia.org/w/"},
+    };
+
+    /**
+     * Create default wiki entries in KeePass (skipping those that already exist).
+     *
+     * @param entries the live list of entries displayed in the table (will be appended)
+     * @return number of entries actually created
+     */
+    private int loadWikiDefaults(List<KeePassEntry> entries) {
+        int created = 0;
+        for (String[] def : WIKI_DEFAULTS) {
+            String id = def[0];
+            String displayName = def[1];
+            String url = def[2];
+
+            // Skip if already present
+            boolean exists = false;
+            for (KeePassEntry e : entries) {
+                if (id.equals(e.title)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) continue;
+
+            try {
+                // Original defaults: login=false, proxy=false, autoIndex=false
+                CredentialStore.addKeePassEntry(id, "", "", url,
+                        displayName, "Wiki",
+                        false, false, false);
+                entries.add(new KeePassEntry("Wiki", id, displayName, "", "", url, "",
+                        false, false, false));
+                created++;
+            } catch (Exception ex) {
+                LOG.log(Level.WARNING, "Failed to create default wiki entry: " + id, ex);
+                JOptionPane.showMessageDialog(parent,
+                        "Standard-Wiki \"" + displayName + "\" konnte nicht angelegt werden:\n"
+                                + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+        return created;
     }
 
     // ═══════════════════════════════════════════════════════════
