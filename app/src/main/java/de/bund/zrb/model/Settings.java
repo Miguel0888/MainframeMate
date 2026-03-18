@@ -189,7 +189,7 @@ public class Settings {
     private static String resolveKeePassDefault() {
         String pf86 = System.getenv("ProgramFiles(x86)");
         if (pf86 != null && !pf86.isEmpty()) {
-            return pf86 + "\\KeePass Password Safe 2\\KPScript.exe";
+            return pf86 + "\\KeePass2x\\KPScript.exe";
         }
         return "";
     }
