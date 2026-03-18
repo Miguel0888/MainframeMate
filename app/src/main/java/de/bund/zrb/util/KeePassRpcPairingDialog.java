@@ -259,12 +259,13 @@ public final class KeePassRpcPairingDialog {
                 .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
 
-        // Swappable latch: phase 1 = connect/hello, phase 2 = SRP response
-        final AtomicReference<java.util.concurrent.CountDownLatch> latchRef =
-                new AtomicReference<java.util.concurrent.CountDownLatch>(
-                        new java.util.concurrent.CountDownLatch(1));
+        final java.util.concurrent.CountDownLatch connectLatch =
+                new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch responseLatch =
+                new java.util.concurrent.CountDownLatch(1);
         final AtomicReference<String> error = new AtomicReference<String>(null);
         final AtomicReference<String> lastMessage = new AtomicReference<String>(null);
+        final AtomicReference<okhttp3.WebSocket> wsRef = new AtomicReference<okhttp3.WebSocket>(null);
 
         okhttp3.Request req = new okhttp3.Request.Builder()
                 .url("ws://" + host + ":" + port + "/")
@@ -273,7 +274,56 @@ public final class KeePassRpcPairingDialog {
         okhttp3.WebSocket ws = client.newWebSocket(req, new okhttp3.WebSocketListener() {
             @Override
             public void onOpen(okhttp3.WebSocket webSocket, okhttp3.Response response) {
-                latchRef.get().countDown();
+                wsRef.set(webSocket);
+                connectLatch.countDown();
+
+                // KeePassRPC does NOT send a hello — client must send first message.
+                // Send SRP identifyToServer immediately in onOpen to trigger pairing dialog.
+                try {
+                    String clientId = "MainframeMate-" + Long.toHexString(System.currentTimeMillis());
+
+                    // 512-bit prime from KeePassRPC's SRP.cs
+                    java.math.BigInteger N = new java.math.BigInteger(
+                            "d4c7f8a2b32c11b8fba9581ec4ba4f1b04215642ef7355e37c0fc0443ef756ea"
+                          + "2c6b8eeb755a1c723027663caa265ef785b8ff6a9b35227a52d86633dbdfca43", 16);
+                    java.math.BigInteger g = java.math.BigInteger.valueOf(2);
+                    java.math.BigInteger a = new java.math.BigInteger(256, new java.security.SecureRandom());
+                    java.math.BigInteger A = g.modPow(a, N);
+
+                    // Protocol version: {1,7,2} → (1<<16)|(7<<8)|2 = 67330
+                    int protocolVersion = (1 << 16) | (7 << 8) | 2;
+
+                    com.google.gson.JsonObject msg = new com.google.gson.JsonObject();
+                    msg.addProperty("protocol", "setup");
+                    msg.addProperty("version", protocolVersion);
+                    msg.addProperty("clientTypeId", "MainframeMate");
+                    msg.addProperty("clientDisplayName", "MainframeMate");
+                    msg.addProperty("clientDisplayDescription", "Mainframe Data Integration Tool");
+
+                    com.google.gson.JsonArray features = new com.google.gson.JsonArray();
+                    features.add("KPRPC_FEATURE_VERSION_1_6");
+                    features.add("KPRPC_FEATURE_WARN_USER_WHEN_FEATURE_MISSING");
+                    msg.add("features", features);
+
+                    com.google.gson.JsonObject srp = new com.google.gson.JsonObject();
+                    srp.addProperty("stage", "identifyToServer");
+                    srp.addProperty("I", clientId);
+                    srp.addProperty("A", A.toString(16).toUpperCase());
+                    srp.addProperty("securityLevel", 2);
+                    msg.add("srp", srp);
+
+                    boolean sent = webSocket.send(new com.google.gson.Gson().toJson(msg));
+                    LOG.fine("[KeePassRPC Pairing] SRP identifyToServer sent (clientId=" + clientId + ", ok=" + sent + ")");
+
+                    if (!sent) {
+                        error.set("Nachricht konnte nicht gesendet werden — WebSocket war bereits geschlossen.");
+                        responseLatch.countDown();
+                    }
+                } catch (Exception ex) {
+                    LOG.warning("[KeePassRPC Pairing] Failed to send SRP initiate: " + ex.getMessage());
+                    error.set("Fehler beim Senden der Client-Identifikation: " + ex.getMessage());
+                    responseLatch.countDown();
+                }
             }
 
             @Override
@@ -281,20 +331,21 @@ public final class KeePassRpcPairingDialog {
                 LOG.fine("[KeePassRPC Pairing] Server message: "
                         + (text.length() > 100 ? text.substring(0, 100) + "…" : text));
                 lastMessage.set(text);
-                latchRef.get().countDown();
+                responseLatch.countDown();
             }
 
             @Override
             public void onFailure(okhttp3.WebSocket webSocket, Throwable t, okhttp3.Response response) {
                 error.set("Verbindung fehlgeschlagen: " + t.getMessage()
                         + "\nIst KeePass mit KeePassRPC auf Port " + port + " gestartet?");
-                latchRef.get().countDown();
+                connectLatch.countDown();
+                responseLatch.countDown();
             }
         });
 
-        // ── Phase 1: wait for connect + hello ──
+        // ── Phase 1: wait for connect + SRP send (happens in onOpen) ──
         try {
-            if (!latchRef.get().await(6, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!connectLatch.await(6, java.util.concurrent.TimeUnit.SECONDS)) {
                 ws.close(1000, "timeout");
                 return "Timeout — keine Antwort von KeePassRPC auf Port " + port + ".";
             }
@@ -308,66 +359,29 @@ public final class KeePassRpcPairingDialog {
             return err;
         }
 
-        // If latch was triggered by onOpen, wait a bit more for the hello
-        if (lastMessage.get() == null) {
-            latchRef.set(new java.util.concurrent.CountDownLatch(1));
-            try {
-                latchRef.get().await(3, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        // ── Phase 2: send SRP identifyToServer ──
-        // Use a unique client ID so KeePassRPC always sees a NEW client
-        // and shows the pairing dialog (not a challenge for a known client).
-        String clientId = "MainframeMate-" + Long.toHexString(System.currentTimeMillis());
-
-        latchRef.set(new java.util.concurrent.CountDownLatch(1));
+        // ── Phase 2: wait for server response to confirm pairing dialog was shown ──
         try {
-            java.math.BigInteger a = new java.math.BigInteger(256, new java.security.SecureRandom());
-            java.math.BigInteger N = new java.math.BigInteger(
-                    "EEAF0AB9ADB38DD69C33F80AFA8FC5E86072618775FF3C0B9EA2314C"
-                  + "9C256576D674DF7496EA81D3383B4813D692C6E0E0D5D8E250B98BE4"
-                  + "8E495C1D6089DAD15DC7D7B46154D6B6CE8EF4AD69B15D4982559B29"
-                  + "7BCF1885C529F566660E57EC68EDBC3C05726CC02FD4CBF4976EAA9A"
-                  + "FD5138FE8376435B9FC61D2FC0EB06E3", 16);
-            java.math.BigInteger g = java.math.BigInteger.valueOf(2);
-            java.math.BigInteger A = g.modPow(a, N);
-
-            com.google.gson.JsonObject initiate = new com.google.gson.JsonObject();
-            initiate.addProperty("protocol", "setup");
-            com.google.gson.JsonObject srp = new com.google.gson.JsonObject();
-            srp.addProperty("stage", "identifyToServer");
-            srp.addProperty("I", clientId);
-            srp.addProperty("A", A.toString(16));
-            srp.addProperty("securityLevel", 2);
-            initiate.add("srpinitiate", srp);
-
-            boolean sent = ws.send(new com.google.gson.Gson().toJson(initiate));
-            LOG.fine("[KeePassRPC Pairing] SRP identifyToServer sent (clientId=" + clientId + ", ok=" + sent + ")");
-
-            if (!sent) {
-                return "Nachricht konnte nicht gesendet werden — WebSocket war bereits geschlossen.";
-            }
-        } catch (Exception ex) {
-            LOG.warning("[KeePassRPC Pairing] Failed to send SRP initiate: " + ex.getMessage());
-            return "Fehler beim Senden der Client-Identifikation: " + ex.getMessage();
-        }
-
-        // ── Phase 3: wait for server response to confirm message was processed ──
-        try {
-            boolean gotResponse = latchRef.get().await(5, java.util.concurrent.TimeUnit.SECONDS);
+            boolean gotResponse = responseLatch.await(8, java.util.concurrent.TimeUnit.SECONDS);
             if (gotResponse) {
                 String resp = lastMessage.get();
                 LOG.fine("[KeePassRPC Pairing] Server responded to SRP initiate: "
                         + (resp != null && resp.length() > 100 ? resp.substring(0, 100) + "…" : resp));
+
+                // Check if server sent an error
+                if (resp != null && resp.contains("\"error\"") && resp.contains("VERSION_CLIENT_TOO_LOW")) {
+                    return "KeePassRPC-Version nicht kompatibel. Bitte KeePassRPC-Plugin aktualisieren.";
+                }
             } else {
-                LOG.fine("[KeePassRPC Pairing] No response to SRP initiate within 5s — "
+                LOG.fine("[KeePassRPC Pairing] No response to SRP initiate within 8s — "
                         + "KeePass may be showing the pairing dialog and waiting for user input.");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+
+        err = error.get();
+        if (err != null) {
+            return err;
         }
 
         // Leave WebSocket open so KeePass keeps the dialog visible

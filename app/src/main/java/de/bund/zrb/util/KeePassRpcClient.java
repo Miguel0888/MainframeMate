@@ -11,12 +11,13 @@ import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,20 +27,18 @@ import java.util.logging.Logger;
 
 /**
  * Client for the <a href="https://github.com/kee-org/keepassrpc">KeePassRPC</a>
- * plugin that ships with KeePass 2.x.
+ * plugin that ships with KeePass&nbsp;2.x.
  * <p>
- * Connects via WebSocket to the KeePassRPC JSON-RPC server, authenticates
- * using SRP-6a, and provides methods to read/write password entries.
+ * Implements the KeePassRPC protocol exactly as documented at
+ * <a href="https://forum.kee.pm/t/keepassrpc-technical-detail/2364">Kee Forum</a>
+ * and the reference Go client <a href="https://github.com/logic/gkp">gkp</a>.
  * <p>
- * <b>Prerequisites:</b>
- * <ul>
- *   <li>KeePass must be running with the database open.</li>
- *   <li>The KeePassRPC plugin must be installed and active.</li>
- *   <li>On first use the user must authorise the client in KeePass
- *       (a pairing dialog with a key is shown).</li>
- * </ul>
- * <p>
- * Uses OkHttp for WebSocket and Gson for JSON — both already on the classpath.
+ * Protocol overview:
+ * <ol>
+ *   <li>WebSocket to 127.0.0.1:12546 — client sends the first message</li>
+ *   <li>SRP handshake via {@code protocol:"setup", srp:{…}} messages</li>
+ *   <li>After auth, AES-encrypted JSON-RPC via {@code protocol:"jsonrpc"}</li>
+ * </ol>
  */
 final class KeePassRpcClient {
 
@@ -47,21 +46,23 @@ final class KeePassRpcClient {
     private static final Gson GSON = new Gson();
     private static final int TIMEOUT_S = 15;
 
-    // ── SRP-6a parameters (RFC 5054, 1024-bit group, SHA-256) ───────────
+    // ── KeePassRPC SRP parameters ────────────────────────────────────────
+    // 512-bit prime from KeePassRPC's SRP.cs — NOT the RFC 5054 prime!
     private static final BigInteger N = new BigInteger(
-            "EEAF0AB9ADB38DD69C33F80AFA8FC5E86072618775FF3C0B9EA2314C"
-          + "9C256576D674DF7496EA81D3383B4813D692C6E0E0D5D8E250B98BE4"
-          + "8E495C1D6089DAD15DC7D7B46154D6B6CE8EF4AD69B15D4982559B29"
-          + "7BCF1885C529F566660E57EC68EDBC3C05726CC02FD4CBF4976EAA9A"
-          + "FD5138FE8376435B9FC61D2FC0EB06E3", 16);
+            "d4c7f8a2b32c11b8fba9581ec4ba4f1b04215642ef7355e37c0fc0443ef756ea"
+          + "2c6b8eeb755a1c723027663caa265ef785b8ff6a9b35227a52d86633dbdfca43", 16);
     private static final BigInteger g = BigInteger.valueOf(2);
-    private static final BigInteger k;
+    // k = SHA1(N | pad(g)) — hardcoded in KeePassRPC server
+    private static final BigInteger k = new BigInteger("b7867f1299da8cc24ab93e08986ebc4d6a478ad0", 16);
 
-    static {
-        // k = H(N | pad(g))
-        byte[] padG = padTo(toBytes(g), toBytes(N).length);
-        k = new BigInteger(1, sha256(concat(toBytes(N), padG)));
-    }
+    // Protocol version: {1,7,2} packed as (1<<16)|(7<<8)|2 = 67330
+    private static final int PROTOCOL_VERSION = (1 << 16) | (7 << 8) | 2;
+
+    // Features required by the server for version-mismatched clients
+    private static final String[] FEATURES = {
+            "KPRPC_FEATURE_VERSION_1_6",
+            "KPRPC_FEATURE_WARN_USER_WHEN_FEATURE_MISSING"
+    };
 
     // ── Instance state ──────────────────────────────────────────────────
     private final String host;
@@ -73,9 +74,12 @@ final class KeePassRpcClient {
     private WebSocket ws;
     private final AtomicInteger rpcId = new AtomicInteger(1);
 
+    // After SRP auth: hex key for AES encryption (64 lowercase hex chars)
+    private String sessionKeyHex;
+
     // Synchronous response mailbox
-    private final AtomicReference<String> mailbox = new AtomicReference<>();
-    private CountDownLatch latch;
+    private final AtomicReference<String> mailbox = new AtomicReference<String>();
+    private volatile CountDownLatch latch;
 
     KeePassRpcClient(String host, int port, String clientId, String srpKey) {
         this.host = host;
@@ -91,7 +95,9 @@ final class KeePassRpcClient {
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
-     * Open WebSocket, authenticate via SRP-6a, leave connection ready for RPC.
+     * Open WebSocket, authenticate via SRP, leave connection ready for RPC.
+     * The KeePassRPC server does NOT send a hello — the client must send the
+     * first message (SRP identifyToServer) immediately after connecting.
      */
     void connect() {
         latch = new CountDownLatch(1);
@@ -121,14 +127,8 @@ final class KeePassRpcClient {
             }
         });
 
-        awaitLatch("WebSocket connect");   // wait for onOpen
-
-        // Read server hello
-        String hello = readMessage("server hello");
-        LOG.fine("[KeePassRPC] Server hello: " + truncate(hello));
-
-        // Perform SRP authentication
-        performSrpAuth(hello);
+        awaitLatch("WebSocket connect");   // wait for onOpen only
+        performSrpAuth();                  // client sends first message
     }
 
     /** Close the WebSocket connection. */
@@ -156,7 +156,6 @@ final class KeePassRpcClient {
         JsonArray entries = findLoginsByTitle(entryTitle);
         if (entries == null || entries.size() == 0) return null;
         JsonObject first = entries.get(0).getAsJsonObject();
-        // KeePassRPC returns "usernameValue" or "username"
         if (first.has("usernameValue")) return first.get("usernameValue").getAsString();
         if (first.has("username"))      return first.get("username").getAsString();
         return null;
@@ -164,154 +163,173 @@ final class KeePassRpcClient {
 
     /**
      * List all entries visible to KeePassRPC.
-     * Returns formatted text compatible with the PowerShell output format.
      */
     String listEntries() {
-        JsonObject params = new JsonObject();
-        // GetAllDatabases returns databases with their root groups and entries
-        String response = rpcCall("QueryHomepage", params);
-        // Try GetAllLogins as a simpler alternative
-        if (response == null || response.contains("error")) {
-            response = rpcCall("GetAllLogins", new JsonObject());
-        }
-
-        // Parse and format
+        String response = rpcCall("GetAllLogins", new JsonArray());
         try {
             JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
             if (resp.has("result")) {
-                JsonElement result = resp.get("result");
-                return formatEntries(result);
+                return formatEntries(resp.get("result"));
             }
         } catch (Exception e) {
             LOG.warning("[KeePassRPC] Failed to parse entries: " + e.getMessage());
         }
-        return response; // raw fallback
+        return response;
     }
 
-    // ── SRP-6a Authentication ───────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════
+    //  SRP Authentication — matches gkp (Go) and KeePassRPC server (C#)
+    // ═════════════════════════════════════════════════════════════════════
 
-    private void performSrpAuth(String helloMsg) {
+    private void performSrpAuth() {
         SecureRandom random = new SecureRandom();
 
-        // Client: generate a, A = g^a mod N
+        // Client ephemeral: a (private), A = g^a mod N (public)
         BigInteger a = new BigInteger(256, random);
         BigInteger A = g.modPow(a, N);
 
-        // Send SRP initiate
-        JsonObject initiate = new JsonObject();
-        initiate.addProperty("protocol", "setup");
+        // ── Step 1: identifyToServer ──
+        JsonObject msg = buildSetupMessage();
         JsonObject srp = new JsonObject();
         srp.addProperty("stage", "identifyToServer");
         srp.addProperty("I", clientId);
-        srp.addProperty("A", A.toString(16));
+        srp.addProperty("A", toHex(A));
         srp.addProperty("securityLevel", 2);
-        initiate.add("srpinitiate", srp);
-        sendAndWait(initiate, "SRP initiate");
+        msg.add("srp", srp);
+        sendAndWait(msg, "SRP identifyToServer");
 
+        // ── Step 2: parse identifyToClient response ──
         String challengeMsg = mailbox.get();
-        JsonObject challenge = JsonParser.parseString(challengeMsg).getAsJsonObject();
+        JsonObject challenge = parseOrThrow(challengeMsg);
 
-        // Extract salt and B from server challenge
-        JsonObject chal;
-        if (challenge.has("key")) {
-            chal = challenge.getAsJsonObject("key");
-        } else if (challenge.has("srpchallengeserver")) {
-            chal = challenge.getAsJsonObject("srpchallengeserver");
-        } else {
+        if (challenge.has("error") && !challenge.get("error").isJsonNull()) {
             throw new KeePassNotAvailableException(
-                    "Unerwartete SRP-Antwort vom Server: " + truncate(challengeMsg));
+                    "SRP-Fehler vom Server: " + challenge.get("error"));
         }
 
-        String saltHex = chal.get("s").getAsString();
-        String bHex = chal.get("B").getAsString();
-        byte[] salt = hexToBytes(saltHex);
+        JsonObject srvSrp = challenge.getAsJsonObject("srp");
+        if (srvSrp == null) {
+            throw new KeePassNotAvailableException(
+                    "Unerwartete SRP-Antwort (kein 'srp'-Objekt): " + truncate(challengeMsg));
+        }
+
+        String saltStr = srvSrp.get("s").getAsString();
+        String bHex = srvSrp.get("B").getAsString();
+
+        // Pad B to even length (as gkp does)
+        if (bHex.length() % 2 != 0) bHex = "0" + bHex;
         BigInteger B = new BigInteger(bHex, 16);
 
-        // Verify B != 0 mod N
         if (B.mod(N).equals(BigInteger.ZERO)) {
             throw new KeePassNotAvailableException("SRP: Ungültiger Server-Wert B.");
         }
 
-        // u = H(A | B)
-        BigInteger u = new BigInteger(1, sha256(concat(toBytes(A), toBytes(B))));
+        // ── Compute SRP values ──
+        // All hex formatting uses UPPERCASE to match gkp's %X
+        String aHex = toHex(A);
+        String bHexNorm = toHex(B);
+
+        // u = SHA256(A_hex + B_hex)  — hex string concatenation, NOT byte concat
+        BigInteger u = new BigInteger(1, sha256str(aHex + bHexNorm));
         if (u.equals(BigInteger.ZERO)) {
             throw new KeePassNotAvailableException("SRP: Ungültiger u-Wert.");
         }
 
-        // x = H(salt | H(I : password))
-        byte[] innerHash = sha256((clientId + ":" + srpKey).getBytes(StandardCharsets.UTF_8));
-        BigInteger x = new BigInteger(1, sha256(concat(salt, innerHash)));
+        // x = SHA256(salt_string + password_string) — plain string concatenation
+        // KeePassRPC: _x = new BigInteger(Utils.Hash(_s + password))
+        BigInteger x = new BigInteger(1, sha256str(saltStr + srpKey));
 
         // S = (B - k * g^x)^(a + u*x) mod N
         BigInteger gx = g.modPow(x, N);
-        BigInteger diff = B.subtract(k.multiply(gx).mod(N)).mod(N);
+        BigInteger kgx = k.multiply(gx).mod(N);
+        BigInteger diff = B.subtract(kgx).mod(N);
         if (diff.signum() < 0) diff = diff.add(N);
         BigInteger exp = a.add(u.multiply(x));
         BigInteger S = diff.modPow(exp, N);
 
-        // K = H(S)
-        byte[] K = sha256(toBytes(S));
+        String sHex = toHex(S);
 
-        // M1 = H(H(N) XOR H(g) | H(I) | salt | A | B | K)
-        byte[] hN = sha256(toBytes(N));
-        byte[] hg = sha256(toBytes(g));
-        byte[] xorNg = xor(hN, hg);
-        byte[] hI = sha256(clientId.getBytes(StandardCharsets.UTF_8));
-        byte[] M1 = sha256(concat(xorNg, hI, salt, toBytes(A), toBytes(B), K));
+        // M = SHA256(A_hex + B_hex + S_hex) — hex string concatenation
+        byte[] mBytes = sha256str(aHex + bHexNorm + sHex);
+        String mHex = bytesToHex(mBytes);
 
-        // Send M1 proof
-        JsonObject proof = new JsonObject();
-        proof.addProperty("protocol", "setup");
+        // ── Step 3: proofToServer ──
+        JsonObject proof = buildSetupMessage();
         JsonObject srpProof = new JsonObject();
-        srpProof.addProperty("stage", "proveToServer");
-        srpProof.addProperty("M", bytesToHex(M1));
+        srpProof.addProperty("stage", "proofToServer");
+        srpProof.addProperty("M", mHex);
         srpProof.addProperty("securityLevel", 2);
-        proof.add("srpproof", srpProof);
-        sendAndWait(proof, "SRP proof");
+        proof.add("srp", srpProof);
+        sendAndWait(proof, "SRP proofToServer");
 
+        // ── Step 4: verify proofToClient ──
         String verifyMsg = mailbox.get();
-        JsonObject verify = JsonParser.parseString(verifyMsg).getAsJsonObject();
+        JsonObject verify = parseOrThrow(verifyMsg);
 
-        // Check for auth error
-        if (verify.has("error")) {
+        if (verify.has("error") && !verify.get("error").isJsonNull()) {
             throw new KeePassNotAvailableException(
                     "SRP-Authentifizierung fehlgeschlagen. "
-                  + "Bitte prüfen Sie den KeePassRPC-Schlüssel in den Einstellungen.\n"
+                  + "Bitte prüfen Sie den KeePassRPC-Schlüssel.\n"
                   + "Server: " + truncate(verifyMsg));
         }
 
-        // Verify M2
-        JsonObject vfy;
-        if (verify.has("key")) {
-            vfy = verify.getAsJsonObject("key");
-        } else if (verify.has("srpverify")) {
-            vfy = verify.getAsJsonObject("srpverify");
-        } else {
-            // Auth may have succeeded without explicit M2 in some versions
-            LOG.fine("[KeePassRPC] No explicit M2 verify, assuming auth OK");
-            return;
-        }
-
-        if (vfy.has("M2")) {
-            byte[] M2 = hexToBytes(vfy.get("M2").getAsString());
-            byte[] expectedM2 = sha256(concat(toBytes(A), M1, K));
-            if (!MessageDigest.isEqual(M2, expectedM2)) {
+        JsonObject verifySrp = verify.getAsJsonObject("srp");
+        if (verifySrp != null && verifySrp.has("M2")) {
+            String m2Received = verifySrp.get("M2").getAsString();
+            // M2 = SHA256(A_hex + M_lowercase + S_hex)
+            byte[] expectedM2 = sha256str(aHex + mHex.toLowerCase() + sHex);
+            String expectedM2Hex = bytesToHex(expectedM2);
+            if (!m2Received.equalsIgnoreCase(expectedM2Hex)) {
                 throw new KeePassNotAvailableException("SRP: Server-Verifizierung M2 fehlgeschlagen.");
             }
         }
 
+        // Session key: K = lowercase_hex(SHA256(S_hex))
+        // Must be 64 chars (zero-padded) — stored as hex key for AES
+        byte[] keyHash = sha256str(sHex);
+        sessionKeyHex = bytesToHex(keyHash);
+
         LOG.info("[KeePassRPC] SRP authentication successful");
     }
 
-    // ── JSON-RPC ────────────────────────────────────────────────────────
+    /**
+     * Build a top-level setup message with all required fields.
+     */
+    private JsonObject buildSetupMessage() {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("protocol", "setup");
+        msg.addProperty("version", PROTOCOL_VERSION);
+        msg.addProperty("clientTypeId", "MainframeMate");
+        msg.addProperty("clientDisplayName", "MainframeMate");
+        msg.addProperty("clientDisplayDescription", "Mainframe Data Integration");
+        JsonArray feat = new JsonArray();
+        for (String f : FEATURES) feat.add(f);
+        msg.add("features", feat);
+        return msg;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  JSON-RPC (AES-encrypted)
+    // ═════════════════════════════════════════════════════════════════════
 
     private JsonArray findLoginsByTitle(String title) {
-        // KeePassRPC FindLogins expects URL-based search; for title search
-        // we use GetAllLogins and filter client-side, or try a search
-        JsonObject params = new JsonObject();
-        params.addProperty("url", title);  // some versions allow title-based search via url field
-        String response = rpcCall("FindLogins", params);
+        // FindLogins expects positional params: [urls[], actionURL, httpRealm,
+        //   loginSearchType, requireFullURLMatches, uniqueID, dbFileName,
+        //   freeTextSearch, username]
+        JsonArray params = new JsonArray();
+        JsonArray urls = new JsonArray();
+        urls.add(title);
+        params.add(urls);                   // unsanitizedURLs
+        params.add("");                      // actionURL
+        params.add("");                      // httpRealm
+        params.add("LSTall");               // loginSearchType
+        params.add(false);                   // requireFullURLMatches
+        params.add("");                      // uniqueID
+        params.add("");                      // dbFileName
+        params.add(title);                   // freeTextSearch
+        params.add("");                      // username
 
+        String response = rpcCall("FindLogins", params);
         try {
             JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
             if (resp.has("result")) {
@@ -323,13 +341,11 @@ final class KeePassRpcClient {
         } catch (Exception e) {
             LOG.fine("[KeePassRPC] FindLogins parse error: " + e.getMessage());
         }
-
-        // Fallback: get all and filter by title
         return getAllAndFilterByTitle(title);
     }
 
     private JsonArray getAllAndFilterByTitle(String title) {
-        String response = rpcCall("GetAllLogins", new JsonObject());
+        String response = rpcCall("GetAllLogins", new JsonArray());
         try {
             JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
             if (!resp.has("result")) return null;
@@ -349,17 +365,117 @@ final class KeePassRpcClient {
         }
     }
 
-    private String rpcCall(String method, JsonObject params) {
-        int id = rpcId.getAndIncrement();
-        JsonObject req = new JsonObject();
-        req.addProperty("protocol", "jsonrpc");
-        req.addProperty("jsonrpc", "2.0");
-        req.addProperty("method", method);
-        req.add("params", params);
-        req.addProperty("id", id);
+    /**
+     * Issue an encrypted JSON-RPC call and return the decrypted response.
+     */
+    private String rpcCall(String method, JsonElement params) {
+        if (sessionKeyHex == null) {
+            throw new KeePassNotAvailableException("Nicht authentifiziert — connect() zuerst aufrufen.");
+        }
 
-        sendAndWait(req, method);
-        return mailbox.get();
+        int id = rpcId.getAndIncrement();
+        JsonObject rpc = new JsonObject();
+        rpc.addProperty("jsonrpc", "2.0");
+        rpc.addProperty("method", method);
+        rpc.add("params", params);
+        rpc.addProperty("id", id);
+
+        String plaintext = GSON.toJson(rpc);
+        LOG.fine("[KeePassRPC] → RPC: " + truncate(plaintext));
+
+        try {
+            byte[] keyBytes = hexToBytes(sessionKeyHex);
+            byte[] iv = new byte[16];
+            new SecureRandom().nextBytes(iv);
+
+            // Encrypt with AES-CBC + PKCS5Padding
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(keyBytes, "AES"), new IvParameterSpec(iv));
+            byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+
+            // HMAC = SHA1(SHA1(key) + ciphertext + iv)
+            byte[] hmacBytes = computeHmac(keyBytes, ciphertext, iv);
+
+            // Build encrypted wrapper
+            JsonObject container = new JsonObject();
+            container.addProperty("message", base64Encode(ciphertext));
+            container.addProperty("iv", base64Encode(iv));
+            container.addProperty("hmac", base64Encode(hmacBytes));
+
+            JsonObject wrapper = new JsonObject();
+            wrapper.addProperty("protocol", "jsonrpc");
+            wrapper.addProperty("version", PROTOCOL_VERSION);
+            wrapper.add("jsonrpc", container);
+
+            sendAndWait(wrapper, method);
+        } catch (KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new KeePassNotAvailableException("Verschlüsselungsfehler: " + e.getMessage(), e);
+        }
+
+        // Decrypt response
+        String encryptedResponse = mailbox.get();
+        return decryptResponse(encryptedResponse);
+    }
+
+    private String decryptResponse(String rawJson) {
+        try {
+            JsonObject resp = JsonParser.parseString(rawJson).getAsJsonObject();
+
+            String protocol = resp.has("protocol") ? resp.get("protocol").getAsString() : "";
+            if ("error".equals(protocol)) {
+                throw new KeePassNotAvailableException("Server-Fehler: " + resp);
+            }
+
+            JsonObject jsonrpc = resp.getAsJsonObject("jsonrpc");
+            if (jsonrpc == null) {
+                // Might be an unencrypted error
+                return rawJson;
+            }
+
+            byte[] ciphertext = base64Decode(jsonrpc.get("message").getAsString());
+            byte[] iv = base64Decode(jsonrpc.get("iv").getAsString());
+            byte[] hmac = base64Decode(jsonrpc.get("hmac").getAsString());
+            byte[] keyBytes = hexToBytes(sessionKeyHex);
+
+            // Verify HMAC
+            byte[] expectedHmac = computeHmac(keyBytes, ciphertext, iv);
+            if (!MessageDigest.isEqual(hmac, expectedHmac)) {
+                throw new KeePassNotAvailableException("HMAC-Prüfung fehlgeschlagen.");
+            }
+
+            // Decrypt
+            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(keyBytes, "AES"), new IvParameterSpec(iv));
+            byte[] plaintext = cipher.doFinal(ciphertext);
+
+            String result = new String(plaintext, StandardCharsets.UTF_8);
+            LOG.fine("[KeePassRPC] ← RPC: " + truncate(result));
+            return result;
+        } catch (KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new KeePassNotAvailableException("Entschlüsselungsfehler: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * HMAC as used by KeePassRPC: SHA1(SHA1(key) + ciphertext + iv)
+     */
+    private static byte[] computeHmac(byte[] key, byte[] ciphertext, byte[] iv) {
+        try {
+            MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+            byte[] keyHash = sha1.digest(key);
+
+            sha1.reset();
+            sha1.update(keyHash);
+            sha1.update(ciphertext);
+            sha1.update(iv);
+            return sha1.digest();
+        } catch (Exception e) {
+            throw new RuntimeException("SHA-1 not available", e);
+        }
     }
 
     private String formatEntries(JsonElement result) {
@@ -380,9 +496,9 @@ final class KeePassRpcClient {
     }
 
     private static String jsonStr(JsonObject o, String... keys) {
-        for (String k : keys) {
-            if (o.has(k) && !o.get(k).isJsonNull()) {
-                JsonElement el = o.get(k);
+        for (String key : keys) {
+            if (o.has(key) && !o.get(key).isJsonNull()) {
+                JsonElement el = o.get(key);
                 if (el.isJsonPrimitive()) return el.getAsString();
                 if (el.isJsonArray() && el.getAsJsonArray().size() > 0) {
                     return el.getAsJsonArray().get(0).getAsString();
@@ -398,14 +514,12 @@ final class KeePassRpcClient {
         latch = new CountDownLatch(1);
         String json = GSON.toJson(msg);
         LOG.fine("[KeePassRPC] → " + truncate(json));
-        ws.send(json);
+        boolean sent = ws.send(json);
+        if (!sent) {
+            throw new KeePassNotAvailableException(
+                    "Nachricht konnte nicht gesendet werden (WebSocket geschlossen) bei: " + label);
+        }
         awaitLatch(label);
-    }
-
-    private String readMessage(String label) {
-        latch = new CountDownLatch(1);
-        awaitLatch(label);
-        return mailbox.get();
     }
 
     private void awaitLatch(String label) {
@@ -427,7 +541,20 @@ final class KeePassRpcClient {
         }
     }
 
-    // ── Crypto helpers (SRP-6a, SHA-256) ────────────────────────────────
+    private static JsonObject parseOrThrow(String json) {
+        try {
+            return JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            throw new KeePassNotAvailableException("Ungültige JSON-Antwort: " + truncate(json));
+        }
+    }
+
+    // ── Crypto helpers ──────────────────────────────────────────────────
+
+    /** SHA-256 of UTF-8 string */
+    private static byte[] sha256str(String input) {
+        return sha256(input.getBytes(StandardCharsets.UTF_8));
+    }
 
     private static byte[] sha256(byte[] input) {
         try {
@@ -437,39 +564,12 @@ final class KeePassRpcClient {
         }
     }
 
-    private static byte[] toBytes(BigInteger bi) {
-        byte[] b = bi.toByteArray();
-        if (b[0] == 0 && b.length > 1) {
-            byte[] tmp = new byte[b.length - 1];
-            System.arraycopy(b, 1, tmp, 0, tmp.length);
-            return tmp;
-        }
-        return b;
-    }
-
-    private static byte[] padTo(byte[] src, int len) {
-        if (src.length >= len) return src;
-        byte[] padded = new byte[len];
-        System.arraycopy(src, 0, padded, len - src.length, src.length);
-        return padded;
-    }
-
-    private static byte[] concat(byte[]... arrays) {
-        int len = 0;
-        for (byte[] a : arrays) len += a.length;
-        byte[] result = new byte[len];
-        int pos = 0;
-        for (byte[] a : arrays) {
-            System.arraycopy(a, 0, result, pos, a.length);
-            pos += a.length;
-        }
-        return result;
-    }
-
-    private static byte[] xor(byte[] a, byte[] b) {
-        byte[] r = new byte[Math.min(a.length, b.length)];
-        for (int i = 0; i < r.length; i++) r[i] = (byte) (a[i] ^ b[i]);
-        return r;
+    /**
+     * Format BigInteger as UPPERCASE hex string without leading zeros,
+     * matching Go's {@code fmt.Sprintf("%X", bigInt)}.
+     */
+    private static String toHex(BigInteger bi) {
+        return bi.toString(16).toUpperCase();
     }
 
     private static byte[] hexToBytes(String hex) {
@@ -486,6 +586,15 @@ final class KeePassRpcClient {
         StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) sb.append(String.format("%02x", b & 0xFF));
         return sb.toString();
+    }
+
+    private static String base64Encode(byte[] data) {
+        // Java 8 compatible
+        return javax.xml.bind.DatatypeConverter.printBase64Binary(data);
+    }
+
+    private static byte[] base64Decode(String data) {
+        return javax.xml.bind.DatatypeConverter.parseBase64Binary(data);
     }
 
     private static String truncate(String s) {
