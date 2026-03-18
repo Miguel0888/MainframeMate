@@ -19,7 +19,7 @@ import java.util.logging.Logger;
  * Menu command under <em>Hilfe → Passwörter (KeePass)</em>.
  * <p>
  * If the password method is set to {@link PasswordMethod#KEEPASS},
- * lists all entries from the configured KeePass database via PowerShell + KeePassLib.dll.
+ * lists all entries from the configured KeePass database via PowerShell + KeePass.exe.
  * Otherwise shows a hint that KeePass must be configured first.
  */
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {

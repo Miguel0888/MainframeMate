@@ -13,17 +13,16 @@ import java.util.logging.Logger;
 
 /**
  * Reads and writes passwords from/to a KeePass {@code .kdbx} database
- * via <b>PowerShell</b> and the {@code KeePassLib.dll} that ships with KeePass 2.x.
+ * via <b>PowerShell</b> and the {@code KeePass.exe} assembly from KeePass 2.x.
  * <p>
- * No separate {@code KPScript.exe} is required — only the standard KeePass 2.x
- * installation (containing {@code KeePassLib.dll}).
+ * No separate {@code KPScript.exe} or {@code KeePassLib.dll} is required —
+ * the KeePassLib namespace is compiled directly into {@code KeePass.exe}.
+ * PowerShell loads it via {@code Add-Type -Path KeePass.exe}.
  * <p>
  * The database is opened with the <b>Windows User Account</b> composite key
  * ({@code KcpUserAccount}), which uses DPAPI to derive the key from the
  * currently logged-in Windows user.  If the database requires a different
  * master key (password, key file), the operation will fail with a clear error.
- *
- * @see <a href="https://keepass.info/help/v2_dev/plg_index.html">KeePass Plugin Development</a>
  */
 final class KeePassProvider {
 
@@ -162,10 +161,10 @@ final class KeePassProvider {
                     "KeePass-Installationsverzeichnis ist nicht konfiguriert.\n"
                     + "Bitte unter Einstellungen \u2192 Allgemein \u2192 Sicherheit den Pfad angeben.");
         }
-        String dllPath = resolveDllPath(settings);
-        if (!new File(dllPath).isFile()) {
+        String exePath = resolveDllPath(settings);
+        if (!new File(exePath).isFile()) {
             throw new KeePassNotAvailableException(
-                    "KeePassLib.dll nicht gefunden: " + dllPath + "\n"
+                    "KeePass.exe nicht gefunden: " + exePath + "\n"
                     + "Bitte pr\u00fcfen Sie, ob KeePass 2.x im angegebenen Verzeichnis installiert ist.");
         }
         String db = settings.keepassDatabasePath;
@@ -207,16 +206,17 @@ final class KeePassProvider {
     }
 
     /**
-     * Resolve the path to KeePassLib.dll from the installation directory.
+     * Resolve the path to KeePass.exe (which contains the KeePassLib namespace)
+     * from the installation directory.
      */
     private static String resolveDllPath(Settings settings) {
         String installDir = settings.keepassInstallPath.trim();
         // Handle both directory and direct KeePass.exe path
         File dir = new File(installDir);
         if (dir.isFile()) {
-            dir = dir.getParentFile(); // user pointed to KeePass.exe → use parent dir
+            return dir.getAbsolutePath(); // user pointed directly to KeePass.exe
         }
-        return new File(dir, "KeePassLib.dll").getAbsolutePath();
+        return new File(dir, "KeePass.exe").getAbsolutePath();
     }
 
     /**

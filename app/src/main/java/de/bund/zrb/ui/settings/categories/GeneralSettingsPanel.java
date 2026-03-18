@@ -128,7 +128,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
                 + "Benötigt <code>powershell.exe</code> — kann bei restriktiver Execution Policy blockiert sein.<br>"
                 + "<b>Java AES-256:</b> Plattformunabhängig, reines Java — Master-Key in <code>~/.mainframemate/.master.key</code>.<br>"
                 + "<b>KeePass:</b> Passwörter werden in einer KeePass-Datenbank gespeichert. "
-                + "Benötigt KeePass 2.x mit <code>KeePassLib.dll</code> (wird per PowerShell geladen)."
+                + "Benötigt KeePass 2.x (die KeePassLib ist in <code>KeePass.exe</code> enthalten, wird per PowerShell geladen)."
                 + "</small></html>");
 
         // ── KeePass configuration (shown/hidden based on selected method) ──

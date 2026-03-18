@@ -181,7 +181,7 @@ public final class CredentialStore {
     // ── KeePass integration ─────────────────────────────────────────────────
 
     /**
-     * List all entries from the KeePass database via PowerShell + KeePassLib.dll.
+     * List all entries from the KeePass database via PowerShell + KeePass.exe.
      * Only works when the password method is {@link PasswordMethod#KEEPASS}.
      *
      * @return formatted entry list output

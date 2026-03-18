@@ -26,7 +26,7 @@ public class Settings {
     /** Password encryption method: "WINDOWS_DPAPI" (default), "POWERSHELL_DPAPI", "JAVA_AES", or "KEEPASS". */
     public String passwordMethod = "WINDOWS_DPAPI";
 
-    /** Path to KeePass 2.x installation directory (containing KeePassLib.dll). Only used when passwordMethod = KEEPASS. */
+    /** Path to KeePass 2.x installation directory (containing KeePass.exe). Only used when passwordMethod = KEEPASS. */
     public String keepassInstallPath = resolveKeePassDefault();
 
     /** Path to the .kdbx database file (only used when passwordMethod = KEEPASS). */
