@@ -34,11 +34,19 @@ public final class WinRtRuntime {
     /**
      * Initializes the Windows Runtime (MTA).
      * Safe to call multiple times — tracks initialization state.
+     * <p>
+     * Also ensures JNA loads its native library from a fixed directory
+     * ({@code ~/.mainframemate/native/}) instead of {@code %TEMP%}, which
+     * may be blocked on hardened Windows 11 systems.
      *
      * @throws WinRtException if RoInitialize fails
      */
     public static synchronized void initialize() {
         if (initialized) return;
+
+        // MUST run before any JNA class (ComBase) is loaded —
+        // configures jna.boot.library.path to avoid temp extraction
+        JnaBootstrap.configure();
 
         WinNT.HRESULT hr = ComBase.INSTANCE.RoInitialize(ComBase.RO_INIT_MULTITHREADED);
         int code = hr.intValue();
