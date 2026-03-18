@@ -65,6 +65,12 @@ public final class VirtualResourceOpener {
                 if (forceFile && resource.getKind() == VirtualResourceKind.DIRECTORY) {
                     resource = resource.withKind(VirtualResourceKind.FILE);
                 }
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                showErrorDialog("Verschlüsselung blockiert", e.getMessage());
+                return null;
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                showErrorDialog("Verschlüsselung blockiert", e.getMessage());
+                return null;
             } catch (FileServiceException e) {
                 // Benutzer hat abgebrochen - sofort beenden ohne Fehlermeldung
                 if (isAuthCancelled(e)) {
@@ -117,6 +123,14 @@ public final class VirtualResourceOpener {
                         closeQuietly(fs);
                     }
                 }
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                closeQuietly(fs);
+                showErrorDialog("Verschlüsselung blockiert", e.getMessage());
+                return null;
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                closeQuietly(fs);
+                showErrorDialog("Verschlüsselung blockiert", e.getMessage());
+                return null;
             } catch (Exception e) {
                 closeQuietly(fs);
 

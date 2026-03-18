@@ -2,6 +2,7 @@ package de.bund.zrb.login;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.util.SessionCipher;
 import de.bund.zrb.util.WindowsCryptoUtil;
 
 import javax.swing.*;
@@ -33,7 +34,11 @@ public class LoginManager {
     /** Flag indicating an active session exists (successful login occurred) */
     private volatile boolean sessionActive = false;
 
-    private final Map<String, String> encryptedPasswordCache = new HashMap<String, String>();
+    /**
+     * RAM-only password cache — encrypted with {@link SessionCipher} (pure Java, fast).
+     * Never touches JNA, PowerShell, or the filesystem.
+     */
+    private final Map<String, String> sessionPasswordCache = new HashMap<String, String>();
     private LoginCredentialsProvider credentialsProvider;
 
     private LoginManager() {}
@@ -59,7 +64,7 @@ public class LoginManager {
         }
 
         // Check if password is cached in memory
-        if (!encryptedPasswordCache.isEmpty()) {
+        if (!sessionPasswordCache.isEmpty()) {
             return true;
         }
 
@@ -92,7 +97,7 @@ public class LoginManager {
 
         String key = toCacheKey(host, username);
 
-        if (encryptedPasswordCache.containsKey(key)) {
+        if (sessionPasswordCache.containsKey(key)) {
             return true;
         }
 
@@ -106,20 +111,21 @@ public class LoginManager {
         String key = toCacheKey(host, username);
         Settings settings = SettingsHelper.load();
 
-        // 1) Use RAM cache only if allowed
-        if (settings.autoConnect && encryptedPasswordCache.containsKey(key)) {
-            return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+        // 1) RAM cache — uses SessionCipher (pure Java, fast, no JNA/PS1)
+        if (settings.autoConnect && sessionPasswordCache.containsKey(key)) {
+            return SessionCipher.decrypt(sessionPasswordCache.get(key));
         }
 
-        // 2) Use stored password only if allowed and matching host/user
+        // 2) Stored password on disk — uses WindowsCryptoUtil (JNA/PS1/AES per setting)
         if (settings.savePassword
                 && host != null && host.equals(settings.host)
                 && username != null && username.equals(settings.user)
                 && settings.encryptedPassword != null) {
             try {
                 String decrypted = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
+                // Cache in RAM with SessionCipher so subsequent calls are fast
                 if (settings.autoConnect) {
-                    encryptedPasswordCache.put(key, settings.encryptedPassword);
+                    sessionPasswordCache.put(key, SessionCipher.encrypt(decrypted));
                 }
                 return decrypted;
             } catch (de.bund.zrb.util.JnaBlockedException e) {
@@ -143,16 +149,22 @@ public class LoginManager {
         String key = toCacheKey(host, username);
         Settings settings = SettingsHelper.load();
 
-        if (settings.autoConnect && encryptedPasswordCache.containsKey(key)) {
-            return WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+        // RAM cache — SessionCipher only, no JNA/PS1
+        if (settings.autoConnect && sessionPasswordCache.containsKey(key)) {
+            return SessionCipher.decrypt(sessionPasswordCache.get(key));
         }
 
+        // Disk — WindowsCryptoUtil (slow path, only if not yet cached)
         if (settings.savePassword
                 && host != null && host.equals(settings.host)
                 && username != null && username.equals(settings.user)
                 && settings.encryptedPassword != null) {
             try {
-                return WindowsCryptoUtil.decrypt(settings.encryptedPassword);
+                String decrypted = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
+                if (settings.autoConnect) {
+                    sessionPasswordCache.put(key, SessionCipher.encrypt(decrypted));
+                }
+                return decrypted;
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
@@ -176,7 +188,7 @@ public class LoginManager {
 
     public void invalidatePassword(String host, String username) {
         String key = toCacheKey(host, username);
-        encryptedPasswordCache.remove(key);
+        sessionPasswordCache.remove(key);
 
         Settings settings = SettingsHelper.load();
         if (host != null && host.equals(settings.host) && username != null && username.equals(settings.user)) {
@@ -209,15 +221,15 @@ public class LoginManager {
     }
 
     public void clearCache() {
-        encryptedPasswordCache.clear();
+        sessionPasswordCache.clear();
     }
 
     public boolean verifyPassword(String host, String username, String plainPassword) {
         String key = toCacheKey(host, username);
-        if (!encryptedPasswordCache.containsKey(key)) {
+        if (!sessionPasswordCache.containsKey(key)) {
             return false;
         }
-        String expected = WindowsCryptoUtil.decrypt(encryptedPasswordCache.get(key));
+        String expected = SessionCipher.decrypt(sessionPasswordCache.get(key));
         return expected.equals(plainPassword);
     }
 
@@ -312,7 +324,7 @@ public class LoginManager {
             return null;
         }
 
-        // Store credentials temporarily in RAM cache only
+        // Store credentials temporarily in RAM cache only (SessionCipher — fast, no JNA/PS1)
         // Persistent storage happens in onLoginSuccess() after successful connection
         cacheCredentialsTemporarily(credentials, settings);
         return credentials.getPassword();
@@ -320,15 +332,14 @@ public class LoginManager {
 
     /**
      * Cache credentials temporarily in RAM only (not persistent).
-     * Used during login attempt - only persisted after successful connection.
+     * Uses {@link SessionCipher} — pure Java, fast, no JNA/PS1 dependency.
      */
     private void cacheCredentialsTemporarily(LoginCredentials credentials, Settings settings) {
         String password = credentials.getPassword();
-        String encrypted = WindowsCryptoUtil.encrypt(password);
 
-        // Always cache in RAM for immediate use
+        // Encrypt with SessionCipher for RAM-only cache (fast, pure Java)
         String key = toCacheKey(credentials.getHost(), credentials.getUsername());
-        encryptedPasswordCache.put(key, encrypted);
+        sessionPasswordCache.put(key, SessionCipher.encrypt(password));
 
         // Update host/user in settings but NOT the password yet
         settings.host = credentials.getHost();
@@ -338,21 +349,32 @@ public class LoginManager {
 
     /**
      * Persist credentials after successful login.
+     * Decrypts from RAM cache (SessionCipher), re-encrypts with WindowsCryptoUtil for disk.
      */
     private void persistCredentialsAfterSuccess(String host, String username) {
         Settings settings = SettingsHelper.load();
         String key = toCacheKey(host, username);
 
-        if (!encryptedPasswordCache.containsKey(key)) {
+        if (!sessionPasswordCache.containsKey(key)) {
             return; // Nothing to persist
         }
 
-        String encrypted = encryptedPasswordCache.get(key);
-
         // Store password only if savePassword setting is enabled
         if (settings.savePassword && host.equals(settings.host) && username.equals(settings.user)) {
-            settings.encryptedPassword = encrypted;
-            SettingsHelper.save(settings);
+            // Decrypt from RAM (SessionCipher) → re-encrypt for disk (WindowsCryptoUtil)
+            String plainPassword = SessionCipher.decrypt(sessionPasswordCache.get(key));
+            try {
+                settings.encryptedPassword = WindowsCryptoUtil.encrypt(plainPassword);
+                SettingsHelper.save(settings);
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                System.err.println("[LoginManager] Cannot persist password (JNA blocked): " + e.getMessage());
+                // Not critical — password is still in RAM cache for this session
+            } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+                System.err.println("[LoginManager] Cannot persist password (PowerShell blocked): " + e.getMessage());
+                // Not critical — password is still in RAM cache for this session
+            } catch (Exception e) {
+                System.err.println("[LoginManager] Cannot persist password: " + e.getMessage());
+            }
         }
     }
 
