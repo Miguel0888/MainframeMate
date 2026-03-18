@@ -5,16 +5,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigInteger;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -69,9 +67,8 @@ final class KeePassRpcClient {
     private final int port;
     private final String clientId;
     private final String srpKey;          // shared pairing key (the "password" for SRP)
-    private final OkHttpClient http;
 
-    private WebSocket ws;
+    private WebSocketClient ws;
     private final AtomicInteger rpcId = new AtomicInteger(1);
 
     // After SRP auth: hex key for AES encryption (64 lowercase hex chars)
@@ -86,10 +83,6 @@ final class KeePassRpcClient {
         this.port = port;
         this.clientId = clientId;
         this.srpKey = srpKey;
-        this.http = new OkHttpClient.Builder()
-                .connectTimeout(TIMEOUT_S, TimeUnit.SECONDS)
-                .readTimeout(TIMEOUT_S, TimeUnit.SECONDS)
-                .build();
     }
 
     // ── Public API ──────────────────────────────────────────────────────
@@ -101,41 +94,61 @@ final class KeePassRpcClient {
      */
     void connect() {
         latch = new CountDownLatch(1);
-        Request req = new Request.Builder()
-                .url("ws://" + host + ":" + port + "/")
-                .build();
+        URI uri;
+        try {
+            uri = new URI("ws://" + host + ":" + port + "/");
+        } catch (Exception e) {
+            throw new KeePassNotAvailableException("Ungültige Adresse: " + host + ":" + port, e);
+        }
 
-        ws = http.newWebSocket(req, new WebSocketListener() {
-            @Override public void onOpen(WebSocket webSocket, Response response) {
-                LOG.fine("[KeePassRPC] WebSocket open");
+        ws = new WebSocketClient(uri) {
+            @Override
+            public void onOpen(ServerHandshake handshake) {
+                LOG.fine("[KeePassRPC] WebSocket open (status=" + handshake.getHttpStatus() + ")");
                 latch.countDown();
             }
-            @Override public void onMessage(WebSocket webSocket, String text) {
+            @Override
+            public void onMessage(String text) {
                 LOG.fine("[KeePassRPC] ← " + truncate(text));
                 mailbox.set(text);
                 CountDownLatch l = latch;
                 if (l != null) l.countDown();
             }
-            @Override public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                LOG.log(Level.WARNING, "[KeePassRPC] WebSocket failure", t);
-                String detail = t.getMessage() != null ? t.getMessage() : t.toString();
+            @Override
+            public void onClose(int code, String reason, boolean remote) {
+                LOG.fine("[KeePassRPC] WebSocket closed: " + code + " " + reason
+                        + (remote ? " (by server)" : " (by client)"));
+            }
+            @Override
+            public void onError(Exception ex) {
+                LOG.log(Level.WARNING, "[KeePassRPC] WebSocket error", ex);
+                String detail = ex.getMessage() != null ? ex.getMessage() : ex.toString();
                 mailbox.set("ERROR:" + detail);
                 CountDownLatch l = latch;
                 if (l != null) l.countDown();
             }
-            @Override public void onClosed(WebSocket webSocket, int code, String reason) {
-                LOG.fine("[KeePassRPC] WebSocket closed: " + code + " " + reason);
-            }
-        });
+        };
+        ws.setConnectionLostTimeout(0);
 
-        awaitLatch("WebSocket connect");   // wait for onOpen only
+        try {
+            if (!ws.connectBlocking(TIMEOUT_S, TimeUnit.SECONDS)) {
+                throw new KeePassNotAvailableException(
+                        "KeePassRPC-Timeout beim Verbinden mit " + host + ":" + port + ".\n"
+                      + "Ist KeePass mit KeePassRPC-Plugin gestartet?");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new KeePassNotAvailableException("Verbindung unterbrochen.", e);
+        }
+
+        awaitLatch("WebSocket connect");   // wait for onOpen
         performSrpAuth();                  // client sends first message
     }
 
     /** Close the WebSocket connection. */
     void close() {
         if (ws != null) {
-            ws.close(1000, "done");
+            try { ws.close(); } catch (Exception ignored) {}
             ws = null;
         }
     }
@@ -515,10 +528,11 @@ final class KeePassRpcClient {
         latch = new CountDownLatch(1);
         String json = GSON.toJson(msg);
         LOG.fine("[KeePassRPC] → " + truncate(json));
-        boolean sent = ws.send(json);
-        if (!sent) {
+        try {
+            ws.send(json);
+        } catch (Exception e) {
             throw new KeePassNotAvailableException(
-                    "Nachricht konnte nicht gesendet werden (WebSocket geschlossen) bei: " + label);
+                    "Nachricht konnte nicht gesendet werden (WebSocket geschlossen) bei: " + label, e);
         }
         awaitLatch(label);
     }

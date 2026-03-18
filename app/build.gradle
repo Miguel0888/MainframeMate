@@ -57,6 +57,9 @@ dependencies {
     // REST (AI)
     implementation 'com.squareup.okhttp3:okhttp:4.9.3'
 
+    // WebSocket client for KeePassRPC (more compatible than OkHttp's built-in WS)
+    implementation 'org.java-websocket:Java-WebSocket:1.5.2'
+
     // tools.jar für JavaCompiler (nur Java 8, ab Java 9 JShell verwenden!)
     implementation files(javaToolsJar)
 
