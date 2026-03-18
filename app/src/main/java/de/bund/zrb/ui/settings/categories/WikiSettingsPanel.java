@@ -148,6 +148,8 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                     existingUser = decrypted.substring(0, sep);
                     existingPass = decrypted.substring(sep + 1);
                 }
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception ignore) {
                 // corrupted credential, start fresh
             }

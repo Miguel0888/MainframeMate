@@ -92,6 +92,8 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
             // Try stored encrypted password first for separate BetaView credentials
             try {
                 password = de.bund.zrb.util.WindowsCryptoUtil.decrypt(settings.betaviewEncryptedPassword);
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception ignore) {
                 password = LoginManager.getInstance().getPassword(host, user);
             }

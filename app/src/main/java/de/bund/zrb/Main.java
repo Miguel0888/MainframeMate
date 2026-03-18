@@ -14,6 +14,10 @@ import javax.swing.*;
 
 public class Main {
     public static void main(String[] args) {
+        // MUST be the very first call — configures JNA to load jnidispatch.dll
+        // from ~/.mainframemate/native/ instead of %TEMP% (blocked on hardened Windows 11)
+        de.bund.zrb.util.JnaBootstrap.configure();
+
 //        UnicodeFontFix.apply(); // for windows 11 required to display emojis correctly
         MainframeSyntaxSupport.register(); // Register Natural/JCL/COBOL syntax highlighting
 

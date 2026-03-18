@@ -4,6 +4,7 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.ui.settings.FormBuilder;
+import de.bund.zrb.util.PasswordMethod;
 
 import javax.swing.*;
 import java.awt.*;
@@ -26,6 +27,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner lockDelay;
     private final JSpinner lockPre;
     private final JComboBox<LockerStyle> lockStyleBox;
+    private final JComboBox<PasswordMethod> passwordMethodBox;
     private final JCheckBox historyEnabledBox;
     private final JSpinner historyMaxVersionsSpinner;
     private final JSpinner historyMaxAgeDaysSpinner;
@@ -98,6 +100,23 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         });
         fb.addButtons(addExtButton, removeExtButton);
 
+        fb.addSection("Sicherheit");
+
+        passwordMethodBox = new JComboBox<>(PasswordMethod.values());
+        PasswordMethod currentMethod = PasswordMethod.WINDOWS_DPAPI;
+        try {
+            if (settings.passwordMethod != null && !settings.passwordMethod.isEmpty()) {
+                currentMethod = PasswordMethod.valueOf(settings.passwordMethod);
+            }
+        } catch (IllegalArgumentException ignore) { /* keep default */ }
+        passwordMethodBox.setSelectedItem(currentMethod);
+        fb.addRow("Passwort-Verschlüsselung:", passwordMethodBox);
+        fb.addInfo("<html><small>"
+                + "<b>Windows DPAPI (JNA):</b> Verschlüsselung durch Windows — an den Benutzer gebunden. "
+                + "Kann auf gehärteten Systemen (Win 11 / AppLocker) blockiert werden.<br>"
+                + "<b>Java AES-256:</b> Plattformunabhängig, reines Java — Master-Key in <code>~/.mainframemate/.master.key</code>."
+                + "</small></html>");
+
         fb.addSection("Bildschirmsperre");
 
         enableLock = new JCheckBox("Bildschirmsperre aktivieren");
@@ -168,6 +187,8 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.lockDelay = (Integer) lockDelay.getValue();
         s.lockPrenotification = (Integer) lockPre.getValue();
         s.lockStyle = lockStyleBox.getSelectedIndex();
+        PasswordMethod selectedMethod = (PasswordMethod) passwordMethodBox.getSelectedItem();
+        s.passwordMethod = selectedMethod != null ? selectedMethod.name() : PasswordMethod.WINDOWS_DPAPI.name();
         s.historyEnabled = historyEnabledBox.isSelected();
         s.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
         s.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();

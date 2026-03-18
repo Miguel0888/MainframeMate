@@ -97,6 +97,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                     }
                 }
                 LOG.warning("[Wiki] Decrypted credential has unexpected format for site '" + siteKey + "'");
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception e) {
                 LOG.warning("[Wiki] Failed to decrypt credentials for site '" + siteKey + "': " + e.getMessage());
             }
@@ -112,6 +114,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                 s.wikiCredentials.put(siteId.value(), encrypted);
                 SettingsHelper.save(s);
                 LOG.info("[Wiki] Credentials saved for site '" + siteId.value() + "' user='" + username + "'");
+            } catch (de.bund.zrb.util.JnaBlockedException e) {
+                throw e; // must not be swallowed — user needs to switch password method
             } catch (Exception e) {
                 LOG.warning("[Wiki] Failed to save credentials for site '" + siteId.value() + "': " + e.getMessage());
             }
@@ -301,6 +305,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
                     return new WikiCredentials(user, pass.toCharArray());
                 }
             }
+        } catch (de.bund.zrb.util.JnaBlockedException e) {
+            throw e; // must not be swallowed — user needs to switch password method
         } catch (Exception e) {
             // decryption failed
         }

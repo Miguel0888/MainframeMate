@@ -23,6 +23,9 @@ public class Settings {
     public int importDelay = 3;
     public List<String> supportedFiles = Arrays.asList( ".xls", ".xlsx", ".xlsm");
 
+    /** Password encryption method: "WINDOWS_DPAPI" (default) or "JAVA_AES". */
+    public String passwordMethod = "WINDOWS_DPAPI";
+
     public boolean lockEnabled = true;
     public int lockDelay = 180_000;
     public int lockPrenotification = 10_000;
