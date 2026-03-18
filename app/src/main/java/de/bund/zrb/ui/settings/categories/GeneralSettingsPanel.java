@@ -4,16 +4,12 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.help.HelpContentProvider;
 import de.bund.zrb.ui.lock.LockerStyle;
 import de.bund.zrb.ui.settings.FormBuilder;
-import de.bund.zrb.util.CredentialStore;
 import de.bund.zrb.util.PasswordMethod;
 
 import javax.swing.*;
-import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 public class GeneralSettingsPanel extends AbstractSettingsPanel {
 
@@ -47,8 +43,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox historyEnabledBox;
     private final JSpinner historyMaxVersionsSpinner;
     private final JSpinner historyMaxAgeDaysSpinner;
-    private final CredentialTableModel credentialTableModel;
-    private final JTable credentialTable;
 
     public GeneralSettingsPanel(Component parent) {
         super("general", "Allgemein");
@@ -331,31 +325,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         passwordMethodBox.addActionListener(e ->
                 keepassConfigPanel.setVisible(passwordMethodBox.getSelectedItem() == PasswordMethod.KEEPASS));
 
-        // ── Generalized credential store ──
-        fb.addSection("Gespeicherte Zugangsdaten");
-        fb.addInfo("Hier werden alle Zugangsdaten zentral verwaltet. "
-                + "Komponenten wie Wiki, BetaView oder FTP legen ihre Credentials hier ab.");
-
-        credentialTableModel = new CredentialTableModel(loadCredentialRows());
-        credentialTable = new JTable(credentialTableModel);
-        credentialTable.setRowHeight(22);
-        credentialTable.getColumnModel().getColumn(0).setPreferredWidth(100);
-        credentialTable.getColumnModel().getColumn(1).setPreferredWidth(180);
-        credentialTable.getColumnModel().getColumn(2).setPreferredWidth(120);
-        credentialTable.getColumnModel().getColumn(3).setPreferredWidth(80);
-        credentialTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-
-        JScrollPane credScroll = new JScrollPane(credentialTable);
-        credScroll.setPreferredSize(new Dimension(500, 120));
-        fb.addWide(credScroll);
-
-        JButton editCredBtn = new JButton("✏️ Bearbeiten…");
-        editCredBtn.addActionListener(e -> editCredential(parent));
-        JButton addCredBtn = new JButton("➕ Hinzufügen…");
-        addCredBtn.addActionListener(e -> addCredential(parent));
-        JButton removeCredBtn = new JButton("➖ Entfernen");
-        removeCredBtn.addActionListener(e -> removeCredential());
-        fb.addButtons(addCredBtn, editCredBtn, removeCredBtn);
 
         fb.addSection("Bildschirmsperre");
 
@@ -480,206 +449,6 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
 
     private static String safe(String s) {
         return s == null ? "" : s;
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Credential table helpers
-    // ═══════════════════════════════════════════════════════════
-
-    private List<CredentialRow> loadCredentialRows() {
-        List<CredentialRow> rows = new ArrayList<CredentialRow>();
-        Map<String, String> all = CredentialStore.getAll();
-        for (Map.Entry<String, String> entry : all.entrySet()) {
-            String key = entry.getKey();
-            String component = CredentialStore.componentLabel(key);
-            String id = CredentialStore.componentId(key);
-            String user = CredentialStore.resolveUserNameQuietly(key);
-            rows.add(new CredentialRow(key, component, id, user != null ? user : "?", user != null));
-        }
-        return rows;
-    }
-
-    private void refreshCredentialTable() {
-        credentialTableModel.setRows(loadCredentialRows());
-    }
-
-    private void addCredential(Component parent) {
-        JTextField keyField = new JTextField("wiki:", 20);
-        JTextField userField = new JTextField(20);
-        JPasswordField passField = new JPasswordField(20);
-
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.anchor = GridBagConstraints.WEST;
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Schlüssel:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(keyField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Benutzername:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(userField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Passwort:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(passField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
-        JLabel hint = new JLabel("<html><small>Schlüssel-Format: <code>komponente:kennung</code> "
-                + "(z.B. <code>wiki:mywiki</code>, <code>ftp:myhost</code>)</small></html>");
-        hint.setForeground(Color.GRAY);
-        panel.add(hint, gbc);
-
-        int result = JOptionPane.showConfirmDialog(parent, panel,
-                "Neue Zugangsdaten anlegen",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) return;
-
-        String key = keyField.getText().trim();
-        String user = userField.getText().trim();
-        String pass = new String(passField.getPassword());
-
-        if (key.isEmpty() || user.isEmpty()) {
-            JOptionPane.showMessageDialog(parent, "Schlüssel und Benutzername dürfen nicht leer sein.",
-                    "Fehler", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-        CredentialStore.store(key, user, pass);
-        refreshCredentialTable();
-    }
-
-    private void editCredential(Component parent) {
-        int row = credentialTable.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(parent, "Bitte zuerst einen Eintrag auswählen.",
-                    "Kein Eintrag ausgewählt", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-        CredentialRow cr = credentialTableModel.getRow(row);
-
-        // Try to load existing user/pass
-        String existingUser = "";
-        String existingPass = "";
-        try {
-            String[] cred = CredentialStore.resolve(cr.key);
-            if (cred != null) {
-                existingUser = cred[0];
-                existingPass = cred[1];
-            }
-        } catch (Exception ignore) {
-            // can't decrypt – start fresh
-        }
-
-        JTextField userField = new JTextField(existingUser, 20);
-        JPasswordField passField = new JPasswordField(existingPass, 20);
-
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.anchor = GridBagConstraints.WEST;
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Schlüssel:"), gbc);
-        gbc.gridx = 1;
-        panel.add(new JLabel(cr.key), gbc);
-
-        boolean hasCreds = !existingUser.isEmpty();
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2;
-        JLabel statusHint = new JLabel(hasCreds
-                ? "✅ Zugangsdaten sind gespeichert."
-                : "⚠️ Noch keine Zugangsdaten hinterlegt.");
-        statusHint.setFont(statusHint.getFont().deriveFont(Font.ITALIC, 11f));
-        panel.add(statusHint, gbc);
-        gbc.gridwidth = 1;
-
-        gbc.gridx = 0; gbc.gridy = 2;
-        panel.add(new JLabel("Benutzername:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(userField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Passwort:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
-        panel.add(passField, gbc);
-
-        int result = JOptionPane.showConfirmDialog(parent, panel,
-                "Zugangsdaten bearbeiten: " + cr.component + " – " + cr.id,
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) return;
-
-        String user = userField.getText().trim();
-        String pass = new String(passField.getPassword());
-        if (user.isEmpty() && pass.isEmpty()) {
-            CredentialStore.remove(cr.key);
-        } else {
-            CredentialStore.store(cr.key, user, pass);
-        }
-        refreshCredentialTable();
-    }
-
-    private void removeCredential() {
-        int row = credentialTable.getSelectedRow();
-        if (row < 0) return;
-        CredentialRow cr = credentialTableModel.getRow(row);
-        CredentialStore.remove(cr.key);
-        refreshCredentialTable();
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Credential table model
-    // ═══════════════════════════════════════════════════════════
-
-    private static final class CredentialRow {
-        final String key;
-        final String component;
-        final String id;
-        final String user;
-        final boolean hasPassword;
-
-        CredentialRow(String key, String component, String id, String user, boolean hasPassword) {
-            this.key = key;
-            this.component = component;
-            this.id = id;
-            this.user = user;
-            this.hasPassword = hasPassword;
-        }
-    }
-
-    private static final class CredentialTableModel extends AbstractTableModel {
-        private static final String[] COLUMNS = {"Komponente", "Kennung", "Benutzer", "Status"};
-        private List<CredentialRow> rows;
-
-        CredentialTableModel(List<CredentialRow> rows) {
-            this.rows = new ArrayList<CredentialRow>(rows);
-        }
-
-        void setRows(List<CredentialRow> rows) {
-            this.rows = new ArrayList<CredentialRow>(rows);
-            fireTableDataChanged();
-        }
-
-        CredentialRow getRow(int idx) { return rows.get(idx); }
-
-        @Override public int getRowCount() { return rows.size(); }
-        @Override public int getColumnCount() { return COLUMNS.length; }
-        @Override public String getColumnName(int col) { return COLUMNS[col]; }
-        @Override public boolean isCellEditable(int row, int col) { return false; }
-
-        @Override
-        public Object getValueAt(int row, int col) {
-            CredentialRow r = rows.get(row);
-            switch (col) {
-                case 0: return r.component;
-                case 1: return r.id;
-                case 2: return r.user;
-                case 3: return r.hasPassword ? "✅" : "⚠️";
-                default: return "";
-            }
-        }
     }
 }
 

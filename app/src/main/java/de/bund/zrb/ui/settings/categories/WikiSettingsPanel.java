@@ -1,7 +1,9 @@
 package de.bund.zrb.ui.settings.categories;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.settings.FormBuilder;
+import de.bund.zrb.util.CredentialStore;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -11,7 +13,9 @@ import java.util.List;
 
 /**
  * Settings panel for Wiki site configuration.
- * Users can add, edit, remove wiki sites (each with id, name, API URL, login flag).
+ * Wiki sites are managed centrally via the "Passwörter" dialog
+ * ({@code Einstellungen → Passwörter}).
+ * This panel shows a read-only overview and prefetch settings.
  */
 public class WikiSettingsPanel extends AbstractSettingsPanel {
 
@@ -27,23 +31,28 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         FormBuilder fb = new FormBuilder();
 
         fb.addSection("Wiki-Sites");
-        fb.addInfo("Konfigurieren Sie hier Ihre MediaWiki-Instanzen. "
-                + "Die API-URL endet typischerweise auf /w/ oder /api.php.");
+        fb.addInfo("<html>Wiki-Sites werden über <b>Einstellungen → Passwörter</b> verwaltet.<br>"
+                + "Dort können Sie Wiki-Einträge (Kategorie <i>Wiki</i>) hinzufügen, "
+                + "bearbeiten und Zugangsdaten hinterlegen.</html>");
 
-        // Parse existing sites from settings
-        List<WikiSiteRow> rows = parseSites(settings.wikiSites);
+        // Read-only table populated from password entries (category "Wiki")
+        List<WikiSiteRow> rows = loadWikiSitesFromPasswordEntries();
         tableModel = new WikiSiteTableModel(rows);
         siteTable = new JTable(tableModel);
         siteTable.setRowHeight(24);
-        siteTable.getColumnModel().getColumn(0).setPreferredWidth(100);
-        siteTable.getColumnModel().getColumn(1).setPreferredWidth(150);
-        siteTable.getColumnModel().getColumn(2).setPreferredWidth(300);
-        siteTable.getColumnModel().getColumn(3).setPreferredWidth(60);
+        siteTable.getColumnModel().getColumn(0).setPreferredWidth(100);  // ID
+        siteTable.getColumnModel().getColumn(1).setPreferredWidth(150);  // Name
+        siteTable.getColumnModel().getColumn(2).setPreferredWidth(280);  // URL
+        siteTable.getColumnModel().getColumn(3).setPreferredWidth(60);   // Login
         siteTable.getColumnModel().getColumn(3).setMaxWidth(80);
-        siteTable.getColumnModel().getColumn(4).setPreferredWidth(60);
+        siteTable.getColumnModel().getColumn(4).setPreferredWidth(60);   // Proxy
         siteTable.getColumnModel().getColumn(4).setMaxWidth(80);
-        siteTable.getColumnModel().getColumn(5).setPreferredWidth(80);
+        siteTable.getColumnModel().getColumn(5).setPreferredWidth(80);   // Auto-Index
         siteTable.getColumnModel().getColumn(5).setMaxWidth(100);
+        siteTable.getColumnModel().getColumn(6).setPreferredWidth(100);  // Benutzer
+        siteTable.getColumnModel().getColumn(7).setPreferredWidth(60);   // Status
+        siteTable.getColumnModel().getColumn(7).setMaxWidth(80);
+        siteTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         JScrollPane scroll = new JScrollPane(siteTable);
         scroll.setPreferredSize(new Dimension(600, 180));
@@ -51,17 +60,24 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
 
         // Buttons
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton addBtn = new JButton("➕ Hinzufügen");
-        addBtn.addActionListener(e -> addSite());
-        JButton removeBtn = new JButton("➖ Entfernen");
-        removeBtn.addActionListener(e -> removeSite());
-        buttons.add(addBtn);
-        buttons.add(removeBtn);
+        JButton openPwdBtn = new JButton("🔑 Im Passwörter-Dialog verwalten…");
+        openPwdBtn.setToolTipText("Öffnet den zentralen Passwörter-Dialog (Einstellungen → Passwörter)");
+        openPwdBtn.addActionListener(e -> {
+            JOptionPane.showMessageDialog(
+                    WikiSettingsPanel.this,
+                    "Bitte öffnen Sie den Passwörter-Dialog über:\n\n"
+                            + "  Einstellungen → Passwörter\n\n"
+                            + "Dort können Sie Wiki-Einträge (Kategorie \"Wiki\") anlegen,\n"
+                            + "bearbeiten und Zugangsdaten hinterlegen.",
+                    "Passwörter verwalten",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
+        JButton refreshBtn = new JButton("🔄 Aktualisieren");
+        refreshBtn.setToolTipText("Tabelle neu laden aus dem Passwörter-Speicher");
+        refreshBtn.addActionListener(e -> refreshTable());
+        buttons.add(openPwdBtn);
+        buttons.add(refreshBtn);
         fb.addWide(buttons);
-
-        fb.addInfo("💡 Zugangsdaten für Wiki-Sites werden zentral unter "
-                + "<b>Allgemein → Sicherheit → Gespeicherte Zugangsdaten</b> verwaltet. "
-                + "Verwenden Sie dort Schlüssel im Format <code>wiki:&lt;site-id&gt;</code>.");
 
         // ── Prefetch settings ──
         fb.addSection("Vorabladen (Prefetch)");
@@ -81,81 +97,126 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         installPanel(fb);
     }
 
-    private void addSite() {
-        tableModel.addRow(new WikiSiteRow("new_wiki", "Neues Wiki", "https://example.com/w/", false, false, true));
-        int newRow = tableModel.getRowCount() - 1;
-        siteTable.setRowSelectionInterval(newRow, newRow);
-        siteTable.scrollRectToVisible(siteTable.getCellRect(newRow, 0, true));
+    private void refreshTable() {
+        tableModel.setRows(loadWikiSitesFromPasswordEntries());
     }
 
-    private void removeSite() {
-        int row = siteTable.getSelectedRow();
-        if (row >= 0) {
-            tableModel.removeRow(row);
+    /**
+     * Load wiki site descriptors from {@code settings.passwordEntries} (category "Wiki").
+     * Falls back to legacy {@code settings.wikiSites} if no password entries exist.
+     */
+    private List<WikiSiteRow> loadWikiSitesFromPasswordEntries() {
+        Settings s = SettingsHelper.load();
+        List<WikiSiteRow> rows = new ArrayList<WikiSiteRow>();
+
+        for (Settings.PasswordEntryMeta meta : s.passwordEntries) {
+            if (!"Wiki".equals(meta.category)) continue;
+
+            String user = "";
+            boolean hasCreds = false;
+            try {
+                String[] cred = CredentialStore.resolveIncludingEmpty("pwd:" + meta.id);
+                if (cred != null && !cred[0].isEmpty()) {
+                    user = cred[0];
+                    hasCreds = true;
+                }
+            } catch (Exception ignore) {
+                // decryption failed
+            }
+
+            rows.add(new WikiSiteRow(
+                    meta.id,
+                    meta.displayName != null ? meta.displayName : meta.id,
+                    meta.url != null ? meta.url : "",
+                    meta.requiresLogin,
+                    meta.useProxy,
+                    meta.autoIndex,
+                    user,
+                    hasCreds));
         }
+
+        // Fallback: if no Wiki password entries exist, show legacy wikiSites entries
+        if (rows.isEmpty() && s.wikiSites != null) {
+            for (String entry : s.wikiSites) {
+                String[] parts = entry.split("\\|", 6);
+                if (parts.length >= 3) {
+                    String id = parts[0].trim();
+                    String name = parts[1].trim();
+                    String url = parts[2].trim();
+                    boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
+                    boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
+                    boolean autoIdx = parts.length >= 6 && "true".equalsIgnoreCase(parts[5].trim());
+                    rows.add(new WikiSiteRow(id, name, url, login, proxy, autoIdx, "", false));
+                }
+            }
+        }
+
+        return rows;
     }
-
-
 
     @Override
     protected void applyToSettings(Settings s) {
-        // Stop editing to capture any pending cell edits
-        if (siteTable.isEditing()) {
-            siteTable.getCellEditor().stopCellEditing();
-        }
-
+        // Sync wikiSites from passwordEntries for backward compatibility
+        // (OpenWebMenuCommand.parseWikiSites reads from settings.wikiSites)
         List<String> serialized = new ArrayList<String>();
-        for (int i = 0; i < tableModel.getRowCount(); i++) {
-            WikiSiteRow row = tableModel.getRow(i);
-            serialized.add(row.id + "|" + row.displayName + "|" + row.apiUrl + "|" + row.requiresLogin + "|" + row.useProxy + "|" + row.autoIndex);
+        for (Settings.PasswordEntryMeta meta : s.passwordEntries) {
+            if ("Wiki".equals(meta.category)) {
+                serialized.add(meta.id + "|"
+                        + (meta.displayName != null ? meta.displayName : meta.id) + "|"
+                        + (meta.url != null ? meta.url : "") + "|"
+                        + meta.requiresLogin + "|"
+                        + meta.useProxy + "|"
+                        + meta.autoIndex);
+            }
         }
-        s.wikiSites = serialized;
-
-        // Credentials are now managed centrally in componentCredentials
-        // (Einstellungen → Allgemein → Sicherheit → Gespeicherte Zugangsdaten)
+        if (!serialized.isEmpty()) {
+            s.wikiSites = serialized;
+        }
+        // else keep existing wikiSites (legacy data)
 
         s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
         s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();
         s.wikiPrefetchCacheMaxMb = (Integer) prefetchCacheMaxMbSpinner.getValue();
 
         // Sync IndexSource entries for auto-indexed wiki sites
-        syncWikiIndexSources();
+        syncWikiIndexSources(s);
     }
 
     /**
      * Create/remove IndexSource entries for each wiki site based on autoIndex flag.
      */
-    private void syncWikiIndexSources() {
+    private void syncWikiIndexSources(Settings s) {
         try {
             de.bund.zrb.indexing.service.IndexingService indexingService =
                     de.bund.zrb.indexing.service.IndexingService.getInstance();
-            java.util.Set<String> existingWikiSourceIds = new java.util.HashSet<>();
+            java.util.Set<String> existingWikiSourceIds = new java.util.HashSet<String>();
             for (de.bund.zrb.indexing.model.IndexSource src : indexingService.getAllSources()) {
                 if (src.getSourceType() == de.bund.zrb.indexing.model.SourceType.WIKI) {
                     existingWikiSourceIds.add(src.getConnectionHost());
                 }
             }
 
-            for (int i = 0; i < tableModel.getRowCount(); i++) {
-                WikiSiteRow row = tableModel.getRow(i);
-                if (row.autoIndex && !existingWikiSourceIds.contains(row.id)) {
+            for (Settings.PasswordEntryMeta meta : s.passwordEntries) {
+                if (!"Wiki".equals(meta.category)) continue;
+
+                if (meta.autoIndex && !existingWikiSourceIds.contains(meta.id)) {
                     // Create new IndexSource for this wiki
                     de.bund.zrb.indexing.model.IndexSource source = new de.bund.zrb.indexing.model.IndexSource();
-                    source.setName("Wiki: " + row.displayName);
+                    source.setName("Wiki: " + (meta.displayName != null ? meta.displayName : meta.id));
                     source.setSourceType(de.bund.zrb.indexing.model.SourceType.WIKI);
                     source.setEnabled(true);
-                    source.setConnectionHost(row.id); // siteId
-                    source.setMaxCrawlDepth(0); // only search results, no crawling by default
+                    source.setConnectionHost(meta.id);
+                    source.setMaxCrawlDepth(0);
                     source.setMaxUrlsPerSession(100);
                     source.setScheduleMode(de.bund.zrb.indexing.model.ScheduleMode.MANUAL);
                     source.setFulltextEnabled(true);
                     source.setEmbeddingEnabled(false);
                     indexingService.saveSource(source);
-                } else if (!row.autoIndex && existingWikiSourceIds.contains(row.id)) {
+                } else if (!meta.autoIndex && existingWikiSourceIds.contains(meta.id)) {
                     // Remove IndexSource for this wiki
                     for (de.bund.zrb.indexing.model.IndexSource src : indexingService.getAllSources()) {
                         if (src.getSourceType() == de.bund.zrb.indexing.model.SourceType.WIKI
-                                && row.id.equals(src.getConnectionHost())) {
+                                && meta.id.equals(src.getConnectionHost())) {
                             indexingService.removeSource(src.getSourceId());
                             break;
                         }
@@ -168,75 +229,46 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════
-
-    private List<WikiSiteRow> parseSites(List<String> raw) {
-        List<WikiSiteRow> rows = new ArrayList<WikiSiteRow>();
-        if (raw == null) return rows;
-        for (String entry : raw) {
-            String[] parts = entry.split("\\|", 6);
-            if (parts.length >= 3) {
-                String id = parts[0].trim();
-                String name = parts[1].trim();
-                String url = parts[2].trim();
-                boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
-                boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
-                boolean autoIdx = parts.length >= 6 && "true".equalsIgnoreCase(parts[5].trim());
-                rows.add(new WikiSiteRow(id, name, url, login, proxy, autoIdx));
-            }
-        }
-        return rows;
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Table Model
+    //  Table Model (read-only)
     // ═══════════════════════════════════════════════════════════
 
     private static final class WikiSiteRow {
-        String id;
-        String displayName;
-        String apiUrl;
-        boolean requiresLogin;
-        boolean useProxy;
-        boolean autoIndex;
+        final String id;
+        final String displayName;
+        final String apiUrl;
+        final boolean requiresLogin;
+        final boolean useProxy;
+        final boolean autoIndex;
+        final String user;
+        final boolean hasCreds;
 
-        WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin) {
-            this(id, displayName, apiUrl, requiresLogin, false, false);
-        }
-
-        WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin, boolean useProxy) {
-            this(id, displayName, apiUrl, requiresLogin, useProxy, false);
-        }
-
-        WikiSiteRow(String id, String displayName, String apiUrl, boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+        WikiSiteRow(String id, String displayName, String apiUrl,
+                    boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                    String user, boolean hasCreds) {
             this.id = id;
             this.displayName = displayName;
             this.apiUrl = apiUrl;
             this.requiresLogin = requiresLogin;
             this.useProxy = useProxy;
             this.autoIndex = autoIndex;
+            this.user = user;
+            this.hasCreds = hasCreds;
         }
     }
 
     private static final class WikiSiteTableModel extends AbstractTableModel {
-        private final List<WikiSiteRow> rows;
-        private static final String[] COLUMNS = {"ID", "Name", "API-URL", "Login", "Proxy", "Auto-Index"};
+        private List<WikiSiteRow> rows;
+        private static final String[] COLUMNS = {
+                "ID", "Name", "API-URL", "Login", "Proxy", "Auto-Index", "Benutzer", "Status"
+        };
 
         WikiSiteTableModel(List<WikiSiteRow> rows) {
             this.rows = new ArrayList<WikiSiteRow>(rows);
         }
 
-        WikiSiteRow getRow(int row) { return rows.get(row); }
-
-        void addRow(WikiSiteRow row) {
-            rows.add(row);
-            fireTableRowsInserted(rows.size() - 1, rows.size() - 1);
-        }
-
-        void removeRow(int row) {
-            rows.remove(row);
-            fireTableRowsDeleted(row, row);
+        void setRows(List<WikiSiteRow> rows) {
+            this.rows = new ArrayList<WikiSiteRow>(rows);
+            fireTableDataChanged();
         }
 
         @Override public int getRowCount() { return rows.size(); }
@@ -249,7 +281,7 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
         }
 
         @Override
-        public boolean isCellEditable(int row, int col) { return true; }
+        public boolean isCellEditable(int row, int col) { return false; }
 
         @Override
         public Object getValueAt(int row, int col) {
@@ -261,22 +293,10 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                 case 3: return r.requiresLogin;
                 case 4: return r.useProxy;
                 case 5: return r.autoIndex;
+                case 6: return r.user;
+                case 7: return r.hasCreds ? "✅" : "⚠️";
                 default: return "";
             }
-        }
-
-        @Override
-        public void setValueAt(Object value, int row, int col) {
-            WikiSiteRow r = rows.get(row);
-            switch (col) {
-                case 0: r.id = String.valueOf(value); break;
-                case 1: r.displayName = String.valueOf(value); break;
-                case 2: r.apiUrl = String.valueOf(value); break;
-                case 3: r.requiresLogin = Boolean.TRUE.equals(value); break;
-                case 4: r.useProxy = Boolean.TRUE.equals(value); break;
-                case 5: r.autoIndex = Boolean.TRUE.equals(value); break;
-            }
-            fireTableCellUpdated(row, col);
         }
     }
 }
