@@ -172,11 +172,33 @@ public class Settings {
 
     /**
      * Generalized credential store. Any component can store credentials here.
-     * <p>Key = component identifier (e.g. "wiki:wikipedia_de", "betaview", "ftp:myhost"),
+     * <p>Key = component identifier (e.g. "wiki:wikipedia_de", "betaview", "ftp:myhost", "pwd:myentry"),
      * Value = encrypted "user|password" (via {@link de.bund.zrb.util.WindowsCryptoUtil}).
      * <p>Managed centrally in Einstellungen → Allgemein → Sicherheit.
      */
     public Map<String, String> componentCredentials = new LinkedHashMap<>();
+
+    /**
+     * Central password entry metadata managed under <em>Hilfe → Passwörter</em>.
+     * <p>Each entry stores metadata (category, display name, URL, flags).
+     * The encrypted credentials (user|password) are stored in {@link #componentCredentials}
+     * with key {@code "pwd:<id>"}.
+     */
+    public List<PasswordEntryMeta> passwordEntries = new ArrayList<>();
+
+    /**
+     * Metadata for a single password entry. Serialised as part of {@code settings.json}.
+     * The actual password is stored encrypted in {@link #componentCredentials}.
+     */
+    public static class PasswordEntryMeta {
+        public String id = "";
+        public String category = "General";
+        public String displayName = "";
+        public String url = "";
+        public boolean requiresLogin;
+        public boolean useProxy;
+        public boolean autoIndex;
+    }
 
     /** Maximum size in MB for volatile (prefetch) wiki cache entries. Default: 50 MB. */
     public int wikiPrefetchCacheMaxMb = 50;

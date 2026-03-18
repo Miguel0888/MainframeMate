@@ -3,8 +3,6 @@ package de.bund.zrb.ui.commands;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.CredentialStore;
-import de.bund.zrb.util.KeePassNotAvailableException;
-import de.bund.zrb.util.PasswordMethod;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
@@ -15,6 +13,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -42,56 +41,31 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "🔑 Passwörter (KeePass)…";
+        return "🔑 Passwörter…";
     }
 
     @Override
     public void perform() {
-        Settings settings = SettingsHelper.load();
-        PasswordMethod method;
-        try {
-            method = PasswordMethod.valueOf(settings.passwordMethod);
-        } catch (Exception e) {
-            method = PasswordMethod.WINDOWS_DPAPI;
-        }
-
-        if (method != PasswordMethod.KEEPASS) {
-            JOptionPane.showMessageDialog(parent,
-                    "<html><body style='width:380px'>"
-                            + "<h3>KeePass ist nicht konfiguriert</h3>"
-                            + "<p>Diese Funktion zeigt alle Passwörter aus einer KeePass-Datenbank an.</p>"
-                            + "<p>Bitte konfigurieren Sie zuerst unter<br>"
-                            + "<b>Einstellungen → Allgemein → Sicherheit</b><br>"
-                            + "die Passwort-Methode <b>KeePass</b> und geben Sie das "
-                            + "KeePass-Installationsverzeichnis sowie den Pfad zur <code>.kdbx</code>-Datenbank an.</p>"
-                            + "</body></html>",
-                    "KeePass nicht aktiv",
-                    JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        // Load entries in background to avoid blocking the EDT
+        // Load entries in background (credential decryption may be slow)
         parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        new SwingWorker<String, Void>() {
+        new SwingWorker<List<KeePassEntry>, Void>() {
             @Override
-            protected String doInBackground() throws Exception {
-                return CredentialStore.listKeePassEntries();
+            protected List<KeePassEntry> doInBackground() {
+                return loadEntries();
             }
 
             @Override
             protected void done() {
                 parent.setCursor(Cursor.getDefaultCursor());
                 try {
-                    String rawOutput = get();
-                    showEntriesDialog(rawOutput);
+                    List<KeePassEntry> entries = get();
+                    showEntriesDialog(entries);
                 } catch (Exception e) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
-                    LOG.log(Level.WARNING, "KeePass ListEntries failed", cause);
-                    String msg = cause instanceof KeePassNotAvailableException
-                            ? cause.getMessage()
-                            : "Fehler beim Lesen der KeePass-Datenbank:\n" + cause.getMessage();
-                    JOptionPane.showMessageDialog(parent, msg,
-                            "KeePass-Fehler", JOptionPane.ERROR_MESSAGE);
+                    LOG.log(Level.WARNING, "LoadEntries failed", cause);
+                    JOptionPane.showMessageDialog(parent,
+                            "Fehler beim Laden der Passwort-Einträge:\n" + cause.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
                 }
             }
         }.execute();
@@ -101,8 +75,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     //  Dialog
     // ═══════════════════════════════════════════════════════════
 
-    private void showEntriesDialog(String rawOutput) {
-        final List<KeePassEntry> entries = parseEntries(rawOutput);
+    private void showEntriesDialog(final List<KeePassEntry> entries) {
         final boolean[] visible = new boolean[1024]; // per-row password visibility
 
         final EntryTableModel model = new EntryTableModel(entries, visible);
@@ -190,10 +163,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             KeePassEntry created = showEntryEditor(null, "Neuen Eintrag anlegen");
             if (created != null) {
                 try {
-                    CredentialStore.addKeePassEntry(
-                            created.title, created.userName, created.password, created.url,
-                            created.displayName, created.category,
-                            created.requiresLogin, created.useProxy, created.autoIndex);
+                    saveEntry(created);
                     entries.add(created);
                     model.fireTableDataChanged();
                 } catch (Exception ex) {
@@ -219,10 +189,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             KeePassEntry updated = showEntryEditor(existing, "Eintrag bearbeiten");
             if (updated != null) {
                 try {
-                    CredentialStore.updateKeePassEntry(
-                            updated.title, updated.userName, updated.password,
-                            updated.displayName, updated.category,
-                            updated.requiresLogin, updated.useProxy, updated.autoIndex);
+                    saveEntry(updated);
                     entries.set(modelRow, updated);
                     model.fireTableDataChanged();
                 } catch (Exception ex) {
@@ -252,7 +219,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (confirm != JOptionPane.YES_OPTION) return;
 
             try {
-                CredentialStore.removeKeePassEntry(entry.title, entry.uniqueID);
+                deleteEntry(entry.title);
                 entries.remove(modelRow);
                 model.fireTableDataChanged();
             } catch (Exception ex) {
@@ -290,12 +257,12 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         buttonPanel.add(defaultsBtn);
 
         JPanel mainPanel = new JPanel(new BorderLayout(0, 8));
-        mainPanel.add(new JLabel("KeePass  (" + entries.size() + " Einträge)"),
+        mainPanel.add(new JLabel("Passwörter  (" + entries.size() + " Einträge)"),
                 BorderLayout.NORTH);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        JDialog dialog = new JDialog(parent, "KeePass – Passwörter", true);
+        JDialog dialog = new JDialog(parent, "Passwörter verwalten", true);
         dialog.setContentPane(mainPanel);
         dialog.getRootPane().setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         dialog.pack();
@@ -487,11 +454,10 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
             try {
                 // Original defaults: login=false, proxy=false, autoIndex=false
-                CredentialStore.addKeePassEntry(id, "", "", url,
-                        displayName, "Wiki",
+                KeePassEntry entry = new KeePassEntry("Wiki", id, displayName, "", "", url, "",
                         false, false, false);
-                entries.add(new KeePassEntry("Wiki", id, displayName, "", "", url, "",
-                        false, false, false));
+                saveEntry(entry);
+                entries.add(entry);
                 created++;
             } catch (Exception ex) {
                 LOG.log(Level.WARNING, "Failed to create default wiki entry: " + id, ex);
@@ -551,64 +517,78 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Parsing
+    //  Settings-based persistence
     // ═══════════════════════════════════════════════════════════
 
-    private static List<KeePassEntry> parseEntries(String raw) {
+    /** Credential-store key prefix for password entries. */
+    private static final String PWD_PREFIX = "pwd:";
+
+    /**
+     * Load all password entries from {@code settings.passwordEntries} and
+     * decrypt their credentials from {@code componentCredentials}.
+     */
+    private static List<KeePassEntry> loadEntries() {
+        Settings settings = SettingsHelper.load();
         List<KeePassEntry> entries = new ArrayList<KeePassEntry>();
-        if (raw == null || raw.trim().isEmpty()) return entries;
-
-        String cleaned = raw.trim();
-        int lastNewline = cleaned.lastIndexOf('\n');
-        if (lastNewline > 0) {
-            String lastLine = cleaned.substring(lastNewline + 1).trim();
-            if (lastLine.startsWith("OK:")) {
-                cleaned = cleaned.substring(0, lastNewline).trim();
-            }
-        } else if (cleaned.startsWith("OK:")) {
-            return entries;
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            String[] cred = CredentialStore.resolveIncludingEmpty(PWD_PREFIX + meta.id);
+            entries.add(new KeePassEntry(
+                    meta.category != null ? meta.category : "General",
+                    meta.id,
+                    meta.displayName != null && !meta.displayName.isEmpty() ? meta.displayName : meta.id,
+                    cred[0], cred[1],
+                    meta.url != null ? meta.url : "",
+                    "",
+                    meta.requiresLogin, meta.useProxy, meta.autoIndex));
         }
-
-        String[] blocks = cleaned.split("\\n\\s*\\n");
-
-        for (String block : blocks) {
-            String title = "";
-            String userName = "";
-            String password = "";
-            String url = "";
-            String uniqueID = "";
-            String mmCategory = "";
-            String mmDisplayName = "";
-            String mmRequiresLogin = "false";
-            String mmUseProxy = "false";
-            String mmAutoIndex = "false";
-
-            for (String line : block.split("\\n")) {
-                line = line.trim();
-                if (line.startsWith("Title: "))              title            = line.substring("Title: ".length()).trim();
-                else if (line.startsWith("UserName: "))      userName         = line.substring("UserName: ".length()).trim();
-                else if (line.startsWith("Password: "))      password         = line.substring("Password: ".length()).trim();
-                else if (line.startsWith("URL: "))           url              = line.substring("URL: ".length()).trim();
-                else if (line.startsWith("UniqueID: "))      uniqueID         = line.substring("UniqueID: ".length()).trim();
-                else if (line.startsWith("MM_Category: "))   mmCategory       = line.substring("MM_Category: ".length()).trim();
-                else if (line.startsWith("MM_DisplayName: "))mmDisplayName    = line.substring("MM_DisplayName: ".length()).trim();
-                else if (line.startsWith("MM_RequiresLogin: "))mmRequiresLogin= line.substring("MM_RequiresLogin: ".length()).trim();
-                else if (line.startsWith("MM_UseProxy: "))   mmUseProxy       = line.substring("MM_UseProxy: ".length()).trim();
-                else if (line.startsWith("MM_AutoIndex: "))  mmAutoIndex      = line.substring("MM_AutoIndex: ".length()).trim();
-            }
-
-            if (!title.isEmpty()) {
-                String displayName = !mmDisplayName.isEmpty() ? mmDisplayName : title;
-                String category = !mmCategory.isEmpty() ? mmCategory : "General";
-                boolean reqLogin = "true".equalsIgnoreCase(mmRequiresLogin);
-                boolean proxy    = "true".equalsIgnoreCase(mmUseProxy);
-                boolean autoIdx  = "true".equalsIgnoreCase(mmAutoIndex);
-                entries.add(new KeePassEntry(category, title, displayName, userName, password, url, uniqueID,
-                        reqLogin, proxy, autoIdx));
-            }
-        }
-
         return entries;
+    }
+
+    /**
+     * Save (create or update) a password entry in Settings + CredentialStore.
+     */
+    private static void saveEntry(KeePassEntry entry) {
+        Settings settings = SettingsHelper.load();
+
+        // Remove existing metadata with the same id
+        Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
+        while (it.hasNext()) {
+            if (entry.title.equals(it.next().id)) {
+                it.remove();
+                break;
+            }
+        }
+
+        // Add new metadata
+        Settings.PasswordEntryMeta meta = new Settings.PasswordEntryMeta();
+        meta.id = entry.title;
+        meta.category = entry.category;
+        meta.displayName = entry.displayName;
+        meta.url = entry.url;
+        meta.requiresLogin = entry.requiresLogin;
+        meta.useProxy = entry.useProxy;
+        meta.autoIndex = entry.autoIndex;
+        settings.passwordEntries.add(meta);
+        SettingsHelper.save(settings);
+
+        // Store encrypted credentials (user|password) via the configured method
+        CredentialStore.store(PWD_PREFIX + entry.title, entry.userName, entry.password);
+    }
+
+    /**
+     * Delete a password entry from Settings + CredentialStore.
+     */
+    private static void deleteEntry(String id) {
+        Settings settings = SettingsHelper.load();
+        Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
+        while (it.hasNext()) {
+            if (id.equals(it.next().id)) {
+                it.remove();
+                break;
+            }
+        }
+        SettingsHelper.save(settings);
+        CredentialStore.remove(PWD_PREFIX + id);
     }
 
     // ═══════════════════════════════════════════════════════════

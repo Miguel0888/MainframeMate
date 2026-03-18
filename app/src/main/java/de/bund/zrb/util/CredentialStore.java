@@ -73,6 +73,31 @@ public final class CredentialStore {
         return null;
     }
 
+    /**
+     * Resolve stored credentials, returning both user and password even when the
+     * username is empty. Unlike {@link #resolve(String)}, this never returns
+     * {@code null} — the fallback is {@code {"", ""}}.
+     *
+     * @param componentKey namespaced key, e.g. {@code "pwd:wikipedia_de"}
+     * @return {@code String[]{user, password}} — never {@code null}
+     */
+    public static String[] resolveIncludingEmpty(String componentKey) {
+        Settings settings = SettingsHelper.load();
+        String encrypted = settings.componentCredentials.get(componentKey);
+        if (encrypted == null || encrypted.isEmpty()) return new String[]{"", ""};
+
+        try {
+            String decrypted = WindowsCryptoUtil.decrypt(encrypted);
+            int sep = decrypted.indexOf(SEPARATOR);
+            if (sep >= 0) {
+                return new String[]{decrypted.substring(0, sep), decrypted.substring(sep + 1)};
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to decrypt credential for '" + componentKey + "'", e);
+        }
+        return new String[]{"", ""};
+    }
+
     // ── Write ───────────────────────────────────────────────────────────────
 
     /**
