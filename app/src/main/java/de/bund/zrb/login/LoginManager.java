@@ -91,17 +91,14 @@ public class LoginManager {
 
     public boolean isLoggedIn(String host, String username) {
         Settings settings = SettingsHelper.load();
-        if (!settings.autoConnect) {
-            return false;
-        }
 
         String key = toCacheKey(host, username);
 
-        if (sessionPasswordCache.containsKey(key)) {
+        if (shouldUseSessionCache(host, settings) && sessionPasswordCache.containsKey(key)) {
             return true;
         }
 
-        return settings.savePassword
+        return shouldSavePassword(host, settings)
                 && host != null && host.equals(settings.host)
                 && username != null && username.equals(settings.user)
                 && settings.encryptedPassword != null;
@@ -112,19 +109,19 @@ public class LoginManager {
         Settings settings = SettingsHelper.load();
 
         // 1) RAM cache — uses SessionCipher (pure Java, fast, no JNA/PS1)
-        if (settings.autoConnect && sessionPasswordCache.containsKey(key)) {
+        if (shouldUseSessionCache(host, settings) && sessionPasswordCache.containsKey(key)) {
             return SessionCipher.decrypt(sessionPasswordCache.get(key));
         }
 
         // 2) Stored password on disk — uses WindowsCryptoUtil (JNA/PS1/AES per setting)
-        if (settings.savePassword
+        if (shouldSavePassword(host, settings)
                 && host != null && host.equals(settings.host)
                 && username != null && username.equals(settings.user)
                 && settings.encryptedPassword != null) {
             try {
                 String decrypted = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
                 // Cache in RAM with SessionCipher so subsequent calls are fast
-                if (settings.autoConnect) {
+                if (shouldUseSessionCache(host, settings)) {
                     sessionPasswordCache.put(key, SessionCipher.encrypt(decrypted));
                 }
                 return decrypted;
@@ -152,18 +149,18 @@ public class LoginManager {
         Settings settings = SettingsHelper.load();
 
         // RAM cache — SessionCipher only, no JNA/PS1
-        if (settings.autoConnect && sessionPasswordCache.containsKey(key)) {
+        if (shouldUseSessionCache(host, settings) && sessionPasswordCache.containsKey(key)) {
             return SessionCipher.decrypt(sessionPasswordCache.get(key));
         }
 
         // Disk — WindowsCryptoUtil (slow path, only if not yet cached)
-        if (settings.savePassword
+        if (shouldSavePassword(host, settings)
                 && host != null && host.equals(settings.host)
                 && username != null && username.equals(settings.user)
                 && settings.encryptedPassword != null) {
             try {
                 String decrypted = WindowsCryptoUtil.decrypt(settings.encryptedPassword);
-                if (settings.autoConnect) {
+                if (shouldUseSessionCache(host, settings)) {
                     sessionPasswordCache.put(key, SessionCipher.encrypt(decrypted));
                 }
                 return decrypted;
@@ -365,7 +362,7 @@ public class LoginManager {
         }
 
         // Store password only if savePassword setting is enabled
-        if (settings.savePassword && host.equals(settings.host) && username.equals(settings.user)) {
+        if (shouldSavePassword(host, settings) && host.equals(settings.host) && username.equals(settings.user)) {
             // Decrypt from RAM (SessionCipher) → re-encrypt for disk (WindowsCryptoUtil)
             String plainPassword = SessionCipher.decrypt(sessionPasswordCache.get(key));
             try {
@@ -388,5 +385,44 @@ public class LoginManager {
 
     private String toCacheKey(String host, String username) {
         return String.valueOf(host) + "|" + String.valueOf(username);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Password-entry lookup helpers
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Find the first Mainframe password entry whose URL matches the given host.
+     *
+     * @return the matching entry, or {@code null} if none found
+     */
+    private static Settings.PasswordEntryMeta findMainframeEntry(String host, Settings settings) {
+        if (host == null || settings.passwordEntries == null) return null;
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if ("Mainframe".equals(meta.category) && host.equals(meta.url)) {
+                return meta;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Check whether the password should be persisted to disk for the given host.
+     * Checks the matching Mainframe password entry first; falls back to
+     * {@code settings.savePassword}.
+     */
+    private static boolean shouldSavePassword(String host, Settings settings) {
+        Settings.PasswordEntryMeta entry = findMainframeEntry(host, settings);
+        return entry != null ? entry.savePassword : settings.savePassword;
+    }
+
+    /**
+     * Check whether the session (RAM) cache should be used for the given host.
+     * Checks the matching Mainframe password entry first; falls back to
+     * {@code settings.autoConnect}.
+     */
+    private static boolean shouldUseSessionCache(String host, Settings settings) {
+        Settings.PasswordEntryMeta entry = findMainframeEntry(host, settings);
+        return entry != null ? entry.sessionCache : settings.autoConnect;
     }
 }
