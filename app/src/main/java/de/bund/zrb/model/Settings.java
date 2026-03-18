@@ -38,24 +38,14 @@ public class Settings {
     /** KeePass access method: "POWERSHELL" (default) or "RPC" (KeePassRPC plugin). */
     public String keepassAccessMethod = "POWERSHELL";
 
-    /** Default host for KeePassRPC — IPv4 loopback to avoid IPv6 "Connection reset". */
-    public static final String DEFAULT_RPC_HOST = "127.0.0.1";
-
     /** KeePassRPC host address (default 127.0.0.1). Only used when keepassAccessMethod = RPC. */
-    public String keepassRpcHost = DEFAULT_RPC_HOST;
+    public String keepassRpcHost = "127.0.0.1";
 
     /** KeePassRPC port (default 12546). Only used when keepassAccessMethod = RPC. */
     public int keepassRpcPort = 12546;
 
     /** Shared SRP key for KeePassRPC authentication (from KeePass pairing dialog). */
     public String keepassRpcKey = "";
-
-    /** Returns the effective RPC host, falling back to {@link #DEFAULT_RPC_HOST} if null/empty. */
-    public String getEffectiveRpcHost() {
-        return (keepassRpcHost != null && !keepassRpcHost.trim().isEmpty())
-                ? keepassRpcHost.trim()
-                : DEFAULT_RPC_HOST;
-    }
 
     public boolean lockEnabled = true;
     public int lockDelay = 180_000;

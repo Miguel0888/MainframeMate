@@ -142,7 +142,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         keepassDatabaseField = new JTextField(safe(settings.keepassDatabasePath), 30);
         keepassEntryTitleField = new JTextField(safe(settings.keepassEntryTitle), 20);
         keepassAccessMethodBox = new JComboBox<>(new String[]{"PowerShell", "KeePassRPC"});
-        keepassRpcHostField = new JTextField(settings.getEffectiveRpcHost(), 15);
+        keepassRpcHostField = new JTextField(safe(settings.keepassRpcHost), 15);
         keepassRpcPortSpinner = new JSpinner(new SpinnerNumberModel(settings.keepassRpcPort, 1, 65535, 1));
         keepassRpcKeyField = new JPasswordField(safe(settings.keepassRpcKey), 30);
 
