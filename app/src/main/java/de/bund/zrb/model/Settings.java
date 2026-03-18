@@ -155,9 +155,11 @@ public class Settings {
     public boolean cosmicClockGermanNames = true;          // Sternbild-Namen auf Deutsch anzeigen (false = Englisch/Latein)
     public java.util.List<MouseFkeyBinding> tn3270MouseFkeyBindings = MouseFkeyBinding.getDefaults(); // Maus→F-Key Zuordnungen
 
-    // Wiki Settings
-    // Each entry: "id|displayName|apiUrl|requiresLogin|useProxy|autoIndex"
-    // e.g. "wikipedia_de|Wikipedia (DE)|https://de.wikipedia.org/w/|false|false|false"
+    /**
+     * @deprecated Wiki sites are now managed via {@link #passwordEntries} (category "Wiki").
+     * This field is kept only for backward compatibility with old settings files.
+     */
+    @Deprecated
     public List<String> wikiSites = new ArrayList<>(java.util.Arrays.asList(
             "wikipedia_de|Wikipedia (DE)|https://de.wikipedia.org/w/|false",
             "wikipedia_en|Wikipedia (EN)|https://en.wikipedia.org/w/|false"

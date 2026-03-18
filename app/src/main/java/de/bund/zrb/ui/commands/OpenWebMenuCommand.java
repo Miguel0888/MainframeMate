@@ -76,10 +76,10 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         // (loads settings fresh each time to pick up credentials set after tab was opened)
         tab.setCredentialsCallback(siteId -> {
             String siteKey = siteId.value();
-            String credKey = de.bund.zrb.util.CredentialStore.wikiKey(siteKey);
+            String credKey = "pwd:" + siteKey;
             LOG.fine("[Wiki] CredentialsCallback for site '" + siteKey + "' credKey='" + credKey + "'");
             try {
-                String[] cred = de.bund.zrb.util.CredentialStore.resolve(credKey);
+                String[] cred = de.bund.zrb.util.CredentialStore.resolveIncludingEmpty(credKey);
                 if (cred != null) {
                     LOG.fine("[Wiki] Resolved credentials: user='" + cred[0] + "' for site '" + siteKey + "'");
                     return new WikiCredentials(cred[0], cred[1].toCharArray());
@@ -102,7 +102,7 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         tab.setCredentialsSaveCallback((siteId, username, password) -> {
             try {
                 de.bund.zrb.util.CredentialStore.store(
-                        de.bund.zrb.util.CredentialStore.wikiKey(siteId.value()),
+                        "pwd:" + siteId.value(),
                         username, password);
                 LOG.info("[Wiki] Credentials saved for site '" + siteId.value() + "' user='" + username + "'");
             } catch (de.bund.zrb.util.JnaBlockedException e) {
@@ -265,32 +265,33 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         });
     }
 
+    /**
+     * Build wiki site descriptors from the central {@code passwordEntries} (category "Wiki").
+     * No longer reads from the legacy {@code settings.wikiSites} list.
+     */
     private List<WikiSiteDescriptor> parseWikiSites() {
         Settings settings = SettingsHelper.load();
         List<WikiSiteDescriptor> result = new ArrayList<WikiSiteDescriptor>();
 
-        if (settings.wikiSites == null) return result;
-
-        for (String entry : settings.wikiSites) {
-            String[] parts = entry.split("\\|", 6);
-            if (parts.length >= 3) {
-                String id = parts[0].trim();
-                String name = parts[1].trim();
-                String url = parts[2].trim();
-                boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
-                boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
-                boolean autoIdx = parts.length >= 6 && "true".equalsIgnoreCase(parts[5].trim());
-                result.add(new WikiSiteDescriptor(new WikiSiteId(id), name, url, login, proxy, autoIdx));
-            }
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if (!"Wiki".equals(meta.category)) continue;
+            String name = (meta.displayName != null && !meta.displayName.isEmpty())
+                    ? meta.displayName : meta.id;
+            String url = meta.url != null ? meta.url : "";
+            if (url.isEmpty()) continue; // Wiki entries without URL are useless
+            result.add(new WikiSiteDescriptor(
+                    new WikiSiteId(meta.id), name, url,
+                    meta.requiresLogin, meta.useProxy, meta.autoIndex));
         }
         return result;
     }
 
     private WikiCredentials resolveCredentials(WikiSiteId siteId) {
         try {
-            String[] cred = de.bund.zrb.util.CredentialStore.resolve(
-                    de.bund.zrb.util.CredentialStore.wikiKey(siteId.value()));
-            if (cred != null) {
+            // Resolve from central password store (pwd:<id>)
+            String[] cred = de.bund.zrb.util.CredentialStore.resolveIncludingEmpty(
+                    "pwd:" + siteId.value());
+            if (cred != null && !cred[0].isEmpty()) {
                 return new WikiCredentials(cred[0], cred[1].toCharArray());
             }
         } catch (de.bund.zrb.util.JnaBlockedException e) {

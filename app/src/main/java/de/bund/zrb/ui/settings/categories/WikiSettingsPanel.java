@@ -103,7 +103,6 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
 
     /**
      * Load wiki site descriptors from {@code settings.passwordEntries} (category "Wiki").
-     * Falls back to legacy {@code settings.wikiSites} if no password entries exist.
      */
     private List<WikiSiteRow> loadWikiSitesFromPasswordEntries() {
         Settings s = SettingsHelper.load();
@@ -135,44 +134,12 @@ public class WikiSettingsPanel extends AbstractSettingsPanel {
                     hasCreds));
         }
 
-        // Fallback: if no Wiki password entries exist, show legacy wikiSites entries
-        if (rows.isEmpty() && s.wikiSites != null) {
-            for (String entry : s.wikiSites) {
-                String[] parts = entry.split("\\|", 6);
-                if (parts.length >= 3) {
-                    String id = parts[0].trim();
-                    String name = parts[1].trim();
-                    String url = parts[2].trim();
-                    boolean login = parts.length >= 4 && "true".equalsIgnoreCase(parts[3].trim());
-                    boolean proxy = parts.length >= 5 && "true".equalsIgnoreCase(parts[4].trim());
-                    boolean autoIdx = parts.length >= 6 && "true".equalsIgnoreCase(parts[5].trim());
-                    rows.add(new WikiSiteRow(id, name, url, login, proxy, autoIdx, "", false));
-                }
-            }
-        }
 
         return rows;
     }
 
     @Override
     protected void applyToSettings(Settings s) {
-        // Sync wikiSites from passwordEntries for backward compatibility
-        // (OpenWebMenuCommand.parseWikiSites reads from settings.wikiSites)
-        List<String> serialized = new ArrayList<String>();
-        for (Settings.PasswordEntryMeta meta : s.passwordEntries) {
-            if ("Wiki".equals(meta.category)) {
-                serialized.add(meta.id + "|"
-                        + (meta.displayName != null ? meta.displayName : meta.id) + "|"
-                        + (meta.url != null ? meta.url : "") + "|"
-                        + meta.requiresLogin + "|"
-                        + meta.useProxy + "|"
-                        + meta.autoIndex);
-            }
-        }
-        if (!serialized.isEmpty()) {
-            s.wikiSites = serialized;
-        }
-        // else keep existing wikiSites (legacy data)
 
         s.wikiPrefetchMaxItems = (Integer) prefetchMaxItemsSpinner.getValue();
         s.wikiPrefetchConcurrency = (Integer) prefetchConcurrencySpinner.getValue();

@@ -614,11 +614,6 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         SettingsHelper.save(settings);
 
         CredentialStore.store(PWD_PREFIX + entry.title, entry.userName, entry.password);
-
-        // For Wiki entries, also store under "wiki:<id>" for OpenWebMenuCommand compatibility
-        if ("Wiki".equals(entry.category)) {
-            CredentialStore.store(CredentialStore.wikiKey(entry.title), entry.userName, entry.password);
-        }
     }
 
     private static void saveToKeePass(KeePassEntry entry) {
@@ -645,11 +640,6 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }
             SettingsHelper.save(settings);
             CredentialStore.remove(PWD_PREFIX + entry.title);
-
-            // For Wiki entries, also remove the "wiki:<id>" key
-            if ("Wiki".equals(entry.category)) {
-                CredentialStore.remove(CredentialStore.wikiKey(entry.title));
-            }
         }
     }
 
