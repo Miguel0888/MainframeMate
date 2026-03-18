@@ -540,10 +540,10 @@ public class JclDependencyService {
                 break;
         }
 
-        // Recursively process children (e.g. DDs under EXEC steps)
-        for (JclElement child : elem.getChildren()) {
-            extractDependencies(child, deps);
-        }
+        // Note: no recursive child processing needed here because model.getElements()
+        // already contains ALL elements (JOB, EXEC, DD, etc.) in a flat list.
+        // The parser adds children to parent elements for structural queries (getJobs(), etc.)
+        // but also adds them to the flat list, so iterating getElements() covers everything.
     }
 
     /**

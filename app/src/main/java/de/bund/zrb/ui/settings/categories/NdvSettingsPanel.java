@@ -4,13 +4,17 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.settings.FormBuilder;
 
 import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class NdvSettingsPanel extends AbstractSettingsPanel {
 
     private final JSpinner ndvPortSpinner;
     private final JTextField ndvDefaultLibraryField;
     private final JTextField ndvLibPathField;
+    private final DefaultTableModel mappingTableModel;
 
     public NdvSettingsPanel() {
         super("ndv", "NDV-Verbindung");
@@ -46,6 +50,54 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
 
         fb.addInfo("Benötigte JARs: ndvserveraccess_*.jar, auxiliary_*.jar (NaturalONE)");
 
+        // ── Natural Library Mappings (STEPLIB → NDV) ──
+        fb.addSection("Natural-Bibliothekszuordnung (STEPLIB → NDV)");
+        fb.addInfo("Ordnet JCL-STEPLIB-Namen der entsprechenden NDV-Bibliothek zu (z.B. ABAK-M → ABAK-T).<br>"
+                + "Wird beim Öffnen von Natural-Programmen aus der JCL-Analyse verwendet.");
+
+        mappingTableModel = new DefaultTableModel(new String[]{"STEPLIB (JCL)", "NDV-Bibliothek"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return true;
+            }
+        };
+        // Load existing mappings
+        if (settings.naturalLibraryMappings != null) {
+            for (Map.Entry<String, String> entry : settings.naturalLibraryMappings.entrySet()) {
+                mappingTableModel.addRow(new Object[]{entry.getKey(), entry.getValue()});
+            }
+        }
+
+        JTable mappingTable = new JTable(mappingTableModel);
+        mappingTable.setRowHeight(24);
+        mappingTable.getTableHeader().setReorderingAllowed(false);
+        JScrollPane tableScroll = new JScrollPane(mappingTable);
+        tableScroll.setPreferredSize(new Dimension(0, 120));
+
+        JButton addBtn = new JButton("➕ Hinzufügen");
+        addBtn.addActionListener(e -> {
+            mappingTableModel.addRow(new Object[]{"", ""});
+            int row = mappingTableModel.getRowCount() - 1;
+            mappingTable.editCellAt(row, 0);
+            mappingTable.changeSelection(row, 0, false, false);
+        });
+
+        JButton removeBtn = new JButton("➖ Entfernen");
+        removeBtn.addActionListener(e -> {
+            int sel = mappingTable.getSelectedRow();
+            if (sel >= 0) {
+                if (mappingTable.isEditing()) mappingTable.getCellEditor().stopCellEditing();
+                mappingTableModel.removeRow(sel);
+            }
+        });
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        btnPanel.add(addBtn);
+        btnPanel.add(removeBtn);
+
+        fb.addWideGrow(tableScroll);
+        fb.addWide(btnPanel);
+
         installPanel(fb);
     }
 
@@ -54,6 +106,16 @@ public class NdvSettingsPanel extends AbstractSettingsPanel {
         s.ndvPort = ((Number) ndvPortSpinner.getValue()).intValue();
         s.ndvDefaultLibrary = ndvDefaultLibraryField.getText().trim();
         s.ndvLibPath = ndvLibPathField.getText().trim();
+
+        // Save Natural library mappings from table
+        s.naturalLibraryMappings = new LinkedHashMap<>();
+        for (int i = 0; i < mappingTableModel.getRowCount(); i++) {
+            String stepLib = String.valueOf(mappingTableModel.getValueAt(i, 0)).trim().toUpperCase();
+            String ndvLib = String.valueOf(mappingTableModel.getValueAt(i, 1)).trim().toUpperCase();
+            if (!stepLib.isEmpty() && !ndvLib.isEmpty()) {
+                s.naturalLibraryMappings.put(stepLib, ndvLib);
+            }
+        }
     }
 }
 
