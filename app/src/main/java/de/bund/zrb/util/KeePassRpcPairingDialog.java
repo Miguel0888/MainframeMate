@@ -52,7 +52,8 @@ public final class KeePassRpcPairingDialog {
     private static final int PROTOCOL_VERSION = (1 << 16) | (7 << 8) | 2;
     private static final String[] FEATURES = {
             "KPRPC_FEATURE_VERSION_1_6",
-            "KPRPC_FEATURE_WARN_USER_WHEN_FEATURE_MISSING"
+            "KPRPC_FEATURE_WARN_USER_WHEN_FEATURE_MISSING",
+            "KPRPC_ENTRIES_WITH_NO_URL"
     };
 
     private KeePassRpcPairingDialog() {}

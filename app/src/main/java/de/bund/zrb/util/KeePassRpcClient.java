@@ -59,7 +59,8 @@ final class KeePassRpcClient {
     // Features required by the server for version-mismatched clients
     private static final String[] FEATURES = {
             "KPRPC_FEATURE_VERSION_1_6",
-            "KPRPC_FEATURE_WARN_USER_WHEN_FEATURE_MISSING"
+            "KPRPC_FEATURE_WARN_USER_WHEN_FEATURE_MISSING",
+            "KPRPC_ENTRIES_WITH_NO_URL"
     };
 
     // ── Instance state ──────────────────────────────────────────────────
@@ -186,7 +187,7 @@ final class KeePassRpcClient {
      * List all entries visible to KeePassRPC.
      */
     String listEntries() {
-        String response = rpcCall("GetAllLogins", new JsonArray());
+        String response = rpcCall("GetAllEntries", new JsonArray());
         try {
             JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
             if (resp.has("result")) {
@@ -328,7 +329,7 @@ final class KeePassRpcClient {
     }
 
     private JsonArray getAllAndFilterByTitle(String title) {
-        String response = rpcCall("GetAllLogins", new JsonArray());
+        String response = rpcCall("GetAllEntries", new JsonArray());
         try {
             JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
             if (!resp.has("result")) return null;
