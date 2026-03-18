@@ -184,6 +184,36 @@ final class KeePassRpcClient {
     }
 
     /**
+     * Query the filename of the currently active KeePass database.
+     * Tries {@code GetDatabaseFileName} first, falls back to {@code GetDatabaseName}.
+     *
+     * @return the database filename, or empty string if not available
+     */
+    String getDatabaseFileName() {
+        try {
+            String response = rpcCall("GetDatabaseFileName", new JsonArray());
+            JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
+            if (resp.has("result") && !resp.get("result").isJsonNull()) {
+                String name = resp.get("result").getAsString();
+                if (name != null && !name.isEmpty()) return name;
+            }
+        } catch (Exception e) {
+            LOG.fine("[KeePassRPC] GetDatabaseFileName failed: " + e.getMessage());
+        }
+        try {
+            String response = rpcCall("GetDatabaseName", new JsonArray());
+            JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
+            if (resp.has("result") && !resp.get("result").isJsonNull()) {
+                String name = resp.get("result").getAsString();
+                if (name != null && !name.isEmpty()) return name;
+            }
+        } catch (Exception e) {
+            LOG.fine("[KeePassRPC] GetDatabaseName failed: " + e.getMessage());
+        }
+        return "";
+    }
+
+    /**
      * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call.
      *
      * @param title    entry title
@@ -302,11 +332,17 @@ final class KeePassRpcClient {
         }
 
         // UpdateLogin(login, oldLoginUUID, urlMergeMode, dbFileName)
+        // Server requires non-empty dbFileName (throws ArgumentException otherwise).
+        // Extract from existing entry, or query active database name via RPC.
+        String dbFile = jsonStr(existing, "dbFileName", "db");
+        if (dbFile.isEmpty()) dbFile = getDatabaseFileName();
+        if (dbFile.isEmpty()) dbFile = "*";  // last resort fallback
+
         JsonArray params = new JsonArray();
         params.add(login);
         params.add(uniqueID);
-        params.add(2);    // urlMergeMode: 2 = replace
-        params.add("");   // dbFileName — empty = default
+        params.add(2);       // urlMergeMode: 2 = replace
+        params.add(dbFile);  // dbFileName — must be non-empty
 
         String response = rpcCall("UpdateLogin", params);
         try {
