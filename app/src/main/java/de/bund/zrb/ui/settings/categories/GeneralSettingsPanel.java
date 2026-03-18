@@ -136,29 +136,40 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         keepassDatabaseField = new JTextField(safe(settings.keepassDatabasePath), 30);
         keepassEntryTitleField = new JTextField(safe(settings.keepassEntryTitle), 20);
 
-        keepassConfigPanel = new JPanel(new java.awt.GridLayout(0, 1, 2, 2));
+        keepassConfigPanel = new JPanel(new GridBagLayout());
         keepassConfigPanel.setBorder(BorderFactory.createTitledBorder("KeePass-Konfiguration"));
+        GridBagConstraints kc = new GridBagConstraints();
+        kc.insets = new Insets(3, 6, 3, 6);
+        kc.anchor = GridBagConstraints.WEST;
+        kc.gridy = 0;
 
-        JPanel row1 = new JPanel(new java.awt.BorderLayout(4, 0));
-        row1.add(new JLabel("KeePass-Verzeichnis:"), java.awt.BorderLayout.WEST);
-        row1.add(keepassKpScriptField, java.awt.BorderLayout.CENTER);
+        // Row 1: KeePass-Verzeichnis
+        kc.gridx = 0; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
+        keepassConfigPanel.add(new JLabel("KeePass-Verzeichnis:"), kc);
+        kc.gridx = 1; kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
+        keepassConfigPanel.add(keepassKpScriptField, kc);
+        kc.gridx = 2; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
         JButton browseKpDir = new JButton("…");
         browseKpDir.addActionListener(e -> browseDirectory(keepassKpScriptField, "KeePass-Installationsverzeichnis"));
-        row1.add(browseKpDir, java.awt.BorderLayout.EAST);
-        keepassConfigPanel.add(row1);
+        keepassConfigPanel.add(browseKpDir, kc);
 
-        JPanel row2 = new JPanel(new java.awt.BorderLayout(4, 0));
-        row2.add(new JLabel("Datenbank (.kdbx):"), java.awt.BorderLayout.WEST);
-        row2.add(keepassDatabaseField, java.awt.BorderLayout.CENTER);
+        // Row 2: Datenbank
+        kc.gridy = 1;
+        kc.gridx = 0; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
+        keepassConfigPanel.add(new JLabel("Datenbank (.kdbx):"), kc);
+        kc.gridx = 1; kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
+        keepassConfigPanel.add(keepassDatabaseField, kc);
+        kc.gridx = 2; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
         JButton browseDb = new JButton("…");
         browseDb.addActionListener(e -> browseFile(keepassDatabaseField, "KeePass-Datenbank", "kdbx"));
-        row2.add(browseDb, java.awt.BorderLayout.EAST);
-        keepassConfigPanel.add(row2);
+        keepassConfigPanel.add(browseDb, kc);
 
-        JPanel row3 = new JPanel(new java.awt.BorderLayout(4, 0));
-        row3.add(new JLabel("Eintragstitel:"), java.awt.BorderLayout.WEST);
-        row3.add(keepassEntryTitleField, java.awt.BorderLayout.CENTER);
-        keepassConfigPanel.add(row3);
+        // Row 3: Eintragstitel
+        kc.gridy = 2;
+        kc.gridx = 0; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
+        keepassConfigPanel.add(new JLabel("Eintragstitel:"), kc);
+        kc.gridx = 1; kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
+        keepassConfigPanel.add(keepassEntryTitleField, kc);
 
         fb.addWide(keepassConfigPanel);
 
