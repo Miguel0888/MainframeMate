@@ -222,6 +222,22 @@ final class KeePassRpcClient {
      * @param url      URL (may be empty)
      */
     void addLogin(String title, String userName, String password, String url) {
+        addLogin(title, userName, password, url, null, null);
+    }
+
+    /**
+     * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call,
+     * optionally storing a display name in the Notes field and a category in Tags.
+     *
+     * @param title       entry title
+     * @param userName    username
+     * @param password    password
+     * @param url         URL (may be empty)
+     * @param displayName display name to store in the Notes field (may be {@code null})
+     * @param category    category to store in the Tags field (may be {@code null})
+     */
+    void addLogin(String title, String userName, String password, String url,
+                  String displayName, String category) {
         // Build form field list (V1 DTO)
         JsonArray formFields = new JsonArray();
 
@@ -247,6 +263,17 @@ final class KeePassRpcClient {
         JsonObject login = new JsonObject();
         login.addProperty("title", title);
         login.add("formFieldList", formFields);
+
+        // Notes → displayName (best-effort; may be ignored by older KeePassRPC versions)
+        if (displayName != null && !displayName.isEmpty()) {
+            login.addProperty("notes", displayName);
+        }
+        // Tags → category (best-effort)
+        if (category != null && !category.isEmpty()) {
+            JsonArray tagsArr = new JsonArray();
+            tagsArr.add(category);
+            login.add("tags", tagsArr);
+        }
 
         JsonArray urls = new JsonArray();
         if (url != null && !url.isEmpty()) {
@@ -285,11 +312,26 @@ final class KeePassRpcClient {
      * @param password new password
      */
     void updateLogin(String title, String userName, String password) {
+        updateLogin(title, userName, password, null, null);
+    }
+
+    /**
+     * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call,
+     * optionally storing a display name in the Notes field and a category in Tags.
+     *
+     * @param title       entry title (used to find existing entry)
+     * @param userName    new username
+     * @param password    new password
+     * @param displayName display name to store in the Notes field (may be {@code null})
+     * @param category    category to store in the Tags field (may be {@code null})
+     */
+    void updateLogin(String title, String userName, String password,
+                     String displayName, String category) {
         // First find the existing entry to get its uniqueID
         JsonArray entries = findLoginsByTitle(title);
         if (entries == null || entries.size() == 0) {
             // Entry doesn't exist yet — create it
-            addLogin(title, userName, password, "");
+            addLogin(title, userName, password, "", displayName, category);
             return;
         }
 
@@ -321,6 +363,17 @@ final class KeePassRpcClient {
         login.addProperty("title", title);
         login.add("formFieldList", formFields);
         login.addProperty("uniqueID", uniqueID);
+
+        // Notes → displayName (best-effort; may be ignored by older KeePassRPC versions)
+        if (displayName != null && !displayName.isEmpty()) {
+            login.addProperty("notes", displayName);
+        }
+        // Tags → category (best-effort)
+        if (category != null && !category.isEmpty()) {
+            JsonArray tagsArr = new JsonArray();
+            tagsArr.add(category);
+            login.add("tags", tagsArr);
+        }
 
         // Preserve existing URLs
         if (existing.has("uRLs")) {
@@ -701,6 +754,20 @@ final class KeePassRpcClient {
 
                 sb.append("URL: ").append(jsonStr(e, "url", "uRLs")).append('\n');
                 sb.append("UniqueID: ").append(jsonStr(e, "uniqueID")).append('\n');
+                sb.append("Notes: ").append(jsonStr(e, "notes")).append('\n');
+
+                // Tags — may be a JSON array of strings
+                StringBuilder tags = new StringBuilder();
+                if (e.has("tags") && e.get("tags").isJsonArray()) {
+                    for (JsonElement t : e.getAsJsonArray("tags")) {
+                        if (tags.length() > 0) tags.append(',');
+                        tags.append(t.getAsString());
+                    }
+                } else {
+                    tags.append(jsonStr(e, "tags"));
+                }
+                sb.append("Tags: ").append(tags).append('\n');
+
                 sb.append('\n');
             }
         }

@@ -205,12 +205,13 @@ public final class CredentialStore {
      * Create a new entry in KeePass.
      * Uses RPC or PowerShell depending on the configured access method.
      */
-    public static void addKeePassEntry(String title, String userName, String password, String url) {
+    public static void addKeePassEntry(String title, String userName, String password, String url,
+                                       String displayName, String category) {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            KeePassProvider.rpcAddEntry(title, userName, password, url);
+            KeePassProvider.rpcAddEntry(title, userName, password, url, displayName, category);
         } else {
-            KeePassProvider.psAddEntry(title, userName, password);
+            KeePassProvider.psAddEntry(title, userName, password, displayName, category);
         }
     }
 
@@ -218,12 +219,13 @@ public final class CredentialStore {
      * Update an existing entry in KeePass.
      * Uses RPC or PowerShell depending on the configured access method.
      */
-    public static void updateKeePassEntry(String title, String userName, String password) {
+    public static void updateKeePassEntry(String title, String userName, String password,
+                                          String displayName, String category) {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            KeePassProvider.rpcUpdateEntry(title, userName, password);
+            KeePassProvider.rpcUpdateEntry(title, userName, password, displayName, category);
         } else {
-            KeePassProvider.psUpdateEntry(title, userName, password);
+            KeePassProvider.psUpdateEntry(title, userName, password, displayName, category);
         }
     }
 

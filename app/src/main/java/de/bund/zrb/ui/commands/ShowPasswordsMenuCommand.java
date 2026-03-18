@@ -185,7 +185,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (created != null) {
                 try {
                     CredentialStore.addKeePassEntry(
-                            created.title, created.userName, created.password, created.url);
+                            created.title, created.userName, created.password, created.url,
+                            created.displayName, created.category);
                     entries.add(created);
                     model.fireTableDataChanged();
                 } catch (Exception ex) {
@@ -212,7 +213,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (updated != null) {
                 try {
                     CredentialStore.updateKeePassEntry(
-                            updated.title, updated.userName, updated.password);
+                            updated.title, updated.userName, updated.password,
+                            updated.displayName, updated.category);
                     entries.set(modelRow, updated);
                     model.fireTableDataChanged();
                 } catch (Exception ex) {
@@ -487,6 +489,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             String password = "";
             String url = "";
             String uniqueID = "";
+            String notes = "";
+            String tags = "";
 
             for (String line : block.split("\\n")) {
                 line = line.trim();
@@ -495,11 +499,15 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 else if (line.startsWith("Password: "))  password = line.substring("Password: ".length()).trim();
                 else if (line.startsWith("URL: "))       url      = line.substring("URL: ".length()).trim();
                 else if (line.startsWith("UniqueID: "))  uniqueID = line.substring("UniqueID: ".length()).trim();
+                else if (line.startsWith("Notes: "))     notes    = line.substring("Notes: ".length()).trim();
+                else if (line.startsWith("Tags: "))      tags     = line.substring("Tags: ".length()).trim();
             }
 
             if (!title.isEmpty()) {
-                // Default category "General", displayName = title
-                entries.add(new KeePassEntry("General", title, title, userName, password, url, uniqueID,
+                // Notes → displayName, Tags → category
+                String displayName = !notes.isEmpty() ? notes : title;
+                String category = !tags.isEmpty() ? tags : "General";
+                entries.add(new KeePassEntry(category, title, displayName, userName, password, url, uniqueID,
                         false, false, false));
             }
         }
