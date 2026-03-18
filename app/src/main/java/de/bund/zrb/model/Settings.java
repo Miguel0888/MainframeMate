@@ -35,6 +35,15 @@ public class Settings {
     /** Entry title inside the KeePass database to read/write credentials (only used when passwordMethod = KEEPASS). */
     public String keepassEntryTitle = "MainframeMate";
 
+    /** KeePass access method: "POWERSHELL" (default) or "RPC" (KeePassRPC plugin). */
+    public String keepassAccessMethod = "POWERSHELL";
+
+    /** KeePassRPC port (default 12546). Only used when keepassAccessMethod = RPC. */
+    public int keepassRpcPort = 12546;
+
+    /** Shared SRP key for KeePassRPC authentication (from KeePass pairing dialog). */
+    public String keepassRpcKey = "";
+
     public boolean lockEnabled = true;
     public int lockDelay = 180_000;
     public int lockPrenotification = 10_000;

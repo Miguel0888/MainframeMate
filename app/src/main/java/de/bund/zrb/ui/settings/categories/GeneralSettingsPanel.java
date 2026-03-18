@@ -36,6 +36,11 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JTextField keepassDatabaseField;
     private final JTextField keepassEntryTitleField;
     private final JPanel keepassConfigPanel;
+    private final JComboBox<String> keepassAccessMethodBox;
+    private final JSpinner keepassRpcPortSpinner;
+    private final JPasswordField keepassRpcKeyField;
+    private final JPanel keepassPsPanel;
+    private final JPanel keepassRpcPanel;
     private final JCheckBox historyEnabledBox;
     private final JSpinner historyMaxVersionsSpinner;
     private final JSpinner historyMaxAgeDaysSpinner;
@@ -135,6 +140,12 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         keepassKpScriptField = new JTextField(safe(settings.keepassInstallPath), 30);
         keepassDatabaseField = new JTextField(safe(settings.keepassDatabasePath), 30);
         keepassEntryTitleField = new JTextField(safe(settings.keepassEntryTitle), 20);
+        keepassAccessMethodBox = new JComboBox<>(new String[]{"PowerShell", "KeePassRPC"});
+        keepassRpcPortSpinner = new JSpinner(new SpinnerNumberModel(settings.keepassRpcPort, 1, 65535, 1));
+        keepassRpcKeyField = new JPasswordField(safe(settings.keepassRpcKey), 30);
+
+        boolean isRpc = "RPC".equalsIgnoreCase(settings.keepassAccessMethod);
+        keepassAccessMethodBox.setSelectedIndex(isRpc ? 1 : 0);
 
         keepassConfigPanel = new JPanel(new GridBagLayout());
         keepassConfigPanel.setBorder(BorderFactory.createTitledBorder("KeePass-Konfiguration"));
@@ -143,17 +154,13 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         kc.anchor = GridBagConstraints.WEST;
         kc.gridy = 0;
 
-        // Row 1: KeePass-Verzeichnis
+        // Row 0: Access method
         kc.gridx = 0; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
-        keepassConfigPanel.add(new JLabel("KeePass-Verzeichnis:"), kc);
+        keepassConfigPanel.add(new JLabel("Zugriffsmethode:"), kc);
         kc.gridx = 1; kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
-        keepassConfigPanel.add(keepassKpScriptField, kc);
-        kc.gridx = 2; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
-        JButton browseKpDir = new JButton("…");
-        browseKpDir.addActionListener(e -> browseDirectory(keepassKpScriptField, "KeePass-Installationsverzeichnis"));
-        keepassConfigPanel.add(browseKpDir, kc);
+        keepassConfigPanel.add(keepassAccessMethodBox, kc);
 
-        // Row 2: Datenbank
+        // Row 1: Datenbank (shared)
         kc.gridy = 1;
         kc.gridx = 0; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
         keepassConfigPanel.add(new JLabel("Datenbank (.kdbx):"), kc);
@@ -164,14 +171,72 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         browseDb.addActionListener(e -> browseFile(keepassDatabaseField, "KeePass-Datenbank", "kdbx"));
         keepassConfigPanel.add(browseDb, kc);
 
-        // Row 3: Eintragstitel
+        // Row 2: Eintragstitel (shared)
         kc.gridy = 2;
         kc.gridx = 0; kc.fill = GridBagConstraints.NONE; kc.weightx = 0;
         keepassConfigPanel.add(new JLabel("Eintragstitel:"), kc);
         kc.gridx = 1; kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
         keepassConfigPanel.add(keepassEntryTitleField, kc);
 
+        // ── PowerShell-specific sub-panel ──
+        keepassPsPanel = new JPanel(new GridBagLayout());
+        keepassPsPanel.setBorder(BorderFactory.createTitledBorder("PowerShell"));
+        GridBagConstraints pc = new GridBagConstraints();
+        pc.insets = new Insets(3, 6, 3, 6);
+        pc.anchor = GridBagConstraints.WEST;
+        pc.gridy = 0;
+        pc.gridx = 0; pc.fill = GridBagConstraints.NONE; pc.weightx = 0;
+        keepassPsPanel.add(new JLabel("KeePass-Verzeichnis:"), pc);
+        pc.gridx = 1; pc.fill = GridBagConstraints.HORIZONTAL; pc.weightx = 1;
+        keepassPsPanel.add(keepassKpScriptField, pc);
+        pc.gridx = 2; pc.fill = GridBagConstraints.NONE; pc.weightx = 0;
+        JButton browseKpDir = new JButton("…");
+        browseKpDir.addActionListener(e -> browseDirectory(keepassKpScriptField, "KeePass-Installationsverzeichnis"));
+        keepassPsPanel.add(browseKpDir, pc);
+
+        kc.gridy = 3; kc.gridx = 0; kc.gridwidth = 3;
+        kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
+        keepassConfigPanel.add(keepassPsPanel, kc);
+        kc.gridwidth = 1;
+
+        // ── KeePassRPC-specific sub-panel ──
+        keepassRpcPanel = new JPanel(new GridBagLayout());
+        keepassRpcPanel.setBorder(BorderFactory.createTitledBorder("KeePassRPC"));
+        GridBagConstraints rc = new GridBagConstraints();
+        rc.insets = new Insets(3, 6, 3, 6);
+        rc.anchor = GridBagConstraints.WEST;
+        rc.gridy = 0;
+        rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
+        keepassRpcPanel.add(new JLabel("Port:"), rc);
+        rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
+        keepassRpcPanel.add(keepassRpcPortSpinner, rc);
+        rc.gridy = 1;
+        rc.gridx = 0; rc.fill = GridBagConstraints.NONE; rc.weightx = 0;
+        keepassRpcPanel.add(new JLabel("SRP-Schlüssel:"), rc);
+        rc.gridx = 1; rc.fill = GridBagConstraints.HORIZONTAL; rc.weightx = 1;
+        keepassRpcPanel.add(keepassRpcKeyField, rc);
+        rc.gridy = 2; rc.gridx = 0; rc.gridwidth = 2;
+        JLabel rpcHint = new JLabel("<html><small>Den Schlüssel erhalten Sie aus KeePass beim ersten "
+                + "Verbindungsaufbau (Pairing-Dialog).</small></html>");
+        rpcHint.setForeground(java.awt.Color.GRAY);
+        keepassRpcPanel.add(rpcHint, rc);
+
+        kc.gridy = 4; kc.gridx = 0; kc.gridwidth = 3;
+        kc.fill = GridBagConstraints.HORIZONTAL; kc.weightx = 1;
+        keepassConfigPanel.add(keepassRpcPanel, kc);
+        kc.gridwidth = 1;
+
         fb.addWide(keepassConfigPanel);
+
+        // Toggle sub-panel visibility based on access method
+        keepassPsPanel.setVisible(!isRpc);
+        keepassRpcPanel.setVisible(isRpc);
+        keepassAccessMethodBox.addActionListener(e -> {
+            boolean rpc = keepassAccessMethodBox.getSelectedIndex() == 1;
+            keepassPsPanel.setVisible(!rpc);
+            keepassRpcPanel.setVisible(rpc);
+            keepassConfigPanel.revalidate();
+        });
 
         // Toggle KeePass config visibility
         keepassConfigPanel.setVisible(currentMethod == PasswordMethod.KEEPASS);
@@ -279,6 +344,9 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         s.keepassInstallPath = keepassKpScriptField.getText().trim();
         s.keepassDatabasePath = keepassDatabaseField.getText().trim();
         s.keepassEntryTitle = keepassEntryTitleField.getText().trim();
+        s.keepassAccessMethod = keepassAccessMethodBox.getSelectedIndex() == 1 ? "RPC" : "POWERSHELL";
+        s.keepassRpcPort = ((Number) keepassRpcPortSpinner.getValue()).intValue();
+        s.keepassRpcKey = new String(keepassRpcKeyField.getPassword()).trim();
         s.historyEnabled = historyEnabledBox.isSelected();
         s.historyMaxVersionsPerFile = ((Number) historyMaxVersionsSpinner.getValue()).intValue();
         s.historyMaxAgeDays = ((Number) historyMaxAgeDaysSpinner.getValue()).intValue();

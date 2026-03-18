@@ -42,6 +42,9 @@ final class KeePassProvider {
      */
     static String getPassword() {
         Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            return rpcGetField(settings, "password");
+        }
         validateConfig(settings);
         String script = buildGetFieldScript(settings, "Password");
         String result = execPowerShell(script).trim();
@@ -59,6 +62,15 @@ final class KeePassProvider {
      */
     static String getUserName() {
         Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            try {
+                String result = rpcGetField(settings, "username");
+                return (result != null && !result.isEmpty()) ? result : null;
+            } catch (KeePassNotAvailableException e) {
+                LOG.fine("Could not read UserName via RPC: " + e.getMessage());
+                return null;
+            }
+        }
         validateConfig(settings);
         try {
             String result = execPowerShell(buildGetFieldScript(settings, "UserName")).trim();
@@ -72,12 +84,20 @@ final class KeePassProvider {
     /**
      * Store (or update) a password in the KeePass database.
      * If the entry does not exist, it is created.
+     * <p>
+     * <b>Note:</b> KeePassRPC does not support creating/updating entries.
+     * In RPC mode this method is a no-op with a warning.
      *
      * @param password the plaintext password to store
      * @throws KeePassNotAvailableException on any failure
      */
     static void putPassword(String password) {
         Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            LOG.warning("[KeePass] putPassword not supported via KeePassRPC — password not stored. "
+                    + "Please update the entry in KeePass directly.");
+            return;
+        }
         validateConfig(settings);
 
         String dbPath = settings.keepassDatabasePath.trim();
@@ -118,6 +138,9 @@ final class KeePassProvider {
      */
     static String listEntries() {
         Settings settings = SettingsHelper.load();
+        if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+            return rpcListEntries(settings);
+        }
         validateConfig(settings);
 
         String script = preamble(settings)
@@ -277,6 +300,57 @@ final class KeePassProvider {
             output = output.substring(0, 500) + "\u2026";
         }
         return output;
+    }
+
+    // ── KeePassRPC helpers ──────────────────────────────────────────────
+
+    private static void validateRpcConfig(Settings settings) {
+        if (settings.keepassRpcKey == null || settings.keepassRpcKey.trim().isEmpty()) {
+            throw new KeePassNotAvailableException(
+                    "KeePassRPC-Schlüssel ist nicht konfiguriert.\n"
+                  + "Bitte unter Einstellungen \u2192 Allgemein \u2192 Sicherheit den SRP-Key eingeben.\n"
+                  + "Den Schlüssel erhalten Sie beim ersten Verbindungsaufbau aus KeePass.");
+        }
+        String entry = settings.keepassEntryTitle;
+        if (entry == null || entry.trim().isEmpty()) {
+            throw new KeePassNotAvailableException("KeePass-Eintragstitel ist nicht konfiguriert.");
+        }
+    }
+
+    private static String rpcGetField(Settings settings, String field) {
+        validateRpcConfig(settings);
+        KeePassRpcClient client = new KeePassRpcClient(
+                "localhost", settings.keepassRpcPort,
+                "MainframeMate", settings.keepassRpcKey.trim());
+        try {
+            client.connect();
+            String entry = settings.keepassEntryTitle.trim();
+            if ("password".equalsIgnoreCase(field)) {
+                String pw = client.getPassword(entry);
+                if (pw == null || pw.isEmpty()) {
+                    throw new KeePassNotAvailableException(
+                            "Kein Passwort im KeePass-Eintrag \"" + entry + "\" \u00fcber RPC gefunden.");
+                }
+                return pw;
+            } else {
+                return client.getUserName(entry);
+            }
+        } finally {
+            client.close();
+        }
+    }
+
+    private static String rpcListEntries(Settings settings) {
+        validateRpcConfig(settings);
+        KeePassRpcClient client = new KeePassRpcClient(
+                "localhost", settings.keepassRpcPort,
+                "MainframeMate", settings.keepassRpcKey.trim());
+        try {
+            client.connect();
+            return client.listEntries();
+        } finally {
+            client.close();
+        }
     }
 }
 
