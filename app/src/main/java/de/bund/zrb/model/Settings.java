@@ -192,12 +192,14 @@ public class Settings {
      */
     public static class PasswordEntryMeta {
         public String id = "";
-        public String category = "General";
+        public String category = "Mainframe";
         public String displayName = "";
         public String url = "";
         public boolean requiresLogin;
         public boolean useProxy;
         public boolean autoIndex;
+        public boolean savePassword;
+        public boolean sessionCache;
     }
 
     /** Maximum size in MB for volatile (prefetch) wiki cache entries. Default: 50 MB. */

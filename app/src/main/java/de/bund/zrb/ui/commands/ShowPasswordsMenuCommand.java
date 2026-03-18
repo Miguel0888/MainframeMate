@@ -26,7 +26,7 @@ import java.util.logging.Logger;
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static final Logger LOG = Logger.getLogger(ShowPasswordsMenuCommand.class.getName());
-    private static final List<String> CATEGORIES = Arrays.asList("General", "Wiki");
+    private static final List<String> CATEGORIES = Arrays.asList("Mainframe", "Wiki");
 
     private final JFrame parent;
 
@@ -88,19 +88,23 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         table.getColumnModel().getColumn(3).setPreferredWidth(120); // Benutzername
         table.getColumnModel().getColumn(4).setPreferredWidth(100); // Passwort
         table.getColumnModel().getColumn(5).setPreferredWidth(180); // URL
-        table.getColumnModel().getColumn(6).setPreferredWidth(50);  // Login
-        table.getColumnModel().getColumn(6).setMaxWidth(60);
-        table.getColumnModel().getColumn(7).setPreferredWidth(50);  // Proxy
-        table.getColumnModel().getColumn(7).setMaxWidth(60);
-        table.getColumnModel().getColumn(8).setPreferredWidth(60);  // Auto-Idx
-        table.getColumnModel().getColumn(8).setMaxWidth(70);
-        table.getColumnModel().getColumn(9).setPreferredWidth(36);  // 👁
-        table.getColumnModel().getColumn(9).setMaxWidth(40);
+        table.getColumnModel().getColumn(6).setPreferredWidth(46);  // Login
+        table.getColumnModel().getColumn(6).setMaxWidth(54);
+        table.getColumnModel().getColumn(7).setPreferredWidth(46);  // Proxy
+        table.getColumnModel().getColumn(7).setMaxWidth(54);
+        table.getColumnModel().getColumn(8).setPreferredWidth(56);  // Auto-Idx
+        table.getColumnModel().getColumn(8).setMaxWidth(64);
+        table.getColumnModel().getColumn(9).setPreferredWidth(72);  // PW-Speicher
+        table.getColumnModel().getColumn(9).setMaxWidth(80);
+        table.getColumnModel().getColumn(10).setPreferredWidth(54); // Session
+        table.getColumnModel().getColumn(10).setMaxWidth(62);
+        table.getColumnModel().getColumn(11).setPreferredWidth(36); // 👁
+        table.getColumnModel().getColumn(11).setMaxWidth(40);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
 
-        // Eye column (index 9): renderer + click handler
-        table.getColumnModel().getColumn(9).setCellRenderer(new DefaultTableCellRenderer() {
+        // Eye column (index 11): renderer + click handler
+        table.getColumnModel().getColumn(11).setCellRenderer(new DefaultTableCellRenderer() {
             {
                 setHorizontalAlignment(SwingConstants.CENTER);
             }
@@ -120,7 +124,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             public void mouseClicked(MouseEvent e) {
                 int col = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
-                if (col == 9 && row >= 0) {
+                if (col == 11 && row >= 0) {
                     int modelRow = table.convertRowIndexToModel(row);
                     visible[modelRow] = !visible[modelRow];
                     model.fireTableRowsUpdated(modelRow, modelRow);
@@ -129,7 +133,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         });
 
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(1080, 380));
+        scrollPane.setPreferredSize(new Dimension(1200, 380));
 
         // ── Bottom button bar ──
         JCheckBox showAll = new JCheckBox("Alle Passwörter anzeigen");
@@ -296,11 +300,15 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         JCheckBox loginCb    = new JCheckBox("Login erforderlich");
         JCheckBox proxyCb    = new JCheckBox("Proxy verwenden");
         JCheckBox autoIdxCb  = new JCheckBox("Auto-Index");
+        JCheckBox savePwCb   = new JCheckBox("PW speichern");
+        JCheckBox sessionCb  = new JCheckBox("Session-Cache");
 
         if (existing != null) {
             loginCb.setSelected(existing.requiresLogin);
             proxyCb.setSelected(existing.useProxy);
             autoIdxCb.setSelected(existing.autoIndex);
+            savePwCb.setSelected(existing.savePassword);
+            sessionCb.setSelected(existing.sessionCache);
         }
 
         // Show/hide password toggle
@@ -387,6 +395,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         cbPanel.add(loginCb);
         cbPanel.add(proxyCb);
         cbPanel.add(autoIdxCb);
+        cbPanel.add(savePwCb);
+        cbPanel.add(sessionCb);
         panel.add(cbPanel, gbc);
 
         int result = JOptionPane.showConfirmDialog(parent, panel, dialogTitle,
@@ -416,7 +426,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         return new KeePassEntry(category, id, displayName, user, pass, url,
                 existing != null ? existing.uniqueID : "",
-                loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected());
+                loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected(),
+                savePwCb.isSelected(), sessionCb.isSelected());
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -455,7 +466,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             try {
                 // Original defaults: login=false, proxy=false, autoIndex=false
                 KeePassEntry entry = new KeePassEntry("Wiki", id, displayName, "", "", url, "",
-                        false, false, false);
+                        false, false, false, false, false);
                 saveEntry(entry);
                 entries.add(entry);
                 created++;
@@ -477,7 +488,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     private static class EntryTableModel extends AbstractTableModel {
         private static final String[] COLUMNS = {
                 "Kategorie", "ID", "Anzeigename", "Benutzername", "Passwort", "URL",
-                "Login", "Proxy", "Auto-Idx", ""
+                "Login", "Proxy", "Auto-Idx", "PW-Speicher", "Session", ""
         };
         private final List<KeePassEntry> entries;
         private final boolean[] visible;
@@ -493,8 +504,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         @Override
         public Class<?> getColumnClass(int col) {
-            // Columns 6,7,8 are boolean checkboxes
-            return (col >= 6 && col <= 8) ? Boolean.class : Object.class;
+            // Columns 6–10 are boolean checkboxes
+            return (col >= 6 && col <= 10) ? Boolean.class : Object.class;
         }
 
         @Override
@@ -510,7 +521,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 case 6: return e.requiresLogin;
                 case 7: return e.useProxy;
                 case 8: return e.autoIndex;
-                case 9: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
+                case 9: return e.savePassword;
+                case 10: return e.sessionCache;
+                case 11: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
                 default: return "";
             }
         }
@@ -533,13 +546,14 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
             String[] cred = CredentialStore.resolveIncludingEmpty(PWD_PREFIX + meta.id);
             entries.add(new KeePassEntry(
-                    meta.category != null ? meta.category : "General",
+                    meta.category != null ? meta.category : "Mainframe",
                     meta.id,
                     meta.displayName != null && !meta.displayName.isEmpty() ? meta.displayName : meta.id,
                     cred[0], cred[1],
                     meta.url != null ? meta.url : "",
                     "",
-                    meta.requiresLogin, meta.useProxy, meta.autoIndex));
+                    meta.requiresLogin, meta.useProxy, meta.autoIndex,
+                    meta.savePassword, meta.sessionCache));
         }
         return entries;
     }
@@ -568,6 +582,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         meta.requiresLogin = entry.requiresLogin;
         meta.useProxy = entry.useProxy;
         meta.autoIndex = entry.autoIndex;
+        meta.savePassword = entry.savePassword;
+        meta.sessionCache = entry.sessionCache;
         settings.passwordEntries.add(meta);
         SettingsHelper.save(settings);
 
@@ -597,7 +613,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static class KeePassEntry {
         final String category;
-        final String title;         // = ID (KeePass Title field, immutable)
+        final String title;         // = ID (unique key)
         final String displayName;   // user-facing display name
         final String userName;
         final String password;
@@ -606,10 +622,13 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         final boolean requiresLogin;
         final boolean useProxy;
         final boolean autoIndex;
+        final boolean savePassword;
+        final boolean sessionCache;
 
         KeePassEntry(String category, String title, String displayName,
                      String userName, String password, String url, String uniqueID,
-                     boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+                     boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                     boolean savePassword, boolean sessionCache) {
             this.category = category;
             this.title = title;
             this.displayName = displayName;
@@ -620,6 +639,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             this.requiresLogin = requiresLogin;
             this.useProxy = useProxy;
             this.autoIndex = autoIndex;
+            this.savePassword = savePassword;
+            this.sessionCache = sessionCache;
         }
     }
 }
