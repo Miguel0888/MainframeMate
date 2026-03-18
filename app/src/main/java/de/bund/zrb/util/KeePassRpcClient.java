@@ -184,6 +184,146 @@ final class KeePassRpcClient {
     }
 
     /**
+     * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call.
+     *
+     * @param title    entry title
+     * @param userName username
+     * @param password password
+     * @param url      URL (may be empty)
+     */
+    void addLogin(String title, String userName, String password, String url) {
+        // Build form field list (V1 DTO)
+        JsonArray formFields = new JsonArray();
+
+        JsonObject userField = new JsonObject();
+        userField.addProperty("name", "KeePass username");
+        userField.addProperty("displayName", "KeePass username");
+        userField.addProperty("value", userName != null ? userName : "");
+        userField.addProperty("type", "FFTusername");
+        userField.addProperty("id", "");
+        userField.addProperty("page", -1);
+        formFields.add(userField);
+
+        JsonObject passField = new JsonObject();
+        passField.addProperty("name", "KeePass password");
+        passField.addProperty("displayName", "KeePass password");
+        passField.addProperty("value", password != null ? password : "");
+        passField.addProperty("type", "FFTpassword");
+        passField.addProperty("id", "");
+        passField.addProperty("page", -1);
+        formFields.add(passField);
+
+        // Build login object
+        JsonObject login = new JsonObject();
+        login.addProperty("title", title);
+        login.add("formFieldList", formFields);
+
+        JsonArray urls = new JsonArray();
+        if (url != null && !url.isEmpty()) {
+            urls.add(url);
+        } else {
+            urls.add(title); // use title as URL placeholder so the entry is discoverable
+        }
+        login.add("uRLs", urls);
+
+        // AddLogin(login, parentUUID, dbFileName)
+        JsonArray params = new JsonArray();
+        params.add(login);
+        params.add("");  // parentUUID — empty = root group
+        params.add("");  // dbFileName — empty = default database
+
+        String response = rpcCall("AddLogin", params);
+        try {
+            JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
+            if (resp.has("error") && !resp.get("error").isJsonNull()) {
+                throw new KeePassNotAvailableException(
+                        "KeePassRPC AddLogin fehlgeschlagen: " + resp.get("error"));
+            }
+        } catch (KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("[KeePassRPC] AddLogin response parse: " + e.getMessage());
+        }
+        LOG.info("[KeePassRPC] Entry created: \"" + title + "\" user=\"" + userName + "\"");
+    }
+
+    /**
+     * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call.
+     *
+     * @param title    entry title (used to find existing entry)
+     * @param userName new username
+     * @param password new password
+     */
+    void updateLogin(String title, String userName, String password) {
+        // First find the existing entry to get its uniqueID
+        JsonArray entries = findLoginsByTitle(title);
+        if (entries == null || entries.size() == 0) {
+            // Entry doesn't exist yet — create it
+            addLogin(title, userName, password, "");
+            return;
+        }
+
+        JsonObject existing = entries.get(0).getAsJsonObject();
+        String uniqueID = existing.has("uniqueID") ? existing.get("uniqueID").getAsString() : "";
+
+        // Build updated form field list
+        JsonArray formFields = new JsonArray();
+
+        JsonObject userField = new JsonObject();
+        userField.addProperty("name", "KeePass username");
+        userField.addProperty("displayName", "KeePass username");
+        userField.addProperty("value", userName != null ? userName : "");
+        userField.addProperty("type", "FFTusername");
+        userField.addProperty("id", "");
+        userField.addProperty("page", -1);
+        formFields.add(userField);
+
+        JsonObject passField = new JsonObject();
+        passField.addProperty("name", "KeePass password");
+        passField.addProperty("displayName", "KeePass password");
+        passField.addProperty("value", password != null ? password : "");
+        passField.addProperty("type", "FFTpassword");
+        passField.addProperty("id", "");
+        passField.addProperty("page", -1);
+        formFields.add(passField);
+
+        JsonObject login = new JsonObject();
+        login.addProperty("title", title);
+        login.add("formFieldList", formFields);
+        login.addProperty("uniqueID", uniqueID);
+
+        // Preserve existing URLs
+        if (existing.has("uRLs")) {
+            login.add("uRLs", existing.get("uRLs"));
+        } else {
+            JsonArray urls = new JsonArray();
+            urls.add(title);
+            login.add("uRLs", urls);
+        }
+
+        // UpdateLogin(login, oldLoginUUID, urlMergeMode, dbFileName)
+        JsonArray params = new JsonArray();
+        params.add(login);
+        params.add(uniqueID);
+        params.add(2);    // urlMergeMode: 2 = replace
+        params.add("");   // dbFileName — empty = default
+
+        String response = rpcCall("UpdateLogin", params);
+        try {
+            JsonObject resp = JsonParser.parseString(response).getAsJsonObject();
+            if (resp.has("error") && !resp.get("error").isJsonNull()) {
+                throw new KeePassNotAvailableException(
+                        "KeePassRPC UpdateLogin fehlgeschlagen: " + resp.get("error"));
+            }
+        } catch (KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.warning("[KeePassRPC] UpdateLogin response parse: " + e.getMessage());
+        }
+        LOG.info("[KeePassRPC] Entry updated: \"" + title + "\" user=\"" + userName + "\"");
+    }
+
+    /**
      * List all entries visible to KeePassRPC.
      */
     String listEntries() {
