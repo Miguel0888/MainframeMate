@@ -1,0 +1,39 @@
+plugins {
+    id 'java'
+}
+
+group = 'de.bund.zrb'
+version = '5.4.0'
+
+sourceCompatibility = '1.8'
+targetCompatibility = '1.8'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // ONNX Runtime – lokale Inferenz
+    implementation 'com.microsoft.onnxruntime:onnxruntime:1.19.2'
+
+    // Gson für tokenizer.json Parsing
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // MainframeMate core (für ChatManager / ChatHistory Interfaces)
+    implementation project(':core')
+
+    // Testing
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+
+    // Model-Verzeichnis als System Property an Tests durchreichen
+    systemProperty 'phi3.model.dir', file('Phi-3-mini-4k-instruct-onnx').absolutePath
+
+    // Genug Heap für das 2GB Modell
+    jvmArgs '-Xmx4g'
+}

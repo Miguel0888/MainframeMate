@@ -66,6 +66,11 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
     private final JTextField llamaBinaryField, llamaModelField, llamaTempField;
     private final JSpinner llamaPortSpinner, llamaThreadsSpinner, llamaContextSpinner;
 
+    // ONNX Runtime
+    private final JTextField onnxModelPathField, onnxTemperatureField, onnxTopPField;
+    private final JComboBox<String> onnxExecutionProviderCombo;
+    private final JSpinner onnxMaxTokensSpinner, onnxTopKSpinner;
+
     public AiSettingsPanel() {
         super("ai", "KI");
 
@@ -325,13 +330,39 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         fbLlama.addRow("Temperatur:", llamaTempField);
         providerOptionsPanel.add(fbLlama.getPanel(), AiProvider.LLAMA_CPP_SERVER.name());
 
-        // ONNX Runtime – einfaches Hinweis-Panel (Vollkonfiguration über AiProviderSettingsPanel)
-        JPanel onnxHintPanel = new JPanel(new BorderLayout());
-        onnxHintPanel.add(new JLabel("<html><b>ONNX Runtime</b> – lokale Inferenz mit Phi-3/Phi-4.<br>"
-                + "Konfiguration über die detaillierte Ansicht (RAG-Settings oder AiProviderSettingsPanel).<br><br>"
-                + "Modellpfad und Parameter können dort eingestellt werden.</html>"),
-                BorderLayout.NORTH);
-        providerOptionsPanel.add(onnxHintPanel, AiProvider.ONNX_RUNTIME.name());
+        // ONNX Runtime
+        FormBuilder fbOnnx = new FormBuilder();
+        fbOnnx.addInfo("<html><b>ONNX Runtime</b> – lokale LLM-Inferenz mit Phi-3/Phi-4 Modellen.<br>"
+                + "Modell als ONNX-Verzeichnis von Hugging Face herunterladen.</html>");
+        onnxModelPathField = new JTextField(settings.aiConfig.getOrDefault("onnx.model.path", ""), 30);
+        onnxModelPathField.setToolTipText("Pfad zum ONNX-Modellverzeichnis (z.B. C:\\models\\Phi-3-mini-4k-instruct-onnx)");
+        JButton onnxBrowseBtn = new JButton("\u2026");
+        onnxBrowseBtn.setMargin(new Insets(0, 4, 0, 4));
+        onnxBrowseBtn.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            String current = onnxModelPathField.getText().trim();
+            if (!current.isEmpty()) fc.setCurrentDirectory(new java.io.File(current));
+            if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                onnxModelPathField.setText(fc.getSelectedFile().getAbsolutePath());
+            }
+        });
+        fbOnnx.addRowWithButton("Modellpfad:", onnxModelPathField, onnxBrowseBtn);
+        onnxExecutionProviderCombo = new JComboBox<>(new String[]{"cpu", "directml"});
+        onnxExecutionProviderCombo.setSelectedItem(settings.aiConfig.getOrDefault("onnx.execution.provider", "cpu"));
+        onnxExecutionProviderCombo.setToolTipText("CPU = universell; DirectML = GPU-Beschleunigung (Windows 11)");
+        fbOnnx.addRow("Execution Provider:", onnxExecutionProviderCombo);
+        onnxMaxTokensSpinner = new JSpinner(new SpinnerNumberModel(
+                Integer.parseInt(settings.aiConfig.getOrDefault("onnx.max.tokens", "256")), 1, 4096, 64));
+        fbOnnx.addRow("Max Tokens:", onnxMaxTokensSpinner);
+        onnxTemperatureField = new JTextField(settings.aiConfig.getOrDefault("onnx.temperature", "0.7"), 8);
+        fbOnnx.addRow("Temperatur:", onnxTemperatureField);
+        onnxTopPField = new JTextField(settings.aiConfig.getOrDefault("onnx.top.p", "0.9"), 8);
+        fbOnnx.addRow("Top-P:", onnxTopPField);
+        onnxTopKSpinner = new JSpinner(new SpinnerNumberModel(
+                Integer.parseInt(settings.aiConfig.getOrDefault("onnx.top.k", "40")), 0, 1000, 1));
+        fbOnnx.addRow("Top-K:", onnxTopKSpinner);
+        providerOptionsPanel.add(fbOnnx.getPanel(), AiProvider.ONNX_RUNTIME.name());
 
         List<Component> llamaConfigFields = Arrays.asList(llamaBinaryField, llamaModelField, llamaPortSpinner, llamaThreadsSpinner, llamaContextSpinner, llamaTempField);
         llamaEnabledBox.addActionListener(e -> { boolean en = llamaEnabledBox.isSelected(); for (Component c : llamaConfigFields) c.setEnabled(en); });
@@ -443,6 +474,13 @@ public class AiSettingsPanel extends AbstractSettingsPanel {
         s.aiConfig.put("llama.context", llamaContextSpinner.getValue().toString());
         s.aiConfig.put("llama.temp", llamaTempField.getText().trim());
         s.aiConfig.put("llama.streaming", String.valueOf(llamaStreamingBox.isSelected()));
+        // ONNX Runtime
+        s.aiConfig.put("onnx.model.path", onnxModelPathField.getText().trim());
+        s.aiConfig.put("onnx.execution.provider", Objects.toString(onnxExecutionProviderCombo.getSelectedItem(), "cpu"));
+        s.aiConfig.put("onnx.max.tokens", onnxMaxTokensSpinner.getValue().toString());
+        s.aiConfig.put("onnx.temperature", onnxTemperatureField.getText().trim());
+        s.aiConfig.put("onnx.top.p", onnxTopPField.getText().trim());
+        s.aiConfig.put("onnx.top.k", onnxTopKSpinner.getValue().toString());
         s.aiConfig.put("wrapjson", String.valueOf(wrapJsonBox.isSelected()));
         s.aiConfig.put("prettyjson", String.valueOf(prettyJsonBox.isSelected()));
     }

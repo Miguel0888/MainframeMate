@@ -1,4 +1,5 @@
 # ONNX Model weights (2GB+) – nicht ins Git!
-Phi-3-mini-4k-instruct-onnx/model.onnx
+# model.onnx (2MB) ist klein und bleibt im Repo.
+# model.onnx.data (2GB) muss separat heruntergeladen werden (siehe download.url).
 Phi-3-mini-4k-instruct-onnx/model.onnx.data
 

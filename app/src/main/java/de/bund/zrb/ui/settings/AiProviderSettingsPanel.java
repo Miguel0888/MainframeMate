@@ -76,13 +76,6 @@ public class AiProviderSettingsPanel extends JPanel {
     private final JSpinner customMaxRetriesSpinner;
     private final JCheckBox customSkipSslVerifyBox;
 
-    // ONNX Runtime-Felder
-    private final JTextField onnxModelPathField;
-    private final JComboBox<String> onnxExecutionProviderCombo;
-    private final JSpinner onnxMaxTokensSpinner;
-    private final JTextField onnxTemperatureField;
-    private final JTextField onnxTopPField;
-    private final JSpinner onnxTopKSpinner;
 
     // Test-Bereich
     private final JButton testButton;
@@ -121,7 +114,6 @@ public class AiProviderSettingsPanel extends JPanel {
         providerCombo.addItem(AiProvider.LOCAL_AI);
         providerCombo.addItem(AiProvider.LLAMA_CPP_SERVER);
         providerCombo.addItem(AiProvider.CUSTOM);
-        providerCombo.addItem(AiProvider.ONNX_RUNTIME);
         providerSelectPanel.add(providerCombo, gbc);
 
         mainPanel.add(providerSelectPanel);
@@ -449,73 +441,6 @@ public class AiProviderSettingsPanel extends JPanel {
 
         providerOptionsPanel.add(customPanel, AiProvider.CUSTOM.name());
 
-        // ONNX Runtime Panel
-        JPanel onnxPanel = new JPanel(new GridBagLayout());
-        onnxPanel.setBorder(new TitledBorder("ONNX Runtime – Lokale Inferenz"));
-        gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        gbc.gridx = 0; gbc.gridy = 0;
-        JLabel onnxInfo = new JLabel("<html><i>Lokale LLM-Inferenz mit ONNX Runtime (Phi-3/Phi-4 Modelle).<br>"
-                + "Modell als ONNX-Verzeichnis von Hugging Face herunterladen.</i></html>");
-        gbc.gridwidth = 3;
-        onnxPanel.add(onnxInfo, gbc);
-        gbc.gridwidth = 1;
-
-        gbc.gridx = 0; gbc.gridy = 1;
-        onnxPanel.add(new JLabel("Modellpfad:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
-        onnxModelPathField = new JTextField(30);
-        onnxModelPathField.setToolTipText("Pfad zum ONNX-Modellverzeichnis (z.B. C:\\models\\Phi-3-mini-4k-instruct-onnx)");
-        onnxPanel.add(onnxModelPathField, gbc);
-        gbc.gridx = 2; gbc.weightx = 0;
-        JButton onnxBrowse = new JButton("\u2026");
-        onnxBrowse.setMargin(new Insets(0, 4, 0, 4));
-        onnxBrowse.addActionListener(e -> {
-            JFileChooser fc = new JFileChooser();
-            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            String current = onnxModelPathField.getText().trim();
-            if (!current.isEmpty()) fc.setCurrentDirectory(new File(current));
-            if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                onnxModelPathField.setText(fc.getSelectedFile().getAbsolutePath());
-            }
-        });
-        onnxPanel.add(onnxBrowse, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
-        onnxPanel.add(new JLabel("Execution Provider:"), gbc);
-        gbc.gridx = 1;
-        onnxExecutionProviderCombo = new JComboBox<>(new String[]{"cpu", "directml"});
-        onnxExecutionProviderCombo.setToolTipText("CPU = universell; DirectML = GPU-Beschleunigung (Windows 11)");
-        onnxPanel.add(onnxExecutionProviderCombo, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 3;
-        onnxPanel.add(new JLabel("Max Tokens:"), gbc);
-        gbc.gridx = 1;
-        onnxMaxTokensSpinner = new JSpinner(new SpinnerNumberModel(256, 1, 4096, 64));
-        onnxPanel.add(onnxMaxTokensSpinner, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 4;
-        onnxPanel.add(new JLabel("Temperature:"), gbc);
-        gbc.gridx = 1;
-        onnxTemperatureField = new JTextField("0.7", 8);
-        onnxPanel.add(onnxTemperatureField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 5;
-        onnxPanel.add(new JLabel("Top-P:"), gbc);
-        gbc.gridx = 1;
-        onnxTopPField = new JTextField("0.9", 8);
-        onnxPanel.add(onnxTopPField, gbc);
-
-        gbc.gridx = 0; gbc.gridy = 6;
-        onnxPanel.add(new JLabel("Top-K:"), gbc);
-        gbc.gridx = 1;
-        onnxTopKSpinner = new JSpinner(new SpinnerNumberModel(40, 0, 1000, 1));
-        onnxPanel.add(onnxTopKSpinner, gbc);
-
-        providerOptionsPanel.add(onnxPanel, AiProvider.ONNX_RUNTIME.name());
 
         mainPanel.add(providerOptionsPanel);
 
@@ -853,17 +778,6 @@ public class AiProviderSettingsPanel extends JPanel {
         } catch (NumberFormatException e) { /* ignore */ }
         customSkipSslVerifyBox.setSelected(Boolean.parseBoolean(config.getOrDefault("custom.skipSslVerify", "false")));
 
-        // ONNX Runtime
-        onnxModelPathField.setText(config.getOrDefault("onnx.model.path", ""));
-        onnxExecutionProviderCombo.setSelectedItem(config.getOrDefault("onnx.execution.provider", "cpu"));
-        try {
-            onnxMaxTokensSpinner.setValue(Integer.parseInt(config.getOrDefault("onnx.max.tokens", "256")));
-        } catch (NumberFormatException e) { /* ignore */ }
-        onnxTemperatureField.setText(config.getOrDefault("onnx.temperature", "0.7"));
-        onnxTopPField.setText(config.getOrDefault("onnx.top.p", "0.9"));
-        try {
-            onnxTopKSpinner.setValue(Integer.parseInt(config.getOrDefault("onnx.top.k", "40")));
-        } catch (NumberFormatException e) { /* ignore */ }
 
         // Provider-Panel anzeigen
         AiProvider selected = (AiProvider) providerCombo.getSelectedItem();
@@ -924,13 +838,6 @@ public class AiProviderSettingsPanel extends JPanel {
         config.put("custom.maxRetries", customMaxRetriesSpinner.getValue().toString());
         config.put("custom.skipSslVerify", String.valueOf(customSkipSslVerifyBox.isSelected()));
 
-        // ONNX Runtime
-        config.put("onnx.model.path", onnxModelPathField.getText().trim());
-        config.put("onnx.execution.provider", Objects.toString(onnxExecutionProviderCombo.getSelectedItem(), "cpu"));
-        config.put("onnx.max.tokens", onnxMaxTokensSpinner.getValue().toString());
-        config.put("onnx.temperature", onnxTemperatureField.getText().trim());
-        config.put("onnx.top.p", onnxTopPField.getText().trim());
-        config.put("onnx.top.k", onnxTopKSpinner.getValue().toString());
 
         return config;
     }
@@ -953,7 +860,6 @@ public class AiProviderSettingsPanel extends JPanel {
             case CLOUD: return Objects.toString(cloudModelCombo.getSelectedItem(), "").trim();
             case LLAMA_CPP_SERVER: return llamaModelField.getText().trim();
             case CUSTOM: return Objects.toString(customModelCombo.getSelectedItem(), "").trim();
-            case ONNX_RUNTIME: return onnxModelPathField.getText().trim();
             default: return "";
         }
     }
@@ -969,7 +875,6 @@ public class AiProviderSettingsPanel extends JPanel {
             case CLOUD: return cloudApiUrlField.getText().trim();
             case LLAMA_CPP_SERVER: return "http://localhost:" + llamaPortSpinner.getValue();
             case CUSTOM: return customUrlField.getText().trim();
-            case ONNX_RUNTIME: return "local://" + onnxModelPathField.getText().trim();
             default: return "";
         }
     }

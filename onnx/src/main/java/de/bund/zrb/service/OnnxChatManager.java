@@ -5,8 +5,6 @@ import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
-import de.bund.zrb.helper.SettingsHelper;
-import de.bund.zrb.model.Settings;
 import de.zrb.bund.api.ChatHistory;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
@@ -31,7 +29,7 @@ import java.util.logging.Logger;
  * ohne Netzwerkzugriff. Der Generate-Loop (autoregressive Decodierung) ist in reinem
  * Java implementiert – kein ONNX Runtime GenAI nötig.
  * <p>
- * Einstellungen werden aus {@code settings.aiConfig} gelesen:
+ * Einstellungen werden aus der übergebenen {@code aiConfig}-Map gelesen:
  * <ul>
  *   <li>{@code onnx.model.path} – Pfad zum ONNX-Modellverzeichnis</li>
  *   <li>{@code onnx.execution.provider} – "cpu" oder "directml"</li>
@@ -43,8 +41,9 @@ import java.util.logging.Logger;
  */
 public class OnnxChatManager implements ChatManager {
 
-    private static final Logger LOG = de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.AI);
+    private static final Logger LOG = Logger.getLogger(OnnxChatManager.class.getName());
 
+    private final Map<String, String> aiConfig;
     private final Map<UUID, ChatHistory> sessionHistories = new ConcurrentHashMap<>();
     private final Map<UUID, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -57,7 +56,11 @@ public class OnnxChatManager implements ChatManager {
     // Simple BPE-like token mapping (will be populated from tokenizer.json if available)
     private volatile OnnxTokenizer tokenizer;
 
-    public OnnxChatManager() {
+    /**
+     * @param aiConfig die KI-Konfiguration (normalerweise {@code settings.aiConfig})
+     */
+    public OnnxChatManager(Map<String, String> aiConfig) {
+        this.aiConfig = aiConfig != null ? aiConfig : Collections.<String, String>emptyMap();
     }
 
     // ==================== ChatManager Interface ====================
@@ -101,12 +104,11 @@ public class OnnxChatManager implements ChatManager {
                                 ChatStreamListener listener, boolean keepAlive) throws IOException {
         if (sessionId == null) return false;
 
-        Settings settings = SettingsHelper.load();
-        String modelPath = settings.aiConfig.getOrDefault("onnx.model.path", "");
-        int maxTokens = parseInt(settings.aiConfig.getOrDefault("onnx.max.tokens", "256"), 256);
-        double temperature = parseDouble(settings.aiConfig.getOrDefault("onnx.temperature", "0.7"), 0.7);
-        double topP = parseDouble(settings.aiConfig.getOrDefault("onnx.top.p", "0.9"), 0.9);
-        int topK = parseInt(settings.aiConfig.getOrDefault("onnx.top.k", "40"), 40);
+        String modelPath = aiConfig.getOrDefault("onnx.model.path", "");
+        int maxTokens = parseInt(aiConfig.getOrDefault("onnx.max.tokens", "256"), 256);
+        double temperature = parseDouble(aiConfig.getOrDefault("onnx.temperature", "0.7"), 0.7);
+        double topP = parseDouble(aiConfig.getOrDefault("onnx.top.p", "0.9"), 0.9);
+        int topK = parseInt(aiConfig.getOrDefault("onnx.top.k", "40"), 40);
 
         if (modelPath.isEmpty()) {
             listener.onError(new IOException("ONNX Modellpfad nicht konfiguriert. Bitte in den Einstellungen angeben."));
@@ -192,8 +194,7 @@ public class OnnxChatManager implements ChatManager {
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
 
         // Execution Provider konfigurieren
-        Settings settings = SettingsHelper.load();
-        String ep = settings.aiConfig.getOrDefault("onnx.execution.provider", "cpu").toLowerCase(Locale.ROOT);
+        String ep = aiConfig.getOrDefault("onnx.execution.provider", "cpu").toLowerCase(Locale.ROOT);
         if ("directml".equals(ep)) {
             try {
                 options.addDirectML(0);

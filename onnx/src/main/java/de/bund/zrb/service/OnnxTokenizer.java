@@ -22,7 +22,7 @@ import java.util.logging.Logger;
  */
 final class OnnxTokenizer {
 
-    private static final Logger LOG = de.bund.zrb.util.AppLogger.get(de.bund.zrb.util.AppLogger.AI);
+    private static final Logger LOG = Logger.getLogger(OnnxTokenizer.class.getName());
 
     // Token → ID
     private final Map<String, Integer> vocab = new LinkedHashMap<>();
