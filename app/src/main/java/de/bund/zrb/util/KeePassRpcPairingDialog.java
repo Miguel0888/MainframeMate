@@ -36,6 +36,7 @@ public final class KeePassRpcPairingDialog {
     public static String showAndPair() {
         Settings settings = SettingsHelper.load();
         int port = settings.keepassRpcPort;
+        String host = settings.getEffectiveRpcHost();
 
         // Build dialog content
         JPanel panel = new JPanel(new GridBagLayout());
@@ -65,7 +66,7 @@ public final class KeePassRpcPairingDialog {
 
         // Port info
         gbc.gridy = 1; gbc.gridwidth = 2;
-        JLabel portLabel = new JLabel("KeePassRPC-Port: " + port);
+        JLabel portLabel = new JLabel("KeePassRPC-Adresse: " + host + ":" + port);
         portLabel.setForeground(Color.GRAY);
         panel.add(portLabel, gbc);
 
@@ -112,14 +113,14 @@ public final class KeePassRpcPairingDialog {
         // "Verbindung herstellen" — attempt WebSocket connection to trigger KeePass pairing dialog
         connectButton.addActionListener(e -> {
             statusLabel.setForeground(Color.BLUE);
-            statusLabel.setText("Verbinde mit KeePass auf Port " + port + "…");
+            statusLabel.setText("Verbinde mit KeePass auf " + host + ":" + port + "…");
             dialog.repaint();
 
             // Run connection attempt in background
             new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() {
-                    return triggerPairingDialog(port);
+                    return triggerPairingDialog(host, port);
                 }
 
                 @Override
@@ -170,7 +171,7 @@ public final class KeePassRpcPairingDialog {
             new SwingWorker<String, Void>() {
                 @Override
                 protected String doInBackground() {
-                    return testSrpKey(port, key);
+                    return testSrpKey(host, port, key);
                 }
 
                 @Override
@@ -226,23 +227,20 @@ public final class KeePassRpcPairingDialog {
     }
 
     /**
-     * Hosts to try in order — IPv4 first because KeePassRPC typically
-     * only binds to 127.0.0.1 and {@code localhost} may resolve to
-     * IPv6 {@code ::1}, causing "Connection reset".
-     */
-    private static final String[] HOSTS = {"127.0.0.1", "localhost"};
-
-    /**
      * Attempt a WebSocket connection to KeePassRPC to trigger its pairing dialog.
-     * Tries IPv4 (127.0.0.1) first, then falls back to localhost.
+     * Tries the configured host first, then falls back to 127.0.0.1 and localhost.
      *
      * @return {@code null} on success, or an error message
      */
+    private static String triggerPairingDialog(String configuredHost, int port) {
+        // Build ordered candidate list: configured host first, then fallbacks (LinkedHashSet skips duplicates)
+        java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<String>();
+        candidates.add(configuredHost);
+        candidates.add("127.0.0.1");
+        candidates.add("localhost");
 
-    private static String triggerPairingDialog(int port) {
         String lastError = null;
-
-        for (String host : HOSTS) {
+        for (String host : candidates) {
             String result = attemptTrigger(host, port);
             if (result == null) {
                 return null; // success
@@ -350,8 +348,8 @@ public final class KeePassRpcPairingDialog {
      *
      * @return {@code null} on success, or an error message
      */
-    private static String testSrpKey(int port, String srpKey) {
-        KeePassRpcClient client = new KeePassRpcClient("127.0.0.1", port, "MainframeMate", srpKey);
+    private static String testSrpKey(String host, int port, String srpKey) {
+        KeePassRpcClient client = new KeePassRpcClient(host, port, "MainframeMate", srpKey);
         try {
             client.connect();
             return null; // success
