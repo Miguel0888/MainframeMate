@@ -32,5 +32,11 @@ dependencies {
 test {
     useJUnitPlatform()
     jvmArgs '-Xmx4g'
+
+    // Pass system properties from command line to test JVM
+    // Usage: gradlew :winml-java:test -Pwinml.test.model=path/to/model.onnx
+    if (project.hasProperty('winml.test.model')) {
+        systemProperty 'winml.test.model', project.property('winml.test.model')
+    }
 }
 
