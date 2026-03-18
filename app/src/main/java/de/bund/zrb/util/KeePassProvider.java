@@ -3,6 +3,8 @@ package de.bund.zrb.util;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 
+import javax.swing.*;
+import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -43,14 +45,22 @@ final class KeePassProvider {
     static String getPassword() {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            return rpcGetField(settings, "password");
+            String pw = rpcGetField(settings, "password");
+            if (pw != null && !pw.isEmpty()) return pw;
+            // Entry not found via RPC — prompt user (RPC can't create entries)
+            return promptAndCreateEntry(settings,
+                    "Kein Eintrag \"" + settings.keepassEntryTitle.trim()
+                  + "\" in KeePass gefunden (KeePassRPC).\n"
+                  + "RPC kann keine Einträge anlegen.\n"
+                  + "Bitte legen Sie den Eintrag manuell in KeePass an\n"
+                  + "oder wechseln Sie zur PowerShell-Zugriffsmethode.");
         }
         validateConfig(settings);
         String script = buildGetFieldScript(settings, "Password");
         String result = execPowerShell(script).trim();
         if (result.isEmpty()) {
-            throw new KeePassNotAvailableException(
-                    "Kein Passwort im KeePass-Eintrag \"" + settings.keepassEntryTitle.trim() + "\" gefunden.");
+            // Entry doesn't exist → ask user for password and create it
+            return promptAndCreateEntry(settings, null);
         }
         return result;
     }
@@ -302,6 +312,97 @@ final class KeePassProvider {
         return output;
     }
 
+    // ── Entry creation with user prompt ───────────────────────────────────
+
+    /**
+     * Prompts the user for username + password via a Swing dialog and creates
+     * the KeePass entry.  Called when the configured entry does not exist yet.
+     *
+     * @param settings current settings
+     * @param rpcHint  extra hint (for RPC mode) or {@code null} for PowerShell mode
+     * @return the password the user entered
+     * @throws KeePassNotAvailableException if the user cancels or creation fails
+     */
+    private static String promptAndCreateEntry(Settings settings, String rpcHint) {
+        String entryTitle = settings.keepassEntryTitle.trim();
+
+        JTextField userField = new JTextField(20);
+        JPasswordField passField = new JPasswordField(20);
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
+        String info = rpcHint != null
+                ? "<html><body style='width:320px'>" + rpcHint.replace("\n", "<br>") + "</body></html>"
+                : "<html><body style='width:320px'>"
+                  + "Der KeePass-Eintrag <b>\"" + entryTitle + "\"</b> existiert noch nicht.<br>"
+                  + "Bitte geben Sie Benutzername und Passwort ein — der Eintrag wird automatisch angelegt."
+                  + "</body></html>";
+        panel.add(new JLabel(info), gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridx = 0; gbc.gridy = 1;
+        panel.add(new JLabel("Benutzername:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(userField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Passwort:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(passField, gbc);
+
+        int result = JOptionPane.showConfirmDialog(null, panel,
+                "KeePass-Eintrag anlegen: " + entryTitle,
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) {
+            throw new KeePassNotAvailableException(
+                    "Kein Passwort eingegeben — KeePass-Eintrag \"" + entryTitle + "\" wurde nicht angelegt.");
+        }
+
+        String user = userField.getText().trim();
+        String pass = new String(passField.getPassword());
+
+        if (pass.isEmpty()) {
+            throw new KeePassNotAvailableException(
+                    "Leeres Passwort — KeePass-Eintrag \"" + entryTitle + "\" wurde nicht angelegt.");
+        }
+
+        // For RPC mode: can't create entries, just return what the user typed
+        if (rpcHint != null) {
+            return pass;
+        }
+
+        // PowerShell mode: create the entry with both username and password
+        createEntry(settings, entryTitle, user, pass);
+        LOG.info("[KeePass] Entry \"" + entryTitle + "\" created for user \"" + user + "\"");
+        return pass;
+    }
+
+    /**
+     * Create a new KeePass entry with title, username, and password via PowerShell.
+     */
+    private static void createEntry(Settings settings, String title, String userName, String password) {
+        String script = preamble(settings)
+                + "$ne = New-Object KeePassLib.PwEntry($db.RootGroup, $true, $true)\n"
+                + "$ne.Strings.Set('Title', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(title) + "')))\n"
+                + "$ne.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
+                + "$ne.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + "$db.RootGroup.AddEntry($ne, $true)\n"
+                + "$db.Save((New-Object KeePassLib.Interfaces.NullStatusLogger))\n"
+                + "$db.Close()\n"
+                + "Write-Output 'OK'";
+
+        String out = execPowerShell(script).trim();
+        if (!out.contains("OK")) {
+            throw new KeePassNotAvailableException(
+                    "KeePass-Eintrag \"" + title + "\" konnte nicht angelegt werden: " + sanitize(out));
+        }
+    }
+
     // ── KeePassRPC helpers ──────────────────────────────────────────────
 
     private static void validateRpcConfig(Settings settings) {
@@ -326,12 +427,7 @@ final class KeePassProvider {
             client.connect();
             String entry = settings.keepassEntryTitle.trim();
             if ("password".equalsIgnoreCase(field)) {
-                String pw = client.getPassword(entry);
-                if (pw == null || pw.isEmpty()) {
-                    throw new KeePassNotAvailableException(
-                            "Kein Passwort im KeePass-Eintrag \"" + entry + "\" \u00fcber RPC gefunden.");
-                }
-                return pw;
+                return client.getPassword(entry); // may return null
             } else {
                 return client.getUserName(entry);
             }
