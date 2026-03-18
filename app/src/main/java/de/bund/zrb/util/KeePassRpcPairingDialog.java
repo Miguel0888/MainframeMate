@@ -36,7 +36,7 @@ public final class KeePassRpcPairingDialog {
     public static String showAndPair() {
         Settings settings = SettingsHelper.load();
         int port = settings.keepassRpcPort;
-        String host = settings.keepassRpcHost;
+        String host = settings.getEffectiveRpcHost();
 
         // Build dialog content
         JPanel panel = new JPanel(new GridBagLayout());
@@ -227,13 +227,37 @@ public final class KeePassRpcPairingDialog {
     }
 
     /**
+     * Try connecting to KeePassRPC with the configured host first, then fall
+     * back to {@code 127.0.0.1} and {@code localhost} in case the configured
+     * host is unreachable (e.g. old settings missing the host field).
+     *
+     * @return {@code null} on success, or the last error message
+     */
+    private static String triggerPairingDialog(String host, int port) {
+        // Build ordered candidate list: configured host first, then fallbacks (skip duplicates)
+        java.util.LinkedHashSet<String> candidates = new java.util.LinkedHashSet<String>();
+        candidates.add(host);
+        candidates.add("127.0.0.1");
+        candidates.add("localhost");
+
+        String lastError = null;
+        for (String candidate : candidates) {
+            String result = attemptTrigger(candidate, port);
+            if (result == null) {
+                return null; // success
+            }
+            LOG.fine("[KeePassRPC Pairing] " + candidate + ":" + port + " failed: " + result);
+            lastError = result;
+        }
+        return lastError;
+    }
+
+    /**
      * Connect to KeePassRPC, wait for the server hello, then send an SRP
      * {@code identifyToServer} message.  KeePassRPC will not recognise the
      * client and therefore pop up its pairing dialog.
-     *
-     * @return {@code null} on success, or an error message
      */
-    private static String triggerPairingDialog(String host, int port) {
+    private static String attemptTrigger(String host, int port) {
         okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
