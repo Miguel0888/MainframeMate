@@ -336,7 +336,8 @@ public final class KeePassRpcPairingDialog {
 
             @Override
             public void onFailure(okhttp3.WebSocket webSocket, Throwable t, okhttp3.Response response) {
-                error.set("Verbindung fehlgeschlagen: " + t.getMessage()
+                String detail = t.getMessage() != null ? t.getMessage() : t.toString();
+                error.set("Verbindung fehlgeschlagen: " + detail
                         + "\nIst KeePass mit KeePassRPC auf Port " + port + " gestartet?");
                 connectLatch.countDown();
                 responseLatch.countDown();

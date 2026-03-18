@@ -118,7 +118,8 @@ final class KeePassRpcClient {
             }
             @Override public void onFailure(WebSocket webSocket, Throwable t, Response response) {
                 LOG.log(Level.WARNING, "[KeePassRPC] WebSocket failure", t);
-                mailbox.set("ERROR:" + t.getMessage());
+                String detail = t.getMessage() != null ? t.getMessage() : t.toString();
+                mailbox.set("ERROR:" + detail);
                 CountDownLatch l = latch;
                 if (l != null) l.countDown();
             }
