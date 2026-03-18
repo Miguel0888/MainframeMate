@@ -469,9 +469,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (exists) continue;
 
             try {
-                // Original defaults: login=false, proxy=false, autoIndex=false
+                // Defaults: login=false, proxy=true, autoIndex=false
                 KeePassEntry entry = new KeePassEntry("Wiki", id, displayName, "", "", url, "",
-                        false, false, false, false, false);
+                        false, true, false, false, false);
                 saveEntry(entry);
                 entries.add(entry);
                 created++;
