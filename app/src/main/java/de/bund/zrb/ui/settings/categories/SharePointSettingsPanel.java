@@ -131,6 +131,7 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
     /**
      * Fetch links from the configured parent page and merge them
      * into the existing checklist (preserving selection state).
+     * Uses the credentials entered in the form fields (not yet saved).
      */
     private void fetchLinks() {
         String url = parentPageUrlField.getText().trim();
@@ -140,12 +141,16 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
             return;
         }
 
+        // Use credentials from the currently visible form fields
+        final String fetchUser = userField.getText().trim();
+        final String fetchPassword = resolveCurrentPassword();
+
         linkTable.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
         new SwingWorker<List<SharePointSite>, Void>() {
             @Override
             protected List<SharePointSite> doInBackground() throws Exception {
-                return SharePointLinkFetcher.fetchLinks(url);
+                return SharePointLinkFetcher.fetchLinks(url, fetchUser, fetchPassword);
             }
 
             @Override
@@ -248,20 +253,7 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
 
         String uncPath = target.toUncPath();
         String user = userField.getText().trim();
-        char[] passChars = passwordField.getPassword();
-        String passStr = new String(passChars);
-
-        // Decrypt stored password if placeholder
-        String password;
-        if (passStr.equals("********")) {
-            try {
-                password = WindowsCryptoUtil.decrypt(settings.sharepointEncryptedPassword);
-            } catch (Exception ex) {
-                password = "";
-            }
-        } else {
-            password = passStr;
-        }
+        String password = resolveCurrentPassword();
 
         if (user.isEmpty() || password.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -322,6 +314,23 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
 
     private static String safe(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * Get the currently entered password from the form field.
+     * If the field shows the placeholder ("********"), decrypt the stored password.
+     */
+    private String resolveCurrentPassword() {
+        char[] passChars = passwordField.getPassword();
+        String passStr = new String(passChars);
+        if (passStr.equals("********")) {
+            try {
+                return WindowsCryptoUtil.decrypt(settings.sharepointEncryptedPassword);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+        return passStr;
     }
 
     // ═══════════════════════════════════════════════════════════
