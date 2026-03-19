@@ -70,9 +70,10 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        int row = 0;
 
         // ── Browser-Info ─────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.weightx = 1;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2; gbc.weightx = 1;
         JLabel browserInfo = new JLabel(
                 "<html><i>Browser-Typ, Pfad, Debug-Port und Timeout werden unter "
               + "<b>Einstellungen \u2192 Browser</b> konfiguriert.</i></html>");
@@ -80,24 +81,27 @@ public class WebSearchSettingsDialog extends JDialog {
         form.add(browserInfo, gbc);
         gbc.gridwidth = 1;
 
-        // ── Recherche-Einstellungen ───────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.weightx = 1;
-        JLabel rechercheHeader = new JLabel("── Recherche ──");
+        // ── Recherche ────────────────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2; gbc.weightx = 1;
+        JLabel rechercheHeader = new JLabel("\u2500\u2500 Recherche \u2500\u2500");
         rechercheHeader.setFont(rechercheHeader.getFont().deriveFont(Font.BOLD));
         rechercheHeader.setForeground(new Color(60, 60, 120));
         form.add(rechercheHeader, gbc);
-
         gbc.gridwidth = 1;
-        gbc.gridx = 0; gbc.gridy = 6; gbc.weightx = 0;
+
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Back/Forward:"), gbc);
         historyNavigationCheckbox = new JCheckBox("Back/Forward-Navigation erlauben");
         historyNavigationCheckbox.setSelected(!"false".equals(settings.getOrDefault("historyNavigationEnabled", "true")));
         historyNavigationCheckbox.setToolTipText(
-                "Wenn deaktiviert, kann der Bot nur über Linklisten navigieren (kein back/forward).");
+                "Wenn deaktiviert, kann der Bot nur \u00fcber Linklisten navigieren (kein back/forward).");
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(historyNavigationCheckbox, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 7; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Max. Hintergrund-Tabs:"), gbc);
         int savedMaxTabs = 3;
         try {
@@ -105,11 +109,12 @@ public class WebSearchSettingsDialog extends JDialog {
         } catch (NumberFormatException ignored) {}
         maxParallelTabsSpinner = new JSpinner(new SpinnerNumberModel(savedMaxTabs, 1, 10, 1));
         maxParallelTabsSpinner.setToolTipText(
-                "Maximale Anzahl gleichzeitiger Hintergrund-Tabs für automatisches Crawling interner Seiten.");
+                "Maximale Anzahl gleichzeitiger Hintergrund-Tabs f\u00fcr automatisches Crawling interner Seiten.");
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(maxParallelTabsSpinner, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 20; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Snapshot-Settling:"), gbc);
         settleStrategyCombo = new JComboBox<>(new String[]{"FAST (500ms)", "NORMAL (2000ms)", "SLOW (5000ms)"});
         String savedSettle = settings.getOrDefault("settleStrategy", "NORMAL");
@@ -118,9 +123,9 @@ public class WebSearchSettingsDialog extends JDialog {
         else settleStrategyCombo.setSelectedIndex(1);
         settleStrategyCombo.setToolTipText(
                 "Wartezeit nach Seitenladung bevor der DOM-Snapshot erstellt wird.\n"
-              + "FAST: 500ms – für schnelle/statische Seiten.\n"
-              + "NORMAL: 2000ms – Standard (empfohlen).\n"
-              + "SLOW: 5000ms – für langsame/JS-lastige Seiten.");
+              + "FAST: 500ms \u2013 f\u00fcr schnelle/statische Seiten.\n"
+              + "NORMAL: 2000ms \u2013 Standard (empfohlen).\n"
+              + "SLOW: 5000ms \u2013 f\u00fcr langsame/JS-lastige Seiten.");
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(settleStrategyCombo, gbc);
 
@@ -128,16 +133,20 @@ public class WebSearchSettingsDialog extends JDialog {
         System.setProperty("websearch.history.enabled", String.valueOf(historyNavigationCheckbox.isSelected()));
         System.setProperty("websearch.crawl.maxTabs", String.valueOf(savedMaxTabs));
 
-        // ── Info-Label ──────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 21; gbc.gridwidth = 2;
+        // ── Info ─────────────────────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2; gbc.weightx = 1;
         JLabel infoLabel = new JLabel(
                 "<html><i>Die Browser-Tools (browser_navigate, browser_click_css, ...) werden "
-                + "automatisch in der Tool-Registry registriert und stehen im Chat zur Verfügung.</i></html>");
+                + "automatisch in der Tool-Registry registriert und stehen im Chat zur Verf\u00fcgung.</i></html>");
         infoLabel.setForeground(Color.GRAY);
         form.add(infoLabel, gbc);
+        gbc.gridwidth = 1;
 
-        // ── URL Whitelist ───────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 10; gbc.gridwidth = 1; gbc.weightx = 0;
+        // ── URL Whitelist ────────────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel whitelistLabel = new JLabel("<html>URL-Whitelist<br><small>(Regex, pro Zeile)</small>:</html>");
         whitelistLabel.setToolTipText("Nur URLs, die einem Pattern matchen, werden erlaubt. Leer = alle erlaubt.");
@@ -146,8 +155,8 @@ public class WebSearchSettingsDialog extends JDialog {
         whitelistArea = new JTextArea(settings.getOrDefault("urlWhitelist", ""), 4, 30);
         whitelistArea.setToolTipText(
                 "Regex-Patterns (ein Pattern pro Zeile). Beispiele:\n"
-              + "  yahoo\\.com       → erlaubt alle Yahoo-URLs\n"
-              + "  https://news\\.yahoo\\.com/.*  → nur Yahoo News\n"
+              + "  yahoo\\.com       \u2192 erlaubt alle Yahoo-URLs\n"
+              + "  https://news\\.yahoo\\.com/.*  \u2192 nur Yahoo News\n"
               + "Zeilen mit # sind Kommentare. Leer = alle URLs erlaubt.");
         whitelistArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         JScrollPane whitelistScroll = new JScrollPane(whitelistArea);
@@ -155,8 +164,9 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.fill = GridBagConstraints.BOTH;
         form.add(whitelistScroll, gbc);
 
-        // ── URL Blacklist ───────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 23; gbc.weightx = 0; gbc.weighty = 0;
+        // ── URL Blacklist ────────────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.weighty = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel blacklistLabel = new JLabel("<html>URL-Blacklist<br><small>(Regex, pro Zeile)</small>:</html>");
@@ -169,8 +179,8 @@ public class WebSearchSettingsDialog extends JDialog {
         blacklistArea = new JTextArea(savedBlacklist, 4, 30);
         blacklistArea.setToolTipText(
                 "Regex-Patterns (ein Pattern pro Zeile). Beispiele:\n"
-              + "  ads\\.example\\.com  → blockiert Werbe-Domain\n"
-              + "  \\.(exe|zip|msi)$   → blockiert Downloads\n"
+              + "  ads\\.example\\.com  \u2192 blockiert Werbe-Domain\n"
+              + "  \\.(exe|zip|msi)$   \u2192 blockiert Downloads\n"
               + "Blacklist hat Vorrang vor Whitelist.");
         blacklistArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         JScrollPane blacklistScroll = new JScrollPane(blacklistArea);
@@ -178,26 +188,28 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.fill = GridBagConstraints.BOTH;
         form.add(blacklistScroll, gbc);
 
-        // ── Cookie-Banner Selektoren ─────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 20; gbc.gridwidth = 1; gbc.weightx = 0;
-        gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        // ── Cookie-Banner Selektoren ─────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel cookieLabel = new JLabel("<html>Cookie-Banner<br><small>(CSS-Selektoren)</small>:</html>");
-        cookieLabel.setToolTipText("CSS-Selektoren für Cookie-Accept-Buttons (einer pro Zeile). Leer = Defaults.");
+        cookieLabel.setToolTipText("CSS-Selektoren f\u00fcr Cookie-Accept-Buttons (einer pro Zeile). Leer = Defaults.");
         form.add(cookieLabel, gbc);
 
         String defaultSelectorsText = String.join("\n", CookieBannerDismisser.DEFAULT_SELECTORS);
         String savedSelectors = settings.getOrDefault("cookieSelectors", defaultSelectorsText);
         cookieSelectorsArea = new JTextArea(savedSelectors, 4, 30);
         cookieSelectorsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        cookieSelectorsArea.setToolTipText("CSS-Selektoren für Cookie-Consent-Buttons.\nEin Selektor pro Zeile. Leer = Defaults verwenden.");
+        cookieSelectorsArea.setToolTipText("CSS-Selektoren f\u00fcr Cookie-Consent-Buttons.\nEin Selektor pro Zeile. Leer = Defaults verwenden.");
         JScrollPane cookieSelScroll = new JScrollPane(cookieSelectorsArea);
         gbc.gridx = 1; gbc.weightx = 1; gbc.weighty = 0.2;
         gbc.fill = GridBagConstraints.BOTH;
         form.add(cookieSelScroll, gbc);
 
-        // ── Cookie-Banner Script ─────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 21; gbc.weightx = 0; gbc.weighty = 0;
+        // ── Cookie-Banner Script ─────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0; gbc.weighty = 0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         JLabel cookieScriptLabel = new JLabel("<html>Cookie-Dismiss<br><small>(JS-Script)</small>:</html>");
@@ -213,33 +225,39 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.fill = GridBagConstraints.BOTH;
         form.add(cookieScriptScroll, gbc);
 
+        // ── Cookie Reset Buttons ─────────────────────────────────
+        row++;
+        gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1; gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         JPanel cookieResetPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        JButton resetSelectorsBtn = new JButton("↺ Selektoren zurücksetzen");
+        JButton resetSelectorsBtn = new JButton("\u21BA Selektoren zur\u00fccksetzen");
         resetSelectorsBtn.addActionListener(e -> cookieSelectorsArea.setText(defaultSelectorsText));
-        JButton resetScriptBtn = new JButton("↺ Script zurücksetzen");
+        JButton resetScriptBtn = new JButton("\u21BA Script zur\u00fccksetzen");
         resetScriptBtn.addActionListener(e -> cookieScriptArea.setText(""));
         cookieResetPanel.add(resetSelectorsBtn);
         cookieResetPanel.add(Box.createHorizontalStrut(8));
         cookieResetPanel.add(resetScriptBtn);
-        gbc.gridx = 1; gbc.gridy = 14; gbc.weighty = 0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
         form.add(cookieResetPanel, gbc);
 
-        // ── Debug: WebSocket-Logging & Live-Stats ───────────────────
-        gbc.gridx = 0; gbc.gridy = 23; gbc.gridwidth = 2; gbc.weightx = 1;
+        // ── Separator ────────────────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2; gbc.weightx = 1;
         gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.WEST;
-        JSeparator sep = new JSeparator();
-        form.add(sep, gbc);
+        form.add(new JSeparator(), gbc);
+        gbc.gridwidth = 1;
 
-        gbc.gridx = 0; gbc.gridy = 20; gbc.gridwidth = 2;
+        // ── Debug / WebSocket ────────────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
         JLabel debugSectionLabel = new JLabel("Debug / WebSocket");
         debugSectionLabel.setFont(debugSectionLabel.getFont().deriveFont(Font.BOLD, 12f));
         form.add(debugSectionLabel, gbc);
+        gbc.gridwidth = 1;
 
-        gbc.gridx = 0; gbc.gridy = 21; gbc.gridwidth = 1; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("WS-Logging:"), gbc);
-
         wsLoggingCheckbox = new JCheckBox("WebSocket-Frame-Logging aktivieren");
         wsLoggingCheckbox.setToolTipText("Aktiviert detailliertes Logging aller ein-/ausgehenden WebSocket-Frames (wd4j.log.websocket).");
         wsLoggingCheckbox.setSelected(Boolean.getBoolean("wd4j.log.websocket"));
@@ -256,42 +274,47 @@ public class WebSearchSettingsDialog extends JDialog {
         wsLastRxLabel = createStatsLabel();
         wsCongestionLabel = createStatsLabel();
 
-        gbc.gridx = 0; gbc.gridy = 22; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Empfangene Frames:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsRxCountLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 23; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Gesendete Frames:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsTxCountLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 20; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Letzte Nachricht:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsLastRxLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 21; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Congestion-Status:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsCongestionLabel, gbc);
 
-        // ── Pipeline Status ─────────────────────────────────────────
+        // ── Pipeline Status ──────────────────────────────────────
         wsPipelineStatusLabel = createStatsLabel();
-        gbc.gridx = 0; gbc.gridy = 22; gbc.weightx = 0;
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Pipeline:"), gbc);
         gbc.gridx = 1; gbc.weightx = 1;
         form.add(wsPipelineStatusLabel, gbc);
 
-        // ── Kill Intercepts Button ──────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 23; gbc.weightx = 0;
+        // ── Kill Intercepts Button ───────────────────────────────
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0;
         form.add(new JLabel("Notfall:"), gbc);
-
-        wsKillInterceptsButton = new JButton("🚨 Pipeline stoppen & zurücksetzen");
+        wsKillInterceptsButton = new JButton("\uD83D\uDEA8 Pipeline stoppen & zur\u00fccksetzen");
         wsKillInterceptsButton.setToolTipText(
                 "Stoppt die NetworkIngestionPipeline und entfernt den DataCollector.\n"
               + "Das gibt den Browser-Speicher frei und kann bei Problemen helfen.\n"
-              + "Die Pipeline wird beim nächsten research_navigate automatisch neu gestartet.");
+              + "Die Pipeline wird beim n\u00e4chsten research_navigate automatisch neu gestartet.");
         wsKillInterceptsButton.setForeground(new Color(180, 0, 0));
         wsKillInterceptsButton.addActionListener(e -> killAllIntercepts());
         gbc.gridx = 1; gbc.weightx = 1;
