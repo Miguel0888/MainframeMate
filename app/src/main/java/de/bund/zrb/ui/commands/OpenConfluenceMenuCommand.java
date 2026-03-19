@@ -128,6 +128,13 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
             }
 
             tabManager.addTab(tab);
+
+            // Auto-save checkbox state on every toggle
+            tab.setStateSaveCallback(() -> {
+                de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+                tab.addApplicationState(s.applicationState);
+                de.bund.zrb.helper.SettingsHelper.save(s);
+            });
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Confluence] Tab \u00f6ffnen fehlgeschlagen", e);
             // Build readable error chain

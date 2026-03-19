@@ -19,6 +19,7 @@ import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -73,6 +74,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private OutlineCallback outlineCallback;
     /** Callback to update the dependency/relations panel (LeftDrawer) for the previewed page. */
     private DependencyCallback dependencyCallback;
+    /** Callback to persist state changes immediately (e.g. on checkbox toggle). */
+    private Runnable stateSaveCallback;
 
     public ConfluenceConnectionTab(ConfluenceRestClient client, String baseUrl) {
         this.client = client;
@@ -315,8 +318,20 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                         JCheckBox cb = new JCheckBox(sp.key, true);
                         cb.setToolTipText(sp.key + " — " + sp.name);
                         cb.putClientProperty("spaceItem", sp);
+                        cb.addItemListener(e -> {
+                            if (stateSaveCallback != null) stateSaveCallback.run();
+                        });
                         spaceCheckboxes.add(cb);
                         spaceCheckboxPanel.add(cb);
+                    }
+                    // Restore persisted checkbox states
+                    if (stateSaveCallback != null) {
+                        try {
+                            de.bund.zrb.model.Settings s = de.bund.zrb.helper.SettingsHelper.load();
+                            restoreApplicationState(s.applicationState);
+                        } catch (Exception ignore) {
+                            // Settings not available yet — keep defaults
+                        }
                     }
                     spaceCheckboxPanel.revalidate();
                     spaceCheckboxPanel.repaint();
@@ -465,13 +480,16 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         currentPreviewItem = item;
         currentHtmlBody = html;
 
+        // Inject id attributes into headings that don't have one (needed for scrollToReference)
+        String enrichedHtml = injectHeadingAnchors(html);
+
         // Wrap HTML for display
         String fullHtml = "<html><head><base href=\"" + escHtml(baseUrl) + "\">"
                 + "<style>body{font-family:sans-serif;font-size:13px;padding:8px;}"
                 + "table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:4px;}"
                 + "img{max-width:100%;} h1,h2,h3{color:#333;} a{color:#0645ad;}"
                 + "pre,code{background:#f4f4f4;padding:4px;}</style></head><body>"
-                + html + "</body></html>";
+                + enrichedHtml + "</body></html>";
         htmlPane.setText(fullHtml);
         htmlPane.setCaretPosition(0);
         statusLabel.setText("✅ Vorschau: " + item.title);
@@ -710,6 +728,44 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         return s.replaceAll("<[^>]+>", "");
     }
 
+    /** Pattern to match h1-h6 opening tags, capturing tag name and attributes. */
+    private static final Pattern H_OPEN_PATTERN = Pattern.compile(
+            "<(h[1-6])(\\s[^>]*)?>",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Inject {@code id} attributes into heading tags that don't have one,
+     * so that {@link JEditorPane#scrollToReference(String)} can find them.
+     * The generated id matches the anchor produced by {@link #parseOutlineSimple}.
+     */
+    static String injectHeadingAnchors(String html) {
+        if (html == null) return html;
+        StringBuffer sb = new StringBuffer();
+        Matcher m = H_OPEN_PATTERN.matcher(html);
+        while (m.find()) {
+            String tag = m.group(1);      // "h2"
+            String attrs = m.group(2);    // e.g. ' class="..."' or null
+
+            // Already has an id? Keep as-is.
+            if (attrs != null && Pattern.compile("\\bid\\s*=", Pattern.CASE_INSENSITIVE).matcher(attrs).find()) {
+                continue; // no replacement needed
+            }
+
+            // Extract text between this opening tag and its closing tag to generate an anchor
+            int closeStart = html.indexOf("</" + tag, m.end());
+            if (closeStart < 0) continue;
+            String innerHtml = html.substring(m.end(), closeStart);
+            String text = stripHtmlTags(innerHtml).trim();
+            if (text.isEmpty()) continue;
+
+            String anchor = text.replaceAll("[^\\w]+", "-").toLowerCase();
+            String replacement = "<" + tag + (attrs != null ? attrs : "") + " id=\"" + anchor + "\">";
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     private static final class HeadingEntry {
         final int level;
         final String text;
@@ -775,6 +831,39 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     /** Callback to update the dependency/relations panel (LeftDrawer) for the previewed page. */
     public interface DependencyCallback {
         void onDependenciesChanged(PageItem item);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Application State persistence (space checkbox selection)
+    // ═══════════════════════════════════════════════════════════
+
+    public void setStateSaveCallback(Runnable callback) {
+        this.stateSaveCallback = callback;
+    }
+
+    /** Write current checkbox states into the applicationState map. */
+    public void addApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        for (JCheckBox cb : spaceCheckboxes) {
+            SpaceItem sp = (SpaceItem) cb.getClientProperty("spaceItem");
+            if (sp != null) {
+                state.put("confluence.space.checked." + sp.key, String.valueOf(cb.isSelected()));
+            }
+        }
+    }
+
+    /** Restore checkbox states from the applicationState map. */
+    public void restoreApplicationState(Map<String, String> state) {
+        if (state == null) return;
+        for (JCheckBox cb : spaceCheckboxes) {
+            SpaceItem sp = (SpaceItem) cb.getClientProperty("spaceItem");
+            if (sp != null) {
+                String val = state.get("confluence.space.checked." + sp.key);
+                if (val != null) {
+                    cb.setSelected(Boolean.parseBoolean(val));
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
