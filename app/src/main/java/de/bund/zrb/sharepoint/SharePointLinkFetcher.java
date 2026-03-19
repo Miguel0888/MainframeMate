@@ -134,6 +134,7 @@ public final class SharePointLinkFetcher {
      */
     private static String downloadViaPowerShellSso(String url) throws Exception {
         // PowerShell script that uses .NET WebClient with Windows credentials
+        // Also sets proxy credentials for corporate proxy environments
         String script = "$ProgressPreference = 'SilentlyContinue'; "
                 + "[System.Net.ServicePointManager]::SecurityProtocol = "
                 + "[System.Net.SecurityProtocolType]::Tls12 -bor "
@@ -141,6 +142,9 @@ public final class SharePointLinkFetcher {
                 + "[System.Net.SecurityProtocolType]::Tls; "
                 + "$wc = New-Object System.Net.WebClient; "
                 + "$wc.UseDefaultCredentials = $true; "
+                + "if ($wc.Proxy -ne $null) { "
+                + "$wc.Proxy.Credentials = [System.Net.CredentialCache]::DefaultNetworkCredentials "
+                + "}; "
                 + "$wc.Encoding = [System.Text.Encoding]::UTF8; "
                 + "$wc.DownloadString('" + escapePsString(url) + "')";
 
