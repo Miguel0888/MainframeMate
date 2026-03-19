@@ -45,7 +45,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private final String baseUrl;
 
     // ── UI components ──
-    private final JComboBox<SpaceItem> spaceSelector;
+    private final JPanel spaceCheckboxPanel;
+    private final List<JCheckBox> spaceCheckboxes = new ArrayList<JCheckBox>();
     private final JTextField searchField;
     private final JTextField filterField;
     private final JEditorPane htmlPane;
@@ -58,7 +59,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
     // ── State ──
     private int currentStart = 0;
-    private String currentSpaceKey = null;
+    private String currentCql = null;
 
     /** Currently previewed page. */
     private PageItem currentPreviewItem;
@@ -85,34 +86,45 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         topControls.setLayout(new BoxLayout(topControls, BoxLayout.Y_AXIS));
         topControls.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        // Row 1: Space selector + Load button
+        // Row 1: [🔄 Refresh] [Spaces: checkboxes …] [📥 Indexieren]
         JPanel spaceRow = new JPanel(new BorderLayout(4, 0));
-        spaceRow.add(new JLabel("Space: "), BorderLayout.WEST);
-        spaceSelector = new JComboBox<SpaceItem>();
-        spaceSelector.setMaximumRowCount(20);
-        spaceSelector.addActionListener(e -> {
-            SpaceItem sel = (SpaceItem) spaceSelector.getSelectedItem();
-            if (sel != null) {
-                currentSpaceKey = sel.key;
-                currentStart = 0;
-                loadPages();
-            }
-        });
-        spaceRow.add(spaceSelector, BorderLayout.CENTER);
 
-        JButton refreshBtn = new JButton("🔄 Spaces laden");
-        refreshBtn.setToolTipText("Spaces vom Server laden");
+        JButton refreshBtn = new JButton("🔄");
+        refreshBtn.setToolTipText("Spaces vom Server neu laden");
+        refreshBtn.setMargin(new Insets(2, 6, 2, 6));
+        refreshBtn.setFocusable(false);
         refreshBtn.addActionListener(e -> loadSpaces());
-        spaceRow.add(refreshBtn, BorderLayout.EAST);
-        spaceRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        spaceRow.add(refreshBtn, BorderLayout.WEST);
+
+        spaceCheckboxPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        spaceCheckboxPanel.add(new JLabel("Spaces:"));
+        spaceRow.add(spaceCheckboxPanel, BorderLayout.CENTER);
+
+        JButton indexBtn = new JButton("📥 Indexieren");
+        indexBtn.setToolTipText("Aktuelle Seite in den Suchindex aufnehmen");
+        indexBtn.setFocusable(false);
+        indexBtn.setEnabled(false); // Funktion folgt
+        spaceRow.add(indexBtn, BorderLayout.EAST);
+
         topControls.add(spaceRow);
         topControls.add(Box.createVerticalStrut(4));
 
-        // Row 2: CQL Search
+        // Row 2: Search
         JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
-        searchPanel.add(new JLabel("🔍 CQL: "), BorderLayout.WEST);
+        searchPanel.add(new JLabel("🔍"), BorderLayout.WEST);
         searchField = new JTextField();
-        searchField.setToolTipText("Confluence-Suche (CQL). z.B. type=page AND text~\"Suchbegriff\"");
+        searchField.setToolTipText(
+                "<html><b>Confluence durchsuchen</b> (Enter)<br>"
+                + "Freitext-Suche oder CQL-Syntax:<br>"
+                + "<br>"
+                + "<b>Freitext:</b> Suchbegriff<br>"
+                + "<b>Exakt:</b> text~\"exakter Ausdruck\"<br>"
+                + "<b>Titel:</b> title=\"Seitenname\"<br>"
+                + "<b>Label:</b> label=mein-label<br>"
+                + "<b>Typ:</b> type=page AND text~\"Begriff\"<br>"
+                + "<b>Kombiniert:</b> space=KEY AND title~\"Test\"<br>"
+                + "<br>"
+                + "Ausgewählte Spaces werden automatisch als Filter ergänzt.</html>");
         searchField.addActionListener(e -> searchConfluence());
         // Arrow keys: move to result table
         searchField.addKeyListener(new KeyAdapter() {
@@ -191,15 +203,17 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         JPanel pageBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         JButton prevBtn = new JButton("◀ Zurück");
         prevBtn.addActionListener(e -> {
-            if (currentStart >= PAGE_SIZE) {
+            if (currentStart >= PAGE_SIZE && currentCql != null) {
                 currentStart -= PAGE_SIZE;
-                loadPages();
+                executeSearch(currentCql, currentStart);
             }
         });
         JButton nextBtn = new JButton("Weiter ▶");
         nextBtn.addActionListener(e -> {
-            currentStart += PAGE_SIZE;
-            loadPages();
+            if (currentCql != null) {
+                currentStart += PAGE_SIZE;
+                executeSearch(currentCql, currentStart);
+            }
         });
         pageBar.add(prevBtn);
         pageBar.add(nextBtn);
@@ -293,10 +307,19 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 mainPanel.setCursor(Cursor.getDefaultCursor());
                 try {
                     List<SpaceItem> spaces = get();
-                    spaceSelector.removeAllItems();
+                    // Rebuild checkbox panel
+                    spaceCheckboxPanel.removeAll();
+                    spaceCheckboxes.clear();
+                    spaceCheckboxPanel.add(new JLabel("Spaces:"));
                     for (SpaceItem sp : spaces) {
-                        spaceSelector.addItem(sp);
+                        JCheckBox cb = new JCheckBox(sp.key, true);
+                        cb.setToolTipText(sp.key + " — " + sp.name);
+                        cb.putClientProperty("spaceItem", sp);
+                        spaceCheckboxes.add(cb);
+                        spaceCheckboxPanel.add(cb);
                     }
+                    spaceCheckboxPanel.revalidate();
+                    spaceCheckboxPanel.repaint();
                     statusLabel.setText(spaces.size() + " Spaces geladen");
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[Confluence] Spaces laden fehlgeschlagen", e);
@@ -315,86 +338,77 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         }.execute();
     }
 
-    private void loadPages() {
-        if (currentSpaceKey == null) return;
-        statusLabel.setText("⏳ Lade Seiten für " + currentSpaceKey + "…");
-        mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-
-        final String spaceKey = currentSpaceKey;
-        final int start = currentStart;
-
-        new SwingWorker<List<PageItem>, Void>() {
-            @Override
-            protected List<PageItem> doInBackground() {
-                List<PageItem> pages = new ArrayList<PageItem>();
-                String json = client.getContentJson(spaceKey, start, PAGE_SIZE);
-                JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-                JsonArray results = root.getAsJsonArray("results");
-                if (results != null) {
-                    for (JsonElement el : results) {
-                        JsonObject pg = el.getAsJsonObject();
-                        String id = pg.get("id").getAsString();
-                        String title = pg.get("title").getAsString();
-                        String type = pg.has("type") ? pg.get("type").getAsString() : "page";
-                        int version = 0;
-                        if (pg.has("version") && pg.getAsJsonObject("version").has("number")) {
-                            version = pg.getAsJsonObject("version").get("number").getAsInt();
-                        }
-                        pages.add(new PageItem(id, title, type, spaceKey, version));
-                    }
-                }
-                return pages;
-            }
-
-            @Override
-            protected void done() {
-                mainPanel.setCursor(Cursor.getDefaultCursor());
-                try {
-                    List<PageItem> pages = get();
-                    pageModel.setItems(pages);
-                    statusLabel.setText(spaceKey + ": " + pages.size() + " Ergebnisse (ab " + start + ")");
-                } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[Confluence] Seiten laden fehlgeschlagen", e);
-                    statusLabel.setText("❌ " + e.getMessage());
-                }
-            }
-        }.execute();
-    }
-
     private void searchConfluence() {
         String query = searchField.getText().trim();
-        if (query.isEmpty()) return;
 
-        statusLabel.setText("⏳ Suche: " + query + "…");
+        // Build CQL
+        String cql;
+        if (query.isEmpty()) {
+            // Empty search → list pages from checked spaces
+            cql = "type=page";
+        } else if (!query.contains("=") && !query.contains("~")) {
+            cql = "type=page AND text~\"" + query.replace("\"", "\\\"") + "\"";
+        } else {
+            cql = query;
+        }
+
+        // Add space filter from checked checkboxes
+        List<String> checkedKeys = getCheckedSpaceKeys();
+        if (!checkedKeys.isEmpty() && checkedKeys.size() < spaceCheckboxes.size()) {
+            // Only add filter if not all spaces are checked (= all = no filter needed)
+            StringBuilder spaceFilter = new StringBuilder("space in (");
+            for (int i = 0; i < checkedKeys.size(); i++) {
+                if (i > 0) spaceFilter.append(",");
+                spaceFilter.append("\"").append(checkedKeys.get(i)).append("\"");
+            }
+            spaceFilter.append(")");
+            cql = spaceFilter + " AND " + cql;
+        }
+
+        currentCql = cql;
+        currentStart = 0;
+        executeSearch(cql, 0);
+    }
+
+    /** Execute a CQL search with the given offset and populate the results table. */
+    private void executeSearch(final String cql, final int start) {
+        statusLabel.setText("⏳ Suche: " + cql + " (ab " + start + ")…");
         mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
         new SwingWorker<List<PageItem>, Void>() {
             @Override
             protected List<PageItem> doInBackground() {
                 List<PageItem> pages = new ArrayList<PageItem>();
-                // If the query doesn't contain CQL operators, wrap it in a simple text search
-                String cql = query;
-                if (!cql.contains("=") && !cql.contains("~")) {
-                    cql = "type=page AND text~\"" + query.replace("\"", "\\\"") + "\"";
-                }
-                String json = client.searchJson(cql, 0, PAGE_SIZE);
+                String json = client.searchJson(cql, start, PAGE_SIZE);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
                 JsonArray results = root.getAsJsonArray("results");
                 if (results != null) {
                     for (JsonElement el : results) {
                         JsonObject pg = el.getAsJsonObject();
-                        String id = pg.get("id").getAsString();
-                        String title = pg.get("title").getAsString();
-                        String type = pg.has("type") ? pg.get("type").getAsString() : "page";
+                        // Search results may wrap content in a "content" object
+                        JsonObject content = pg.has("content") ? pg.getAsJsonObject("content") : pg;
+                        String id = content.has("id") ? content.get("id").getAsString() : "";
+                        String title = content.has("title") ? content.get("title").getAsString() : "";
+                        String type = content.has("type") ? content.get("type").getAsString() : "page";
                         String spKey = "";
-                        if (pg.has("space") && pg.getAsJsonObject("space").has("key")) {
-                            spKey = pg.getAsJsonObject("space").get("key").getAsString();
+                        if (content.has("space") && content.getAsJsonObject("space").has("key")) {
+                            spKey = content.getAsJsonObject("space").get("key").getAsString();
+                        }
+                        // Fallback: space from _expandable
+                        if (spKey.isEmpty() && content.has("_expandable")
+                                && content.getAsJsonObject("_expandable").has("space")) {
+                            String spacePath = content.getAsJsonObject("_expandable").get("space").getAsString();
+                            if (spacePath.contains("/")) {
+                                spKey = spacePath.substring(spacePath.lastIndexOf("/") + 1);
+                            }
                         }
                         int version = 0;
-                        if (pg.has("version") && pg.getAsJsonObject("version").has("number")) {
-                            version = pg.getAsJsonObject("version").get("number").getAsInt();
+                        if (content.has("version") && content.getAsJsonObject("version").has("number")) {
+                            version = content.getAsJsonObject("version").get("number").getAsInt();
                         }
-                        pages.add(new PageItem(id, title, type, spKey, version));
+                        if (!id.isEmpty()) {
+                            pages.add(new PageItem(id, title, type, spKey, version));
+                        }
                     }
                 }
                 return pages;
@@ -406,7 +420,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 try {
                     List<PageItem> pages = get();
                     pageModel.setItems(pages);
-                    statusLabel.setText("Suche: " + pages.size() + " Treffer");
+                    statusLabel.setText(pages.size() + " Treffer (ab " + start + ")");
                     if (!pages.isEmpty() && pageTable.getRowCount() > 0) {
                         pageTable.setRowSelectionInterval(0, 0);
                     }
@@ -505,6 +519,18 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Confluence] Browser öffnen fehlgeschlagen", e);
         }
+    }
+
+    /** @return keys of all checked space checkboxes. */
+    private List<String> getCheckedSpaceKeys() {
+        List<String> keys = new ArrayList<String>();
+        for (JCheckBox cb : spaceCheckboxes) {
+            if (cb.isSelected()) {
+                SpaceItem sp = (SpaceItem) cb.getClientProperty("spaceItem");
+                if (sp != null) keys.add(sp.key);
+            }
+        }
+        return keys;
     }
 
     private void applyFilter() {
