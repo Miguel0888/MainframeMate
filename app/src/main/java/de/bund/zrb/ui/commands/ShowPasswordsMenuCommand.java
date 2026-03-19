@@ -345,54 +345,6 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             urlLabel.setText("URL: *");
         }
 
-        // SSO test button (only visible for SP entries)
-        JButton ssoTestBtn = new JButton("\uD83D\uDD11 SSO testen\u2026");
-        ssoTestBtn.setToolTipText("Windows Integrated Auth (Kerberos/NTLM) f\u00fcr diese SharePoint-Site testen");
-        ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem()));
-        categoryBox.addActionListener(e ->
-                ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem())));
-        ssoTestBtn.addActionListener(e -> {
-            String testUrl = urlField.getText().trim();
-            if (testUrl.isEmpty()) {
-                JOptionPane.showMessageDialog(parent, "Bitte zuerst eine URL eingeben.",
-                        "SSO-Test", JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-            String uncPath = de.bund.zrb.sharepoint.SharePointPathUtil.toUncPath(testUrl);
-            parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-            new SwingWorker<Boolean, Void>() {
-                @Override
-                protected Boolean doInBackground() {
-                    if (new java.io.File(uncPath).exists()) return true;
-                    return de.bund.zrb.sharepoint.SharePointAuthenticator.netUseSso(uncPath);
-                }
-                @Override
-                protected void done() {
-                    parent.setCursor(Cursor.getDefaultCursor());
-                    try {
-                        if (get()) {
-                            JOptionPane.showMessageDialog(parent,
-                                    "\u2713 Windows SSO (Kerberos/NTLM) erfolgreich!\n\n"
-                                            + "UNC-Pfad: " + uncPath,
-                                    "SSO-Test", JOptionPane.INFORMATION_MESSAGE);
-                        } else {
-                            JOptionPane.showMessageDialog(parent,
-                                    "\u2717 Windows SSO nicht verf\u00fcgbar.\n\n"
-                                            + "M\u00f6gliche Ursachen:\n"
-                                            + "\u2022 SharePoint nicht in Intranet-Zone\n"
-                                            + "\u2022 Kerberos-Ticket abgelaufen\n"
-                                            + "\u2022 WebClient-Dienst nicht gestartet",
-                                    "SSO-Test", JOptionPane.WARNING_MESSAGE);
-                        }
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(parent,
-                                "Fehler: " + ex.getMessage(),
-                                "SSO-Test", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            }.execute();
-        });
-
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 4);
@@ -434,13 +386,6 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(urlField, gbc);
 
-        // SSO test row (only for SP entries)
-        row++;
-        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(ssoTestBtn, gbc);
-        gbc.gridwidth = 1;
-
         // ── Separator + Checkboxes ──
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
@@ -460,10 +405,84 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         cbPanel.add(sessionCb);
         panel.add(cbPanel, gbc);
 
-        int result = JOptionPane.showConfirmDialog(parent, panel, dialogTitle,
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        // ── Custom dialog with SSO test button in the bottom button bar ──
+        final JDialog dialog = new JDialog(parent, dialogTitle, true);
+        final boolean[] confirmed = {false};
 
-        if (result != JOptionPane.OK_OPTION) return null;
+        // SSO test button (only visible for SP entries)
+        JButton ssoTestBtn = new JButton("\uD83D\uDD11 SSO testen\u2026");
+        ssoTestBtn.setToolTipText("Windows Integrated Auth (Kerberos/NTLM) f\u00fcr diese SharePoint-Site testen");
+        ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem()));
+        categoryBox.addActionListener(e ->
+                ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem())));
+        ssoTestBtn.addActionListener(e -> {
+            String testUrl = urlField.getText().trim();
+            if (testUrl.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog, "Bitte zuerst eine URL eingeben.",
+                        "SSO-Test", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String uncPath = de.bund.zrb.sharepoint.SharePointPathUtil.toUncPath(testUrl);
+            dialog.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            new SwingWorker<Boolean, Void>() {
+                @Override
+                protected Boolean doInBackground() {
+                    if (new java.io.File(uncPath).exists()) return true;
+                    return de.bund.zrb.sharepoint.SharePointAuthenticator.netUseSso(uncPath);
+                }
+                @Override
+                protected void done() {
+                    dialog.setCursor(Cursor.getDefaultCursor());
+                    try {
+                        if (get()) {
+                            JOptionPane.showMessageDialog(dialog,
+                                    "\u2713 Windows SSO (Kerberos/NTLM) erfolgreich!\n\n"
+                                            + "UNC-Pfad: " + uncPath,
+                                    "SSO-Test", JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(dialog,
+                                    "\u2717 Windows SSO nicht verf\u00fcgbar.\n\n"
+                                            + "M\u00f6gliche Ursachen:\n"
+                                            + "\u2022 SharePoint nicht in Intranet-Zone\n"
+                                            + "\u2022 Kerberos-Ticket abgelaufen\n"
+                                            + "\u2022 WebClient-Dienst nicht gestartet",
+                                    "SSO-Test", JOptionPane.WARNING_MESSAGE);
+                        }
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(dialog,
+                                "Fehler: " + ex.getMessage(),
+                                "SSO-Test", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }.execute();
+        });
+
+        JButton okBtn = new JButton("OK");
+        okBtn.addActionListener(e -> { confirmed[0] = true; dialog.dispose(); });
+        JButton cancelBtn = new JButton("Abbrechen");
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        JPanel buttonBar = new JPanel(new BorderLayout());
+        JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        leftButtons.add(ssoTestBtn);
+        JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        rightButtons.add(okBtn);
+        rightButtons.add(cancelBtn);
+        buttonBar.add(leftButtons, BorderLayout.WEST);
+        buttonBar.add(rightButtons, BorderLayout.EAST);
+
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        content.add(panel, BorderLayout.CENTER);
+        content.add(buttonBar, BorderLayout.SOUTH);
+
+        dialog.setContentPane(content);
+        dialog.getRootPane().setDefaultButton(okBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(parent);
+        dialog.setVisible(true);
+
+        if (!confirmed[0]) return null;
 
         String category    = (String) categoryBox.getSelectedItem();
         String id          = idField.getText().trim();
