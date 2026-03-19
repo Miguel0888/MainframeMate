@@ -531,22 +531,63 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
      * against corporate portals works without explicit credentials.
      */
     private void scanSharePointLinks(final List<KeePassEntry> entries, final EntryTableModel model) {
-        // ── 1. Ask for the URL ──
-        String url = JOptionPane.showInputDialog(parent,
-                "Geben Sie die URL der Seite ein, die SharePoint-Links enth\u00e4lt\n"
-                        + "(z.\u00a0B. Intranet-\u00dcbersichtsseite mit Links zu SP-Sites):",
-                "SharePoint-Links scannen", JOptionPane.PLAIN_MESSAGE);
-        if (url == null || url.trim().isEmpty()) return;
+        // ── 1. Build input dialog with browser selection + URL ──
+        Settings currentSettings = SettingsHelper.load();
+
+        JComboBox<String> browserBox = new JComboBox<String>(new String[]{"Firefox", "Chrome", "Edge"});
+        if (currentSettings.browserType != null) {
+            browserBox.setSelectedItem(currentSettings.browserType);
+        }
+        JTextField urlField = new JTextField(30);
+
+        JPanel inputPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints g = new GridBagConstraints();
+        g.insets = new Insets(4, 4, 4, 4);
+        g.anchor = GridBagConstraints.WEST;
+
+        g.gridx = 0; g.gridy = 0;
+        inputPanel.add(new JLabel("Browser:"), g);
+        g.gridx = 1; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1;
+        inputPanel.add(browserBox, g);
+
+        g.gridx = 0; g.gridy = 1; g.fill = GridBagConstraints.NONE; g.weightx = 0;
+        inputPanel.add(new JLabel("URL:"), g);
+        g.gridx = 1; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1;
+        inputPanel.add(urlField, g);
+
+        g.gridx = 0; g.gridy = 2; g.gridwidth = 2;
+        inputPanel.add(new JLabel("<html><i>Seite mit Links zu SharePoint-Sites<br>"
+                + "(z.\u00a0B. Intranet-\u00dcbersicht)</i></html>"), g);
+
+        int result = JOptionPane.showConfirmDialog(parent, inputPanel,
+                "SharePoint-Links scannen", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return;
+
+        String url = urlField.getText().trim();
+        if (url.isEmpty()) return;
 
         // Auto-prepend https:// if missing
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             url = "https://" + url;
         }
 
-        // ── 2. Get BrowserService ──
+        // ── 2. Persist browser choice so BrowserService uses it ──
+        String chosenBrowser = (String) browserBox.getSelectedItem();
+        if (chosenBrowser != null && !chosenBrowser.equals(currentSettings.browserType)) {
+            currentSettings.browserType = chosenBrowser;
+            SettingsHelper.save(currentSettings);
+        }
+
+        // ── 3. Get BrowserService (reads browserType from Settings) ──
         BrowserService browserService = null;
         if (parent instanceof MainframeContext) {
-            browserService = ((MainframeContext) parent).getBrowserService();
+            // Close existing session if browser type changed
+            BrowserService bs = ((MainframeContext) parent).getBrowserService();
+            if (bs != null && bs.isSessionActive()
+                    && !chosenBrowser.equalsIgnoreCase(bs.getBrowserType())) {
+                bs.closeSession();
+            }
+            browserService = bs;
         }
         if (browserService == null) {
             JOptionPane.showMessageDialog(parent,
