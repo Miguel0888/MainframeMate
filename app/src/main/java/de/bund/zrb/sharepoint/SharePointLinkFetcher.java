@@ -3,6 +3,8 @@ package de.bund.zrb.sharepoint;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.util.WindowsCryptoUtil;
+import de.zrb.bund.newApi.browser.BrowserService;
+import de.zrb.bund.newApi.browser.BrowserSession;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -119,6 +121,85 @@ public final class SharePointLinkFetcher {
                         + "• Ist die URL korrekt?\n"
                         + "• Haben Sie Zugriff auf diese Seite im Browser?\n"
                         + "• Geben Sie Ihre AD-Zugangsdaten im Abschnitt \"Zugangsdaten\" ein");
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Browser-based fetch (SSO works automatically)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Fetch links by navigating to {@code parentUrl} with the real browser.
+     * <p>
+     * The browser inherits the user's Windows SSO session (Kerberos/NTLM),
+     * so authentication "just works" in corporate environments — no explicit
+     * credentials needed.
+     *
+     * @param browserService the app's browser service (from {@code MainframeContext})
+     * @param parentUrl      the URL to navigate to
+     * @return list of discovered links, never null
+     * @throws Exception if the browser could not navigate or the DOM was empty
+     */
+    public static List<SharePointSite> fetchLinksViaBrowser(BrowserService browserService, String parentUrl)
+            throws Exception {
+        if (parentUrl == null || parentUrl.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String url = parentUrl.trim();
+
+        BrowserSession session = browserService.openSession();
+        session.navigate(url);
+
+        // Give the page a moment to settle (JS rendering, redirects)
+        Thread.sleep(2500);
+
+        String html = session.getDomSnapshot();
+        if (html == null || html.isEmpty()) {
+            throw new RuntimeException(
+                    "Die Seite konnte nicht geladen werden (leerer DOM-Snapshot).\n\n"
+                            + "Bitte prüfen Sie:\n"
+                            + "• Ist die URL korrekt?\n"
+                            + "• Ist der Browser richtig konfiguriert?");
+        }
+
+        LOG.info("[SP-Fetch] Browser fetch succeeded (" + html.length() + " chars)");
+        return extractLinks(html, url);
+    }
+
+    /**
+     * Filter a list of sites to only those that look like SharePoint URLs
+     * (i.e. URLs that support WebDAV access).
+     * <p>
+     * Recognized patterns:
+     * <ul>
+     *   <li>{@code sharepoint.com} or {@code sharepoint.de} in the host</li>
+     *   <li>{@code /sites/} in the path</li>
+     *   <li>{@code /teams/} in the path</li>
+     *   <li>{@code /personal/} in the path (OneDrive for Business)</li>
+     * </ul>
+     */
+    public static List<SharePointSite> filterSharePointLinks(List<SharePointSite> all) {
+        List<SharePointSite> result = new ArrayList<SharePointSite>();
+        for (SharePointSite site : all) {
+            if (isSharePointUrl(site.getUrl())) {
+                result.add(site);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Check if a URL looks like a SharePoint site.
+     */
+    public static boolean isSharePointUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+        return lower.contains("sharepoint.com")
+                || lower.contains("sharepoint.de")
+                || lower.contains("/sites/")
+                || lower.contains("/teams/")
+                || lower.contains("/personal/")
+                || lower.contains("/_layouts/");
     }
 
     // ═══════════════════════════════════════════════════════════

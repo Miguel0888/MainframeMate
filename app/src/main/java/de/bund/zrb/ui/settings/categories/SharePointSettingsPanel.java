@@ -62,9 +62,17 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         fb.addRow("Parent-URL:", parentPageUrlField);
 
         JButton fetchButton = new JButton("\uD83D\uDD17 Links abrufen\u2026");
-        fetchButton.setToolTipText("Alle Links von der Parent-Seite laden und als SP-Eintr\u00e4ge anlegen");
+        fetchButton.setToolTipText("Alle Links von der Parent-Seite laden (PowerShell/SSO)");
         fetchButton.addActionListener(e -> fetchLinks());
-        fb.addRow("", fetchButton);
+        
+        JButton browserFetchBtn = new JButton("\uD83C\uDF10 Per Browser abrufen\u2026");
+        browserFetchBtn.setToolTipText("Links per echtem Browser abrufen (SSO funktioniert automatisch)");
+        browserFetchBtn.addActionListener(e -> fetchLinksViaBrowser());
+
+        JPanel fetchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        fetchPanel.add(fetchButton);
+        fetchPanel.add(browserFetchBtn);
+        fb.addRow("", fetchPanel);
 
         fb.addInfo("<html><i>Geben Sie die URL einer internen Seite an (z.B. Intranet/Wiki),<br>"
                 + "die Links zu Ihren SharePoint-Sites enth\u00e4lt. "
@@ -151,6 +159,89 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         }.execute();
     }
 
+    /**
+     * Fetch links using the real browser (WebDriver BiDi).
+     * The browser inherits Windows SSO, so authentication works automatically.
+     */
+    private void fetchLinksViaBrowser() {
+        String url = parentPageUrlField.getText().trim();
+        if (url.isEmpty()) {
+            JOptionPane.showMessageDialog(linkTable, "Bitte zuerst eine Parent-URL eingeben.",
+                    "SharePoint", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Find BrowserService via the settings dialog's parent hierarchy
+        de.zrb.bund.newApi.browser.BrowserService browserService = findBrowserService();
+        if (browserService == null) {
+            JOptionPane.showMessageDialog(linkTable,
+                    "Browser-Service ist nicht verf\u00fcgbar.\n\n"
+                            + "Bitte konfigurieren Sie den Browser unter\n"
+                            + "Einstellungen \u2192 Plugin-Einstellungen \u2192 Websearch.",
+                    "Browser nicht verf\u00fcgbar", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        linkTable.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        final de.zrb.bund.newApi.browser.BrowserService bs = browserService;
+        final String targetUrl = url;
+
+        new SwingWorker<List<SharePointSite>, Void>() {
+            @Override
+            protected List<SharePointSite> doInBackground() throws Exception {
+                return SharePointLinkFetcher.fetchLinksViaBrowser(bs, targetUrl);
+            }
+
+            @Override
+            protected void done() {
+                linkTable.setCursor(Cursor.getDefaultCursor());
+                try {
+                    List<SharePointSite> fetched = get();
+                    linkTableModel.mergeLinks(fetched);
+                    JOptionPane.showMessageDialog(linkTable,
+                            fetched.size() + " Links per Browser gefunden.\n"
+                                    + "Bitte die SharePoint-Sites anhaken und Einstellungen speichern.\n\n"
+                                    + "Die ausgew\u00e4hlten Sites werden als SP-Eintr\u00e4ge\n"
+                                    + "unter Einstellungen \u2192 Passw\u00f6rter gespeichert.",
+                            "Links abgerufen (Browser)", JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception ex) {
+                    String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    JOptionPane.showMessageDialog(linkTable,
+                            "Fehler beim Abrufen per Browser:\n" + msg,
+                            "Browser-Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Try to locate the BrowserService by traversing the parent component hierarchy
+     * to find a MainframeContext (typically MainFrame).
+     */
+    private de.zrb.bund.newApi.browser.BrowserService findBrowserService() {
+        // Walk up the component tree to find the JFrame that implements MainframeContext
+        Container c = linkTable;
+        while (c != null) {
+            if (c instanceof de.zrb.bund.api.MainframeContext) {
+                return ((de.zrb.bund.api.MainframeContext) c).getBrowserService();
+            }
+            c = c.getParent();
+            // Also check Window owner
+            if (c == null && linkTable != null) {
+                Window w = SwingUtilities.getWindowAncestor(linkTable);
+                if (w instanceof JDialog) {
+                    Window owner = ((JDialog) w).getOwner();
+                    if (owner instanceof de.zrb.bund.api.MainframeContext) {
+                        return ((de.zrb.bund.api.MainframeContext) owner).getBrowserService();
+                    }
+                }
+                break;
+            }
+        }
+        return null;
+    }
+
     @Override
     protected void applyToSettings(Settings s) {
         s.sharepointParentPageUrl = parentPageUrlField.getText().trim();
@@ -229,7 +320,7 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
      * Derive a stable ID from a SharePoint site URL.
      * Uses the host + path slug, e.g. "sp_myorg_sharepoint_com_sites_TeamSite".
      */
-    static String toSiteId(SharePointSite site) {
+    public static String toSiteId(SharePointSite site) {
         String url = site.getUrl();
         if (url == null || url.isEmpty()) return "sp_unknown";
         try {

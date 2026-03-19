@@ -2,9 +2,14 @@ package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.sharepoint.SharePointLinkFetcher;
+import de.bund.zrb.sharepoint.SharePointPathUtil;
+import de.bund.zrb.sharepoint.SharePointSite;
 import de.bund.zrb.util.CredentialStore;
 import de.bund.zrb.util.PasswordMethod;
+import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.ShortcutMenuCommand;
+import de.zrb.bund.newApi.browser.BrowserService;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -255,6 +260,10 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }
         });
 
+        JButton spScanBtn = new JButton("\uD83C\uDF10 SP-Links scannen");
+        spScanBtn.setToolTipText("SharePoint-Links per Browser von einer Webseite abrufen und als SP-Eintr\u00e4ge speichern");
+        spScanBtn.addActionListener(e -> scanSharePointLinks(entries, model));
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         buttonPanel.add(showAll);
         buttonPanel.add(Box.createHorizontalStrut(10));
@@ -264,6 +273,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         buttonPanel.add(deleteBtn);
         buttonPanel.add(Box.createHorizontalStrut(16));
         buttonPanel.add(defaultsBtn);
+        buttonPanel.add(spScanBtn);
 
         JPanel mainPanel = new JPanel(new BorderLayout(0, 8));
         mainPanel.add(new JLabel("Passwörter  (" + entries.size() + " Einträge)"),
@@ -508,6 +518,215 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 existing != null ? existing.uniqueID : "",
                 loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected(),
                 savePwCb.isSelected(), sessionCb.isSelected());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  SharePoint link scanning via browser
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Scan a web page for SharePoint links using the real browser.
+     * The browser inherits the Windows SSO session, so authentication
+     * against corporate portals works without explicit credentials.
+     */
+    private void scanSharePointLinks(final List<KeePassEntry> entries, final EntryTableModel model) {
+        // ── 1. Ask for the URL ──
+        String url = JOptionPane.showInputDialog(parent,
+                "Geben Sie die URL der Seite ein, die SharePoint-Links enth\u00e4lt\n"
+                        + "(z.\u00a0B. Intranet-\u00dcbersichtsseite mit Links zu SP-Sites):",
+                "SharePoint-Links scannen", JOptionPane.PLAIN_MESSAGE);
+        if (url == null || url.trim().isEmpty()) return;
+
+        // Auto-prepend https:// if missing
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://" + url;
+        }
+
+        // ── 2. Get BrowserService ──
+        BrowserService browserService = null;
+        if (parent instanceof MainframeContext) {
+            browserService = ((MainframeContext) parent).getBrowserService();
+        }
+        if (browserService == null) {
+            JOptionPane.showMessageDialog(parent,
+                    "Browser-Service ist nicht verf\u00fcgbar.\n\n"
+                            + "Bitte konfigurieren Sie den Browser unter\n"
+                            + "Einstellungen \u2192 Plugin-Einstellungen \u2192 Websearch.",
+                    "Browser nicht verf\u00fcgbar", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        final BrowserService bs = browserService;
+        final String targetUrl = url.trim();
+
+        // ── 3. Fetch in background ──
+        parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        new SwingWorker<List<SharePointSite>, Void>() {
+            @Override
+            protected List<SharePointSite> doInBackground() throws Exception {
+                return SharePointLinkFetcher.fetchLinksViaBrowser(bs, targetUrl);
+            }
+
+            @Override
+            protected void done() {
+                parent.setCursor(Cursor.getDefaultCursor());
+                try {
+                    List<SharePointSite> allLinks = get();
+                    List<SharePointSite> spLinks = SharePointLinkFetcher.filterSharePointLinks(allLinks);
+
+                    if (spLinks.isEmpty() && allLinks.isEmpty()) {
+                        JOptionPane.showMessageDialog(parent,
+                                "Keine Links auf der Seite gefunden.\n\n"
+                                        + "M\u00f6glicherweise ben\u00f6tigt die Seite l\u00e4nger zum Laden,\n"
+                                        + "oder sie enth\u00e4lt keine Hyperlinks.",
+                                "Keine Links", JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
+
+                    if (spLinks.isEmpty()) {
+                        JOptionPane.showMessageDialog(parent,
+                                allLinks.size() + " Links gefunden, aber keine davon\n"
+                                        + "sehen nach SharePoint-Sites aus.\n\n"
+                                        + "SharePoint-Links enthalten typischerweise\n"
+                                        + "'/sites/', '/teams/' oder 'sharepoint.com' in der URL.\n\n"
+                                        + "Tipp: Pr\u00fcfen Sie, ob die richtige Seite geladen wurde.",
+                                "Keine SP-Links", JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
+
+                    // ── 4. Show selection dialog ──
+                    int saved = showSpLinkSelectionDialog(spLinks, entries, model);
+                    if (saved > 0) {
+                        JOptionPane.showMessageDialog(parent,
+                                saved + " SharePoint-Eintrag/-Eintr\u00e4ge unter Passw\u00f6rter gespeichert.",
+                                "SP-Links gespeichert", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+                    JOptionPane.showMessageDialog(parent,
+                            "Fehler beim Scannen der Seite:\n" + msg,
+                            "Browser-Fehler", JOptionPane.ERROR_MESSAGE);
+                    LOG.log(Level.WARNING, "[SP-Scan] Failed", ex);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Show a dialog where the user can select which discovered SP links
+     * should be saved as password entries.
+     *
+     * @return number of entries actually created
+     */
+    private int showSpLinkSelectionDialog(List<SharePointSite> spLinks,
+                                          List<KeePassEntry> entries, EntryTableModel model) {
+        // Mark already-existing entries
+        java.util.Set<String> existingUrls = new java.util.HashSet<String>();
+        for (KeePassEntry e : entries) {
+            if ("SP".equals(e.category) && e.url != null) {
+                existingUrls.add(e.url);
+            }
+        }
+
+        // Pre-select those that are new
+        final boolean[] selected = new boolean[spLinks.size()];
+        for (int i = 0; i < spLinks.size(); i++) {
+            selected[i] = !existingUrls.contains(spLinks.get(i).getUrl());
+        }
+
+        // Build table
+        final List<SharePointSite> linkList = spLinks;
+        javax.swing.table.AbstractTableModel tModel = new javax.swing.table.AbstractTableModel() {
+            final String[] cols = {"\u2713", "Name", "URL", "Status"};
+            @Override public int getRowCount() { return linkList.size(); }
+            @Override public int getColumnCount() { return cols.length; }
+            @Override public String getColumnName(int c) { return cols[c]; }
+            @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }
+            @Override public boolean isCellEditable(int r, int c) { return c == 0; }
+
+            @Override
+            public Object getValueAt(int r, int c) {
+                SharePointSite s = linkList.get(r);
+                switch (c) {
+                    case 0: return selected[r];
+                    case 1: return s.getName();
+                    case 2: return s.getUrl();
+                    case 3: return existingUrls.contains(s.getUrl()) ? "vorhanden" : "neu";
+                    default: return "";
+                }
+            }
+
+            @Override
+            public void setValueAt(Object v, int r, int c) {
+                if (c == 0 && v instanceof Boolean) {
+                    selected[r] = (Boolean) v;
+                    fireTableCellUpdated(r, c);
+                }
+            }
+        };
+
+        JTable table = new JTable(tModel);
+        table.getColumnModel().getColumn(0).setMaxWidth(30);
+        table.getColumnModel().getColumn(0).setMinWidth(30);
+        table.getColumnModel().getColumn(1).setPreferredWidth(200);
+        table.getColumnModel().getColumn(2).setPreferredWidth(350);
+        table.getColumnModel().getColumn(3).setPreferredWidth(70);
+        table.setRowHeight(22);
+
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setPreferredSize(new Dimension(700, Math.min(400, 60 + spLinks.size() * 22)));
+
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.add(new JLabel("<html><b>" + spLinks.size() + " SharePoint-Links erkannt.</b><br>"
+                + "W\u00e4hlen Sie die Sites aus, die als SP-Passworteintrag gespeichert werden sollen:</html>"),
+                BorderLayout.NORTH);
+        panel.add(scroll, BorderLayout.CENTER);
+
+        int result = JOptionPane.showConfirmDialog(parent, panel,
+                "SharePoint-Links speichern", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return 0;
+
+        // ── Save selected links as SP password entries ──
+        int created = 0;
+        for (int i = 0; i < linkList.size(); i++) {
+            if (!selected[i]) continue;
+            SharePointSite site = linkList.get(i);
+
+            // Skip already existing
+            if (existingUrls.contains(site.getUrl())) continue;
+
+            String id = de.bund.zrb.ui.settings.categories.SharePointSettingsPanel.toSiteId(site);
+            String displayName = site.getName();
+            if (displayName == null || displayName.isEmpty()) {
+                displayName = SharePointPathUtil.extractDisplayName(site.getUrl());
+            }
+
+            // Check if entry with this ID already exists
+            boolean idExists = false;
+            for (KeePassEntry e : entries) {
+                if (id.equals(e.title)) {
+                    idExists = true;
+                    break;
+                }
+            }
+            if (idExists) continue;
+
+            try {
+                KeePassEntry entry = new KeePassEntry("SP", id, displayName, "", "", site.getUrl(), "",
+                        false, false, false, false, false);
+                saveEntry(entry);
+                entries.add(entry);
+                created++;
+            } catch (Exception ex) {
+                LOG.log(Level.WARNING, "[SP-Scan] Failed to save SP entry: " + id, ex);
+            }
+        }
+
+        if (created > 0) {
+            model.fireTableDataChanged();
+        }
+        return created;
     }
 
     // ═══════════════════════════════════════════════════════════
