@@ -2,6 +2,7 @@ package de.bund.zrb.login;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.util.CredentialStore;
 import de.bund.zrb.util.SessionCipher;
 import de.bund.zrb.util.WindowsCryptoUtil;
 
@@ -9,8 +10,12 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class LoginManager {
+
+    private static final Logger LOG = Logger.getLogger(LoginManager.class.getName());
 
     public enum BlockedLoginDecision {
         CANCEL,
@@ -98,10 +103,15 @@ public class LoginManager {
             return true;
         }
 
-        return shouldSavePassword(host, settings)
+        if (shouldSavePassword(host, settings)
                 && host != null && host.equals(settings.host)
                 && username != null && username.equals(settings.user)
-                && settings.encryptedPassword != null;
+                && settings.encryptedPassword != null) {
+            return true;
+        }
+
+        // Check password entries (Hilfe → Passwörter) — entry exists means credentials are available
+        return findMainframeEntry(host, settings) != null;
     }
 
     public String getPassword(String host, String username) {
@@ -132,11 +142,17 @@ public class LoginManager {
             } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
                 throw e; // must not be swallowed — user needs to check KeePass config
             } catch (Exception e) {
-                // Ignore error and fall back to interactive prompt
+                // Ignore error and fall back to next strategy
             }
         }
 
-        // 3) Ask user interactively
+        // 3) Password entries (Hilfe → Passwörter) — resolved via CredentialStore/KeePass
+        String fromEntries = resolveFromPasswordEntries(host, username, settings, key);
+        if (fromEntries != null) {
+            return fromEntries;
+        }
+
+        // 4) Ask user interactively
         return requestCredentialsAndPersist(host, username, settings);
     }
 
@@ -173,6 +189,12 @@ public class LoginManager {
             } catch (Exception ignore) {
                 // ignore and return null
             }
+        }
+
+        // Password entries (Hilfe → Passwörter) — resolved via CredentialStore/KeePass
+        String fromEntries = resolveFromPasswordEntries(host, username, settings, key);
+        if (fromEntries != null) {
+            return fromEntries;
         }
 
         return null;
@@ -390,6 +412,46 @@ public class LoginManager {
     // ═══════════════════════════════════════════════════════════
     //  Password-entry lookup helpers
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Try to resolve the password from the centralized password entries
+     * (Hilfe → Passwörter) via {@link CredentialStore}.
+     * This covers entries stored in KeePass or in {@code componentCredentials}.
+     *
+     * @param host     the target host
+     * @param username the username (used to verify, may be overridden by the entry)
+     * @param settings current settings
+     * @param cacheKey the session cache key for this host|user pair
+     * @return the plaintext password, or {@code null} if no matching entry was found
+     */
+    private String resolveFromPasswordEntries(String host, String username, Settings settings, String cacheKey) {
+        Settings.PasswordEntryMeta entry = findMainframeEntry(host, settings);
+        if (entry == null) {
+            return null;
+        }
+
+        try {
+            String[] cred = CredentialStore.resolve("pwd:" + entry.id);
+            if (cred != null && cred.length >= 2 && cred[1] != null && !cred[1].isEmpty()) {
+                LOG.fine("[LoginManager] Resolved password from password entry '" + entry.id
+                        + "' for host " + host);
+                // Cache in session for fast subsequent lookups
+                if (shouldUseSessionCache(host, settings)) {
+                    sessionPasswordCache.put(cacheKey, SessionCipher.encrypt(cred[1]));
+                }
+                return cred[1];
+            }
+        } catch (de.bund.zrb.util.JnaBlockedException e) {
+            throw e;
+        } catch (de.bund.zrb.util.PowerShellBlockedException e) {
+            throw e;
+        } catch (de.bund.zrb.util.KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to resolve password entry '" + entry.id + "' for host " + host, e);
+        }
+        return null;
+    }
 
     /**
      * Find the first Mainframe password entry whose URL matches the given host.
