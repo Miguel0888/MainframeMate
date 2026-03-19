@@ -576,7 +576,50 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static List<KeePassEntry> loadFromKeePass() {
         String raw = CredentialStore.listKeePassEntries();
-        return parseKeePassOutput(raw);
+        List<KeePassEntry> entries = parseKeePassOutput(raw);
+
+        // Sync metadata into settings.passwordEntries so other components
+        // (parseWikiSites, WikiSettingsPanel, etc.) can discover entries
+        // even if they were created before this sync mechanism existed.
+        syncMetadataToSettings(entries);
+
+        return entries;
+    }
+
+    /**
+     * Write metadata (no credentials) for the given entries into
+     * {@code settings.passwordEntries}, replacing any stale entries.
+     */
+    private static void syncMetadataToSettings(List<KeePassEntry> entries) {
+        Settings settings = SettingsHelper.load();
+        // Build set of known IDs from KeePass
+        java.util.Set<String> keePassIds = new java.util.HashSet<String>();
+        for (KeePassEntry e : entries) {
+            keePassIds.add(e.title);
+        }
+        // Remove stale entries that no longer exist in KeePass
+        Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
+        while (it.hasNext()) {
+            Settings.PasswordEntryMeta existing = it.next();
+            if (keePassIds.contains(existing.id)) {
+                it.remove(); // will be re-added below with fresh data
+            }
+        }
+        // Add fresh metadata
+        for (KeePassEntry e : entries) {
+            Settings.PasswordEntryMeta meta = new Settings.PasswordEntryMeta();
+            meta.id = e.title;
+            meta.category = e.category;
+            meta.displayName = e.displayName;
+            meta.url = e.url;
+            meta.requiresLogin = e.requiresLogin;
+            meta.useProxy = e.useProxy;
+            meta.autoIndex = e.autoIndex;
+            meta.savePassword = e.savePassword;
+            meta.sessionCache = e.sessionCache;
+            settings.passwordEntries.add(meta);
+        }
+        SettingsHelper.save(settings);
     }
 
     // ── Save ────────────────────────────────────────────────────
