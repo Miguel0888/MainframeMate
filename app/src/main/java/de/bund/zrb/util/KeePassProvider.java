@@ -370,7 +370,7 @@ final class KeePassProvider {
 
 
         // PowerShell mode: create the entry with both username and password
-        createEntry(settings, entryTitle, user, pass, "", null, null, false, false, false);
+        createEntry(settings, entryTitle, user, pass, "", null, null, false, false, false, "");
         LOG.info("[KeePass] Entry \"" + entryTitle + "\" created for user \"" + user + "\"");
         return pass;
     }
