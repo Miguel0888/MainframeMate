@@ -39,7 +39,8 @@ import java.util.regex.Pattern;
 public class ConfluenceConnectionTab implements ConnectionTab {
 
     private static final Logger LOG = Logger.getLogger(ConfluenceConnectionTab.class.getName());
-    private static final int PAGE_SIZE = 25;
+    private static final int DEFAULT_PAGE_SIZE = 25;
+    private static final int[] PAGE_SIZE_OPTIONS = {10, 25, 50, 100};
 
     private final JPanel mainPanel;
     private final ConfluenceRestClient client;
@@ -52,6 +53,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private final JTextField filterField;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
+    private final JLabel pageInfoLabel;
+    private final JButton prevBtn;
+    private final JButton nextBtn;
+    private final JComboBox<Integer> pageSizeCombo;
 
     // ── Results table ──
     private final PageTableModel pageModel;
@@ -60,6 +65,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
     // ── State ──
     private int currentStart = 0;
+    private int pageSize = DEFAULT_PAGE_SIZE;
+    private int totalResults = -1; // -1 = unknown
     private String currentCql = null;
 
     /** Currently previewed page. */
@@ -202,24 +209,61 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         JScrollPane resultScroll = new JScrollPane(pageTable);
         resultScroll.setBorder(BorderFactory.createTitledBorder("Seiten"));
 
-        // Pagination bar
+        // Pagination bar: [◀] [Seite X von Y] [▶]  |  [n pro Seite ▼]  |  statusLabel
         JPanel pageBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        JButton prevBtn = new JButton("◀ Zurück");
+
+        prevBtn = new JButton("◀");
+        prevBtn.setMargin(new Insets(1, 4, 1, 4));
+        prevBtn.setToolTipText("Vorherige Seite");
+        prevBtn.setFocusable(false);
+        prevBtn.setEnabled(false);
         prevBtn.addActionListener(e -> {
-            if (currentStart >= PAGE_SIZE && currentCql != null) {
-                currentStart -= PAGE_SIZE;
+            if (currentStart > 0 && currentCql != null) {
+                currentStart = Math.max(0, currentStart - pageSize);
                 executeSearch(currentCql, currentStart);
             }
         });
-        JButton nextBtn = new JButton("Weiter ▶");
+
+        nextBtn = new JButton("▶");
+        nextBtn.setMargin(new Insets(1, 4, 1, 4));
+        nextBtn.setToolTipText("Nächste Seite");
+        nextBtn.setFocusable(false);
+        nextBtn.setEnabled(false);
         nextBtn.addActionListener(e -> {
             if (currentCql != null) {
-                currentStart += PAGE_SIZE;
+                currentStart += pageSize;
                 executeSearch(currentCql, currentStart);
             }
         });
+
+        pageInfoLabel = new JLabel(" ");
+        pageInfoLabel.setFont(pageInfoLabel.getFont().deriveFont(Font.BOLD));
+
+        pageSizeCombo = new JComboBox<Integer>();
+        for (int sz : PAGE_SIZE_OPTIONS) {
+            pageSizeCombo.addItem(sz);
+        }
+        pageSizeCombo.setSelectedItem(DEFAULT_PAGE_SIZE);
+        pageSizeCombo.setToolTipText("Ergebnisse pro Seite");
+        pageSizeCombo.setMaximumRowCount(PAGE_SIZE_OPTIONS.length);
+        pageSizeCombo.addActionListener(e -> {
+            Object sel = pageSizeCombo.getSelectedItem();
+            if (sel instanceof Integer) {
+                pageSize = (Integer) sel;
+                if (currentCql != null) {
+                    currentStart = 0;
+                    executeSearch(currentCql, 0);
+                }
+            }
+        });
+
         pageBar.add(prevBtn);
+        pageBar.add(pageInfoLabel);
         pageBar.add(nextBtn);
+        pageBar.add(Box.createHorizontalStrut(8));
+        pageBar.add(pageSizeCombo);
+        pageBar.add(new JLabel(" pro Seite"));
+        pageBar.add(Box.createHorizontalStrut(8));
         statusLabel = new JLabel(" ");
         pageBar.add(statusLabel);
 
@@ -387,15 +431,22 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
     /** Execute a CQL search with the given offset and populate the results table. */
     private void executeSearch(final String cql, final int start) {
-        statusLabel.setText("⏳ Suche: " + cql + " (ab " + start + ")…");
+        statusLabel.setText("⏳ Suche…");
+        prevBtn.setEnabled(false);
+        nextBtn.setEnabled(false);
         mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
-        new SwingWorker<List<PageItem>, Void>() {
+        final int limit = pageSize;
+
+        new SwingWorker<SearchResult, Void>() {
             @Override
-            protected List<PageItem> doInBackground() {
+            protected SearchResult doInBackground() {
                 List<PageItem> pages = new ArrayList<PageItem>();
-                String json = client.searchJson(cql, start, PAGE_SIZE);
+                String json = client.searchJson(cql, start, limit);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+
+                int total = root.has("totalSize") ? root.get("totalSize").getAsInt() : -1;
+
                 JsonArray results = root.getAsJsonArray("results");
                 if (results != null) {
                     for (JsonElement el : results) {
@@ -426,25 +477,57 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                         }
                     }
                 }
-                return pages;
+                return new SearchResult(pages, total);
             }
 
             @Override
             protected void done() {
                 mainPanel.setCursor(Cursor.getDefaultCursor());
                 try {
-                    List<PageItem> pages = get();
-                    pageModel.setItems(pages);
-                    statusLabel.setText(pages.size() + " Treffer (ab " + start + ")");
-                    if (!pages.isEmpty() && pageTable.getRowCount() > 0) {
+                    SearchResult result = get();
+                    totalResults = result.totalSize;
+                    pageModel.setItems(result.pages);
+                    updatePaginationUi(start, result.pages.size());
+                    if (!result.pages.isEmpty() && pageTable.getRowCount() > 0) {
                         pageTable.setRowSelectionInterval(0, 0);
                     }
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[Confluence] Suche fehlgeschlagen", e);
                     statusLabel.setText("❌ " + e.getMessage());
+                    pageInfoLabel.setText(" ");
                 }
             }
         }.execute();
+    }
+
+    /** Update pagination buttons and page info label after a search completes. */
+    private void updatePaginationUi(int start, int fetchedCount) {
+        int currentPage = (start / pageSize) + 1;
+
+        if (totalResults >= 0) {
+            int totalPages = Math.max(1, (int) Math.ceil((double) totalResults / pageSize));
+            pageInfoLabel.setText("Seite " + currentPage + " von " + totalPages);
+            statusLabel.setText(totalResults + " Treffer gesamt");
+            prevBtn.setEnabled(currentPage > 1);
+            nextBtn.setEnabled(currentPage < totalPages);
+        } else {
+            // totalSize unknown — fallback
+            pageInfoLabel.setText("Seite " + currentPage);
+            statusLabel.setText(fetchedCount + " Treffer");
+            prevBtn.setEnabled(start > 0);
+            nextBtn.setEnabled(fetchedCount >= pageSize);
+        }
+    }
+
+    /** Wrapper for search results including totalSize from the API. */
+    private static final class SearchResult {
+        final List<PageItem> pages;
+        final int totalSize; // -1 if unknown
+
+        SearchResult(List<PageItem> pages, int totalSize) {
+            this.pages = pages;
+            this.totalSize = totalSize;
+        }
     }
 
     private void loadPreview(PageItem item) {
