@@ -5,6 +5,7 @@ import de.bund.zrb.confluence.ConfluenceRestClient;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.ConfluenceConnectionTab;
+import de.bund.zrb.ui.ConfluenceReaderTab;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.bund.zrb.util.CredentialStore;
 import de.zrb.bund.api.ShortcutMenuCommand;
@@ -107,6 +108,27 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
             ConfluenceRestClient client = new ConfluenceRestClient(config);
 
             ConfluenceConnectionTab tab = new ConfluenceConnectionTab(client, selected.url);
+
+            // Wire open callback: creates ConfluenceReaderTab when user double-clicks/enters a page
+            tab.setOpenCallback((readerClient, readerBaseUrl, pageId, pageTitle, htmlContent, outline) -> {
+                ConfluenceReaderTab readerTab = new ConfluenceReaderTab(
+                        readerClient, readerBaseUrl, pageId, pageTitle, htmlContent, outline);
+                // Wire link callback: clicking links in reader opens new reader tabs
+                readerTab.setLinkCallback(linkedPageId ->
+                        tab.openPageByIdAsReaderTab(linkedPageId));
+                // Wire outline callback for RightDrawer
+                if (tabManager.getMainframeContext() instanceof de.bund.zrb.ui.MainFrame) {
+                    de.bund.zrb.ui.MainFrame mainFrame = (de.bund.zrb.ui.MainFrame) tabManager.getMainframeContext();
+                    de.bund.zrb.ui.drawer.RightDrawer rd = mainFrame.getRightDrawer();
+                    if (rd != null) {
+                        readerTab.setOutlineCallback((outlineNode, title) -> {
+                            java.util.function.Consumer<String> scroller = anchor -> readerTab.scrollToAnchor(anchor);
+                            rd.updateWikiOutline(outlineNode, title, scroller);
+                        });
+                    }
+                }
+                tabManager.addTab(readerTab);
+            });
 
             // Wire outline callback: update RightDrawer when preview changes
             if (tabManager.getMainframeContext() instanceof de.bund.zrb.ui.MainFrame) {

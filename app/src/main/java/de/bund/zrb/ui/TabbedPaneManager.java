@@ -642,6 +642,20 @@ public class TabbedPaneManager {
             return;
         }
 
+        // ConfluenceReaderTab: show page outline in RightDrawer
+        if (tab instanceof ConfluenceReaderTab) {
+            ConfluenceReaderTab readerTab = (ConfluenceReaderTab) tab;
+            de.bund.zrb.wiki.domain.OutlineNode outline = readerTab.getOutline();
+            if (outline != null) {
+                java.util.function.Consumer<String> scroller = anchor -> readerTab.scrollToAnchor(anchor);
+                rightDrawer.updateWikiOutline(outline, readerTab.getPageTitle(), scroller);
+            } else {
+                rightDrawer.restoreCodeOutline();
+                rightDrawer.clearJclOutline();
+            }
+            return;
+        }
+
         // Restore code outline for non-wiki tabs
         rightDrawer.restoreCodeOutline();
 

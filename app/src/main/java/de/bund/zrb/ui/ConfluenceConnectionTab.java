@@ -83,6 +83,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private DependencyCallback dependencyCallback;
     /** Callback to persist state changes immediately (e.g. on checkbox toggle). */
     private Runnable stateSaveCallback;
+    /** Callback to open a page as a dedicated reader tab. */
+    private OpenCallback openCallback;
 
     public ConfluenceConnectionTab(ConfluenceRestClient client, String baseUrl) {
         this.client = client;
@@ -186,23 +188,23 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             }
         });
 
-        // Double-click → open in browser
+        // Double-click → open as reader tab (fallback: browser)
         pageTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    openSelectedInBrowser();
+                    openSelectedAsReaderTab();
                 }
             }
         });
 
-        // Enter → open in browser
+        // Enter → open as reader tab (fallback: browser)
         pageTable.getInputMap(JComponent.WHEN_FOCUSED).put(
-                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "openInBrowser");
-        pageTable.getActionMap().put("openInBrowser", new AbstractAction() {
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "openAsReaderTab");
+        pageTable.getActionMap().put("openAsReaderTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                openSelectedInBrowser();
+                openSelectedAsReaderTab();
             }
         });
 
@@ -577,6 +579,9 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         htmlPane.setCaretPosition(0);
         statusLabel.setText("✅ Vorschau: " + item.title);
 
+        // Load images asynchronously
+        loadPreviewImagesAsync(html);
+
         // Parse outline from HTML headings
         currentOutline = parseOutlineSimple(html, item.title);
 
@@ -619,6 +624,198 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             Desktop.getDesktop().browse(new java.net.URI(url));
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Confluence] Browser öffnen fehlgeschlagen", e);
+        }
+    }
+
+    /**
+     * Open the selected page as a ConfluenceReaderTab.
+     * If the current preview matches, reuse it; otherwise load fresh from REST.
+     * Falls back to opening in external browser if no OpenCallback is set.
+     */
+    private void openSelectedAsReaderTab() {
+        int viewRow = pageTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int modelRow = pageTable.convertRowIndexToModel(viewRow);
+        PageItem item = pageModel.getItemAt(modelRow);
+        if (item == null) return;
+
+        // No callback → fallback to browser
+        if (openCallback == null) {
+            openSelectedInBrowser();
+            return;
+        }
+
+        // 1) Current preview matches → reuse
+        if (currentPreviewItem != null && item.id.equals(currentPreviewItem.id)
+                && currentHtmlBody != null) {
+            OutlineNode outline = parseOutlineSimple(currentHtmlBody, item.title);
+            openCallback.openConfluencePage(client, baseUrl, item.id, item.title,
+                    currentHtmlBody, outline);
+            return;
+        }
+
+        // 2) Load from REST in background
+        statusLabel.setText("⏳ Öffne: " + item.title + "…");
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                String json = client.getContentByIdJson(item.id);
+                com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+                if (root.has("body") && root.getAsJsonObject("body").has("view")) {
+                    return root.getAsJsonObject("body").getAsJsonObject("view")
+                            .get("value").getAsString();
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String html = get();
+                    if (html != null) {
+                        OutlineNode outline = parseOutlineSimple(html, item.title);
+                        openCallback.openConfluencePage(client, baseUrl, item.id, item.title,
+                                html, outline);
+                        statusLabel.setText("✅ Geöffnet: " + item.title);
+                    } else {
+                        statusLabel.setText("❌ Kein Inhalt verfügbar");
+                    }
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[Confluence] Reader-Tab öffnen fehlgeschlagen", e);
+                    statusLabel.setText("❌ " + e.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Open a Confluence page by its ID as a reader tab.
+     * Called from {@link ConfluenceReaderTab} link callback.
+     */
+    public void openPageByIdAsReaderTab(String pageId) {
+        if (openCallback == null) return;
+        statusLabel.setText("⏳ Lade Seite " + pageId + "…");
+        new SwingWorker<String[], Void>() {
+            @Override
+            protected String[] doInBackground() {
+                String json = client.getContentByIdJson(pageId);
+                com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+                String title = root.has("title") ? root.get("title").getAsString() : "Seite " + pageId;
+                String html = "";
+                if (root.has("body") && root.getAsJsonObject("body").has("view")) {
+                    html = root.getAsJsonObject("body").getAsJsonObject("view")
+                            .get("value").getAsString();
+                }
+                return new String[]{title, html};
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String[] result = get();
+                    if (result[1] != null && !result[1].isEmpty()) {
+                        OutlineNode outline = parseOutlineSimple(result[1], result[0]);
+                        openCallback.openConfluencePage(client, baseUrl, pageId, result[0],
+                                result[1], outline);
+                        statusLabel.setText("✅ Geöffnet: " + result[0]);
+                    } else {
+                        statusLabel.setText("❌ Kein Inhalt verfügbar");
+                    }
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[Confluence] Seite laden fehlgeschlagen", e);
+                    statusLabel.setText("❌ " + e.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Async image loading for preview pane
+    // ═══════════════════════════════════════════════════════════
+
+    /** Pattern to find img src attributes in HTML. */
+    private static final Pattern IMG_SRC_PATTERN = Pattern.compile(
+            "<img\\s[^>]*src\\s*=\\s*[\"']([^\"']+)[\"']",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Scans HTML for img tags and loads each image via the ConfluenceRestClient
+     * in background, then injects them into the JEditorPane's image cache.
+     */
+    @SuppressWarnings("unchecked")
+    private void loadPreviewImagesAsync(String html) {
+        if (html == null || client == null) return;
+
+        new SwingWorker<Void, Object[]>() {
+            @Override
+            protected Void doInBackground() {
+                Matcher matcher = IMG_SRC_PATTERN.matcher(html);
+                while (matcher.find()) {
+                    String src = matcher.group(1);
+                    try {
+                        String downloadPath = resolveImagePath(src);
+                        if (downloadPath == null) continue;
+
+                        byte[] data = client.getBytes(downloadPath);
+                        if (data == null || data.length == 0) continue;
+
+                        java.awt.Image image = javax.imageio.ImageIO.read(
+                                new java.io.ByteArrayInputStream(data));
+                        if (image != null) {
+                            java.net.URL imageUrl = resolveImageUrl(src);
+                            if (imageUrl != null) {
+                                publish(new Object[]{imageUrl, image});
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOG.log(Level.FINE, "[Confluence] Preview image load failed: " + src, e);
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(java.util.List<Object[]> chunks) {
+                javax.swing.text.Document doc = htmlPane.getDocument();
+                if (!(doc instanceof javax.swing.text.html.HTMLDocument)) return;
+
+                java.util.Dictionary<java.net.URL, java.awt.Image> cache =
+                        (java.util.Dictionary<java.net.URL, java.awt.Image>)
+                                doc.getProperty("imageCache");
+                if (cache == null) {
+                    cache = new java.util.Hashtable<java.net.URL, java.awt.Image>();
+                    doc.putProperty("imageCache", cache);
+                }
+
+                for (Object[] pair : chunks) {
+                    java.net.URL url = (java.net.URL) pair[0];
+                    java.awt.Image img = (java.awt.Image) pair[1];
+                    cache.put(url, img);
+                }
+
+                htmlPane.revalidate();
+                htmlPane.repaint();
+            }
+        }.execute();
+    }
+
+    /** Resolve an img src to a relative REST path for the ConfluenceRestClient. */
+    private String resolveImagePath(String src) {
+        if (src == null || src.isEmpty()) return null;
+        if (src.startsWith(baseUrl)) return src.substring(baseUrl.length());
+        if (src.startsWith("/")) return src;
+        if (src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://")) return null;
+        return "/" + src;
+    }
+
+    /** Resolve the img src to a full URL (as the HTMLDocument would key it). */
+    private java.net.URL resolveImageUrl(String src) {
+        try {
+            if (src.startsWith("http://") || src.startsWith("https://")) return new java.net.URL(src);
+            if (src.startsWith("/")) return new java.net.URL(baseUrl + src);
+            return new java.net.URL(baseUrl + "/" + src);
+        } catch (java.net.MalformedURLException e) {
+            return null;
         }
     }
 
@@ -906,6 +1103,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         this.dependencyCallback = callback;
     }
 
+    public void setOpenCallback(OpenCallback callback) {
+        this.openCallback = callback;
+    }
+
     /** Callback to notify about outline changes (for RightDrawer). */
     public interface OutlineCallback {
         void onOutlineChanged(OutlineNode outline, String pageTitle);
@@ -914,6 +1115,13 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     /** Callback to update the dependency/relations panel (LeftDrawer) for the previewed page. */
     public interface DependencyCallback {
         void onDependenciesChanged(PageItem item);
+    }
+
+    /** Callback to open a Confluence page as a dedicated reader tab. */
+    public interface OpenCallback {
+        void openConfluencePage(ConfluenceRestClient client, String baseUrl,
+                                String pageId, String pageTitle,
+                                String htmlContent, OutlineNode outline);
     }
 
     // ═══════════════════════════════════════════════════════════

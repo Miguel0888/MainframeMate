@@ -195,6 +195,47 @@ public final class ConfluenceRestClient {
     }
 
     /**
+     * Download binary content (e.g. images, attachments) from a relative path.
+     * Uses the same mTLS + Basic Auth as all other requests.
+     *
+     * @param relativePath e.g. {@code "/download/attachments/12345/image.png"}
+     * @return raw bytes, or empty array on error
+     */
+    public byte[] getBytes(String relativePath) {
+        HttpURLConnection connection = null;
+        try {
+            connection = openConnection(relativePath, "GET");
+            // Override Accept header for binary content
+            connection.setRequestProperty("Accept", "*/*");
+            int status = connection.getResponseCode();
+            if (status < 200 || status >= 300) {
+                LOG.warning("[Confluence] Binary GET failed (" + status + "): " + relativePath);
+                return new byte[0];
+            }
+            InputStream in = connection.getInputStream();
+            if (in == null) return new byte[0];
+            try {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                }
+                return out.toByteArray();
+            } finally {
+                in.close();
+            }
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "[Confluence] Binary download failed: " + relativePath, e);
+            return new byte[0];
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
      * Quick connectivity test. Returns a {@link TestResult} with HTTP status code
      * and, on failure, a detailed error message.
      */
