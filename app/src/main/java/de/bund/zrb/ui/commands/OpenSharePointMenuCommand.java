@@ -7,14 +7,12 @@ import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
-import java.awt.*;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Opens a new SharePoint ConnectionTab.
- * Launches a headless browser to discover SharePoint sites from a configured parent page,
- * then provides a file-browser-like view with automatic caching.
+ * Mounts selected SharePoint sites as WebDAV network paths and provides
+ * a file-browser-like view with automatic caching.
  */
 public class OpenSharePointMenuCommand extends ShortcutMenuCommand {
 
@@ -41,6 +39,7 @@ public class OpenSharePointMenuCommand extends ShortcutMenuCommand {
     @Override
     public void perform() {
         SharePointConnectionTab spTab = new SharePointConnectionTab();
+        spTab.setTabbedPaneManager(tabManager);
 
         // Wire link callback for left drawer
         if (parent instanceof MainFrame) {
@@ -49,45 +48,16 @@ public class OpenSharePointMenuCommand extends ShortcutMenuCommand {
             if (leftDrawer != null) {
                 spTab.setLinksCallback(entries ->
                         SwingUtilities.invokeLater(() ->
-                                leftDrawer.updateRelations("SharePoint-Seiten", entries)));
+                                leftDrawer.updateRelations("SharePoint-Dateien", entries)));
 
                 leftDrawer.setOnRelationOpen(entry -> {
-                    if ("SP_LINK".equals(entry.getType())) {
+                    if ("SP_FILE".equals(entry.getType())) {
                         spTab.navigateToUrl(entry.getTargetPath());
                     }
                 });
             }
         }
 
-        // Add tab immediately
         tabManager.addTab(spTab);
-
-        // Launch browser and load sites in background
-        parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-
-        new SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                spTab.launchBrowser();
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                parent.setCursor(Cursor.getDefaultCursor());
-                try {
-                    get(); // Check for exceptions
-                    spTab.loadSitesInBackground();
-                    tabManager.updateTitleFor(spTab);
-                } catch (Exception e) {
-                    LOG.log(Level.SEVERE, "[SP] Launch failed", e);
-                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    JOptionPane.showMessageDialog(parent,
-                            "SharePoint-Browser konnte nicht gestartet werden:\n" + msg,
-                            "SharePoint-Fehler", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
     }
 }
-

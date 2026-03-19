@@ -1,15 +1,18 @@
 package de.bund.zrb.ui;
 
-import de.bund.zrb.browser.Wd4jBrowserSessionAdapter;
+import de.bund.zrb.files.api.FileService;
+import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.impl.factory.FileServiceFactory;
+import de.bund.zrb.files.model.FileNode;
+import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.helper.SettingsHelper;
-import de.bund.zrb.mcpserver.browser.BrowserLauncher;
-import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.sharepoint.SharePointCacheService;
+import de.bund.zrb.sharepoint.SharePointPathUtil;
 import de.bund.zrb.sharepoint.SharePointSite;
+import de.bund.zrb.sharepoint.SharePointSiteStore;
 import de.zrb.bund.api.Bookmarkable;
-import de.zrb.bund.newApi.browser.NavigationResult;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -22,52 +25,79 @@ import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
+import java.nio.charset.Charset;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * SharePoint connection tab — lists SharePoint sites extracted from a configured
- * parent page and provides a file-browser-like view of each site's pages.
+ * SharePoint connection tab — mounts selected SharePoint sites as WebDAV
+ * network paths and provides a local-file-system-like browser.
  * <p>
- * When a page is visited for the first time, its content is automatically cached
- * in H2 + Lucene (via {@link SharePointCacheService}), making it discoverable
- * through SearchEverywhere with the "SP" prefix.
+ * The user configures which sites are available via Settings → SharePoint.
+ * Each selected site is mapped to a Windows WebDAV UNC path
+ * ({@code \\host@SSL\DavWWWRoot\...}) and navigated using the standard
+ * {@link FileService} (VfsLocalFileService), exactly like the local
+ * file browser tab.
  * <p>
- * Uses the same headless browser infrastructure as {@link BrowserConnectionTab}.
+ * Files opened for the first time are automatically cached in H2 + Lucene
+ * (via {@link SharePointCacheService}) so they become searchable through
+ * SearchEverywhere with the "SP" prefix.
  */
 public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
 
     private static final Logger LOG = Logger.getLogger(SharePointConnectionTab.class.getName());
+    private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("dd.MM.yyyy HH:mm");
 
+    // ── UI components ───────────────────────────────────────
     private final JPanel mainPanel;
     private final JTree siteTree;
     private final DefaultTreeModel treeModel;
     private final DefaultMutableTreeNode rootNode;
-    private final JTextArea contentArea;
-    private final JLabel statusLabel;
+    private final DefaultListModel<Object> listModel;
+    private final JList<Object> fileList;
+    private final JTextField pathField;
     private final JTextField searchField;
-    private final JButton refreshButton;
+    private final JLabel statusLabel;
+    private final JTextArea previewArea;
+    private JButton backButton;
+    private JButton forwardButton;
 
-    private BrowserSession browserSession;
-    private de.zrb.bund.newApi.browser.BrowserSession sessionAdapter;
-    private Thread shutdownHook;
-
+    // ── State ───────────────────────────────────────────────
+    private final FileService fileService;
     private final SharePointCacheService cacheService = SharePointCacheService.getInstance();
-    private final List<SharePointSite> allSites = new ArrayList<SharePointSite>();
+    private final List<SharePointSite> selectedSites = new ArrayList<SharePointSite>();
+    private String currentPath = "";
     private String currentSiteName = "";
-    private String currentPageUrl = "";
-    private String currentPageTitle = "";
-    private String currentContent = "";
+    private List<FileNode> currentNodes = new ArrayList<FileNode>();
+    private final List<String> backHistory = new ArrayList<String>();
+    private final List<String> forwardHistory = new ArrayList<String>();
 
-    // Callback for updating left drawer relations
+    // Callback for left drawer
     private java.util.function.Consumer<List<de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry>> linksCallback;
 
+    // TabbedPaneManager reference (optional, for opening files in new tabs)
+    private TabbedPaneManager tabbedPaneManager;
+
     public SharePointConnectionTab() {
-        mainPanel = new JPanel(new BorderLayout(0, 2));
+        this.fileService = new FileServiceFactory().createLocal();
+        this.mainPanel = new JPanel(new BorderLayout(0, 2));
+        this.listModel = new DefaultListModel<Object>();
+        this.fileList = new JList<Object>(listModel);
+        this.pathField = new JTextField();
+        this.searchField = new JTextField();
+        this.statusLabel = new JLabel(" ");
+        this.previewArea = new JTextArea();
+
+        // Load selected SharePoint sites from settings
+        Settings settings = SettingsHelper.load();
+        List<SharePointSite> all = SharePointSiteStore.fromJson(settings.sharepointSitesJson);
+        for (SharePointSite s : all) {
+            if (s.isSelected()) selectedSites.add(s);
+        }
 
         // ── Left: Site tree ─────────────────────────────────
         rootNode = new DefaultMutableTreeNode("SharePoint-Sites");
@@ -79,231 +109,133 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
         siteTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    handleTreeDoubleClick();
-                }
+                if (e.getClickCount() == 2) handleTreeDoubleClick();
             }
         });
 
-        // ── Search / filter ─────────────────────────────────
-        searchField = new JTextField();
-        searchField.setToolTipText("Sites filtern…");
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e) { applyFilter(); }
-            @Override public void removeUpdate(DocumentEvent e) { applyFilter(); }
-            @Override public void changedUpdate(DocumentEvent e) { applyFilter(); }
-        });
-
+        // Filter
         JPanel filterPanel = new JPanel(new BorderLayout(4, 0));
         filterPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         filterPanel.add(new JLabel("🔎"), BorderLayout.WEST);
-        filterPanel.add(searchField, BorderLayout.CENTER);
+        JTextField treeFilter = new JTextField();
+        treeFilter.setToolTipText("Sites filtern…");
+        treeFilter.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { applyTreeFilter(treeFilter.getText()); }
+            @Override public void removeUpdate(DocumentEvent e) { applyTreeFilter(treeFilter.getText()); }
+            @Override public void changedUpdate(DocumentEvent e) { applyTreeFilter(treeFilter.getText()); }
+        });
+        filterPanel.add(treeFilter, BorderLayout.CENTER);
 
-        refreshButton = new JButton("🔄");
-        refreshButton.setToolTipText("Sites neu laden");
-        refreshButton.setMargin(new Insets(2, 6, 2, 6));
-        refreshButton.addActionListener(e -> loadSitesInBackground());
-        filterPanel.add(refreshButton, BorderLayout.EAST);
+        JButton refreshBtn = new JButton("🔄");
+        refreshBtn.setToolTipText("Sites neu laden");
+        refreshBtn.setMargin(new Insets(2, 6, 2, 6));
+        refreshBtn.addActionListener(e -> reloadSites());
+        filterPanel.add(refreshBtn, BorderLayout.EAST);
 
         JPanel leftPanel = new JPanel(new BorderLayout());
         leftPanel.add(filterPanel, BorderLayout.NORTH);
         leftPanel.add(new JScrollPane(siteTree), BorderLayout.CENTER);
-        leftPanel.setPreferredSize(new Dimension(280, 0));
+        leftPanel.setPreferredSize(new Dimension(240, 0));
 
-        // ── Right: Content area ─────────────────────────────
-        contentArea = new JTextArea();
-        contentArea.setEditable(false);
-        contentArea.setLineWrap(true);
-        contentArea.setWrapStyleWord(true);
-        contentArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-        contentArea.setText("SharePoint-Verbindung wird initialisiert…\n\n"
-                + "Konfigurieren Sie die Parent-Seite unter\n"
-                + "Einstellungen → SharePoint.");
+        // ── Center: File browser ────────────────────────────
 
-        // ── Status bar ──────────────────────────────────────
-        statusLabel = new JLabel(" ");
+        // Path + nav bar
+        JPanel pathPanel = new JPanel(new BorderLayout(4, 0));
+        pathPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+        JPanel navButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        backButton = new JButton("◀");
+        backButton.setToolTipText("Zurück");
+        backButton.setMargin(new Insets(2, 4, 2, 4));
+        backButton.setEnabled(false);
+        backButton.addActionListener(e -> navigateBack());
+
+        forwardButton = new JButton("▶");
+        forwardButton.setToolTipText("Vorwärts");
+        forwardButton.setMargin(new Insets(2, 4, 2, 4));
+        forwardButton.setEnabled(false);
+        forwardButton.addActionListener(e -> navigateForward());
+
+        JButton upButton = new JButton("▲");
+        upButton.setToolTipText("Übergeordnetes Verzeichnis");
+        upButton.setMargin(new Insets(2, 4, 2, 4));
+        upButton.addActionListener(e -> navigateUp());
+
+        navButtons.add(backButton);
+        navButtons.add(forwardButton);
+        navButtons.add(upButton);
+
+        pathField.addActionListener(e -> loadDirectory(pathField.getText(), true));
+        pathPanel.add(navButtons, BorderLayout.WEST);
+        pathPanel.add(pathField, BorderLayout.CENTER);
+
+        // File list
+        fileList.setCellRenderer(new FileCellRenderer());
+        fileList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        fileList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) handleFileDoubleClick();
+            }
+        });
+        fileList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) showPreview();
+        });
+
+        // Search/filter
+        searchField.setToolTipText("Dateien filtern…");
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { applyFileFilter(); }
+            @Override public void removeUpdate(DocumentEvent e) { applyFileFilter(); }
+            @Override public void changedUpdate(DocumentEvent e) { applyFileFilter(); }
+        });
+
+        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        searchPanel.add(new JLabel("🔎"), BorderLayout.WEST);
+        searchPanel.add(searchField, BorderLayout.CENTER);
+
+        // Preview
+        previewArea.setEditable(false);
+        previewArea.setLineWrap(true);
+        previewArea.setWrapStyleWord(true);
+        previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+
+        JPanel filePanel = new JPanel(new BorderLayout());
+        filePanel.add(pathPanel, BorderLayout.NORTH);
+
+        JSplitPane filePreviewSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                new JScrollPane(fileList), new JScrollPane(previewArea));
+        filePreviewSplit.setDividerLocation(300);
+        filePanel.add(filePreviewSplit, BorderLayout.CENTER);
+        filePanel.add(searchPanel, BorderLayout.SOUTH);
+
+        // ── Assembly ────────────────────────────────────────
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, filePanel);
+        mainSplit.setDividerLocation(240);
+        mainSplit.setOneTouchExpandable(true);
+
         statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
 
-        // ── Assembly ────────────────────────────────────────
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, new JScrollPane(contentArea));
-        splitPane.setDividerLocation(280);
-        splitPane.setOneTouchExpandable(true);
-
-        mainPanel.add(splitPane, BorderLayout.CENTER);
+        mainPanel.add(mainSplit, BorderLayout.CENTER);
         mainPanel.add(statusLabel, BorderLayout.SOUTH);
+
+        // Populate tree
+        rebuildTree(selectedSites);
+
+        if (selectedSites.isEmpty()) {
+            previewArea.setText("Keine SharePoint-Sites konfiguriert.\n\n"
+                    + "Öffnen Sie Einstellungen → SharePoint, geben Sie die Parent-URL an,\n"
+                    + "rufen Sie Links ab und haken Sie die SharePoint-Sites an.");
+            statusLabel.setText("⚠ Keine Sites konfiguriert – siehe Einstellungen → SharePoint");
+        } else {
+            statusLabel.setText(selectedSites.size() + " SharePoint-Sites verfügbar");
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Browser lifecycle
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * Launch the headless browser (called from SwingWorker background thread).
-     */
-    public void launchBrowser() throws Exception {
-        Settings settings = SettingsHelper.load();
-
-        String browserPath = resolveBrowserPath(settings);
-        boolean headless = settings.browserHeadless;
-        int debugPort = settings.browserDebugPort;
-
-        LOG.info("[SP] Launching browser: " + browserPath + " (headless=" + headless + ")");
-
-        browserSession = new BrowserSession();
-        browserSession.launchAndConnect(browserPath, new ArrayList<String>(), headless, 30000L, debugPort);
-        sessionAdapter = new Wd4jBrowserSessionAdapter(browserSession);
-
-        LOG.info("[SP] Browser connected, contextId=" + browserSession.getContextId());
-
-        installShutdownHook();
-    }
-
-    /**
-     * Load SharePoint sites from the configured parent page.
-     */
-    public void loadSitesInBackground() {
-        Settings settings = SettingsHelper.load();
-        final String parentUrl = settings.sharepointParentPageUrl;
-
-        if (parentUrl == null || parentUrl.trim().isEmpty()) {
-            SwingUtilities.invokeLater(new Runnable() {
-                @Override
-                public void run() {
-                    statusLabel.setText("⚠ Keine Parent-Seite konfiguriert. Bitte unter Einstellungen → SharePoint konfigurieren.");
-                    contentArea.setText("Keine Parent-Seite konfiguriert.\n\n"
-                            + "Öffnen Sie Einstellungen → SharePoint und geben Sie die URL\n"
-                            + "der Seite an, auf der Ihre SharePoint-Links aufgelistet sind.");
-                }
-            });
-            return;
-        }
-
-        if (sessionAdapter == null) {
-            statusLabel.setText("⚠ Browser nicht verbunden.");
-            return;
-        }
-
-        statusLabel.setText("⏳ Lade SharePoint-Sites von: " + parentUrl + "…");
-
-        new SwingWorker<List<SharePointSite>, Void>() {
-            @Override
-            protected List<SharePointSite> doInBackground() throws Exception {
-                sessionAdapter.navigate(parentUrl);
-                Thread.sleep(2000); // let page render
-
-                String html = sessionAdapter.getDomSnapshot();
-                return extractSharePointLinks(html, parentUrl);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<SharePointSite> sites = get();
-                    allSites.clear();
-                    allSites.addAll(sites);
-                    rebuildTree(sites);
-                    statusLabel.setText("✓ " + sites.size() + " SharePoint-Sites gefunden");
-                } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[SP] Failed to load sites", e);
-                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    statusLabel.setText("✗ Fehler: " + msg);
-                    contentArea.setText("Fehler beim Laden der SharePoint-Sites:\n\n" + msg);
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Extract SharePoint links from the parent page HTML.
-     * Looks for links containing "sharepoint" in the URL.
-     */
-    static List<SharePointSite> extractSharePointLinks(String html, String baseUrl) {
-        List<SharePointSite> sites = new ArrayList<SharePointSite>();
-        if (html == null) return sites;
-
-        Pattern p = Pattern.compile("<a\\s[^>]*href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(html);
-        Set<String> seen = new HashSet<String>();
-
-        while (m.find()) {
-            String href = m.group(1).trim();
-            String label = m.group(2).replaceAll("<[^>]+>", "").trim();
-
-            // Only include SharePoint links
-            if (!isSharePointUrl(href)) continue;
-
-            // Resolve relative URLs
-            if (!href.startsWith("http://") && !href.startsWith("https://")) {
-                href = resolveRelativeUrl(baseUrl, href);
-            }
-
-            if (seen.contains(href)) continue;
-            seen.add(href);
-
-            // Clean up label
-            if (label.isEmpty()) {
-                label = extractSiteNameFromUrl(href);
-            }
-            if (label.length() > 80) {
-                label = label.substring(0, 80) + "…";
-            }
-
-            sites.add(new SharePointSite(label, href));
-        }
-        return sites;
-    }
-
-    /**
-     * Check if a URL looks like a SharePoint URL.
-     */
-    static boolean isSharePointUrl(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase();
-        return lower.contains("sharepoint.com")
-                || lower.contains("sharepoint.de")
-                || lower.contains("/sites/")
-                || lower.contains("/_layouts/");
-    }
-
-    /**
-     * Extract a human-readable site name from a SharePoint URL.
-     */
-    static String extractSiteNameFromUrl(String url) {
-        if (url == null) return "?";
-        // Try to extract site name from /sites/SiteName/
-        Pattern p = Pattern.compile("/sites/([^/?#]+)", Pattern.CASE_INSENSITIVE);
-        Matcher m = p.matcher(url);
-        if (m.find()) {
-            return m.group(1).replace("%20", " ").replace("-", " ");
-        }
-        // Fallback: use hostname
-        try {
-            java.net.URL u = new java.net.URL(url);
-            return u.getHost();
-        } catch (Exception e) {
-            return url.length() > 40 ? url.substring(0, 40) + "…" : url;
-        }
-    }
-
-    private static String resolveRelativeUrl(String base, String relative) {
-        if (relative.startsWith("//")) return "https:" + relative;
-        if (relative.startsWith("/")) {
-            try {
-                java.net.URL baseUrl = new java.net.URL(base);
-                return baseUrl.getProtocol() + "://" + baseUrl.getHost()
-                        + (baseUrl.getPort() > 0 ? ":" + baseUrl.getPort() : "") + relative;
-            } catch (Exception e) {
-                return relative;
-            }
-        }
-        int lastSlash = base.lastIndexOf('/');
-        return lastSlash >= 0 ? base.substring(0, lastSlash + 1) + relative : base + "/" + relative;
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Tree management
+    //  Site tree management
     // ═══════════════════════════════════════════════════════════
 
     private void rebuildTree(List<SharePointSite> sites) {
@@ -312,14 +244,13 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
             rootNode.add(new DefaultMutableTreeNode(site));
         }
         treeModel.reload();
-        // Expand root
         siteTree.expandPath(new TreePath(rootNode.getPath()));
     }
 
-    private void applyFilter() {
-        String filter = searchField.getText().trim().toLowerCase();
+    private void applyTreeFilter(String text) {
+        String filter = text != null ? text.trim().toLowerCase() : "";
         rootNode.removeAllChildren();
-        for (SharePointSite site : allSites) {
+        for (SharePointSite site : selectedSites) {
             if (filter.isEmpty()
                     || site.getName().toLowerCase().contains(filter)
                     || site.getUrl().toLowerCase().contains(filter)) {
@@ -328,242 +259,270 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
         }
         treeModel.reload();
         siteTree.expandPath(new TreePath(rootNode.getPath()));
-        statusLabel.setText(rootNode.getChildCount() + " von " + allSites.size() + " Sites");
+        statusLabel.setText(rootNode.getChildCount() + " von " + selectedSites.size() + " Sites");
+    }
+
+    private void reloadSites() {
+        Settings settings = SettingsHelper.load();
+        List<SharePointSite> all = SharePointSiteStore.fromJson(settings.sharepointSitesJson);
+        selectedSites.clear();
+        for (SharePointSite s : all) {
+            if (s.isSelected()) selectedSites.add(s);
+        }
+        rebuildTree(selectedSites);
+        statusLabel.setText("✓ " + selectedSites.size() + " SharePoint-Sites geladen");
     }
 
     private void handleTreeDoubleClick() {
         TreePath path = siteTree.getSelectionPath();
         if (path == null || path.getPathCount() < 2) return;
-
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
         Object userObj = node.getUserObject();
-
         if (userObj instanceof SharePointSite) {
-            navigateToSite((SharePointSite) userObj);
-        } else if (userObj instanceof PageEntry) {
-            navigateToPage((PageEntry) userObj);
+            SharePointSite site = (SharePointSite) userObj;
+            currentSiteName = site.getName();
+            String uncPath = site.toUncPath();
+            loadDirectory(uncPath, true);
+            if (tabbedPaneManager != null) tabbedPaneManager.updateTitleFor(this);
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Site / page navigation
+    //  Directory navigation (like LocalConnectionTabImpl)
     // ═══════════════════════════════════════════════════════════
 
-    private void navigateToSite(final SharePointSite site) {
-        if (sessionAdapter == null) {
-            statusLabel.setText("⚠ Browser nicht verbunden.");
-            return;
+    public void loadDirectory(String path, boolean addToHistory) {
+        final String targetPath = path != null ? path.trim() : "";
+        if (targetPath.isEmpty()) return;
+
+        if (addToHistory && !currentPath.isEmpty() && !currentPath.equals(targetPath)) {
+            backHistory.add(currentPath);
+            forwardHistory.clear();
         }
+        currentPath = targetPath;
+        pathField.setText(targetPath);
+        updateNavigationButtons();
 
-        currentSiteName = site.getName();
-        statusLabel.setText("⏳ Lade: " + site.getName() + "…");
-        contentArea.setText("Lade " + site.getName() + "…");
+        statusLabel.setText("⏳ Lade: " + targetPath + "…");
+        previewArea.setText("");
 
-        new SwingWorker<SiteData, Void>() {
+        new SwingWorker<List<FileNode>, Void>() {
             @Override
-            protected SiteData doInBackground() throws Exception {
-                sessionAdapter.navigate(site.getUrl());
-                Thread.sleep(2000);
-
-                String html = sessionAdapter.getDomSnapshot();
-                String text = sessionAdapter.getPageContent();
-                String title = extractTitle(html);
-
-                // Extract sub-pages and documents
-                List<PageEntry> pages = extractPages(html, site.getUrl());
-
-                return new SiteData(site, title, text, pages);
+            protected List<FileNode> doInBackground() throws Exception {
+                return fileService.list(targetPath);
             }
 
             @Override
             protected void done() {
                 try {
-                    SiteData data = get();
-                    currentPageUrl = data.site.getUrl();
-                    currentPageTitle = data.title;
-                    currentContent = data.text;
+                    List<FileNode> nodes = get();
+                    currentNodes = nodes;
+                    applyFileFilter();
+                    statusLabel.setText(nodes.size() + " Einträge in " + targetPath);
 
-                    contentArea.setText(data.text);
-                    contentArea.setCaretPosition(0);
-                    statusLabel.setText("✓ " + data.site.getName() + " — " + data.pages.size() + " Seiten");
-
-                    // Expand site node with sub-pages
-                    TreePath sitePath = siteTree.getSelectionPath();
-                    if (sitePath != null) {
-                        DefaultMutableTreeNode siteNode = (DefaultMutableTreeNode) sitePath.getLastPathComponent();
-                        siteNode.removeAllChildren();
-                        for (PageEntry page : data.pages) {
-                            siteNode.add(new DefaultMutableTreeNode(page));
-                        }
-                        treeModel.reload(siteNode);
-                        siteTree.expandPath(sitePath);
-                    }
-
-                    // Auto-cache the site root page
-                    autoCachePage(data.site.getUrl(), data.site.getName(), data.title, data.text);
-
-                    // Update left drawer with page links
-                    updateLinks(data.pages);
-
+                    // Update left drawer
+                    updateLeftDrawer(nodes);
                 } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[SP] Navigation failed", e);
+                    LOG.log(Level.WARNING, "[SP] Failed to list: " + targetPath, e);
+                    currentNodes = Collections.emptyList();
+                    listModel.clear();
                     String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    contentArea.setText("Fehler:\n\n" + msg);
-                    statusLabel.setText("✗ " + msg);
+                    statusLabel.setText("✗ Fehler: " + msg);
+                    previewArea.setText("Fehler beim Laden des Verzeichnisses:\n\n" + msg
+                            + "\n\nMögliche Ursachen:\n"
+                            + "• Der WebClient-Dienst ist nicht gestartet\n"
+                            + "• Keine Netzwerkverbindung zur SharePoint-Site\n"
+                            + "• Authentifizierung erforderlich (im Browser anmelden)\n\n"
+                            + "Tipp: Starten Sie den WebClient-Dienst:\n"
+                            + "  net start WebClient");
                 }
             }
         }.execute();
     }
 
-    private void navigateToPage(final PageEntry page) {
-        if (sessionAdapter == null) {
-            statusLabel.setText("⚠ Browser nicht verbunden.");
+    private void navigateBack() {
+        if (backHistory.isEmpty()) return;
+        forwardHistory.add(currentPath);
+        String prev = backHistory.remove(backHistory.size() - 1);
+        loadDirectory(prev, false);
+    }
+
+    private void navigateForward() {
+        if (forwardHistory.isEmpty()) return;
+        backHistory.add(currentPath);
+        String next = forwardHistory.remove(forwardHistory.size() - 1);
+        loadDirectory(next, false);
+    }
+
+    private void navigateUp() {
+        if (currentPath.isEmpty()) return;
+        // UNC path: go up one level
+        String path = currentPath;
+        if (path.endsWith("\\")) path = path.substring(0, path.length() - 1);
+        int lastSep = path.lastIndexOf('\\');
+        if (lastSep > 2) { // don't go above \\host
+            loadDirectory(path.substring(0, lastSep), true);
+        }
+    }
+
+    private void updateNavigationButtons() {
+        backButton.setEnabled(!backHistory.isEmpty());
+        forwardButton.setEnabled(!forwardHistory.isEmpty());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  File list management
+    // ═══════════════════════════════════════════════════════════
+
+    private void applyFileFilter() {
+        String filter = searchField.getText().trim().toLowerCase();
+        listModel.clear();
+        List<FileNode> filtered = new ArrayList<FileNode>();
+        for (FileNode n : currentNodes) {
+            if (filter.isEmpty() || n.getName().toLowerCase().contains(filter)) {
+                filtered.add(n);
+            }
+        }
+        // Sort: directories first, then by name
+        Collections.sort(filtered, new Comparator<FileNode>() {
+            @Override
+            public int compare(FileNode a, FileNode b) {
+                if (a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
+                return a.getName().compareToIgnoreCase(b.getName());
+            }
+        });
+        for (FileNode n : filtered) {
+            listModel.addElement(n);
+        }
+    }
+
+    private void handleFileDoubleClick() {
+        Object selected = fileList.getSelectedValue();
+        if (!(selected instanceof FileNode)) return;
+        FileNode node = (FileNode) selected;
+
+        if (node.isDirectory()) {
+            loadDirectory(node.getPath(), true);
+        } else {
+            openFile(node);
+        }
+    }
+
+    private void openFile(final FileNode node) {
+        if (tabbedPaneManager != null) {
+            try {
+                FilePayload payload = fileService.readFile(node.getPath());
+                String content = payload.getEditorText();
+
+                VirtualResource resource = new VirtualResource(
+                        de.bund.zrb.files.path.VirtualResourceRef.of(node.getPath()),
+                        VirtualResourceKind.FILE, node.getPath(), true);
+                tabbedPaneManager.openFileTab(resource, content, null, null, false);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(mainPanel,
+                        "Fehler beim Öffnen:\n" + ex.getMessage(),
+                        "Fehler", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
+        // Auto-cache in background
+        autoCacheFile(node);
+    }
+
+    private void showPreview() {
+        Object selected = fileList.getSelectedValue();
+        if (!(selected instanceof FileNode)) {
+            previewArea.setText("");
+            return;
+        }
+        FileNode node = (FileNode) selected;
+
+        if (node.isDirectory()) {
+            previewArea.setText("📁 " + node.getName() + "\n\n(Doppelklick zum Öffnen)");
             return;
         }
 
-        statusLabel.setText("⏳ Lade: " + page.label + "…");
-        contentArea.setText("Lade " + page.label + "…");
+        // Show file info
+        StringBuilder sb = new StringBuilder();
+        sb.append("═══ ").append(node.getName()).append(" ═══\n");
+        sb.append("Pfad:     ").append(node.getPath()).append("\n");
+        if (node.getSize() > 0) sb.append("Größe:    ").append(formatSize(node.getSize())).append("\n");
+        if (node.getLastModifiedMillis() > 0) {
+            sb.append("Geändert: ").append(DATE_FMT.format(new Date(node.getLastModifiedMillis()))).append("\n");
+        }
+        sb.append("\n");
 
-        new SwingWorker<PageData, Void>() {
-            @Override
-            protected PageData doInBackground() throws Exception {
-                sessionAdapter.navigate(page.url);
-                Thread.sleep(2000);
-
-                String html = sessionAdapter.getDomSnapshot();
-                String text = sessionAdapter.getPageContent();
-                String title = extractTitle(html);
-
-                return new PageData(page.url, title, text);
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    PageData data = get();
-                    currentPageUrl = data.url;
-                    currentPageTitle = data.title;
-                    currentContent = data.text;
-
-                    contentArea.setText(data.text);
-                    contentArea.setCaretPosition(0);
-                    statusLabel.setText("✓ " + (data.title.isEmpty() ? page.label : data.title));
-
-                    // Auto-cache the page
-                    autoCachePage(data.url, page.label, data.title, data.text);
-
-                } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[SP] Page load failed", e);
-                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-                    contentArea.setText("Fehler:\n\n" + msg);
-                    statusLabel.setText("✗ " + msg);
+        // Try to load text preview for small text files
+        String ext = extractExtension(node.getName()).toLowerCase();
+        boolean isText = "txt".equals(ext) || "csv".equals(ext) || "xml".equals(ext)
+                || "json".equals(ext) || "html".equals(ext) || "htm".equals(ext)
+                || "md".equals(ext) || "log".equals(ext) || "properties".equals(ext);
+        if (isText && node.getSize() < 50_000) {
+            try {
+                FilePayload payload = fileService.readFile(node.getPath());
+                String content = new String(payload.getBytes(), Charset.defaultCharset());
+                sb.append("── Inhalt ──\n");
+                if (content.length() > 5000) {
+                    sb.append(content.substring(0, 5000)).append("\n\n… (abgeschnitten)");
+                } else {
+                    sb.append(content);
                 }
+            } catch (Exception e) {
+                sb.append("(Vorschau nicht verfügbar: ").append(e.getMessage()).append(")");
             }
-        }.execute();
+        } else if (!isText) {
+            sb.append("(Binärdatei – keine Textvorschau)");
+        } else {
+            sb.append("(Datei zu groß für Vorschau)");
+        }
+
+        previewArea.setText(sb.toString());
+        previewArea.setCaretPosition(0);
     }
 
-    /**
-     * Auto-cache a SharePoint page (unless blacklisted).
-     */
-    private void autoCachePage(String url, String siteName, String title, String content) {
+    // ═══════════════════════════════════════════════════════════
+    //  Auto-caching for search
+    // ═══════════════════════════════════════════════════════════
+
+    private void autoCacheFile(final FileNode node) {
+        if (node.isDirectory()) return;
+
         SecurityFilterService sfs = SecurityFilterService.getInstance();
-        String spPath = "sp://" + url;
+        String spPath = "sp://" + node.getPath();
         if (!sfs.isAllowed("SHAREPOINT", spPath)) {
-            LOG.fine("[SP] Skipping cache for blacklisted: " + url);
+            LOG.fine("[SP] Skipping cache for blacklisted: " + node.getPath());
             return;
         }
 
-        cacheService.cacheContent(url, "", (title != null && !title.isEmpty()) ? title : siteName, content);
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                try {
+                    FilePayload payload = fileService.readFile(node.getPath());
+                    String content = new String(payload.getBytes(), Charset.defaultCharset());
+                    String siteName = currentSiteName.isEmpty() ? "SharePoint" : currentSiteName;
+                    cacheService.cacheContent(siteName, node.getPath(), node.getName(), content);
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "[SP] Cache failed for: " + node.getPath(), e);
+                }
+                return null;
+            }
+        }.execute();
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  HTML parsing helpers
+    //  Left drawer integration
     // ═══════════════════════════════════════════════════════════
 
-    private static String extractTitle(String html) {
-        if (html == null || html.isEmpty()) return "";
-        Pattern p = Pattern.compile("<title[^>]*>(.*?)</title>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(html);
-        if (m.find()) {
-            return m.group(1).replaceAll("<[^>]+>", "").trim();
-        }
-        return "";
-    }
-
-    /**
-     * Extract page links from a SharePoint site page.
-     */
-    static List<PageEntry> extractPages(String html, String baseUrl) {
-        List<PageEntry> pages = new ArrayList<PageEntry>();
-        if (html == null) return pages;
-
-        Pattern p = Pattern.compile("<a\\s[^>]*href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
-                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(html);
-        Set<String> seen = new HashSet<String>();
-
-        while (m.find() && pages.size() < 300) {
-            String href = m.group(1).trim();
-            String label = m.group(2).replaceAll("<[^>]+>", "").trim();
-
-            // Skip non-navigable and external links
-            if (href.isEmpty() || href.startsWith("javascript:") || href.startsWith("mailto:")
-                    || href.startsWith("tel:") || href.equals("#")) {
-                continue;
-            }
-
-            // Resolve relative URLs
-            if (!href.startsWith("http://") && !href.startsWith("https://")) {
-                href = resolveRelativeUrl(baseUrl, href);
-            }
-
-            // Only include links that belong to the same SharePoint domain
-            if (!isSameDomain(baseUrl, href)) continue;
-
-            if (seen.contains(href)) continue;
-            seen.add(href);
-
-            if (label.isEmpty()) {
-                label = extractPageNameFromUrl(href);
-            }
-            if (label.length() > 100) {
-                label = label.substring(0, 100) + "…";
-            }
-
-            pages.add(new PageEntry(label, href));
-        }
-        return pages;
-    }
-
-    private static boolean isSameDomain(String base, String target) {
-        try {
-            java.net.URL baseUrl = new java.net.URL(base);
-            java.net.URL targetUrl = new java.net.URL(target);
-            return baseUrl.getHost().equalsIgnoreCase(targetUrl.getHost());
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private static String extractPageNameFromUrl(String url) {
-        if (url == null) return "?";
-        String path = url;
-        try {
-            path = new java.net.URL(url).getPath();
-        } catch (Exception ignored) {}
-        int lastSlash = path.lastIndexOf('/');
-        if (lastSlash >= 0 && lastSlash < path.length() - 1) {
-            return path.substring(lastSlash + 1).replace("%20", " ").replace(".aspx", "");
-        }
-        return url.length() > 40 ? url.substring(0, 40) + "…" : url;
-    }
-
-    private void updateLinks(List<PageEntry> pages) {
+    private void updateLeftDrawer(List<FileNode> nodes) {
         if (linksCallback == null) return;
         List<de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry> entries =
                 new ArrayList<de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry>();
-        for (PageEntry page : pages) {
-            entries.add(new de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry(page.label, page.url, "SP_LINK"));
+        for (FileNode n : nodes) {
+            String icon = n.isDirectory() ? "📁" : "📄";
+            entries.add(new de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry(
+                    icon + " " + n.getName(), n.getPath(), "SP_FILE"));
         }
         linksCallback.accept(entries);
     }
@@ -576,92 +535,71 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
         this.linksCallback = callback;
     }
 
+    public void setTabbedPaneManager(TabbedPaneManager manager) {
+        this.tabbedPaneManager = manager;
+    }
+
     /**
-     * Navigate to a specific SharePoint URL (e.g. from bookmark or left drawer).
+     * Navigate to a specific path (e.g. from bookmark or left drawer).
      */
-    public void navigateToUrl(String url) {
-        navigateToPage(new PageEntry(extractPageNameFromUrl(url), url));
+    public void navigateToUrl(String pathOrUrl) {
+        if (pathOrUrl == null || pathOrUrl.isEmpty()) return;
+
+        // If it's a web URL, convert to UNC
+        if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+            pathOrUrl = SharePointPathUtil.toUncPath(pathOrUrl);
+        }
+
+        // Detect which site this belongs to
+        for (SharePointSite site : selectedSites) {
+            String unc = site.toUncPath();
+            if (pathOrUrl.startsWith(unc)) {
+                currentSiteName = site.getName();
+                break;
+            }
+        }
+
+        File f = new File(pathOrUrl);
+        if (f.isDirectory()) {
+            loadDirectory(pathOrUrl, true);
+        } else if (f.isFile()) {
+            // Navigate to parent dir, then select file
+            loadDirectory(f.getParent(), true);
+        } else {
+            loadDirectory(pathOrUrl, true);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Browser lifecycle helpers
+    //  Helpers
     // ═══════════════════════════════════════════════════════════
 
-    private void installShutdownHook() {
-        shutdownHook = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                BrowserSession session = browserSession;
-                if (session != null) {
-                    LOG.info("[SP] Shutdown hook — killing browser process");
-                    try { session.killBrowserProcess(); } catch (Exception ignored) {}
-                }
-            }
-        }, "SP-ShutdownHook");
-        try {
-            Runtime.getRuntime().addShutdownHook(shutdownHook);
-        } catch (Exception e) {
-            LOG.warning("[SP] Could not register shutdown hook: " + e.getMessage());
-        }
+    private static String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
     }
 
-    private void removeShutdownHook() {
-        if (shutdownHook != null) {
-            try {
-                Runtime.getRuntime().removeShutdownHook(shutdownHook);
-            } catch (IllegalStateException ignored) {
-            } catch (Exception e) {
-                LOG.fine("[SP] Could not remove shutdown hook: " + e.getMessage());
-            }
-            shutdownHook = null;
-        }
+    private static String extractExtension(String name) {
+        if (name == null) return "";
+        int dot = name.lastIndexOf('.');
+        return dot >= 0 ? name.substring(dot + 1) : "";
     }
 
-    public void shutdownBrowser() {
-        final BrowserSession session = browserSession;
-        browserSession = null;
-        sessionAdapter = null;
-
-        if (session == null) return;
-        removeShutdownHook();
-
-        Thread cleanup = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    session.close();
-                    LOG.info("[SP] Session closed normally");
-                } catch (Exception e) {
-                    LOG.warning("[SP] Error in close(): " + e.getMessage());
-                }
-                try {
-                    Process proc = session.getBrowserProcess();
-                    if (proc != null && proc.isAlive()) {
-                        LOG.info("[SP] Process still alive — force-killing");
-                        session.killBrowserProcess();
-                    }
-                } catch (Exception e) {
-                    LOG.warning("[SP] Error in killBrowserProcess(): " + e.getMessage());
-                }
-            }
-        }, "SP-Cleanup");
-        cleanup.setDaemon(true);
-        cleanup.start();
-
-        try {
-            cleanup.join(5000);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
+    private static String getExtensionIcon(String ext) {
+        if (ext == null || ext.isEmpty()) return "📄";
+        switch (ext.toLowerCase()) {
+            case "pdf":  return "📕";
+            case "doc": case "docx": return "📘";
+            case "xls": case "xlsx": return "📗";
+            case "ppt": case "pptx": return "📙";
+            case "zip": case "7z": case "tar": case "gz": return "📦";
+            case "jpg": case "jpeg": case "png": case "gif": case "bmp": return "🖼";
+            case "txt": case "csv": case "log": return "📝";
+            case "xml": case "json": case "html": case "htm": return "🌐";
+            default: return "📄";
         }
-    }
-
-    private static String resolveBrowserPath(Settings settings) {
-        String path = settings.browserPath;
-        if (path != null && !path.trim().isEmpty()) return path;
-        String type = settings.browserType;
-        if ("Chrome".equalsIgnoreCase(type)) return BrowserLauncher.DEFAULT_CHROME_PATH;
-        if ("Edge".equalsIgnoreCase(type)) return BrowserLauncher.resolveEdgePath();
-        return BrowserLauncher.DEFAULT_FIREFOX_PATH;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -680,43 +618,42 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
 
     @Override
     public String getTooltip() {
-        return currentPageUrl.isEmpty() ? "SharePoint-Verbindung" : currentPageUrl;
+        return currentPath.isEmpty() ? "SharePoint-Verbindung" : currentPath;
     }
 
     @Override
-    public JComponent getComponent() {
-        return mainPanel;
-    }
+    public JComponent getComponent() { return mainPanel; }
 
     @Override
     public void onClose() {
-        shutdownBrowser();
+        try {
+            fileService.close();
+        } catch (Exception ignore) {}
+        cacheService.shutdown();
     }
 
     @Override
-    public void saveIfApplicable() {
-        // Not applicable
-    }
+    public void saveIfApplicable() { /* read-only browsing */ }
 
     @Override
     public String getContent() {
-        return contentArea.getText();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < listModel.size(); i++) {
+            sb.append(listModel.get(i)).append("\n");
+        }
+        return sb.toString();
     }
 
     @Override
-    public void markAsChanged() {
-        // Not applicable
-    }
+    public void markAsChanged() { /* not applicable */ }
 
     @Override
     public String getPath() {
-        return currentPageUrl.isEmpty() ? "sp://" : "sp://" + currentPageUrl;
+        return currentPath.isEmpty() ? "sp://" : "sp://" + currentPath;
     }
 
     @Override
-    public Type getType() {
-        return Type.CONNECTION;
-    }
+    public Type getType() { return Type.CONNECTION; }
 
     @Override
     public void focusSearchField() {
@@ -727,7 +664,7 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
     @Override
     public void searchFor(String searchPattern) {
         searchField.setText(searchPattern);
-        applyFilter();
+        applyFileFilter();
     }
 
     @Override
@@ -735,17 +672,23 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
         JPopupMenu menu = new JPopupMenu();
 
         JMenuItem refreshItem = new JMenuItem("🔄 Neu laden");
-        refreshItem.addActionListener(e -> loadSitesInBackground());
+        refreshItem.addActionListener(e -> {
+            if (!currentPath.isEmpty()) loadDirectory(currentPath, false);
+        });
         menu.add(refreshItem);
 
-        if (!currentPageUrl.isEmpty()) {
-            JMenuItem copyUrlItem = new JMenuItem("📋 URL kopieren");
-            copyUrlItem.addActionListener(e -> {
+        JMenuItem reloadSitesItem = new JMenuItem("🔄 Sites aktualisieren");
+        reloadSitesItem.addActionListener(e -> reloadSites());
+        menu.add(reloadSitesItem);
+
+        if (!currentPath.isEmpty()) {
+            JMenuItem copyPathItem = new JMenuItem("📋 Pfad kopieren");
+            copyPathItem.addActionListener(e -> {
                 java.awt.datatransfer.StringSelection sel =
-                        new java.awt.datatransfer.StringSelection(currentPageUrl);
+                        new java.awt.datatransfer.StringSelection(currentPath);
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
             });
-            menu.add(copyUrlItem);
+            menu.add(copyPathItem);
         }
 
         menu.addSeparator();
@@ -758,52 +701,7 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Data classes
-    // ═══════════════════════════════════════════════════════════
-
-    private static class SiteData {
-        final SharePointSite site;
-        final String title;
-        final String text;
-        final List<PageEntry> pages;
-
-        SiteData(SharePointSite site, String title, String text, List<PageEntry> pages) {
-            this.site = site;
-            this.title = title;
-            this.text = text;
-            this.pages = pages;
-        }
-    }
-
-    private static class PageData {
-        final String url;
-        final String title;
-        final String text;
-
-        PageData(String url, String title, String text) {
-            this.url = url;
-            this.title = title;
-            this.text = text;
-        }
-    }
-
-    static class PageEntry {
-        final String label;
-        final String url;
-
-        PageEntry(String label, String url) {
-            this.label = label;
-            this.url = url;
-        }
-
-        @Override
-        public String toString() {
-            return label;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    //  Tree cell renderer
+    //  Renderers
     // ═══════════════════════════════════════════════════════════
 
     private static class SharePointTreeCellRenderer extends DefaultTreeCellRenderer {
@@ -812,20 +710,42 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
                                                        boolean sel, boolean expanded, boolean leaf,
                                                        int row, boolean hasFocus) {
             super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
-
             if (value instanceof DefaultMutableTreeNode) {
                 Object userObj = ((DefaultMutableTreeNode) value).getUserObject();
                 if (userObj instanceof SharePointSite) {
                     setText("📊 " + ((SharePointSite) userObj).getName());
                     setFont(getFont().deriveFont(Font.BOLD));
-                } else if (userObj instanceof PageEntry) {
-                    setText("📄 " + ((PageEntry) userObj).label);
-                    setFont(getFont().deriveFont(Font.PLAIN));
                 } else if (userObj instanceof String) {
                     setText("📊 " + userObj);
                     setFont(getFont().deriveFont(Font.BOLD));
                 }
                 setIcon(null);
+            }
+            return this;
+        }
+    }
+
+    private class FileCellRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value,
+                                                       int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof FileNode) {
+                FileNode node = (FileNode) value;
+                String icon = node.isDirectory() ? "📁" : getExtensionIcon(extractExtension(node.getName()));
+                StringBuilder sb = new StringBuilder();
+                sb.append(icon).append(" ").append(node.getName());
+                if (!node.isDirectory()) {
+                    if (node.getSize() > 0) sb.append("  (").append(formatSize(node.getSize())).append(")");
+                    if (node.getLastModifiedMillis() > 0) {
+                        sb.append("  ").append(DATE_FMT.format(new Date(node.getLastModifiedMillis())));
+                    }
+                }
+                setText(sb.toString());
+                setFont(getFont().deriveFont(node.isDirectory() ? Font.BOLD : Font.PLAIN));
+            }
+            if (!isSelected) {
+                setBackground(index % 2 == 0 ? Color.WHITE : new Color(245, 245, 250));
             }
             return this;
         }

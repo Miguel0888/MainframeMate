@@ -256,6 +256,8 @@ public class Settings {
     // SharePoint Connection Settings
     public String sharepointParentPageUrl = "";              // URL der Parent-Seite, aus der SharePoint-Links extrahiert werden
     public int sharepointCacheConcurrency = 2;               // Parallele Downloads beim Caching
+    /** JSON array of discovered links: [{"name":"..","url":"..","selected":true}, ...] */
+    public String sharepointSitesJson = "[]";
 
 
     /**

@@ -681,47 +681,25 @@ public class MainFrame extends JFrame implements MainframeContext {
             return;
         }
 
-        // No existing tab — create and launch
+        // No existing tab — create and navigate
         SharePointConnectionTab spTab = new SharePointConnectionTab();
+        spTab.setTabbedPaneManager(tabManager);
 
         de.bund.zrb.ui.drawer.LeftDrawer leftDrawer = getBookmarkDrawer();
         if (leftDrawer != null) {
             spTab.setLinksCallback(entries ->
                     javax.swing.SwingUtilities.invokeLater(() ->
-                            leftDrawer.updateRelations("SharePoint-Seiten", entries)));
+                            leftDrawer.updateRelations("SharePoint-Dateien", entries)));
             leftDrawer.setOnRelationOpen(entry -> {
-                if ("SP_LINK".equals(entry.getType())) {
+                if ("SP_FILE".equals(entry.getType())) {
                     spTab.navigateToUrl(entry.getTargetPath());
                 }
             });
         }
 
         tabManager.addTab(spTab);
-
-        final String targetUrl = rawPath;
-        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
-        new javax.swing.SwingWorker<Void, Void>() {
-            @Override
-            protected Void doInBackground() throws Exception {
-                spTab.launchBrowser();
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                setCursor(java.awt.Cursor.getDefaultCursor());
-                try {
-                    get();
-                    spTab.navigateToUrl(targetUrl);
-                    tabManager.updateTitleFor(spTab);
-                } catch (Exception e) {
-                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
-                            "SharePoint-Browser konnte nicht gestartet werden:\n"
-                                    + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()),
-                            "SharePoint-Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
+        spTab.navigateToUrl(rawPath);
+        tabManager.updateTitleFor(spTab);
     }
 
     /**
