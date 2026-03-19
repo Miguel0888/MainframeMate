@@ -320,10 +320,27 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
             keepassConfigPanel.revalidate();
         });
 
-        // Toggle KeePass config visibility
+        // Toggle KeePass config visibility + migration prompt
         keepassConfigPanel.setVisible(currentMethod == PasswordMethod.KEEPASS);
-        passwordMethodBox.addActionListener(e ->
-                keepassConfigPanel.setVisible(passwordMethodBox.getSelectedItem() == PasswordMethod.KEEPASS));
+        final PasswordMethod[] lastConfirmedMethod = { currentMethod };
+        passwordMethodBox.addActionListener(e -> {
+            PasswordMethod selected = (PasswordMethod) passwordMethodBox.getSelectedItem();
+            keepassConfigPanel.setVisible(selected == PasswordMethod.KEEPASS);
+
+            // Show migration dialog immediately when switching TO KeePass
+            if (selected == PasswordMethod.KEEPASS && lastConfirmedMethod[0] != PasswordMethod.KEEPASS) {
+                de.bund.zrb.ui.settings.KeePassMigrationDialog dlg =
+                        new de.bund.zrb.ui.settings.KeePassMigrationDialog(parent, lastConfirmedMethod[0]);
+                boolean accepted = dlg.showAndMigrate();
+                if (!accepted) {
+                    // User cancelled — revert combo box selection
+                    passwordMethodBox.setSelectedItem(lastConfirmedMethod[0]);
+                    keepassConfigPanel.setVisible(false);
+                    return;
+                }
+            }
+            lastConfirmedMethod[0] = selected;
+        });
 
 
         fb.addSection("Bildschirmsperre");
