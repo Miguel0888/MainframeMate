@@ -47,6 +47,13 @@ public final class CredentialStore {
      */
     public static String[] resolve(String componentKey) {
         Settings settings = SettingsHelper.load();
+
+        // When using KeePass and the key is a password entry, look up in KeePass
+        if (isKeePass(settings) && componentKey != null && componentKey.startsWith("pwd:")) {
+            String entryTitle = componentKey.substring(4);
+            return resolveFromKeePass(settings, entryTitle);
+        }
+
         String encrypted = settings.componentCredentials.get(componentKey);
         if (encrypted == null || encrypted.isEmpty()) return null;
 
@@ -83,6 +90,14 @@ public final class CredentialStore {
      */
     public static String[] resolveIncludingEmpty(String componentKey) {
         Settings settings = SettingsHelper.load();
+
+        // When using KeePass and the key is a password entry, look up in KeePass
+        if (isKeePass(settings) && componentKey != null && componentKey.startsWith("pwd:")) {
+            String entryTitle = componentKey.substring(4);
+            String[] cred = resolveFromKeePass(settings, entryTitle);
+            return cred != null ? cred : new String[]{"", ""};
+        }
+
         String encrypted = settings.componentCredentials.get(componentKey);
         if (encrypted == null || encrypted.isEmpty()) return new String[]{"", ""};
 
@@ -277,6 +292,39 @@ public final class CredentialStore {
             KeePassProvider.rpcRemoveEntry(uniqueID);
         } else {
             KeePassProvider.psRemoveEntry(title);
+        }
+    }
+
+    // ── Private helpers ─────────────────────────────────────────────────────
+
+    /** Check if the password method is set to KeePass. */
+    private static boolean isKeePass(Settings settings) {
+        try {
+            return PasswordMethod.valueOf(settings.passwordMethod) == PasswordMethod.KEEPASS;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Look up user + password from KeePass by entry title.
+     * Uses RPC or PowerShell depending on the configured access method.
+     *
+     * @return {@code String[]{user, password}} or {@code null} if not found
+     */
+    private static String[] resolveFromKeePass(Settings settings, String entryTitle) {
+        try {
+            if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
+                return KeePassProvider.rpcGetCredentialsByTitle(entryTitle);
+            } else {
+                // PowerShell: build a script to read user + password by title
+                return KeePassProvider.psGetCredentialsByTitle(entryTitle);
+            }
+        } catch (KeePassNotAvailableException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to resolve KeePass entry '" + entryTitle + "'", e);
+            return null;
         }
     }
 }

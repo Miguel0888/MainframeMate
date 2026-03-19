@@ -620,6 +620,62 @@ final class KeePassProvider {
     // ── CRUD via RPC (called from ShowPasswordsMenuCommand) ──────────────
 
     /**
+     * Resolve user + password for an arbitrary entry by title via RPC.
+     *
+     * @param entryTitle the KeePass entry title (e.g. "wikipedia_de")
+     * @return {@code String[]{user, password}} or {@code null} if not found
+     */
+    static String[] rpcGetCredentialsByTitle(String entryTitle) {
+        Settings settings = SettingsHelper.load();
+        validateRpcConfig(settings);
+        KeePassRpcClient client = new KeePassRpcClient(
+                settings.getEffectiveRpcHost(), settings.keepassRpcPort,
+                "MainframeMate", settings.keepassRpcKey.trim(),
+                settings.getEffectiveRpcOrigin());
+        try {
+            client.connect();
+            String user = client.getUserName(entryTitle);
+            String pass = client.getPassword(entryTitle);
+            if (user == null && pass == null) return null;
+            return new String[]{user != null ? user : "", pass != null ? pass : ""};
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Resolve user + password for an arbitrary entry by title via PowerShell.
+     *
+     * @param entryTitle the KeePass entry title
+     * @return {@code String[]{user, password}} or {@code null} if not found
+     */
+    static String[] psGetCredentialsByTitle(String entryTitle) {
+        Settings settings = SettingsHelper.load();
+        validateConfig(settings);
+        String script = preamble(settings)
+                + "$found = $false\n"
+                + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
+                + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(entryTitle) + "') {\n"
+                + "    Write-Output ('USER:' + $e.Strings.ReadSafe('UserName'))\n"
+                + "    Write-Output ('PASS:' + $e.Strings.ReadSafe('Password'))\n"
+                + "    $found = $true; break\n"
+                + "  }\n"
+                + "}\n"
+                + "if (-not $found) { Write-Output 'NOT_FOUND' }\n"
+                + "$db.Close()";
+        String result = execPowerShell(script).trim();
+        if (result.contains("NOT_FOUND")) return null;
+        String user = "";
+        String pass = "";
+        for (String line : result.split("\\n")) {
+            line = line.trim();
+            if (line.startsWith("USER:")) user = line.substring(5);
+            else if (line.startsWith("PASS:")) pass = line.substring(5);
+        }
+        return new String[]{user, pass};
+    }
+
+    /**
      * Create a new entry in KeePass via RPC.
      */
     static void rpcAddEntry(String title, String userName, String password, String url,
