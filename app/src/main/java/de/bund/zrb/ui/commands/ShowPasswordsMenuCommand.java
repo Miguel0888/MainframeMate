@@ -615,6 +615,12 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             @Override
             protected void done() {
                 parent.setCursor(Cursor.getDefaultCursor());
+
+                // Browser is no longer needed — close the session
+                try {
+                    bs.closeSession();
+                } catch (Exception ignore) { }
+
                 try {
                     List<SharePointSite> allLinks = get();
 
