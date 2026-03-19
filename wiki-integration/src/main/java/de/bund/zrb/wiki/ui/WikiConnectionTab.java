@@ -56,6 +56,8 @@ public class WikiConnectionTab implements ConnectionTab {
     private CredentialsSaveCallback credentialsSaveCallback;
     /** Callback to index a wiki page into the search index. */
     private IndexCallback indexCallback;
+    /** Callback to update the dependency/relations panel (LeftDrawer) for the previewed page. */
+    private DependencyCallback dependencyCallback;
 
     private String currentPageTitle;
     private WikiSiteId currentSiteId;
@@ -374,6 +376,9 @@ public class WikiConnectionTab implements ConnectionTab {
 
         if (outlineCallback != null) {
             outlineCallback.onOutlineChanged(view.outline(), view.title());
+        }
+        if (dependencyCallback != null && currentSiteId != null) {
+            dependencyCallback.onDependenciesChanged(currentSiteId, view.title());
         }
     }
 
@@ -711,6 +716,26 @@ public class WikiConnectionTab implements ConnectionTab {
 
     public WikiContentService getService() { return service; }
 
+    /** @return the currently previewed page's site id, or {@code null} if no preview is loaded */
+    public WikiSiteId getCurrentSiteId() { return currentSiteId; }
+
+    /** @return the currently previewed page's title, or {@code null} */
+    public String getCurrentPageTitle() { return currentPageTitle; }
+
+    /** @return the currently previewed page's outline, or {@code null} */
+    public OutlineNode getCurrentOutline() {
+        return currentPreview != null ? currentPreview.outline() : null;
+    }
+
+    /**
+     * Scroll the preview pane to a heading anchor (called from RightDrawer outline).
+     */
+    public void scrollToAnchor(String anchor) {
+        if (anchor != null) {
+            htmlPane.scrollToReference(anchor);
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  ConnectionTab interface
     // ═══════════════════════════════════════════════════════════
@@ -833,6 +858,11 @@ public class WikiConnectionTab implements ConnectionTab {
         void onOutlineChanged(OutlineNode outline, String pageTitle);
     }
 
+    /** Callback to update the dependency/relations panel when a preview page changes. */
+    public interface DependencyCallback {
+        void onDependenciesChanged(WikiSiteId siteId, String pageTitle);
+    }
+
     public interface CredentialsCallback {
         /** Return credentials for the given wiki site, or null if unavailable. */
         WikiCredentials getCredentials(WikiSiteId siteId);
@@ -856,6 +886,10 @@ public class WikiConnectionTab implements ConnectionTab {
 
     public void setIndexCallback(IndexCallback callback) {
         this.indexCallback = callback;
+    }
+
+    public void setDependencyCallback(DependencyCallback callback) {
+        this.dependencyCallback = callback;
     }
 
     public void setCredentialsCallback(CredentialsCallback callback) {

@@ -18,6 +18,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class RightDrawer extends JPanel {
 
@@ -35,6 +36,9 @@ public class RightDrawer extends JPanel {
     private final DefaultTreeModel wikiOutlineModel;
     private final JPanel wikiOutlinePanel;
     private WikiFileTab activeWikiFileTab;
+
+    /** Generic scroll callback for wiki outline (used for WikiConnectionTab preview). */
+    private Consumer<String> activeAnchorScroller;
 
     private JCheckBox keepAliveCheckbox;
     private JCheckBox contextMemoryCheckbox;
@@ -74,10 +78,14 @@ public class RightDrawer extends JPanel {
         wikiOutlineTree.addTreeSelectionListener(e -> {
             javax.swing.tree.DefaultMutableTreeNode node =
                     (javax.swing.tree.DefaultMutableTreeNode) wikiOutlineTree.getLastSelectedPathComponent();
-            if (node != null && node.getUserObject() instanceof WikiOutlineEntry && activeWikiFileTab != null) {
+            if (node != null && node.getUserObject() instanceof WikiOutlineEntry) {
                 WikiOutlineEntry entry = (WikiOutlineEntry) node.getUserObject();
                 if (entry.anchor != null) {
-                    activeWikiFileTab.scrollToAnchor(entry.anchor);
+                    if (activeWikiFileTab != null) {
+                        activeWikiFileTab.scrollToAnchor(entry.anchor);
+                    } else if (activeAnchorScroller != null) {
+                        activeAnchorScroller.accept(entry.anchor);
+                    }
                 }
             }
         });
@@ -198,7 +206,24 @@ public class RightDrawer extends JPanel {
      */
     public void updateWikiOutline(OutlineNode root, String pageTitle, WikiFileTab fileTab) {
         this.activeWikiFileTab = fileTab;
+        this.activeAnchorScroller = fileTab != null ? anchor -> fileTab.scrollToAnchor(anchor) : null;
+        applyWikiOutline(root, pageTitle);
+    }
 
+    /**
+     * Update the wiki outline with a generic scroll callback (e.g. from WikiConnectionTab preview).
+     *
+     * @param root       outline tree root
+     * @param pageTitle  page title
+     * @param scroller   callback to scroll to an anchor, or {@code null}
+     */
+    public void updateWikiOutline(OutlineNode root, String pageTitle, Consumer<String> scroller) {
+        this.activeWikiFileTab = null;
+        this.activeAnchorScroller = scroller;
+        applyWikiOutline(root, pageTitle);
+    }
+
+    private void applyWikiOutline(OutlineNode root, String pageTitle) {
         DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode(
                 pageTitle != null ? pageTitle : "Wiki-Gliederung");
         if (root != null) {
@@ -228,6 +253,7 @@ public class RightDrawer extends JPanel {
      */
     public void restoreCodeOutline() {
         this.activeWikiFileTab = null;
+        this.activeAnchorScroller = null;
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             if (tabbedPane.getTitleAt(i).contains("Outline")) {
                 tabbedPane.getTabbedPaneDelegate().setComponentAt(i, outlinePanel);

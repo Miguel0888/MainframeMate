@@ -543,6 +543,22 @@ public class TabbedPaneManager {
             return;
         }
 
+        // WikiConnectionTab: show outline + relations for the currently previewed page
+        if (tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
+            de.bund.zrb.wiki.ui.WikiConnectionTab wikiConnTab =
+                    (de.bund.zrb.wiki.ui.WikiConnectionTab) tab;
+            de.bund.zrb.wiki.domain.OutlineNode outline = wikiConnTab.getCurrentOutline();
+            if (outline != null) {
+                java.util.function.Consumer<String> scroller = anchor -> wikiConnTab.scrollToAnchor(anchor);
+                rightDrawer.updateWikiOutline(outline, wikiConnTab.getCurrentPageTitle(), scroller);
+            } else {
+                rightDrawer.restoreCodeOutline();
+                rightDrawer.clearJclOutline();
+            }
+            updateRelationsForWikiPreview(mainFrame, wikiConnTab);
+            return;
+        }
+
         // Restore code outline for non-wiki tabs
         rightDrawer.restoreCodeOutline();
 
@@ -747,6 +763,45 @@ public class TabbedPaneManager {
                 new de.bund.zrb.wiki.domain.WikiSiteId(wikiTab.getSiteId());
 
         relationsService.resolveWikiLinks(siteId, wikiTab.getPageTitle(), tabPath,
+                new de.bund.zrb.service.RelationsService.RelationsCallback() {
+                    @Override
+                    public void onRelationsResolved(java.util.List<LeftDrawer.RelationEntry> entries) {
+                        leftDrawer.updateRelations("Wiki-Links", entries);
+                    }
+                });
+    }
+
+    /**
+     * Update the LeftDrawer relations panel for a WikiConnectionTab preview.
+     * Works like {@link #updateRelationsForWikiTab} but reads siteId/pageTitle
+     * from the previewed page instead of from a WikiFileTab.
+     */
+    private void updateRelationsForWikiPreview(MainFrame mainFrame,
+                                               de.bund.zrb.wiki.ui.WikiConnectionTab wikiConnTab) {
+        LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
+        de.bund.zrb.service.RelationsService relationsService = mainFrame.getRelationsService();
+        if (leftDrawer == null || relationsService == null) return;
+
+        de.bund.zrb.wiki.domain.WikiSiteId siteId = wikiConnTab.getCurrentSiteId();
+        String pageTitle = wikiConnTab.getCurrentPageTitle();
+        if (siteId == null || pageTitle == null || pageTitle.isEmpty()) {
+            leftDrawer.showRelationsPlaceholder("Keine Vorschau geladen.");
+            return;
+        }
+
+        String cachePath = "wiki://" + siteId.value() + "/" + pageTitle;
+
+        // Check cache first
+        java.util.List<LeftDrawer.RelationEntry> cached = relationsService.getCached(cachePath);
+        if (cached != null) {
+            leftDrawer.updateRelations("Wiki-Links", cached);
+            return;
+        }
+
+        // Show loading and resolve in background
+        leftDrawer.showRelationsLoading();
+
+        relationsService.resolveWikiLinks(siteId, pageTitle, cachePath,
                 new de.bund.zrb.service.RelationsService.RelationsCallback() {
                     @Override
                     public void onRelationsResolved(java.util.List<LeftDrawer.RelationEntry> entries) {

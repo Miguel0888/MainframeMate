@@ -124,6 +124,37 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             tabManager.addTab(fileTab);
         });
 
+        // Wire up outline callback: updates RightDrawer when preview changes
+        if (tabManager.getMainframeContext() instanceof de.bund.zrb.ui.MainFrame) {
+            de.bund.zrb.ui.MainFrame mf = (de.bund.zrb.ui.MainFrame) tabManager.getMainframeContext();
+            de.bund.zrb.ui.drawer.RightDrawer rightDrawer = mf.getRightDrawer();
+            if (rightDrawer != null) {
+                tab.setOutlineCallback((outlineNode, title) -> {
+                    java.util.function.Consumer<String> scroller = anchor -> tab.scrollToAnchor(anchor);
+                    rightDrawer.updateWikiOutline(outlineNode, title, scroller);
+                });
+            }
+
+            // Wire up dependency callback: updates LeftDrawer when preview changes
+            tab.setDependencyCallback((siteId, pageTitle) -> {
+                de.bund.zrb.ui.drawer.LeftDrawer leftDrawer = mf.getBookmarkDrawer();
+                de.bund.zrb.service.RelationsService rs = mf.getRelationsService();
+                if (leftDrawer == null || rs == null) return;
+
+                String cachePath = "wiki://" + siteId.value() + "/" + pageTitle;
+                java.util.List<de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry> cached =
+                        rs.getCached(cachePath);
+                if (cached != null) {
+                    leftDrawer.updateRelations("Wiki-Links", cached);
+                    return;
+                }
+
+                leftDrawer.showRelationsLoading();
+                rs.resolveWikiLinks(siteId, pageTitle, cachePath,
+                        entries -> leftDrawer.updateRelations("Wiki-Links", entries));
+            });
+        }
+
         // Wire up index callback: indexes a single wiki page into Lucene on demand
         tab.setIndexCallback((siteId, pageTitle, html) -> {
             try {
