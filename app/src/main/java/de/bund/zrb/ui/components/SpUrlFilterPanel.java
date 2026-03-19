@@ -376,11 +376,34 @@ public class SpUrlFilterPanel extends JPanel {
 
     /**
      * Ask the containing dialog to re-pack so new segments are visible.
+     * Grows up to the available screen area but never shrinks.
      */
     private void requestPackDialog() {
         Window w = SwingUtilities.getWindowAncestor(this);
-        if (w instanceof Dialog) {
-            ((Dialog) w).pack();
+        if (w == null) return;
+
+        // Remember current size so we never shrink
+        int oldW = w.getWidth();
+        int oldH = w.getHeight();
+
+        // Let the layout manager calculate the preferred size
+        w.pack();
+
+        // Screen limits
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        Insets si = Toolkit.getDefaultToolkit().getScreenInsets(w.getGraphicsConfiguration());
+        int maxW = screen.width - si.left - si.right;
+        int maxH = screen.height - si.top - si.bottom;
+
+        // Take the larger of old vs. packed, capped at screen
+        int newW = Math.min(maxW, Math.max(oldW, w.getWidth()));
+        int newH = Math.min(maxH, Math.max(oldH, w.getHeight()));
+        w.setSize(newW, newH);
+
+        // Re-centre if it moved off screen
+        if (w.getX() + newW > screen.width - si.right
+                || w.getY() + newH > screen.height - si.bottom) {
+            w.setLocationRelativeTo(w.getOwner());
         }
     }
 

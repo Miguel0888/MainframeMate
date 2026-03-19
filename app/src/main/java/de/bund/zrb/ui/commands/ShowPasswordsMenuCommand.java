@@ -16,6 +16,8 @@ import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -734,18 +736,69 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }
         });
 
-        // ── Assemble dialog ──
+        // ── Assemble resizable dialog ──
         JScrollPane scroll = new JScrollPane(table);
-        scroll.setPreferredSize(new Dimension(750, Math.min(400, 60 + filtered.size() * 22)));
+        scroll.setPreferredSize(new Dimension(800, Math.min(400, 60 + filtered.size() * 22)));
 
-        JPanel panel = new JPanel(new BorderLayout(0, 6));
-        panel.add(filterPanel, BorderLayout.NORTH);
-        panel.add(scroll, BorderLayout.CENTER);
+        JPanel contentPanel = new JPanel(new BorderLayout(0, 6));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+        contentPanel.add(filterPanel, BorderLayout.NORTH);
+        contentPanel.add(scroll, BorderLayout.CENTER);
 
-        int result = JOptionPane.showConfirmDialog(parent, panel,
+        // OK / Cancel buttons
+        final int[] dialogResult = {JOptionPane.CANCEL_OPTION};
+        final JDialog dlg = new JDialog(
+                (parent instanceof Frame) ? (Frame) parent : null,
                 "SharePoint-Links importieren (" + allLinks.size() + " gesamt)",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) return 0;
+                true);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        JButton okBtn = new JButton("OK");
+        JButton cancelBtn = new JButton("Abbrechen");
+        okBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                dialogResult[0] = JOptionPane.OK_OPTION;
+                dlg.dispose();
+            }
+        });
+        cancelBtn.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) {
+                dlg.dispose();
+            }
+        });
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 6));
+        btnPanel.add(okBtn);
+        btnPanel.add(cancelBtn);
+
+        dlg.getContentPane().setLayout(new BorderLayout());
+        dlg.getContentPane().add(contentPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(btnPanel, BorderLayout.SOUTH);
+        dlg.setResizable(true);
+        dlg.pack();
+
+        // Limit to screen bounds, position centred
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        Insets screenInsets = Toolkit.getDefaultToolkit().getScreenInsets(
+                dlg.getGraphicsConfiguration());
+        int maxW = screen.width - screenInsets.left - screenInsets.right;
+        int maxH = screen.height - screenInsets.top - screenInsets.bottom;
+        if (dlg.getWidth() > maxW) dlg.setSize(maxW, dlg.getHeight());
+        if (dlg.getHeight() > maxH) dlg.setSize(dlg.getWidth(), maxH);
+        dlg.setMinimumSize(new Dimension(500, 300));
+        dlg.setLocationRelativeTo(parent);
+
+        // Enter = OK, Escape = Cancel
+        dlg.getRootPane().setDefaultButton(okBtn);
+        dlg.getRootPane().registerKeyboardAction(
+                new ActionListener() {
+                    @Override public void actionPerformed(ActionEvent e) { dlg.dispose(); }
+                },
+                KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+
+        dlg.setVisible(true);
+
+        if (dialogResult[0] != JOptionPane.OK_OPTION) return 0;
 
         // Persist filter segments for next time
         filterPanel.saveSegments();
