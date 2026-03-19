@@ -258,6 +258,10 @@ public class Settings {
     public int sharepointCacheConcurrency = 2;               // Parallele Downloads beim Caching
     /** JSON array of discovered links: [{"name":"..","url":"..","selected":true}, ...] */
     public String sharepointSitesJson = "[]";
+    /** SharePoint WebDAV username (DOMAIN\\user or user@domain). */
+    public String sharepointUser = "";
+    /** SharePoint WebDAV encrypted password (via WindowsCryptoUtil). */
+    public String sharepointEncryptedPassword = "";
 
 
     /**

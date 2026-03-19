@@ -1,10 +1,12 @@
 package de.bund.zrb.ui.settings.categories;
 
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.sharepoint.SharePointAuthenticator;
 import de.bund.zrb.sharepoint.SharePointLinkFetcher;
 import de.bund.zrb.sharepoint.SharePointSite;
 import de.bund.zrb.sharepoint.SharePointSiteStore;
 import de.bund.zrb.ui.settings.FormBuilder;
+import de.bund.zrb.util.WindowsCryptoUtil;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -27,6 +29,9 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner cacheConcurrencySpinner;
     private final LinkTableModel linkTableModel;
     private final JTable linkTable;
+    private final JTextField userField;
+    private final JPasswordField passwordField;
+    private final boolean[] passwordCleared = {false};
 
     public SharePointSettingsPanel() {
         super("sharepoint", "SharePoint");
@@ -71,7 +76,38 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         tableScroll.setPreferredSize(new Dimension(640, 200));
         fb.addWideGrow(tableScroll);
 
-        // ── Section 3: Caching ──
+        // ── Section 3: Credentials ──
+        fb.addSection("Zugangsdaten");
+
+        fb.addInfo("<html><i>SharePoint erfordert eine Anmeldung per HTTP-Authentifizierung.<br>"
+                + "Geben Sie Ihren Benutzernamen im Format <b>DOMAIN\\Benutzer</b> oder<br>"
+                + "<b>benutzer@domain.de</b> ein. Das Passwort wird verschlüsselt gespeichert.</i></html>");
+
+        userField = new JTextField(safe(settings.sharepointUser), 30);
+        userField.setToolTipText("SharePoint-Benutzername (DOMAIN\\user oder user@domain)");
+        fb.addRow("Benutzer:", userField);
+
+        passwordField = new JPasswordField(30);
+        if (settings.sharepointEncryptedPassword != null
+                && !settings.sharepointEncryptedPassword.isEmpty()) {
+            passwordField.setText("********");
+        }
+        fb.addRow("Passwort:", passwordField);
+
+        JPanel credButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        JButton clearPasswordButton = new JButton("🗑 Passwort löschen");
+        clearPasswordButton.addActionListener(e -> {
+            passwordField.setText("");
+            passwordCleared[0] = true;
+        });
+        JButton testButton = new JButton("🔗 Verbindung testen…");
+        testButton.setToolTipText("Testet die WebDAV-Verbindung zur ersten ausgewählten SharePoint-Site");
+        testButton.addActionListener(e -> testConnection());
+        credButtons.add(clearPasswordButton);
+        credButtons.add(testButton);
+        fb.addWide(credButtons);
+
+        // ── Section 4: Caching ──
         fb.addSection("Caching");
 
         cacheConcurrencySpinner = new JSpinner(new SpinnerNumberModel(
@@ -131,6 +167,102 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         s.sharepointParentPageUrl = parentPageUrlField.getText().trim();
         s.sharepointCacheConcurrency = ((Number) cacheConcurrencySpinner.getValue()).intValue();
         s.sharepointSitesJson = SharePointSiteStore.toJson(linkTableModel.getSites());
+        s.sharepointUser = userField.getText().trim();
+
+        // Password handling (same pattern as BetaViewSettingsPanel)
+        char[] passChars = passwordField.getPassword();
+        String passStr = new String(passChars);
+        if (passwordCleared[0] && passStr.isEmpty()) {
+            s.sharepointEncryptedPassword = "";
+        } else if (!passStr.equals("********") && passChars.length > 0) {
+            s.sharepointEncryptedPassword = WindowsCryptoUtil.encrypt(passStr);
+        }
+
+        // Reset authentication cache so new credentials take effect
+        SharePointAuthenticator.resetSession();
+    }
+
+    /**
+     * Test WebDAV connectivity to the first selected SharePoint site.
+     */
+    private void testConnection() {
+        List<SharePointSite> sites = linkTableModel.getSites();
+        SharePointSite target = null;
+        for (SharePointSite s : sites) {
+            if (s.isSelected()) { target = s; break; }
+        }
+        if (target == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Bitte wählen Sie mindestens eine SharePoint-Site aus.",
+                    "Verbindungstest", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String uncPath = target.toUncPath();
+        String user = userField.getText().trim();
+        char[] passChars = passwordField.getPassword();
+        String passStr = new String(passChars);
+
+        // Decrypt stored password if placeholder
+        String password;
+        if (passStr.equals("********")) {
+            try {
+                password = WindowsCryptoUtil.decrypt(settings.sharepointEncryptedPassword);
+            } catch (Exception ex) {
+                password = "";
+            }
+        } else {
+            password = passStr;
+        }
+
+        if (user.isEmpty() || password.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Bitte geben Sie Benutzer und Passwort ein.",
+                    "Verbindungstest", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        final String testUser = user;
+        final String testPass = password;
+        final String testUnc = uncPath;
+        final String siteName = target.getName();
+
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                return SharePointAuthenticator.netUse(testUnc, testUser, testPass);
+            }
+
+            @Override
+            protected void done() {
+                setCursor(Cursor.getDefaultCursor());
+                try {
+                    if (get()) {
+                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
+                                "✓ Verbindung zu \"" + siteName + "\" erfolgreich!\n\n"
+                                        + "UNC-Pfad: " + testUnc,
+                                "Verbindungstest", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
+                                "✗ Verbindung fehlgeschlagen.\n\n"
+                                        + "Bitte prüfen Sie:\n"
+                                        + "• Benutzername und Passwort\n"
+                                        + "• WebClient-Dienst: net start WebClient\n"
+                                        + "• Netzwerkerreichbarkeit",
+                                "Verbindungstest", JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
+                            "Fehler: " + ex.getMessage(),
+                            "Verbindungstest", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    private static String safe(String s) {
+        return s == null ? "" : s;
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -9,6 +9,7 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.sharepoint.SharePointCacheService;
+import de.bund.zrb.sharepoint.SharePointAuthenticator;
 import de.bund.zrb.sharepoint.SharePointPathUtil;
 import de.bund.zrb.sharepoint.SharePointSite;
 import de.bund.zrb.sharepoint.SharePointSiteStore;
@@ -282,6 +283,13 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
             SharePointSite site = (SharePointSite) userObj;
             currentSiteName = site.getName();
             String uncPath = site.toUncPath();
+
+            // Authenticate before accessing the WebDAV share
+            if (!SharePointAuthenticator.ensureAuthenticated(uncPath, mainPanel)) {
+                statusLabel.setText("⚠ Anmeldung abgebrochen");
+                return;
+            }
+
             loadDirectory(uncPath, true);
             if (tabbedPaneManager != null) tabbedPaneManager.updateTitleFor(this);
         }
@@ -327,12 +335,30 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
                     currentNodes = Collections.emptyList();
                     listModel.clear();
                     String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+
+                    // Try authentication if listing failed (auth may have expired)
+                    if (targetPath.startsWith("\\\\")) {
+                        statusLabel.setText("🔑 Anmeldung erforderlich…");
+                        SharePointAuthenticator.resetSession();
+                        SwingUtilities.invokeLater(() -> {
+                            if (SharePointAuthenticator.ensureAuthenticated(targetPath, mainPanel)) {
+                                // Retry after successful authentication
+                                loadDirectory(targetPath, false);
+                            } else {
+                                statusLabel.setText("✗ Anmeldung abgebrochen");
+                                previewArea.setText("Anmeldung zu SharePoint wurde abgebrochen.\n\n"
+                                        + "Sie können die Zugangsdaten in den Einstellungen → SharePoint konfigurieren.");
+                            }
+                        });
+                        return;
+                    }
+
                     statusLabel.setText("✗ Fehler: " + msg);
                     previewArea.setText("Fehler beim Laden des Verzeichnisses:\n\n" + msg
                             + "\n\nMögliche Ursachen:\n"
                             + "• Der WebClient-Dienst ist nicht gestartet\n"
                             + "• Keine Netzwerkverbindung zur SharePoint-Site\n"
-                            + "• Authentifizierung erforderlich (im Browser anmelden)\n\n"
+                            + "• Authentifizierung erforderlich (Einstellungen → SharePoint)\n\n"
                             + "Tipp: Starten Sie den WebClient-Dienst:\n"
                             + "  net start WebClient");
                 }
@@ -556,6 +582,14 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
             if (pathOrUrl.startsWith(unc)) {
                 currentSiteName = site.getName();
                 break;
+            }
+        }
+
+        // Authenticate before accessing the WebDAV share
+        if (pathOrUrl.startsWith("\\\\")) {
+            if (!SharePointAuthenticator.ensureAuthenticated(pathOrUrl, mainPanel)) {
+                statusLabel.setText("⚠ Anmeldung abgebrochen");
+                return;
             }
         }
 
