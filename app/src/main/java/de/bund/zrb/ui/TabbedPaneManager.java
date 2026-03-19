@@ -626,7 +626,7 @@ public class TabbedPaneManager {
             return;
         }
 
-        // ConfluenceConnectionTab: show page outline in RightDrawer + relations in LeftDrawer
+        // ConfluenceConnectionTab: show page outline in RightDrawer + hierarchy/links in LeftDrawer
         if (tab instanceof ConfluenceConnectionTab) {
             ConfluenceConnectionTab confTab = (ConfluenceConnectionTab) tab;
             de.bund.zrb.wiki.domain.OutlineNode outline = confTab.getCurrentOutline();
@@ -637,7 +637,8 @@ public class TabbedPaneManager {
                 rightDrawer.restoreCodeOutline();
                 rightDrawer.clearJclOutline();
             }
-            updateRelationsForConfluencePreview(mainFrame, confTab);
+            updateHierarchyForConfluencePreview(mainFrame, confTab);
+            updateLinksForConfluencePreview(mainFrame, confTab);
             return;
         }
 
@@ -894,20 +895,20 @@ public class TabbedPaneManager {
 
     /**
      * Load ancestors, child pages, and labels for the currently previewed Confluence page
-     * and display them in the LeftDrawer relations panel.
+     * and display them in the LeftDrawer <b>Hierarchy</b> panel (bottom split).
      */
-    private void updateRelationsForConfluencePreview(MainFrame mainFrame,
+    private void updateHierarchyForConfluencePreview(MainFrame mainFrame,
                                                      ConfluenceConnectionTab confTab) {
         LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
         if (leftDrawer == null) return;
 
         ConfluenceConnectionTab.PageItem item = confTab.getCurrentPreviewItem();
         if (item == null) {
-            leftDrawer.showRelationsPlaceholder("Keine Vorschau geladen.");
+            leftDrawer.showCallHierarchyPlaceholder("Keine Vorschau geladen.");
             return;
         }
 
-        leftDrawer.showRelationsLoading();
+        leftDrawer.showCallHierarchyLoading();
 
         final de.bund.zrb.confluence.ConfluenceRestClient client = confTab.getClient();
         final String baseUrl = confTab.getBaseUrl();
@@ -996,21 +997,130 @@ public class TabbedPaneManager {
                 try {
                     java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> groups = get();
                     if (groups.isEmpty()) {
-                        leftDrawer.showRelationsPlaceholder("Keine Beziehungen f\u00fcr: " + pageTitle);
+                        leftDrawer.showCallHierarchyPlaceholder("Keine Hierarchy f\u00fcr: " + pageTitle);
                     } else {
-                        int totalCount = 0;
-                        for (java.util.List<LeftDrawer.RelationEntry> list : groups.values()) {
-                            totalCount += list.size();
+                        // Build a flat CallHierarchyData tree from the grouped entries
+                        java.util.List<LeftDrawer.CallHierarchyData> topLevel =
+                                new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+                        for (java.util.Map.Entry<String, java.util.List<LeftDrawer.RelationEntry>> section : groups.entrySet()) {
+                            // Group node as parent, each entry as child leaf
+                            java.util.List<LeftDrawer.CallHierarchyData> children =
+                                    new java.util.ArrayList<LeftDrawer.CallHierarchyData>();
+                            for (LeftDrawer.RelationEntry re : section.getValue()) {
+                                children.add(new LeftDrawer.CallHierarchyData(
+                                        re.getLabel(), re.getTargetPath(), children.size() == 0 ? false : false,
+                                        java.util.Collections.<LeftDrawer.CallHierarchyData>emptyList()));
+                            }
+                            topLevel.add(new LeftDrawer.CallHierarchyData(
+                                    section.getKey(), "", false, children));
                         }
-                        leftDrawer.updateRelationsGrouped("Confluence: " + pageTitle, groups, totalCount);
+                        // Use updateCallHierarchyRaw to show the grouped tree
+                        leftDrawer.updateCallHierarchyGrouped("Confluence: " + pageTitle, topLevel);
                     }
                 } catch (Exception e) {
                     java.util.logging.Logger.getLogger(TabbedPaneManager.class.getName())
-                            .log(java.util.logging.Level.WARNING, "[Confluence] Relations laden fehlgeschlagen", e);
-                    leftDrawer.showRelationsPlaceholder("\u274C Fehler: " + e.getMessage());
+                            .log(java.util.logging.Level.WARNING, "[Confluence] Hierarchy laden fehlgeschlagen", e);
+                    leftDrawer.showCallHierarchyPlaceholder("\u274C Fehler: " + e.getMessage());
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Extract hyperlinks from the currently previewed Confluence page HTML
+     * and display them in the LeftDrawer <b>Abhängigkeiten</b> (dependencies/relations) panel.
+     */
+    private void updateLinksForConfluencePreview(MainFrame mainFrame,
+                                                 ConfluenceConnectionTab confTab) {
+        LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
+        if (leftDrawer == null) return;
+
+        String html = confTab.getCurrentHtmlBody();
+        String pageTitle = confTab.getCurrentPageTitle();
+        String baseUrl = confTab.getBaseUrl();
+
+        if (html == null || html.isEmpty()) {
+            leftDrawer.showRelationsPlaceholder("Keine Vorschau geladen.");
+            return;
+        }
+
+        // Extract <a href="..."> links from the HTML body text
+        java.util.List<LeftDrawer.RelationEntry> links = extractLinksFromHtml(html, baseUrl);
+
+        if (links.isEmpty()) {
+            leftDrawer.showRelationsPlaceholder("Keine Querverweise auf dieser Seite.");
+        } else {
+            leftDrawer.updateRelations("Querverweise: " + pageTitle, links);
+        }
+    }
+
+    /**
+     * Parse all {@code <a href="...">} links from Confluence page HTML.
+     * Filters out anchors (#), empty hrefs, and duplicate URLs.
+     * Tries to extract only links from body text (skips navigation/macro containers).
+     */
+    static java.util.List<LeftDrawer.RelationEntry> extractLinksFromHtml(String html, String baseUrl) {
+        java.util.List<LeftDrawer.RelationEntry> result = new java.util.ArrayList<LeftDrawer.RelationEntry>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<String>();
+
+        // Regex: <a ...href="URL"...>LABEL</a>
+        java.util.regex.Pattern linkPattern = java.util.regex.Pattern.compile(
+                "<a\\s[^>]*href\\s*=\\s*[\"']([^\"'#][^\"']*)[\"'][^>]*>(.*?)</a>",
+                java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+
+        java.util.regex.Matcher m = linkPattern.matcher(html);
+        while (m.find()) {
+            String href = m.group(1).trim();
+            String label = m.group(2).replaceAll("<[^>]+>", "").trim(); // strip inner HTML tags
+
+            if (href.isEmpty() || label.isEmpty()) continue;
+
+            // Resolve relative URLs
+            String fullUrl = href;
+            if (!href.startsWith("http://") && !href.startsWith("https://") && !href.startsWith("//")) {
+                if (href.startsWith("/")) {
+                    // Absolute path relative to server root
+                    try {
+                        java.net.URL base = new java.net.URL(baseUrl);
+                        fullUrl = base.getProtocol() + "://" + base.getHost()
+                                + (base.getPort() > 0 && base.getPort() != base.getDefaultPort()
+                                ? ":" + base.getPort() : "")
+                                + href;
+                    } catch (Exception ignore) {
+                        fullUrl = baseUrl + href;
+                    }
+                } else {
+                    fullUrl = baseUrl + "/" + href;
+                }
+            }
+
+            // Deduplicate by URL
+            if (seen.contains(fullUrl)) continue;
+            seen.add(fullUrl);
+
+            // Determine link type based on URL
+            String type;
+            String icon;
+            if (fullUrl.contains("/pages/viewpage.action") || fullUrl.contains("/display/")) {
+                type = "CONFLUENCE_PAGE_LINK";
+                icon = "\uD83D\uDCC4 "; // 📄
+            } else if (fullUrl.contains("/label/")) {
+                type = "CONFLUENCE_LABEL_LINK";
+                icon = "\uD83C\uDFF7 "; // 🏷
+            } else if (fullUrl.startsWith(baseUrl)) {
+                type = "CONFLUENCE_INTERNAL";
+                icon = "\uD83D\uDD17 "; // 🔗
+            } else {
+                type = "EXTERNAL_LINK";
+                icon = "\uD83C\uDF10 "; // 🌐
+            }
+
+            // Truncate very long labels
+            String displayLabel = label.length() > 80 ? label.substring(0, 77) + "…" : label;
+            result.add(new LeftDrawer.RelationEntry(icon + displayLabel, fullUrl, type));
+        }
+
+        return result;
     }
 
     private void updateRelationsForNonWikiTab(MainFrame mainFrame, de.zrb.bund.newApi.ui.FtpTab tab) {

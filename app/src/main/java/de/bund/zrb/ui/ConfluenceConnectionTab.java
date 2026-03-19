@@ -740,6 +740,9 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     /** @return the base URL of this Confluence instance. */
     public String getBaseUrl() { return baseUrl; }
 
+    /** @return the raw HTML body of the current preview (for link extraction). */
+    public String getCurrentHtmlBody() { return currentHtmlBody; }
+
     /** @return the REST client. */
     public ConfluenceRestClient getClient() { return client; }
 

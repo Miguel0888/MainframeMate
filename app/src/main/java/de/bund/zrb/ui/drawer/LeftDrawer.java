@@ -23,14 +23,14 @@ public class LeftDrawer extends JPanel {
     private final JTabbedPane tabbedPane;
     private final JPanel bookmarkPanel;
 
-    // ── Relations tab (split: Dependencies top, Call Hierarchy bottom) ──
+    // ── Relations tab (split: Dependencies top, Hierarchy bottom) ──
     private final JTree relationsTree;
     private final DefaultTreeModel relationsModel;
     private final DefaultMutableTreeNode relationsRoot;
     private final JPanel relationsPanel;
     private final JLabel relationsStatusLabel;
 
-    // ── Call Hierarchy sub-panel (bottom half of split) ──
+    // ── Hierarchy sub-panel (bottom half of split) ──
     private final JTree callHierarchyTree;
     private final DefaultTreeModel callHierarchyModel;
     private final DefaultMutableTreeNode callHierarchyRoot;
@@ -74,7 +74,7 @@ public class LeftDrawer extends JPanel {
 
         tabbedPane.addTab("📁 Bookmarks", bookmarkPanel);
 
-        // ── Tab 2: Relations (split: Dependencies top, Call Hierarchy bottom) ──
+        // ── Tab 2: Relations (split: Dependencies top, Hierarchy bottom) ──
         relationsPanel = new JPanel(new BorderLayout());
 
         // === Top: Dependencies tree ===
@@ -116,8 +116,8 @@ public class LeftDrawer extends JPanel {
         depTopPanel.add(new JScrollPane(relationsTree), BorderLayout.CENTER);
         depTopPanel.add(relationsStatusLabel, BorderLayout.SOUTH);
 
-        // === Bottom: Call Hierarchy tree ===
-        callHierarchyRoot = new DefaultMutableTreeNode("Call Hierarchy");
+        // === Bottom: Hierarchy tree ===
+        callHierarchyRoot = new DefaultMutableTreeNode("Hierarchy");
         callHierarchyModel = new DefaultTreeModel(callHierarchyRoot);
         callHierarchyTree = new JTree(callHierarchyModel);
         callHierarchyTree.setRootVisible(false);
@@ -147,7 +147,7 @@ public class LeftDrawer extends JPanel {
         callHierarchyStatusLabel.setFont(callHierarchyStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
 
         JPanel callHierarchyPanel = new JPanel(new BorderLayout());
-        JLabel callHeader = new JLabel("  📞 Call Hierarchy");
+        JLabel callHeader = new JLabel("  📞 Hierarchy");
         callHeader.setFont(callHeader.getFont().deriveFont(Font.BOLD, 11f));
         callHeader.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
         callHierarchyPanel.add(callHeader, BorderLayout.NORTH);
@@ -274,7 +274,7 @@ public class LeftDrawer extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Call Hierarchy API (bottom half of split)
+    //  Hierarchy API (bottom half of split)
     // ═══════════════════════════════════════════════════════════
 
     /**
@@ -329,7 +329,7 @@ public class LeftDrawer extends JPanel {
      */
     public void showCallHierarchyLoading() {
         callHierarchyRoot.removeAllChildren();
-        callHierarchyRoot.add(new DefaultMutableTreeNode("⏳ Lade Call Hierarchy…"));
+        callHierarchyRoot.add(new DefaultMutableTreeNode("⏳ Lade Hierarchy…"));
         callHierarchyModel.reload();
         callHierarchyStatusLabel.setText(" ");
     }
@@ -375,6 +375,45 @@ public class LeftDrawer extends JPanel {
             count += 1 + countNodes(child);
         }
         return count;
+    }
+
+    /**
+     * Display a grouped hierarchy (e.g. Confluence ancestors/children/labels) in the Hierarchy panel.
+     * Each top-level CallHierarchyData is shown as a collapsible group with its children underneath.
+     *
+     * @param title    status label text
+     * @param groups   top-level groups, each with children
+     */
+    public void updateCallHierarchyGrouped(String title, List<CallHierarchyData> groups) {
+        callHierarchyRoot.removeAllChildren();
+
+        int totalNodes = 0;
+        for (CallHierarchyData group : groups) {
+            String groupLabel = group.getDisplayText();
+            DefaultMutableTreeNode groupNode = new DefaultMutableTreeNode(groupLabel);
+            for (CallHierarchyData child : group.getChildren()) {
+                RelationEntry entry = new RelationEntry(
+                        child.getDisplayText(), child.getTargetPath(),
+                        child.isRecursive() ? "CALL_RECURSIVE" : "CONFLUENCE_HIERARCHY");
+                groupNode.add(new DefaultMutableTreeNode(entry));
+                totalNodes++;
+            }
+            callHierarchyRoot.add(groupNode);
+        }
+
+        if (callHierarchyRoot.getChildCount() == 0) {
+            callHierarchyRoot.add(new DefaultMutableTreeNode("(keine Hierarchy verfügbar)"));
+        }
+
+        callHierarchyModel.reload();
+        callHierarchyStatusLabel.setText(title != null
+                ? title + " — " + totalNodes + " Einträge"
+                : " ");
+
+        // Expand all groups
+        for (int i = 0; i < callHierarchyTree.getRowCount(); i++) {
+            callHierarchyTree.expandRow(i);
+        }
     }
 
     /**
