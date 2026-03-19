@@ -3,6 +3,7 @@ package de.bund.zrb.ui.commands;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.sharepoint.NetworkDriveMapper;
 import de.bund.zrb.sharepoint.SharePointLinkFetcher;
 import de.bund.zrb.sharepoint.SharePointPathUtil;
 import de.bund.zrb.sharepoint.SharePointSite;
@@ -267,6 +268,10 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         spScanBtn.setToolTipText("SharePoint-Links per Browser von einer Webseite abrufen und als SP-Eintr\u00e4ge speichern");
         spScanBtn.addActionListener(e -> scanSharePointLinks(entries, model));
 
+        JButton netDriveBtn = new JButton("\uD83D\uDDB3 Netzlaufwerk");
+        netDriveBtn.setToolTipText("Ausgewählten SP-Eintrag als Windows-Netzlaufwerk (WebDAV) verbinden");
+        netDriveBtn.addActionListener(e -> mapSelectedAsNetworkDrive(table, entries));
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         buttonPanel.add(showAll);
         buttonPanel.add(Box.createHorizontalStrut(10));
@@ -277,6 +282,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         buttonPanel.add(Box.createHorizontalStrut(16));
         buttonPanel.add(defaultsBtn);
         buttonPanel.add(spScanBtn);
+        buttonPanel.add(netDriveBtn);
 
         JPanel mainPanel = new JPanel(new BorderLayout(0, 8));
         mainPanel.add(new JLabel("Passwörter  (" + entries.size() + " Einträge)"),
@@ -521,6 +527,186 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 existing != null ? existing.uniqueID : "",
                 loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected(),
                 savePwCb.isSelected(), sessionCb.isSelected());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Network drive mapping for SP entries
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Map one or more selected SP entries as Windows network drives (WebDAV).
+     * <p>
+     * If exactly one row is selected, that entry is mapped directly.
+     * If no row is selected, all SP entries are offered in a checklist dialog.
+     */
+    private void mapSelectedAsNetworkDrive(final JTable table, final List<KeePassEntry> entries) {
+        // Gather candidate(s)
+        int selRow = table.getSelectedRow();
+        if (selRow >= 0) {
+            int modelRow = table.convertRowIndexToModel(selRow);
+            KeePassEntry entry = entries.get(modelRow);
+            if (!"SP".equalsIgnoreCase(entry.category)) {
+                JOptionPane.showMessageDialog(parent,
+                        "Netzlaufwerk-Zuordnung ist nur für SP-Einträge möglich.\n"
+                                + "Der ausgewählte Eintrag hat die Kategorie \"" + entry.category + "\".",
+                        "Kein SP-Eintrag", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (entry.url == null || entry.url.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(parent,
+                        "Der SP-Eintrag \"" + entry.title + "\" hat keine URL.",
+                        "Keine URL", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            mapSingleDrive(entry);
+        } else {
+            // No row selected → show multi-select dialog for all SP entries
+            mapMultipleDrives(entries);
+        }
+    }
+
+    /**
+     * Map a single SP entry as a network drive with progress feedback.
+     */
+    private void mapSingleDrive(final KeePassEntry entry) {
+        parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        new SwingWorker<NetworkDriveMapper.MappingResult, Void>() {
+            @Override
+            protected NetworkDriveMapper.MappingResult doInBackground() {
+                return NetworkDriveMapper.mapDrive(entry.url, entry.displayName);
+            }
+
+            @Override
+            protected void done() {
+                parent.setCursor(Cursor.getDefaultCursor());
+                try {
+                    NetworkDriveMapper.MappingResult result = get();
+                    if (result.success) {
+                        JOptionPane.showMessageDialog(parent,
+                                "\"" + entry.displayName + "\" wurde als Netzlaufwerk "
+                                        + result.driveLetter + " verbunden.\n\n"
+                                        + "UNC-Pfad: " + result.uncPath,
+                                "Netzlaufwerk verbunden", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(parent,
+                                "Netzlaufwerk konnte nicht verbunden werden:\n" + result.message,
+                                "Fehler", JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "MapDrive failed", ex);
+                    JOptionPane.showMessageDialog(parent,
+                            "Fehler beim Verbinden:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Show a dialog listing all SP entries with checkboxes, then map selected ones.
+     */
+    private void mapMultipleDrives(final List<KeePassEntry> allEntries) {
+        // Collect SP entries with URLs
+        final List<KeePassEntry> spEntries = new ArrayList<KeePassEntry>();
+        for (KeePassEntry e : allEntries) {
+            if ("SP".equalsIgnoreCase(e.category) && e.url != null && !e.url.trim().isEmpty()) {
+                spEntries.add(e);
+            }
+        }
+
+        if (spEntries.isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Es sind keine SP-Einträge mit URLs vorhanden.",
+                    "Keine SP-Einträge", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Build checklist
+        final JCheckBox[] checkBoxes = new JCheckBox[spEntries.size()];
+        JPanel listPanel = new JPanel();
+        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+
+        // Check which are already mapped
+        final java.util.Map<String, String> mapped = NetworkDriveMapper.listMappedDrives();
+        java.util.Set<String> mappedUnc = new java.util.HashSet<String>();
+        for (String unc : mapped.values()) {
+            mappedUnc.add(unc.toLowerCase().replace("/", "\\"));
+        }
+
+        for (int i = 0; i < spEntries.size(); i++) {
+            KeePassEntry se = spEntries.get(i);
+            String unc = SharePointPathUtil.toUncPath(se.url);
+            boolean alreadyMapped = mappedUnc.contains(unc.toLowerCase().replace("/", "\\"));
+
+            String label = se.displayName;
+            if (label == null || label.isEmpty()) label = se.title;
+            if (alreadyMapped) {
+                label += "  ✓ (bereits verbunden)";
+            }
+
+            checkBoxes[i] = new JCheckBox(label, !alreadyMapped);
+            checkBoxes[i].setEnabled(!alreadyMapped);
+            checkBoxes[i].setToolTipText(se.url);
+            listPanel.add(checkBoxes[i]);
+        }
+
+        JScrollPane scroll = new JScrollPane(listPanel);
+        scroll.setPreferredSize(new Dimension(500, Math.min(350, 30 + spEntries.size() * 28)));
+        scroll.setBorder(BorderFactory.createTitledBorder("SP-Sites als Netzlaufwerk verbinden"));
+
+        int result = JOptionPane.showConfirmDialog(parent, scroll,
+                "Netzlaufwerke einrichten", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return;
+
+        // Collect selected
+        final List<KeePassEntry> toMap = new ArrayList<KeePassEntry>();
+        for (int i = 0; i < checkBoxes.length; i++) {
+            if (checkBoxes[i].isSelected() && checkBoxes[i].isEnabled()) {
+                toMap.add(spEntries.get(i));
+            }
+        }
+        if (toMap.isEmpty()) return;
+
+        // Map in background
+        parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        new SwingWorker<List<NetworkDriveMapper.MappingResult>, Void>() {
+            @Override
+            protected List<NetworkDriveMapper.MappingResult> doInBackground() {
+                List<NetworkDriveMapper.MappingResult> results = new ArrayList<NetworkDriveMapper.MappingResult>();
+                for (KeePassEntry entry : toMap) {
+                    results.add(NetworkDriveMapper.mapDrive(entry.url, entry.displayName));
+                }
+                return results;
+            }
+
+            @Override
+            protected void done() {
+                parent.setCursor(Cursor.getDefaultCursor());
+                try {
+                    List<NetworkDriveMapper.MappingResult> results = get();
+                    StringBuilder sb = new StringBuilder();
+                    int ok = 0, fail = 0;
+                    for (NetworkDriveMapper.MappingResult r : results) {
+                        if (r.success) {
+                            sb.append("✓ ").append(r.driveLetter).append("  →  ").append(r.url).append("\n");
+                            ok++;
+                        } else {
+                            sb.append("✗ ").append(r.url).append(": ").append(r.message).append("\n");
+                            fail++;
+                        }
+                    }
+                    String title = ok + " verbunden" + (fail > 0 ? ", " + fail + " fehlgeschlagen" : "");
+                    JOptionPane.showMessageDialog(parent, sb.toString(), title,
+                            fail > 0 ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "MapMultipleDrives failed", ex);
+                    JOptionPane.showMessageDialog(parent,
+                            "Fehler beim Verbinden:\n" + ex.getMessage(),
+                            "Fehler", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     // ═══════════════════════════════════════════════════════════
