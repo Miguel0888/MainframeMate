@@ -300,21 +300,21 @@ final class KeePassRpcClient {
      * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call.
      */
     void updateLogin(String title, String userName, String password) {
-        updateLogin(title, userName, password, null, null, false, false, false);
+        updateLogin(title, userName, password, (String) null, null, null, false, false, false);
     }
 
     /**
      * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call,
      * storing metadata as custom form fields ({@code MM_*} in formFieldList).
      */
-    void updateLogin(String title, String userName, String password,
+    void updateLogin(String title, String userName, String password, String url,
                      String displayName, String category,
                      boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         // First find the existing entry to get its uniqueID
         JsonArray entries = findLoginsByTitle(title);
         if (entries == null || entries.size() == 0) {
             // Entry doesn't exist yet — create it
-            addLogin(title, userName, password, "", displayName, category,
+            addLogin(title, userName, password, url != null ? url : "", displayName, category,
                     requiresLogin, useProxy, autoIndex);
             return;
         }
@@ -358,12 +358,17 @@ final class KeePassRpcClient {
         login.addProperty("uniqueID", uniqueID);
 
 
-        // Preserve existing URLs
-        if (existing.has("uRLs")) {
+        // Set URLs — use supplied url if provided, else preserve existing, else fallback to title
+        JsonArray urls = new JsonArray();
+        if (url != null && !url.isEmpty()) {
+            urls.add(url);
+        } else if (existing.has("uRLs")) {
             login.add("uRLs", existing.get("uRLs"));
+            urls = null; // already added
         } else {
-            JsonArray urls = new JsonArray();
             urls.add(title);
+        }
+        if (urls != null) {
             login.add("uRLs", urls);
         }
 

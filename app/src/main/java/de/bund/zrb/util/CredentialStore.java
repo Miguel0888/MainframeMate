@@ -247,15 +247,15 @@ public final class CredentialStore {
      * Update an existing entry in KeePass.
      * Uses RPC or PowerShell depending on the configured access method.
      */
-    public static void updateKeePassEntry(String title, String userName, String password,
+    public static void updateKeePassEntry(String title, String userName, String password, String url,
                                           String displayName, String category,
                                           boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            KeePassProvider.rpcUpdateEntry(title, userName, password,
+            KeePassProvider.rpcUpdateEntry(title, userName, password, url,
                     displayName, category, requiresLogin, useProxy, autoIndex);
         } else {
-            KeePassProvider.psUpdateEntry(title, userName, password,
+            KeePassProvider.psUpdateEntry(title, userName, password, url,
                     displayName, category, requiresLogin, useProxy, autoIndex);
         }
     }

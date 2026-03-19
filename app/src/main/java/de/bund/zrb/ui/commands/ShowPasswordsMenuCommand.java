@@ -619,7 +619,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     private static void saveToKeePass(KeePassEntry entry) {
         // Try update first (works for new entries too — addLogin fallback inside)
         CredentialStore.updateKeePassEntry(
-                entry.title, entry.userName, entry.password,
+                entry.title, entry.userName, entry.password, entry.url,
                 entry.displayName, entry.category,
                 entry.requiresLogin, entry.useProxy, entry.autoIndex);
     }

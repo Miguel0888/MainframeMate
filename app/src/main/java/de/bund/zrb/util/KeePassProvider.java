@@ -643,7 +643,7 @@ final class KeePassProvider {
     /**
      * Update an existing entry in KeePass via RPC.
      */
-    static void rpcUpdateEntry(String title, String userName, String password,
+    static void rpcUpdateEntry(String title, String userName, String password, String url,
                                String displayName, String category,
                                boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
@@ -654,7 +654,7 @@ final class KeePassProvider {
                 settings.getEffectiveRpcOrigin());
         try {
             client.connect();
-            client.updateLogin(title, userName, password, displayName, category,
+            client.updateLogin(title, userName, password, url, displayName, category,
                     requiresLogin, useProxy, autoIndex);
         } finally {
             client.close();
@@ -695,7 +695,7 @@ final class KeePassProvider {
      * Update an existing entry in KeePass via PowerShell.
      * If the entry does not exist, it is created.
      */
-    static void psUpdateEntry(String title, String userName, String password,
+    static void psUpdateEntry(String title, String userName, String password, String url,
                               String displayName, String category,
                               boolean requiresLogin, boolean useProxy, boolean autoIndex) {
         Settings settings = SettingsHelper.load();
@@ -705,12 +705,20 @@ final class KeePassProvider {
         String mmUpdate = buildMmUpdateScript(displayName, category, requiresLogin, useProxy, autoIndex);
         String mmCreate = buildMmCreateScript(displayName, category, requiresLogin, useProxy, autoIndex);
 
+        String urlLine = (url != null && !url.isEmpty())
+                ? "    $e.Strings.Set('URL', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(url) + "')))\n"
+                : "";
+        String urlCreateLine = (url != null && !url.isEmpty())
+                ? "  $ne.Strings.Set('URL', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(url) + "')))\n"
+                : "";
+
         String script = preamble(settings)
                 + "$found = $false\n"
                 + "foreach ($e in $db.RootGroup.GetEntries($true)) {\n"
                 + "  if ($e.Strings.ReadSafe('Title') -eq '" + esc(title) + "') {\n"
                 + "    $e.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
                 + "    $e.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + urlLine
                 + mmUpdate
                 + "    $found = $true; break\n"
                 + "  }\n"
@@ -720,6 +728,7 @@ final class KeePassProvider {
                 + "  $ne.Strings.Set('Title', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(title) + "')))\n"
                 + "  $ne.Strings.Set('UserName', (New-Object KeePassLib.Security.ProtectedString($false, '" + esc(userName) + "')))\n"
                 + "  $ne.Strings.Set('Password', (New-Object KeePassLib.Security.ProtectedString($true, '" + esc(password) + "')))\n"
+                + urlCreateLine
                 + mmCreate
                 + "  $db.RootGroup.AddEntry($ne, $true)\n"
                 + "}\n"
