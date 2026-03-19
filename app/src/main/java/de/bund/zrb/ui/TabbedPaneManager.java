@@ -550,6 +550,14 @@ public class TabbedPaneManager {
         updateJclOutlineForSelectedTab();
     }
 
+    /**
+     * Public entry point to refresh the relations panel for the currently active tab.
+     * Called when a preview changes inside a ConnectionTab.
+     */
+    public void refreshRelationsForActiveTab() {
+        updateJclOutlineForSelectedTab();
+    }
+
     private void updateJclOutlineForSelectedTab() {
         // Get RightDrawer from MainFrame
         if (!(mainframeContext instanceof MainFrame)) {
@@ -615,6 +623,21 @@ public class TabbedPaneManager {
                 rightDrawer.restoreCodeOutline();
                 rightDrawer.clearJclOutline();
             }
+            return;
+        }
+
+        // ConfluenceConnectionTab: show page outline in RightDrawer + relations in LeftDrawer
+        if (tab instanceof ConfluenceConnectionTab) {
+            ConfluenceConnectionTab confTab = (ConfluenceConnectionTab) tab;
+            de.bund.zrb.wiki.domain.OutlineNode outline = confTab.getCurrentOutline();
+            if (outline != null) {
+                java.util.function.Consumer<String> scroller = anchor -> confTab.scrollToAnchor(anchor);
+                rightDrawer.updateWikiOutline(outline, confTab.getCurrentPageTitle(), scroller);
+            } else {
+                rightDrawer.restoreCodeOutline();
+                rightDrawer.clearJclOutline();
+            }
+            updateRelationsForConfluencePreview(mainFrame, confTab);
             return;
         }
 
@@ -867,6 +890,123 @@ public class TabbedPaneManager {
                         leftDrawer.updateRelations("Wiki-Links", entries);
                     }
                 });
+    }
+
+    /**
+     * Load ancestors, child pages, and labels for the currently previewed Confluence page
+     * and display them in the LeftDrawer relations panel.
+     */
+    private void updateRelationsForConfluencePreview(MainFrame mainFrame,
+                                                     ConfluenceConnectionTab confTab) {
+        LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
+        if (leftDrawer == null) return;
+
+        ConfluenceConnectionTab.PageItem item = confTab.getCurrentPreviewItem();
+        if (item == null) {
+            leftDrawer.showRelationsPlaceholder("Keine Vorschau geladen.");
+            return;
+        }
+
+        leftDrawer.showRelationsLoading();
+
+        final de.bund.zrb.confluence.ConfluenceRestClient client = confTab.getClient();
+        final String baseUrl = confTab.getBaseUrl();
+        final String pageId = item.id;
+        final String pageTitle = item.title;
+
+        new javax.swing.SwingWorker<java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>>, Void>() {
+            @Override
+            protected java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> doInBackground() {
+                java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> groups =
+                        new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
+
+                // 1. Ancestors (Breadcrumb-Pfad)
+                try {
+                    String json = client.getContentWithAncestorsJson(pageId);
+                    com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+                    com.google.gson.JsonArray ancestors = root.getAsJsonArray("ancestors");
+                    if (ancestors != null && ancestors.size() > 0) {
+                        java.util.List<LeftDrawer.RelationEntry> ancestorEntries =
+                                new java.util.ArrayList<LeftDrawer.RelationEntry>();
+                        for (com.google.gson.JsonElement el : ancestors) {
+                            com.google.gson.JsonObject a = el.getAsJsonObject();
+                            String aId = a.get("id").getAsString();
+                            String aTitle = a.get("title").getAsString();
+                            String url = baseUrl + "/pages/viewpage.action?pageId=" + aId;
+                            ancestorEntries.add(new LeftDrawer.RelationEntry(
+                                    "\uD83D\uDCC1 " + aTitle, url, "CONFLUENCE_ANCESTOR"));
+                        }
+                        groups.put("\u2B06 \u00DCbergeordnete Seiten", ancestorEntries);
+                    }
+                } catch (Exception e) {
+                    LOG.log(java.util.logging.Level.FINE, "[Confluence] Ancestors laden fehlgeschlagen", e);
+                }
+
+                // 2. Children
+                try {
+                    String json = client.getChildrenJson(pageId, 0, 50);
+                    com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+                    com.google.gson.JsonArray results = root.getAsJsonArray("results");
+                    if (results != null && results.size() > 0) {
+                        java.util.List<LeftDrawer.RelationEntry> childEntries =
+                                new java.util.ArrayList<LeftDrawer.RelationEntry>();
+                        for (com.google.gson.JsonElement el : results) {
+                            com.google.gson.JsonObject c = el.getAsJsonObject();
+                            String cId = c.get("id").getAsString();
+                            String cTitle = c.get("title").getAsString();
+                            String url = baseUrl + "/pages/viewpage.action?pageId=" + cId;
+                            childEntries.add(new LeftDrawer.RelationEntry(
+                                    "\uD83D\uDCC4 " + cTitle, url, "CONFLUENCE_CHILD"));
+                        }
+                        groups.put("\u2B07 Unterseiten (" + results.size() + ")", childEntries);
+                    }
+                } catch (Exception e) {
+                    LOG.log(java.util.logging.Level.FINE, "[Confluence] Children laden fehlgeschlagen", e);
+                }
+
+                // 3. Labels
+                try {
+                    String json = client.getLabelsJson(pageId);
+                    com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(json).getAsJsonObject();
+                    com.google.gson.JsonArray results = root.getAsJsonArray("results");
+                    if (results != null && results.size() > 0) {
+                        java.util.List<LeftDrawer.RelationEntry> labelEntries =
+                                new java.util.ArrayList<LeftDrawer.RelationEntry>();
+                        for (com.google.gson.JsonElement el : results) {
+                            com.google.gson.JsonObject lbl = el.getAsJsonObject();
+                            String name = lbl.get("name").getAsString();
+                            String url = baseUrl + "/label/" + name;
+                            labelEntries.add(new LeftDrawer.RelationEntry(
+                                    "\uD83C\uDFF7 " + name, url, "CONFLUENCE_LABEL"));
+                        }
+                        groups.put("\uD83C\uDFF7 Labels", labelEntries);
+                    }
+                } catch (Exception e) {
+                    LOG.log(java.util.logging.Level.FINE, "[Confluence] Labels laden fehlgeschlagen", e);
+                }
+
+                return groups;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> groups = get();
+                    if (groups.isEmpty()) {
+                        leftDrawer.showRelationsPlaceholder("Keine Beziehungen f\u00fcr: " + pageTitle);
+                    } else {
+                        int totalCount = 0;
+                        for (java.util.List<LeftDrawer.RelationEntry> list : groups.values()) {
+                            totalCount += list.size();
+                        }
+                        leftDrawer.updateRelationsGrouped("Confluence: " + pageTitle, groups, totalCount);
+                    }
+                } catch (Exception e) {
+                    LOG.log(java.util.logging.Level.WARNING, "[Confluence] Relations laden fehlgeschlagen", e);
+                    leftDrawer.showRelationsPlaceholder("\u274C Fehler: " + e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     private void updateRelationsForNonWikiTab(MainFrame mainFrame, de.zrb.bund.newApi.ui.FtpTab tab) {

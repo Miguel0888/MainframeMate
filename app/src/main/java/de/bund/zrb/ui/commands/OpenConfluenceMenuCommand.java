@@ -107,6 +107,26 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
             ConfluenceRestClient client = new ConfluenceRestClient(config);
 
             ConfluenceConnectionTab tab = new ConfluenceConnectionTab(client, selected.url);
+
+            // Wire outline callback: update RightDrawer when preview changes
+            if (tabManager.getMainframeContext() instanceof de.bund.zrb.ui.MainFrame) {
+                de.bund.zrb.ui.MainFrame mf = (de.bund.zrb.ui.MainFrame) tabManager.getMainframeContext();
+                de.bund.zrb.ui.drawer.RightDrawer rightDrawer = mf.getRightDrawer();
+                if (rightDrawer != null) {
+                    tab.setOutlineCallback((outlineNode, title) -> {
+                        java.util.function.Consumer<String> scroller = anchor -> tab.scrollToAnchor(anchor);
+                        rightDrawer.updateWikiOutline(outlineNode, title, scroller);
+                    });
+                }
+
+                // Wire dependency callback: update LeftDrawer with ancestors/children/labels
+                tab.setDependencyCallback(item -> {
+                    // The TabbedPaneManager handles this when switching tabs,
+                    // but we also trigger it proactively for inline preview changes.
+                    tabManager.refreshRelationsForActiveTab();
+                });
+            }
+
             tabManager.addTab(tab);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Confluence] Tab \u00f6ffnen fehlgeschlagen", e);

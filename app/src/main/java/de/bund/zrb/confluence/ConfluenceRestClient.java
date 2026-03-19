@@ -154,6 +154,47 @@ public final class ConfluenceRestClient {
     }
 
     /**
+     * GET child pages of a content item.
+     *
+     * @param contentId parent page id
+     * @param start     pagination start
+     * @param limit     page size
+     * @return JSON body with child pages
+     */
+    public String getChildrenJson(String contentId, int start, int limit) {
+        RestResponse response = get("/rest/api/content/" + contentId
+                + "/child/page?start=" + start + "&limit=" + limit
+                + "&expand=version,space");
+        ensureSuccess(response);
+        return response.getBody();
+    }
+
+    /**
+     * GET a content item with ancestors expanded.
+     *
+     * @param contentId page id
+     * @return JSON body including ancestors array
+     */
+    public String getContentWithAncestorsJson(String contentId) {
+        RestResponse response = get("/rest/api/content/" + contentId
+                + "?expand=ancestors,space,version");
+        ensureSuccess(response);
+        return response.getBody();
+    }
+
+    /**
+     * GET labels of a content item.
+     *
+     * @param contentId page id
+     * @return JSON body with labels
+     */
+    public String getLabelsJson(String contentId) {
+        RestResponse response = get("/rest/api/content/" + contentId + "/label");
+        ensureSuccess(response);
+        return response.getBody();
+    }
+
+    /**
      * Quick connectivity test. Returns a {@link TestResult} with HTTP status code
      * and, on failure, a detailed error message.
      */
