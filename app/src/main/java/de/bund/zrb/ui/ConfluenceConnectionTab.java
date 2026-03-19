@@ -244,9 +244,15 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     statusLabel.setText(spaces.size() + " Spaces geladen");
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[Confluence] Spaces laden fehlgeschlagen", e);
-                    statusLabel.setText("❌ Fehler: " + e.getMessage());
+                    Throwable cause = e;
+                    while (cause.getCause() != null && cause.getCause() != cause) {
+                        cause = cause.getCause();
+                    }
+                    String rootMsg = cause.getClass().getSimpleName()
+                            + (cause.getMessage() != null ? ": " + cause.getMessage() : "");
+                    statusLabel.setText("❌ " + rootMsg);
                     JOptionPane.showMessageDialog(mainPanel,
-                            "Confluence-Spaces konnten nicht geladen werden:\n" + e.getMessage(),
+                            "Confluence-Spaces konnten nicht geladen werden:\n\n" + rootMsg,
                             "Verbindungsfehler", JOptionPane.ERROR_MESSAGE);
                 }
             }

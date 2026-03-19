@@ -1,5 +1,9 @@
 package de.bund.zrb.confluence;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
+import de.bund.zrb.net.ProxyResolver;
+
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -9,6 +13,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.Proxy;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.security.KeyStore;
@@ -38,12 +43,28 @@ public final class ConfluenceRestClient {
     private final ConfluenceConnectionConfig config;
     private final SSLContext sslContext;
     private final String authorizationHeaderValue;
+    private final Proxy proxy;
 
     public ConfluenceRestClient(ConfluenceConnectionConfig config) {
         this.config = config;
         this.sslContext = createSslContext(config.getClientCertificateAlias());
         this.authorizationHeaderValue = createBasicAuthHeader(
                 config.getUsername(), config.getPassword());
+
+        // Resolve proxy from central proxy settings
+        Proxy resolved = Proxy.NO_PROXY;
+        try {
+            Settings settings = SettingsHelper.load();
+            ProxyResolver.ProxyResolution resolution = ProxyResolver.resolveForUrl(
+                    config.getBaseUrl(), settings);
+            resolved = resolution.getProxy();
+            LOG.info("[Confluence] Proxy für " + config.getBaseUrl() + ": "
+                    + (resolution.isDirect() ? "DIRECT" : resolved)
+                    + " (" + resolution.getReason() + ")");
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Confluence] Proxy-Auflösung fehlgeschlagen, verwende DIRECT", e);
+        }
+        this.proxy = resolved;
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -133,16 +154,61 @@ public final class ConfluenceRestClient {
     }
 
     /**
-     * Quick connectivity test. Returns the HTTP status code.
+     * Quick connectivity test. Returns a {@link TestResult} with HTTP status code
+     * and, on failure, a detailed error message.
      */
-    public int testConnection() {
+    public TestResult testConnection() {
         try {
             RestResponse response = get("/rest/api/space?limit=1");
-            return response.getStatusCode();
+            if (response.getStatusCode() >= 200 && response.getStatusCode() < 300) {
+                return new TestResult(response.getStatusCode(), null);
+            } else {
+                return new TestResult(response.getStatusCode(),
+                        "HTTP " + response.getStatusCode() + " " + response.getStatusMessage()
+                                + "\n" + truncate(response.getBody(), 400));
+            }
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Confluence] Verbindungstest fehlgeschlagen", e);
-            return -1;
+            // Build a human-readable chain of causes
+            String detail = buildErrorChain(e);
+            return new TestResult(-1, detail);
         }
+    }
+
+    /**
+     * Build a readable error chain from nested exceptions.
+     */
+    private static String buildErrorChain(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        Throwable current = t;
+        int depth = 0;
+        while (current != null && depth < 5) {
+            if (depth > 0) sb.append("\n  ← ");
+            sb.append(current.getClass().getSimpleName());
+            if (current.getMessage() != null) {
+                sb.append(": ").append(current.getMessage());
+            }
+            current = current.getCause();
+            depth++;
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Result of a connectivity test.
+     */
+    public static final class TestResult {
+        private final int statusCode;
+        private final String errorDetail;
+
+        public TestResult(int statusCode, String errorDetail) {
+            this.statusCode = statusCode;
+            this.errorDetail = errorDetail;
+        }
+
+        public int getStatusCode() { return statusCode; }
+        public String getErrorDetail() { return errorDetail; }
+        public boolean isSuccess() { return statusCode >= 200 && statusCode < 300; }
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -151,7 +217,10 @@ public final class ConfluenceRestClient {
 
     private HttpURLConnection openConnection(String relativePath, String method) throws IOException {
         URL url = new URL(buildAbsoluteUrl(relativePath));
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) (
+                proxy != null && proxy != Proxy.NO_PROXY
+                        ? url.openConnection(proxy)
+                        : url.openConnection());
 
         if (connection instanceof HttpsURLConnection) {
             ((HttpsURLConnection) connection).setSSLSocketFactory(sslContext.getSocketFactory());
@@ -160,7 +229,7 @@ public final class ConfluenceRestClient {
         connection.setRequestMethod(method);
         connection.setConnectTimeout(config.getConnectTimeoutMillis());
         connection.setReadTimeout(config.getReadTimeoutMillis());
-        connection.setInstanceFollowRedirects(false);
+        connection.setInstanceFollowRedirects(true);
         connection.setRequestProperty("Authorization", authorizationHeaderValue);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");

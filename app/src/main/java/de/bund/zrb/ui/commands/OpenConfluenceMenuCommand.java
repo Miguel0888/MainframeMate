@@ -110,8 +110,21 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
             tabManager.addTab(tab);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Confluence] Tab \u00f6ffnen fehlgeschlagen", e);
+            // Build readable error chain
+            StringBuilder detail = new StringBuilder();
+            Throwable current = e;
+            int depth = 0;
+            while (current != null && depth < 5) {
+                if (depth > 0) detail.append("\n  \u2190 ");
+                detail.append(current.getClass().getSimpleName());
+                if (current.getMessage() != null) {
+                    detail.append(": ").append(current.getMessage());
+                }
+                current = current.getCause();
+                depth++;
+            }
             JOptionPane.showMessageDialog(null,
-                    "Confluence-Verbindung fehlgeschlagen:\n" + e.getMessage(),
+                    "Confluence-Verbindung fehlgeschlagen:\n\n" + detail.toString(),
                     "Verbindungsfehler", JOptionPane.ERROR_MESSAGE);
         }
     }

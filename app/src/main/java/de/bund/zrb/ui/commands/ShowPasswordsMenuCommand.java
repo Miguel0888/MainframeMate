@@ -536,12 +536,12 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 return;
             }
             dialog.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-            new SwingWorker<Integer, Void>() {
+            new SwingWorker<de.bund.zrb.confluence.ConfluenceRestClient.TestResult, Void>() {
                 @Override
-                protected Integer doInBackground() {
+                protected de.bund.zrb.confluence.ConfluenceRestClient.TestResult doInBackground() {
                     de.bund.zrb.confluence.ConfluenceConnectionConfig cfg =
                             new de.bund.zrb.confluence.ConfluenceConnectionConfig(
-                                    testUrl, testUser, testPass, testAlias, 10000, 10000);
+                                    testUrl, testUser, testPass, testAlias, 15000, 15000);
                     de.bund.zrb.confluence.ConfluenceRestClient cl =
                             new de.bund.zrb.confluence.ConfluenceRestClient(cfg);
                     return cl.testConnection();
@@ -550,22 +550,28 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 protected void done() {
                     dialog.setCursor(Cursor.getDefaultCursor());
                     try {
-                        int code = get();
-                        if (code >= 200 && code < 300) {
+                        de.bund.zrb.confluence.ConfluenceRestClient.TestResult result = get();
+                        if (result.isSuccess()) {
                             JOptionPane.showMessageDialog(dialog,
-                                    "✓ Verbindung erfolgreich! (HTTP " + code + ")\n\n"
+                                    "✓ Verbindung erfolgreich! (HTTP " + result.getStatusCode() + ")\n\n"
                                             + "URL: " + testUrl + "\n"
                                             + "Zertifikat: " + testAlias,
                                     "Confluence-Test", JOptionPane.INFORMATION_MESSAGE);
                         } else {
+                            String detail = result.getErrorDetail() != null
+                                    ? result.getErrorDetail()
+                                    : "HTTP " + result.getStatusCode();
                             JOptionPane.showMessageDialog(dialog,
-                                    "✗ Verbindung fehlgeschlagen (HTTP " + code + ")\n\n"
-                                            + "Prüfen Sie URL, Zertifikat und Zugangsdaten.",
+                                    "✗ Verbindung fehlgeschlagen\n\n"
+                                            + detail + "\n\n"
+                                            + "Prüfen Sie URL, Zertifikat, Proxy und Zugangsdaten.",
                                     "Confluence-Test", JOptionPane.WARNING_MESSAGE);
                         }
                     } catch (Exception ex) {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                         JOptionPane.showMessageDialog(dialog,
-                                "Fehler: " + ex.getMessage(),
+                                "Fehler beim Verbindungsaufbau:\n\n"
+                                        + cause.getClass().getSimpleName() + ": " + cause.getMessage(),
                                 "Confluence-Test", JOptionPane.ERROR_MESSAGE);
                     }
                 }
