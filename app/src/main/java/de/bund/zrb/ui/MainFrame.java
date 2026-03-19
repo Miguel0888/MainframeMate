@@ -174,14 +174,19 @@ public class MainFrame extends JFrame implements MainframeContext {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                // Close browser session before plugins shut down
+                // Close all open tabs — this calls onClose() / shutdownBrowser()
+                // on BrowserConnectionTabs, ensuring browser processes are killed
+                if (tabManager != null) {
+                    try { tabManager.closeAllTabs(); } catch (Exception ignored) {}
+                }
+                // Close shared browser session (used by plugins)
                 if (browserService != null) {
                     try { browserService.closeSession(); } catch (Exception ignored) {}
                 }
                 de.bund.zrb.runtime.PluginManager.shutdownAll();
                 de.bund.zrb.mcp.registry.McpServerManager.getInstance().stopAll();
                 dispose(); // sauber beenden
-                System.exit(0); // oder dispatchEvent(new WindowEvent(..., WINDOW_CLOSING));
+                System.exit(0);
             }
         });
 

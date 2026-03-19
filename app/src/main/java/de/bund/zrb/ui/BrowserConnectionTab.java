@@ -44,6 +44,9 @@ public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
     private String currentUrl = "";
     private String currentTitle = "";
 
+    // Shutdown hook — last-resort cleanup if the JVM exits without onClose()
+    private Thread shutdownHook;
+
     // Callback for updating left drawer relations
     private java.util.function.Consumer<List<LeftDrawer.RelationEntry>> linksCallback;
     // Callback for updating the RightDrawer outline
@@ -138,6 +141,52 @@ public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
         sessionAdapter = new Wd4jBrowserSessionAdapter(browserSession);
 
         LOG.info("[Browser] Connected, contextId=" + browserSession.getContextId());
+
+        // Register JVM shutdown hook as last-resort safety net
+        installShutdownHook();
+    }
+
+    /**
+     * Install a JVM shutdown hook that force-kills the browser process.
+     * This is the fallback if the app exits without calling onClose().
+     */
+    private void installShutdownHook() {
+        shutdownHook = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                BrowserSession session = browserSession;
+                if (session != null) {
+                    LOG.info("[Browser] Shutdown hook — killing browser process");
+                    try {
+                        session.killBrowserProcess();
+                    } catch (Exception e) {
+                        LOG.warning("[Browser] Shutdown hook error: " + e.getMessage());
+                    }
+                }
+            }
+        }, "BrowserTab-ShutdownHook");
+        shutdownHook.setDaemon(false); // non-daemon so it runs during shutdown
+        try {
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
+        } catch (Exception e) {
+            LOG.warning("[Browser] Could not register shutdown hook: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Remove the shutdown hook (called after normal cleanup — hook is no longer needed).
+     */
+    private void removeShutdownHook() {
+        if (shutdownHook != null) {
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException e) {
+                // JVM is already shutting down — that's fine
+            } catch (Exception e) {
+                LOG.fine("[Browser] Could not remove shutdown hook: " + e.getMessage());
+            }
+            shutdownHook = null;
+        }
     }
 
     /**
@@ -549,15 +598,55 @@ public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
 
     @Override
     public void onClose() {
-        if (browserSession != null) {
-            try {
-                browserSession.close();
-            } catch (Exception e) {
-                LOG.warning("[Browser] Error closing session: " + e.getMessage());
-                try { browserSession.killBrowserProcess(); } catch (Exception ignored) {}
+        shutdownBrowser();
+    }
+
+    /**
+     * Shut down the browser process — called both on tab close and on app exit.
+     * Uses a background thread with timeout so the EDT is never blocked.
+     */
+    public void shutdownBrowser() {
+        final BrowserSession session = browserSession;
+        browserSession = null;
+        sessionAdapter = null;
+
+        if (session == null) return;
+
+        // Remove shutdown hook – no longer needed after explicit close
+        removeShutdownHook();
+
+        // Run cleanup in a daemon thread so close() / killBrowserProcess()
+        // can't block the EDT or the main shutdown sequence.
+        Thread cleanup = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    session.close();
+                    LOG.info("[Browser] Session closed normally");
+                } catch (Exception e) {
+                    LOG.warning("[Browser] Error in close(): " + e.getMessage());
+                }
+                // Always force-kill as safety net — close() may leave the process alive
+                // (e.g. when the WebDriver close-context call hangs or the WebSocket is stuck)
+                try {
+                    Process proc = session.getBrowserProcess();
+                    if (proc != null && proc.isAlive()) {
+                        LOG.info("[Browser] Process still alive after close() — force-killing");
+                        session.killBrowserProcess();
+                    }
+                } catch (Exception e) {
+                    LOG.warning("[Browser] Error in killBrowserProcess(): " + e.getMessage());
+                }
             }
-            browserSession = null;
-            sessionAdapter = null;
+        }, "BrowserTab-Cleanup");
+        cleanup.setDaemon(true);
+        cleanup.start();
+
+        // Wait a short time so that the process is killed before the JVM exits
+        try {
+            cleanup.join(5000);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
         }
     }
 

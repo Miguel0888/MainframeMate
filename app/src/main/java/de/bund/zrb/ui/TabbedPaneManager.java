@@ -301,6 +301,25 @@ public class TabbedPaneManager {
     }
 
     /**
+     * Close ALL tabs, calling onClose() on each.
+     * Used during app shutdown to ensure all resources (especially browser processes) are released.
+     */
+    public void closeAllTabs() {
+        for (int i = tabbedPane.getTabCount() - 1; i >= 0; i--) {
+            Component comp = tabbedPane.getComponentAt(i);
+            FtpTab tab = tabMap.remove(comp);
+            if (tab != null) {
+                try {
+                    tab.onClose();
+                } catch (Exception e) {
+                    // Best effort — don't let one tab failure prevent others from closing
+                }
+            }
+            tabbedPane.remove(i);
+        }
+    }
+
+    /**
      * Refresh all star (favorite) buttons in tab headers to match current bookmark state.
      */
     public void refreshStarButtons() {
