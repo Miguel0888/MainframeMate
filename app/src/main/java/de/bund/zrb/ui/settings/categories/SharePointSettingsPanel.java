@@ -77,14 +77,16 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         fb.addWideGrow(tableScroll);
 
         // ── Section 3: Credentials ──
-        fb.addSection("Zugangsdaten");
+        fb.addSection("Zugangsdaten (optional)");
 
-        fb.addInfo("<html><i>SharePoint erfordert eine Anmeldung per HTTP-Authentifizierung.<br>"
-                + "Geben Sie Ihren Benutzernamen im Format <b>DOMAIN\\Benutzer</b> oder<br>"
-                + "<b>benutzer@domain.de</b> ein. Das Passwort wird verschlüsselt gespeichert.</i></html>");
+        fb.addInfo("<html><i>SharePoint verwendet normalerweise <b>Windows Integrated Authentication</b><br>"
+                + "(Kerberos/NTLM). Da Sie mit Ihrer AD-Kennung am Rechner angemeldet sind,<br>"
+                + "wird die Verbindung in der Regel <b>automatisch</b> hergestellt — genau wie im Browser.<br><br>"
+                + "Explizite Zugangsdaten sind nur nötig, wenn SSO nicht funktioniert<br>"
+                + "(z.B. Domänenübergreifend oder SharePoint Online mit Basic Auth).</i></html>");
 
         userField = new JTextField(safe(settings.sharepointUser), 30);
-        userField.setToolTipText("SharePoint-Benutzername (DOMAIN\\user oder user@domain)");
+        userField.setToolTipText("SharePoint-Benutzername — nur nötig wenn SSO nicht funktioniert (DOMAIN\\user oder user@domain)");
         fb.addRow("Benutzer:", userField);
 
         passwordField = new JPasswordField(30);
@@ -100,10 +102,14 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
             passwordField.setText("");
             passwordCleared[0] = true;
         });
-        JButton testButton = new JButton("🔗 Verbindung testen…");
-        testButton.setToolTipText("Testet die WebDAV-Verbindung zur ersten ausgewählten SharePoint-Site");
+        JButton testSsoButton = new JButton("🔑 SSO testen…");
+        testSsoButton.setToolTipText("Testet die automatische Anmeldung (Windows Kerberos/NTLM)");
+        testSsoButton.addActionListener(e -> testSsoConnection());
+        JButton testButton = new JButton("🔗 Mit Credentials testen…");
+        testButton.setToolTipText("Testet die WebDAV-Verbindung mit den eingegebenen Zugangsdaten");
         testButton.addActionListener(e -> testConnection());
         credButtons.add(clearPasswordButton);
+        credButtons.add(testSsoButton);
         credButtons.add(testButton);
         fb.addWide(credButtons);
 
@@ -183,20 +189,62 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
     }
 
     /**
+     * Test Windows Integrated Auth (Kerberos/NTLM SSO) — no credentials needed.
+     */
+    private void testSsoConnection() {
+        SharePointSite target = findFirstSelectedSite();
+        if (target == null) return;
+
+        String uncPath = target.toUncPath();
+        String siteName = target.getName();
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                // First try file-system probe
+                if (new java.io.File(uncPath).exists()) return true;
+                // Then try net use without credentials
+                return SharePointAuthenticator.netUseSso(uncPath);
+            }
+
+            @Override
+            protected void done() {
+                setCursor(Cursor.getDefaultCursor());
+                try {
+                    if (get()) {
+                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
+                                "✓ Windows SSO (Kerberos/NTLM) erfolgreich!\n\n"
+                                        + "Sie sind mit Ihrer AD-Kennung automatisch angemeldet.\n"
+                                        + "Explizite Zugangsdaten sind nicht nötig.\n\n"
+                                        + "Site: " + siteName + "\n"
+                                        + "UNC-Pfad: " + uncPath,
+                                "SSO-Test", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
+                                "✗ Windows SSO nicht verfügbar für diese Site.\n\n"
+                                        + "Mögliche Ursachen:\n"
+                                        + "• SharePoint-Server nicht in der Intranet-/Vertrauenswürdige-Sites-Zone\n"
+                                        + "• Kerberos-Ticket abgelaufen\n"
+                                        + "• WebClient-Dienst nicht gestartet (net start WebClient)\n\n"
+                                        + "→ Bitte geben Sie Benutzer und Passwort ein und testen Sie mit \"Mit Credentials testen\".",
+                                "SSO-Test", JOptionPane.WARNING_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
+                            "Fehler: " + ex.getMessage(),
+                            "SSO-Test", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    /**
      * Test WebDAV connectivity to the first selected SharePoint site.
      */
     private void testConnection() {
-        List<SharePointSite> sites = linkTableModel.getSites();
-        SharePointSite target = null;
-        for (SharePointSite s : sites) {
-            if (s.isSelected()) { target = s; break; }
-        }
-        if (target == null) {
-            JOptionPane.showMessageDialog(this,
-                    "Bitte wählen Sie mindestens eine SharePoint-Site aus.",
-                    "Verbindungstest", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
+        SharePointSite target = findFirstSelectedSite();
+        if (target == null) return;
 
         String uncPath = target.toUncPath();
         String user = userField.getText().trim();
@@ -259,6 +307,17 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
                 }
             }
         }.execute();
+    }
+
+    private SharePointSite findFirstSelectedSite() {
+        List<SharePointSite> sites = linkTableModel.getSites();
+        for (SharePointSite s : sites) {
+            if (s.isSelected()) return s;
+        }
+        JOptionPane.showMessageDialog(this,
+                "Bitte wählen Sie mindestens eine SharePoint-Site aus.",
+                "Verbindungstest", JOptionPane.WARNING_MESSAGE);
+        return null;
     }
 
     private static String safe(String s) {

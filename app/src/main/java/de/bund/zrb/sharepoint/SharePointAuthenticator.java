@@ -15,15 +15,28 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Handles WebDAV authentication for SharePoint UNC paths using {@code net use}.
+ * Handles WebDAV authentication for SharePoint UNC paths.
  * <p>
- * Windows's WebClient service requires credentials for HTTP-authenticated
- * SharePoint sites. This class runs {@code net use \\host@SSL\DavWWWRoot ...}
- * to establish the authenticated connection before any file-system access.
- * <p>
- * Credentials are stored in {@link Settings#sharepointUser} /
- * {@link Settings#sharepointEncryptedPassword} (encrypted via
- * {@link WindowsCryptoUtil}).
+ * <b>Authentication strategy (in order):</b>
+ * <ol>
+ *   <li><b>File-system probe</b> — {@code new File(uncPath).exists()}.
+ *       Works when the OS already has a valid Kerberos/NTLM session.</li>
+ *   <li><b>Windows Integrated Auth (Kerberos/NTLM SSO)</b> —
+ *       {@code net use \\host@SSL\DavWWWRoot} <em>without</em> explicit
+ *       credentials.  The Windows WebClient service sends the logged-in
+ *       user's ticket automatically when the SharePoint server is in
+ *       the Intranet/Trusted Sites zone.</li>
+ *   <li><b>Stored credentials</b> — user + encrypted password from
+ *       {@link Settings#sharepointUser} /
+ *       {@link Settings#sharepointEncryptedPassword}.</li>
+ *   <li><b>Login dialog</b> — prompts the user for credentials if
+ *       everything above fails.</li>
+ * </ol>
+ * In most corporate environments steps 1 or 2 succeed immediately because
+ * the user is logged in with their AD account and SharePoint is configured
+ * for Windows Integrated Authentication.  Explicit credentials are only
+ * needed when SSO is not available (e.g. cross-domain access or SharePoint
+ * Online with Basic Auth fallback).
  */
 public final class SharePointAuthenticator {
 
@@ -46,45 +59,58 @@ public final class SharePointAuthenticator {
         String host = extractHost(uncPath);
         if (host == null || host.isEmpty()) return true; // not a UNC path
 
-        // Already authenticated this session?
+        // ── 1. Already authenticated this session? ───────────────
         if (authenticatedHosts.contains(host)) return true;
 
-        // Try access without explicit auth first (may have OS-cached credentials)
+        // ── 2. File-system probe (OS may have cached credentials) ─
         java.io.File probe = new java.io.File(uncPath);
         if (probe.exists()) {
+            LOG.info("[SP-Auth] File-system probe succeeded (OS has active session)");
             authenticatedHosts.add(host);
             return true;
         }
 
-        // Load stored credentials
+        // ── 3. Try Windows Integrated Auth (Kerberos/NTLM SSO) ──
+        //    net use WITHOUT explicit credentials — Windows sends the
+        //    current user's Kerberos ticket / NTLM hash automatically.
+        if (netUseSso(uncPath)) {
+            LOG.info("[SP-Auth] SSO (Windows Integrated Auth) succeeded for " + host);
+            authenticatedHosts.add(host);
+            return true;
+        }
+
+        // ── 4. Try stored credentials ────────────────────────────
         Settings settings = SettingsHelper.load();
         String user = settings.sharepointUser;
         String password = decryptPassword(settings.sharepointEncryptedPassword);
 
-        // If no stored credentials, prompt the user
-        if (user == null || user.trim().isEmpty() || password == null || password.isEmpty()) {
-            String[] creds = showLoginDialog(parent, host, user);
-            if (creds == null) return false; // cancelled
-            user = creds[0];
-            password = creds[1];
+        if (user != null && !user.trim().isEmpty() && password != null && !password.isEmpty()) {
+            if (netUse(uncPath, user, password)) {
+                LOG.info("[SP-Auth] Stored credentials succeeded for " + host);
+                authenticatedHosts.add(host);
+                return true;
+            }
         }
 
-        // Try net use
-        boolean success = netUse(uncPath, user, password);
+        // ── 5. Prompt user ───────────────────────────────────────
+        String[] creds = showLoginDialog(parent, host, user);
+        if (creds == null) return false; // cancelled
+        user = creds[0];
+        password = creds[1];
 
-        if (!success) {
-            // Credentials may be wrong — prompt again
-            String[] creds = showLoginDialog(parent, host, user);
-            if (creds == null) return false;
-            user = creds[0];
-            password = creds[1];
-            success = netUse(uncPath, user, password);
-        }
-
-        if (success) {
+        if (netUse(uncPath, user, password)) {
             authenticatedHosts.add(host);
-            // Persist credentials
-            saveCredentials(user, password);
+            return true;
+        }
+
+        // ── 6. Second prompt (wrong password?) ───────────────────
+        creds = showLoginDialog(parent, host, user);
+        if (creds == null) return false;
+        user = creds[0];
+        password = creds[1];
+
+        if (netUse(uncPath, user, password)) {
+            authenticatedHosts.add(host);
             return true;
         }
 
@@ -115,7 +141,8 @@ public final class SharePointAuthenticator {
 
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
         panel.add(new JLabel("<html><b>SharePoint-Anmeldung</b><br>"
-                + "<small>Geben Sie Ihre Zugangsdaten für <b>" + escapeHtml(host) + "</b> ein.<br>"
+                + "<small>Die automatische Anmeldung (Windows SSO) war nicht erfolgreich.<br>"
+                + "Geben Sie Ihre Zugangsdaten für <b>" + escapeHtml(host) + "</b> ein.<br>"
                 + "Format: DOMAIN\\Benutzer oder benutzer@domain.de</small></html>"), gbc);
 
         gbc.gridwidth = 1;
@@ -160,17 +187,57 @@ public final class SharePointAuthenticator {
         return new String[]{user, password};
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  net use commands
+    // ═══════════════════════════════════════════════════════════
+
     /**
-     * Run {@code net use} to authenticate a WebDAV UNC path.
+     * Try {@code net use} <b>without</b> explicit credentials —
+     * Windows Integrated Authentication (Kerberos/NTLM SSO).
+     * The WebClient service sends the current user's ticket automatically.
+     */
+    public static boolean netUseSso(String uncPath) {
+        String sharePath = extractShareRoot(uncPath);
+        if (sharePath == null) sharePath = uncPath;
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder("net", "use", sharePath);
+            pb.redirectErrorStream(true);
+            Process proc = pb.start();
+
+            StringBuilder output = new StringBuilder();
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(proc.getInputStream(), Charset.defaultCharset()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+
+            int exitCode = proc.waitFor();
+            if (exitCode == 0) {
+                LOG.info("[SP-Auth] SSO net use succeeded for " + sharePath);
+                return true;
+            } else {
+                LOG.fine("[SP-Auth] SSO net use not successful (exit=" + exitCode + "): "
+                        + output.toString().trim());
+                return false;
+            }
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[SP-Auth] SSO net use error for " + sharePath, e);
+            return false;
+        }
+    }
+
+    /**
+     * Run {@code net use} with explicit credentials.
      */
     public static boolean netUse(String uncPath, String user, String password) {
-        // Extract \\host@SSL\DavWWWRoot (the root share)
         String sharePath = extractShareRoot(uncPath);
         if (sharePath == null) sharePath = uncPath;
 
         try {
             // First disconnect any stale connection (ignore errors)
-            runCommand(new String[]{"net", "use", sharePath, "/delete", "/y"}, false);
+            runCommand(new String[]{"net", "use", sharePath, "/delete", "/y"});
 
             // Now connect with credentials
             ProcessBuilder pb = new ProcessBuilder(
@@ -208,7 +275,7 @@ public final class SharePointAuthenticator {
         String sharePath = extractShareRoot(uncPath);
         if (sharePath == null) return;
         try {
-            runCommand(new String[]{"net", "use", sharePath, "/delete", "/y"}, false);
+            runCommand(new String[]{"net", "use", sharePath, "/delete", "/y"});
             String host = extractHost(uncPath);
             if (host != null) authenticatedHosts.remove(host);
             LOG.info("[SP-Auth] Disconnected: " + sharePath);
@@ -224,7 +291,9 @@ public final class SharePointAuthenticator {
         authenticatedHosts.clear();
     }
 
-    // ── Private helpers ─────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    //  Private helpers
+    // ═══════════════════════════════════════════════════════════
 
     private static void saveCredentials(String user, String password) {
         try {
@@ -273,18 +342,17 @@ public final class SharePointAuthenticator {
         return "\\\\" + rest.substring(0, secondSlash);
     }
 
-    private static void runCommand(String[] cmd, boolean throwOnError) {
+    private static void runCommand(String[] cmd) {
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             Process proc = pb.start();
-            // Drain output
             BufferedReader reader = new BufferedReader(
                     new InputStreamReader(proc.getInputStream(), Charset.defaultCharset()));
             while (reader.readLine() != null) { /* drain */ }
             proc.waitFor();
         } catch (Exception e) {
-            if (throwOnError) throw new RuntimeException(e);
+            LOG.log(Level.FINE, "[SP-Auth] runCommand error", e);
         }
     }
 
@@ -293,4 +361,3 @@ public final class SharePointAuthenticator {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
-
