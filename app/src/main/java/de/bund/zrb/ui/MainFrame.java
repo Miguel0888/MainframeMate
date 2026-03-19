@@ -71,6 +71,8 @@ public class MainFrame extends JFrame implements MainframeContext {
     private final de.bund.zrb.service.McpChatEventBridge chatEventBridge;
     private DragAndDropImportHandler importHandler;
     private de.bund.zrb.service.RelationsService relationsService;
+    private final de.bund.zrb.bot.DefaultAgentRegistry agentRegistry;
+    private volatile de.bund.zrb.browser.Wd4jBrowserService browserService;
 
     // Builds the menu
     private void registerCoreCommands() {
@@ -159,6 +161,9 @@ public class MainFrame extends JFrame implements MainframeContext {
         this.toolRegistry = ToolRegistryImpl.getInstance();
         this.variableRegistryImpl = VariableRegistryImpl.getInstance();
         this.chatEventBridge = new de.bund.zrb.service.McpChatEventBridge();
+        this.agentRegistry = new de.bund.zrb.bot.DefaultAgentRegistry();
+        this.browserService = new de.bund.zrb.browser.Wd4jBrowserService(
+                key -> loadPluginSettings(key));
         this.mcpService = new McpServiceImpl(toolRegistry, chatEventBridge);
         this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
         registerTools();
@@ -168,6 +173,10 @@ public class MainFrame extends JFrame implements MainframeContext {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                // Close browser session before plugins shut down
+                if (browserService != null) {
+                    try { browserService.closeSession(); } catch (Exception ignored) {}
+                }
                 de.bund.zrb.runtime.PluginManager.shutdownAll();
                 de.bund.zrb.mcp.registry.McpServerManager.getInstance().stopAll();
                 dispose(); // sauber beenden
@@ -1021,6 +1030,16 @@ public class MainFrame extends JFrame implements MainframeContext {
     @Override
     public WorkflowRunner getWorkflowRunner() {
         return workflowRunner;
+    }
+
+    @Override
+    public de.zrb.bund.newApi.browser.BrowserService getBrowserService() {
+        return browserService;
+    }
+
+    @Override
+    public de.zrb.bund.newApi.bot.AgentRegistry getAgentRegistry() {
+        return agentRegistry;
     }
 
     public LeftDrawer getBookmarkDrawer() {

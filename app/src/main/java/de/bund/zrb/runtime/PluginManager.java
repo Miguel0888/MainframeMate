@@ -7,6 +7,8 @@ import de.bund.zrb.ui.commands.config.CommandRegistryImpl;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.mcp.McpTool;
+import de.zrb.bund.newApi.bot.Agent;
+import de.zrb.bund.newApi.bot.AgentRegistry;
 
 import java.io.IOException;
 import java.net.URL;
@@ -32,6 +34,7 @@ public class PluginManager {
             plugin.initialize(mainFrame);
             registerCommandsSafely(plugin, mainFrame);
             registerToolsSafely(plugin, mainFrame);
+            registerAgentsSafely(plugin, mainFrame);
         }
 
         // 2. Plugins vom Classpath laden (runtimeOnly-Dependencies)
@@ -83,6 +86,7 @@ public class PluginManager {
             plugin.initialize(mainFrame);
             registerCommandsSafely(plugin, mainFrame);
             registerToolsSafely(plugin, mainFrame);
+            registerAgentsSafely(plugin, mainFrame);
             plugins.add(plugin);
         }
     }
@@ -128,6 +132,7 @@ public class PluginManager {
                 plugin.initialize(mainFrame);
                 registerCommandsSafely(plugin, mainFrame);
                 registerToolsSafely(plugin, mainFrame);
+                registerAgentsSafely(plugin, mainFrame);
                 plugins.add(plugin);
             }
 
@@ -162,6 +167,28 @@ public class PluginManager {
             } else {
                 System.err.println("⚠️ Plugin \"" + plugin.getPluginName() + "\" liefert null bei getTools().");
             }
+        }
+    }
+
+    private static void registerAgentsSafely(MainframeMatePlugin plugin, MainFrame mainFrame) {
+        AgentRegistry agentRegistry = mainFrame.getAgentRegistry();
+        if (agentRegistry == null) {
+            return;
+        }
+        try {
+            List<Agent> agents = plugin.getAgents();
+            if (agents != null) {
+                for (Agent agent : agents) {
+                    if (agent != null) {
+                        agentRegistry.registerAgent(agent);
+                        System.out.println("🤖 Agent registriert: " + agent.getId()
+                                + " (" + agent.getDisplayName() + ") von Plugin " + plugin.getPluginName());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Fehler bei Agent-Registrierung von Plugin \""
+                    + plugin.getPluginName() + "\": " + e.getMessage());
         }
     }
 }

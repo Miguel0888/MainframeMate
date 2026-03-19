@@ -79,6 +79,10 @@ dependencies {
     // ONNX Runtime – lokale LLM-Inferenz via :onnx Submodul
     implementation project(':onnx')
 
+    // Browser-Core: wd4j + wd4j-mcp-server for the BrowserService implementation
+    implementation project(':wd4j')
+    implementation project(':wd4j-mcp-server')
+
     // Eigene Plugins lokal zur Laufzeit verfügbar machen
     runtimeOnly project(':plugins:excelimport') // weitere Plugins kannst du hier ergänzen
     runtimeOnly project(':plugins:webSearch')

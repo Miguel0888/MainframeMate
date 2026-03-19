@@ -2,6 +2,8 @@ package de.zrb.bund.api;
 
 import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.VariableRegistry;
+import de.zrb.bund.newApi.bot.AgentRegistry;
+import de.zrb.bund.newApi.browser.BrowserService;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
@@ -58,6 +60,22 @@ public interface MainframeContext {
     File getSettingsFolder();
 
     WorkflowRunner getWorkflowRunner();
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Browser & Agent APIs
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    /**
+     * Returns the browser automation service, or null if not available.
+     * Plugins use this to access browser functionality without depending on wd4j.
+     */
+    @Nullable
+    BrowserService getBrowserService();
+
+    /**
+     * Returns the agent registry for registering/querying specialized agents.
+     */
+    AgentRegistry getAgentRegistry();
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 

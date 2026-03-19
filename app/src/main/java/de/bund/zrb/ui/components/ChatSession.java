@@ -68,7 +68,7 @@ public class ChatSession extends JPanel {
     private final ToolPolicyRepository toolPolicyRepository;
     private boolean awaitingBotResponse = false;
 
-    private final JComboBox<ChatMode> modeComboBox;
+    private final JComboBox<Object> modeComboBox;
     private final JCheckBox keepAliveCheckbox;
     private final JCheckBox contextMemoryCheckbox;
 
@@ -80,6 +80,12 @@ public class ChatSession extends JPanel {
     private volatile String lastUserRequestText = "";
     private final Set<String> toolsUsedInThisChat = new HashSet<>();
     private final Set<String> schemaKnownTools = new HashSet<>();
+
+    // ── Agent support ────────────────────────────────────────────────
+    /** Currently active agent (from AgentRegistry), or null for built-in modes. */
+    private volatile de.zrb.bund.newApi.bot.Agent activeAgent;
+    /** Session scoped to the active agent, or null. */
+    private volatile de.zrb.bund.newApi.bot.AgentSession activeAgentSession;
     private final Set<String> sessionApprovedTools = new HashSet<>();
 
     // Attachment system
@@ -158,17 +164,32 @@ public class ChatSession extends JPanel {
         });
 
 
-        // Chat-Mode Dropdown (Ask/Edit/Plan/Agent)
-        modeComboBox = new JComboBox<>(ChatMode.values());
+        // Chat-Mode Dropdown (Ask/Edit/Plan/Agent + dynamic agents from plugins)
+        modeComboBox = new JComboBox<>(buildAvailableModes());
         // Restore last used mode from settings
-        ChatMode savedMode = loadLastChatMode();
+        Object savedMode = loadLastChatMode();
         modeComboBox.setSelectedItem(savedMode);
-        modeComboBox.setToolTipText(((ChatMode) modeComboBox.getSelectedItem()).getTooltip());
+        // Activate agent session if restored mode is an agent
+        updateActiveAgent(savedMode);
+        modeComboBox.setToolTipText(getSelectedModeTooltip());
+        modeComboBox.setRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(
+                    javax.swing.JList<?> list, Object value, int index, boolean isSelected, boolean hasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, hasFocus);
+                if (value instanceof AgentChatModeWrapper) {
+                    setText(((AgentChatModeWrapper) value).getAgent().getDisplayName());
+                }
+                return this;
+            }
+        });
         modeComboBox.addActionListener(e -> {
-            ChatMode m = (ChatMode) modeComboBox.getSelectedItem();
-            if (m != null) {
-                modeComboBox.setToolTipText(m.getTooltip());
-                saveLastChatMode(m);
+            Object selected = modeComboBox.getSelectedItem();
+            if (selected != null) {
+                modeComboBox.setToolTipText(getSelectedModeTooltip());
+                saveLastChatMode(selected);
+                // Activate/deactivate agent session
+                updateActiveAgent(selected);
             }
         });
         modeComboBox.setPreferredSize(new Dimension(120, 24));
@@ -442,7 +463,7 @@ public class ChatSession extends JPanel {
         emptyResponseRetries = 0;
 
         // Prefix with system prompt based on selected mode
-        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        ChatMode mode = getSelectedChatMode();
         ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
         String systemPrompt = composeSystemPrompt(resolvedMode);
 
@@ -545,9 +566,9 @@ public class ChatSession extends JPanel {
                                 executeToolCallsSequentially(toolCalls);
                             } else if (botText == null || botText.trim().isEmpty()) {
                                 formatter.removeCurrentBotMessage();
-                                // In AGENT mode, retry on empty response (model hiccup)
-                                ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
-                                if ((currentMode == ChatMode.AGENT || currentMode == ChatMode.RECHERCHE) && emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
+                                // In autonomous modes, retry on empty response (model hiccup)
+                                ChatMode currentMode = getSelectedChatMode();
+                                if (currentMode.isAutonomous() && emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES) {
                                     emptyResponseRetries++;
                                     formatter.appendToolEvent(
                                             "⚠️ Leere Modellantwort (Retry " + emptyResponseRetries + "/" + MAX_EMPTY_RESPONSE_RETRIES + ")",
@@ -581,14 +602,14 @@ public class ChatSession extends JPanel {
                     public void onError(Exception e) {
                         SwingUtilities.invokeLater(() -> {
                             String msg = e.getMessage() != null ? e.getMessage() : "";
-                            ChatMode errorMode = (ChatMode) modeComboBox.getSelectedItem();
+                            ChatMode errorMode = getSelectedChatMode();
                             boolean isToolParseError = msg.contains("error parsing tool call")
                                     || msg.contains("invalid value after key value pair")
                                     || msg.contains("invalid character");
 
-                            // In AGENT/RECHERCHE mode: Ollama tool-parse errors → auto retry
+                            // In autonomous mode: Ollama tool-parse errors → auto retry
                             if (isToolParseError
-                                    && (errorMode == ChatMode.AGENT || errorMode == ChatMode.RECHERCHE)
+                                    && errorMode.isAutonomous()
                                     && agentFollowUpRetries < MAX_AGENT_RETRIES) {
                                 agentFollowUpRetries++;
                                 awaitingBotResponse = false;
@@ -631,7 +652,12 @@ public class ChatSession extends JPanel {
 
     private String composeSystemPrompt(ChatMode mode) {
         StringBuilder sb = new StringBuilder();
-        sb.append(mode.getSystemPrompt());
+        // For AGENT_PLUGIN mode, use the active agent's system prompt
+        if (mode == ChatMode.AGENT_PLUGIN && activeAgent != null) {
+            sb.append(activeAgent.getSystemPrompt());
+        } else {
+            sb.append(mode.getSystemPrompt());
+        }
 
         String languageInstruction = buildLanguageInstruction();
         if (!languageInstruction.isEmpty()) {
@@ -655,23 +681,140 @@ public class ChatSession extends JPanel {
         return sb.toString();
     }
 
-    private ChatMode loadLastChatMode() {
+    // ── Agent-aware mode helpers ─────────────────────────────────────
+
+    /**
+     * Build the list of available modes for the combo box.
+     * Includes built-in modes (excluding AGENT_PLUGIN placeholder) + registered agents.
+     */
+    private Object[] buildAvailableModes() {
+        java.util.List<Object> modes = new java.util.ArrayList<>();
+        for (ChatMode cm : ChatMode.values()) {
+            if (cm == ChatMode.AGENT_PLUGIN) continue; // placeholder, not shown directly
+            modes.add(cm);
+        }
+        // Add registered agents as AgentChatModeWrapper entries
+        if (maeinframeContext != null) {
+            de.zrb.bund.newApi.bot.AgentRegistry registry = maeinframeContext.getAgentRegistry();
+            if (registry != null) {
+                for (de.zrb.bund.newApi.bot.Agent agent : registry.getAllAgents()) {
+                    modes.add(new AgentChatModeWrapper(agent));
+                }
+            }
+        }
+        return modes.toArray();
+    }
+
+    /**
+     * Resolves the selected combo box item to a ChatMode enum value.
+     * For AgentChatModeWrapper, returns AGENT_PLUGIN.
+     */
+    private ChatMode getSelectedChatMode() {
+        Object selected = modeComboBox.getSelectedItem();
+        if (selected instanceof AgentChatModeWrapper) {
+            return ChatMode.AGENT_PLUGIN;
+        }
+        if (selected instanceof ChatMode) {
+            return (ChatMode) selected;
+        }
+        return ChatMode.AGENT;
+    }
+
+    /** Get the tooltip for the currently selected mode. */
+    private String getSelectedModeTooltip() {
+        Object selected = modeComboBox.getSelectedItem();
+        if (selected instanceof AgentChatModeWrapper) {
+            return ((AgentChatModeWrapper) selected).getAgent().getDescription();
+        }
+        if (selected instanceof ChatMode) {
+            return ((ChatMode) selected).getTooltip();
+        }
+        return "";
+    }
+
+    /**
+     * Activate or deactivate the agent session when the mode changes.
+     */
+    private void updateActiveAgent(Object selectedMode) {
+        // Close previous agent session
+        if (activeAgentSession != null) {
+            try { activeAgentSession.close(); } catch (Exception ignored) {}
+            activeAgentSession = null;
+            activeAgent = null;
+        }
+
+        if (selectedMode instanceof AgentChatModeWrapper) {
+            activeAgent = ((AgentChatModeWrapper) selectedMode).getAgent();
+            if (maeinframeContext != null) {
+                de.bund.zrb.bot.DefaultAgentContext ctx =
+                        new de.bund.zrb.bot.DefaultAgentContext(maeinframeContext);
+                activeAgentSession = activeAgent.createSession(ctx);
+            }
+        }
+    }
+
+    /**
+     * Loads the last used chat mode from settings.
+     * Handles backward compatibility: if "RECHERCHE" was saved (removed enum),
+     * it resolves to the registered recherche agent or falls back to AGENT.
+     */
+    private Object loadLastChatMode() {
         try {
             Settings settings = SettingsHelper.load();
             String modeName = settings.aiConfig.getOrDefault("lastChatMode", "");
-            if (!modeName.isEmpty()) {
-                return ChatMode.valueOf(modeName);
+            if (modeName.isEmpty()) {
+                return ChatMode.AGENT;
             }
+
+            // Agent reference stored as "agent:<id>"
+            if (modeName.startsWith("agent:")) {
+                String agentId = modeName.substring("agent:".length());
+                if (maeinframeContext != null) {
+                    de.zrb.bund.newApi.bot.AgentRegistry registry = maeinframeContext.getAgentRegistry();
+                    if (registry != null) {
+                        de.zrb.bund.newApi.bot.Agent agent = registry.getAgent(agentId);
+                        if (agent != null) {
+                            return new AgentChatModeWrapper(agent);
+                        }
+                    }
+                }
+                return ChatMode.AGENT; // agent no longer registered
+            }
+
+            // Legacy: RECHERCHE was a built-in enum, now an agent plugin
+            if ("RECHERCHE".equals(modeName)) {
+                if (maeinframeContext != null) {
+                    de.zrb.bund.newApi.bot.AgentRegistry registry = maeinframeContext.getAgentRegistry();
+                    if (registry != null) {
+                        de.zrb.bund.newApi.bot.Agent agent = registry.getAgent("recherche");
+                        if (agent != null) {
+                            return new AgentChatModeWrapper(agent);
+                        }
+                    }
+                }
+                return ChatMode.AGENT; // recherche agent not available
+            }
+
+            return ChatMode.valueOf(modeName);
         } catch (Exception ignored) {
             // Invalid or missing mode name – fall back to default
         }
         return ChatMode.AGENT;
     }
 
-    private void saveLastChatMode(ChatMode mode) {
+    /**
+     * Saves the selected chat mode to settings.
+     * For agent modes, stores "agent:<id>" instead of enum name.
+     */
+    private void saveLastChatMode(Object modeOrWrapper) {
         try {
             Settings settings = SettingsHelper.load();
-            settings.aiConfig.put("lastChatMode", mode.name());
+            if (modeOrWrapper instanceof AgentChatModeWrapper) {
+                settings.aiConfig.put("lastChatMode",
+                        "agent:" + ((AgentChatModeWrapper) modeOrWrapper).getAgent().getId());
+            } else if (modeOrWrapper instanceof ChatMode) {
+                settings.aiConfig.put("lastChatMode", ((ChatMode) modeOrWrapper).name());
+            }
             SettingsHelper.save(settings);
         } catch (Exception ignored) {
             // Non-critical – don't break UI
@@ -1170,15 +1313,14 @@ public class ChatSession extends JPanel {
     private volatile int emptyResponseRetries = 0;
 
     private void streamAssistantFollowUp(String followUpUserText) {
-        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        ChatMode mode = getSelectedChatMode();
         ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
         String systemPrompt = composeSystemPrompt(resolvedMode);
         String baseFollowUp = (followUpUserText == null || followUpUserText.trim().isEmpty())
                 ? "Bitte fahre fort basierend auf dem TOOL_RESULT." : followUpUserText;
         String userText;
-        if (resolvedMode == ChatMode.RECHERCHE) {
-            // Stateful follow-up: just pass through the compact instruction.
-            // Do NOT repeat the goal or add verbose instructions – small models loop on them.
+        if (resolvedMode == ChatMode.AGENT_PLUGIN) {
+            // Agent-plugin mode: delegate follow-up to the agent session if available
             userText = baseFollowUp;
         } else if (resolvedMode == ChatMode.AGENT) {
             userText = baseFollowUp
@@ -1273,8 +1415,8 @@ public class ChatSession extends JPanel {
                                 // In AGENT mode, if the bot responded with text instead of a tool
                                 // call, it might have "thought out loud" instead of acting.
                                 // Retry with a more explicit instruction.
-                                ChatMode currentMode2 = (ChatMode) modeComboBox.getSelectedItem();
-                                if ((currentMode2 == ChatMode.AGENT || currentMode2 == ChatMode.RECHERCHE) && agentFollowUpRetries < MAX_AGENT_RETRIES) {
+                                ChatMode currentMode2 = getSelectedChatMode();
+                                if (currentMode2.isAutonomous() && agentFollowUpRetries < MAX_AGENT_RETRIES) {
                                     agentFollowUpRetries++;
                                     // Save what the bot said as context
                                     Timestamp botId = chatManager.getHistory(sessionId).addBotMessage(botText);
@@ -1304,14 +1446,14 @@ public class ChatSession extends JPanel {
                     public void onError(Exception e) {
                         SwingUtilities.invokeLater(() -> {
                             String msg = e.getMessage() != null ? e.getMessage() : "";
-                            ChatMode errorMode = (ChatMode) modeComboBox.getSelectedItem();
+                            ChatMode errorMode = getSelectedChatMode();
                             boolean isToolParseError = msg.contains("error parsing tool call")
                                     || msg.contains("invalid value after key value pair")
                                     || msg.contains("invalid character");
 
-                            // In AGENT/RECHERCHE mode: Ollama tool-parse errors are retryable
+                            // In autonomous mode: Ollama tool-parse errors are retryable
                             if (isToolParseError
-                                    && (errorMode == ChatMode.AGENT || errorMode == ChatMode.RECHERCHE)
+                                    && errorMode.isAutonomous()
                                     && agentFollowUpRetries < MAX_AGENT_RETRIES) {
                                 agentFollowUpRetries++;
                                 formatter.appendToolEvent(
@@ -1360,7 +1502,7 @@ public class ChatSession extends JPanel {
 
     /** Returns the currently selected ChatMode in this session. */
     public ChatMode getCurrentMode() {
-        return modeComboBox != null ? (ChatMode) modeComboBox.getSelectedItem() : ChatMode.AGENT;
+        return modeComboBox != null ? getSelectedChatMode() : ChatMode.AGENT;
     }
 
     /**
@@ -1607,7 +1749,7 @@ public class ChatSession extends JPanel {
                 }
 
                 // describe_tool is always called for unknown tools on first use.
-                // Even in RECHERCHE mode, the bot needs the schema to know the parameter name.
+                // Even in agent-plugin modes, the bot needs the schema to know the parameter name.
                 boolean skipDescribe = false;
 
                 if (!skipDescribe && requestedTool != null && !isSystemTool(requestedTool) && !schemaKnownTools.contains(requestedTool)) {
@@ -1664,7 +1806,7 @@ public class ChatSession extends JPanel {
                 }
 
 
-                // ── RECHERCHE-Modus: Archivierung erfolgt automatisch via NetworkIngestionPipeline ──
+                // ── Archivierung erfolgt automatisch via NetworkIngestionPipeline ──
                 // (Die alte WebSnapshotPipeline.processSnapshot-Logik wurde entfernt;
                 //  die Network Plane archiviert HTTP-Responses im Hintergrund.)
 
@@ -1697,34 +1839,14 @@ public class ChatSession extends JPanel {
                 }
                 aggregated.add("results", arr);
 
-                // In RECHERCHE mode, extract links and result text as plain text
-                // so the model can reliably read them (small models can't parse nested JSON)
-                ChatMode currentMode = (ChatMode) modeComboBox.getSelectedItem();
+                // In agent-plugin mode, delegate formatting to the active agent session
+                // (e.g. research agent extracts links as plain text for small models)
+                ChatMode currentMode = getSelectedChatMode();
                 String toolMessage;
-                if (currentMode == ChatMode.RECHERCHE) {
-                    StringBuilder plain = new StringBuilder();
-                    for (JsonObject r : results) {
-                        if (r == null) continue;
-                        // Append the result text (page content)
-                        if (r.has("result") && !r.get("result").isJsonNull()) {
-                            plain.append(r.get("result").getAsString()).append("\n");
-                        }
-                        // Append links as plain text list
-                        if (r.has("links") && r.get("links").isJsonArray()) {
-                            plain.append("\nLINKS:\n");
-                            for (com.google.gson.JsonElement linkEl : r.getAsJsonArray("links")) {
-                                if (linkEl.isJsonObject()) {
-                                    com.google.gson.JsonObject link = linkEl.getAsJsonObject();
-                                    String label = link.has("label") ? link.get("label").getAsString() : "";
-                                    String url = link.has("url") ? link.get("url").getAsString() : "";
-                                    plain.append("- ").append(label).append(": ").append(url).append("\n");
-                                }
-                            }
-                        }
-                    }
-                    toolMessage = plain.toString().trim().isEmpty()
-                            ? "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```"
-                            : plain.toString();
+                if (currentMode == ChatMode.AGENT_PLUGIN && activeAgentSession != null) {
+                    String formatted = activeAgentSession.formatToolResult(aggregated.toString());
+                    toolMessage = formatted != null ? formatted
+                            : "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```";
                 } else {
                     toolMessage = "TOOL_RESULTS\n```json\n" + aggregated.toString() + "\n```";
                 }
@@ -1732,8 +1854,11 @@ public class ChatSession extends JPanel {
                 chatManager.getHistory(sessionId).addToolMessage(toolMessage);
 
                 String followUp;
-                if (currentMode == ChatMode.RECHERCHE) {
-                    followUp = "Wähle eine URL aus den LINKS oben und rufe research_navigate auf. NUR JSON.";
+                if (currentMode == ChatMode.AGENT_PLUGIN && activeAgentSession != null) {
+                    String agentFollowUp = activeAgentSession.buildFollowUpMessage(
+                            aggregated.toString(), lastUserRequestText);
+                    followUp = agentFollowUp != null ? agentFollowUp
+                            : "Fahre fort basierend auf dem TOOL_RESULT.";
                 } else if (currentMode == ChatMode.AGENT) {
                     StringBuilder sb = new StringBuilder();
                     sb.append("TOOL_RESULT erhalten.\n");
@@ -1860,7 +1985,7 @@ public class ChatSession extends JPanel {
                         ? policy.getAccessType()
                         : ToolAccessTypeDefaults.resolveDefault(toolName);
 
-                ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+                ChatMode mode = getSelectedChatMode();
                 ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
                 if (resolvedMode.isToolAware() && !resolvedMode.getAllowedToolAccess().contains(accessType)) {
                     return createBlockedResult(toolName, "Tool ist in diesem Modus nicht erlaubt", call);
@@ -2310,7 +2435,7 @@ public class ChatSession extends JPanel {
         error.addProperty("errorType", "ToolNotFound");
 
         com.google.gson.JsonArray availableTools = new com.google.gson.JsonArray();
-        ChatMode mode = (ChatMode) modeComboBox.getSelectedItem();
+        ChatMode mode = getSelectedChatMode();
         ChatMode resolvedMode = mode != null ? mode : ChatMode.ASK;
         for (ToolPolicy policy : toolPolicyRepository.loadAll()) {
             if (policy == null || !policy.isEnabled() || policy.getToolName() == null || policy.getToolName().trim().isEmpty()) {

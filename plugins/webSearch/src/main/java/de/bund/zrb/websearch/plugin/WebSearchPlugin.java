@@ -1,11 +1,13 @@
 package de.bund.zrb.websearch.plugin;
 
 import de.bund.zrb.mcpserver.tool.impl.*;
+import de.bund.zrb.websearch.agent.RechercheAgent;
 import de.bund.zrb.websearch.commands.WebSearchSettingsMenuCommand;
 import de.bund.zrb.websearch.tools.*;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.MainframeMatePlugin;
 import de.zrb.bund.api.MenuCommand;
+import de.zrb.bund.newApi.bot.Agent;
 import de.zrb.bund.newApi.mcp.McpTool;
 
 import java.util.ArrayList;
@@ -16,7 +18,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * WebSearch plugin – provides browser tools for web browsing and searching.
+ * WebSearch plugin – provides browser tools for web browsing and searching,
+ * and registers the Recherche Agent for systematic web research.
  *
  * <p>Wraps the wd4j-mcp-server tools (BrowserNavigate, BrowserClick, etc.)
  * as regular McpTools that are registered in the ToolRegistry, just like
@@ -29,6 +32,7 @@ public class WebSearchPlugin implements MainframeMatePlugin {
     private MainframeContext context;
     private WebSearchBrowserManager browserManager;
     private List<McpTool> tools;
+    private RechercheAgent rechercheAgent;
 
     @Override
     public String getPluginName() {
@@ -122,9 +126,20 @@ public class WebSearchPlugin implements MainframeMatePlugin {
     }
 
     @Override
+    public List<Agent> getAgents() {
+        if (rechercheAgent == null) {
+            rechercheAgent = new RechercheAgent(tools != null ? tools : Collections.<McpTool>emptyList());
+        }
+        return Collections.<Agent>singletonList(rechercheAgent);
+    }
+
+    @Override
     public void shutdown() {
         if (browserManager != null) {
             browserManager.closeSession();
+        }
+        if (rechercheAgent != null) {
+            rechercheAgent.shutdown();
         }
     }
 
