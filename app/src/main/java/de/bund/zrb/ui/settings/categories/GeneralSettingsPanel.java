@@ -13,6 +13,7 @@ import java.util.List;
 
 public class GeneralSettingsPanel extends AbstractSettingsPanel {
 
+    private final Component parentComponent;
     private final JComboBox<String> fontCombo;
     private final JComboBox<Integer> fontSizeCombo;
     private final JSpinner marginSpinner;
@@ -44,8 +45,12 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
     private final JSpinner historyMaxVersionsSpinner;
     private final JSpinner historyMaxAgeDaysSpinner;
 
+    /** The password method that was active when the panel was opened. */
+    private PasswordMethod initialMethod;
+
     public GeneralSettingsPanel(Component parent) {
         super("general", "Allgemein");
+        this.parentComponent = parent;
         FormBuilder fb = new FormBuilder();
 
         fontCombo = new JComboBox<>(new String[]{"Monospaced", "Consolas", "Courier New", "Menlo", "Dialog"});
@@ -122,6 +127,7 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
             }
         } catch (IllegalArgumentException ignore) { /* keep default */ }
         passwordMethodBox.setSelectedItem(currentMethod);
+        initialMethod = currentMethod;
         fb.addRow("Passwort-Verschlüsselung:", passwordMethodBox);
         fb.addInfo("<html><small>"
                 + "<b>Windows DPAPI (JNA):</b> Verschlüsselung durch Windows — an den Benutzer gebunden. "
@@ -320,26 +326,11 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
             keepassConfigPanel.revalidate();
         });
 
-        // Toggle KeePass config visibility + migration prompt
+        // Toggle KeePass config visibility
         keepassConfigPanel.setVisible(currentMethod == PasswordMethod.KEEPASS);
-        final PasswordMethod[] lastConfirmedMethod = { currentMethod };
         passwordMethodBox.addActionListener(e -> {
             PasswordMethod selected = (PasswordMethod) passwordMethodBox.getSelectedItem();
             keepassConfigPanel.setVisible(selected == PasswordMethod.KEEPASS);
-
-            // Show migration dialog immediately when switching TO KeePass
-            if (selected == PasswordMethod.KEEPASS && lastConfirmedMethod[0] != PasswordMethod.KEEPASS) {
-                de.bund.zrb.ui.settings.KeePassMigrationDialog dlg =
-                        new de.bund.zrb.ui.settings.KeePassMigrationDialog(parent, lastConfirmedMethod[0]);
-                boolean accepted = dlg.showAndMigrate();
-                if (!accepted) {
-                    // User cancelled — revert combo box selection
-                    passwordMethodBox.setSelectedItem(lastConfirmedMethod[0]);
-                    keepassConfigPanel.setVisible(false);
-                    return;
-                }
-            }
-            lastConfirmedMethod[0] = selected;
         });
 
 
@@ -389,6 +380,53 @@ public class GeneralSettingsPanel extends AbstractSettingsPanel {
         fb.addButtons(pruneNowButton, clearAllHistoryButton);
 
         installPanel(fb);
+    }
+
+    /**
+     * After all settings are saved, check whether the user switched to KeePass.
+     * If so, temporarily restore the old password method, show the migration
+     * dialog (so decryption uses the old method), and handle the result.
+     * <p>
+     * This is intentionally deferred to apply-time so the user can first
+     * configure KeePass settings (path, RPC, pairing) before the migration runs.
+     */
+    @Override
+    protected void afterApply(Settings s) {
+        PasswordMethod newMethod = PasswordMethod.WINDOWS_DPAPI;
+        try {
+            if (s.passwordMethod != null && !s.passwordMethod.isEmpty()) {
+                newMethod = PasswordMethod.valueOf(s.passwordMethod);
+            }
+        } catch (IllegalArgumentException ignore) { /* keep default */ }
+
+        if (newMethod == PasswordMethod.KEEPASS && initialMethod != PasswordMethod.KEEPASS) {
+            // Temporarily restore old method so the migration dialog can decrypt
+            // with the previous encryption provider.
+            s.passwordMethod = initialMethod.name();
+            de.bund.zrb.helper.SettingsHelper.save(s);
+
+            de.bund.zrb.ui.settings.KeePassMigrationDialog dlg =
+                    new de.bund.zrb.ui.settings.KeePassMigrationDialog(parentComponent, initialMethod);
+            boolean accepted = dlg.showAndMigrate();
+
+            if (!accepted) {
+                // User cancelled — keep old method (already restored above)
+                passwordMethodBox.setSelectedItem(initialMethod);
+                keepassConfigPanel.setVisible(false);
+            } else {
+                // User accepted (with or without migration).
+                // "With migration": performMigration() already saved KEEPASS.
+                // "Without migration": we still need to switch to KEEPASS.
+                Settings current = de.bund.zrb.helper.SettingsHelper.load();
+                if (!PasswordMethod.KEEPASS.name().equals(current.passwordMethod)) {
+                    current.passwordMethod = PasswordMethod.KEEPASS.name();
+                    de.bund.zrb.helper.SettingsHelper.save(current);
+                }
+                initialMethod = PasswordMethod.KEEPASS;
+            }
+        } else {
+            initialMethod = newMethod;
+        }
     }
 
     @Override

@@ -615,9 +615,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 parent.setCursor(Cursor.getDefaultCursor());
                 try {
                     List<SharePointSite> allLinks = get();
-                    List<SharePointSite> spLinks = SharePointLinkFetcher.filterSharePointLinks(allLinks);
 
-                    if (spLinks.isEmpty() && allLinks.isEmpty()) {
+                    if (allLinks.isEmpty()) {
                         JOptionPane.showMessageDialog(parent,
                                 "Keine Links auf der Seite gefunden.\n\n"
                                         + "M\u00f6glicherweise ben\u00f6tigt die Seite l\u00e4nger zum Laden,\n"
@@ -626,19 +625,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                         return;
                     }
 
-                    if (spLinks.isEmpty()) {
-                        JOptionPane.showMessageDialog(parent,
-                                allLinks.size() + " Links gefunden, aber keine davon\n"
-                                        + "sehen nach SharePoint-Sites aus.\n\n"
-                                        + "SharePoint-Links enthalten typischerweise\n"
-                                        + "'/sites/', '/teams/' oder 'sharepoint.com' in der URL.\n\n"
-                                        + "Tipp: Pr\u00fcfen Sie, ob die richtige Seite geladen wurde.",
-                                "Keine SP-Links", JOptionPane.INFORMATION_MESSAGE);
-                        return;
-                    }
-
-                    // ── 4. Show selection dialog ──
-                    int saved = showSpLinkSelectionDialog(spLinks, entries, model);
+                    // ── 4. Show selection dialog with regex filter ──
+                    int saved = showSpLinkSelectionDialog(allLinks, entries, model, targetUrl);
                     if (saved > 0) {
                         JOptionPane.showMessageDialog(parent,
                                 saved + " SharePoint-Eintrag/-Eintr\u00e4ge unter Passw\u00f6rter gespeichert.",
@@ -656,32 +644,51 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     }
 
     /**
-     * Show a dialog where the user can select which discovered SP links
-     * should be saved as password entries.
+     * Show a dialog where the user can select which discovered links
+     * should be saved as SP password entries.
+     * <p>
+     * The dialog includes a dynamic URL-filter panel (editable dropdowns
+     * per path segment). Default filter: {@code <DOMAIN>/sites/[^/]+}
      *
+     * @param allLinks   all links found on the page (unfiltered)
+     * @param entries    current password entries (for duplicate detection)
+     * @param model      the table model to refresh after saving
+     * @param scannedUrl the URL that was scanned (used for default domain)
      * @return number of entries actually created
      */
-    private int showSpLinkSelectionDialog(List<SharePointSite> spLinks,
-                                          List<KeePassEntry> entries, EntryTableModel model) {
-        // Mark already-existing entries
-        java.util.Set<String> existingUrls = new java.util.HashSet<String>();
+    private int showSpLinkSelectionDialog(final List<SharePointSite> allLinks,
+                                          final List<KeePassEntry> entries,
+                                          final EntryTableModel model,
+                                          String scannedUrl) {
+        // ── Existing-URL lookup for "vorhanden" status ──
+        final java.util.Set<String> existingUrls = new java.util.HashSet<String>();
         for (KeePassEntry e : entries) {
             if ("SP".equals(e.category) && e.url != null) {
                 existingUrls.add(e.url);
             }
         }
 
-        // Pre-select those that are new
-        final boolean[] selected = new boolean[spLinks.size()];
-        for (int i = 0; i < spLinks.size(); i++) {
-            selected[i] = !existingUrls.contains(spLinks.get(i).getUrl());
+        // ── Build filter panel ──
+        List<String> allUrls = new ArrayList<String>();
+        for (SharePointSite site : allLinks) {
+            if (site.getUrl() != null) allUrls.add(site.getUrl());
         }
+        final de.bund.zrb.ui.components.SpUrlFilterPanel filterPanel =
+                new de.bund.zrb.ui.components.SpUrlFilterPanel(allUrls, scannedUrl);
 
-        // Build table
-        final List<SharePointSite> linkList = spLinks;
-        javax.swing.table.AbstractTableModel tModel = new javax.swing.table.AbstractTableModel() {
+        // ── Filtered list (rebuilt on every filter change) ──
+        final List<SharePointSite> filtered = new ArrayList<SharePointSite>();
+
+        // Selection state keyed by URL – survives filter changes
+        final java.util.Map<String, Boolean> selectionMap = new java.util.LinkedHashMap<String, Boolean>();
+
+        // Apply initial filter
+        applyFilter(filterPanel, allLinks, filtered, existingUrls, selectionMap);
+
+        // ── Table model over the filtered list ──
+        final javax.swing.table.AbstractTableModel tModel = new javax.swing.table.AbstractTableModel() {
             final String[] cols = {"\u2713", "Name", "URL", "Status"};
-            @Override public int getRowCount() { return linkList.size(); }
+            @Override public int getRowCount() { return filtered.size(); }
             @Override public int getColumnCount() { return cols.length; }
             @Override public String getColumnName(int c) { return cols[c]; }
             @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }
@@ -689,9 +696,11 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
             @Override
             public Object getValueAt(int r, int c) {
-                SharePointSite s = linkList.get(r);
+                SharePointSite s = filtered.get(r);
                 switch (c) {
-                    case 0: return selected[r];
+                    case 0:
+                        Boolean sel = selectionMap.get(s.getUrl());
+                        return sel != null ? sel : Boolean.FALSE;
                     case 1: return s.getName();
                     case 2: return s.getUrl();
                     case 3: return existingUrls.contains(s.getUrl()) ? "vorhanden" : "neu";
@@ -702,13 +711,13 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             @Override
             public void setValueAt(Object v, int r, int c) {
                 if (c == 0 && v instanceof Boolean) {
-                    selected[r] = (Boolean) v;
+                    selectionMap.put(filtered.get(r).getUrl(), (Boolean) v);
                     fireTableCellUpdated(r, c);
                 }
             }
         };
 
-        JTable table = new JTable(tModel);
+        final JTable table = new JTable(tModel);
         table.getColumnModel().getColumn(0).setMaxWidth(30);
         table.getColumnModel().getColumn(0).setMinWidth(30);
         table.getColumnModel().getColumn(1).setPreferredWidth(200);
@@ -716,26 +725,33 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         table.getColumnModel().getColumn(3).setPreferredWidth(70);
         table.setRowHeight(22);
 
-        JScrollPane scroll = new JScrollPane(table);
-        scroll.setPreferredSize(new Dimension(700, Math.min(400, 60 + spLinks.size() * 22)));
+        // ── React to filter changes ──
+        filterPanel.addChangeListener(new Runnable() {
+            @Override
+            public void run() {
+                applyFilter(filterPanel, allLinks, filtered, existingUrls, selectionMap);
+                tModel.fireTableDataChanged();
+            }
+        });
 
-        JPanel panel = new JPanel(new BorderLayout(0, 8));
-        panel.add(new JLabel("<html><b>" + spLinks.size() + " SharePoint-Links erkannt.</b><br>"
-                + "W\u00e4hlen Sie die Sites aus, die als SP-Passworteintrag gespeichert werden sollen:</html>"),
-                BorderLayout.NORTH);
+        // ── Assemble dialog ──
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setPreferredSize(new Dimension(750, Math.min(400, 60 + filtered.size() * 22)));
+
+        JPanel panel = new JPanel(new BorderLayout(0, 6));
+        panel.add(filterPanel, BorderLayout.NORTH);
         panel.add(scroll, BorderLayout.CENTER);
 
         int result = JOptionPane.showConfirmDialog(parent, panel,
-                "SharePoint-Links speichern", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                "SharePoint-Links importieren (" + allLinks.size() + " gesamt)",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) return 0;
 
         // ── Save selected links as SP password entries ──
         int created = 0;
-        for (int i = 0; i < linkList.size(); i++) {
-            if (!selected[i]) continue;
-            SharePointSite site = linkList.get(i);
-
-            // Skip already existing
+        for (SharePointSite site : filtered) {
+            Boolean sel = selectionMap.get(site.getUrl());
+            if (sel == null || !sel) continue;
             if (existingUrls.contains(site.getUrl())) continue;
 
             String id = de.bund.zrb.ui.settings.categories.SharePointSettingsPanel.toSiteId(site);
@@ -769,6 +785,30 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             model.fireTableDataChanged();
         }
         return created;
+    }
+
+    /**
+     * Apply the current regex filter to rebuild the filtered list.
+     */
+    private static void applyFilter(de.bund.zrb.ui.components.SpUrlFilterPanel filterPanel,
+                                     List<SharePointSite> allLinks,
+                                     List<SharePointSite> filtered,
+                                     java.util.Set<String> existingUrls,
+                                     java.util.Map<String, Boolean> selectionMap) {
+        filtered.clear();
+        java.util.regex.Pattern pattern = filterPanel.compileFilter();
+        for (SharePointSite site : allLinks) {
+            String url = site.getUrl();
+            if (url == null) continue;
+            if (pattern != null && pattern.matcher(url).matches()) {
+                filtered.add(site);
+                // Pre-select new entries that are not yet in the selection map
+                if (!selectionMap.containsKey(url)) {
+                    selectionMap.put(url, !existingUrls.contains(url));
+                }
+            }
+        }
+        filterPanel.setMatchCount(filtered.size(), allLinks.size());
     }
 
     // ═══════════════════════════════════════════════════════════

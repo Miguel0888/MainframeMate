@@ -13,11 +13,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Dialog shown immediately when the user switches the password method to KeePass.
+ * Dialog shown when the user confirms (OK / Apply) a switch to KeePass.
  * <p>
  * Explains prerequisites, asks whether to migrate existing credentials,
  * and performs the migration if confirmed. The caller can check
  * {@link #wasConfirmed()} to decide whether to keep the KeePass selection.
+ * <p>
+ * The dialog is intentionally <em>not</em> shown when the combo box
+ * selection changes, but only at apply-time — so the user can first
+ * configure KeePass settings (paths, RPC, pairing) before migration runs.
  */
 public final class KeePassMigrationDialog {
 
