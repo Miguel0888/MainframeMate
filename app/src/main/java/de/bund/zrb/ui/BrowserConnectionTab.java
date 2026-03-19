@@ -6,12 +6,11 @@ import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.drawer.LeftDrawer;
+import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.browser.NavigationResult;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
@@ -38,9 +37,6 @@ public class BrowserConnectionTab implements ConnectionTab {
     private final JButton refreshButton;
     private final JTextArea contentArea;
     private final JLabel statusLabel;
-    private final JTree outlineTree;
-    private final DefaultTreeModel outlineModel;
-    private final DefaultMutableTreeNode outlineRoot;
 
     private BrowserSession browserSession;
     private de.zrb.bund.newApi.browser.BrowserSession sessionAdapter;
@@ -49,6 +45,10 @@ public class BrowserConnectionTab implements ConnectionTab {
 
     // Callback for updating left drawer relations
     private java.util.function.Consumer<List<LeftDrawer.RelationEntry>> linksCallback;
+    // Callback for updating the RightDrawer outline
+    private java.util.function.Consumer<OutlineNode> outlineCallback;
+    // Current page outline (cached for tab switch)
+    private OutlineNode currentOutline;
 
     // Navigation history
     private final List<String> history = new ArrayList<String>();
@@ -103,21 +103,6 @@ public class BrowserConnectionTab implements ConnectionTab {
         contentArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         contentArea.setText("Browser wird gestartet…");
 
-        // ── Outline tree (right side) ─────────────────────────────
-        outlineRoot = new DefaultMutableTreeNode("Gliederung");
-        outlineModel = new DefaultTreeModel(outlineRoot);
-        outlineTree = new JTree(outlineModel);
-        outlineTree.setRootVisible(false);
-        outlineTree.setShowsRootHandles(true);
-
-        JScrollPane outlineScroll = new JScrollPane(outlineTree);
-        outlineScroll.setPreferredSize(new Dimension(200, 0));
-
-        // Split: content left, outline right
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                new JScrollPane(contentArea), outlineScroll);
-        splitPane.setResizeWeight(0.8);
-        splitPane.setDividerLocation(600);
 
         // ── Status bar ────────────────────────────────────────────
         statusLabel = new JLabel(" ");
@@ -125,7 +110,7 @@ public class BrowserConnectionTab implements ConnectionTab {
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
 
         mainPanel.add(toolbar, BorderLayout.NORTH);
-        mainPanel.add(splitPane, BorderLayout.CENTER);
+        mainPanel.add(new JScrollPane(contentArea), BorderLayout.CENTER);
         mainPanel.add(statusLabel, BorderLayout.SOUTH);
     }
 
@@ -436,22 +421,77 @@ public class BrowserConnectionTab implements ConnectionTab {
     }
 
     private void updateOutline(List<HeadingInfo> headings) {
-        outlineRoot.removeAllChildren();
-        if (headings.isEmpty()) {
-            outlineRoot.add(new DefaultMutableTreeNode("(keine Überschriften)"));
-        } else {
-            // Simple flat list with indentation prefix
-            for (HeadingInfo h : headings) {
-                StringBuilder prefix = new StringBuilder();
-                for (int i = 1; i < h.level; i++) prefix.append("  ");
-                outlineRoot.add(new DefaultMutableTreeNode(prefix.toString() + h.text));
+        currentOutline = buildOutlineTree(headings);
+        if (outlineCallback != null) {
+            outlineCallback.accept(currentOutline);
+        }
+    }
+
+    /**
+     * Build a hierarchical OutlineNode tree from flat heading list.
+     * h1 contains h2, h2 contains h3, etc.
+     */
+    static OutlineNode buildOutlineTree(List<HeadingInfo> headings) {
+        if (headings == null || headings.isEmpty()) {
+            return new OutlineNode("Gliederung", null, Collections.<OutlineNode>emptyList());
+        }
+
+        // Stack-based approach: each entry is (level, childrenList)
+        // We keep a stack so that when a deeper heading comes, it becomes a child.
+        List<OutlineNode> rootChildren = new ArrayList<OutlineNode>();
+        java.util.Deque<Object[]> stack = new java.util.ArrayDeque<Object[]>();
+        // stack entry: [int level, String text, String anchor, List<OutlineNode> children]
+
+        for (HeadingInfo h : headings) {
+            String anchor = h.text.toLowerCase()
+                    .replaceAll("[^a-z0-9äöüß ]+", "-")
+                    .replaceAll("\\s+", "-")
+                    .replaceAll("^-+|-+$", "");
+
+            // Pop entries that are at the same level or deeper — they are completed
+            while (!stack.isEmpty() && (int) stack.peek()[0] >= h.level) {
+                Object[] popped = stack.pop();
+                OutlineNode node = new OutlineNode(
+                        (String) popped[1], (String) popped[2],
+                        (List<OutlineNode>) popped[3]);
+                if (stack.isEmpty()) {
+                    rootChildren.add(node);
+                } else {
+                    ((List<OutlineNode>) stack.peek()[3]).add(node);
+                }
+            }
+            // Push current heading with empty children list
+            stack.push(new Object[]{h.level, h.text, anchor, new ArrayList<OutlineNode>()});
+        }
+
+        // Drain remaining stack entries
+        while (!stack.isEmpty()) {
+            Object[] popped = stack.pop();
+            OutlineNode node = new OutlineNode(
+                    (String) popped[1], (String) popped[2],
+                    (List<OutlineNode>) popped[3]);
+            if (stack.isEmpty()) {
+                rootChildren.add(node);
+            } else {
+                ((List<OutlineNode>) stack.peek()[3]).add(node);
             }
         }
-        outlineModel.reload();
-        // Expand all
-        for (int i = 0; i < outlineTree.getRowCount(); i++) {
-            outlineTree.expandRow(i);
-        }
+
+        return new OutlineNode("Gliederung", null, rootChildren);
+    }
+
+    /**
+     * @return the current page outline, or {@code null} if no page is loaded
+     */
+    public OutlineNode getCurrentOutline() {
+        return currentOutline;
+    }
+
+    /**
+     * @return the current page title
+     */
+    public String getCurrentTitle() {
+        return currentTitle;
     }
 
     /**
@@ -459,6 +499,13 @@ public class BrowserConnectionTab implements ConnectionTab {
      */
     public void setLinksCallback(java.util.function.Consumer<List<LeftDrawer.RelationEntry>> callback) {
         this.linksCallback = callback;
+    }
+
+    /**
+     * Set callback for updating the RightDrawer outline when a page loads.
+     */
+    public void setOutlineCallback(java.util.function.Consumer<OutlineNode> callback) {
+        this.outlineCallback = callback;
     }
 
     /**

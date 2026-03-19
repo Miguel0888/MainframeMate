@@ -6,6 +6,7 @@ import de.bund.zrb.ui.BrowserConnectionTab;
 import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.bund.zrb.ui.drawer.LeftDrawer;
+import de.bund.zrb.ui.drawer.RightDrawer;
 import de.zrb.bund.api.ShortcutMenuCommand;
 
 import javax.swing.*;
@@ -67,6 +68,16 @@ public class OpenBrowserMenuCommand extends ShortcutMenuCommand {
                         browserTab.navigateToLink(entry.getTargetPath());
                     }
                 });
+            }
+
+            // Wire outline callback: update RightDrawer when page loads
+            RightDrawer rightDrawer = mf.getRightDrawer();
+            if (rightDrawer != null) {
+                browserTab.setOutlineCallback(outline ->
+                        SwingUtilities.invokeLater(() ->
+                                rightDrawer.updateWikiOutline(outline,
+                                        browserTab.getCurrentTitle(),
+                                        (java.util.function.Consumer<String>) null)));
             }
         }
 

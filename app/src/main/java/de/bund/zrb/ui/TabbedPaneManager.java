@@ -559,6 +559,19 @@ public class TabbedPaneManager {
             return;
         }
 
+        // BrowserConnectionTab: show page outline in RightDrawer
+        if (tab instanceof BrowserConnectionTab) {
+            BrowserConnectionTab browserTab = (BrowserConnectionTab) tab;
+            de.bund.zrb.wiki.domain.OutlineNode outline = browserTab.getCurrentOutline();
+            if (outline != null) {
+                rightDrawer.updateWikiOutline(outline, browserTab.getCurrentTitle(), (java.util.function.Consumer<String>) null);
+            } else {
+                rightDrawer.restoreCodeOutline();
+                rightDrawer.clearJclOutline();
+            }
+            return;
+        }
+
         // Restore code outline for non-wiki tabs
         rightDrawer.restoreCodeOutline();
 
