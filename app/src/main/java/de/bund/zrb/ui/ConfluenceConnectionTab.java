@@ -842,7 +842,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         public String toString() { return key + " — " + name; }
     }
 
-    static final class PageItem {
+    public static final class PageItem {
         final String id;
         final String title;
         final String type;

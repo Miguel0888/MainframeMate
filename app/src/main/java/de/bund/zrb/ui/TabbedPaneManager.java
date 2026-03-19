@@ -939,7 +939,8 @@ public class TabbedPaneManager {
                         groups.put("\u2B06 \u00DCbergeordnete Seiten", ancestorEntries);
                     }
                 } catch (Exception e) {
-                    LOG.log(java.util.logging.Level.FINE, "[Confluence] Ancestors laden fehlgeschlagen", e);
+                    java.util.logging.Logger.getLogger(TabbedPaneManager.class.getName())
+                            .log(java.util.logging.Level.FINE, "[Confluence] Ancestors laden fehlgeschlagen", e);
                 }
 
                 // 2. Children
@@ -961,7 +962,8 @@ public class TabbedPaneManager {
                         groups.put("\u2B07 Unterseiten (" + results.size() + ")", childEntries);
                     }
                 } catch (Exception e) {
-                    LOG.log(java.util.logging.Level.FINE, "[Confluence] Children laden fehlgeschlagen", e);
+                    java.util.logging.Logger.getLogger(TabbedPaneManager.class.getName())
+                            .log(java.util.logging.Level.FINE, "[Confluence] Children laden fehlgeschlagen", e);
                 }
 
                 // 3. Labels
@@ -982,7 +984,8 @@ public class TabbedPaneManager {
                         groups.put("\uD83C\uDFF7 Labels", labelEntries);
                     }
                 } catch (Exception e) {
-                    LOG.log(java.util.logging.Level.FINE, "[Confluence] Labels laden fehlgeschlagen", e);
+                    java.util.logging.Logger.getLogger(TabbedPaneManager.class.getName())
+                            .log(java.util.logging.Level.FINE, "[Confluence] Labels laden fehlgeschlagen", e);
                 }
 
                 return groups;
@@ -1002,7 +1005,8 @@ public class TabbedPaneManager {
                         leftDrawer.updateRelationsGrouped("Confluence: " + pageTitle, groups, totalCount);
                     }
                 } catch (Exception e) {
-                    LOG.log(java.util.logging.Level.WARNING, "[Confluence] Relations laden fehlgeschlagen", e);
+                    java.util.logging.Logger.getLogger(TabbedPaneManager.class.getName())
+                            .log(java.util.logging.Level.WARNING, "[Confluence] Relations laden fehlgeschlagen", e);
                     leftDrawer.showRelationsPlaceholder("\u274C Fehler: " + e.getMessage());
                 }
             }
