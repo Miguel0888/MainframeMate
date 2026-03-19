@@ -747,6 +747,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) return 0;
 
+        // Persist filter segments for next time
+        filterPanel.saveSegments();
+
         // ── Save selected links as SP password entries ──
         int created = 0;
         for (SharePointSite site : filtered) {
