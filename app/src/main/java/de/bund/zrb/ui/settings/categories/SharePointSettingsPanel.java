@@ -1,44 +1,59 @@
 package de.bund.zrb.ui.settings.categories;
 
 import de.bund.zrb.model.Settings;
-import de.bund.zrb.sharepoint.SharePointAuthenticator;
 import de.bund.zrb.sharepoint.SharePointLinkFetcher;
 import de.bund.zrb.sharepoint.SharePointSite;
 import de.bund.zrb.sharepoint.SharePointSiteStore;
 import de.bund.zrb.ui.settings.FormBuilder;
-import de.bund.zrb.util.WindowsCryptoUtil;
+import de.bund.zrb.util.CredentialStore;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * Settings panel for SharePoint connection configuration.
+ * <p>
+ * SharePoint sites are managed as password entries with category <b>SP</b>
+ * in the central password dialog ({@code Einstellungen &rarr; Passw&ouml;rter}).
+ * <p>
+ * This panel provides:
  * <ol>
- *   <li>Parent-URL field – the page from which all links are extracted</li>
- *   <li>"Links abrufen" button – fetches the page and extracts links</li>
- *   <li>Checkbox table – user picks which links are SharePoint sites</li>
- *   <li>Cache concurrency spinner</li>
+ *   <li>A "Parent page" URL + "Links abrufen" to auto-discover SP sites</li>
+ *   <li>A checkbox table to select which discovered links are SP sites</li>
+ *   <li>Cache concurrency setting</li>
  * </ol>
+ * Fetched links are persisted both to {@code settings.sharepointSitesJson}
+ * (legacy) and to {@code settings.passwordEntries} (category "SP") so the
+ * password dialog can manage them.
  */
 public class SharePointSettingsPanel extends AbstractSettingsPanel {
+
+    private static final Logger LOG = Logger.getLogger(SharePointSettingsPanel.class.getName());
 
     private final JTextField parentPageUrlField;
     private final JSpinner cacheConcurrencySpinner;
     private final LinkTableModel linkTableModel;
     private final JTable linkTable;
-    private final JTextField userField;
-    private final JPasswordField passwordField;
-    private final boolean[] passwordCleared = {false};
 
     public SharePointSettingsPanel() {
         super("sharepoint", "SharePoint");
         FormBuilder fb = new FormBuilder();
 
-        // ── Section 1: Parent page ──
-        fb.addSection("Parent-Seite");
+        // ── Section 1: Info ──
+        fb.addSection("SharePoint-Sites");
+        fb.addInfo("<html>SharePoint-Sites werden \u00fcber <b>Einstellungen \u2192 Passw\u00f6rter</b> verwaltet.<br>"
+                + "Dort k\u00f6nnen Sie SP-Eintr\u00e4ge (Kategorie <i>SP</i>) hinzuf\u00fcgen,<br>"
+                + "bearbeiten, Zugangsdaten hinterlegen und SSO testen.<br><br>"
+                + "Alternativ k\u00f6nnen Sie unten eine <b>Parent-Seite</b> angeben,<br>"
+                + "von der SharePoint-Links automatisch erkannt werden.</html>");
+
+        // ── Section 2: Parent page ──
+        fb.addSection("Parent-Seite (optional)");
 
         parentPageUrlField = new JTextField(
                 settings.sharepointParentPageUrl != null ? settings.sharepointParentPageUrl : "", 40);
@@ -46,21 +61,21 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
                 "URL der Seite, auf der Links zu Ihren SharePoint-Sites aufgelistet sind.");
         fb.addRow("Parent-URL:", parentPageUrlField);
 
-        JButton fetchButton = new JButton("🔗 Links abrufen…");
-        fetchButton.setToolTipText("Alle Links von der Parent-Seite laden");
+        JButton fetchButton = new JButton("\uD83D\uDD17 Links abrufen\u2026");
+        fetchButton.setToolTipText("Alle Links von der Parent-Seite laden und als SP-Eintr\u00e4ge anlegen");
         fetchButton.addActionListener(e -> fetchLinks());
         fb.addRow("", fetchButton);
 
         fb.addInfo("<html><i>Geben Sie die URL einer internen Seite an (z.B. Intranet/Wiki),<br>"
-                + "die Links zu Ihren SharePoint-Sites enthält. "
+                + "die Links zu Ihren SharePoint-Sites enth\u00e4lt. "
                 + "Klicken Sie dann auf <b>Links abrufen</b>,<br>"
                 + "um alle dort gelisteten URLs zu erkennen.</i></html>");
 
-        // ── Section 2: Link checklist ──
-        fb.addSection("SharePoint-Sites auswählen");
+        // ── Section 3: Link checklist ──
+        fb.addSection("Erkannte Links");
 
         fb.addInfo("<html><i>Haken Sie die Links an, die echte SharePoint-Sites sind.<br>"
-                + "Die ausgewählten Sites werden als Netzlaufwerk (WebDAV) eingebunden<br>"
+                + "Die ausgew\u00e4hlten Sites werden als <b>SP</b>-Eintr\u00e4ge unter Passw\u00f6rter gespeichert<br>"
                 + "und sind im SharePoint-Tab wie ein lokales Dateisystem navigierbar.</i></html>");
 
         List<SharePointSite> existingSites = SharePointSiteStore.fromJson(settings.sharepointSitesJson);
@@ -76,43 +91,6 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         tableScroll.setPreferredSize(new Dimension(640, 200));
         fb.addWideGrow(tableScroll);
 
-        // ── Section 3: Credentials ──
-        fb.addSection("Zugangsdaten (optional)");
-
-        fb.addInfo("<html><i>SharePoint verwendet normalerweise <b>Windows Integrated Authentication</b><br>"
-                + "(Kerberos/NTLM). Da Sie mit Ihrer AD-Kennung am Rechner angemeldet sind,<br>"
-                + "wird die Verbindung in der Regel <b>automatisch</b> hergestellt — genau wie im Browser.<br><br>"
-                + "Explizite Zugangsdaten sind nur nötig, wenn SSO nicht funktioniert<br>"
-                + "(z.B. Domänenübergreifend oder SharePoint Online mit Basic Auth).</i></html>");
-
-        userField = new JTextField(safe(settings.sharepointUser), 30);
-        userField.setToolTipText("SharePoint-Benutzername — nur nötig wenn SSO nicht funktioniert (DOMAIN\\user oder user@domain)");
-        fb.addRow("Benutzer:", userField);
-
-        passwordField = new JPasswordField(30);
-        if (settings.sharepointEncryptedPassword != null
-                && !settings.sharepointEncryptedPassword.isEmpty()) {
-            passwordField.setText("********");
-        }
-        fb.addRow("Passwort:", passwordField);
-
-        JPanel credButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        JButton clearPasswordButton = new JButton("🗑 Passwort löschen");
-        clearPasswordButton.addActionListener(e -> {
-            passwordField.setText("");
-            passwordCleared[0] = true;
-        });
-        JButton testSsoButton = new JButton("🔑 SSO testen…");
-        testSsoButton.setToolTipText("Testet die automatische Anmeldung (Windows Kerberos/NTLM)");
-        testSsoButton.addActionListener(e -> testSsoConnection());
-        JButton testButton = new JButton("🔗 Mit Credentials testen…");
-        testButton.setToolTipText("Testet die WebDAV-Verbindung mit den eingegebenen Zugangsdaten");
-        testButton.addActionListener(e -> testConnection());
-        credButtons.add(clearPasswordButton);
-        credButtons.add(testSsoButton);
-        credButtons.add(testButton);
-        fb.addWide(credButtons);
-
         // ── Section 4: Caching ──
         fb.addSection("Caching");
 
@@ -122,8 +100,8 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
         fb.addRow("Parallele Downloads:", cacheConcurrencySpinner);
 
         fb.addInfo("<html><i>Beim Durchsuchen einer SharePoint-Site werden Dokumente automatisch<br>"
-                + "im lokalen Cache (H2 + Lucene) gespeichert und sind über<br>"
-                + "<b>Überall suchen</b> mit dem Kürzel <b>SP</b> auffindbar.</i></html>");
+                + "im lokalen Cache (H2 + Lucene) gespeichert und sind \u00fcber<br>"
+                + "<b>\u00dcberall suchen</b> mit dem K\u00fcrzel <b>SP</b> auffindbar.</i></html>");
 
         installPanel(fb);
     }
@@ -131,7 +109,6 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
     /**
      * Fetch links from the configured parent page and merge them
      * into the existing checklist (preserving selection state).
-     * Uses the credentials entered in the form fields (not yet saved).
      */
     private void fetchLinks() {
         String url = parentPageUrlField.getText().trim();
@@ -141,16 +118,13 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
             return;
         }
 
-        // Use credentials from the currently visible form fields
-        final String fetchUser = userField.getText().trim();
-        final String fetchPassword = resolveCurrentPassword();
-
         linkTable.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 
         new SwingWorker<List<SharePointSite>, Void>() {
             @Override
             protected List<SharePointSite> doInBackground() throws Exception {
-                return SharePointLinkFetcher.fetchLinks(url, fetchUser, fetchPassword);
+                // Try SSO first (no explicit credentials)
+                return SharePointLinkFetcher.fetchLinks(url, "", "");
             }
 
             @Override
@@ -161,12 +135,16 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
                     linkTableModel.mergeLinks(fetched);
                     JOptionPane.showMessageDialog(linkTable,
                             fetched.size() + " Links gefunden.\n"
-                                    + "Bitte die SharePoint-Sites anhaken und Einstellungen speichern.",
+                                    + "Bitte die SharePoint-Sites anhaken und Einstellungen speichern.\n\n"
+                                    + "Die ausgew\u00e4hlten Sites werden als SP-Eintr\u00e4ge\n"
+                                    + "unter Einstellungen \u2192 Passw\u00f6rter gespeichert.",
                             "Links abgerufen", JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception ex) {
                     String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
                     JOptionPane.showMessageDialog(linkTable,
-                            "Fehler beim Abrufen der Links:\n" + msg,
+                            "Fehler beim Abrufen der Links:\n" + msg
+                                    + "\n\nSie k\u00f6nnen SharePoint-Sites auch manuell\n"
+                                    + "unter Einstellungen \u2192 Passw\u00f6rter (Kategorie SP) anlegen.",
                             "SharePoint-Fehler", JOptionPane.ERROR_MESSAGE);
                 }
             }
@@ -177,160 +155,100 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
     protected void applyToSettings(Settings s) {
         s.sharepointParentPageUrl = parentPageUrlField.getText().trim();
         s.sharepointCacheConcurrency = ((Number) cacheConcurrencySpinner.getValue()).intValue();
-        s.sharepointSitesJson = SharePointSiteStore.toJson(linkTableModel.getSites());
-        s.sharepointUser = userField.getText().trim();
 
-        // Password handling (same pattern as BetaViewSettingsPanel)
-        char[] passChars = passwordField.getPassword();
-        String passStr = new String(passChars);
-        if (passwordCleared[0] && passStr.isEmpty()) {
-            s.sharepointEncryptedPassword = "";
-        } else if (!passStr.equals("********") && passChars.length > 0) {
-            s.sharepointEncryptedPassword = WindowsCryptoUtil.encrypt(passStr);
-        }
-
-        // Reset authentication cache so new credentials take effect
-        SharePointAuthenticator.resetSession();
-    }
-
-    /**
-     * Test Windows Integrated Auth (Kerberos/NTLM SSO) — no credentials needed.
-     */
-    private void testSsoConnection() {
-        SharePointSite target = findFirstSelectedSite();
-        if (target == null) return;
-
-        String uncPath = target.toUncPath();
-        String siteName = target.getName();
-        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-
-        new SwingWorker<Boolean, Void>() {
-            @Override
-            protected Boolean doInBackground() {
-                // First try file-system probe
-                if (new java.io.File(uncPath).exists()) return true;
-                // Then try net use without credentials
-                return SharePointAuthenticator.netUseSso(uncPath);
-            }
-
-            @Override
-            protected void done() {
-                setCursor(Cursor.getDefaultCursor());
-                try {
-                    if (get()) {
-                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
-                                "✓ Windows SSO (Kerberos/NTLM) erfolgreich!\n\n"
-                                        + "Sie sind mit Ihrer AD-Kennung automatisch angemeldet.\n"
-                                        + "Explizite Zugangsdaten sind nicht nötig.\n\n"
-                                        + "Site: " + siteName + "\n"
-                                        + "UNC-Pfad: " + uncPath,
-                                "SSO-Test", JOptionPane.INFORMATION_MESSAGE);
-                    } else {
-                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
-                                "✗ Windows SSO nicht verfügbar für diese Site.\n\n"
-                                        + "Mögliche Ursachen:\n"
-                                        + "• SharePoint-Server nicht in der Intranet-/Vertrauenswürdige-Sites-Zone\n"
-                                        + "• Kerberos-Ticket abgelaufen\n"
-                                        + "• WebClient-Dienst nicht gestartet (net start WebClient)\n\n"
-                                        + "→ Bitte geben Sie Benutzer und Passwort ein und testen Sie mit \"Mit Credentials testen\".",
-                                "SSO-Test", JOptionPane.WARNING_MESSAGE);
-                    }
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
-                            "Fehler: " + ex.getMessage(),
-                            "SSO-Test", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
-    }
-
-    /**
-     * Test WebDAV connectivity to the first selected SharePoint site.
-     */
-    private void testConnection() {
-        SharePointSite target = findFirstSelectedSite();
-        if (target == null) return;
-
-        String uncPath = target.toUncPath();
-        String user = userField.getText().trim();
-        String password = resolveCurrentPassword();
-
-        if (user.isEmpty() || password.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "Bitte geben Sie Benutzer und Passwort ein.",
-                    "Verbindungstest", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        final String testUser = user;
-        final String testPass = password;
-        final String testUnc = uncPath;
-        final String siteName = target.getName();
-
-        new SwingWorker<Boolean, Void>() {
-            @Override
-            protected Boolean doInBackground() {
-                return SharePointAuthenticator.netUse(testUnc, testUser, testPass);
-            }
-
-            @Override
-            protected void done() {
-                setCursor(Cursor.getDefaultCursor());
-                try {
-                    if (get()) {
-                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
-                                "✓ Verbindung zu \"" + siteName + "\" erfolgreich!\n\n"
-                                        + "UNC-Pfad: " + testUnc,
-                                "Verbindungstest", JOptionPane.INFORMATION_MESSAGE);
-                    } else {
-                        JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
-                                "✗ Verbindung fehlgeschlagen.\n\n"
-                                        + "Bitte prüfen Sie:\n"
-                                        + "• Benutzername und Passwort\n"
-                                        + "• WebClient-Dienst: net start WebClient\n"
-                                        + "• Netzwerkerreichbarkeit",
-                                "Verbindungstest", JOptionPane.ERROR_MESSAGE);
-                    }
-                } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(SharePointSettingsPanel.this,
-                            "Fehler: " + ex.getMessage(),
-                            "Verbindungstest", JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        }.execute();
-    }
-
-    private SharePointSite findFirstSelectedSite() {
         List<SharePointSite> sites = linkTableModel.getSites();
-        for (SharePointSite s : sites) {
-            if (s.isSelected()) return s;
+        s.sharepointSitesJson = SharePointSiteStore.toJson(sites);
+
+        // ── Sync selected sites into passwordEntries (category "SP") ──
+        syncSitesToPasswordEntries(s, sites);
+    }
+
+    /**
+     * Create / update SP password entries for each selected site.
+     * Non-selected sites are removed from password entries.
+     */
+    private void syncSitesToPasswordEntries(Settings s, List<SharePointSite> sites) {
+        // Collect IDs of SP entries coming from this sync
+        java.util.Set<String> syncedIds = new java.util.HashSet<String>();
+
+        for (SharePointSite site : sites) {
+            String id = toSiteId(site);
+            if (site.isSelected()) {
+                syncedIds.add(id);
+
+                // Check if the entry already exists
+                boolean exists = false;
+                for (Settings.PasswordEntryMeta meta : s.passwordEntries) {
+                    if (id.equals(meta.id) && "SP".equals(meta.category)) {
+                        // Update URL / displayName if changed
+                        meta.url = site.getUrl();
+                        if (meta.displayName == null || meta.displayName.isEmpty()) {
+                            meta.displayName = site.getName();
+                        }
+                        exists = true;
+                        break;
+                    }
+                }
+
+                if (!exists) {
+                    Settings.PasswordEntryMeta meta = new Settings.PasswordEntryMeta();
+                    meta.id = id;
+                    meta.category = "SP";
+                    meta.displayName = site.getName();
+                    meta.url = site.getUrl();
+                    meta.requiresLogin = false;  // SSO by default
+                    meta.useProxy = false;
+                    meta.autoIndex = false;
+                    meta.savePassword = false;
+                    meta.sessionCache = false;
+                    s.passwordEntries.add(meta);
+                    LOG.info("[SP-Settings] Created SP password entry: " + id + " -> " + site.getUrl());
+                }
+            }
         }
-        JOptionPane.showMessageDialog(this,
-                "Bitte wählen Sie mindestens eine SharePoint-Site aus.",
-                "Verbindungstest", JOptionPane.WARNING_MESSAGE);
-        return null;
+
+        // Remove SP entries that were de-selected in the table
+        // (only those that match a known site from this table — leave manually added entries alone)
+        java.util.Set<String> knownTableIds = new java.util.HashSet<String>();
+        for (SharePointSite site : sites) {
+            knownTableIds.add(toSiteId(site));
+        }
+        Iterator<Settings.PasswordEntryMeta> it = s.passwordEntries.iterator();
+        while (it.hasNext()) {
+            Settings.PasswordEntryMeta meta = it.next();
+            if ("SP".equals(meta.category)
+                    && knownTableIds.contains(meta.id)
+                    && !syncedIds.contains(meta.id)) {
+                LOG.info("[SP-Settings] Removing de-selected SP entry: " + meta.id);
+                it.remove();
+            }
+        }
+    }
+
+    /**
+     * Derive a stable ID from a SharePoint site URL.
+     * Uses the host + path slug, e.g. "sp_myorg_sharepoint_com_sites_TeamSite".
+     */
+    static String toSiteId(SharePointSite site) {
+        String url = site.getUrl();
+        if (url == null || url.isEmpty()) return "sp_unknown";
+        try {
+            java.net.URL parsed = new java.net.URL(url);
+            String id = "sp_" + parsed.getHost().replace('.', '_');
+            String path = parsed.getPath();
+            if (path != null && !path.isEmpty() && !"/".equals(path)) {
+                id += path.replace('/', '_').replace(' ', '_').replace("%20", "_");
+                // Remove trailing underscore
+                while (id.endsWith("_")) id = id.substring(0, id.length() - 1);
+            }
+            return id;
+        } catch (Exception e) {
+            return "sp_" + url.hashCode();
+        }
     }
 
     private static String safe(String s) {
         return s == null ? "" : s;
-    }
-
-    /**
-     * Get the currently entered password from the form field.
-     * If the field shows the placeholder ("********"), decrypt the stored password.
-     */
-    private String resolveCurrentPassword() {
-        char[] passChars = passwordField.getPassword();
-        String passStr = new String(passChars);
-        if (passStr.equals("********")) {
-            try {
-                return WindowsCryptoUtil.decrypt(settings.sharepointEncryptedPassword);
-            } catch (Exception e) {
-                return "";
-            }
-        }
-        return passStr;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -338,7 +256,7 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
     // ═══════════════════════════════════════════════════════════
 
     private static class LinkTableModel extends AbstractTableModel {
-        private static final String[] COLUMNS = {"✓", "Name", "URL"};
+        private static final String[] COLUMNS = {"\u2713", "Name", "URL"};
         private final List<SharePointSite> sites;
 
         LinkTableModel(List<SharePointSite> initial) {
@@ -354,13 +272,11 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
          * Preserves the selection state of links that were already present.
          */
         void mergeLinks(List<SharePointSite> fetched) {
-            // Build map of existing URLs → selection state
             java.util.Map<String, Boolean> existing = new java.util.LinkedHashMap<String, Boolean>();
             for (SharePointSite s : sites) {
                 existing.put(s.getUrl(), s.isSelected());
             }
 
-            // Rebuild list: keep existing entries (preserving selection), add new ones
             sites.clear();
             java.util.Set<String> seen = new java.util.HashSet<String>();
             for (SharePointSite f : fetched) {
@@ -371,13 +287,9 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
                 sites.add(f);
                 seen.add(f.getUrl());
             }
-            // Also keep previously-selected entries that are no longer in the fetched list
+            // Keep previously-selected entries that are no longer in the fetched list
             for (java.util.Map.Entry<String, Boolean> e : existing.entrySet()) {
                 if (!seen.contains(e.getKey()) && e.getValue()) {
-                    // find original site object
-                    for (SharePointSite orig : new ArrayList<SharePointSite>(sites)) {
-                        // not found — recreate with URL as name
-                    }
                     sites.add(new SharePointSite(e.getKey(), e.getKey(), true));
                 }
             }
@@ -396,7 +308,7 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
 
         @Override
         public boolean isCellEditable(int row, int col) {
-            return col == 0; // only the checkbox
+            return col == 0;
         }
 
         @Override

@@ -95,10 +95,7 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
 
         // Load selected SharePoint sites from settings
         Settings settings = SettingsHelper.load();
-        List<SharePointSite> all = SharePointSiteStore.fromJson(settings.sharepointSitesJson);
-        for (SharePointSite s : all) {
-            if (s.isSelected()) selectedSites.add(s);
-        }
+        loadSitesFromSettings(settings);
 
         // ── Left: Site tree ─────────────────────────────────
         rootNode = new DefaultMutableTreeNode("SharePoint-Sites");
@@ -227,9 +224,11 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
 
         if (selectedSites.isEmpty()) {
             previewArea.setText("Keine SharePoint-Sites konfiguriert.\n\n"
-                    + "Öffnen Sie Einstellungen → SharePoint, geben Sie die Parent-URL an,\n"
-                    + "rufen Sie Links ab und haken Sie die SharePoint-Sites an.");
-            statusLabel.setText("⚠ Keine Sites konfiguriert – siehe Einstellungen → SharePoint");
+                    + "M\u00f6glichkeit 1: \u00d6ffnen Sie Einstellungen \u2192 Passw\u00f6rter,\n"
+                    + "legen Sie einen Eintrag mit Kategorie \"SP\" und SharePoint-URL an.\n\n"
+                    + "M\u00f6glichkeit 2: \u00d6ffnen Sie Einstellungen \u2192 SharePoint,\n"
+                    + "geben Sie die Parent-URL an, rufen Sie Links ab und haken Sie die Sites an.");
+            statusLabel.setText("\u26a0 Keine Sites konfiguriert \u2013 siehe Einstellungen \u2192 Passw\u00f6rter oder SharePoint");
         } else {
             statusLabel.setText(selectedSites.size() + " SharePoint-Sites verfügbar");
         }
@@ -265,13 +264,36 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
 
     private void reloadSites() {
         Settings settings = SettingsHelper.load();
-        List<SharePointSite> all = SharePointSiteStore.fromJson(settings.sharepointSitesJson);
         selectedSites.clear();
-        for (SharePointSite s : all) {
-            if (s.isSelected()) selectedSites.add(s);
-        }
+        loadSitesFromSettings(settings);
         rebuildTree(selectedSites);
         statusLabel.setText("✓ " + selectedSites.size() + " SharePoint-Sites geladen");
+    }
+
+    /**
+     * Load SP sites from {@code passwordEntries} (category "SP").
+     * Falls back to legacy {@code sharepointSitesJson} if no SP entries exist.
+     */
+    private void loadSitesFromSettings(Settings settings) {
+        selectedSites.clear();
+
+        // Primary: read from passwordEntries (category "SP")
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if (!"SP".equals(meta.category)) continue;
+            String url = meta.url;
+            if (url == null || url.isEmpty()) continue;
+            String name = (meta.displayName != null && !meta.displayName.isEmpty())
+                    ? meta.displayName : meta.id;
+            selectedSites.add(new SharePointSite(name, url, true));
+        }
+
+        // Fallback: if no SP password entries, try legacy JSON
+        if (selectedSites.isEmpty()) {
+            List<SharePointSite> legacy = SharePointSiteStore.fromJson(settings.sharepointSitesJson);
+            for (SharePointSite s : legacy) {
+                if (s.isSelected()) selectedSites.add(s);
+            }
+        }
     }
 
     private void handleTreeDoubleClick() {

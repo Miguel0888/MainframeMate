@@ -31,7 +31,7 @@ import java.util.logging.Logger;
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static final Logger LOG = Logger.getLogger(ShowPasswordsMenuCommand.class.getName());
-    private static final List<String> CATEGORIES = Arrays.asList("Mainframe", "Wiki");
+    private static final List<String> CATEGORIES = Arrays.asList("Mainframe", "Wiki", "SP");
 
     private final JFrame parent;
 
@@ -336,13 +336,62 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         // Update URL requirement when category changes
         categoryBox.addActionListener(e -> {
-            boolean isWiki = "Wiki".equals(categoryBox.getSelectedItem());
-            urlLabel.setText(isWiki ? "URL: *" : "URL:");
+            String cat = (String) categoryBox.getSelectedItem();
+            boolean urlRequired = "Wiki".equals(cat) || "SP".equals(cat);
+            urlLabel.setText(urlRequired ? "URL: *" : "URL:");
         });
         // Set initial state
-        if (existing != null && "Wiki".equals(existing.category)) {
+        if (existing != null && ("Wiki".equals(existing.category) || "SP".equals(existing.category))) {
             urlLabel.setText("URL: *");
         }
+
+        // SSO test button (only visible for SP entries)
+        JButton ssoTestBtn = new JButton("\uD83D\uDD11 SSO testen\u2026");
+        ssoTestBtn.setToolTipText("Windows Integrated Auth (Kerberos/NTLM) f\u00fcr diese SharePoint-Site testen");
+        ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem()));
+        categoryBox.addActionListener(e ->
+                ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem())));
+        ssoTestBtn.addActionListener(e -> {
+            String testUrl = urlField.getText().trim();
+            if (testUrl.isEmpty()) {
+                JOptionPane.showMessageDialog(parent, "Bitte zuerst eine URL eingeben.",
+                        "SSO-Test", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            String uncPath = de.bund.zrb.sharepoint.SharePointPathUtil.toUncPath(testUrl);
+            parent.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            new SwingWorker<Boolean, Void>() {
+                @Override
+                protected Boolean doInBackground() {
+                    if (new java.io.File(uncPath).exists()) return true;
+                    return de.bund.zrb.sharepoint.SharePointAuthenticator.netUseSso(uncPath);
+                }
+                @Override
+                protected void done() {
+                    parent.setCursor(Cursor.getDefaultCursor());
+                    try {
+                        if (get()) {
+                            JOptionPane.showMessageDialog(parent,
+                                    "\u2713 Windows SSO (Kerberos/NTLM) erfolgreich!\n\n"
+                                            + "UNC-Pfad: " + uncPath,
+                                    "SSO-Test", JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(parent,
+                                    "\u2717 Windows SSO nicht verf\u00fcgbar.\n\n"
+                                            + "M\u00f6gliche Ursachen:\n"
+                                            + "\u2022 SharePoint nicht in Intranet-Zone\n"
+                                            + "\u2022 Kerberos-Ticket abgelaufen\n"
+                                            + "\u2022 WebClient-Dienst nicht gestartet",
+                                    "SSO-Test", JOptionPane.WARNING_MESSAGE);
+                        }
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(parent,
+                                "Fehler: " + ex.getMessage(),
+                                "SSO-Test", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }.execute();
+        });
 
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -385,6 +434,13 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(urlField, gbc);
 
+        // SSO test row (only for SP entries)
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(ssoTestBtn, gbc);
+        gbc.gridwidth = 1;
+
         // ── Separator + Checkboxes ──
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
@@ -422,9 +478,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             return null;
         }
 
-        if ("Wiki".equals(category) && url.isEmpty()) {
+        if (("Wiki".equals(category) || "SP".equals(category)) && url.isEmpty()) {
             JOptionPane.showMessageDialog(parent,
-                    "Für Wiki-Einträge ist die URL ein Pflichtfeld.",
+                    "F\u00fcr " + category + "-Eintr\u00e4ge ist die URL ein Pflichtfeld.",
                     "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
             return null;
         }

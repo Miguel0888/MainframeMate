@@ -2,6 +2,7 @@ package de.bund.zrb.sharepoint;
 
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.util.CredentialStore;
 import de.bund.zrb.util.WindowsCryptoUtil;
 
 import javax.swing.*;
@@ -79,10 +80,30 @@ public final class SharePointAuthenticator {
             return true;
         }
 
-        // ── 4. Try stored credentials ────────────────────────────
+        // ── 4. Try stored credentials (per-site from passwordEntries) ─
         Settings settings = SettingsHelper.load();
-        String user = settings.sharepointUser;
-        String password = decryptPassword(settings.sharepointEncryptedPassword);
+        String user = null;
+        String password = null;
+
+        // Look up site-specific credentials from SP password entries
+        String siteId = findSiteIdForUncPath(settings, uncPath);
+        if (siteId != null) {
+            try {
+                String[] cred = CredentialStore.resolveIncludingEmpty("pwd:" + siteId);
+                if (cred[0] != null && !cred[0].isEmpty()) {
+                    user = cred[0];
+                    password = cred[1];
+                }
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "[SP-Auth] Failed to resolve site credentials for " + siteId, e);
+            }
+        }
+
+        // Fallback: legacy global SharePoint credentials
+        if ((user == null || user.isEmpty()) && settings.sharepointUser != null && !settings.sharepointUser.isEmpty()) {
+            user = settings.sharepointUser;
+            password = decryptPassword(settings.sharepointEncryptedPassword);
+        }
 
         if (user != null && !user.trim().isEmpty() && password != null && !password.isEmpty()) {
             if (netUse(uncPath, user, password)) {
@@ -97,9 +118,11 @@ public final class SharePointAuthenticator {
         if (creds == null) return false; // cancelled
         user = creds[0];
         password = creds[1];
+        boolean wantsSave = Boolean.parseBoolean(creds.length > 2 ? creds[2] : "false");
 
         if (netUse(uncPath, user, password)) {
             authenticatedHosts.add(host);
+            if (wantsSave) saveCredentialsForSite(uncPath, user, password);
             return true;
         }
 
@@ -108,9 +131,11 @@ public final class SharePointAuthenticator {
         if (creds == null) return false;
         user = creds[0];
         password = creds[1];
+        wantsSave = Boolean.parseBoolean(creds.length > 2 ? creds[2] : "false");
 
         if (netUse(uncPath, user, password)) {
             authenticatedHosts.add(host);
+            if (wantsSave) saveCredentialsForSite(uncPath, user, password);
             return true;
         }
 
@@ -128,7 +153,8 @@ public final class SharePointAuthenticator {
     /**
      * Show a login dialog for SharePoint WebDAV credentials.
      *
-     * @return {@code {user, password}} or {@code null} if cancelled
+     * @return {@code {user, password, "true"/"false"}} or {@code null} if cancelled.
+     *         The third element indicates whether the user wants to save the credentials.
      */
     public static String[] showLoginDialog(Component parent, String host, String prefillUser) {
         JTextField userField = new JTextField(prefillUser != null ? prefillUser : "", 25);
@@ -142,7 +168,7 @@ public final class SharePointAuthenticator {
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
         panel.add(new JLabel("<html><b>SharePoint-Anmeldung</b><br>"
                 + "<small>Die automatische Anmeldung (Windows SSO) war nicht erfolgreich.<br>"
-                + "Geben Sie Ihre Zugangsdaten für <b>" + escapeHtml(host) + "</b> ein.<br>"
+                + "Geben Sie Ihre Zugangsdaten f\u00fcr <b>" + escapeHtml(host) + "</b> ein.<br>"
                 + "Format: DOMAIN\\Benutzer oder benutzer@domain.de</small></html>"), gbc);
 
         gbc.gridwidth = 1;
@@ -159,7 +185,7 @@ public final class SharePointAuthenticator {
         panel.add(passField, gbc);
 
         gbc.gridy = 3; gbc.gridx = 0; gbc.gridwidth = 2;
-        JCheckBox saveBox = new JCheckBox("Zugangsdaten speichern", true);
+        JCheckBox saveBox = new JCheckBox("Zugangsdaten speichern (unter Passw\u00f6rter)", true);
         panel.add(saveBox, gbc);
 
         // Focus password if user is prefilled
@@ -170,7 +196,7 @@ public final class SharePointAuthenticator {
         }
 
         int result = JOptionPane.showConfirmDialog(parent, panel,
-                "SharePoint — Anmeldung erforderlich",
+                "SharePoint \u2014 Anmeldung erforderlich",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
         if (result != JOptionPane.OK_OPTION) return null;
@@ -179,12 +205,7 @@ public final class SharePointAuthenticator {
         String password = new String(passField.getPassword());
         if (user.isEmpty()) return null;
 
-        // Optionally persist
-        if (saveBox.isSelected()) {
-            saveCredentials(user, password);
-        }
-
-        return new String[]{user, password};
+        return new String[]{user, password, String.valueOf(saveBox.isSelected())};
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -305,6 +326,46 @@ public final class SharePointAuthenticator {
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[SP-Auth] Failed to save credentials", e);
         }
+    }
+
+    /**
+     * Save credentials for a specific UNC path by looking up the matching
+     * SP password entry and storing via CredentialStore.
+     */
+    private static void saveCredentialsForSite(String uncPath, String user, String password) {
+        try {
+            Settings settings = SettingsHelper.load();
+            String siteId = findSiteIdForUncPath(settings, uncPath);
+            if (siteId != null) {
+                CredentialStore.store("pwd:" + siteId, user, password);
+                LOG.fine("[SP-Auth] Site credentials saved for " + siteId + " user: " + user);
+            } else {
+                // Fallback: save as global credentials
+                saveCredentials(user, password);
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[SP-Auth] Failed to save site credentials", e);
+            saveCredentials(user, password);
+        }
+    }
+
+    /**
+     * Find the password entry ID for a given UNC path by matching URLs
+     * in category "SP" password entries.
+     */
+    private static String findSiteIdForUncPath(Settings settings, String uncPath) {
+        if (uncPath == null || settings == null) return null;
+
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if (!"SP".equals(meta.category)) continue;
+            if (meta.url == null || meta.url.isEmpty()) continue;
+
+            String entryUnc = SharePointPathUtil.toUncPath(meta.url);
+            if (uncPath.startsWith(entryUnc) || entryUnc.startsWith(uncPath)) {
+                return meta.id;
+            }
+        }
+        return null;
     }
 
     private static String decryptPassword(String encrypted) {
