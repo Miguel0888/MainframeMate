@@ -450,9 +450,24 @@ public class SpUrlFilterPanel extends JPanel {
         }
     }
 
+    /**
+     * Heuristic: does the value look like it contains intentional regex syntax?
+     * <p>
+     * A plain dot ({@code .}) alone is <b>not</b> treated as regex so that
+     * domain names like {@code sp.abc.com} are auto-quoted.  But a dot
+     * followed by a quantifier ({@code .*}, {@code .+}, {@code .?}) or
+     * any bracket / pipe / anchor <b>is</b> treated as regex.
+     */
     private static boolean isRegexPattern(String val) {
         for (int i = 0; i < val.length(); i++) {
-            if ("[]()*+?{}|\\^$".indexOf(val.charAt(i)) >= 0) return true;
+            char c = val.charAt(i);
+            // Unambiguous regex metacharacters (never appear in plain host/path names)
+            if ("[]()*+?{}|\\^$".indexOf(c) >= 0) return true;
+            // Dot followed by a quantifier → regex (e.g. .*  .+  .?)
+            if (c == '.' && i + 1 < val.length()) {
+                char next = val.charAt(i + 1);
+                if (next == '*' || next == '+' || next == '?' || next == '{') return true;
+            }
         }
         return false;
     }
@@ -483,47 +498,59 @@ public class SpUrlFilterPanel extends JPanel {
     }
 
     /**
-     * For each filled segment, check how many URLs match the partial regex
-     * up to and including that segment.  If zero → colour red.
+     * For each filled segment, check whether the segment pattern matches
+     * <b>at least one</b> URL when evaluated together with all preceding
+     * segments.  Segments that cause zero total matches are coloured red.
+     * <p>
+     * Uses the same regex-building logic as {@link #buildRegex()} so the
+     * highlight is always consistent with the actual filter.
      */
     private void highlightSegments() {
         Color defaultFg = UIManager.getColor("TextField.foreground");
         if (defaultFg == null) defaultFg = Color.BLACK;
 
-        StringBuilder partialRegex = new StringBuilder("https?://");
+        // Build the partial regex incrementally and test against all URLs.
+        StringBuilder partial = new StringBuilder("https?://");
         boolean first = true;
 
         for (int i = 0; i < segmentBoxes.size(); i++) {
             String val = getSegmentValue(i);
             JComboBox<String> box = segmentBoxes.get(i);
             Component editor = box.getEditor().getEditorComponent();
+
             if (val.isEmpty()) {
+                // Empty segment → neutral colour
                 if (editor instanceof JTextField) {
                     ((JTextField) editor).setForeground(defaultFg);
                 }
                 continue;
             }
 
-            if (!first) partialRegex.append("/");
-            partialRegex.append(isRegexPattern(val) ? val : Pattern.quote(val));
+            if (!first) partial.append("/");
+            partial.append(isRegexPattern(val) ? val : Pattern.quote(val));
             first = false;
 
-            int hits = 0;
+            // Test the partial regex as a PREFIX against all URLs.
+            // We allow arbitrary trailing content so that e.g. "domain/sites"
+            // also matches "domain/sites/TeamA/sub".
+            boolean anyMatch = false;
             try {
-                Pattern p = Pattern.compile(partialRegex.toString() + "(/.*)?$",
+                // Use find() with anchored start (^) instead of matches().
+                // This avoids issues with overly strict full-string matching.
+                Pattern p = Pattern.compile("^" + partial + "(/.*)?$",
                         Pattern.CASE_INSENSITIVE);
                 for (String url : allUrls) {
                     if (p.matcher(url).matches()) {
-                        hits++;
-                        break; // one hit is enough — not zero
+                        anyMatch = true;
+                        break;
                     }
                 }
             } catch (PatternSyntaxException ignore) {
-                hits = -1;
+                anyMatch = true; // invalid regex → don't paint red
             }
 
             if (editor instanceof JTextField) {
-                ((JTextField) editor).setForeground(hits == 0 ? Color.RED : defaultFg);
+                ((JTextField) editor).setForeground(anyMatch ? defaultFg : Color.RED);
             }
         }
     }
