@@ -220,6 +220,13 @@ final class KeePassRpcClient {
         addLogin(title, userName, password, url, null, null, false, false, false);
     }
 
+    void addLogin(String title, String userName, String password, String url,
+                  String displayName, String category,
+                  boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+        addLogin(title, userName, password, url, displayName, category,
+                requiresLogin, useProxy, autoIndex, "");
+    }
+
     /**
      * Create a new login entry in KeePass via the {@code AddLogin} V1 RPC call,
      * storing metadata as custom form fields (Advanced String Fields via formFieldList).
@@ -230,7 +237,8 @@ final class KeePassRpcClient {
      */
     void addLogin(String title, String userName, String password, String url,
                   String displayName, String category,
-                  boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+                  boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                  String certAlias) {
         // Build form field list (V1 DTO)
         JsonArray formFields = new JsonArray();
 
@@ -260,6 +268,7 @@ final class KeePassRpcClient {
         addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
         addCustomFormField(formFields, "MM_SavePassword", "false");
         addCustomFormField(formFields, "MM_SessionCache", "false");
+        addCustomFormField(formFields, "MM_CertAlias", certAlias);
 
         // Build login object
         JsonObject login = new JsonObject();
@@ -300,7 +309,7 @@ final class KeePassRpcClient {
      * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call.
      */
     void updateLogin(String title, String userName, String password) {
-        updateLogin(title, userName, password, (String) null, null, null, false, false, false);
+        updateLogin(title, userName, password, (String) null, null, null, false, false, false, "");
     }
 
     /**
@@ -310,6 +319,18 @@ final class KeePassRpcClient {
     void updateLogin(String title, String userName, String password, String url,
                      String displayName, String category,
                      boolean requiresLogin, boolean useProxy, boolean autoIndex) {
+        updateLogin(title, userName, password, url, displayName, category,
+                requiresLogin, useProxy, autoIndex, "");
+    }
+
+    /**
+     * Update an existing login entry in KeePass via the {@code UpdateLogin} V1 RPC call,
+     * storing metadata as custom form fields ({@code MM_*} in formFieldList) including certAlias.
+     */
+    void updateLogin(String title, String userName, String password, String url,
+                     String displayName, String category,
+                     boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                     String certAlias) {
         // First find the existing entry to get its uniqueID
         JsonArray entries = findLoginsByTitle(title);
         if (entries == null || entries.size() == 0) {
@@ -351,6 +372,7 @@ final class KeePassRpcClient {
         addCustomFormField(formFields, "MM_AutoIndex", String.valueOf(autoIndex));
         addCustomFormField(formFields, "MM_SavePassword", "false");
         addCustomFormField(formFields, "MM_SessionCache", "false");
+        addCustomFormField(formFields, "MM_CertAlias", certAlias);
 
         JsonObject login = new JsonObject();
         login.addProperty("title", title);
@@ -781,6 +803,8 @@ final class KeePassRpcClient {
                 sb.append("MM_SavePassword: ").append(mmSavePw != null ? mmSavePw : "false").append('\n');
                 String mmSession = formFieldByName(e, "MM_SessionCache");
                 sb.append("MM_SessionCache: ").append(mmSession != null ? mmSession : "false").append('\n');
+                String mmCert = formFieldByName(e, "MM_CertAlias");
+                sb.append("MM_CertAlias: ").append(mmCert != null ? mmCert : "").append('\n');
 
                 sb.append('\n');
             }

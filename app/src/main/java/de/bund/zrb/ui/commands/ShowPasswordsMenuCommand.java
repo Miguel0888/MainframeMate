@@ -1405,7 +1405,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         CredentialStore.updateKeePassEntry(
                 entry.title, entry.userName, entry.password, entry.url,
                 entry.displayName, entry.category,
-                entry.requiresLogin, entry.useProxy, entry.autoIndex);
+                entry.requiresLogin, entry.useProxy, entry.autoIndex,
+                entry.certAlias);
 
         // Also persist metadata (without credentials) to settings.passwordEntries
         // so that other components (e.g. parseWikiSites) can discover entries.
@@ -1472,6 +1473,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             String mmCat = "", mmDisp = "";
             String mmLogin = "false", mmProxy = "false", mmIdx = "false";
             String mmSavePw = "false", mmSession = "false";
+            String mmCertAlias = "";
 
             for (String line : block.split("\\n")) {
                 line = line.trim();
@@ -1487,6 +1489,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 else if (line.startsWith("MM_AutoIndex: "))       mmIdx     = line.substring(14).trim();
                 else if (line.startsWith("MM_SavePassword: "))    mmSavePw  = line.substring(17).trim();
                 else if (line.startsWith("MM_SessionCache: "))    mmSession = line.substring(17).trim();
+                else if (line.startsWith("MM_CertAlias: "))       mmCertAlias = line.substring(14).trim();
             }
 
             if (!title.isEmpty()) {
@@ -1495,6 +1498,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                         title,
                         !mmDisp.isEmpty() ? mmDisp : title,
                         userName, password, url, uniqueID,
+                        mmCertAlias,
                         "true".equalsIgnoreCase(mmLogin),
                         "true".equalsIgnoreCase(mmProxy),
                         "true".equalsIgnoreCase(mmIdx),
