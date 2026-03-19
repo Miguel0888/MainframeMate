@@ -697,9 +697,11 @@ public class LeftDrawer extends JPanel {
     /**
      * Renderer for the relations/dependencies tree.
      * Natural programs are highlighted with a green background badge and bold text.
+     * System functions (IDCAMS, IEFBR14, …) are highlighted with a blue badge.
      */
     private static class RelationTreeCellRenderer extends DefaultTreeCellRenderer {
         private static final Color NAT_BG = new Color(34, 139, 34);  // forest green
+        private static final Color SYSFUNC_FG = new Color(0, 100, 200);  // blue for system functions
 
         @Override
         public Component getTreeCellRendererComponent(
@@ -714,6 +716,8 @@ public class LeftDrawer extends JPanel {
                 String type = entry.getType();
                 boolean isNatural = (type != null && type.startsWith("JCL_NAT_"))
                         || (entry.getTargetPath() != null && entry.getTargetPath().startsWith("nat-jcl://"));
+                boolean isSysFunc = "JCL_SYSFUNC".equals(type)
+                        || (entry.getTargetPath() != null && entry.getTargetPath().startsWith("sysfunc://"));
                 if (isNatural) {
                     // Natural program entry — render with green highlight
                     setFont(getFont().deriveFont(java.awt.Font.BOLD));
@@ -726,6 +730,18 @@ public class LeftDrawer extends JPanel {
                     }
                     setText(label);
                     setToolTipText("Natural-Programm — Doppelklick zum Öffnen via NDV");
+                } else if (isSysFunc) {
+                    // Known system function — render with blue highlight and link icon
+                    setFont(getFont().deriveFont(java.awt.Font.BOLD));
+                    if (!sel) {
+                        setForeground(SYSFUNC_FG);
+                    }
+                    String label = entry.getLabel();
+                    if (!label.startsWith("🔗") && !label.startsWith("📖")) {
+                        label = "📖 " + label;
+                    }
+                    setText(label);
+                    setToolTipText("Systemfunktion — Doppelklick öffnet Wikipedia-Artikel");
                 } else if (type != null && type.startsWith("DEPENDENCY_")) {
                     setToolTipText(entry.getTargetPath());
                 }

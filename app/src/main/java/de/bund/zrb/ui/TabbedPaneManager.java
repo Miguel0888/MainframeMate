@@ -1048,6 +1048,10 @@ public class TabbedPaneManager {
             return;
         }
 
+        // Build lookup for known system functions (IDCAMS, IEFBR14, …)
+        java.util.Map<String, de.bund.zrb.model.SystemFunctionEntry> sysFuncLookup =
+                de.bund.zrb.helper.SystemFunctionSettingsHelper.buildLookup();
+
         java.util.Map<String, java.util.List<LeftDrawer.RelationEntry>> sections =
                 new java.util.LinkedHashMap<String, java.util.List<LeftDrawer.RelationEntry>>();
         int totalCount = 0;
@@ -1067,6 +1071,14 @@ public class TabbedPaneManager {
                     depType = "JCL_NAT_" + dep.getNaturalLibrary();
                     // targetPath encodes library;program for double-click NDV navigation
                     targetPath = "nat-jcl://" + dep.getNaturalLibrary() + "/" + dep.getNaturalProgram();
+                } else if (kind == de.bund.zrb.service.JclDependencyService.JclDependencyKind.PROGRAM
+                        && sysFuncLookup.containsKey(dep.getTargetName().toUpperCase())) {
+                    // Known system function → link to Wikipedia article
+                    de.bund.zrb.model.SystemFunctionEntry sysFunc =
+                            sysFuncLookup.get(dep.getTargetName().toUpperCase());
+                    depType = "JCL_SYSFUNC";
+                    // Encode wiki search term in targetPath: sysfunc://NAME
+                    targetPath = "sysfunc://" + sysFunc.getName();
                 } else {
                     depType = "JCL_DEP_" + kind.getCode();
                 }
@@ -1108,6 +1120,7 @@ public class TabbedPaneManager {
     /**
      * Recursively convert a JclCallNode to LeftDrawer.CallHierarchyData.
      * Natural program nodes get a targetPath of "nat-jcl://LIB/PROG" for navigation.
+     * Known system functions get a targetPath of "sysfunc://PGM" for Wikipedia linking.
      */
     private LeftDrawer.CallHierarchyData convertJclCallNode(
             de.bund.zrb.service.JclDependencyService.JclCallNode node) {
@@ -1123,6 +1136,30 @@ public class TabbedPaneManager {
         if (natRef != null && natRef.contains(";")) {
             String[] parts = natRef.split(";", 2);
             targetPath = "nat-jcl://" + parts[0] + "/" + parts[1];
+        }
+
+        // Check if this is a known system function (from display text: "▶ STEP → PGM=IDCAMS")
+        if (targetPath == null) {
+            String display = node.getDisplayText();
+            if (display != null && display.contains("PGM=")) {
+                int pgmIdx = display.indexOf("PGM=");
+                String afterPgm = display.substring(pgmIdx + 4).trim();
+                // Extract program name (up to space, bracket, or end)
+                int end = afterPgm.length();
+                for (int i = 0; i < afterPgm.length(); i++) {
+                    char c = afterPgm.charAt(i);
+                    if (c == ' ' || c == ',' || c == ')' || c == '[') {
+                        end = i;
+                        break;
+                    }
+                }
+                String pgm = afterPgm.substring(0, end).toUpperCase();
+                java.util.Map<String, de.bund.zrb.model.SystemFunctionEntry> lookup =
+                        de.bund.zrb.helper.SystemFunctionSettingsHelper.buildLookup();
+                if (lookup.containsKey(pgm)) {
+                    targetPath = "sysfunc://" + pgm;
+                }
+            }
         }
 
         return new LeftDrawer.CallHierarchyData(
@@ -1306,6 +1343,36 @@ public class TabbedPaneManager {
         javax.swing.JOptionPane.showMessageDialog(tabbedPane,
                 "Bitte öffnen Sie zuerst einen Wiki-Tab unter Verbindung → Wiki.",
                 "Kein Wiki verbunden", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Search for a term in an already open WikiConnectionTab.
+     * Switches to the tab and triggers the search.
+     *
+     * @param siteId     preferred site (e.g. "wikipedia_de") — used to select the wiki dropdown if possible
+     * @param searchTerm the term to search for
+     * @return true if a WikiConnectionTab was found and the search was started
+     */
+    public boolean searchInWikiConnectionTab(String siteId, String searchTerm) {
+        for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
+            if (entry.getValue() instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
+                de.bund.zrb.wiki.ui.WikiConnectionTab wikiConn =
+                        (de.bund.zrb.wiki.ui.WikiConnectionTab) entry.getValue();
+                // Switch to the wiki tab
+                int idx = tabbedPane.indexOfComponent(entry.getKey());
+                if (idx >= 0) {
+                    tabbedPane.setSelectedIndex(idx);
+                }
+                // Select the matching wiki site if possible
+                if (siteId != null && !siteId.isEmpty()) {
+                    wikiConn.selectSiteById(siteId);
+                }
+                // Trigger search
+                wikiConn.searchFor(searchTerm);
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

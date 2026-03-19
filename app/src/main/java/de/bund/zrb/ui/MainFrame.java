@@ -405,6 +405,9 @@ public class MainFrame extends JFrame implements MainframeContext {
                         openWikiPageAsTab(siteId, pageTitle);
                     }
                 }
+            } else if ("JCL_SYSFUNC".equals(entry.getType())) {
+                // Known system function → open Wikipedia article
+                openSystemFunctionInWiki(entry);
             } else if (entry.getType() != null && entry.getType().startsWith("JCL_NAT_")) {
                 // Natural program from JCL — open via NDV with library mapping
                 openNaturalFromJcl(entry);
@@ -422,6 +425,8 @@ public class MainFrame extends JFrame implements MainframeContext {
                     openNaturalFromJcl(entry);
                 } else if (targetPath != null && targetPath.startsWith("ndv://")) {
                     openNdvDependencyTarget(targetPath);
+                } else if (targetPath != null && targetPath.startsWith("sysfunc://")) {
+                    openSystemFunctionInWiki(entry);
                 }
             }
         });
@@ -1057,6 +1062,64 @@ public class MainFrame extends JFrame implements MainframeContext {
     private void openWikiPageAsTab(String siteId, String pageTitle) {
         if (tabManager != null) {
             tabManager.openWikiRelationAsTab(siteId, pageTitle);
+        }
+    }
+
+    /**
+     * Open the Wikipedia article for a known system function (IDCAMS, IEFBR14, …).
+     * <p>
+     * Strategy:
+     * <ol>
+     *   <li>Look up the function in system_functions.json</li>
+     *   <li>If a WikiConnectionTab is open → use it to search/navigate (preferred: stays in-app)</li>
+     *   <li>Otherwise → open the Wikipedia article directly in the system browser</li>
+     * </ol>
+     */
+    private void openSystemFunctionInWiki(de.bund.zrb.ui.drawer.LeftDrawer.RelationEntry entry) {
+        String targetPath = entry.getTargetPath(); // sysfunc://IDCAMS
+        if (targetPath == null || !targetPath.startsWith("sysfunc://")) return;
+
+        String pgmName = targetPath.substring("sysfunc://".length());
+        java.util.Map<String, de.bund.zrb.model.SystemFunctionEntry> lookup =
+                de.bund.zrb.helper.SystemFunctionSettingsHelper.buildLookup();
+        de.bund.zrb.model.SystemFunctionEntry sysFunc = lookup.get(pgmName.toUpperCase());
+
+        // Determine search/article title based on locale
+        String wikiTitle = null;
+        String siteId = null;
+        if (sysFunc != null) {
+            // Prefer German, fall back to English, then program name
+            if (sysFunc.getWikiTitleDe() != null && !sysFunc.getWikiTitleDe().isEmpty()) {
+                wikiTitle = sysFunc.getWikiTitleDe();
+                siteId = "wikipedia_de";
+            } else if (sysFunc.getWikiTitleEn() != null && !sysFunc.getWikiTitleEn().isEmpty()) {
+                wikiTitle = sysFunc.getWikiTitleEn();
+                siteId = "wikipedia_en";
+            }
+        }
+        if (wikiTitle == null) {
+            wikiTitle = pgmName;
+            siteId = "wikipedia_de";
+        }
+
+        // Try in-app wiki connection first
+        if (tabManager != null) {
+            final String searchTerm = wikiTitle;
+            final String targetSiteId = siteId;
+            boolean opened = tabManager.searchInWikiConnectionTab(targetSiteId, searchTerm);
+            if (opened) return;
+        }
+
+        // Fallback: open in system browser
+        String baseUrl = "wikipedia_en".equals(siteId)
+                ? "https://en.wikipedia.org/wiki/"
+                : "https://de.wikipedia.org/wiki/";
+        try {
+            java.awt.Desktop.getDesktop().browse(new java.net.URI(baseUrl + java.net.URLEncoder.encode(wikiTitle, "UTF-8").replace("+", "_")));
+        } catch (Exception ex) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Konnte Wikipedia nicht öffnen: " + ex.getMessage(),
+                    "Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
         }
     }
 

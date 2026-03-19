@@ -844,6 +844,31 @@ public class WikiConnectionTab implements ConnectionTab {
         return null;
     }
 
+    /**
+     * Select (check) the wiki site matching the given siteId and optionally uncheck others.
+     * Used when navigating to a system function article so the search targets the right wiki.
+     *
+     * @param siteIdStr site identifier, e.g. "wikipedia_de"
+     */
+    public void selectSiteById(String siteIdStr) {
+        if (siteIdStr == null) return;
+        boolean found = false;
+        for (JCheckBox cb : siteCheckboxes) {
+            WikiSiteDescriptor site = (WikiSiteDescriptor) cb.getClientProperty("wikiSite");
+            if (site != null && site.id().value().equals(siteIdStr)) {
+                cb.setSelected(true);
+                found = true;
+            }
+        }
+        // Also update the internal combo for preview
+        if (found) {
+            WikiSiteDescriptor descriptor = findSiteById(siteIdStr);
+            if (descriptor != null) {
+                siteSelector.setSelectedItem(descriptor);
+            }
+        }
+    }
+
     private WikiSiteDescriptor findSiteDescriptor(WikiSiteId siteId) {
         if (siteId == null) return null;
         return findSiteById(siteId.value());
