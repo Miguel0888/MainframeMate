@@ -3,6 +3,8 @@ package de.bund.zrb.websearch.plugin;
 import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.mcpserver.browser.BrowserSession;
 import de.bund.zrb.event.WDLogEvent;
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import de.bund.zrb.type.log.WDLogEntry;
 import de.bund.zrb.type.session.WDSubscriptionRequest;
 import de.zrb.bund.api.MainframeContext;
@@ -49,7 +51,7 @@ public class WebSearchBrowserManager {
         if (browserPath == null || browserPath.trim().isEmpty()) {
             throw new IllegalStateException(
                     "Browser-Pfad ist nicht konfiguriert. "
-                  + "Bitte unter Einstellungen \u2192 Plugin-Einstellungen \u2192 Websearch setzen.");
+                  + "Bitte unter Einstellungen \u2192 Browser setzen.");
         }
 
         boolean headless = isHeadless();
@@ -57,8 +59,9 @@ public class WebSearchBrowserManager {
         LOG.info("[WebSearch] Launching browser: " + browserPath + " (headless=" + headless + ", debugPort=" + debugPort + ")");
 
         // Apply saved timeout to system property
-        String savedTimeout = loadSettings().getOrDefault("navigateTimeoutSeconds", "30");
-        System.setProperty("websearch.navigate.timeout.seconds", savedTimeout);
+        Settings settings = SettingsHelper.load();
+        System.setProperty("websearch.navigate.timeout.seconds",
+                String.valueOf(settings.browserNavigateTimeoutSeconds));
 
         session = new BrowserSession();
         try {
@@ -118,21 +121,22 @@ public class WebSearchBrowserManager {
 
 
     public String getBrowser() {
-        return loadSettings().getOrDefault("browser", "Firefox");
+        Settings s = SettingsHelper.load();
+        return s.browserType != null ? s.browserType : "Firefox";
     }
 
     public boolean isHeadless() {
         // TODO: vorübergehend deaktiviert zum Debuggen – später wieder aktivieren
         return false;
-        // return !"false".equals(loadSettings().getOrDefault("headless", "true"));
+        // return SettingsHelper.load().browserHeadless;
     }
 
     public String getBrowserPath() {
-        String path = loadSettings().getOrDefault("browserPath", "");
+        Settings s = SettingsHelper.load();
+        String path = s.browserPath;
         if (path != null && !path.trim().isEmpty()) {
             return path;
         }
-        // Default path based on selected browser
         String browser = getBrowser();
         if ("Chrome".equalsIgnoreCase(browser)) {
             return BrowserLauncher.DEFAULT_CHROME_PATH;
@@ -149,13 +153,7 @@ public class WebSearchBrowserManager {
      * 9222 = typical Chrome default.
      */
     public int getDebugPort() {
-        String portStr = loadSettings().getOrDefault("debugPort", "0");
-        try {
-            int port = Integer.parseInt(portStr.trim());
-            return Math.max(0, Math.min(port, 65535));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+        return SettingsHelper.load().browserDebugPort;
     }
 
     /**

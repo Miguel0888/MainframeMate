@@ -164,8 +164,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         this.variableRegistryImpl = VariableRegistryImpl.getInstance();
         this.chatEventBridge = new de.bund.zrb.service.McpChatEventBridge();
         this.agentRegistry = new de.bund.zrb.bot.DefaultAgentRegistry();
-        this.browserService = new de.bund.zrb.browser.Wd4jBrowserService(
-                key -> loadPluginSettings(key));
+        this.browserService = new de.bund.zrb.browser.Wd4jBrowserService();
         this.mcpService = new McpServiceImpl(toolRegistry, chatEventBridge);
         this.workflowRunner = new WorkflowRunnerImpl(this, mcpService, getExpressionRegistry());
         registerTools();

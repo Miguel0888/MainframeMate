@@ -1,39 +1,29 @@
 package de.bund.zrb.browser;
 
+import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.model.Settings;
 import de.zrb.bund.newApi.browser.BrowserException;
 import de.zrb.bund.newApi.browser.BrowserService;
 import de.zrb.bund.newApi.browser.BrowserSession;
 
-import java.util.Map;
 import java.util.logging.Logger;
 
 /**
  * Browser API implementation backed by wd4j (WebDriver BiDi).
  *
  * <p>This class manages the lifecycle of a shared browser session.
- * It delegates to the wd4j-mcp-server's {@code de.bund.zrb.mcpserver.browser.BrowserSession}
- * but wraps it behind the core Browser API interfaces so that plugins
- * never see wd4j-specific types.</p>
+ * Browser configuration (type, path, debug-port, timeout) is read from
+ * the central {@link Settings} fields ({@code browserType}, {@code browserPath}, etc.)
+ * which are edited in <em>Einstellungen → Browser</em>.</p>
  */
 public class Wd4jBrowserService implements BrowserService {
 
     private static final Logger LOG = Logger.getLogger(Wd4jBrowserService.class.getName());
-    private static final String PLUGIN_KEY = "webSearch";
 
-    private final SettingsProvider settingsProvider;
     private volatile Wd4jBrowserSessionAdapter sessionAdapter;
     private volatile de.bund.zrb.mcpserver.browser.BrowserSession wd4jSession;
 
-    /**
-     * Functional interface for loading plugin settings.
-     * Decouples from MainframeContext to avoid circular deps.
-     */
-    public interface SettingsProvider {
-        Map<String, String> loadSettings(String key);
-    }
-
-    public Wd4jBrowserService(SettingsProvider settingsProvider) {
-        this.settingsProvider = settingsProvider;
+    public Wd4jBrowserService() {
     }
 
     @Override
@@ -49,17 +39,17 @@ public class Wd4jBrowserService implements BrowserService {
             sessionAdapter = null;
         }
 
-        String browserPath = getBrowserPath();
+        Settings settings = SettingsHelper.load();
+        String browserPath = resolveBrowserPath(settings);
         if (browserPath == null || browserPath.trim().isEmpty()) {
             throw new BrowserException(
                     "Browser-Pfad ist nicht konfiguriert. "
-                  + "Bitte unter Einstellungen → Plugin-Einstellungen → Websearch setzen.");
+                  + "Bitte unter Einstellungen \u2192 Browser setzen.");
         }
 
-        Map<String, String> settings = settingsProvider.loadSettings(PLUGIN_KEY);
-        int debugPort = parseDebugPort(settings);
-        String savedTimeout = settings.getOrDefault("navigateTimeoutSeconds", "30");
-        System.setProperty("websearch.navigate.timeout.seconds", savedTimeout);
+        int debugPort = settings.browserDebugPort;
+        System.setProperty("websearch.navigate.timeout.seconds",
+                String.valueOf(settings.browserNavigateTimeoutSeconds));
 
         LOG.info("[BrowserService] Launching browser: " + browserPath + " (debugPort=" + debugPort + ")");
 
@@ -107,25 +97,13 @@ public class Wd4jBrowserService implements BrowserService {
 
     @Override
     public String getBrowserType() {
-        Map<String, String> settings = settingsProvider.loadSettings(PLUGIN_KEY);
-        return settings.getOrDefault("browser", "Firefox");
+        Settings settings = SettingsHelper.load();
+        return settings.browserType != null ? settings.browserType : "Firefox";
     }
 
     @Override
     public String getBrowserPath() {
-        Map<String, String> settings = settingsProvider.loadSettings(PLUGIN_KEY);
-        String path = settings.getOrDefault("browserPath", "");
-        if (path != null && !path.trim().isEmpty()) {
-            return path;
-        }
-        String browser = settings.getOrDefault("browser", "Firefox");
-        if ("Chrome".equalsIgnoreCase(browser)) {
-            return de.bund.zrb.mcpserver.browser.BrowserLauncher.DEFAULT_CHROME_PATH;
-        }
-        if ("Edge".equalsIgnoreCase(browser)) {
-            return de.bund.zrb.mcpserver.browser.BrowserLauncher.resolveEdgePath();
-        }
-        return de.bund.zrb.mcpserver.browser.BrowserLauncher.DEFAULT_FIREFOX_PATH;
+        return resolveBrowserPath(SettingsHelper.load());
     }
 
     /**
@@ -136,19 +114,26 @@ public class Wd4jBrowserService implements BrowserService {
         if (wd4jSession != null && wd4jSession.isConnected()) {
             return wd4jSession;
         }
-        // Auto-open if needed (this matches old WebSearchBrowserManager behavior)
         openSession();
         return wd4jSession;
     }
 
-    private int parseDebugPort(Map<String, String> settings) {
-        String portStr = settings.getOrDefault("debugPort", "0");
-        try {
-            int port = Integer.parseInt(portStr.trim());
-            return Math.max(0, Math.min(port, 65535));
-        } catch (NumberFormatException e) {
-            return 0;
+    /**
+     * Resolve the browser executable path from Settings.
+     * If {@code browserPath} is set, use it; otherwise derive from {@code browserType}.
+     */
+    private static String resolveBrowserPath(Settings settings) {
+        String path = settings.browserPath;
+        if (path != null && !path.trim().isEmpty()) {
+            return path;
         }
+        String type = settings.browserType != null ? settings.browserType : "Firefox";
+        if ("Chrome".equalsIgnoreCase(type)) {
+            return de.bund.zrb.mcpserver.browser.BrowserLauncher.DEFAULT_CHROME_PATH;
+        }
+        if ("Edge".equalsIgnoreCase(type)) {
+            return de.bund.zrb.mcpserver.browser.BrowserLauncher.resolveEdgePath();
+        }
+        return de.bund.zrb.mcpserver.browser.BrowserLauncher.DEFAULT_FIREFOX_PATH;
     }
 }
-

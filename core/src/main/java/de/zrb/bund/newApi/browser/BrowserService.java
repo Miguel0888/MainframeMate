@@ -26,6 +26,7 @@ public interface BrowserService {
      */
     BrowserSession openSession() throws BrowserException;
 
+
     /**
      * Returns the current active session, or null if none exists.
      * Does NOT create a new session.

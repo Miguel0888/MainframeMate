@@ -1,7 +1,6 @@
 package de.bund.zrb.websearch.ui;
 
 import de.bund.zrb.mcpserver.browser.BrowserSession;
-import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.mcpserver.research.CookieBannerDismisser;
 import de.bund.zrb.mcpserver.research.NetworkIngestionPipeline;
 import de.bund.zrb.mcpserver.research.ResearchSession;
@@ -36,11 +35,6 @@ public class WebSearchSettingsDialog extends JDialog {
 
     private final MainframeContext context;
     private final WebSearchBrowserManager browserManager;
-    private final JComboBox<String> browserCombo;
-    private final JCheckBox headlessCheckbox;
-    private final JTextField browserPathField;
-    private final JSpinner timeoutSpinner;
-    private final JSpinner debugPortSpinner;
     private final JTextArea whitelistArea;
     private final JTextArea blacklistArea;
     private final JTextArea cookieSelectorsArea;
@@ -77,102 +71,14 @@ public class WebSearchSettingsDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // ── Browser ─────────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        form.add(new JLabel("Browser:"), gbc);
-
-        browserCombo = new JComboBox<>(new String[]{"Firefox", "Chrome", "Edge"});
-        String savedBrowser = settings.getOrDefault("browser", "Firefox");
-        browserCombo.setSelectedItem(savedBrowser);
-        gbc.gridx = 1; gbc.weightx = 1;
-        form.add(browserCombo, gbc);
-
-
-        // ── Browser-Pfad ────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        form.add(new JLabel("Browser-Pfad:"), gbc);
-
-        JPanel pathPanel = new JPanel(new BorderLayout(5, 0));
-        String savedBrowserPath = settings.getOrDefault("browserPath", "");
-        String defaultBrowserPath = getDefaultPathForBrowser(savedBrowser);
-        String displayPath = (savedBrowserPath != null && !savedBrowserPath.trim().isEmpty())
-                ? savedBrowserPath : defaultBrowserPath;
-        browserPathField = new JTextField(displayPath, 25);
-        browserPathField.setToolTipText("Standard: " + defaultBrowserPath);
-        pathPanel.add(browserPathField, BorderLayout.CENTER);
-
-        JButton browseBtn = new JButton("...");
-        browseBtn.setPreferredSize(new Dimension(30, 25));
-        browseBtn.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setDialogTitle("Browser-Executable auswählen");
-            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                browserPathField.setText(chooser.getSelectedFile().getAbsolutePath());
-            }
-        });
-        pathPanel.add(browseBtn, BorderLayout.EAST);
-
-        gbc.gridx = 1; gbc.weightx = 1;
-        form.add(pathPanel, gbc);
-
-        // ── Headless ────────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
-        form.add(new JLabel("Modus:"), gbc);
-
-        headlessCheckbox = new JCheckBox("Headless (ohne sichtbares Fenster)");
-        boolean headless = !"false".equals(settings.getOrDefault("headless", "true"));
-        headlessCheckbox.setSelected(headless);
-        gbc.gridx = 1; gbc.weightx = 1;
-        form.add(headlessCheckbox, gbc);
-
-        // ── Debug-Port ──────────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 3; gbc.weightx = 0; gbc.gridwidth = 1;
-        form.add(new JLabel("Debug-Port:"), gbc);
-
-        int savedDebugPort = 0;
-        try {
-            savedDebugPort = Integer.parseInt(settings.getOrDefault("debugPort", "0"));
-        } catch (NumberFormatException ignored) {}
-        debugPortSpinner = new JSpinner(new SpinnerNumberModel(savedDebugPort, 0, 65535, 1));
-        debugPortSpinner.setToolTipText(
-                "Remote-Debugging-Port für die Browser-Verbindung.\n"
-              + "0 = automatisch einen freien Port wählen (Standard für Firefox).\n"
-              + "9222 = typischer Chrome-Default.\n"
-              + "Ein fester Port kann nützlich sein um sich von außen zu verbinden.");
-        gbc.gridx = 1; gbc.weightx = 1;
-        form.add(debugPortSpinner, gbc);
-
-        // ── Browser-Combo ActionListener ────────────────────────────
-        // (registered after all fields are initialized to avoid NPE)
-        browserCombo.addActionListener(e -> {
-            String selected = (String) browserCombo.getSelectedItem();
-            if (selected != null) {
-                browserPathField.setText(getDefaultPathForBrowser(selected));
-                browserPathField.setToolTipText("Standard: " + getDefaultPathForBrowser(selected));
-                // Chrome/Edge default port is 9222, Firefox uses 0 (auto)
-                if ("Chrome".equalsIgnoreCase(selected) || "Edge".equalsIgnoreCase(selected)) {
-                    debugPortSpinner.setValue(9222);
-                } else {
-                    debugPortSpinner.setValue(0);
-                }
-            }
-        });
-
-        // ── Navigate-Timeout ────────────────────────────────────────
-        gbc.gridx = 0; gbc.gridy = 4; gbc.weightx = 0; gbc.gridwidth = 1;
-        form.add(new JLabel("Navigate-Timeout (s):"), gbc);
-
-        int savedTimeout = 30;
-        try {
-            savedTimeout = Integer.parseInt(settings.getOrDefault("navigateTimeoutSeconds", "30"));
-        } catch (NumberFormatException ignored) {}
-        timeoutSpinner = new JSpinner(new SpinnerNumberModel(savedTimeout, 5, 300, 5));
-        timeoutSpinner.setToolTipText("Maximale Wartezeit in Sekunden für eine Seitennavigation (Standard: 30)");
-        gbc.gridx = 1; gbc.weightx = 1;
-        form.add(timeoutSpinner, gbc);
-
-        // Apply timeout to system properties immediately
-        System.setProperty("websearch.navigate.timeout.seconds", String.valueOf(savedTimeout));
+        // ── Browser-Info ─────────────────────────────────────────
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.weightx = 1;
+        JLabel browserInfo = new JLabel(
+                "<html><i>Browser-Typ, Pfad, Debug-Port und Timeout werden unter "
+              + "<b>Einstellungen \u2192 Browser</b> konfiguriert.</i></html>");
+        browserInfo.setForeground(Color.GRAY);
+        form.add(browserInfo, gbc);
+        gbc.gridwidth = 1;
 
         // ── Recherche-Einstellungen ───────────────────────────────
         gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.weightx = 1;
@@ -398,10 +304,10 @@ public class WebSearchSettingsDialog extends JDialog {
         JButton testButton = new JButton("🔌 Verbindung testen");
         testButton.setToolTipText("Startet den Browser und testet die WebDriver-BiDi-Verbindung");
         testButton.addActionListener(e -> {
-            String browser = (String) browserCombo.getSelectedItem();
-            String path = browserPathField.getText().trim();
-            boolean hl = headlessCheckbox.isSelected();
-            int port = ((Number) debugPortSpinner.getValue()).intValue();
+            String browser = browserManager.getBrowser();
+            String path = browserManager.getBrowserPath();
+            boolean hl = browserManager.isHeadless();
+            int port = browserManager.getDebugPort();
             BrowserConnectionTestDialog testDialog = new BrowserConnectionTestDialog(this);
             testDialog.setVisible(true);
             testDialog.startTest(browser, path, hl, port);
@@ -608,12 +514,6 @@ public class WebSearchSettingsDialog extends JDialog {
 
     private void saveSettings() {
         Map<String, String> settings = new LinkedHashMap<>();
-        settings.put("browser", (String) browserCombo.getSelectedItem());
-        settings.put("headless", String.valueOf(headlessCheckbox.isSelected()));
-        settings.put("browserPath", browserPathField.getText().trim());
-        String timeoutVal = String.valueOf(timeoutSpinner.getValue());
-        settings.put("navigateTimeoutSeconds", timeoutVal);
-        settings.put("debugPort", String.valueOf(debugPortSpinner.getValue()));
         settings.put("urlWhitelist", whitelistArea.getText());
         settings.put("urlBlacklist", blacklistArea.getText());
 
@@ -635,8 +535,6 @@ public class WebSearchSettingsDialog extends JDialog {
 
         context.savePluginSettings(PLUGIN_KEY, settings);
 
-        // Apply timeout to system properties so tools pick it up immediately
-        System.setProperty("websearch.navigate.timeout.seconds", timeoutVal);
 
         // Apply Recherche system properties
         System.setProperty("websearch.history.enabled", String.valueOf(historyNavigationCheckbox.isSelected()));
@@ -666,21 +564,6 @@ public class WebSearchSettingsDialog extends JDialog {
         }
         CookieBannerDismisser.setDismissScript(
                 script != null && !script.isEmpty() ? script : null);
-    }
-
-    /**
-     * Returns the default executable path for the given browser name.
-     */
-    private static String getDefaultPathForBrowser(String browser) {
-        if (browser == null) return BrowserLauncher.DEFAULT_FIREFOX_PATH;
-        switch (browser.toLowerCase()) {
-            case "chrome":
-                return BrowserLauncher.DEFAULT_CHROME_PATH;
-            case "edge":
-                return BrowserLauncher.resolveEdgePath();
-            default:
-                return BrowserLauncher.DEFAULT_FIREFOX_PATH;
-        }
     }
 }
 

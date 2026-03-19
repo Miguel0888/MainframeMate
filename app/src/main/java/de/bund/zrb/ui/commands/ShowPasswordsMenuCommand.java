@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.helper.SettingsHelper;
+import de.bund.zrb.mcpserver.browser.BrowserLauncher;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.sharepoint.SharePointLinkFetcher;
 import de.bund.zrb.sharepoint.SharePointPathUtil;
