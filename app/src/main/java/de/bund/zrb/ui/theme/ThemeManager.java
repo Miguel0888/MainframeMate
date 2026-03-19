@@ -23,6 +23,8 @@ public final class ThemeManager {
     private static final ThemeManager INSTANCE = new ThemeManager();
     private final String systemLafClassName;
     private AppTheme currentTheme = AppTheme.CLASSIC;
+    /** Once JNA title-bar call fails, stop retrying for the rest of the session. */
+    private volatile boolean jnaTitleBarDisabled = false;
 
     private ThemeManager() {
         systemLafClassName = UIManager.getSystemLookAndFeelClassName();
@@ -462,6 +464,7 @@ public final class ThemeManager {
 
     private void applyWindowsTitleBar(Window window) {
         if (!(window instanceof JFrame)) return;
+        if (jnaTitleBarDisabled) return;
         try {
             if (!System.getProperty("os.name", "").toLowerCase().contains("win")) return;
             long hwndLong = com.sun.jna.Native.getWindowID(window);
@@ -472,8 +475,11 @@ public final class ThemeManager {
             val.setInt(0, currentTheme.isDark ? 1 : 0);
             com.sun.jna.Function dwm = com.sun.jna.Function.getFunction("dwmapi", "DwmSetWindowAttribute");
             dwm.invoke(int.class, new Object[]{hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, val, 4});
-        } catch (Exception | UnsatisfiedLinkError e) {
-            // JNA not available or not on Windows – ignore
+        } catch (Throwable e) {
+            // JNA not available, DLL blocked by OS policy, or not on Windows – disable permanently
+            jnaTitleBarDisabled = true;
+            System.err.println("[ThemeManager] JNA dark title bar disabled: " + e.getClass().getSimpleName()
+                    + " – " + e.getMessage());
         }
     }
 
