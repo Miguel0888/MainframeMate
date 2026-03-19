@@ -551,7 +551,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             JOptionPane.showMessageDialog(parent,
                     "Browser-Service ist nicht verf\u00fcgbar.\n\n"
                             + "Bitte konfigurieren Sie den Browser unter\n"
-                            + "Einstellungen \u2192 Plugin-Einstellungen \u2192 Websearch.",
+                            + "Einstellungen \u2192 Browser.",
                     "Browser nicht verf\u00fcgbar", JOptionPane.ERROR_MESSAGE);
             return;
         }
