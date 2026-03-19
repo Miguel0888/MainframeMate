@@ -245,6 +245,15 @@ public class Settings {
     // Video Recording Settings (key-value map for flexibility)
     public Map<String, Object> videoSettings = new LinkedHashMap<String, Object>();
 
+    // Browser Connection Settings
+    public String browserType = "Firefox";                  // Firefox, Chrome, Edge
+    public String browserPath = "";                         // Pfad zum Browser-Executable (leer = Default)
+    public boolean browserHeadless = true;                  // Headless-Modus (Standard: an)
+    public int browserDebugPort = 0;                        // Debug-Port (0 = automatisch)
+    public int browserNavigateTimeoutSeconds = 30;          // Navigations-Timeout in Sekunden
+    public String browserHomePage = "https://zrb.bund.de"; // Startseite
+
+
     /**
      * Resolves the default KeePass 2.x installation directory using %ProgramFiles(x86)%.
      * Falls back to empty string if the environment variable is not set.

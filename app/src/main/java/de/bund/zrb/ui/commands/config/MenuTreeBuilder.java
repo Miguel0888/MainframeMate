@@ -37,6 +37,8 @@ public class MenuTreeBuilder {
                 "---3",
                 "betaview",
                 "---4",
+                "browser",
+                "---5",
                 "dos"
         ));
         // Navigieren-Menü Reihenfolge

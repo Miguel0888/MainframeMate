@@ -87,6 +87,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistryImpl.register(new OpenConfluenceMenuCommand());
         CommandRegistryImpl.register(new OpenCacheMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new OpenBetaViewMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new OpenBrowserMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new Connect3270MenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectJesMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new OpenDosMenuCommand(this, tabManager));

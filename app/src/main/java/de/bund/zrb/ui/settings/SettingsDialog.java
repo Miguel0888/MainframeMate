@@ -36,6 +36,7 @@ public class SettingsDialog {
         categories.add(new JesSpoolSettingsPanel());
         categories.add(new WikiSettingsPanel());
         categories.add(new Tn3270SettingsPanel());
+        categories.add(new BrowserSettingsPanel());
         categories.add(new AiSettingsPanel());
         categories.add(wrapPanel("rag", "RAG", ragPanel, ragPanel::saveToSettings));
         categories.add(new ProxySettingsPanel(parent));
