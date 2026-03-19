@@ -88,6 +88,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistryImpl.register(new OpenCacheMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new OpenBetaViewMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new OpenBrowserMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new OpenSharePointMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new Connect3270MenuCommand(this, tabManager));
         CommandRegistryImpl.register(new ConnectJesMenuCommand(this, tabManager));
         CommandRegistryImpl.register(new OpenDosMenuCommand(this, tabManager));
@@ -538,6 +539,13 @@ public class MainFrame extends JFrame implements MainframeContext {
             return null; // opened async
         }
 
+        // Route sp:// paths to SharePoint
+        if (path.startsWith(de.bund.zrb.model.BookmarkEntry.PREFIX_SHAREPOINT)) {
+            String spPath = path.substring(de.bund.zrb.model.BookmarkEntry.PREFIX_SHAREPOINT.length());
+            openSharePointBookmark(spPath);
+            return null;
+        }
+
         return new VirtualResourceOpener(tabManager)
                 .open(path, sentenceType, searchPattern, toCompare);
     }
@@ -580,6 +588,9 @@ public class MainFrame extends JFrame implements MainframeContext {
                 break;
             case "BROWSER":
                 openBrowserBookmark(rawPath);
+                break;
+            case "SHAREPOINT":
+                openSharePointBookmark(rawPath);
                 break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
@@ -650,6 +661,64 @@ public class MainFrame extends JFrame implements MainframeContext {
                             "Browser konnte nicht gestartet werden:\n"
                                     + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()),
                             "Browser-Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Open a SharePoint bookmark. Navigates an existing SharePointConnectionTab to the URL,
+     * or opens a new one.
+     */
+    private void openSharePointBookmark(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) return;
+
+        // Try to find an existing SharePointConnectionTab
+        SharePointConnectionTab existingTab = tabManager.findTabOfType(SharePointConnectionTab.class);
+        if (existingTab != null) {
+            tabManager.selectTab(existingTab);
+            existingTab.navigateToUrl(rawPath);
+            return;
+        }
+
+        // No existing tab — create and launch
+        SharePointConnectionTab spTab = new SharePointConnectionTab();
+
+        de.bund.zrb.ui.drawer.LeftDrawer leftDrawer = getBookmarkDrawer();
+        if (leftDrawer != null) {
+            spTab.setLinksCallback(entries ->
+                    javax.swing.SwingUtilities.invokeLater(() ->
+                            leftDrawer.updateRelations("SharePoint-Seiten", entries)));
+            leftDrawer.setOnRelationOpen(entry -> {
+                if ("SP_LINK".equals(entry.getType())) {
+                    spTab.navigateToUrl(entry.getTargetPath());
+                }
+            });
+        }
+
+        tabManager.addTab(spTab);
+
+        final String targetUrl = rawPath;
+        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+        new javax.swing.SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                spTab.launchBrowser();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    get();
+                    spTab.navigateToUrl(targetUrl);
+                    tabManager.updateTitleFor(spTab);
+                } catch (Exception e) {
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "SharePoint-Browser konnte nicht gestartet werden:\n"
+                                    + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()),
+                            "SharePoint-Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
                 }
             }
         }.execute();

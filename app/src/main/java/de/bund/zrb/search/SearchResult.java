@@ -11,7 +11,8 @@ public class SearchResult implements Comparable<SearchResult> {
         NDV("🔗", "NDV"),
         MAIL("📧", "Mail"),
         RAG("🤖", "RAG"),
-        ARCHIVE("📦", "Archiv");
+        ARCHIVE("📦", "Archiv"),
+        SHAREPOINT("📊", "SharePoint");
 
         private final String icon;
         private final String label;

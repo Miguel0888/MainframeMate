@@ -287,6 +287,9 @@ public class SearchService {
         // NDV
         if (docId.contains("NDV:") || docId.contains("ndv:")) return SearchResult.SourceType.NDV;
 
+        // SharePoint
+        if (docId.startsWith("SP:") || docId.startsWith("sp://")) return SearchResult.SourceType.SHAREPOINT;
+
         // Default: local
         return SearchResult.SourceType.LOCAL;
     }

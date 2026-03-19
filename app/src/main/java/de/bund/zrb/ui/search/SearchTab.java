@@ -34,7 +34,7 @@ public class SearchTab extends JPanel implements FtpTab {
     private final JLabel statusLabel;
 
     // Source filter checkboxes
-    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbArchive;
+    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbArchive, cbSharePoint;
     private final JLabel ragStatusLabel;
 
     // Sorting
@@ -123,6 +123,7 @@ public class SearchTab extends JPanel implements FtpTab {
         cbNdv = new JCheckBox("\uD83D\uDD17 NDV", true);
         cbMail = new JCheckBox("\uD83D\uDCE7 Mail", true);
         cbArchive = new JCheckBox("\uD83D\uDCE6 Archiv", true);
+        cbSharePoint = new JCheckBox("\uD83D\uDCCA SP", true);
 
         // Restore persisted checkbox selection
         restoreApplicationState();
@@ -134,6 +135,7 @@ public class SearchTab extends JPanel implements FtpTab {
         cbNdv.addItemListener(saveOnToggle);
         cbMail.addItemListener(saveOnToggle);
         cbArchive.addItemListener(saveOnToggle);
+        cbSharePoint.addItemListener(saveOnToggle);
 
         int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
         ragStatusLabel = new JLabel(semSize > 0
@@ -149,6 +151,7 @@ public class SearchTab extends JPanel implements FtpTab {
         sourcePanel.add(cbNdv);
         sourcePanel.add(cbMail);
         sourcePanel.add(cbArchive);
+        sourcePanel.add(cbSharePoint);
         sourcePanel.add(Box.createHorizontalStrut(8));
         sourcePanel.add(ragStatusLabel);
 
@@ -405,7 +408,17 @@ public class SearchTab extends JPanel implements FtpTab {
         String query = searchField.getText().trim();
         if (query.isEmpty()) return;
 
-        lastQuery = query;
+        // Detect source prefix shortcuts (e.g. "SP:query" → search only SharePoint)
+        String effectiveQuery = query;
+        Set<SearchResult.SourceType> forcedSources = null;
+        if (query.toUpperCase().startsWith("SP:")) {
+            effectiveQuery = query.substring(3).trim();
+            if (effectiveQuery.isEmpty()) return;
+            forcedSources = new LinkedHashSet<SearchResult.SourceType>();
+            forcedSources.add(SearchResult.SourceType.SHAREPOINT);
+        }
+
+        lastQuery = effectiveQuery;
 
         if (currentSearch != null && !currentSearch.isDone()) {
             currentSearch.cancel(true);
@@ -413,10 +426,12 @@ public class SearchTab extends JPanel implements FtpTab {
 
         clearResults();
         searchButton.setEnabled(false);
-        statusLabel.setText("\uD83D\uDD0D Suche nach: \"" + query + "\"\u2026");
+        statusLabel.setText("\uD83D\uDD0D Suche nach: \"" + effectiveQuery + "\"\u2026"
+                + (forcedSources != null ? " [SharePoint]" : ""));
         statusLabel.setForeground(new Color(255, 152, 0));
 
-        Set<SearchResult.SourceType> sources = getSelectedSources();
+        final Set<SearchResult.SourceType> sources = forcedSources != null ? forcedSources : getSelectedSources();
+        final String searchQuery = effectiveQuery;
         int maxResults = (Integer) maxResultsSpinner.getValue();
 
         long startTime = System.currentTimeMillis();
@@ -424,7 +439,7 @@ public class SearchTab extends JPanel implements FtpTab {
         new SwingWorker<List<SearchResult>, Void>() {
             @Override
             protected List<SearchResult> doInBackground() {
-                return searchService.search(query, sources, maxResults, false);
+                return searchService.search(searchQuery, sources, maxResults, false);
             }
 
             @Override
@@ -489,6 +504,7 @@ public class SearchTab extends JPanel implements FtpTab {
         if (cbNdv.isSelected()) sources.add(SearchResult.SourceType.NDV);
         if (cbMail.isSelected()) sources.add(SearchResult.SourceType.MAIL);
         if (cbArchive.isSelected()) sources.add(SearchResult.SourceType.ARCHIVE);
+        if (cbSharePoint.isSelected()) sources.add(SearchResult.SourceType.SHAREPOINT);
         return sources;
     }
 
@@ -613,6 +629,13 @@ public class SearchTab extends JPanel implements FtpTab {
                 rawPath = rawPath.substring("NDV:".length());
             }
 
+            // SharePoint results: documentId has format "SP:siteUrl/pagePath"
+            // Strip the "SP:" prefix before prepending the "sp://" scheme.
+            if (result.getSource() == SearchResult.SourceType.SHAREPOINT
+                    && rawPath.startsWith("SP:")) {
+                rawPath = rawPath.substring("SP:".length());
+            }
+
             // Build prefixed path based on source typSchluessel so the routing in
             // MainFrame.openFileOrDirectory() can dispatch to the correct backend
             String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.buildPrefixedPath(
@@ -714,6 +737,7 @@ public class SearchTab extends JPanel implements FtpTab {
             case NDV:   return "NDV";
             case MAIL:  return "MAIL";
             case ARCHIVE: return "ARCHIVE";
+            case SHAREPOINT: return "SHAREPOINT";
             default:    return "LOCAL";
         }
     }
@@ -843,6 +867,7 @@ public class SearchTab extends JPanel implements FtpTab {
         state.put("search.source.ndv", String.valueOf(cbNdv.isSelected()));
         state.put("search.source.mail", String.valueOf(cbMail.isSelected()));
         state.put("search.source.archive", String.valueOf(cbArchive.isSelected()));
+        state.put("search.source.sharepoint", String.valueOf(cbSharePoint.isSelected()));
         de.bund.zrb.helper.SettingsHelper.save(s);
     }
 
@@ -854,6 +879,7 @@ public class SearchTab extends JPanel implements FtpTab {
         if (state.containsKey("search.source.ndv")) cbNdv.setSelected(Boolean.parseBoolean(state.get("search.source.ndv")));
         if (state.containsKey("search.source.mail")) cbMail.setSelected(Boolean.parseBoolean(state.get("search.source.mail")));
         if (state.containsKey("search.source.archive")) cbArchive.setSelected(Boolean.parseBoolean(state.get("search.source.archive")));
+        if (state.containsKey("search.source.sharepoint")) cbSharePoint.setSelected(Boolean.parseBoolean(state.get("search.source.sharepoint")));
     }
 
     // ═══════════════════════════════════════════════════════════════

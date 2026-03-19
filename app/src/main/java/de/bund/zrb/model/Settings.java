@@ -253,6 +253,10 @@ public class Settings {
     public int browserNavigateTimeoutSeconds = 30;          // Navigations-Timeout in Sekunden
     public String browserHomePage = "https://zrb.bund.de"; // Startseite
 
+    // SharePoint Connection Settings
+    public String sharepointParentPageUrl = "";              // URL der Parent-Seite, aus der SharePoint-Links extrahiert werden
+    public int sharepointCacheConcurrency = 2;               // Parallele Downloads beim Caching
+
 
     /**
      * Resolves the default KeePass 2.x installation directory using %ProgramFiles(x86)%.

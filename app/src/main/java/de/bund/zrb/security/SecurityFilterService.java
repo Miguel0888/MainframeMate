@@ -40,7 +40,7 @@ public class SecurityFilterService {
 
     /** All known connection groups (order matters for UI). */
     public static final String[] ALL_GROUPS = {
-            "LOCAL", "FTP", "NDV", "WIKI", "MAIL", "BETAVIEW"
+            "LOCAL", "FTP", "NDV", "WIKI", "MAIL", "BETAVIEW", "SHAREPOINT"
     };
 
     /** German display names for groups. */
@@ -53,6 +53,7 @@ public class SecurityFilterService {
         m.put("WIKI", "Wiki");
         m.put("MAIL", "Mail");
         m.put("BETAVIEW", "BetaView");
+        m.put("SHAREPOINT", "SharePoint");
         GROUP_LABELS = Collections.unmodifiableMap(m);
     }
 

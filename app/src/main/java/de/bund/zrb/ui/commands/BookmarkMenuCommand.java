@@ -3,6 +3,7 @@ package de.bund.zrb.ui.commands;
 import de.bund.zrb.ui.BrowserConnectionTab;
 import de.bund.zrb.ui.FileTabImpl;
 import de.bund.zrb.ui.MainFrame;
+import de.bund.zrb.ui.SharePointConnectionTab;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.api.ShortcutMenuCommand;
@@ -45,6 +46,8 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
         String backendType = "LOCAL";
         if (tab instanceof BrowserConnectionTab) {
             backendType = "BROWSER";
+        } else if (tab instanceof SharePointConnectionTab) {
+            backendType = "SHAREPOINT";
         } else if (tab instanceof FileTabImpl) {
             FileTabImpl ft = (FileTabImpl) tab;
             if (ft.getResource() != null) {

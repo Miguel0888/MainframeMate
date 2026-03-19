@@ -24,6 +24,8 @@ public final class VirtualResourceRef {
     public static final String NDV_PREFIX = "ndv://";
     /** Prefix for BetaView document paths */
     public static final String BETAVIEW_PREFIX = "betaview://";
+    /** Prefix for SharePoint pages */
+    public static final String SHAREPOINT_PREFIX = "sp://";
 
     private final String raw;
 
@@ -179,6 +181,7 @@ public final class VirtualResourceRef {
             case "NDV":  return NDV_PREFIX + rawPath;
             case "MAIL":     return MAIL_PREFIX + rawPath;
             case "BETAVIEW": return BETAVIEW_PREFIX + rawPath;
+            case "SHAREPOINT": return SHAREPOINT_PREFIX + rawPath;
             default:     return LOCAL_PREFIX + rawPath;
         }
     }

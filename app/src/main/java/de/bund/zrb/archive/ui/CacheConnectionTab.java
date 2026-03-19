@@ -69,7 +69,7 @@ public class CacheConnectionTab implements ConnectionTab {
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 
         sourceTypeFilter = new JComboBox<>(new String[]{
-                "Alle Quellen", "🌐 Web", "📁 FTP", "🖥 NDV", "📧 Mail", "📘 BetaView"});
+                "Alle Quellen", "🌐 Web", "📁 FTP", "🖥 NDV", "📧 Mail", "📘 BetaView", "📊 SharePoint"});
         sourceTypeFilter.addActionListener(e -> {
             updateFilterVisibility();
             switchView();

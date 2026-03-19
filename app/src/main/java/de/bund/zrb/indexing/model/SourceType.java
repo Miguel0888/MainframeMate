@@ -11,7 +11,8 @@ public enum SourceType {
     WEB("Web/URL"),
     BETAVIEW("BetaView"),
     WIKI("Wiki"),
-    CONFLUENCE("Confluence");
+    CONFLUENCE("Confluence"),
+    SHAREPOINT("SharePoint");
 
     private final String displayName;
 
