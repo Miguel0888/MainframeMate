@@ -197,6 +197,7 @@ public class Settings {
         public String category = "Mainframe";
         public String displayName = "";
         public String url = "";
+        public String certAlias = "";
         public boolean requiresLogin;
         public boolean useProxy;
         public boolean autoIndex;

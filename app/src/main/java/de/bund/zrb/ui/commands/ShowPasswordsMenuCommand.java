@@ -40,7 +40,7 @@ import java.util.logging.Logger;
 public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static final Logger LOG = Logger.getLogger(ShowPasswordsMenuCommand.class.getName());
-    private static final List<String> CATEGORIES = Arrays.asList("Mainframe", "Wiki", "SP");
+    private static final List<String> CATEGORIES = Arrays.asList("Mainframe", "Wiki", "SP", "Confluence");
 
     private final JFrame parent;
 
@@ -321,6 +321,24 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         JPasswordField passField    = new JPasswordField(existing != null ? existing.password : "", 25);
         JTextField urlField         = new JTextField(existing != null ? existing.url : "", 25);
 
+        // Certificate alias (Confluence)
+        final JTextField certAliasField = new JTextField(
+                existing != null ? existing.certAlias : "", 25);
+        certAliasField.setEditable(false);
+        certAliasField.setBackground(UIManager.getColor("TextField.inactiveBackground"));
+        JButton certChooseBtn = new JButton("🔒 Zertifikat…");
+        certChooseBtn.setToolTipText("Windows-Zertifikat für mTLS-Authentifizierung auswählen");
+        certChooseBtn.addActionListener(e -> {
+            String chosen = de.bund.zrb.confluence.CertificateChooser.showChooserDialog(
+                    parent, certAliasField.getText().trim());
+            if (chosen != null) {
+                certAliasField.setText(chosen);
+            }
+        });
+        JPanel certPanel = new JPanel(new BorderLayout(4, 0));
+        certPanel.add(certAliasField, BorderLayout.CENTER);
+        certPanel.add(certChooseBtn, BorderLayout.EAST);
+
         JCheckBox loginCb    = new JCheckBox("Login erforderlich");
         JCheckBox proxyCb    = new JCheckBox("Proxy verwenden");
         JCheckBox autoIdxCb  = new JCheckBox("Auto-Index");
@@ -352,17 +370,31 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         // URL label — will be updated based on category
         JLabel urlLabel = new JLabel("URL:");
+        JLabel certLabel = new JLabel("Zertifikat:");
 
-        // Update URL requirement when category changes
-        categoryBox.addActionListener(e -> {
-            String cat = (String) categoryBox.getSelectedItem();
-            boolean urlRequired = "Wiki".equals(cat) || "SP".equals(cat);
-            urlLabel.setText(urlRequired ? "URL: *" : "URL:");
-        });
+        // Update URL requirement and cert visibility when category changes
+        Runnable updateCategoryUi = new Runnable() {
+            @Override
+            public void run() {
+                String cat = (String) categoryBox.getSelectedItem();
+                boolean urlRequired = "Wiki".equals(cat) || "SP".equals(cat) || "Confluence".equals(cat);
+                urlLabel.setText(urlRequired ? "URL: *" : "URL:");
+                boolean showCert = "Confluence".equals(cat);
+                certLabel.setVisible(showCert);
+                certPanel.setVisible(showCert);
+            }
+        };
+        categoryBox.addActionListener(e -> updateCategoryUi.run());
+
         // Set initial state
-        if (existing != null && ("Wiki".equals(existing.category) || "SP".equals(existing.category))) {
+        if (existing != null && ("Wiki".equals(existing.category) || "SP".equals(existing.category)
+                || "Confluence".equals(existing.category))) {
             urlLabel.setText("URL: *");
         }
+        // Initial cert visibility
+        boolean showCertInitial = existing != null && "Confluence".equals(existing.category);
+        certLabel.setVisible(showCertInitial);
+        certPanel.setVisible(showCertInitial);
 
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -405,6 +437,12 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(urlField, gbc);
 
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(certLabel, gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(certPanel, gbc);
+
         // ── Separator + Checkboxes ──
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
@@ -432,8 +470,18 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         JButton ssoTestBtn = new JButton("\uD83D\uDD11 SSO testen\u2026");
         ssoTestBtn.setToolTipText("Windows Integrated Auth (Kerberos/NTLM) f\u00fcr diese SharePoint-Site testen");
         ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem()));
-        categoryBox.addActionListener(e ->
-                ssoTestBtn.setVisible("SP".equals(categoryBox.getSelectedItem())));
+
+        // Confluence connection test button
+        JButton confluenceTestBtn = new JButton("🔗 Verbindung testen");
+        confluenceTestBtn.setToolTipText("REST-Verbindung mit Zertifikat + Basic Auth testen");
+        confluenceTestBtn.setVisible("Confluence".equals(categoryBox.getSelectedItem()));
+
+        categoryBox.addActionListener(e -> {
+            String cat = (String) categoryBox.getSelectedItem();
+            ssoTestBtn.setVisible("SP".equals(cat));
+            confluenceTestBtn.setVisible("Confluence".equals(cat));
+            updateCategoryUi.run();
+        });
         ssoTestBtn.addActionListener(e -> {
             String testUrl = urlField.getText().trim();
             if (testUrl.isEmpty()) {
@@ -476,6 +524,54 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             }.execute();
         });
 
+        confluenceTestBtn.addActionListener(e -> {
+            String testUrl = urlField.getText().trim();
+            String testAlias = certAliasField.getText().trim();
+            String testUser = userField.getText().trim();
+            String testPass = new String(passField.getPassword());
+            if (testUrl.isEmpty() || testAlias.isEmpty() || testUser.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog,
+                        "Bitte URL, Zertifikat-Alias und Benutzername eingeben.",
+                        "Confluence-Test", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            dialog.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            new SwingWorker<Integer, Void>() {
+                @Override
+                protected Integer doInBackground() {
+                    de.bund.zrb.confluence.ConfluenceConnectionConfig cfg =
+                            new de.bund.zrb.confluence.ConfluenceConnectionConfig(
+                                    testUrl, testUser, testPass, testAlias, 10000, 10000);
+                    de.bund.zrb.confluence.ConfluenceRestClient cl =
+                            new de.bund.zrb.confluence.ConfluenceRestClient(cfg);
+                    return cl.testConnection();
+                }
+                @Override
+                protected void done() {
+                    dialog.setCursor(Cursor.getDefaultCursor());
+                    try {
+                        int code = get();
+                        if (code >= 200 && code < 300) {
+                            JOptionPane.showMessageDialog(dialog,
+                                    "✓ Verbindung erfolgreich! (HTTP " + code + ")\n\n"
+                                            + "URL: " + testUrl + "\n"
+                                            + "Zertifikat: " + testAlias,
+                                    "Confluence-Test", JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(dialog,
+                                    "✗ Verbindung fehlgeschlagen (HTTP " + code + ")\n\n"
+                                            + "Prüfen Sie URL, Zertifikat und Zugangsdaten.",
+                                    "Confluence-Test", JOptionPane.WARNING_MESSAGE);
+                        }
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(dialog,
+                                "Fehler: " + ex.getMessage(),
+                                "Confluence-Test", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }.execute();
+        });
+
         JButton okBtn = new JButton("OK");
         okBtn.addActionListener(e -> { confirmed[0] = true; dialog.dispose(); });
         JButton cancelBtn = new JButton("Abbrechen");
@@ -484,6 +580,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         JPanel buttonBar = new JPanel(new BorderLayout());
         JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         leftButtons.add(ssoTestBtn);
+        leftButtons.add(confluenceTestBtn);
         JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         rightButtons.add(okBtn);
         rightButtons.add(cancelBtn);
@@ -516,15 +613,24 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             return null;
         }
 
-        if (("Wiki".equals(category) || "SP".equals(category)) && url.isEmpty()) {
+        if (("Wiki".equals(category) || "SP".equals(category) || "Confluence".equals(category)) && url.isEmpty()) {
             JOptionPane.showMessageDialog(parent,
                     "F\u00fcr " + category + "-Eintr\u00e4ge ist die URL ein Pflichtfeld.",
                     "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
             return null;
         }
 
+        String certAlias = certAliasField.getText().trim();
+        if ("Confluence".equals(category) && certAlias.isEmpty()) {
+            JOptionPane.showMessageDialog(parent,
+                    "Für Confluence-Einträge muss ein Zertifikat ausgewählt werden.",
+                    "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
+            return null;
+        }
+
         return new KeePassEntry(category, id, displayName, user, pass, url,
                 existing != null ? existing.uniqueID : "",
+                certAlias,
                 loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected(),
                 savePwCb.isSelected(), sessionCb.isSelected());
     }
@@ -1194,6 +1300,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                     cred[0], cred[1],
                     meta.url != null ? meta.url : "",
                     "",
+                    meta.certAlias != null ? meta.certAlias : "",
                     meta.requiresLogin, meta.useProxy, meta.autoIndex,
                     meta.savePassword, meta.sessionCache));
         }
@@ -1238,6 +1345,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             meta.category = e.category;
             meta.displayName = e.displayName;
             meta.url = e.url;
+            meta.certAlias = e.certAlias;
             meta.requiresLogin = e.requiresLogin;
             meta.useProxy = e.useProxy;
             meta.autoIndex = e.autoIndex;
@@ -1274,6 +1382,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         meta.category = entry.category;
         meta.displayName = entry.displayName;
         meta.url = entry.url;
+        meta.certAlias = entry.certAlias;
         meta.requiresLogin = entry.requiresLogin;
         meta.useProxy = entry.useProxy;
         meta.autoIndex = entry.autoIndex;
@@ -1307,6 +1416,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         meta.category = entry.category;
         meta.displayName = entry.displayName;
         meta.url = entry.url;
+        meta.certAlias = entry.certAlias;
         meta.requiresLogin = entry.requiresLogin;
         meta.useProxy = entry.useProxy;
         meta.autoIndex = entry.autoIndex;
@@ -1401,6 +1511,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         final String password;
         final String url;
         final String uniqueID;
+        final String certAlias;     // Windows certificate alias (Confluence)
         final boolean requiresLogin;
         final boolean useProxy;
         final boolean autoIndex;
@@ -1411,6 +1522,15 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                      String userName, String password, String url, String uniqueID,
                      boolean requiresLogin, boolean useProxy, boolean autoIndex,
                      boolean savePassword, boolean sessionCache) {
+            this(category, title, displayName, userName, password, url, uniqueID, "",
+                    requiresLogin, useProxy, autoIndex, savePassword, sessionCache);
+        }
+
+        KeePassEntry(String category, String title, String displayName,
+                     String userName, String password, String url, String uniqueID,
+                     String certAlias,
+                     boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                     boolean savePassword, boolean sessionCache) {
             this.category = category;
             this.title = title;
             this.displayName = displayName;
@@ -1418,6 +1538,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             this.password = password;
             this.url = url;
             this.uniqueID = uniqueID;
+            this.certAlias = certAlias != null ? certAlias : "";
             this.requiresLogin = requiresLogin;
             this.useProxy = useProxy;
             this.autoIndex = autoIndex;
