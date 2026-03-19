@@ -43,7 +43,7 @@ import java.util.regex.PatternSyntaxException;
  *       {@code Settings.applicationState} under key {@code sp.filter.segments}
  *       (pipe-separated).</li>
  * </ul>
- * Default: {@code <DOMAIN> / sites / [^/]+} (3 filled + 1 empty).
+ * Default: {@code [^/]+ / sites / [^/]+} (3 filled + 1 empty = any domain, "sites", any name).
  */
 public class SpUrlFilterPanel extends JPanel {
 
@@ -87,6 +87,19 @@ public class SpUrlFilterPanel extends JPanel {
 
         segmentSuggestions = extractSuggestions(allUrls);
 
+        // Ensure the scanned domain is available as a suggestion at position 0
+        String scannedDomain = extractDomain(scannedUrl);
+        if (scannedDomain != null && !scannedDomain.isEmpty() && !scannedDomain.equals("[^/]+")) {
+            List<String> domainSuggestions = segmentSuggestions.get(0);
+            if (domainSuggestions == null) {
+                domainSuggestions = new ArrayList<String>();
+                segmentSuggestions.put(0, domainSuggestions);
+            }
+            if (!domainSuggestions.contains(scannedDomain)) {
+                domainSuggestions.add(0, scannedDomain);
+            }
+        }
+
         segmentPanel = new JPanel();
         segmentPanel.setLayout(new BoxLayout(segmentPanel, BoxLayout.X_AXIS));
 
@@ -98,9 +111,9 @@ public class SpUrlFilterPanel extends JPanel {
         // ── Determine initial segments (persisted or defaults) ──
         List<String> initial = loadPersistedSegments();
         if (initial == null) {
-            String defaultDomain = extractDomain(scannedUrl);
+            // Default: accept ANY domain → sites → any single path segment
             initial = new ArrayList<String>();
-            initial.add(defaultDomain);
+            initial.add("[^/]+");
             initial.add("sites");
             initial.add("[^/]+");
         }
@@ -166,11 +179,9 @@ public class SpUrlFilterPanel extends JPanel {
                 if (added.add(s)) box.addItem(s);
             }
         }
-        // Common regex helpers (not for domain)
-        if (pos > 0) {
-            addIfAbsent(box, "[^/]+");
-            addIfAbsent(box, ".*");
-        }
+        // Common regex helpers
+        addIfAbsent(box, "[^/]+");
+        addIfAbsent(box, ".*");
         // Sentinel remove item (always last)
         box.addItem(REMOVE_ITEM);
 
@@ -615,11 +626,11 @@ public class SpUrlFilterPanel extends JPanel {
     // ════════════════════════════════════════════════════════════════
 
     private static String extractDomain(String url) {
-        if (url == null || url.isEmpty()) return ".*";
+        if (url == null || url.isEmpty()) return "[^/]+";
         try {
             return new URL(url).getHost();
         } catch (Exception e) {
-            return ".*";
+            return "[^/]+";
         }
     }
 
