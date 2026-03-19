@@ -622,6 +622,29 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 entry.title, entry.userName, entry.password, entry.url,
                 entry.displayName, entry.category,
                 entry.requiresLogin, entry.useProxy, entry.autoIndex);
+
+        // Also persist metadata (without credentials) to settings.passwordEntries
+        // so that other components (e.g. parseWikiSites) can discover entries.
+        Settings settings = SettingsHelper.load();
+        Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
+        while (it.hasNext()) {
+            if (entry.title.equals(it.next().id)) {
+                it.remove();
+                break;
+            }
+        }
+        Settings.PasswordEntryMeta meta = new Settings.PasswordEntryMeta();
+        meta.id = entry.title;
+        meta.category = entry.category;
+        meta.displayName = entry.displayName;
+        meta.url = entry.url;
+        meta.requiresLogin = entry.requiresLogin;
+        meta.useProxy = entry.useProxy;
+        meta.autoIndex = entry.autoIndex;
+        meta.savePassword = entry.savePassword;
+        meta.sessionCache = entry.sessionCache;
+        settings.passwordEntries.add(meta);
+        SettingsHelper.save(settings);
     }
 
     // ── Delete ──────────────────────────────────────────────────
@@ -629,16 +652,18 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
     private static void deleteEntry(KeePassEntry entry) {
         if (isKeePass()) {
             CredentialStore.removeKeePassEntry(entry.title, entry.uniqueID);
-        } else {
-            Settings settings = SettingsHelper.load();
-            Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
-            while (it.hasNext()) {
-                if (entry.title.equals(it.next().id)) {
-                    it.remove();
-                    break;
-                }
+        }
+        // Always remove metadata from settings.passwordEntries
+        Settings settings = SettingsHelper.load();
+        Iterator<Settings.PasswordEntryMeta> it = settings.passwordEntries.iterator();
+        while (it.hasNext()) {
+            if (entry.title.equals(it.next().id)) {
+                it.remove();
+                break;
             }
-            SettingsHelper.save(settings);
+        }
+        SettingsHelper.save(settings);
+        if (!isKeePass()) {
             CredentialStore.remove(PWD_PREFIX + entry.title);
         }
     }

@@ -46,7 +46,8 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         if (sites.isEmpty()) {
             JOptionPane.showMessageDialog(null,
                     "Keine Wiki-Sites konfiguriert.\n"
-                            + "Bitte unter Einstellungen → Wiki mindestens eine Site hinzufügen.",
+                            + "Bitte unter Einstellungen → Passwörter mindestens einen\n"
+                            + "Eintrag mit Kategorie \"Wiki\" und gültiger URL anlegen.",
                     "Keine Wiki-Sites", JOptionPane.WARNING_MESSAGE);
             return;
         }
