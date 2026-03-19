@@ -718,9 +718,13 @@ final class KeePassProvider {
     }
 
     /**
-     * Remove an entry from KeePass by uniqueID via RPC.
+     * Remove an entry from KeePass via RPC.
+     * If {@code uniqueID} is empty/null, the entry is looked up by title first.
+     *
+     * @param title    entry title (used for lookup when uniqueID is missing)
+     * @param uniqueID entry unique ID (may be {@code null} or empty)
      */
-    static void rpcRemoveEntry(String uniqueID) {
+    static void rpcRemoveEntry(String title, String uniqueID) {
         Settings settings = SettingsHelper.load();
         validateRpcConfig(settings);
         KeePassRpcClient client = new KeePassRpcClient(
@@ -729,7 +733,18 @@ final class KeePassProvider {
                 settings.getEffectiveRpcOrigin());
         try {
             client.connect();
-            client.removeEntry(uniqueID);
+            String resolvedId = (uniqueID != null) ? uniqueID.trim() : "";
+            if (resolvedId.isEmpty() && title != null && !title.trim().isEmpty()) {
+                String looked = client.findUniqueIdByTitle(title.trim());
+                if (looked != null) {
+                    resolvedId = looked;
+                }
+            }
+            if (resolvedId.isEmpty()) {
+                throw new KeePassNotAvailableException(
+                        "Eintrag \"" + title + "\" konnte in KeePass nicht gefunden werden (uniqueID leer).");
+            }
+            client.removeEntry(resolvedId);
         } finally {
             client.close();
         }

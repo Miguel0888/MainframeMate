@@ -1007,6 +1007,8 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (displayName == null || displayName.isEmpty()) {
                 displayName = SharePointPathUtil.extractDisplayName(site.getUrl());
             }
+            if (displayName != null) displayName = displayName.trim();
+            String siteUrl = site.getUrl() != null ? site.getUrl().trim() : "";
 
             // Check if entry with this ID already exists
             boolean idExists = false;
@@ -1019,7 +1021,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (idExists) continue;
 
             try {
-                KeePassEntry entry = new KeePassEntry("SP", id, displayName, "", "", site.getUrl(), "",
+                KeePassEntry entry = new KeePassEntry("SP", id, displayName, "", "", siteUrl, "",
                         false, false, false, false, false);
                 saveEntry(entry);
                 entries.add(entry);

@@ -58,7 +58,8 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
      */
     public static String toSiteId(SharePointSite site) {
         String url = site.getUrl();
-        if (url == null || url.isEmpty()) return "sp_unknown";
+        if (url == null || url.trim().isEmpty()) return "sp_unknown";
+        url = url.trim();
         try {
             java.net.URL parsed = new java.net.URL(url);
             String id = "sp_" + parsed.getHost().replace('.', '_');
@@ -67,7 +68,7 @@ public class SharePointSettingsPanel extends AbstractSettingsPanel {
                 id += path.replace('/', '_').replace(' ', '_').replace("%20", "_");
                 while (id.endsWith("_")) id = id.substring(0, id.length() - 1);
             }
-            return id;
+            return id.trim();
         } catch (Exception e) {
             return "sp_" + url.hashCode();
         }

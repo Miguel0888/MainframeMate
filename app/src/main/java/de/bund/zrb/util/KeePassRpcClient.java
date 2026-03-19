@@ -401,6 +401,29 @@ final class KeePassRpcClient {
     }
 
     /**
+     * Look up the uniqueID of an entry by its title.
+     *
+     * @param title entry title
+     * @return the uniqueID, or {@code null} if not found
+     */
+    String findUniqueIdByTitle(String title) {
+        JsonArray entries = findLoginsByTitle(title);
+        if (entries == null || entries.size() == 0) return null;
+        for (JsonElement el : entries) {
+            JsonObject e = el.getAsJsonObject();
+            String t = e.has("title") ? e.get("title").getAsString().trim() : "";
+            if (title.trim().equalsIgnoreCase(t)) {
+                String uid = e.has("uniqueID") ? e.get("uniqueID").getAsString().trim() : "";
+                if (!uid.isEmpty()) return uid;
+            }
+        }
+        // If exact match failed, return first entry's uniqueID as fallback
+        JsonObject first = entries.get(0).getAsJsonObject();
+        String uid = first.has("uniqueID") ? first.get("uniqueID").getAsString().trim() : "";
+        return uid.isEmpty() ? null : uid;
+    }
+
+    /**
      * Remove an entry from KeePass by its uniqueID.
      *
      * @param uniqueID the unique identifier of the entry

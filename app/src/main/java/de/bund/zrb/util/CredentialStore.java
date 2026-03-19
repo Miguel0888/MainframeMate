@@ -277,19 +277,16 @@ public final class CredentialStore {
 
     /**
      * Remove an entry from KeePass.
-     * Uses RPC (by uniqueID) or PowerShell (by title) depending on the configured access method.
+     * Uses RPC (by uniqueID, with title-based fallback) or PowerShell (by title)
+     * depending on the configured access method.
      *
-     * @param title    entry title (used for PowerShell mode)
+     * @param title    entry title (used for PowerShell mode and RPC fallback)
      * @param uniqueID entry unique ID (used for RPC mode, may be {@code null})
      */
     public static void removeKeePassEntry(String title, String uniqueID) {
         Settings settings = SettingsHelper.load();
         if ("RPC".equalsIgnoreCase(settings.keepassAccessMethod)) {
-            if (uniqueID == null || uniqueID.isEmpty()) {
-                throw new KeePassNotAvailableException(
-                        "Zum Löschen via RPC wird die uniqueID benötigt.");
-            }
-            KeePassProvider.rpcRemoveEntry(uniqueID);
+            KeePassProvider.rpcRemoveEntry(title, uniqueID);
         } else {
             KeePassProvider.psRemoveEntry(title);
         }
