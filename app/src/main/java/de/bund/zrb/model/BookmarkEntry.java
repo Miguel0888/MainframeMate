@@ -33,6 +33,8 @@ public class BookmarkEntry {
     public static final String PREFIX_MAIL     = "mail://";
     public static final String PREFIX_BETAVIEW = "betaview://";
     public static final String PREFIX_TN3270   = "tn3270://";
+    public static final String PREFIX_HTTP     = "http://";
+    public static final String PREFIX_HTTPS    = "https://";
 
     // ── TN3270 macro bookmark metadata ──
     /** Recorded macro steps as JSON array string, e.g. [{"type":"TEXT","value":"a"},{"type":"AID","value":"ENTER"}] */
@@ -63,6 +65,7 @@ public class BookmarkEntry {
         if ("MAIL".equals(backendType))     return PREFIX_MAIL + rawPath;
         if ("BETAVIEW".equals(backendType)) return PREFIX_BETAVIEW + rawPath;
         if ("TN3270".equals(backendType))  return PREFIX_TN3270 + rawPath;
+        if ("BROWSER".equals(backendType)) return rawPath; // URLs already have http(s):// scheme
         // LOCAL or unknown: prefix with local://
         return PREFIX_LOCAL + rawPath;
     }
@@ -79,6 +82,8 @@ public class BookmarkEntry {
         if (path.startsWith(PREFIX_MAIL))     return path.substring(PREFIX_MAIL.length());
         if (path.startsWith(PREFIX_BETAVIEW)) return path.substring(PREFIX_BETAVIEW.length());
         if (path.startsWith(PREFIX_TN3270))   return path.substring(PREFIX_TN3270.length());
+        // BROWSER: http/https URLs are returned as-is (the URL IS the raw path)
+        if (path.startsWith(PREFIX_HTTP) || path.startsWith(PREFIX_HTTPS)) return path;
         // Legacy: no prefix – treat as local
         return path;
     }
@@ -94,6 +99,7 @@ public class BookmarkEntry {
         if (path.startsWith(PREFIX_MAIL))     return "MAIL";
         if (path.startsWith(PREFIX_BETAVIEW)) return "BETAVIEW";
         if (path.startsWith(PREFIX_TN3270))   return "TN3270";
+        if (path.startsWith(PREFIX_HTTP) || path.startsWith(PREFIX_HTTPS)) return "BROWSER";
         return "LOCAL";
     }
 
@@ -110,6 +116,9 @@ public class BookmarkEntry {
         }
         if ("BETAVIEW".equals(backend)) {
             return path; // betaview:// paths are passed as-is
+        }
+        if ("BROWSER".equals(backend)) {
+            return path; // http(s):// URLs are passed as-is
         }
         // LOCAL paths are passed as-is
         return raw;

@@ -463,8 +463,26 @@ public class LeftDrawer extends JPanel {
             refreshBookmarks();
             return false;
         } else {
-            String label = new java.io.File(rawPath).getName();
-            if (label.isEmpty()) label = rawPath;
+            String label;
+            if ("BROWSER".equals(backendType)
+                    && (rawPath.startsWith("http://") || rawPath.startsWith("https://"))) {
+                // Use domain as label for browser bookmarks
+                try {
+                    java.net.URL url = new java.net.URL(rawPath);
+                    label = url.getHost();
+                    String path = url.getPath();
+                    if (path != null && !path.isEmpty() && !"/".equals(path)) {
+                        // Append path (truncated) for disambiguation
+                        String shortPath = path.length() > 30 ? path.substring(0, 30) + "…" : path;
+                        label = label + shortPath;
+                    }
+                } catch (java.net.MalformedURLException e) {
+                    label = rawPath;
+                }
+            } else {
+                label = new java.io.File(rawPath).getName();
+                if (label.isEmpty()) label = rawPath;
+            }
             ensureGeneralFolder();
             BookmarkEntry entry = new BookmarkEntry(label, prefixedPath, false);
             entry.resourceKind = resourceKind != null ? resourceKind : "FILE";
@@ -686,6 +704,12 @@ public class LeftDrawer extends JPanel {
                     String backend = entry.getBackendType();
                     String raw = entry.getRawPath();
                     setToolTipText("[" + backend + "] " + raw);
+                    if ("BROWSER".equals(backend)) {
+                        String label = entry.label;
+                        if (!label.startsWith("🌐")) {
+                            setText("🌐 " + label);
+                        }
+                    }
                     setIcon(fileIcon);
                 }
             }

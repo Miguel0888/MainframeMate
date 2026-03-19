@@ -1,5 +1,6 @@
 package de.bund.zrb.ui.commands;
 
+import de.bund.zrb.ui.BrowserConnectionTab;
 import de.bund.zrb.ui.FileTabImpl;
 import de.bund.zrb.ui.MainFrame;
 import de.zrb.bund.api.MainframeContext;
@@ -42,7 +43,9 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
 
         // Determine backend typSchluessel
         String backendType = "LOCAL";
-        if (tab instanceof FileTabImpl) {
+        if (tab instanceof BrowserConnectionTab) {
+            backendType = "BROWSER";
+        } else if (tab instanceof FileTabImpl) {
             FileTabImpl ft = (FileTabImpl) tab;
             if (ft.getResource() != null) {
                 backendType = ft.getResource().getBackendType().name();

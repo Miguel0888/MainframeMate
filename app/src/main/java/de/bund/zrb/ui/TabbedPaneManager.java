@@ -171,6 +171,7 @@ public class TabbedPaneManager {
         if (tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) return "WIKI";
         if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab) return "WIKI";
         if (tab instanceof de.bund.zrb.ui.terminal.TerminalConnectionTab) return "TN3270";
+        if (tab instanceof BrowserConnectionTab) return "BROWSER";
         return "LOCAL";
     }
 
@@ -454,6 +455,32 @@ public class TabbedPaneManager {
 
     public java.util.List<FtpTab> getAllOpenTabs() {
         return new java.util.ArrayList<>(tabMap.values());
+    }
+
+    /**
+     * Find the first open tab that is an instance of the given class.
+     * @return the tab instance, or null if not found
+     */
+    @SuppressWarnings("unchecked")
+    public <T extends FtpTab> T findTabOfType(Class<T> clazz) {
+        for (FtpTab tab : tabMap.values()) {
+            if (clazz.isInstance(tab)) {
+                return (T) tab;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Select (bring to front) the given tab.
+     */
+    public void selectTab(FtpTab tab) {
+        if (tab == null) return;
+        Component comp = tab.getComponent();
+        int index = tabbedPane.indexOfComponent(comp);
+        if (index >= 0) {
+            tabbedPane.setSelectedIndex(index);
+        }
     }
 
     public void focusTabByAdapter(Bookmarkable tab) {

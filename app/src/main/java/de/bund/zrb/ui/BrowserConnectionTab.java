@@ -8,6 +8,7 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.drawer.LeftDrawer;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.browser.NavigationResult;
+import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
@@ -25,7 +26,7 @@ import java.util.regex.Pattern;
  * Provides an address bar for navigation, displays extracted page text content,
  * and shows extracted links and a document outline in the left drawer.
  */
-public class BrowserConnectionTab implements ConnectionTab {
+public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
 
     private static final Logger LOG = Logger.getLogger(BrowserConnectionTab.class.getName());
 
@@ -577,7 +578,7 @@ public class BrowserConnectionTab implements ConnectionTab {
 
     @Override
     public String getPath() {
-        return "browser://" + (currentUrl != null ? currentUrl : "");
+        return currentUrl != null && !currentUrl.isEmpty() ? currentUrl : "https://";
     }
 
     @Override

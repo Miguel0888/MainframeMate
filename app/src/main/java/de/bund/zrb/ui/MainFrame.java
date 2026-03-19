@@ -573,12 +573,81 @@ public class MainFrame extends JFrame implements MainframeContext {
             case "TN3270":
                 openTn3270Bookmark(entry);
                 break;
+            case "BROWSER":
+                openBrowserBookmark(rawPath);
+                break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
                 new VirtualResourceOpener(tabManager)
                         .open(rawPath, null, null, null, isFile);
                 break;
         }
+    }
+
+    /**
+     * Open a browser bookmark. Navigates an existing BrowserConnectionTab to the URL,
+     * or opens a new one via the OpenBrowserMenuCommand.
+     */
+    private void openBrowserBookmark(String url) {
+        if (url == null || url.isEmpty()) return;
+
+        // Try to find an existing BrowserConnectionTab
+        BrowserConnectionTab existingTab = tabManager.findTabOfType(BrowserConnectionTab.class);
+        if (existingTab != null) {
+            tabManager.selectTab(existingTab);
+            existingTab.navigateTo(url);
+            return;
+        }
+
+        // No existing tab – create a new one via OpenBrowserMenuCommand, then navigate
+        BrowserConnectionTab browserTab = new BrowserConnectionTab(url);
+
+        // Wire callbacks (same as OpenBrowserMenuCommand)
+        de.bund.zrb.ui.drawer.LeftDrawer leftDrawer = getBookmarkDrawer();
+        if (leftDrawer != null) {
+            browserTab.setLinksCallback(entries ->
+                    javax.swing.SwingUtilities.invokeLater(() ->
+                            leftDrawer.updateRelations("Browser-Links", entries)));
+            leftDrawer.setOnRelationOpen(entry -> {
+                if ("BROWSER_LINK".equals(entry.getType())) {
+                    browserTab.navigateToLink(entry.getTargetPath());
+                }
+            });
+        }
+        de.bund.zrb.ui.drawer.RightDrawer rightDrawer = getRightDrawer();
+        if (rightDrawer != null) {
+            browserTab.setOutlineCallback(outline ->
+                    javax.swing.SwingUtilities.invokeLater(() ->
+                            rightDrawer.updateWikiOutline(outline,
+                                    browserTab.getCurrentTitle(),
+                                    (java.util.function.Consumer<String>) null)));
+        }
+
+        tabManager.addTab(browserTab);
+
+        setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+        new javax.swing.SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                browserTab.launchBrowser();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                setCursor(java.awt.Cursor.getDefaultCursor());
+                try {
+                    get();
+                    browserTab.navigateTo(url);
+                    tabManager.updateTitleFor(browserTab);
+                } catch (Exception e) {
+                    javax.swing.JOptionPane.showMessageDialog(MainFrame.this,
+                            "Browser konnte nicht gestartet werden:\n"
+                                    + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()),
+                            "Browser-Fehler", javax.swing.JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
     }
 
     /**
@@ -1264,6 +1333,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         }
     }
 }
+
+
 
 
 
