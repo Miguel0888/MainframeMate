@@ -77,7 +77,7 @@ public class WikiConnectionTab implements ConnectionTab {
         topControls.setLayout(new BoxLayout(topControls, BoxLayout.Y_AXIS));
         topControls.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        // Row 1: Site checkboxes (dynamically generated)
+        // Row 1: Site checkboxes (left) + Indexieren button (right)
         siteCheckboxPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         siteCheckboxPanel.add(new JLabel("Wikis:"));
         siteSelector = new JComboBox<WikiSiteDescriptor>(); // hidden, used internally for preview/open
@@ -92,8 +92,18 @@ public class WikiConnectionTab implements ConnectionTab {
             siteCheckboxes.add(cb);
             siteCheckboxPanel.add(cb);
         }
-        siteCheckboxPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topControls.add(siteCheckboxPanel);
+
+        // Index button for current preview — placed right-aligned on the checkbox row
+        JButton indexPageButton = new JButton("📥 Indexieren");
+        indexPageButton.setToolTipText("Aktuelle Seite in den Suchindex aufnehmen");
+        indexPageButton.setFocusable(false);
+        indexPageButton.addActionListener(e -> indexCurrentPreview());
+
+        JPanel checkboxRow = new JPanel(new BorderLayout(4, 0));
+        checkboxRow.add(siteCheckboxPanel, BorderLayout.CENTER);
+        checkboxRow.add(indexPageButton, BorderLayout.EAST);
+        checkboxRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topControls.add(checkboxRow);
         topControls.add(Box.createVerticalStrut(4));
 
         // Row 2: Search
@@ -102,6 +112,26 @@ public class WikiConnectionTab implements ConnectionTab {
         searchField = new JTextField();
         searchField.setToolTipText("Wiki durchsuchen (Enter)");
         searchField.addActionListener(e -> searchWiki());
+        // Arrow key navigation: DOWN → first result, UP → last result
+        searchField.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                int rowCount = resultTable.getRowCount();
+                if (rowCount == 0) return;
+                if (e.getKeyCode() == KeyEvent.VK_DOWN) {
+                    resultTable.setRowSelectionInterval(0, 0);
+                    resultTable.scrollRectToVisible(resultTable.getCellRect(0, 0, true));
+                    resultTable.requestFocusInWindow();
+                    e.consume();
+                } else if (e.getKeyCode() == KeyEvent.VK_UP) {
+                    int last = rowCount - 1;
+                    resultTable.setRowSelectionInterval(last, last);
+                    resultTable.scrollRectToVisible(resultTable.getCellRect(last, 0, true));
+                    resultTable.requestFocusInWindow();
+                    e.consume();
+                }
+            }
+        });
         searchPanel.add(searchField, BorderLayout.CENTER);
         searchPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         topControls.add(searchPanel);
@@ -186,17 +216,7 @@ public class WikiConnectionTab implements ConnectionTab {
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
         htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
-        // Index button for current preview
-        JButton indexPageButton = new JButton("📥 Indexieren");
-        indexPageButton.setToolTipText("Aktuelle Seite in den Suchindex aufnehmen");
-        indexPageButton.setFocusable(false);
-        indexPageButton.addActionListener(e -> indexCurrentPreview());
-
-        JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        previewToolbar.add(indexPageButton);
-
         previewPanel = new JPanel(new BorderLayout(0, 0));
-        previewPanel.add(previewToolbar, BorderLayout.NORTH);
         previewPanel.add(htmlScroll, BorderLayout.CENTER);
 
         // ═══════════════════════════════════════════════════════════
@@ -207,12 +227,11 @@ public class WikiConnectionTab implements ConnectionTab {
         mainSplit.setResizeWeight(0.4);
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
-        // Filter bar below everything (filters results + positioned below preview)
+        // Filter bar below everything
         JPanel bottomBar = new JPanel(new BorderLayout(0, 0));
         bottomBar.add(resultFilterBar, BorderLayout.CENTER);
+        // statusLabel is kept as a field but not added to the layout — no "Vorschau:" text visible
         statusLabel = new JLabel(" ");
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
-        bottomBar.add(statusLabel, BorderLayout.SOUTH);
         mainPanel.add(bottomBar, BorderLayout.SOUTH);
 
         if (siteSelector.getItemCount() > 0) {
