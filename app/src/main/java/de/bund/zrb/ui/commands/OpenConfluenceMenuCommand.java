@@ -166,6 +166,40 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
                 });
             }
 
+            // Wire up index callback: indexes a single Confluence page into Lucene on demand
+            tab.setIndexCallback((pageId, title, spaceKey, html) -> {
+                try {
+                    String docId = "confluence://" + pageId;
+                    de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+                    // Remove old version if already indexed (re-index)
+                    if (rag.isIndexed(docId)) {
+                        rag.removeDocument(docId);
+                    }
+                    String text = stripHtmlForIndex(html);
+                    if (text.isEmpty()) return 0;
+                    de.bund.zrb.ingestion.model.document.DocumentMetadata meta =
+                            de.bund.zrb.ingestion.model.document.DocumentMetadata.builder()
+                                    .sourceName(title)
+                                    .mimeType("text/html")
+                                    .attribute("sourcePath", docId)
+                                    .attribute("confluencePageId", pageId)
+                                    .attribute("confluenceSpace", spaceKey)
+                                    .build();
+                    de.bund.zrb.ingestion.model.document.Document doc =
+                            de.bund.zrb.ingestion.model.document.Document.builder()
+                                    .metadata(meta)
+                                    .paragraph(text)
+                                    .build();
+                    rag.indexDocument(docId, title, doc, false);
+                    LOG.info("[Confluence] Indexed on demand: " + title + " (" + text.length() + " chars)");
+                    de.bund.zrb.rag.service.RagService.IndexedDocument indexed = rag.getIndexedDocument(docId);
+                    return indexed != null ? indexed.chunkCount : 1;
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[Confluence] Index on demand failed: " + title, e);
+                    return -1;
+                }
+            });
+
             tabManager.addTab(tab);
 
             // Auto-save checkbox state on every toggle
@@ -240,5 +274,20 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
             this.userName = userName;
             this.password = password;
         }
+    }
+
+    /**
+     * Simple HTML→text conversion for indexing: strip tags, decode entities, collapse whitespace.
+     */
+    private static String stripHtmlForIndex(String html) {
+        if (html == null || html.isEmpty()) return "";
+        String text = html.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>", "");
+        text = text.replaceAll("(?i)<(br|p|div|h[1-6]|li|tr)[^>]*>", "\n");
+        text = text.replaceAll("<[^>]+>", "");
+        text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                   .replace("&quot;", "\"").replace("&nbsp;", " ").replace("&#39;", "'");
+        text = text.replaceAll("[ \\t]+", " ");
+        text = text.replaceAll("\\n{3,}", "\n\n");
+        return text.trim();
     }
 }

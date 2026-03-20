@@ -57,6 +57,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private final JLabel pageInfoLabel;
     private final JButton prevBtn;
     private final JButton nextBtn;
+    private final JButton indexBtn;
     private final JComboBox<Integer> pageSizeCombo;
 
     // ── Results table ──
@@ -88,6 +89,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private OpenCallback openCallback;
     /** Prefetch service for background loading of search result pages. */
     private ConfluencePrefetchService prefetchService;
+    /** Callback to index a page into the search index. */
+    private IndexCallback indexCallback;
 
     public ConfluenceConnectionTab(ConfluenceRestClient client, String baseUrl) {
         this.client = client;
@@ -115,18 +118,19 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         spaceCheckboxPanel.add(new JLabel("Spaces:"));
         spaceRow.add(spaceCheckboxPanel, BorderLayout.CENTER);
 
-        JButton indexBtn = new JButton("📥 Indexieren");
+        indexBtn = new JButton("📥 Indexieren");
         indexBtn.setToolTipText("Aktuelle Seite in den Suchindex aufnehmen");
         indexBtn.setFocusable(false);
-        indexBtn.setEnabled(false); // Funktion folgt
+        indexBtn.setEnabled(false);
+        indexBtn.addActionListener(e -> indexCurrentPreview());
         spaceRow.add(indexBtn, BorderLayout.EAST);
 
         topControls.add(spaceRow);
         topControls.add(Box.createVerticalStrut(4));
 
-        // Row 2: Search
-        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
-        searchPanel.add(new JLabel("🔍"), BorderLayout.WEST);
+        // Row 2: [🔍 Search field] [◀ Seite X von Y ▶] [25▼]
+        JPanel searchRow = new JPanel(new BorderLayout(4, 0));
+        searchRow.add(new JLabel("🔍"), BorderLayout.WEST);
         searchField = new JTextField();
         searchField.setToolTipText(
                 "<html><b>Confluence durchsuchen</b> (Enter)<br>"
@@ -161,9 +165,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 }
             }
         });
-        searchPanel.add(searchField, BorderLayout.CENTER);
-        searchPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topControls.add(searchPanel);
+        searchRow.add(searchField, BorderLayout.CENTER);
+
+        // Pagination controls: [◀] [Seite X von Y] [▶] [25▼] — right of search
+        JPanel paginationPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
 
         // ═══════════════════════════════════════════════════════════
         //  Results table
@@ -214,9 +219,6 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         JScrollPane resultScroll = new JScrollPane(pageTable);
         resultScroll.setBorder(BorderFactory.createTitledBorder("Seiten"));
 
-        // Pagination bar: [◀] [Seite X von Y] [▶]  |  [n pro Seite ▼]  |  statusLabel
-        JPanel pageBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-
         prevBtn = new JButton("◀");
         prevBtn.setMargin(new Insets(1, 4, 1, 4));
         prevBtn.setToolTipText("Vorherige Seite");
@@ -262,15 +264,17 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             }
         });
 
-        pageBar.add(prevBtn);
-        pageBar.add(pageInfoLabel);
-        pageBar.add(nextBtn);
-        pageBar.add(Box.createHorizontalStrut(8));
-        pageBar.add(pageSizeCombo);
-        pageBar.add(new JLabel(" pro Seite"));
-        pageBar.add(Box.createHorizontalStrut(8));
+        paginationPanel.add(prevBtn);
+        paginationPanel.add(pageInfoLabel);
+        paginationPanel.add(nextBtn);
+        paginationPanel.add(Box.createHorizontalStrut(4));
+        paginationPanel.add(pageSizeCombo);
+        searchRow.add(paginationPanel, BorderLayout.EAST);
+        searchRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topControls.add(searchRow);
+
+        // Status label below search row
         statusLabel = new JLabel(" ");
-        pageBar.add(statusLabel);
 
         // Filter bar for local regex filtering
         filterField = new JTextField();
@@ -289,7 +293,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
         JPanel resultPanel = new JPanel(new BorderLayout(0, 0));
         resultPanel.add(resultScroll, BorderLayout.CENTER);
-        resultPanel.add(pageBar, BorderLayout.SOUTH);
+        resultPanel.add(statusLabel, BorderLayout.SOUTH);
         topHalf.add(resultPanel, BorderLayout.CENTER);
 
         // ═══════════════════════════════════════════════════════════
@@ -634,6 +638,9 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         htmlPane.setCaretPosition(0);
         statusLabel.setText("✅ Vorschau: " + item.title);
 
+        // Enable index button when a preview is loaded
+        indexBtn.setEnabled(indexCallback != null);
+
         // Load images asynchronously
         loadPreviewImagesAsync(html);
 
@@ -649,6 +656,51 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         if (dependencyCallback != null) {
             dependencyCallback.onDependenciesChanged(item);
         }
+    }
+
+    /**
+     * Index the currently previewed Confluence page into the search index.
+     */
+    private void indexCurrentPreview() {
+        if (currentPreviewItem == null || currentHtmlBody == null) {
+            statusLabel.setText("⚠️ Keine Seite zum Indexieren geladen");
+            return;
+        }
+        if (indexCallback == null) {
+            statusLabel.setText("⚠️ Indexierung nicht verfügbar");
+            return;
+        }
+
+        final String pageId = currentPreviewItem.id;
+        final String title = currentPreviewItem.title;
+        final String spaceKey = currentPreviewItem.spaceKey;
+        final String html = currentHtmlBody;
+
+        statusLabel.setText("⏳ Indexiere: " + title + "…");
+
+        new SwingWorker<Integer, Void>() {
+            @Override
+            protected Integer doInBackground() {
+                return indexCallback.indexPage(pageId, title, spaceKey, html);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    int chunks = get();
+                    if (chunks > 0) {
+                        statusLabel.setText("✅ Indexiert: " + title + " (" + chunks + " Chunks)");
+                    } else if (chunks == 0) {
+                        statusLabel.setText("⚠️ Kein Text extrahiert: " + title);
+                    } else {
+                        statusLabel.setText("❌ Indexierung fehlgeschlagen: " + title);
+                    }
+                } catch (Exception ex) {
+                    statusLabel.setText("❌ Fehler: " + ex.getMessage());
+                    LOG.log(Level.WARNING, "[Confluence] Index failed for: " + title, ex);
+                }
+            }
+        }.execute();
     }
 
     private void handleLink(HyperlinkEvent e) {
@@ -1166,6 +1218,12 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         this.prefetchService = service;
     }
 
+    public void setIndexCallback(IndexCallback callback) {
+        this.indexCallback = callback;
+        // Enable index button if a preview is already loaded
+        indexBtn.setEnabled(callback != null && currentPreviewItem != null);
+    }
+
     /** Callback to notify about outline changes (for RightDrawer). */
     public interface OutlineCallback {
         void onOutlineChanged(OutlineNode outline, String pageTitle);
@@ -1181,6 +1239,18 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         void openConfluencePage(ConfluenceRestClient client, String baseUrl,
                                 String pageId, String pageTitle,
                                 String htmlContent, OutlineNode outline);
+    }
+
+    /** Callback to index a Confluence page into the search index. */
+    public interface IndexCallback {
+        /**
+         * @param pageId   Confluence page ID
+         * @param title    page title
+         * @param spaceKey space key
+         * @param html     HTML body content
+         * @return number of chunks indexed, or -1 on failure
+         */
+        int indexPage(String pageId, String title, String spaceKey, String html);
     }
 
     // ═══════════════════════════════════════════════════════════
