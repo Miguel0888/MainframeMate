@@ -1,6 +1,7 @@
 package de.bund.zrb.betaview;
 
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -72,7 +73,7 @@ public final class BetaViewConnectionTab implements ConnectionTab {
     private final JProgressBar progress = new JProgressBar();
     private final ResultsTablePanel resultsTablePanel = new ResultsTablePanel();
     private final SidebarPanel sidebarPanel = new SidebarPanel();
-    private final JTextField searchField = new JTextField();
+    private final SearchBarPanel searchBar = new SearchBarPanel("BetaView durchsuchen\u2026");
 
     // ---- Document management ----
     private final DocumentTabbedPane documentTabbedPane = new DocumentTabbedPane();
@@ -503,7 +504,7 @@ public final class BetaViewConnectionTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
+        searchBar.focusField();
     }
 
     @Override

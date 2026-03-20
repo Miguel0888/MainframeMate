@@ -8,6 +8,7 @@ import de.bund.zrb.model.Settings;
 import de.bund.zrb.security.SecurityFilterService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import de.zrb.bund.newApi.ui.Navigable;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -54,7 +55,7 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
     private final JTextField pathField = new JTextField();
     private final DefaultListModel<MvsVirtualResource> listModel = new DefaultListModel<>();
     private final JList<MvsVirtualResource> fileList;
-    private final JTextField searchField = new JTextField();
+    private final SearchBarPanel searchBar = new SearchBarPanel("Filter…", "Filter (Regex mit / beginnen)");
     private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
@@ -199,7 +200,7 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
 
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
-                fileList, searchField,
+                fileList, searchBar.getTextField(),
                 this::handleDoubleClick,
                 this::navigateBack,
                 this::navigateForward
@@ -345,13 +346,7 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        // Filter panel
-        JPanel filterPanel = new JPanel(new BorderLayout());
-        filterPanel.add(new JLabel("🔎 "), BorderLayout.WEST);
-        filterPanel.add(searchField, BorderLayout.CENTER);
-
-        searchField.setToolTipText("Filter (Regex mit / beginnen)");
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) { applyFilter(); }
             @Override
@@ -363,7 +358,7 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
         // Status
         statusLabel.setForeground(Color.GRAY);
 
-        statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(searchBar, BorderLayout.CENTER);
         statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;
@@ -828,7 +823,7 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
     // ═══════════════════════════════════════════════════════════
 
     private void applyFilter() {
-        String filter = searchField.getText();
+        String filter = searchBar.getText();
         controller.setFilter(filter);
     }
 
@@ -1131,14 +1126,13 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
+        searchBar.focusAndSelectAll();
     }
 
     @Override
     public void searchFor(String searchPattern) {
         if (searchPattern != null) {
-            searchField.setText(searchPattern.trim());
+            searchBar.setText(searchPattern.trim());
             applyFilter();
         }
     }

@@ -8,6 +8,7 @@ import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.zrb.bund.newApi.ui.AppTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -56,7 +57,7 @@ public class JobDetailTab implements AppTab {
     private final SpoolTableModel spoolModel;
     private final RSyntaxTextArea contentArea;
     private final JLabel statusLabel;
-    private final JTextField searchField;
+    private final FindBarPanel searchBar;
     private final JLabel searchCountLabel;
     private final JComboBox<String> languageCombo;
     private int lastSearchPos = 0;
@@ -180,14 +181,9 @@ public class JobDetailTab implements AppTab {
         bottomPanel.add(leftPanel, BorderLayout.WEST);
 
         // Center: Search bar (fills remaining space)
-        searchField = new JTextField();
-        searchField.setToolTipText("Suche im Spool-Output (z.B. JOBLIB, IEF, ABEND)");
-        searchField.addActionListener(e -> searchInContent());
-
-        JButton searchBtn = new JButton("🔍");
-        searchBtn.setMargin(new Insets(1, 4, 1, 4));
-        searchBtn.setFocusable(false);
-        searchBtn.addActionListener(e -> searchInContent());
+        searchBar = new FindBarPanel("Suche im Spool-Output…",
+                "Suche im Spool-Output (z.B. JOBLIB, IEF, ABEND)");
+        searchBar.addSearchAction(e -> searchInContent());
 
         JButton searchNextBtn = new JButton("↓");
         searchNextBtn.setMargin(new Insets(1, 4, 1, 4));
@@ -199,15 +195,10 @@ public class JobDetailTab implements AppTab {
         searchCountLabel.setFont(searchCountLabel.getFont().deriveFont(Font.PLAIN, 11f));
         searchCountLabel.setForeground(Color.GRAY);
 
-        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
-        searchPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
-        searchPanel.add(searchField, BorderLayout.CENTER);
-        JPanel searchButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        searchButtons.add(searchBtn);
-        searchButtons.add(searchNextBtn);
-        searchButtons.add(searchCountLabel);
-        searchPanel.add(searchButtons, BorderLayout.EAST);
-        bottomPanel.add(searchPanel, BorderLayout.CENTER);
+        searchBar.addEastComponent(searchNextBtn);
+        searchBar.addEastComponent(searchCountLabel);
+
+        bottomPanel.add(searchBar, BorderLayout.CENTER);
 
         // Right: Language combo only (status label is intentionally hidden)
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
@@ -678,7 +669,7 @@ public class JobDetailTab implements AppTab {
     }
 
     private void searchNextInContent() {
-        String query = searchField.getText();
+        String query = searchBar.getText();
         if (query == null || query.isEmpty()) return;
 
         String text = contentArea.getText();
@@ -1148,12 +1139,11 @@ public class JobDetailTab implements AppTab {
     @Override public void onClose() { /* service is shared with ConnectionTab – don't close */ }
     @Override public void saveIfApplicable() { }
     @Override public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
+        searchBar.focusAndSelectAll();
     }
     @Override public void searchFor(String s) {
         if (s != null && !s.isEmpty()) {
-            searchField.setText(s);
+            searchBar.setText(s);
             searchInContent();
         }
     }

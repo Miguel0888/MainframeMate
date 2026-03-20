@@ -14,6 +14,7 @@ import de.bund.zrb.service.NdvSourceCacheService;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import de.zrb.bund.newApi.ui.Navigable;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -71,7 +72,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
     private final JTextField pathField = new JTextField();
     private DefaultListModel<Object> listModel = new DefaultListModel<Object>();
     private final JList<Object> fileList;
-    private final JTextField searchField = new JTextField();
+    private final SearchBarPanel searchBar = new SearchBarPanel("Filter…", "Filter");
     private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer;
     private final JLabel statusLabel = new JLabel(" ");
@@ -288,7 +289,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
 
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
-                fileList, searchField,
+                fileList, searchBar.getTextField(),
                 this::handleDoubleClick,
                 this::navigateBack,
                 this::navigateForward
@@ -353,12 +354,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        JPanel filterPanel = new JPanel(new BorderLayout());
-        filterPanel.add(new JLabel("🔎 "), BorderLayout.WEST);
-        filterPanel.add(searchField, BorderLayout.CENTER);
-
-        searchField.setToolTipText("Filter");
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) { applyFilter(); }
             @Override
@@ -369,7 +365,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
 
         statusLabel.setForeground(Color.GRAY);
 
-        statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(searchBar, BorderLayout.CENTER);
         statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;
@@ -1325,7 +1321,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
      */
     private List<NdvObjectInfo> getVisibleObjects() {
         List<NdvObjectInfo> result = new ArrayList<NdvObjectInfo>();
-        String filter = searchField.getText().trim().toLowerCase();
+        String filter = searchBar.getText().trim().toLowerCase();
         for (Object item : allItems) {
             if (!(item instanceof NdvObjectInfo)) continue;
             NdvObjectInfo obj = (NdvObjectInfo) item;
@@ -1794,7 +1790,7 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
     // ==================== Filter ====================
 
     private void applyFilter() {
-        String filter = searchField.getText().trim().toLowerCase();
+        String filter = searchBar.getText().trim().toLowerCase();
 
         // Step 1: Filter items by search text and type visibility
         List<Object> filtered = new ArrayList<Object>();
@@ -2009,12 +2005,12 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
+        searchBar.focusField();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchField.setText(searchPattern);
+        searchBar.setText(searchPattern);
         applyFilter();
     }
 

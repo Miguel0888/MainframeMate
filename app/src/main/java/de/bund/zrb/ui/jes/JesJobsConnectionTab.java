@@ -5,6 +5,7 @@ import de.bund.zrb.files.impl.ftp.jes.JesJob;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.bund.zrb.ui.util.ListKeyboardNavigation;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -40,7 +41,7 @@ public class JesJobsConnectionTab implements ConnectionTab {
     private final JTextField ownerField;
     private final JTextField jobNameField;
     private final JComboBox<String> statusCombo;
-    private final JTextField searchField = new JTextField();
+    private final FindBarPanel searchBar = new FindBarPanel("Regex-Filter f\u00fcr Jobs\u2026");
     private final JButton searchButton;
     private final JButton refreshButton;
     private final JButton deleteButton;
@@ -142,20 +143,22 @@ public class JesJobsConnectionTab implements ConnectionTab {
         statusBar.add(buttonPanel, BorderLayout.WEST);
 
         // Search / filter field (local, instant, like in other connection tabs)
-        JPanel searchBarPanel = createFilterBar();
-        statusBar.add(searchBarPanel, BorderLayout.CENTER);
+        statusBar.add(searchBar, BorderLayout.CENTER);
 
         statusLabel = new JLabel("Bereit");
         statusBar.add(statusLabel, BorderLayout.EAST);
 
         mainPanel.add(statusBar, BorderLayout.SOUTH);
 
+        // Init filter bar wiring
+        initFilterBar();
+
         // Enter in filter fields triggers server search
         ownerField.addActionListener(e -> doSearch());
         jobNameField.addActionListener(e -> doSearch());
 
         // ── Keyboard navigation: search field ↔ table ───────────────
-        ListKeyboardNavigation.install(jobTable, searchField,
+        ListKeyboardNavigation.install(jobTable, searchBar.getTextField(),
                 this::openSelectedJob, null, null);
         // Arrow keys in filter fields → jump into job table
         ListKeyboardNavigation.installFieldNavigation(ownerField, jobTable);
@@ -169,31 +172,26 @@ public class JesJobsConnectionTab implements ConnectionTab {
     //  Local filter bar (same pattern as other ConnectionTabs)
     // ═══════════════════════════════════════════════════════════════════
 
-    private JPanel createFilterBar() {
-        JPanel panel = new JPanel(new BorderLayout());
-        searchField.setToolTipText(
-                "<html>Regex-Filter für Job-ID / Jobname<br>"
+    private void initFilterBar() {
+        searchBar.getTextField().setToolTipText(
+                "<html>Regex-Filter f\u00fcr Job-ID / Jobname<br>"
                 + "Beispiel: <code>JOB123</code> oder <code>MY.*</code><br>"
-                + "<i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
-        panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        panel.add(searchField, BorderLayout.CENTER);
+                + "<i>(Gro\u00df-/Kleinschreibung wird ignoriert)</i></html>");
 
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e)  { applyLocalFilter(); }
             public void removeUpdate(DocumentEvent e)  { applyLocalFilter(); }
             public void changedUpdate(DocumentEvent e)  { applyLocalFilter(); }
         });
-
-        return panel;
     }
 
     private void applyLocalFilter() {
-        String regex = searchField.getText().trim();
+        String regex = searchBar.getText().trim();
 
         if (regex.isEmpty()) {
             tableModel.setJobs(allJobs);
             statusLabel.setText(allJobs.size() + " Job(s)");
-            searchField.setBackground(UIManager.getColor("TextField.background"));
+            searchBar.getTextField().setBackground(UIManager.getColor("TextField.background"));
             return;
         }
 
@@ -208,13 +206,13 @@ public class JesJobsConnectionTab implements ConnectionTab {
             }
             tableModel.setJobs(filtered);
             statusLabel.setText(filtered.size() + " / " + allJobs.size() + " Job(s)");
-            searchField.setBackground(filtered.isEmpty()
+            searchBar.getTextField().setBackground(filtered.isEmpty()
                     ? new Color(255, 200, 200)
                     : UIManager.getColor("TextField.background"));
         } catch (Exception e) {
-            // invalid regex → show all, red background
+            // invalid regex -> show all, red background
             tableModel.setJobs(allJobs);
-            searchField.setBackground(new Color(255, 200, 200));
+            searchBar.getTextField().setBackground(new Color(255, 200, 200));
         }
     }
 
@@ -349,12 +347,11 @@ public class JesJobsConnectionTab implements ConnectionTab {
     }
 
     @Override public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
+        searchBar.focusAndSelectAll();
     }
     @Override public void searchFor(String s) {
         if (s != null) {
-            searchField.setText(s.trim());
+            searchBar.setText(s.trim());
             applyLocalFilter();
         }
     }

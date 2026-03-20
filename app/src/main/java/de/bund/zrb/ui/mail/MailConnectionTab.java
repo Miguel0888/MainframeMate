@@ -14,6 +14,7 @@ import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
@@ -56,7 +57,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     private final JTextField pathField = new JTextField();
     private final DefaultListModel<String> listModel = new DefaultListModel<>();
     private final JList<String> fileList = new JList<>(listModel);
-    private final JTextField searchField = new JTextField();
+    private final FindBarPanel searchBar = new FindBarPanel("Regex-Filter\u2026");
     private final JLabel statusLabel = new JLabel(" ");
 
     // Navigation state
@@ -189,7 +190,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
 
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
-                fileList, searchField,
+                fileList, searchBar.getTextField(),
                 this::handleDoubleClick,
                 this::navigateBack,
                 this::navigateForward
@@ -372,7 +373,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         this.currentCategory = null;
         this.viewMode = ViewMode.MAILBOX_LIST;
         pathField.setText("mailstore: " + mailStorePath);
-        searchField.setText("");
+        searchBar.setText("");
         resetPaging();
 
         SwingWorker<List<MailboxRef>, Void> worker = new SwingWorker<List<MailboxRef>, Void>() {
@@ -424,7 +425,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         this.currentCategory = null;
         this.viewMode = ViewMode.CATEGORY_LIST;
         pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName());
-        searchField.setText("");
+        searchBar.setText("");
         resetPaging();
 
         currentMailboxes = Collections.emptyList();
@@ -451,7 +452,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         this.currentCategory = category;
         this.viewMode = ViewMode.FOLDER_LIST;
         pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " ▸ " + category.getLabel());
-        searchField.setText("");
+        searchBar.setText("");
         statusLabel.setText("Lade Ordner…");
         resetPaging();
 
@@ -501,7 +502,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         this.currentFolderPath = folderPath;
         this.viewMode = ViewMode.MESSAGE_LIST;
         pathField.setText("mailbox: " + new java.io.File(mailboxPath).getName() + " \u25B8 " + folderPath);
-        searchField.setText("");
+        searchBar.setText("");
         statusLabel.setText("Lade\u2026");
         resetPaging();
         if (sidebarVisible) updateSidebarPath();
@@ -695,22 +696,19 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     // ─── Filter/Search ───
 
     private JPanel createFilterPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        searchField.setToolTipText("<html>Regex-Filter für Einträge<br>Beispiel: <code>Rechnung</code></html>");
-        panel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        panel.add(searchField, BorderLayout.CENTER);
+        searchBar.getTextField().setToolTipText("<html>Regex-Filter f\u00fcr Eintr\u00e4ge<br>Beispiel: <code>Rechnung</code></html>");
 
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { applySearchFilter(); }
             public void removeUpdate(DocumentEvent e) { applySearchFilter(); }
             public void changedUpdate(DocumentEvent e) { applySearchFilter(); }
         });
 
-        return panel;
+        return searchBar;
     }
 
     private void applySearchFilter() {
-        String regex = searchField.getText().trim();
+        String regex = searchBar.getText().trim();
         listModel.clear();
 
         boolean hasMatch = false;
@@ -726,7 +724,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
             }
         }
 
-        searchField.setBackground(hasMatch || regex.isEmpty()
+        searchBar.getTextField().setBackground(hasMatch || regex.isEmpty()
                 ? UIManager.getColor("TextField.background")
                 : new Color(255, 200, 200));
     }
@@ -851,14 +849,13 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
+        searchBar.focusAndSelectAll();
     }
 
     @Override
     public void searchFor(String searchPattern) {
         if (searchPattern == null) return;
-        searchField.setText(searchPattern.trim());
+        searchBar.setText(searchPattern.trim());
         applySearchFilter();
     }
 }
