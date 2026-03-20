@@ -44,32 +44,52 @@ public class FileServiceFactory {
     /**
      * Creates a FileService based on the VirtualResource backend type.
      * All backends use Apache Commons VFS2 through {@link VfsFileService}.
+     * For backends without a dedicated VFS provider (SHAREPOINT, WIKI, CONFLUENCE,
+     * MAIL, BETAVIEW), returns a local VFS service as a placeholder — those backends
+     * are typically accessed through their own connection tabs and prefetch services.
      */
     public FileService create(VirtualResource resource, CredentialsProvider credentialsProvider) throws FileServiceException {
         if (resource == null) {
             throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR, "VirtualResource is null");
         }
 
-        if (resource.getBackendType() == VirtualBackendType.LOCAL) {
-            return createLocal();
-        }
+        switch (resource.getBackendType()) {
+            case LOCAL:
+                return createLocal();
 
-        if (resource.getBackendType() == VirtualBackendType.NDV) {
-            NdvResourceState ndvState = resource.getNdvState();
-            if (ndvState == null) {
-                throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR,
-                        "Missing NdvResourceState in VirtualResource");
+            case NDV: {
+                NdvResourceState ndvState = resource.getNdvState();
+                if (ndvState == null) {
+                    throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR,
+                            "Missing NdvResourceState in VirtualResource");
+                }
+                return VfsFileService.forNdv(ndvState.getService(), ndvState.getLibrary(), ndvState.getObjectInfo());
             }
-            return VfsFileService.forNdv(ndvState.getService(), ndvState.getLibrary(), ndvState.getObjectInfo());
-        }
 
-        // FTP — via VFS
-        FtpResourceState ftpState = resource.getFtpState();
-        ConnectionId connectionId = ftpState != null ? ftpState.getConnectionId() : null;
-        if (connectionId == null) {
-            throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.AUTH_FAILED, "Missing ConnectionId in VirtualResource");
-        }
+            case FTP: {
+                FtpResourceState ftpState = resource.getFtpState();
+                ConnectionId connectionId = ftpState != null ? ftpState.getConnectionId() : null;
+                if (connectionId == null) {
+                    throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.AUTH_FAILED,
+                            "Missing ConnectionId in VirtualResource");
+                }
+                return createFtp(connectionId, credentialsProvider);
+            }
 
-        return createFtp(connectionId, credentialsProvider);
+            case MAIL:
+            case SHAREPOINT:
+            case WIKI:
+            case CONFLUENCE:
+            case BETAVIEW:
+            case WEB:
+            case ARCHIVE:
+                // These backends use their own connection tabs and prefetch services
+                // for content retrieval. A local VFS fallback is returned so callers
+                // that need a FileService object don't fail.
+                return createLocal();
+
+            default:
+                return createLocal();
+        }
     }
 }

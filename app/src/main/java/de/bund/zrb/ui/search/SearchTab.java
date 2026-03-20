@@ -4,10 +4,6 @@ import de.bund.zrb.archive.model.ArchiveDocument;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchResult;
-import de.bund.zrb.service.FtpSourceCacheService;
-import de.bund.zrb.service.LocalSourceCacheService;
-import de.bund.zrb.service.NdvSourceCacheService;
-import de.bund.zrb.sharepoint.SharePointCacheService;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
 import de.zrb.bund.newApi.ui.AppTab;
@@ -602,15 +598,14 @@ public class SearchTab extends JPanel implements AppTab {
                         html.append(highlightTerms(escHtml(content), lastQuery));
                         html.append("</div>");
                     } else {
-                        // Fallback: only snippet available
-                        html.append("<div style='background:#FFFDE7;border:1px solid #FFF9C4;")
-                                .append("padding:6px;border-radius:4px;'>");
-                        html.append(highlightTerms(escHtml(r.getSnippet()), lastQuery));
+                        // Document could not be loaded — show actionable error
+                        html.append("<div style='background:#FFEBEE;border:1px solid #EF9A9A;")
+                                .append("padding:8px;border-radius:4px;color:#B71C1C;'>");
+                        html.append("\u26A0 Dokument konnte nicht geladen werden.");
+                        html.append("<br><span style='font-size:11px;color:#666;'>")
+                                .append("Doppelklick zum \u00d6ffnen des Dokuments im Original-Backend.")
+                                .append("</span>");
                         html.append("</div>");
-                        html.append("<div style='color:#999;font-size:10px;margin-top:4px;'>")
-                                .append("\u2139\uFE0F Nur Snippet verf\u00fcgbar \u2013 ")
-                                .append("Doppelklick zum \u00d6ffnen des Dokuments")
-                                .append("</div>");
                     }
 
                     html.append("<div style='margin-top:8px;color:#999;font-size:10px;'>");
@@ -656,140 +651,113 @@ public class SearchTab extends JPanel implements AppTab {
 
     /**
      * Load the full document content for preview.
-     * Uses source-specific cache services and the VirtualResource pipeline.
-     * Does NOT use RagService.
+     * Uses VFS-backed FileService for LOCAL/FTP, and the Lucene index for all other backends.
+     * Does NOT use snippets. Does NOT use source-specific cache services.
      *
-     * Priority:
-     * 1. Source-specific in-memory cache (LocalSourceCacheService, FtpSourceCacheService, etc.)
-     * 2. VirtualResource pipeline (resolve → FileService → readFile) for LOCAL/FTP
-     * 3. Archive storage for ARCHIVE results
-     * 4. null → caller falls back to snippet
+     * Strategy per backend:
+     * 1. LOCAL  → VfsFileService.readFile() (direct file access via VFS2)
+     * 2. FTP    → VfsFileService.forFtp() + readFile() (VFS2 with credentials)
+     * 3. NDV / MAIL / SHAREPOINT / WIKI / CONFLUENCE
+     *          → Lucene index: SearchService.getDocumentText() (chunks persisted during indexing)
+     * 4. ARCHIVE → ArchiveService DataLake storage
+     * 5. null if document cannot be loaded
      */
     private String loadDocumentContent(SearchResult r) {
         if (r == null || r.getDocumentId() == null) return null;
         String docId = r.getDocumentId();
 
-        // ── 1. Try source-specific in-memory cache services ──
-        try {
-            String cached = loadFromCacheService(r.getSource(), docId);
-            if (cached != null && !cached.isEmpty()) {
-                return truncateContent(cached);
-            }
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Preview] Cache service lookup failed for: " + docId, e);
-        }
-
-        // ── 2. Try VirtualResource pipeline (LOCAL / FTP) ──
-        try {
-            String content = loadViaVirtualResource(r);
-            if (content != null && !content.isEmpty()) {
-                return truncateContent(content);
-            }
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Preview] VirtualResource load failed for: " + docId, e);
-        }
-
-        // ── 3. For ARCHIVE: try ArchiveDocument → textContentPath → StorageService ──
-        if (r.getSource() == SearchResult.SourceType.ARCHIVE) {
-            try {
-                return loadArchiveDocumentContent(docId);
-            } catch (Exception e) {
-                LOG.log(Level.FINE, "[Preview] Archive load failed for: " + docId, e);
-            }
-        }
-
-        // ── 4. null → caller shows snippet ──
-        return null;
-    }
-
-    /**
-     * Try to get the full text from the source-specific in-memory cache service.
-     * These caches are populated when the user visits a file during the current session.
-     */
-    private String loadFromCacheService(SearchResult.SourceType source, String docId) {
-        switch (source) {
+        switch (r.getSource()) {
             case LOCAL:
-                if (docId.startsWith("LOCAL:")) {
-                    String path = docId.substring("LOCAL:".length());
-                    return LocalSourceCacheService.getInstance().getCachedContent(path);
-                }
-                break;
+                return loadLocalViaVfs(docId);
             case FTP:
-                if (docId.startsWith("FTP:")) {
-                    // FTP documentId format: "FTP:host/path"
-                    String rest = docId.substring("FTP:".length());
-                    int slash = rest.indexOf('/');
-                    if (slash > 0) {
-                        String host = rest.substring(0, slash);
-                        String path = rest.substring(slash);
-                        return FtpSourceCacheService.getInstance().getCachedContent(host, path);
-                    }
-                }
-                break;
-            case NDV:
-                if (docId.startsWith("NDV:")) {
-                    // NDV documentId format: "NDV:LIBRARY/OBJNAME.EXT"
-                    String rest = docId.substring("NDV:".length());
-                    int slash = rest.indexOf('/');
-                    if (slash > 0) {
-                        String library = rest.substring(0, slash);
-                        String objWithExt = rest.substring(slash + 1);
-                        // Strip extension for cache key (cache key is LIBRARY/OBJNAME)
-                        int dot = objWithExt.lastIndexOf('.');
-                        String objName = dot > 0 ? objWithExt.substring(0, dot) : objWithExt;
-                        return NdvSourceCacheService.getInstance().getCachedSource(library, objName);
-                    }
-                }
-                break;
-            case SHAREPOINT:
-                if (docId.startsWith("SP:")) {
-                    // SP documentId format: "SP:siteUrl/pagePath"
-                    String rest = docId.substring("SP:".length());
-                    int slash = rest.indexOf('/');
-                    if (slash > 0) {
-                        String siteUrl = rest.substring(0, slash);
-                        String pagePath = rest.substring(slash + 1);
-                        return SharePointCacheService.getInstance().getCachedContent(siteUrl, pagePath);
-                    }
-                }
-                break;
+                return loadFtpViaVfs(docId);
+            case ARCHIVE:
+                return loadArchiveDocumentContent(docId);
             default:
-                break;
+                // NDV, MAIL, SHAREPOINT, WIKI, CONFLUENCE, RAG
+                // → all indexed in Lucene, retrieve full text from stored chunks
+                return loadFromLuceneIndex(docId);
         }
-        return null;
     }
 
     /**
-     * Load content through the VirtualResource pipeline (resolve → FileService → readFile).
-     * Only used for LOCAL files. For FTP, the resolve() opens a remote connection
-     * which is too heavy for a background preview – FTP content comes from the cache service.
+     * Load LOCAL file content via VFS2 FileService.
+     * documentId format: "LOCAL:C:/path/to/file"
      */
-    private String loadViaVirtualResource(SearchResult r) {
-        // Only LOCAL files go through VirtualResource pipeline for preview
-        if (r.getSource() != SearchResult.SourceType.LOCAL) return null;
+    private String loadLocalViaVfs(String docId) {
+        String path = docId;
+        if (docId.startsWith("LOCAL:")) {
+            path = docId.substring("LOCAL:".length());
+        }
 
-        String docId = r.getDocumentId();
-        if (docId == null || !docId.startsWith("LOCAL:")) return null;
-
-        String path = docId.substring("LOCAL:".length());
-        String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.LOCAL_PREFIX + path;
-
-        de.bund.zrb.ui.VirtualResourceResolver resolver = new de.bund.zrb.ui.VirtualResourceResolver();
         de.bund.zrb.files.api.FileService fs = null;
         try {
-            de.bund.zrb.ui.VirtualResource resource = resolver.resolve(prefixedPath);
-            if (resource.getKind() == de.bund.zrb.ui.VirtualResourceKind.DIRECTORY) return null;
-
             fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createLocal();
-            de.bund.zrb.files.model.FilePayload payload = fs.readFile(resource.getResolvedPath());
-            return payload.getEditorText();
+            de.bund.zrb.files.model.FilePayload payload = fs.readFile(path);
+            String content = payload.getEditorText();
+            return truncateContent(content);
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[Preview] VirtualResource pipeline failed: " + prefixedPath, e);
-            return null;
+            LOG.log(Level.FINE, "[Preview] LOCAL VFS load failed: " + path, e);
+            // Fallback to Lucene index if file was moved/deleted
+            return loadFromLuceneIndex(docId);
         } finally {
-            if (fs != null) {
-                try { fs.close(); } catch (Exception ignored) {}
+            if (fs != null) try { fs.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Load FTP file content via VFS2 FileService.
+     * documentId format: "FTP:host/path"
+     */
+    private String loadFtpViaVfs(String docId) {
+        if (!docId.startsWith("FTP:")) {
+            return loadFromLuceneIndex(docId);
+        }
+
+        String rest = docId.substring("FTP:".length());
+        int slash = rest.indexOf('/');
+        if (slash <= 0) return loadFromLuceneIndex(docId);
+
+        String host = rest.substring(0, slash);
+        String path = rest.substring(slash);
+
+        de.bund.zrb.files.api.FileService fs = null;
+        try {
+            de.bund.zrb.model.Settings settings = de.bund.zrb.helper.SettingsHelper.load();
+            String user = settings.user;
+            String password = de.bund.zrb.login.LoginManager.getInstance().getCachedPassword(host, user);
+
+            if (password == null) {
+                // No active FTP session — fall back to Lucene index
+                LOG.fine("[Preview] No FTP credentials cached for " + host + " — using Lucene index");
+                return loadFromLuceneIndex(docId);
             }
+
+            fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createFtp(host, user, password);
+            de.bund.zrb.files.model.FilePayload payload = fs.readFile(path);
+            String content = payload.getEditorText();
+            return truncateContent(content);
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Preview] FTP VFS load failed: " + docId, e);
+            // Fallback to Lucene index
+            return loadFromLuceneIndex(docId);
+        } finally {
+            if (fs != null) try { fs.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Load document text from the persistent Lucene full-text index.
+     * Works for ANY backend because the text was stored during indexing.
+     * This is the universal fallback for all backends.
+     */
+    private String loadFromLuceneIndex(String docId) {
+        try {
+            String content = searchService.getDocumentText(docId, MAX_PREVIEW_CHARS);
+            return content;
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Preview] Lucene index load failed: " + docId, e);
+            return null;
         }
     }
 
@@ -799,7 +767,7 @@ public class SearchTab extends JPanel implements AppTab {
     private String loadArchiveDocumentContent(String docId) {
         CacheRepository repo = CacheRepository.getInstance();
         ArchiveDocument doc = repo.findDocumentById(docId);
-        if (doc == null) return null;
+        if (doc == null) return loadFromLuceneIndex(docId);
 
         // Try full text from data-lake storage
         if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
@@ -811,8 +779,8 @@ public class SearchTab extends JPanel implements AppTab {
                 LOG.log(Level.FINE, "[Preview] Archive storage read failed for: " + docId, e);
             }
         }
-        // Fallback: excerpt
-        return doc.getExcerpt();
+        // Fallback: try Lucene index
+        return loadFromLuceneIndex(docId);
     }
 
     private String truncateContent(String content) {
@@ -830,52 +798,62 @@ public class SearchTab extends JPanel implements AppTab {
         if (modelRow < 0 || modelRow >= currentResults.size()) return;
 
         SearchResult result = currentResults.get(modelRow);
-        String rawPath = result.getDocumentId(); // documentId is the full path used during indexing
 
         if (tabManager == null) {
-            // Fallback: show info dialog if no tabManager available
             JOptionPane.showMessageDialog(this,
                     "Dokument: " + result.getDocumentName()
-                            + "\nPfad: " + rawPath,
+                            + "\nPfad: " + result.getDocumentId(),
                     "Suchergebnis", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
         try {
             // ARCHIVE results use docId (UUID) — not a filesystem path.
-            // Load content from the archive repository and open directly.
             if (result.getSource() == SearchResult.SourceType.ARCHIVE) {
                 openArchiveResult(result);
                 return;
             }
 
-            // NDV results: documentId has format "NDV:LIBRARY/OBJNAME.EXT"
-            // Strip the "NDV:" prefix so the path becomes "LIBRARY/OBJNAME.EXT"
-            // before prepending the "ndv://" URL scheme.
-            if (result.getSource() == SearchResult.SourceType.NDV
-                    && rawPath.startsWith("NDV:")) {
-                rawPath = rawPath.substring("NDV:".length());
-            }
+            // Strip backend-specific documentId prefix to get the raw path,
+            // then rebuild the routable prefixed path via VirtualResourceRef.
+            String rawPath = documentIdToRawPath(result);
 
-            // SharePoint results: documentId has format "SP:siteUrl/pagePath"
-            // Strip the "SP:" prefix before prepending the "sp://" scheme.
-            if (result.getSource() == SearchResult.SourceType.SHAREPOINT
-                    && rawPath.startsWith("SP:")) {
-                rawPath = rawPath.substring("SP:".length());
-            }
-
-            // Build prefixed path based on source typSchluessel so the routing in
-            // MainFrame.openFileOrDirectory() can dispatch to the correct backend
             String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.buildPrefixedPath(
                     sourceTypeToBackend(result.getSource()), rawPath);
 
-            // Route through MainframeContext which handles mail://, ndv://, local://, ftp:
+            // Route through MainframeContext which handles all backend prefixes
             tabManager.getMainframeContext()
                     .openFileOrDirectory(prefixedPath, null, lastQuery, null);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                     "Fehler beim \u00d6ffnen:\n" + e.getMessage(),
                     "Fehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Strip the backend-specific documentId prefix to get the raw path.
+     * DocumentId formats:
+     *   LOCAL:C:/path → C:/path
+     *   FTP:host/path → host/path
+     *   NDV:LIBRARY/OBJ.EXT → LIBRARY/OBJ.EXT
+     *   SP:siteUrl/path → siteUrl/path
+     *   wiki://siteId/pageTitle → siteId/pageTitle
+     *   confluence://pageId → pageId
+     *   mail paths (with #) → as-is (no prefix to strip)
+     */
+    private static String documentIdToRawPath(SearchResult r) {
+        String docId = r.getDocumentId();
+        if (docId == null) return "";
+        switch (r.getSource()) {
+            case LOCAL:      return docId.startsWith("LOCAL:") ? docId.substring("LOCAL:".length()) : docId;
+            case FTP:        return docId.startsWith("FTP:") ? docId.substring("FTP:".length()) : docId;
+            case NDV:        return docId.startsWith("NDV:") ? docId.substring("NDV:".length()) : docId;
+            case SHAREPOINT: return docId.startsWith("SP:") ? docId.substring("SP:".length()) : docId;
+            case WIKI:       return docId.startsWith("wiki://") ? docId.substring("wiki://".length()) : docId;
+            case CONFLUENCE: return docId.startsWith("confluence://") ? docId.substring("confluence://".length()) : docId;
+            case MAIL:       return docId; // mail uses raw path with # separators
+            default:         return docId;
         }
     }
 

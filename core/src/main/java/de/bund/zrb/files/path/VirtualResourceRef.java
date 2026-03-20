@@ -26,6 +26,10 @@ public final class VirtualResourceRef {
     public static final String BETAVIEW_PREFIX = "betaview://";
     /** Prefix for SharePoint pages */
     public static final String SHAREPOINT_PREFIX = "sp://";
+    /** Prefix for Wiki pages */
+    public static final String WIKI_PREFIX = "wiki://";
+    /** Prefix for Confluence pages */
+    public static final String CONFLUENCE_PREFIX = "confluence://";
 
     private final String raw;
 
@@ -68,7 +72,8 @@ public final class VirtualResourceRef {
     }
 
     public boolean isUri() {
-        if (isFtpPath() || isLocalPrefixed() || isMailPath() || isNdvPath() || isBetaviewPath()) {
+        if (isFtpPath() || isLocalPrefixed() || isMailPath() || isNdvPath()
+                || isBetaviewPath() || isWikiPath() || isConfluencePath() || isSharePointPath()) {
             return false; // these are handled by their own prefixes
         }
         String s = raw.trim().toLowerCase();
@@ -172,17 +177,64 @@ public final class VirtualResourceRef {
     }
 
     /**
+     * Check if this is a SharePoint path (sp:// prefix).
+     */
+    public boolean isSharePointPath() {
+        return raw.trim().toLowerCase().startsWith(SHAREPOINT_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the SharePoint path without the sp:// prefix.
+     */
+    public String getSharePointPath() {
+        if (!isSharePointPath()) return raw;
+        return raw.trim().substring(SHAREPOINT_PREFIX.length());
+    }
+
+    /**
+     * Check if this is a Wiki path (wiki:// prefix).
+     */
+    public boolean isWikiPath() {
+        return raw.trim().toLowerCase().startsWith(WIKI_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the Wiki path without the wiki:// prefix.
+     */
+    public String getWikiPath() {
+        if (!isWikiPath()) return raw;
+        return raw.trim().substring(WIKI_PREFIX.length());
+    }
+
+    /**
+     * Check if this is a Confluence path (confluence:// prefix).
+     */
+    public boolean isConfluencePath() {
+        return raw.trim().toLowerCase().startsWith(CONFLUENCE_PREFIX.toLowerCase());
+    }
+
+    /**
+     * Get the Confluence path without the confluence:// prefix.
+     */
+    public String getConfluencePath() {
+        if (!isConfluencePath()) return raw;
+        return raw.trim().substring(CONFLUENCE_PREFIX.length());
+    }
+
+    /**
      * Build a prefixed path from a backend type and raw path.
      */
     public static String buildPrefixedPath(String backendType, String rawPath) {
         if (rawPath == null) return null;
         switch (backendType) {
-            case "FTP":  return FTP_PREFIX + rawPath;
-            case "NDV":  return NDV_PREFIX + rawPath;
-            case "MAIL":     return MAIL_PREFIX + rawPath;
-            case "BETAVIEW": return BETAVIEW_PREFIX + rawPath;
+            case "FTP":        return FTP_PREFIX + rawPath;
+            case "NDV":        return NDV_PREFIX + rawPath;
+            case "MAIL":       return MAIL_PREFIX + rawPath;
+            case "BETAVIEW":   return BETAVIEW_PREFIX + rawPath;
             case "SHAREPOINT": return SHAREPOINT_PREFIX + rawPath;
-            default:     return LOCAL_PREFIX + rawPath;
+            case "WIKI":       return WIKI_PREFIX + rawPath;
+            case "CONFLUENCE": return CONFLUENCE_PREFIX + rawPath;
+            default:           return LOCAL_PREFIX + rawPath;
         }
     }
 }

@@ -8,6 +8,7 @@ public enum VirtualBackendType {
     WEB,
     ARCHIVE,
     BETAVIEW,
+    SHAREPOINT,
     WIKI,
     CONFLUENCE
 }

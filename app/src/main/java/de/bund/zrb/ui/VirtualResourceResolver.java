@@ -22,6 +22,42 @@ public class VirtualResourceResolver {
             return new VirtualResource(ref, kind, localPath, VirtualBackendType.LOCAL, null);
         }
 
+        // NDV prefix: ndv://LIBRARY/OBJNAME.EXT
+        if (ref.isNdvPath()) {
+            String ndvPath = ref.getNdvPath();
+            return new VirtualResource(ref, VirtualResourceKind.FILE, ndvPath, VirtualBackendType.NDV, null);
+        }
+
+        // Mail prefix: mail://mailbox#folder#nodeId
+        if (ref.isMailPath()) {
+            String mailPath = ref.getMailPath();
+            return new VirtualResource(ref, VirtualResourceKind.FILE, mailPath, VirtualBackendType.MAIL, null);
+        }
+
+        // SharePoint prefix: sp://siteUrl/pagePath
+        if (ref.isSharePointPath()) {
+            String spPath = ref.getSharePointPath();
+            return new VirtualResource(ref, VirtualResourceKind.FILE, spPath, VirtualBackendType.SHAREPOINT, null);
+        }
+
+        // Wiki prefix: wiki://siteId/pageTitle
+        if (ref.isWikiPath()) {
+            String wikiPath = ref.getWikiPath();
+            return new VirtualResource(ref, VirtualResourceKind.FILE, wikiPath, VirtualBackendType.WIKI, null);
+        }
+
+        // Confluence prefix: confluence://pageId or confluence://baseUrl/page/pageId
+        if (ref.isConfluencePath()) {
+            String confPath = ref.getConfluencePath();
+            return new VirtualResource(ref, VirtualResourceKind.FILE, confPath, VirtualBackendType.CONFLUENCE, null);
+        }
+
+        // BetaView prefix: betaview://path
+        if (ref.isBetaviewPath()) {
+            String bvPath = ref.getBetaviewPath();
+            return new VirtualResource(ref, VirtualResourceKind.FILE, bvPath, VirtualBackendType.BETAVIEW, null);
+        }
+
         // Check for explicit FTP prefix first (e.g. "ftp:/", "ftp:/dir/file.txt")
         if (ref.isFtpPath()) {
             String ftpPath = ref.getFtpPath();
