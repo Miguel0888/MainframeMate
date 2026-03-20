@@ -39,8 +39,6 @@ import java.util.regex.Pattern;
 public class MailConnectionTab implements ConnectionTab, Navigable {
 
     private static final Logger LOG = Logger.getLogger(MailConnectionTab.class.getName());
-    private static final int MOUSE_BACK_BUTTON = 4;
-    private static final int MOUSE_FORWARD_BUTTON = 5;
     private static final int PAGE_SIZE = 200;
 
     private static final String LOAD_MORE_MARKER = "⏬ Weitere Nachrichten laden…";
@@ -179,9 +177,6 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         bottomPanel.add(statusLabel, BorderLayout.SOUTH);
         mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(mainPanel);
 
         fileList.addMouseListener(new MouseAdapter() {
             @Override
@@ -784,26 +779,6 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         }
     }
 
-    private void installMouseNavigation(JComponent component) {
-        component.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    if (canNavigateBack()) {
-                        navigateBack();
-                    } else {
-                        tabbedPaneManager.navigateTabBack();
-                    }
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    if (tabbedPaneManager.canNavigateTabForward()) {
-                        tabbedPaneManager.navigateTabForward();
-                    } else {
-                        navigateForward();
-                    }
-                }
-            }
-        });
-    }
 
     private void showError(String message) {
         JOptionPane.showMessageDialog(mainPanel, message, "Fehler", JOptionPane.ERROR_MESSAGE);

@@ -116,8 +116,8 @@ public class MainFrame extends JFrame implements MainframeContext {
         CommandRegistryImpl.register(new SearchMenuCommand(this, tabManager));
 
         // Navigation
-        CommandRegistryImpl.register(new NavigateBackMenuCommand(this, tabManager));
-        CommandRegistryImpl.register(new NavigateForwardMenuCommand(this, tabManager));
+        CommandRegistryImpl.register(new NavigateBackMenuCommand(tabManager));
+        CommandRegistryImpl.register(new NavigateForwardMenuCommand(tabManager));
     }
 
     // MCP Tools

@@ -33,8 +33,6 @@ import java.util.regex.Pattern;
 
 public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
 
-    private static final int MOUSE_BACK_BUTTON = 4;
-    private static final int MOUSE_FORWARD_BUTTON = 5;
 
     /** Sort modes for file list. */
     enum SortMode {
@@ -277,11 +275,6 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
         listContainer.add(overlayLabel);
         listContainer.add(viewContainer);
 
-        // Mouse navigation on all relevant components
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(extensionTree);
-        installMouseNavigation(mainPanel);
 
         // Keyboard navigation
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
@@ -1509,29 +1502,6 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
 
     // ═══════════════════════════════════════════════════════════
     //  Mouse navigation
-    // ═══════════════════════════════════════════════════════════
-
-    private void installMouseNavigation(JComponent component) {
-        component.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    if (canNavigateBack()) {
-                        navigateBack();
-                    } else {
-                        tabbedPaneManager.navigateTabBack();
-                    }
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    if (tabbedPaneManager.canNavigateTabForward()) {
-                        tabbedPaneManager.navigateTabForward();
-                    } else {
-                        navigateForward();
-                    }
-                }
-            }
-        });
-    }
-
     // ═══════════════════════════════════════════════════════════
     //  Status bar
     // ═══════════════════════════════════════════════════════════

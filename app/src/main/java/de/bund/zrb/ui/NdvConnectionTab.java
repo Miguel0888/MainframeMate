@@ -41,8 +41,6 @@ import java.util.List;
  */
 public class NdvConnectionTab implements ConnectionTab, Navigable {
 
-    private static final int MOUSE_BACK_BUTTON = 4;
-    private static final int MOUSE_FORWARD_BUTTON = 5;
 
     /** Sort modes for object list (Natural Navigator style). */
     enum SortMode {
@@ -287,11 +285,6 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
         listContainer.add(overlayLabel);
         listContainer.add(viewContainer);
 
-        // Mouse navigation on all relevant components
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(objectTree);
-        installMouseNavigation(mainPanel);
 
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
@@ -532,26 +525,6 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
         }
     }
 
-    private void installMouseNavigation(JComponent component) {
-        component.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    if (canNavigateBack()) {
-                        navigateBack();
-                    } else {
-                        tabbedPaneManager.navigateTabBack();
-                    }
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    if (tabbedPaneManager.canNavigateTabForward()) {
-                        tabbedPaneManager.navigateTabForward();
-                    } else {
-                        navigateForward();
-                    }
-                }
-            }
-        });
-    }
 
     // ==================== Loading ====================
 

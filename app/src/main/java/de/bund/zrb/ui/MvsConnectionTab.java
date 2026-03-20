@@ -35,8 +35,6 @@ import java.util.List;
  */
 public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserController.BrowserListener {
 
-    private static final int MOUSE_BACK_BUTTON = 4;
-    private static final int MOUSE_FORWARD_BUTTON = 5;
 
     /** Sort modes for resource list. */
     enum SortMode {
@@ -198,9 +196,6 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
             }
         });
 
-        installMouseNavigation(pathField);
-        installMouseNavigation(fileList);
-        installMouseNavigation(mainPanel);
 
         // Keyboard navigation: Enter, Left/Right arrows, circular Up/Down
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
@@ -969,26 +964,6 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
         return base + "." + upper;
     }
 
-    private void installMouseNavigation(JComponent component) {
-        component.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    if (canNavigateBack()) {
-                        navigateBack();
-                    } else {
-                        tabbedPaneManager.navigateTabBack();
-                    }
-                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    if (tabbedPaneManager.canNavigateTabForward()) {
-                        tabbedPaneManager.navigateTabForward();
-                    } else {
-                        navigateForward();
-                    }
-                }
-            }
-        });
-    }
 
     // ═══════════════════════════════════════════════════════════
     //  Overlay helpers

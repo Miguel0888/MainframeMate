@@ -13,11 +13,13 @@ import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.FileTab;
 import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
+import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayDeque;
@@ -114,6 +116,76 @@ public class TabbedPaneManager {
                 }
             }
         });
+
+        // Global mouse listener for back/forward buttons on all tab content
+        installGlobalMouseNavigation();
+    }
+
+    // ── Combined back/forward navigation (shared by menu commands & mouse) ───
+
+    private static final int MOUSE_BACK_BUTTON = 4;
+    private static final int MOUSE_FORWARD_BUTTON = 5;
+
+    /**
+     * Perform "back" navigation: first try within-tab, then close current tab
+     * and return to the previously active one (tab-level back).
+     * Called by menu/keyboard command and mouse button 4.
+     */
+    public void performBack() {
+        Optional<FtpTab> sel = getSelectedTab();
+        if (sel.isPresent() && sel.get() instanceof Navigable) {
+            Navigable nav = (Navigable) sel.get();
+            if (nav.canNavigateBack()) {
+                nav.navigateBack();
+                return;
+            }
+        }
+        navigateTabBack();
+    }
+
+    /**
+     * Perform "forward" navigation: first try tab-level (reopen a tab closed
+     * by back), then try within-tab forward.
+     * Called by menu/keyboard command and mouse button 5.
+     */
+    public void performForward() {
+        if (canNavigateTabForward()) {
+            navigateTabForward();
+            return;
+        }
+        Optional<FtpTab> sel = getSelectedTab();
+        if (sel.isPresent() && sel.get() instanceof Navigable) {
+            ((Navigable) sel.get()).navigateForward();
+        }
+    }
+
+    /**
+     * Install a global AWT event listener that intercepts mouse back/forward
+     * buttons (4 and 5) anywhere inside the tabbed pane.  This works for
+     * ALL tabs – including those that don't know about TabbedPaneManager
+     * (e.g. Wiki, Confluence Reader).
+     */
+    private void installGlobalMouseNavigation() {
+        Toolkit.getDefaultToolkit().addAWTEventListener(new AWTEventListener() {
+            @Override
+            public void eventDispatched(AWTEvent event) {
+                if (!(event instanceof MouseEvent)) return;
+                MouseEvent me = (MouseEvent) event;
+                if (me.getID() != MouseEvent.MOUSE_RELEASED) return;
+
+                int button = me.getButton();
+                if (button != MOUSE_BACK_BUTTON && button != MOUSE_FORWARD_BUTTON) return;
+
+                Component source = me.getComponent();
+                if (!SwingUtilities.isDescendingFrom(source, tabbedPane)) return;
+
+                if (button == MOUSE_BACK_BUTTON) {
+                    performBack();
+                } else {
+                    performForward();
+                }
+            }
+        }, AWTEvent.MOUSE_EVENT_MASK);
     }
 
     public void addTab(FtpTab tab) {
