@@ -34,14 +34,38 @@ final class HtmlPostProcessor {
 
         OutlineNode outlineRoot = buildOutline(doc);
 
-        // Extract images before cleaning the body
-        List<ImageRef> images = extractAndRemoveImages(doc);
-
         // Inject <a name="..."></a> before headings for Swing's scrollToReference()
         injectNameAnchors(doc);
 
+        // Resolve all <img> src attributes to absolute URLs (needed for both modes)
+        resolveImageSrcs(doc);
+
+        // Capture HTML with images still inline (for rendered mode)
+        String htmlWithImages = doc.body().html();
+
+        // Extract and remove images (for text-only mode)
+        List<ImageRef> images = extractAndRemoveImages(doc);
+
         String cleaned = doc.body().html();
-        return new Result(cleaned, outlineRoot, images);
+        return new Result(cleaned, htmlWithImages, outlineRoot, images);
+    }
+
+    /**
+     * Resolve all {@code <img src="...">} attributes to absolute URLs
+     * so that the HTML can be rendered with inline images in a JEditorPane.
+     */
+    private void resolveImageSrcs(Document doc) {
+        for (Element img : doc.select("img")) {
+            String abs = img.absUrl("src");
+            if (!abs.isEmpty()) {
+                img.attr("src", abs);
+            } else {
+                String src = img.attr("src");
+                if (src.startsWith("//")) {
+                    img.attr("src", "https:" + src);
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -192,11 +216,14 @@ final class HtmlPostProcessor {
 
     static final class Result {
         final String cleanedHtml;
+        /** HTML with {@code <img>} tags still inline (absolute URLs). For rendered mode. */
+        final String htmlWithImages;
         final OutlineNode outlineRoot;
         final List<ImageRef> images;
 
-        Result(String cleanedHtml, OutlineNode outlineRoot, List<ImageRef> images) {
+        Result(String cleanedHtml, String htmlWithImages, OutlineNode outlineRoot, List<ImageRef> images) {
             this.cleanedHtml = cleanedHtml;
+            this.htmlWithImages = htmlWithImages;
             this.outlineRoot = outlineRoot;
             this.images = images;
         }

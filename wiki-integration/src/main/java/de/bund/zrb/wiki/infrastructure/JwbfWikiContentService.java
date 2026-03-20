@@ -65,7 +65,8 @@ public class JwbfWikiContentService implements WikiContentService {
         String siteBaseUrl = site.apiUrl();
         HtmlPostProcessor.Result result = htmlProcessor.cleanAndBuildOutline(rawHtml, siteBaseUrl);
 
-        return new WikiPageView(pageTitle, result.cleanedHtml, result.outlineRoot, result.images);
+        return new WikiPageView(pageTitle, result.cleanedHtml, result.htmlWithImages,
+                result.outlineRoot, result.images);
     }
 
     @Override

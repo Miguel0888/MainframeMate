@@ -66,6 +66,13 @@ public class WikiConnectionTab implements ConnectionTab {
     /** Panel containing htmlScroll + optional ImageStripPanel for the preview area. */
     private JPanel previewPanel;
 
+    /** true = rendered mode (images inline), false = text mode (images in side strip). */
+    private boolean renderedMode = false;
+    private JToggleButton textModeBtn;
+    private JToggleButton renderedModeBtn;
+    /** Reference to the htmlScroll pane for layout updates. */
+    private JScrollPane htmlScrollPane;
+
     public WikiConnectionTab(WikiContentService service) {
         this.service = service;
         this.mainPanel = new JPanel(new BorderLayout(0, 0));
@@ -215,6 +222,7 @@ public class WikiConnectionTab implements ConnectionTab {
         });
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
         htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
+        htmlScrollPane = htmlScroll;
 
         previewPanel = new JPanel(new BorderLayout(0, 0));
         previewPanel.add(htmlScroll, BorderLayout.CENTER);
@@ -227,9 +235,41 @@ public class WikiConnectionTab implements ConnectionTab {
         mainSplit.setResizeWeight(0.4);
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
+        // ── Toggle buttons: Text vs Rendered ────────────────────
+        textModeBtn = new JToggleButton("Aa");
+        textModeBtn.setToolTipText("Textmodus (Bilder als Seitenleiste)");
+        textModeBtn.setFocusable(false);
+        textModeBtn.setSelected(true);
+        textModeBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        renderedModeBtn = new JToggleButton("\uD83D\uDDBC");
+        renderedModeBtn.setToolTipText("Gerenderte Ansicht (Bilder inline)");
+        renderedModeBtn.setFocusable(false);
+        renderedModeBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        ButtonGroup viewModeGroup = new ButtonGroup();
+        viewModeGroup.add(textModeBtn);
+        viewModeGroup.add(renderedModeBtn);
+
+        textModeBtn.addActionListener(e -> {
+            if (!renderedMode) return;
+            renderedMode = false;
+            refreshPreviewMode();
+        });
+        renderedModeBtn.addActionListener(e -> {
+            if (renderedMode) return;
+            renderedMode = true;
+            refreshPreviewMode();
+        });
+
+        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        togglePanel.add(textModeBtn);
+        togglePanel.add(renderedModeBtn);
+
         // Filter bar below everything
         JPanel bottomBar = new JPanel(new BorderLayout(0, 0));
         bottomBar.add(resultFilterBar, BorderLayout.CENTER);
+        bottomBar.add(togglePanel, BorderLayout.EAST);
         // statusLabel is kept as a field but not added to the layout — no "Vorschau:" text visible
         statusLabel = new JLabel(" ");
         mainPanel.add(bottomBar, BorderLayout.SOUTH);
@@ -377,27 +417,57 @@ public class WikiConnectionTab implements ConnectionTab {
     /** Apply a loaded WikiPageView to the preview pane and outline. */
     private void applyPreview(WikiPageView view) {
         currentPreview = view;
-        htmlPane.setText(wrapHtml(view.cleanedHtml()));
-        htmlPane.setCaretPosition(0);
+        applyPreviewContent(view);
         statusLabel.setText("✅ Vorschau: " + view.title());
-
-        // Update image strip in preview area
-        Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
-                .getLayoutComponent(java.awt.BorderLayout.EAST);
-        if (eastComp != null) {
-            previewPanel.remove(eastComp);
-        }
-        if (view.images() != null && !view.images().isEmpty()) {
-            previewPanel.add(new ImageStripPanel(view.images()), java.awt.BorderLayout.EAST);
-        }
-        previewPanel.revalidate();
-        previewPanel.repaint();
 
         if (outlineCallback != null) {
             outlineCallback.onOutlineChanged(view.outline(), view.title());
         }
         if (dependencyCallback != null && currentSiteId != null) {
             dependencyCallback.onDependenciesChanged(currentSiteId, view.title());
+        }
+    }
+
+    /**
+     * Apply the correct HTML content and image display based on the current view mode.
+     */
+    private void applyPreviewContent(WikiPageView view) {
+        if (view == null) return;
+
+        // Remove existing image strip (EAST component)
+        Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
+                .getLayoutComponent(java.awt.BorderLayout.EAST);
+        if (eastComp != null) {
+            previewPanel.remove(eastComp);
+        }
+
+        if (renderedMode && view.htmlWithImages() != null) {
+            // ── Rendered mode: images inline ─────────────────────
+            String fullHtml = WikiAsyncImageLoader.wrapHtmlWithImages(view.htmlWithImages());
+            htmlPane.setText(fullHtml);
+            htmlPane.setCaretPosition(0);
+            // Load images asynchronously (reuses Confluence pattern)
+            WikiAsyncImageLoader.loadImagesAsync(htmlPane, view.htmlWithImages(), fullHtml);
+        } else {
+            // ── Text mode: images in side strip ──────────────────
+            htmlPane.setText(wrapHtml(view.cleanedHtml()));
+            htmlPane.setCaretPosition(0);
+            if (view.images() != null && !view.images().isEmpty()) {
+                previewPanel.add(new ImageStripPanel(view.images()), java.awt.BorderLayout.EAST);
+            }
+        }
+
+        previewPanel.revalidate();
+        previewPanel.repaint();
+    }
+
+    /**
+     * Re-apply current preview using the newly selected view mode.
+     * Called when the user toggles between text and rendered mode.
+     */
+    private void refreshPreviewMode() {
+        if (currentPreview != null) {
+            applyPreviewContent(currentPreview);
         }
     }
 
@@ -418,7 +488,7 @@ public class WikiConnectionTab implements ConnectionTab {
         // 1) Use current preview if it matches (already loaded)
         if (currentPreview != null && title.equals(currentPreview.title())) {
             openCallback.openWikiPage(targetSite.id().value(), title, currentPreview.cleanedHtml(),
-                    currentPreview.outline(), currentPreview.images());
+                    currentPreview.htmlWithImages(), currentPreview.outline(), currentPreview.images());
             return;
         }
 
@@ -440,7 +510,7 @@ public class WikiConnectionTab implements ConnectionTab {
                     WikiPageView view = get();
                     if (view != null && openCallback != null) {
                         openCallback.openWikiPage(targetSite.id().value(), view.title(),
-                                view.cleanedHtml(), view.outline(), view.images());
+                                view.cleanedHtml(), view.htmlWithImages(), view.outline(), view.images());
                         statusLabel.setText("✅ Geöffnet: " + view.title());
                     }
                 } catch (Exception ex) {
@@ -561,7 +631,7 @@ public class WikiConnectionTab implements ConnectionTab {
                         try {
                             WikiPageView view = get();
                             openCallback.openWikiPage(site.id().value(), view.title(),
-                                    view.cleanedHtml(), view.outline(), view.images());
+                                    view.cleanedHtml(), view.htmlWithImages(), view.outline(), view.images());
                             statusLabel.setText("✅ Geöffnet: " + view.title());
                         } catch (Exception ex) {
                             statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
@@ -826,7 +896,7 @@ public class WikiConnectionTab implements ConnectionTab {
             WikiPageView cached = prefetchCallback.getCached(targetSite.id(), pageTitle);
             if (cached != null) {
                 openCallback.openWikiPage(targetSite.id().value(), cached.title(),
-                        cached.cleanedHtml(), cached.outline(), cached.images());
+                        cached.cleanedHtml(), cached.htmlWithImages(), cached.outline(), cached.images());
                 return;
             }
         }
@@ -849,7 +919,7 @@ public class WikiConnectionTab implements ConnectionTab {
                     WikiPageView view = get();
                     if (view != null && openCallback != null) {
                         openCallback.openWikiPage(targetSite.id().value(), view.title(),
-                                view.cleanedHtml(), view.outline(), view.images());
+                                view.cleanedHtml(), view.htmlWithImages(), view.outline(), view.images());
                         statusLabel.setText("✅ Geöffnet: " + view.title());
                     }
                 } catch (Exception ex) {
@@ -901,6 +971,7 @@ public class WikiConnectionTab implements ConnectionTab {
 
     public interface OpenCallback {
         void openWikiPage(String siteId, String pageTitle, String htmlContent,
+                          String htmlWithImages,
                           OutlineNode outline, java.util.List<de.bund.zrb.wiki.domain.ImageRef> images);
     }
 

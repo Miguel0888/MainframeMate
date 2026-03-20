@@ -31,6 +31,8 @@ public class WikiFileTab implements ConnectionTab {
     private final String siteId;
     private final String pageTitle;
     private final String htmlContent;
+    /** HTML with inline images (absolute URLs). May be {@code null} for legacy callers. */
+    private final String htmlWithImages;
     private final OutlineNode outline;
     private final List<ImageRef> images;
 
@@ -41,15 +43,28 @@ public class WikiFileTab implements ConnectionTab {
     /** Callback for opening linked pages as new tabs. */
     private LinkCallback linkCallback;
 
+    /** true = rendered mode (images inline), false = text mode (images in side strip). */
+    private boolean renderedMode = false;
+    private JToggleButton textModeBtn;
+    private JToggleButton renderedModeBtn;
+    /** Center panel wrapping htmlScroll + optional image strip. */
+    private JPanel centerPanel;
+
     public WikiFileTab(String siteId, String pageTitle, String htmlContent, OutlineNode outline) {
-        this(siteId, pageTitle, htmlContent, outline, Collections.<ImageRef>emptyList());
+        this(siteId, pageTitle, htmlContent, null, outline, Collections.<ImageRef>emptyList());
     }
 
     public WikiFileTab(String siteId, String pageTitle, String htmlContent,
                        OutlineNode outline, List<ImageRef> images) {
+        this(siteId, pageTitle, htmlContent, null, outline, images);
+    }
+
+    public WikiFileTab(String siteId, String pageTitle, String htmlContent,
+                       String htmlWithImages, OutlineNode outline, List<ImageRef> images) {
         this.siteId = siteId;
         this.pageTitle = pageTitle;
         this.htmlContent = htmlContent;
+        this.htmlWithImages = htmlWithImages;
         this.outline = outline;
         this.images = images != null ? images : Collections.<ImageRef>emptyList();
         this.mainPanel = new JPanel(new BorderLayout(0, 0));
@@ -68,24 +83,55 @@ public class WikiFileTab implements ConnectionTab {
 
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
 
-        // Image strip on the right (only if images exist)
-        if (!this.images.isEmpty()) {
-            ImageStripPanel imageStrip = new ImageStripPanel(this.images);
-            JPanel centerPanel = new JPanel(new BorderLayout(0, 0));
-            centerPanel.add(htmlScroll, BorderLayout.CENTER);
-            centerPanel.add(imageStrip, BorderLayout.EAST);
-            mainPanel.add(centerPanel, BorderLayout.CENTER);
-        } else {
-            mainPanel.add(htmlScroll, BorderLayout.CENTER);
-        }
+        // Center panel wrapping htmlScroll + optional image strip
+        centerPanel = new JPanel(new BorderLayout(0, 0));
+        centerPanel.add(htmlScroll, BorderLayout.CENTER);
 
-        // Search bar at bottom
+        // Image strip on the right (only if images exist, text mode default)
+        if (!this.images.isEmpty()) {
+            centerPanel.add(new ImageStripPanel(this.images), BorderLayout.EAST);
+        }
+        mainPanel.add(centerPanel, BorderLayout.CENTER);
+
+        // ── Toggle buttons: Text vs Rendered ────────────────────
+        textModeBtn = new JToggleButton("Aa");
+        textModeBtn.setToolTipText("Textmodus (Bilder als Seitenleiste)");
+        textModeBtn.setFocusable(false);
+        textModeBtn.setSelected(true);
+        textModeBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        renderedModeBtn = new JToggleButton("\uD83D\uDDBC");
+        renderedModeBtn.setToolTipText("Gerenderte Ansicht (Bilder inline)");
+        renderedModeBtn.setFocusable(false);
+        renderedModeBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        ButtonGroup viewModeGroup = new ButtonGroup();
+        viewModeGroup.add(textModeBtn);
+        viewModeGroup.add(renderedModeBtn);
+
+        textModeBtn.addActionListener(e -> {
+            if (!renderedMode) return;
+            renderedMode = false;
+            refreshViewMode();
+        });
+        renderedModeBtn.addActionListener(e -> {
+            if (renderedMode) return;
+            renderedMode = true;
+            refreshViewMode();
+        });
+
+        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        togglePanel.add(textModeBtn);
+        togglePanel.add(renderedModeBtn);
+
+        // Search bar at bottom (with toggle buttons on the right)
         searchField = new JTextField();
         searchField.setToolTipText("Text suchen (Enter)");
         searchField.addActionListener(e -> highlightSearch());
         JPanel searchBar = new JPanel(new BorderLayout(2, 0));
         searchBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
         searchBar.add(searchField, BorderLayout.CENTER);
+        searchBar.add(togglePanel, BorderLayout.EAST);
         mainPanel.add(searchBar, BorderLayout.SOUTH);
     }
 
@@ -164,6 +210,36 @@ public class WikiFileTab implements ConnectionTab {
         if (anchor != null) {
             htmlPane.scrollToReference(anchor);
         }
+    }
+
+    /**
+     * Re-apply content with the currently selected view mode.
+     */
+    private void refreshViewMode() {
+        // Remove existing image strip (EAST component)
+        Component eastComp = ((BorderLayout) centerPanel.getLayout())
+                .getLayoutComponent(BorderLayout.EAST);
+        if (eastComp != null) {
+            centerPanel.remove(eastComp);
+        }
+
+        if (renderedMode && htmlWithImages != null) {
+            // ── Rendered mode: images inline ─────────────────────
+            String fullHtml = WikiAsyncImageLoader.wrapHtmlWithImages(htmlWithImages);
+            htmlPane.setText(fullHtml);
+            htmlPane.setCaretPosition(0);
+            WikiAsyncImageLoader.loadImagesAsync(htmlPane, htmlWithImages, fullHtml);
+        } else {
+            // ── Text mode: images in side strip ──────────────────
+            htmlPane.setText(WikiConnectionTab.wrapHtml(htmlContent));
+            htmlPane.setCaretPosition(0);
+            if (!images.isEmpty()) {
+                centerPanel.add(new ImageStripPanel(images), BorderLayout.EAST);
+            }
+        }
+
+        centerPanel.revalidate();
+        centerPanel.repaint();
     }
 
     public OutlineNode getOutline() { return outline; }
