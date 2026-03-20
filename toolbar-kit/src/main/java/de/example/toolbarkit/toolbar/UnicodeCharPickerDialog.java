@@ -21,30 +21,63 @@ public class UnicodeCharPickerDialog extends JDialog {
 
     private String selectedChar;
 
-    /** Unicode blocks: { display-name, hex-start, hex-end }. */
+    /** Unicode blocks: { display-name, hex-start, hex-end }. Popular blocks first. */
     private static final String[][] BLOCKS = {
-            {"Pfeile",                      "2190", "21FF"},
-            {"Erg\u00e4nzende Pfeile-A",    "27F0", "27FF"},
-            {"Erg\u00e4nzende Pfeile-B",    "2900", "297F"},
-            {"Geometrische Formen",         "25A0", "25FF"},
-            {"Verschiedene Symbole",        "2600", "26FF"},
-            {"Dingbats",                    "2700", "27BF"},
-            {"Technische Zeichen",          "2300", "23FF"},
-            {"Mathematische Operatoren",    "2200", "22FF"},
-            {"Erg. Mathematik-A",           "27C0", "27EF"},
-            {"Eingerahmte Zeichen",         "2460", "24FF"},
-            {"Buchstabenartige Symbole",    "2100", "214F"},
-            {"Zahlformen",                  "2150", "218F"},
-            {"Allgemeine Interpunktion",    "2000", "206F"},
-            {"W\u00e4hrungssymbole",        "20A0", "20CF"},
-            {"Blockelemente",               "2580", "259F"},
-            {"Rahmenzeichen",               "2500", "257F"},
-            {"Lateinisch Erg\u00e4nzung",   "00A0", "00FF"},
-            {"Lateinisch Erweitert-A",      "0100", "017F"},
-            {"Griechisch & Koptisch",       "0370", "03FF"},
-            {"Kyrillisch",                  "0400", "04FF"},
-            {"Braille-Muster",              "2800", "28FF"},
-            {"Versch. Symbole & Pfeile",    "2B00", "2BFF"},
+            // ── Popular Pictographs & Emoji (Supplementary Plane) ─────
+            {"\u2605 Piktogramme",              "1F300", "1F5FF"},
+            {"\u2605 Emoticons",                "1F600", "1F64F"},
+            {"\u2605 Transport & Karten",       "1F680", "1F6FF"},
+            {"\u2605 Erg. Piktogramme",         "1F900", "1F9FF"},
+            {"\u2605 Piktogramme Erw.-A",       "1FA70", "1FAFF"},
+            {"\u2605 Eingerahmt Erg.",           "1F100", "1F1FF"},
+
+            // ── Arrows ───────────────────────────────────────────────
+            {"Pfeile",                          "2190", "21FF"},
+            {"Erg. Pfeile-A",                   "27F0", "27FF"},
+            {"Erg. Pfeile-B",                   "2900", "297F"},
+            {"Erg. Pfeile-C",                   "1F800", "1F8FF"},
+
+            // ── Shapes & Symbols ─────────────────────────────────────
+            {"Geometrische Formen",             "25A0", "25FF"},
+            {"Geometr. Formen Erw.",            "1F780", "1F7FF"},
+            {"Verschiedene Symbole",            "2600", "26FF"},
+            {"Dingbats",                        "2700", "27BF"},
+            {"Versch. Symbole & Pfeile",        "2B00", "2BFF"},
+
+            // ── Technical & Math ─────────────────────────────────────
+            {"Technische Zeichen",              "2300", "23FF"},
+            {"Mathematische Operatoren",        "2200", "22FF"},
+            {"Erg. Mathematik-A",               "27C0", "27EF"},
+            {"Erg. Mathematik-B",               "2980", "29FF"},
+            {"Erg. Math. Operatoren",           "2A00", "2AFF"},
+
+            // ── Numbers & Letters ────────────────────────────────────
+            {"Eingerahmte Zeichen",             "2460", "24FF"},
+            {"Buchstabenartige Symbole",        "2100", "214F"},
+            {"Zahlformen",                      "2150", "218F"},
+            {"Hoch-/Tiefgestellt",              "2070", "209F"},
+
+            // ── Punctuation & Currency ───────────────────────────────
+            {"Allgemeine Interpunktion",        "2000", "206F"},
+            {"W\u00e4hrungssymbole",            "20A0", "20CF"},
+
+            // ── Box & Block ──────────────────────────────────────────
+            {"Blockelemente",                   "2580", "259F"},
+            {"Rahmenzeichen",                   "2500", "257F"},
+
+            // ── Latin & Scripts ──────────────────────────────────────
+            {"Lateinisch Erg\u00e4nzung",       "00A0", "00FF"},
+            {"Lateinisch Erweitert-A",          "0100", "017F"},
+            {"Griechisch & Koptisch",           "0370", "03FF"},
+            {"Kyrillisch",                      "0400", "04FF"},
+
+            // ── Games & Other ────────────────────────────────────────
+            {"Spielkarten",                     "1F0A0", "1F0FF"},
+            {"Mahjong-Steine",                  "1F000", "1F02F"},
+            {"Domino-Steine",                   "1F030", "1F09F"},
+            {"Braille-Muster",                  "2800", "28FF"},
+            {"Steuerzeichen-Bilder",            "2400", "243F"},
+            {"Alchemie-Symbole",                "1F700", "1F77F"},
     };
 
     private final JList<String> blockList;
@@ -208,10 +241,10 @@ public class UnicodeCharPickerDialog extends JDialog {
 
         // Try hex code-point
         String hex = query.toUpperCase(Locale.ROOT).replace("U+", "").replace("0X", "");
-        if (hex.matches("[0-9A-F]{2,5}")) {
+        if (hex.matches("[0-9A-F]{2,6}")) {
             try {
                 int cp = Integer.parseInt(hex, 16);
-                if (cp >= 0 && cp <= 0xFFFF && Character.isDefined(cp)) {
+                if (cp >= 0 && cp <= 0x1FAFF && Character.isDefined(cp)) {
                     String ch = new String(Character.toChars(cp));
                     charGrid.setCharacters(Collections.singletonList(ch));
                     previewLabel.setText(ch);
@@ -223,15 +256,31 @@ public class UnicodeCharPickerDialog extends JDialog {
             } catch (NumberFormatException ignore) { /* fall through to name search */ }
         }
 
-        // Search by Unicode character name
+        // Search by Unicode character name (BMP + popular supplementary ranges)
         List<String> results = new ArrayList<String>();
         String upper = query.toUpperCase(Locale.ROOT);
+        // BMP
         for (int cp = 0x00A0; cp <= 0xFFFF; cp++) {
             if (!Character.isDefined(cp) || Character.isISOControl(cp)) continue;
             String name = Character.getName(cp);
             if (name != null && name.contains(upper)) {
                 results.add(new String(Character.toChars(cp)));
                 if (results.size() >= 512) break;
+            }
+        }
+        // Supplementary Plane (popular pictograph ranges)
+        if (results.size() < 512) {
+            int[][] supplementaryRanges = {
+                    {0x1F000, 0x1F1FF}, {0x1F300, 0x1F9FF}, {0x1FA70, 0x1FAFF}
+            };
+            for (int[] range : supplementaryRanges) {
+                for (int cp = range[0]; cp <= range[1] && results.size() < 512; cp++) {
+                    if (!Character.isDefined(cp)) continue;
+                    String name = Character.getName(cp);
+                    if (name != null && name.contains(upper)) {
+                        results.add(new String(Character.toChars(cp)));
+                    }
+                }
             }
         }
         charGrid.setCharacters(results);
