@@ -166,14 +166,15 @@ public class ImageThumbnailPanel extends JPanel {
         scrollPane.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, Color.LIGHT_GRAY));
         add(scrollPane, BorderLayout.CENTER);
 
-        // ── Collapse button at bottom ──
-        JButton collapseBtn = new JButton("\u25b6\u25b6");
+        // ── Collapse button at bottom (same style as expand ◀◀ in ImageStripPanel) ──
+        JLabel collapseBtn = new JLabel("\u25b6\u25b6");
+        collapseBtn.setFont(collapseBtn.getFont().deriveFont(Font.BOLD, 11f));
+        collapseBtn.setHorizontalAlignment(SwingConstants.CENTER);
+        collapseBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         collapseBtn.setToolTipText("Miniaturansicht zuklappen");
-        collapseBtn.setFocusable(false);
-        collapseBtn.setMargin(new Insets(2, 6, 2, 6));
-        collapseBtn.addActionListener(new ActionListener() {
+        collapseBtn.addMouseListener(new MouseAdapter() {
             @Override
-            public void actionPerformed(ActionEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 if (collapseCallback != null) collapseCallback.run();
             }
         });
