@@ -89,7 +89,7 @@ public class ToolbarConfigDialog extends JDialog {
         // ── Top bar ─────────────────────────────────────────────
         JPanel top = new JPanel(new BorderLayout());
         JPanel leftTop = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        JButton btVisibility = new JButton("Sichtbarkeit\u2026");
+        JButton btVisibility = new JButton("Filter\u2026");
         JButton btDefaults = new JButton("Standard laden");
         JButton btLoadAll = new JButton("Alle laden");
         leftTop.add(btVisibility);
