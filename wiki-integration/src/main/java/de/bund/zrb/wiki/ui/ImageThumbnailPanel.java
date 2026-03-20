@@ -188,7 +188,7 @@ public class ImageThumbnailPanel extends JPanel {
             entry.imageLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    if (entry.animatedGif && e.getClickCount() == 1) {
+                    if (entry.animatedGif && isInsideOverlayCircle(entry.imageLabel, e.getX(), e.getY())) {
                         toggleAnimation(entry);
                     } else {
                         ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx);
@@ -246,6 +246,18 @@ public class ImageThumbnailPanel extends JPanel {
     // ═══════════════════════════════════════════════════════════
     //  GIF animation play / pause
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Returns {@code true} if the given (x,y) coordinate falls within the
+     * play/pause overlay circle drawn in the centre of the label.
+     */
+    private static boolean isInsideOverlayCircle(JLabel label, int x, int y) {
+        int cx = label.getWidth() / 2;
+        int cy = label.getHeight() / 2;
+        int r = OVERLAY_SIZE / 2;
+        double dist = Math.sqrt((double) (x - cx) * (x - cx) + (double) (y - cy) * (y - cy));
+        return dist <= r;
+    }
 
     private void toggleAnimation(ThumbnailEntry entry) {
         if (!entry.animatedGif || entry.gifBytes == null) return;
