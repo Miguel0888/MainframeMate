@@ -642,14 +642,14 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         toolbar.add(Box.createHorizontalGlue());
 
-        // ── Center: Compare / Undo / Redo (only for editable text files) ──
+        // ── Editable: Undo / Redo / Compare ──
         if (isEditable) {
-            toolbar.add(compareButton);
-            toolbar.addSeparator(new Dimension(8, 0));
             toolbar.add(undoButton);
             toolbar.add(Box.createHorizontalStrut(2));
             toolbar.add(redoButton);
-            toolbar.addSeparator(new Dimension(16, 0));
+            toolbar.addSeparator(new Dimension(8, 0));
+            toolbar.add(compareButton);
+            toolbar.addSeparator(new Dimension(8, 0));
         }
 
         // View Mode selector (only for non-editable content — editable files are always raw text)
@@ -660,7 +660,6 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
             JComboBox<ViewMode> modeCombo = new JComboBox<>(ViewMode.values());
             modeCombo.setName("viewModeCombo");
-            // Default is RENDERED_ONLY
             modeCombo.setSelectedItem(ViewMode.RENDERED_ONLY);
             modeCombo.setMaximumSize(new Dimension(120, 28));
             modeCombo.addActionListener(e -> {
@@ -671,7 +670,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             });
             toolbar.add(modeCombo);
 
-            toolbar.addSeparator(new Dimension(16, 0));
+            toolbar.addSeparator(new Dimension(8, 0));
         }
 
         // Sidebar toggle
