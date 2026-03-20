@@ -48,6 +48,11 @@ public class SearchService {
             t.setDaemon(true);
             return t;
         });
+        // Auto-register singleton backend providers
+        registerBackendSearchProvider(
+                de.bund.zrb.search.provider.WikiSearchProvider.getInstance());
+        registerBackendSearchProvider(
+                de.bund.zrb.search.provider.ConfluenceSearchProvider.getInstance());
     }
 
     public static synchronized SearchService getInstance() {
@@ -99,11 +104,12 @@ public class SearchService {
      * @param sources     which source types to search
      * @param maxResults  max results per source
      * @param useRag      whether to use RAG hybrid search (BM25 + embeddings)
+     * @param networkZone network zone filter: "INTERN", "EXTERN", or null for all
      * @param onResult    callback invoked for each batch of results (on calling thread context)
      * @return future that completes when all sources are searched
      */
     public Future<List<SearchResult>> searchAsync(String query, Set<SearchResult.SourceType> sources,
-                                                    int maxResults, boolean useRag,
+                                                    int maxResults, boolean useRag, String networkZone,
                                                     Consumer<List<SearchResult>> onResult) {
         return executor.submit(() -> {
             List<String> warnings = new ArrayList<String>();
@@ -137,6 +143,7 @@ public class SearchService {
             // ── 3. Parallel live backend searches ──
             List<Future<List<SearchResult>>> liveFutures = new ArrayList<Future<List<SearchResult>>>();
             final List<SearchResult.SourceType> liveTypes = new ArrayList<SearchResult.SourceType>();
+            final String zone = networkZone; // effectively final for lambda
 
             for (final SearchResult.SourceType src : sources) {
                 // Skip types that don't have live backends or are not yet implemented
@@ -163,7 +170,7 @@ public class SearchService {
                 liveFutures.add(executor.submit(new Callable<List<SearchResult>>() {
                     @Override
                     public List<SearchResult> call() throws Exception {
-                        return p.search(query, max);
+                        return p.search(query, max, zone);
                     }
                 }));
             }
@@ -219,13 +226,22 @@ public class SearchService {
      * Synchronous search – blocks until complete.
      */
     public List<SearchResult> search(String query, Set<SearchResult.SourceType> sources,
-                                      int maxResults, boolean useRag) {
+                                      int maxResults, boolean useRag, String networkZone) {
         try {
-            return searchAsync(query, sources, maxResults, useRag, null).get(30, TimeUnit.SECONDS);
+            return searchAsync(query, sources, maxResults, useRag, networkZone, null)
+                    .get(30, TimeUnit.SECONDS);
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[Search] Search failed", e);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Synchronous search – blocks until complete. Searches all network zones.
+     */
+    public List<SearchResult> search(String query, Set<SearchResult.SourceType> sources,
+                                      int maxResults, boolean useRag) {
+        return search(query, sources, maxResults, useRag, null);
     }
 
     // ─── Internal search methods ───

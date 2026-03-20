@@ -96,29 +96,30 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         final JTable table = new JTable(model);
         table.setRowHeight(24);
-        table.getColumnModel().getColumn(0).setPreferredWidth(70);  // Kategorie
-        table.getColumnModel().getColumn(1).setPreferredWidth(120); // ID
-        table.getColumnModel().getColumn(2).setPreferredWidth(130); // Anzeigename
-        table.getColumnModel().getColumn(3).setPreferredWidth(120); // Benutzername
-        table.getColumnModel().getColumn(4).setPreferredWidth(100); // Passwort
-        table.getColumnModel().getColumn(5).setPreferredWidth(180); // URL
-        table.getColumnModel().getColumn(6).setPreferredWidth(46);  // Login
-        table.getColumnModel().getColumn(6).setMaxWidth(54);
-        table.getColumnModel().getColumn(7).setPreferredWidth(46);  // Proxy
+        table.getColumnModel().getColumn(0).setPreferredWidth(70);  // Netzwerk
+        table.getColumnModel().getColumn(1).setPreferredWidth(70);  // Kategorie
+        table.getColumnModel().getColumn(2).setPreferredWidth(120); // ID
+        table.getColumnModel().getColumn(3).setPreferredWidth(130); // Anzeigename
+        table.getColumnModel().getColumn(4).setPreferredWidth(120); // Benutzername
+        table.getColumnModel().getColumn(5).setPreferredWidth(100); // Passwort
+        table.getColumnModel().getColumn(6).setPreferredWidth(180); // URL
+        table.getColumnModel().getColumn(7).setPreferredWidth(46);  // Login
         table.getColumnModel().getColumn(7).setMaxWidth(54);
-        table.getColumnModel().getColumn(8).setPreferredWidth(56);  // Auto-Idx
-        table.getColumnModel().getColumn(8).setMaxWidth(64);
-        table.getColumnModel().getColumn(9).setPreferredWidth(72);  // PW-Speicher
-        table.getColumnModel().getColumn(9).setMaxWidth(80);
-        table.getColumnModel().getColumn(10).setPreferredWidth(54); // Session
-        table.getColumnModel().getColumn(10).setMaxWidth(62);
-        table.getColumnModel().getColumn(11).setPreferredWidth(36); // 👁
-        table.getColumnModel().getColumn(11).setMaxWidth(40);
+        table.getColumnModel().getColumn(8).setPreferredWidth(46);  // Proxy
+        table.getColumnModel().getColumn(8).setMaxWidth(54);
+        table.getColumnModel().getColumn(9).setPreferredWidth(56);  // Auto-Idx
+        table.getColumnModel().getColumn(9).setMaxWidth(64);
+        table.getColumnModel().getColumn(10).setPreferredWidth(72);  // PW-Speicher
+        table.getColumnModel().getColumn(10).setMaxWidth(80);
+        table.getColumnModel().getColumn(11).setPreferredWidth(54); // Session
+        table.getColumnModel().getColumn(11).setMaxWidth(62);
+        table.getColumnModel().getColumn(12).setPreferredWidth(36); // 👁
+        table.getColumnModel().getColumn(12).setMaxWidth(40);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setAutoCreateRowSorter(true);
 
-        // Eye column (index 11): renderer + click handler
-        table.getColumnModel().getColumn(11).setCellRenderer(new DefaultTableCellRenderer() {
+        // Eye column (index 12): renderer + click handler
+        table.getColumnModel().getColumn(12).setCellRenderer(new DefaultTableCellRenderer() {
             {
                 setHorizontalAlignment(SwingConstants.CENTER);
             }
@@ -138,7 +139,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             public void mouseClicked(MouseEvent e) {
                 int col = table.columnAtPoint(e.getPoint());
                 int row = table.rowAtPoint(e.getPoint());
-                if (col == 11 && row >= 0) {
+                if (col == 12 && row >= 0) {
                     int modelRow = table.convertRowIndexToModel(row);
                     visible[modelRow] = !visible[modelRow];
                     model.fireTableRowsUpdated(modelRow, modelRow);
@@ -315,6 +316,13 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             categoryBox.setSelectedItem(existing.category);
         }
 
+        // Network zone dropdown
+        JComboBox<String> networkZoneBox = new JComboBox<String>(new String[]{
+                "\uD83C\uDF10 Extern", "\uD83C\uDFE2 Intern"});
+        if (existing != null && "INTERN".equals(existing.networkZone)) {
+            networkZoneBox.setSelectedIndex(1);
+        }
+
         JTextField idField          = new JTextField(existing != null ? existing.title : "", 25);
         JTextField displayNameField = new JTextField(existing != null ? existing.displayName : "", 25);
         JTextField userField        = new JTextField(existing != null ? existing.userName : "", 25);
@@ -424,6 +432,12 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         panel.add(new JLabel("Kategorie:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(categoryBox, gbc);
+
+        row++;
+        gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Netzwerk:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(networkZoneBox, gbc);
 
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
@@ -706,10 +720,11 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         String pass        = new String(passField.getPassword());
         String url         = urlField.getText().trim();
         String certAlias   = useCertCb.isSelected() ? certAliasField.getText().trim() : "";
+        String networkZone = networkZoneBox.getSelectedIndex() == 1 ? "INTERN" : "EXTERN";
 
         return new KeePassEntry(category, id, displayName, user, pass, url,
                 existing != null ? existing.uniqueID : "",
-                certAlias,
+                certAlias, networkZone,
                 loginCb.isSelected(), proxyCb.isSelected(), autoIdxCb.isSelected(),
                 savePwCb.isSelected(), sessionCb.isSelected());
     }
@@ -1280,8 +1295,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             if (exists) continue;
 
             try {
-                // Defaults: login=false, proxy=true, autoIndex=false
+                // Defaults: login=false, proxy=true, autoIndex=false, zone=EXTERN
                 KeePassEntry entry = new KeePassEntry("Wiki", id, displayName, "", "", url, "",
+                        "", "EXTERN",
                         false, true, false, false, false);
                 saveEntry(entry);
                 entries.add(entry);
@@ -1303,7 +1319,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     private static class EntryTableModel extends AbstractTableModel {
         private static final String[] COLUMNS = {
-                "Kategorie", "ID", "Anzeigename", "Benutzername", "Passwort", "URL",
+                "Netzwerk", "Kategorie", "ID", "Anzeigename", "Benutzername", "Passwort", "URL",
                 "Login", "Proxy", "Auto-Idx", "PW-Speicher", "Session", ""
         };
         private final List<KeePassEntry> entries;
@@ -1320,26 +1336,27 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         @Override
         public Class<?> getColumnClass(int col) {
-            // Columns 6–10 are boolean checkboxes
-            return (col >= 6 && col <= 10) ? Boolean.class : Object.class;
+            // Columns 7–11 are boolean checkboxes
+            return (col >= 7 && col <= 11) ? Boolean.class : Object.class;
         }
 
         @Override
         public Object getValueAt(int row, int col) {
             KeePassEntry e = entries.get(row);
             switch (col) {
-                case 0: return e.category;
-                case 1: return e.title;
-                case 2: return e.displayName;
-                case 3: return e.userName;
-                case 4: return visible[row] ? e.password : "••••••••";
-                case 5: return e.url;
-                case 6: return e.requiresLogin;
-                case 7: return e.useProxy;
-                case 8: return e.autoIndex;
-                case 9: return e.savePassword;
-                case 10: return e.sessionCache;
-                case 11: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
+                case 0: return "INTERN".equals(e.networkZone) ? "\uD83C\uDFE2 Intern" : "\uD83C\uDF10 Extern";
+                case 1: return e.category;
+                case 2: return e.title;
+                case 3: return e.displayName;
+                case 4: return e.userName;
+                case 5: return visible[row] ? e.password : "••••••••";
+                case 6: return e.url;
+                case 7: return e.requiresLogin;
+                case 8: return e.useProxy;
+                case 9: return e.autoIndex;
+                case 10: return e.savePassword;
+                case 11: return e.sessionCache;
+                case 12: return visible[row] ? "\uD83D\uDD13" : "\uD83D\uDC41";
                 default: return "";
             }
         }
@@ -1380,6 +1397,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                     meta.url != null ? meta.url : "",
                     "",
                     meta.certAlias != null ? meta.certAlias : "",
+                    meta.networkZone != null ? meta.networkZone : "EXTERN",
                     meta.requiresLogin, meta.useProxy, meta.autoIndex,
                     meta.savePassword, meta.sessionCache));
         }
@@ -1425,6 +1443,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             meta.displayName = e.displayName;
             meta.url = e.url;
             meta.certAlias = e.certAlias;
+            meta.networkZone = e.networkZone;
             meta.requiresLogin = e.requiresLogin;
             meta.useProxy = e.useProxy;
             meta.autoIndex = e.autoIndex;
@@ -1462,6 +1481,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         meta.displayName = entry.displayName;
         meta.url = entry.url;
         meta.certAlias = entry.certAlias;
+        meta.networkZone = entry.networkZone;
         meta.requiresLogin = entry.requiresLogin;
         meta.useProxy = entry.useProxy;
         meta.autoIndex = entry.autoIndex;
@@ -1524,6 +1544,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         meta.displayName = entry.displayName;
         meta.url = entry.url;
         meta.certAlias = entry.certAlias;
+        meta.networkZone = entry.networkZone;
         meta.requiresLogin = entry.requiresLogin;
         meta.useProxy = entry.useProxy;
         meta.autoIndex = entry.autoIndex;
@@ -1574,6 +1595,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             String mmLogin = "false", mmProxy = "false", mmIdx = "false";
             String mmSavePw = "false", mmSession = "false";
             String mmCertAlias = "";
+            String mmNetworkZone = "EXTERN";
 
             for (String line : block.split("\\n")) {
                 line = line.trim();
@@ -1590,6 +1612,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 else if (line.startsWith("MM_SavePassword: "))    mmSavePw  = line.substring(17).trim();
                 else if (line.startsWith("MM_SessionCache: "))    mmSession = line.substring(17).trim();
                 else if (line.startsWith("MM_CertAlias: "))       mmCertAlias = line.substring(14).trim();
+                else if (line.startsWith("MM_NetworkZone: "))     mmNetworkZone = line.substring(16).trim();
             }
 
             if (!title.isEmpty()) {
@@ -1599,6 +1622,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                         !mmDisp.isEmpty() ? mmDisp : title,
                         userName, password, url, uniqueID,
                         mmCertAlias,
+                        mmNetworkZone,
                         "true".equalsIgnoreCase(mmLogin),
                         "true".equalsIgnoreCase(mmProxy),
                         "true".equalsIgnoreCase(mmIdx),
@@ -1622,6 +1646,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         final String url;
         final String uniqueID;
         final String certAlias;     // Windows certificate alias (Confluence)
+        final String networkZone;   // "INTERN" or "EXTERN"
         final boolean requiresLogin;
         final boolean useProxy;
         final boolean autoIndex;
@@ -1633,12 +1658,21 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                      boolean requiresLogin, boolean useProxy, boolean autoIndex,
                      boolean savePassword, boolean sessionCache) {
             this(category, title, displayName, userName, password, url, uniqueID, "",
-                    requiresLogin, useProxy, autoIndex, savePassword, sessionCache);
+                    "EXTERN", requiresLogin, useProxy, autoIndex, savePassword, sessionCache);
         }
 
         KeePassEntry(String category, String title, String displayName,
                      String userName, String password, String url, String uniqueID,
                      String certAlias,
+                     boolean requiresLogin, boolean useProxy, boolean autoIndex,
+                     boolean savePassword, boolean sessionCache) {
+            this(category, title, displayName, userName, password, url, uniqueID, certAlias,
+                    "EXTERN", requiresLogin, useProxy, autoIndex, savePassword, sessionCache);
+        }
+
+        KeePassEntry(String category, String title, String displayName,
+                     String userName, String password, String url, String uniqueID,
+                     String certAlias, String networkZone,
                      boolean requiresLogin, boolean useProxy, boolean autoIndex,
                      boolean savePassword, boolean sessionCache) {
             this.category = category;
@@ -1649,6 +1683,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             this.url = url;
             this.uniqueID = uniqueID;
             this.certAlias = certAlias != null ? certAlias : "";
+            this.networkZone = networkZone != null ? networkZone : "EXTERN";
             this.requiresLogin = requiresLogin;
             this.useProxy = useProxy;
             this.autoIndex = autoIndex;

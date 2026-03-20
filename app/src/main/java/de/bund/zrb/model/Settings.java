@@ -198,6 +198,8 @@ public class Settings {
         public String displayName = "";
         public String url = "";
         public String certAlias = "";
+        /** Network zone: "INTERN" or "EXTERN". Default is "EXTERN". */
+        public String networkZone = "EXTERN";
         public boolean requiresLogin;
         public boolean useProxy;
         public boolean autoIndex;

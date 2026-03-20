@@ -43,6 +43,10 @@ public class SearchTab extends JPanel implements AppTab {
     private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbSharePoint, cbWiki, cbConfluence;
     private final JLabel ragStatusLabel;
 
+    // Network zone toggle (Intern / Extern)
+    private final JToggleButton btnIntern, btnExtern;
+    private final ButtonGroup zoneGroup;
+
     // Sorting
     private final JComboBox<String> sortCombo;
 
@@ -125,6 +129,19 @@ public class SearchTab extends JPanel implements AppTab {
         cbWiki = new JCheckBox("\uD83D\uDCD6 Wiki", true);
         cbConfluence = new JCheckBox("\uD83D\uDCD3 Confluence", true);
 
+        // Network zone toggle buttons
+        btnExtern = new JToggleButton("\uD83C\uDF10 Extern", true);
+        btnExtern.setToolTipText("Externe Quellen durchsuchen (z.\u00a0B. Wikipedia)");
+        btnExtern.setMargin(new Insets(1, 6, 1, 6));
+        btnExtern.setFocusable(false);
+        btnIntern = new JToggleButton("\uD83C\uDFE2 Intern", false);
+        btnIntern.setToolTipText("Interne Quellen durchsuchen (Intranet-Wikis, Confluence)");
+        btnIntern.setMargin(new Insets(1, 6, 1, 6));
+        btnIntern.setFocusable(false);
+        zoneGroup = new ButtonGroup();
+        zoneGroup.add(btnExtern);
+        zoneGroup.add(btnIntern);
+
         // Restore persisted checkbox selection
         restoreApplicationState();
 
@@ -137,6 +154,8 @@ public class SearchTab extends JPanel implements AppTab {
         cbSharePoint.addItemListener(saveOnToggle);
         cbWiki.addItemListener(saveOnToggle);
         cbConfluence.addItemListener(saveOnToggle);
+        btnIntern.addItemListener(saveOnToggle);
+        btnExtern.addItemListener(saveOnToggle);
 
         int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
         ragStatusLabel = new JLabel(semSize > 0
@@ -155,18 +174,27 @@ public class SearchTab extends JPanel implements AppTab {
         sourcePanel.add(cbWiki);
         sourcePanel.add(cbConfluence);
         sourcePanel.add(Box.createHorizontalStrut(8));
+        sourcePanel.add(new JSeparator(SwingConstants.VERTICAL) {
+            @Override public Dimension getPreferredSize() { return new Dimension(2, 20); }
+            @Override public Dimension getMaximumSize()    { return getPreferredSize(); }
+        });
+        sourcePanel.add(Box.createHorizontalStrut(4));
+        sourcePanel.add(btnExtern);
+        sourcePanel.add(btnIntern);
+        sourcePanel.add(Box.createHorizontalStrut(8));
         sourcePanel.add(ragStatusLabel);
 
         JPanel sortPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 1));
         sortPanel.add(new JLabel("Sortierung:"));
         sortCombo = new JComboBox<>(new String[]{
-                "Relevanz \u2193", "Name A\u2192Z", "Name Z\u2192A", "Pfad A\u2192Z"});
+                "Relevanz \u2193", "Name A\u2192Z", "Name Z\u2192A", "Pfad A\u2192Z",
+                "Quelle"});
         sortCombo.setToolTipText("Ergebnisse sortieren");
         sortCombo.addActionListener(e -> applySorting());
         sortPanel.add(sortCombo);
         sortPanel.add(Box.createHorizontalStrut(8));
         sortPanel.add(new JLabel("Max:"));
-        maxResultsSpinner = new JSpinner(new SpinnerNumberModel(50, 10, 500, 10));
+        maxResultsSpinner = new JSpinner(new SpinnerNumberModel(200, 10, 2000, 50));
         sortPanel.add(maxResultsSpinner);
 
         sortPanel.add(Box.createHorizontalStrut(12));
@@ -433,6 +461,7 @@ public class SearchTab extends JPanel implements AppTab {
 
         final Set<SearchResult.SourceType> sources = forcedSources != null ? forcedSources : getSelectedSources();
         final String searchQuery = effectiveQuery;
+        final String networkZone = getSelectedNetworkZone();
         int maxResults = (Integer) maxResultsSpinner.getValue();
 
         long startTime = System.currentTimeMillis();
@@ -440,7 +469,7 @@ public class SearchTab extends JPanel implements AppTab {
         new SwingWorker<List<SearchResult>, Void>() {
             @Override
             protected List<SearchResult> doInBackground() {
-                return searchService.search(searchQuery, sources, maxResults, false);
+                return searchService.search(searchQuery, sources, maxResults, false, networkZone);
             }
 
             @Override
@@ -523,6 +552,16 @@ public class SearchTab extends JPanel implements AppTab {
         return sources;
     }
 
+    /**
+     * Get the selected network zone filter.
+     * @return "INTERN", "EXTERN", or null if both/neither selected
+     */
+    private String getSelectedNetworkZone() {
+        if (btnIntern.isSelected()) return "INTERN";
+        if (btnExtern.isSelected()) return "EXTERN";
+        return null;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Sorting
     // ═══════════════════════════════════════════════════════════════
@@ -537,6 +576,8 @@ public class SearchTab extends JPanel implements AppTab {
             case 2: sorted.sort(Comparator.comparing(
                     (SearchResult r) -> r.getDocumentName().toLowerCase()).reversed()); break;
             case 3: sorted.sort(Comparator.comparing(r -> r.getPath().toLowerCase())); break;
+            case 4: sorted.sort(Comparator.comparing(
+                    (SearchResult r) -> r.getSource().getLabel())); break;
         }
         currentResults.clear();
         currentResults.addAll(sorted);
@@ -1223,6 +1264,7 @@ public class SearchTab extends JPanel implements AppTab {
         state.put("search.source.sharepoint", String.valueOf(cbSharePoint.isSelected()));
         state.put("search.source.wiki", String.valueOf(cbWiki.isSelected()));
         state.put("search.source.confluence", String.valueOf(cbConfluence.isSelected()));
+        state.put("search.zone.intern", String.valueOf(btnIntern.isSelected()));
         de.bund.zrb.helper.SettingsHelper.save(s);
     }
 
@@ -1236,6 +1278,11 @@ public class SearchTab extends JPanel implements AppTab {
         if (state.containsKey("search.source.sharepoint")) cbSharePoint.setSelected(Boolean.parseBoolean(state.get("search.source.sharepoint")));
         if (state.containsKey("search.source.wiki")) cbWiki.setSelected(Boolean.parseBoolean(state.get("search.source.wiki")));
         if (state.containsKey("search.source.confluence")) cbConfluence.setSelected(Boolean.parseBoolean(state.get("search.source.confluence")));
+        if (state.containsKey("search.zone.intern")) {
+            boolean intern = Boolean.parseBoolean(state.get("search.zone.intern"));
+            btnIntern.setSelected(intern);
+            btnExtern.setSelected(!intern);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════

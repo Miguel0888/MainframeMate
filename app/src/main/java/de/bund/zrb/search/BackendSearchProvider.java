@@ -13,6 +13,10 @@ import java.util.List;
  * real source type (WIKI, CONFLUENCE, FTP, …), not as "Archive".
  * When a backend is connected, the live search supplements the Lucene index
  * to find content that has not yet been indexed.
+ * <p>
+ * Implementations should be <b>singletons</b> and <b>stateless</b>:
+ * they read their configuration (sites, credentials) from
+ * {@link de.bund.zrb.model.Settings} on each invocation.
  */
 public interface BackendSearchProvider {
 
@@ -23,15 +27,17 @@ public interface BackendSearchProvider {
      * Perform a live search against the backend.
      * Must be <b>thread-safe</b> — may be called from a worker thread.
      *
-     * @param query      the user's search query
-     * @param maxResults maximum number of results to return
+     * @param query       the user's search query
+     * @param maxResults  maximum number of results to return
+     * @param networkZone network zone filter: {@code "INTERN"}, {@code "EXTERN"},
+     *                    or {@code null} to search all zones
      * @return list of results, never {@code null}
      * @throws Exception on any backend communication error
      */
-    List<SearchResult> search(String query, int maxResults) throws Exception;
+    List<SearchResult> search(String query, int maxResults, String networkZone) throws Exception;
 
     /**
-     * Whether the backend is currently connected and available for live search.
+     * Whether the backend has any configured entries and is potentially available.
      * If {@code false}, the SearchService will skip this provider and rely on
      * the Lucene index for results of this source type.
      */
