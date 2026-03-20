@@ -160,13 +160,22 @@ public class ConfluenceReaderTab implements ConnectionTab {
     /**
      * Scans the HTML for img tags and loads each image via the ConfluenceRestClient
      * in a background thread, then injects them into the JEditorPane's image cache.
+     * <p>
+     * Images are collected into a single {@link Hashtable} during background loading.
+     * In {@code done()} the cache is populated on the document <b>before</b> calling
+     * {@code setText()} so that newly created {@code ImageView} instances find the
+     * images immediately.  An additional safety re-populate after {@code setText()}
+     * covers the edge-case where {@code setText()} replaced the document object.
      */
     private void loadImagesAsync(String html) {
         if (html == null || client == null) return;
 
-        new SwingWorker<Void, Object[]>() {
+        new SwingWorker<Hashtable<URL, Image>, Object[]>() {
+            /** Accumulates loaded images (thread-safe). */
+            private final Hashtable<URL, Image> loaded = new Hashtable<URL, Image>();
+
             @Override
-            protected Void doInBackground() {
+            protected Hashtable<URL, Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
                 while (matcher.find()) {
                     String src = matcher.group(1);
@@ -179,9 +188,9 @@ public class ConfluenceReaderTab implements ConnectionTab {
 
                         Image image = javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
                         if (image != null) {
-                            // Resolve the URL that the HTMLDocument uses as key
                             URL imageUrl = resolveImageUrl(src);
                             if (imageUrl != null) {
+                                loaded.put(imageUrl, image);
                                 publish(new Object[]{imageUrl, image});
                             }
                         }
@@ -189,37 +198,51 @@ public class ConfluenceReaderTab implements ConnectionTab {
                         LOG.log(Level.FINE, "[ConfluenceReader] Image load failed: " + src, e);
                     }
                 }
-                return null;
+                return loaded;
             }
 
             @Override
             @SuppressWarnings("unchecked")
             protected void process(java.util.List<Object[]> chunks) {
+                // Incremental cache population — lets images appear as they load
                 Document doc = htmlPane.getDocument();
                 if (!(doc instanceof HTMLDocument)) return;
 
-                // Get or create image cache
                 Dictionary<URL, Image> cache = (Dictionary<URL, Image>) doc.getProperty("imageCache");
                 if (cache == null) {
                     cache = new Hashtable<URL, Image>();
                     doc.putProperty("imageCache", cache);
                 }
-
                 for (Object[] pair : chunks) {
-                    URL url = (URL) pair[0];
-                    Image img = (Image) pair[1];
-                    cache.put(url, img);
+                    cache.put((URL) pair[0], (Image) pair[1]);
                 }
             }
 
             @Override
+            @SuppressWarnings("unchecked")
             protected void done() {
-                // Re-set HTML text to force ImageViews to be recreated —
-                // they cache "load failed" state and won't retry on just repaint()
                 try {
-                    int caretPos = Math.min(htmlPane.getCaretPosition(),
-                            htmlPane.getDocument().getLength());
+                    Hashtable<URL, Image> allImages = get();
+                    if (allImages == null || allImages.isEmpty()) return;
+
+                    // 1) Ensure the cache is on the current document BEFORE setText()
+                    //    so that ImageViews created during parsing find the images.
+                    Document doc = htmlPane.getDocument();
+                    doc.putProperty("imageCache", allImages);
+
+                    int caretPos = Math.min(htmlPane.getCaretPosition(), doc.getLength());
+
+                    // 2) Re-set HTML to force fresh ImageViews (they cache "load failed"
+                    //    state from the initial load and won't retry on repaint alone).
                     htmlPane.setText(fullHtml);
+
+                    // 3) Safety: if setText() replaced the document, re-apply cache.
+                    Document newDoc = htmlPane.getDocument();
+                    if (newDoc != doc) {
+                        newDoc.putProperty("imageCache", allImages);
+                        htmlPane.setText(fullHtml);
+                    }
+
                     try {
                         htmlPane.setCaretPosition(Math.min(caretPos,
                                 htmlPane.getDocument().getLength()));
@@ -258,16 +281,14 @@ public class ConfluenceReaderTab implements ConnectionTab {
 
     /**
      * Resolve the img src to a full URL (as the HTMLDocument would key it).
+     * Must use the same resolution logic as {@code ImageView.getImageURL()},
+     * which calls {@code new URL(document.getBase(), src)}.
+     * Using string concatenation instead would produce mismatched URLs
+     * (e.g. double slashes) that cause image cache misses.
      */
     private URL resolveImageUrl(String src) {
         try {
-            if (src.startsWith("http://") || src.startsWith("https://")) {
-                return new URL(src);
-            }
-            if (src.startsWith("/")) {
-                return new URL(baseUrl + src);
-            }
-            return new URL(baseUrl + "/" + src);
+            return new URL(new URL(baseUrl), src);
         } catch (MalformedURLException e) {
             return null;
         }
