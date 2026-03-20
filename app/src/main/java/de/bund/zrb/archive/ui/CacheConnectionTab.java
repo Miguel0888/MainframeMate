@@ -8,6 +8,7 @@ import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchHighlighter;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -29,7 +30,7 @@ public class CacheConnectionTab implements ConnectionTab {
     private final CacheRepository repo;
     private final ResourceStorageService storageService;
     private final JTextArea previewArea;
-    private final JTextField searchField;
+    private final SearchBarPanel searchBar;
     private final JLabel statusLabel;
     private final TabbedPaneManager tabbedPaneManager;
 
@@ -91,10 +92,8 @@ public class CacheConnectionTab implements ConnectionTab {
         leftPanel.add(deleteBtn);
 
         // Center: search + advanced toggle
-        JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
-        searchField = new JTextField();
-        searchField.setToolTipText("Cache durchsuchen (Enter)…");
-        searchField.addActionListener(e -> filterDocuments());
+        searchBar = new SearchBarPanel("Cache durchsuchen…", "Cache durchsuchen (Enter)");
+        searchBar.addSearchAction(e -> filterDocuments());
         advancedToggle = new JToggleButton("\u2699");
         advancedToggle.setToolTipText("Erweiterte Suche: AND OR NOT \"phrase\"\n\n"
                 + "Beispiele:\n"
@@ -103,8 +102,8 @@ public class CacheConnectionTab implements ConnectionTab {
                 + "  \"exakte phrase\"     (wörtlich)");
         advancedToggle.setFocusable(false);
         advancedToggle.setMargin(new Insets(2, 6, 2, 6));
-        searchPanel.add(searchField, BorderLayout.CENTER);
-        searchPanel.add(advancedToggle, BorderLayout.EAST);
+        searchBar.addEastComponent(advancedToggle);
+        JPanel searchPanel = searchBar;
 
         // Right: host + kind filters (only visible for Web)
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -313,7 +312,7 @@ public class CacheConnectionTab implements ConnectionTab {
             return;
         }
 
-        String query = searchField.getText();
+        String query = searchBar.getText();
         String selectedHost = (String) hostFilter.getSelectedItem();
         String selectedKind = (String) kindFilter.getSelectedItem();
 
@@ -538,12 +537,12 @@ public class CacheConnectionTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
+        searchBar.focusAndSelectAll();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchField.setText(searchPattern);
+        searchBar.setText(searchPattern);
         filterDocuments();
     }
 

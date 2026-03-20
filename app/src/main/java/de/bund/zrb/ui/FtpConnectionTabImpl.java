@@ -12,6 +12,7 @@ import de.bund.zrb.service.FtpSourceCacheService;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
@@ -60,7 +61,7 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
     private boolean sidebarVisible = false;
     private JToggleButton detailsButton;
 
-    private final JTextField searchField = new JTextField();
+    private final FindBarPanel searchBar = new FindBarPanel("Regex-Filter\u2026");
     private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer;
     private final JLabel statusLabel = new JLabel(" ");
@@ -278,7 +279,7 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
 
         // Keyboard navigation
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
-                fileList, searchField,
+                fileList, searchBar.getTextField(),
                 () -> handleItemActivation(false),
                 this::navigateBack,
                 this::navigateForward
@@ -330,7 +331,7 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
         }
 
         if (searchPattern != null && !searchPattern.trim().isEmpty()) {
-            searchField.setText(searchPattern.trim());
+            searchBar.setText(searchPattern.trim());
             applyFilter();
         }
 
@@ -532,13 +533,12 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
+        searchBar.focusAndSelectAll();
     }
 
     public void searchFor(String searchPattern) {
         if (searchPattern == null) return;
-        searchField.setText(searchPattern.trim());
+        searchBar.setText(searchPattern.trim());
         applyFilter();
     }
 
@@ -988,7 +988,7 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
     }
 
     private void applyFilter() {
-        String regex = searchField.getText().trim();
+        String regex = searchBar.getText().trim();
 
         // Step 1: Filter items by search regex
         List<FileNode> filtered = new ArrayList<FileNode>();
@@ -1034,7 +1034,7 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
             viewCardLayout.show(viewContainer, "list");
         }
 
-        searchField.setBackground(!filtered.isEmpty() || regex.isEmpty()
+        searchBar.getTextField().setBackground(!filtered.isEmpty() || regex.isEmpty()
                 ? UIManager.getColor("TextField.background")
                 : new Color(255, 200, 200));
     }
@@ -1509,18 +1509,15 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        // Filter field
-        JPanel filterPanel = new JPanel(new BorderLayout());
-        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Groß-/Kleinschreibung wird ignoriert)</i></html>");
-        filterPanel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        filterPanel.add(searchField, BorderLayout.CENTER);
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        // Filter bar (FindBarPanel replaces old JTextField + label)
+        searchBar.getTextField().setToolTipText("<html>Regex-Filter f\u00fcr Dateinamen<br>Beispiel: <code>\\.JCL$</code> findet alle JCL-Dateien<br><i>(Gro\u00df-/Kleinschreibung wird ignoriert)</i></html>");
+        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { applyFilter(); }
             public void removeUpdate(DocumentEvent e) { applyFilter(); }
             public void changedUpdate(DocumentEvent e) { applyFilter(); }
         });
 
-        statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(searchBar, BorderLayout.CENTER);
         statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;

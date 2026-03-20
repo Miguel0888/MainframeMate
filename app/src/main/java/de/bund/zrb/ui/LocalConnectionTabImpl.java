@@ -12,6 +12,7 @@ import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.service.FtpSourceCacheService;
 import de.bund.zrb.service.LocalSourceCacheService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
@@ -55,7 +56,7 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
     private final TabbedPaneManager tabbedPaneManager;
     private final DocumentPreviewOpener previewOpener;
 
-    private final JTextField searchField = new JTextField();
+    private final FindBarPanel searchBar = new FindBarPanel("Regex-Filter\u2026");
     private final JLabel overlayLabel = new JLabel();
     private final JPanel listContainer = new JPanel();
     private final JLabel statusLabel = new JLabel(" ");
@@ -248,7 +249,7 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
 
         // Keyboard navigation
         de.bund.zrb.ui.util.ListKeyboardNavigation.install(
-                fileList, searchField,
+                fileList, searchBar.getTextField(),
                 () -> handleItemActivation(false),
                 this::navigateBack,
                 this::navigateForward
@@ -482,14 +483,13 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
-        searchField.selectAll();
+        searchBar.focusAndSelectAll();
     }
 
     @Override
     public void searchFor(String searchPattern) {
         if (searchPattern == null) return;
-        searchField.setText(searchPattern.trim());
+        searchBar.setText(searchPattern.trim());
         applyFilter();
     }
 
@@ -777,7 +777,7 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
     }
 
     private void applyFilter() {
-        String regex = searchField.getText().trim();
+        String regex = searchBar.getText().trim();
 
         // Step 1: Filter items by search regex
         List<FileNode> filtered = new ArrayList<FileNode>();
@@ -823,7 +823,7 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
             viewCardLayout.show(viewContainer, "list");
         }
 
-        searchField.setBackground(!filtered.isEmpty() || regex.isEmpty()
+        searchBar.getTextField().setBackground(!filtered.isEmpty() || regex.isEmpty()
                 ? UIManager.getColor("TextField.background")
                 : new Color(255, 200, 200));
     }
@@ -1330,13 +1330,10 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
     private JPanel createStatusBar() {
         JPanel statusBar = new JPanel(new BorderLayout());
 
-        // Filter panel
-        JPanel filterPanel = new JPanel(new BorderLayout());
-        searchField.setToolTipText("<html>Regex-Filter für Dateinamen<br>Beispiel: <code>\\.JCL$</code></html>");
-        filterPanel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        filterPanel.add(searchField, BorderLayout.CENTER);
+        // Filter bar
+        searchBar.getTextField().setToolTipText("<html>Regex-Filter f\u00fcr Dateinamen<br>Beispiel: <code>\\.JCL$</code></html>");
 
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { applyFilter(); }
             public void removeUpdate(DocumentEvent e) { applyFilter(); }
             public void changedUpdate(DocumentEvent e) { applyFilter(); }
@@ -1345,7 +1342,7 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
         // Status
         statusLabel.setForeground(Color.GRAY);
 
-        statusBar.add(filterPanel, BorderLayout.CENTER);
+        statusBar.add(searchBar, BorderLayout.CENTER);
         statusBar.add(statusLabel, BorderLayout.EAST);
 
         return statusBar;
