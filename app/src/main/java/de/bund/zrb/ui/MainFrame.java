@@ -313,7 +313,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // 4. Menübaum aufbauen (nachdem alle Commands + Toolbar da sind!)
         JMenuBar builtMenuBar = MenuTreeBuilder.buildMenuBar();
-        final JTextField menuSearchField = createMenuBarSearchField();
+        final MenuBarSearchField menuSearchField = new MenuBarSearchField(tabManager);
 
         // ── Custom JMenuBar: true-center search field ───────────
         // doLayout() positions the search field at the absolute center of the
@@ -327,7 +327,7 @@ public class MainFrame extends JFrame implements MainframeContext {
                 int barH = getHeight();
                 if (barW <= 0) return;
 
-                int fieldW = Math.min(340, Math.max(200, barW / 4));
+                int fieldW = Math.min(360, Math.max(220, barW / 4));
                 int fieldH = barH - 4;
 
                 // Find where the last real menu ends
@@ -375,46 +375,6 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Register live settings listener – applies changes without restart
         SettingsHelper.addChangeListener(this::onSettingsChanged);
-    }
-
-    /**
-     * Create the global search field that lives in the JMenuBar.
-     * Enter opens a SearchTab with the query; Escape clears and returns focus.
-     */
-    private JTextField createMenuBarSearchField() {
-        JTextField field = new JTextField(18);
-        field.setMaximumSize(new Dimension(340, 26));
-        field.putClientProperty("JTextField.placeholderText", "\u2315 \u00DCberall suchen\u2026");
-        field.setToolTipText("\u00DCberall suchen (Enter)");
-
-        field.addActionListener(e -> {
-            String query = field.getText().trim();
-            de.bund.zrb.ui.search.SearchTab searchTab = new de.bund.zrb.ui.search.SearchTab(tabManager);
-            tabManager.addTab(searchTab);
-            if (!query.isEmpty()) {
-                searchTab.searchFor(query);
-            } else {
-                SwingUtilities.invokeLater(searchTab::focusSearchField);
-            }
-            field.setText("");
-        });
-
-        field.addKeyListener(new java.awt.event.KeyAdapter() {
-            @Override
-            public void keyPressed(java.awt.event.KeyEvent e) {
-                if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
-                    field.setText("");
-                    // Return focus to the current tab
-                    tabManager.getSelectedTab().ifPresent(tab -> {
-                        if (tab instanceof FtpTab) {
-                            ((FtpTab) tab).getComponent().requestFocusInWindow();
-                        }
-                    });
-                }
-            }
-        });
-
-        return field;
     }
 
     /** Called whenever settings are saved – applies changes to running UI components. */
