@@ -17,7 +17,11 @@ import java.util.logging.Logger;
  * Expandable thumbnail panel showing image previews from a wiki page.
  * <p>
  * Thumbnails resize dynamically when the enclosing splitter is dragged wider or narrower.
- * Click on a thumbnail opens the full-size image overlay dialog (via {@link ImageStripPanel#openOverlay}).
+ * Animated GIFs show a static first-frame thumbnail with a ▶ play overlay;
+ * clicking it starts the animation, scrolling or resizing stops it again.
+ * <p>
+ * Click on a non-GIF thumbnail (or double-click on any) opens the full-size
+ * image overlay dialog (via {@link ImageStripPanel#openOverlay}).
  * A "▶▶" button at the bottom collapses the panel back to the narrow {@link ImageStripPanel}.
  * <p>
  * The panel supports synchronised scrolling with the text pane via {@link #scrollToImage(int)}.
@@ -27,6 +31,8 @@ public class ImageThumbnailPanel extends JPanel {
     private static final Logger LOG = Logger.getLogger(ImageThumbnailPanel.class.getName());
 
     private static final int PADDING = 6;
+    /** Diameter of the play/pause overlay circle, in pixels. */
+    private static final int OVERLAY_SIZE = 40;
 
     private final List<ImageRef> images;
     private final List<ThumbnailEntry> entries = new ArrayList<ThumbnailEntry>();
@@ -45,9 +51,14 @@ public class ImageThumbnailPanel extends JPanel {
         final ImageRef imageRef;
         final int index;
         final JPanel panel;
-        final JLabel imageLabel;
+        /** Custom painting label: draws the thumbnail + play/pause overlay. */
+        final ThumbnailLabel imageLabel;
         final JLabel captionLabel;
-        BufferedImage originalImage;   // null until loaded
+
+        BufferedImage originalImage;   // first-frame (static) — null until loaded
+        byte[] gifBytes;               // raw GIF data for animation — null if not animated GIF
+        boolean animatedGif;           // true if this image is an animated GIF
+        boolean playing;               // true while the GIF animation is running
         boolean loaded;
 
         ThumbnailEntry(ImageRef ref, int idx) {
@@ -58,20 +69,80 @@ public class ImageThumbnailPanel extends JPanel {
             panel.setBorder(BorderFactory.createEmptyBorder(4, PADDING, 4, PADDING));
             panel.setOpaque(false);
 
-            imageLabel = new JLabel("\u23f3", SwingConstants.CENTER);
+            imageLabel = new ThumbnailLabel();
             imageLabel.setOpaque(true);
             imageLabel.setBackground(new Color(230, 230, 230));
             imageLabel.setPreferredSize(new Dimension(80, 60));
             imageLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
             String desc = ref.description();
-            if (desc.length() > 60) desc = desc.substring(0, 57) + "…";
+            if (desc.length() > 60) desc = desc.substring(0, 57) + "\u2026";
             captionLabel = new JLabel(desc, SwingConstants.CENTER);
             captionLabel.setFont(captionLabel.getFont().deriveFont(10f));
             captionLabel.setForeground(Color.GRAY);
 
             panel.add(imageLabel, BorderLayout.CENTER);
             panel.add(captionLabel, BorderLayout.SOUTH);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Custom JLabel that paints a play/pause overlay on top
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * JLabel subclass that draws the standard icon/image and then paints
+     * a circular play (▶) or pause (⏸) overlay in the centre for animated GIFs.
+     */
+    private static class ThumbnailLabel extends JLabel {
+        boolean showPlayOverlay;  // true → draw ▶
+        boolean showPauseOverlay; // true → draw ⏸  (shown while playing)
+
+        ThumbnailLabel() {
+            super((String) null, SwingConstants.CENTER);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (!showPlayOverlay && !showPauseOverlay) return;
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            int cx = getWidth() / 2;
+            int cy = getHeight() / 2;
+            int r = OVERLAY_SIZE / 2;
+
+            // Semi-transparent black circle
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
+            g2.setColor(Color.BLACK);
+            g2.fillOval(cx - r, cy - r, OVERLAY_SIZE, OVERLAY_SIZE);
+
+            // White icon
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.9f));
+            g2.setColor(Color.WHITE);
+
+            if (showPlayOverlay) {
+                // ▶ triangle
+                int triH = OVERLAY_SIZE / 3;
+                int triW = (int) (triH * 0.9);
+                int tx = cx - triW / 2 + 2; // slight right offset for optical centering
+                int ty = cy - triH / 2;
+                g2.fillPolygon(
+                        new int[]{tx, tx, tx + triW},
+                        new int[]{ty, ty + triH, cy},
+                        3);
+            } else {
+                // ⏸ two bars
+                int barW = 4;
+                int barH = OVERLAY_SIZE / 3;
+                int gap = 4;
+                g2.fillRect(cx - gap / 2 - barW, cy - barH / 2, barW, barH);
+                g2.fillRect(cx + gap / 2, cy - barH / 2, barW, barH);
+            }
+
+            g2.dispose();
         }
     }
 
@@ -117,20 +188,25 @@ public class ImageThumbnailPanel extends JPanel {
             entry.imageLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx);
+                    if (entry.animatedGif && e.getClickCount() == 1) {
+                        toggleAnimation(entry);
+                    } else {
+                        ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx);
+                    }
                 }
             });
             entries.add(entry);
             contentPanel.add(entry.panel);
         }
 
-        // ── Rescale thumbnails on resize ──
+        // ── Rescale thumbnails on resize → also stops all animations ──
         addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
                 int newW = getAvailableWidth();
                 if (newW != lastScaleWidth && newW > 20) {
                     lastScaleWidth = newW;
+                    stopAllAnimations();
                     rescaleAll();
                 }
             }
@@ -151,19 +227,70 @@ public class ImageThumbnailPanel extends JPanel {
     /**
      * Scroll the thumbnail list so that the image at the given index is visible.
      * Used for synchronised scrolling with the text pane.
+     * Also stops all running animations (user is reading, not watching).
      */
     public void scrollToImage(final int index) {
         if (index < 0 || index >= entries.size()) return;
+        stopAllAnimations();
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
                 JPanel target = entries.get(index).panel;
                 Rectangle bounds = target.getBounds();
-                // Show the target and a bit beyond for context
                 scrollPane.getViewport().setViewPosition(
                         new Point(0, Math.max(0, bounds.y - 4)));
             }
         });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  GIF animation play / pause
+    // ═══════════════════════════════════════════════════════════
+
+    private void toggleAnimation(ThumbnailEntry entry) {
+        if (!entry.animatedGif || entry.gifBytes == null) return;
+
+        if (entry.playing) {
+            // ── Pause: go back to static thumbnail ──
+            entry.playing = false;
+            entry.imageLabel.showPlayOverlay = true;
+            entry.imageLabel.showPauseOverlay = false;
+            rescaleEntry(entry); // restores static BufferedImage
+        } else {
+            // ── Play: replace with animated ImageIcon ──
+            entry.playing = true;
+            entry.imageLabel.showPlayOverlay = false;
+            entry.imageLabel.showPauseOverlay = true;
+
+            int availW = getAvailableWidth();
+            if (availW < 30) availW = 30;
+            double scale = (double) availW / entry.originalImage.getWidth();
+            int thumbW = availW;
+            int thumbH = Math.max(1, (int) (entry.originalImage.getHeight() * scale));
+
+            ImageIcon animIcon = new ImageIcon(entry.gifBytes);
+            // Scale the animated icon to thumbnail size
+            Image scaled = animIcon.getImage().getScaledInstance(thumbW, thumbH, Image.SCALE_DEFAULT);
+            ImageIcon scaledIcon = new ImageIcon(scaled);
+            scaledIcon.setImageObserver(entry.imageLabel); // drives animation repaints
+
+            entry.imageLabel.setIcon(scaledIcon);
+            entry.imageLabel.repaint();
+        }
+    }
+
+    /**
+     * Stop all currently playing GIF animations and revert to static thumbnails.
+     */
+    private void stopAllAnimations() {
+        for (ThumbnailEntry entry : entries) {
+            if (entry.playing) {
+                entry.playing = false;
+                entry.imageLabel.showPlayOverlay = true;
+                entry.imageLabel.showPauseOverlay = false;
+                rescaleEntry(entry);
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -179,10 +306,18 @@ public class ImageThumbnailPanel extends JPanel {
                         byte[] data = ImageStripPanel.downloadBytes(images.get(i).src());
                         if (data == null || data.length == 0) continue;
 
-                        BufferedImage img = decodeToBufferedImage(data);
+                        boolean isGif = data.length > 3
+                                && data[0] == 'G' && data[1] == 'I' && data[2] == 'F';
+
+                        BufferedImage img = decodeToBufferedImage(data, isGif);
                         if (img != null) {
-                            entries.get(i).originalImage = img;
-                            entries.get(i).loaded = true;
+                            ThumbnailEntry entry = entries.get(i);
+                            entry.originalImage = img;
+                            entry.loaded = true;
+                            if (isGif && isAnimatedGif(data)) {
+                                entry.animatedGif = true;
+                                entry.gifBytes = data;
+                            }
                             publish(i);
                         }
                     } catch (Exception e) {
@@ -195,7 +330,13 @@ public class ImageThumbnailPanel extends JPanel {
             @Override
             protected void process(java.util.List<Integer> indices) {
                 for (int idx : indices) {
-                    rescaleEntry(entries.get(idx));
+                    ThumbnailEntry entry = entries.get(idx);
+                    rescaleEntry(entry);
+                    // Show ▶ overlay on animated GIFs
+                    if (entry.animatedGif) {
+                        entry.imageLabel.showPlayOverlay = true;
+                        entry.imageLabel.repaint();
+                    }
                 }
             }
         }.execute();
@@ -248,6 +389,10 @@ public class ImageThumbnailPanel extends JPanel {
         contentPanel.revalidate();
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Image decoding
+    // ═══════════════════════════════════════════════════════════
+
     /**
      * High-quality image scaling using Graphics2D with bilinear interpolation.
      */
@@ -264,37 +409,25 @@ public class ImageThumbnailPanel extends JPanel {
     }
 
     /**
-     * Decode raw image bytes into a {@link BufferedImage}.
-     * <p>
-     * For GIF images (detected by magic bytes) this uses {@link ImageIcon} which is backed
-     * by {@link Toolkit} and can handle all GIF variants — including animated GIFs where
-     * {@code ImageIO.read()} sometimes returns {@code null}.
-     * The first frame is rendered into a {@code BufferedImage} for thumbnail scaling.
+     * Decode raw image bytes into a static {@link BufferedImage} (first frame).
+     * For GIFs, uses {@link ImageIcon}/{@link Toolkit} + {@code PixelGrabber}
+     * because {@code ImageIO.read()} returns {@code null} for some animated GIFs.
      */
-    private static BufferedImage decodeToBufferedImage(byte[] data) {
-        boolean isGif = data.length > 3
-                && data[0] == 'G' && data[1] == 'I' && data[2] == 'F';
-
+    private static BufferedImage decodeToBufferedImage(byte[] data, boolean isGif) {
         if (isGif) {
-            // ImageIcon uses Toolkit internally and handles all GIF variants
             ImageIcon icon = new ImageIcon(data);
-            Image img = icon.getImage();
             int w = icon.getIconWidth();
             int h = icon.getIconHeight();
             if (w <= 0 || h <= 0) return null;
 
-            // Use PixelGrabber to synchronously extract the first frame's pixels.
-            // Graphics2D.drawImage() with null ImageObserver returns empty for
-            // Toolkit-loaded animated GIFs because pixel transfer is asynchronous.
             int[] pixels = new int[w * h];
             java.awt.image.PixelGrabber pg =
-                    new java.awt.image.PixelGrabber(img, 0, 0, w, h, pixels, 0, w);
+                    new java.awt.image.PixelGrabber(icon.getImage(), 0, 0, w, h, pixels, 0, w);
             try {
                 pg.grabPixels();
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-
             BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
             bi.setRGB(0, 0, w, h, pixels, 0, w);
             return bi;
@@ -308,7 +441,7 @@ public class ImageThumbnailPanel extends JPanel {
             LOG.log(Level.FINE, "[Thumbnail] ImageIO.read failed, trying Toolkit fallback", e);
         }
 
-        // Fallback for formats ImageIO cannot handle
+        // Fallback
         ImageIcon icon = new ImageIcon(data);
         int w = icon.getIconWidth();
         int h = icon.getIconHeight();
@@ -325,5 +458,48 @@ public class ImageThumbnailPanel extends JPanel {
         bi.setRGB(0, 0, w, h, pixels, 0, w);
         return bi;
     }
-}
 
+    /**
+     * Check whether a GIF byte array contains multiple image frames (animated).
+     * Scans for more than one Image Descriptor block (0x2C) after the header.
+     */
+    private static boolean isAnimatedGif(byte[] data) {
+        int imageCount = 0;
+        int i = 6; // skip header "GIF89a" / "GIF87a"
+        while (i < data.length) {
+            int b = data[i] & 0xFF;
+            if (b == 0x2C) { // Image Descriptor
+                imageCount++;
+                if (imageCount > 1) return true;
+                i += 9;
+                if (i >= data.length) break;
+                int packed = data[i - 1] & 0xFF;
+                if ((packed & 0x80) != 0) {
+                    int lctSize = 3 * (1 << ((packed & 0x07) + 1));
+                    i += lctSize;
+                }
+                if (i >= data.length) break;
+                i++; // LZW minimum code size
+                while (i < data.length) {
+                    int blockSize = data[i] & 0xFF;
+                    i++;
+                    if (blockSize == 0) break;
+                    i += blockSize;
+                }
+            } else if (b == 0x21) { // Extension
+                i += 2;
+                while (i < data.length) {
+                    int blockSize = data[i] & 0xFF;
+                    i++;
+                    if (blockSize == 0) break;
+                    i += blockSize;
+                }
+            } else if (b == 0x3B) { // Trailer
+                break;
+            } else {
+                i++;
+            }
+        }
+        return false;
+    }
+}
