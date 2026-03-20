@@ -212,6 +212,13 @@ public class Settings {
     /** Number of concurrent prefetch HTTP requests. Default: 4. */
     public int wikiPrefetchConcurrency = 4;
 
+    /** Maximum size in MB for volatile (prefetch) Confluence cache entries. Default: 50 MB. */
+    public int confluencePrefetchCacheMaxMb = 50;
+    /** Max number of Confluence pages to prefetch starting from cursor position. Default: 100. */
+    public int confluencePrefetchMaxItems = 100;
+    /** Number of concurrent Confluence prefetch HTTP requests. Default: 4. */
+    public int confluencePrefetchConcurrency = 4;
+
     public HashMap<String, String> aiConfig = new HashMap<>();
     public HashMap<String, String> embeddingConfig = new HashMap<>(); // Separate embedding settings
     public String defaultWorkflow = "";

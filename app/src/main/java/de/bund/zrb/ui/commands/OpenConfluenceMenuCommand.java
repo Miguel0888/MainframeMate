@@ -1,6 +1,7 @@
 package de.bund.zrb.ui.commands;
 
 import de.bund.zrb.confluence.ConfluenceConnectionConfig;
+import de.bund.zrb.confluence.ConfluencePrefetchService;
 import de.bund.zrb.confluence.ConfluenceRestClient;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
@@ -103,11 +104,27 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
 
         // ── 4. Build client + open tab ──
         try {
+            Settings settings = SettingsHelper.load();
             ConfluenceConnectionConfig config = new ConfluenceConnectionConfig(
                     selected.url, user, pass, selected.certAlias, 15000, 30000);
             ConfluenceRestClient client = new ConfluenceRestClient(config);
 
             ConfluenceConnectionTab tab = new ConfluenceConnectionTab(client, selected.url);
+
+            // Wire up prefetch: cache search results in the background
+            try {
+                de.bund.zrb.archive.store.CacheRepository cacheRepo =
+                        de.bund.zrb.archive.store.CacheRepository.getInstance();
+                ConfluencePrefetchService prefetch = new ConfluencePrefetchService(
+                        client, cacheRepo,
+                        settings.confluencePrefetchCacheMaxMb,
+                        settings.confluencePrefetchMaxItems,
+                        settings.confluencePrefetchConcurrency);
+                tab.setPrefetchService(prefetch);
+            } catch (Exception prefetchErr) {
+                // CacheRepository not available — prefetch disabled, no problem
+                LOG.log(Level.FINE, "[Confluence] Prefetch disabled (CacheRepository unavailable)", prefetchErr);
+            }
 
             // Wire open callback: creates ConfluenceReaderTab when user double-clicks/enters a page
             tab.setOpenCallback((readerClient, readerBaseUrl, pageId, pageTitle, htmlContent, outline) -> {

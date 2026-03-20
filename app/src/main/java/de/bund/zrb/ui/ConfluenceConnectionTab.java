@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import de.bund.zrb.confluence.ConfluencePrefetchService;
 import de.bund.zrb.confluence.ConfluenceRestClient;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
@@ -85,6 +86,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private Runnable stateSaveCallback;
     /** Callback to open a page as a dedicated reader tab. */
     private OpenCallback openCallback;
+    /** Prefetch service for background loading of search result pages. */
+    private ConfluencePrefetchService prefetchService;
 
     public ConfluenceConnectionTab(ConfluenceRestClient client, String baseUrl) {
         this.client = client;
@@ -493,6 +496,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     if (!result.pages.isEmpty() && pageTable.getRowCount() > 0) {
                         pageTable.setRowSelectionInterval(0, 0);
                     }
+                    // Prefetch all result pages in background
+                    triggerPrefetchForResults(result.pages);
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[Confluence] Suche fehlgeschlagen", e);
                     statusLabel.setText("❌ " + e.getMessage());
@@ -500,6 +505,33 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 }
             }
         }.execute();
+    }
+
+    /** Trigger background prefetch for all pages in the search result. */
+    private void triggerPrefetchForResults(List<PageItem> pages) {
+        if (prefetchService == null || pages.isEmpty()) return;
+        List<String> ids = new ArrayList<String>();
+        for (PageItem p : pages) {
+            ids.add(p.id);
+        }
+        prefetchService.prefetchPages(ids, 0);
+    }
+
+    /** Trigger prefetch starting from the currently selected row. */
+    private void triggerPrefetchFromCursor() {
+        if (prefetchService == null) return;
+        int viewRow = pageTable.getSelectedRow();
+        if (viewRow < 0) return;
+        int modelRow = pageTable.convertRowIndexToModel(viewRow);
+
+        List<String> ids = new ArrayList<String>();
+        for (int i = 0; i < pageModel.getRowCount(); i++) {
+            PageItem p = pageModel.getItemAt(i);
+            if (p != null) ids.add(p.id);
+        }
+        if (!ids.isEmpty()) {
+            prefetchService.prefetchPages(ids, Math.max(0, modelRow));
+        }
     }
 
     /** Update pagination buttons and page info label after a search completes. */
@@ -533,11 +565,27 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     }
 
     private void loadPreview(PageItem item) {
+        // Check in-memory prefetch cache first (O(1))
+        if (prefetchService != null) {
+            ConfluencePrefetchService.CachedPage cached = prefetchService.getCached(item.id);
+            if (cached != null) {
+                applyPreview(item, cached.html());
+                triggerPrefetchFromCursor();
+                return;
+            }
+        }
+
         statusLabel.setText("⏳ Lade Vorschau: " + item.title + "…");
 
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() {
+                if (prefetchService != null) {
+                    // loadPriority uses its own dedicated thread, never blocked by prefetch pool
+                    ConfluencePrefetchService.CachedPage page = prefetchService.loadPriority(item.id);
+                    if (page != null) return page.html();
+                }
+                // Fallback: direct load
                 String json = client.getContentByIdJson(item.id);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
                 if (root.has("body") && root.getAsJsonObject("body").has("view")) {
@@ -552,6 +600,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 try {
                     String html = get();
                     applyPreview(item, html);
+                    triggerPrefetchFromCursor();
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "[Confluence] Vorschau laden fehlgeschlagen", e);
                     statusLabel.setText("❌ " + e.getMessage());
@@ -564,6 +613,12 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private void applyPreview(PageItem item, String html) {
         currentPreviewItem = item;
         currentHtmlBody = html;
+
+        // Store in prefetch cache for instant re-selection
+        if (prefetchService != null) {
+            prefetchService.putInCache(item.id,
+                    new ConfluencePrefetchService.CachedPage(item.id, item.title, html));
+        }
 
         // Inject id attributes into headings that don't have one (needed for scrollToReference)
         String enrichedHtml = injectHeadingAnchors(html);
@@ -1107,6 +1162,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         this.openCallback = callback;
     }
 
+    public void setPrefetchService(ConfluencePrefetchService service) {
+        this.prefetchService = service;
+    }
+
     /** Callback to notify about outline changes (for RightDrawer). */
     public interface OutlineCallback {
         void onOutlineChanged(OutlineNode outline, String pageTitle);
@@ -1171,7 +1230,11 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     public JComponent getComponent() { return mainPanel; }
 
     @Override
-    public void onClose() { /* stateless HTTP — nothing to close */ }
+    public void onClose() {
+        if (prefetchService != null) {
+            prefetchService.shutdown();
+        }
+    }
 
     @Override
     public void saveIfApplicable() { /* read-only */ }
