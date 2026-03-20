@@ -5,6 +5,7 @@ import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
 import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -25,8 +26,7 @@ public class SearchTab extends JPanel implements FtpTab {
     private final de.bund.zrb.ui.TabbedPaneManager tabManager;
 
     // ── UI Components ──
-    private final JTextField searchField;
-    private final JButton searchButton;
+    private final SearchBarPanel searchBar;
     private final JToggleButton advancedToggle;
     private final JTable resultTable;
     private final DefaultTableModel tableModel;
