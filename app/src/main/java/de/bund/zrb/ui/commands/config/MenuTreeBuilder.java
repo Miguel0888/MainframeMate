@@ -29,16 +29,14 @@ public class MenuTreeBuilder {
         ));
         // Verbindung-Menü Reihenfolge
         SUBMENU_ORDER.put("connection", Arrays.asList(
-                "local", "ftp", "ndv",
+                "local", "ftp", "ndv", "sharepoint",
                 "---1",
                 "mail", "wiki", "confluence",
                 "---2",
-                "tn3270", "jes",
+                "tn3270", "jes", "betaview",
                 "---3",
-                "betaview",
-                "---4",
                 "browser",
-                "---5",
+                "---4",
                 "dos"
         ));
         // Navigieren-Menü Reihenfolge
