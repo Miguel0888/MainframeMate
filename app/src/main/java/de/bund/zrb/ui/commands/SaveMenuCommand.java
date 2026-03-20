@@ -18,7 +18,7 @@ public class SaveMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Speichern";
+        return "\u270E Speichern";
     }
 
     @Override

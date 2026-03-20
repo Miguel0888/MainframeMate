@@ -40,7 +40,7 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Confluence\u2026";
+        return "\u25C8 Confluence\u2026";
     }
 
     @Override

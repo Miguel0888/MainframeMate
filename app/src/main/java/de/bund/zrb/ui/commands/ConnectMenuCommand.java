@@ -21,7 +21,7 @@ public class ConnectMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "FTP\u2026";
+        return "\u2195 FTP\u2026";
     }
 
     @Override

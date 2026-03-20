@@ -21,7 +21,7 @@ public class ExcelImportMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Excel-Import...";
+        return "\u25A6 Excel-Import...";
     }
 
     @Override

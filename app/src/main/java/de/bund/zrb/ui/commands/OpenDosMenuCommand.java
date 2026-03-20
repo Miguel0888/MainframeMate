@@ -26,7 +26,7 @@ public class OpenDosMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "DOS-Terminal\u2026";
+        return "\u25A6 DOS-Terminal\u2026";
     }
 
     @Override

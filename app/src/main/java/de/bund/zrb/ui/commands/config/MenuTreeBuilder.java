@@ -51,7 +51,7 @@ public class MenuTreeBuilder {
         ));
         // Einstellungen-Menü Reihenfolge
         SUBMENU_ORDER.put("settings", Arrays.asList(
-                "general", "passwords", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "plugins"
+                "general", "passwords", "---1", "sentences", "expressions", "tools", "---2", "mails", "indexing", "---3", "shortcuts", "toolbar", "---4", "plugins"
         ));
         // Extras-Menü Reihenfolge
         SUBMENU_ORDER.put("extras", Arrays.asList(

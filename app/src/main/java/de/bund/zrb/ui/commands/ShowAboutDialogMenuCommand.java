@@ -33,7 +33,7 @@ public class ShowAboutDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "ℹ Über MainframeMate";
+        return "\u2139 \u00DCber MainframeMate";
     }
 
     @Override

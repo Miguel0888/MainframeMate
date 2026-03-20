@@ -38,7 +38,7 @@ public class ToggleVideoRecordCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Video-Aufnahme starten/stoppen";
+        return "\u25C9 Video-Aufnahme starten/stoppen";
     }
 
     @Override

@@ -19,7 +19,7 @@ public class ExcelSettingsMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Excel-Import Einstellungen...";
+        return "\u2699 Excel-Import Einstellungen...";
     }
 
     @Override

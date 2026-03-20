@@ -18,7 +18,7 @@ public class CloseTabMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Schlie\u00DFen";
+        return "\u2716 Schlie\u00DFen";
     }
 
     @Override

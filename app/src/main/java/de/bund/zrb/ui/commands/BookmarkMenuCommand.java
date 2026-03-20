@@ -25,7 +25,7 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Bookmark setzen";
+        return "\u2606 Bookmark setzen";
     }
 
     @Override

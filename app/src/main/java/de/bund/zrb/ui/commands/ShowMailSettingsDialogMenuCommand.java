@@ -23,7 +23,7 @@ public class ShowMailSettingsDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Mails...";
+        return "\u2709 Mails...";
     }
 
     @Override

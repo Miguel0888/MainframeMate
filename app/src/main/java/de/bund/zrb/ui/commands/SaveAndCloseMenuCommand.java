@@ -18,7 +18,7 @@ public class SaveAndCloseMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Speichern & Schließen";
+        return "\u2714 Speichern & Schlie\u00DFen";
     }
 
     @Override

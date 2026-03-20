@@ -26,7 +26,7 @@ public class OpenCacheMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Cache\u2026";
+        return "\u25C9 Cache\u2026";
     }
 
     @Override

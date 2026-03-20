@@ -33,7 +33,7 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "BetaView";
+        return "\u25A4 BetaView";
     }
 
     @Override

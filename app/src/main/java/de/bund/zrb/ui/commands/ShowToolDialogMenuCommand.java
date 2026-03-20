@@ -20,7 +20,7 @@ public class ShowToolDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Werkzeugdefinitionen...";
+        return "\u229E Werkzeugdefinitionen...";
     }
 
     @Override

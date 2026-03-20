@@ -55,7 +55,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "🔑 Passwörter…";
+        return "\u2731 Passw\u00f6rter\u2026";
     }
 
     @Override

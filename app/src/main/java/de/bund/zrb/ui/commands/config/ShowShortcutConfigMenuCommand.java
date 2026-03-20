@@ -24,7 +24,7 @@ public class ShowShortcutConfigMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Shortcuts...";
+        return "\u2328 Shortcuts...";
     }
 
     @Override

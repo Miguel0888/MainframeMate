@@ -39,7 +39,7 @@ public class OpenBrowserMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Browser\u2026";
+        return "\u25CE Browser\u2026";
     }
 
     @Override

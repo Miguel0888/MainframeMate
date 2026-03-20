@@ -298,10 +298,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         // 2. Plugins initialisieren (inkl. Command-Registrierung)
         PluginManager.initializePlugins(this);
 
-        // 3. Menübaum aufbauen (nachdem alle Commands da sind!)
-        setJMenuBar(MenuTreeBuilder.buildMenuBar());
-
-        // 4. Layout
+        // 3. Layout
         setLayout(new BorderLayout());
 
         // Toolbar ganz oben (nach Plugin-Init, damit Plugin-Commands verfügbar sind)
@@ -310,6 +307,12 @@ public class MainFrame extends JFrame implements MainframeContext {
         ToolbarConfigRepository toolbarRepo = new JsonToolbarConfigRepository(toolbarConfigFile);
         actionToolbar = new ConfigurableCommandToolbar(toolbarRegistry, toolbarRepo);
         add(actionToolbar, BorderLayout.NORTH);
+
+        // Register toolbar config command (needs actionToolbar reference)
+        CommandRegistryImpl.register(new ShowToolbarConfigMenuCommand(actionToolbar));
+
+        // 4. Menübaum aufbauen (nachdem alle Commands + Toolbar da sind!)
+        setJMenuBar(MenuTreeBuilder.buildMenuBar());
 
         // Initialisiere die mittlere Komponente
         Component tabContent = tabManager.getComponent();

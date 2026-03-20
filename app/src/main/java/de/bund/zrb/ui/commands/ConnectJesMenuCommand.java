@@ -35,7 +35,7 @@ public class ConnectJesMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "JES-Jobs\u2026";
+        return "\u25B7 JES-Jobs\u2026";
     }
 
     @Override

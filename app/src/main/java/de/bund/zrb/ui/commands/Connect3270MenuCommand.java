@@ -30,7 +30,7 @@ public class Connect3270MenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "3270-Terminal\u2026";
+        return "\u25A0 3270-Terminal\u2026";
     }
 
     @Override

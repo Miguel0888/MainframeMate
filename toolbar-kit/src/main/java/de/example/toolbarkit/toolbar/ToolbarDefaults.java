@@ -33,9 +33,10 @@ public final class ToolbarDefaults {
         List<ToolbarButtonConfig> visible = buildImportantDefaultButtons(allCommands);
         cfg.buttons = new ArrayList<ToolbarButtonConfig>(visible);
 
-        // Navigation buttons are right-aligned by default
+        // Navigation and toolbar config buttons are right-aligned by default
         cfg.rightSideIds.add("navigate.back");
         cfg.rightSideIds.add("navigate.forward");
+        cfg.rightSideIds.add("settings.toolbar");
 
         cfg.hiddenCommandIds = new LinkedHashSet<String>();
         Set<String> visibleIds = new LinkedHashSet<String>();
@@ -67,6 +68,7 @@ public final class ToolbarDefaults {
                 { "file.saveAndClose", "\u2714"    },  // ✔   Speichern & Schließen
                 { "navigate.back",     "\u25C0"    },  // ◀   Zurück
                 { "navigate.forward",  "\u25B6"    },  // ▶   Vorwärts
+                { "settings.toolbar",  "\u2630"    },  // ☰   Toolbar-Einstellungen
         };
 
         int pos = 1;
@@ -107,6 +109,7 @@ public final class ToolbarDefaults {
         if (id.equals("file.exit"))            return cp(0x1F6AA); // 🚪
         if (id.equals("navigate.back"))        return "\u25C0";    // ◀
         if (id.equals("navigate.forward"))     return "\u25B6";    // ▶
+        if (id.equals("settings.toolbar"))     return "\u2630";    // ☰
 
         // Generic fallbacks
         if (id.contains("save") && id.contains("close")) return "\u2714"; // ✔

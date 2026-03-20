@@ -86,8 +86,12 @@ public class ConfigurableCommandToolbar extends JToolBar {
             createButtonsIntoPanel(rightPanel, right);
         }
 
-        JButton configButton = createConfigButton();
-        rightPanel.add(configButton);
+        // Show the hardcoded config gear button only if no "settings.toolbar"
+        // command is registered (backward compat / standalone use of toolbar-kit).
+        if (!registry.findById("settings.toolbar").isPresent()) {
+            JButton configButton = createConfigButton();
+            rightPanel.add(configButton);
+        }
 
         leftPanel.setTransferHandler(new ToolbarPanelDropHandler(false));
         rightPanel.setTransferHandler(new ToolbarPanelDropHandler(true));
@@ -418,7 +422,11 @@ public class ConfigurableCommandToolbar extends JToolBar {
 
     // ---------------- Config dialog ----------------
 
-    private void openConfigDialog() {
+    /**
+     * Open the toolbar configuration dialog.
+     * Public so external commands (e.g. menu items) can trigger it.
+     */
+    public void openConfigDialog() {
         Window owner = SwingUtilities.getWindowAncestor(this);
         List<ToolbarCommand> all = new ArrayList<ToolbarCommand>(registry.getAll());
 

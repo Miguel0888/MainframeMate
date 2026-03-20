@@ -22,7 +22,7 @@ public class FocusSearchFieldCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Suche fokussieren";
+        return "\u2315 Suche fokussieren";
     }
 
     @Override

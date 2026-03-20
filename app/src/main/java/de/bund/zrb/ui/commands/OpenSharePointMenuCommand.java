@@ -33,7 +33,7 @@ public class OpenSharePointMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "SharePoint\u2026";
+        return "\u25C6 SharePoint\u2026";
     }
 
     @Override

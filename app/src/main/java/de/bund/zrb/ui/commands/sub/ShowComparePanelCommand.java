@@ -21,7 +21,7 @@ public class ShowComparePanelCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Vergleich anzeigen";
+        return "\u2194 Vergleich anzeigen";
     }
 
     @Override

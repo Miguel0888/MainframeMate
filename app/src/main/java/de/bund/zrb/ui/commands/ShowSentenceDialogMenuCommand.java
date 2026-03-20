@@ -20,7 +20,7 @@ public class ShowSentenceDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Satzartdefinitionen...";
+        return "\u2261 Satzartdefinitionen...";
     }
 
     @Override

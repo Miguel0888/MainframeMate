@@ -20,7 +20,7 @@ public class ShowFeatureDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "📋 Server-Features anzeigen";
+        return "\u2605 Server-Features anzeigen";
     }
 
     @Override

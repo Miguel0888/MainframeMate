@@ -24,7 +24,7 @@ public class ShowIndexingControlPanelMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Indexierung...";
+        return "\u25CE Indexierung...";
     }
 
     @Override

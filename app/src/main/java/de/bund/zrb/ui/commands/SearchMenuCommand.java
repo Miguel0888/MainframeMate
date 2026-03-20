@@ -27,7 +27,7 @@ public class SearchMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "\u00DCberall suchen\u2026";
+        return "\u2315 \u00DCberall suchen\u2026";
     }
 
     @Override

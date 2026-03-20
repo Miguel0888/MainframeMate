@@ -37,7 +37,7 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Wiki\u2026";
+        return "\u00B6 Wiki\u2026";
     }
 
     @Override

@@ -20,7 +20,7 @@ public class ShowExpressionEditorMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Ausdruckseditor...";
+        return "\u0192 Ausdruckseditor...";
     }
 
     @Override

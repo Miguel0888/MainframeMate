@@ -19,7 +19,7 @@ public class InstallPluginMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Plugin installieren..."; // erscheint z. B. im Menü
+        return "\u2295 Plugin installieren..."; // erscheint z. B. im Menü
 
     }
 

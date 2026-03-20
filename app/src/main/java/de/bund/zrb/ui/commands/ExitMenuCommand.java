@@ -11,7 +11,7 @@ public class ExitMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Beenden";
+        return "\u2399 Beenden";
     }
 
     @Override

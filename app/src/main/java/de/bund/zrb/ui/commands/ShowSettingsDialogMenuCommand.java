@@ -20,7 +20,7 @@ public class ShowSettingsDialogMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Allgemein...";
+        return "\u2699 Allgemein...";
     }
 
     @Override

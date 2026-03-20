@@ -22,7 +22,7 @@ public class WebSearchSettingsMenuCommand extends ShortcutMenuCommand {
 
     @Override
     public String getLabel() {
-        return "Websearch-Einstellungen...";
+        return "\u2699 Websearch-Einstellungen...";
     }
 
     @Override
