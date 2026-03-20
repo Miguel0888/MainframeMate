@@ -255,11 +255,15 @@ public class ConfluenceReaderTab implements ConnectionTab {
         togglePanel.add(textModeBtn);
         togglePanel.add(renderedModeBtn);
 
-        // Find bar at bottom (with toggle buttons on the right)
+        // Find bar at bottom
         searchBar = new FindBarPanel("Im Dokument suchen\u2026");
         searchBar.addSearchAction(e -> highlightSearch());
-        searchBar.addEastComponent(togglePanel);
-        mainPanel.add(searchBar, BorderLayout.SOUTH);
+
+        // Bottom bar: find bar (center) + view mode toggles (right)
+        JPanel bottomBar = new JPanel(new BorderLayout(4, 0));
+        bottomBar.add(searchBar, BorderLayout.CENTER);
+        bottomBar.add(togglePanel, BorderLayout.EAST);
+        mainPanel.add(bottomBar, BorderLayout.SOUTH);
     }
 
     // ═══════════════════════════════════════════════════════════
