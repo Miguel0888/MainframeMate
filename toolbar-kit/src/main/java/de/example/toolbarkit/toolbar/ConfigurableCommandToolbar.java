@@ -125,7 +125,7 @@ public class ConfigurableCommandToolbar extends JToolBar {
 
             final ToolbarCommand cmd = cmdOpt.get();
 
-            JButton btn = new JButton(normalizeIcon(btnCfg.iconText, cmd.getId()));
+            JButton btn = new JButton(normalizeIcon(btnCfg.iconText, cmd.getId(), cmd.getLabel()));
             btn.putClientProperty(PROP_COMMAND_ID, btnCfg.id);
             btn.putClientProperty(PROP_SUPPRESS_CLICK, Boolean.FALSE);
 
@@ -543,10 +543,10 @@ public class ConfigurableCommandToolbar extends JToolBar {
         }
     }
 
-    private static String normalizeIcon(String iconText, String fallbackId) {
+    private static String normalizeIcon(String iconText, String fallbackId, String label) {
         String raw = (iconText == null) ? "" : iconText.trim();
         if (raw.isEmpty()) {
-            return ToolbarDefaults.defaultIconFor(fallbackId);
+            return ToolbarDefaults.defaultIconFor(fallbackId, label);
         }
         String up = raw.toUpperCase(Locale.ROOT);
         if (up.matches("^([U]\\+|0X)?[0-9A-F]{4,6}$")) {

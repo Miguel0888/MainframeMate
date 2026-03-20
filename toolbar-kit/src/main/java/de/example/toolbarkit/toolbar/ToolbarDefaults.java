@@ -99,6 +99,36 @@ public final class ToolbarDefaults {
     }
 
     /**
+     * Extract the leading icon character from a menu command label.
+     * Labels like "◀ Zurück" or "✎ Speichern" start with a symbol followed
+     * by a space — this method returns that leading symbol, or {@code null}.
+     */
+    public static String extractIconFromLabel(String label) {
+        if (label == null || label.length() < 2) return null;
+        int cp = label.codePointAt(0);
+        // Skip plain ASCII letters / digits — those aren't icons
+        if (cp < 128) return null;
+        int nextIdx = Character.charCount(cp);
+        if (nextIdx < label.length() && label.charAt(nextIdx) == ' ') {
+            return new String(Character.toChars(cp));
+        }
+        return null;
+    }
+
+    /**
+     * Return a default icon for a command, first trying to extract it from the
+     * command's menu label, then falling back to the static ID-based mapping.
+     *
+     * @param idRaw command ID
+     * @param label command label (may be {@code null})
+     */
+    public static String defaultIconFor(String idRaw, String label) {
+        String fromLabel = extractIconFromLabel(label);
+        if (fromLabel != null) return fromLabel;
+        return defaultIconFor(idRaw);
+    }
+
+    /**
      * Return a default icon character for a command when placed on the toolbar.
      * Uses the same simple BMP characters that appear in the menu labels so that
      * toolbar buttons and menu items look consistent.
