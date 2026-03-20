@@ -290,6 +290,12 @@ public class SearchService {
         // SharePoint
         if (docId.startsWith("SP:") || docId.startsWith("sp://")) return SearchResult.SourceType.SHAREPOINT;
 
+        // Wiki
+        if (docId.startsWith("wiki://")) return SearchResult.SourceType.WIKI;
+
+        // Confluence
+        if (docId.startsWith("confluence://")) return SearchResult.SourceType.CONFLUENCE;
+
         // Default: local
         return SearchResult.SourceType.LOCAL;
     }

@@ -12,7 +12,9 @@ public class SearchResult implements Comparable<SearchResult> {
         MAIL("📧", "Mail"),
         RAG("🤖", "RAG"),
         ARCHIVE("📦", "Archiv"),
-        SHAREPOINT("📊", "SharePoint");
+        SHAREPOINT("📊", "SharePoint"),
+        WIKI("📖", "Wiki"),
+        CONFLUENCE("📓", "Confluence");
 
         private final String icon;
         private final String label;

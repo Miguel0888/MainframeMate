@@ -34,7 +34,7 @@ public class SearchTab extends JPanel implements FtpTab {
     private final JLabel statusLabel;
 
     // Source filter checkboxes
-    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbArchive, cbSharePoint;
+    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbArchive, cbSharePoint, cbWiki, cbConfluence;
     private final JLabel ragStatusLabel;
 
     // Sorting
@@ -124,6 +124,8 @@ public class SearchTab extends JPanel implements FtpTab {
         cbMail = new JCheckBox("\uD83D\uDCE7 Mail", true);
         cbArchive = new JCheckBox("\uD83D\uDCE6 Archiv", true);
         cbSharePoint = new JCheckBox("\uD83D\uDCCA SP", true);
+        cbWiki = new JCheckBox("\uD83D\uDCD6 Wiki", true);
+        cbConfluence = new JCheckBox("\uD83D\uDCD3 Confluence", true);
 
         // Restore persisted checkbox selection
         restoreApplicationState();
@@ -136,6 +138,8 @@ public class SearchTab extends JPanel implements FtpTab {
         cbMail.addItemListener(saveOnToggle);
         cbArchive.addItemListener(saveOnToggle);
         cbSharePoint.addItemListener(saveOnToggle);
+        cbWiki.addItemListener(saveOnToggle);
+        cbConfluence.addItemListener(saveOnToggle);
 
         int semSize = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
         ragStatusLabel = new JLabel(semSize > 0
@@ -152,6 +156,8 @@ public class SearchTab extends JPanel implements FtpTab {
         sourcePanel.add(cbMail);
         sourcePanel.add(cbArchive);
         sourcePanel.add(cbSharePoint);
+        sourcePanel.add(cbWiki);
+        sourcePanel.add(cbConfluence);
         sourcePanel.add(Box.createHorizontalStrut(8));
         sourcePanel.add(ragStatusLabel);
 
@@ -505,6 +511,8 @@ public class SearchTab extends JPanel implements FtpTab {
         if (cbMail.isSelected()) sources.add(SearchResult.SourceType.MAIL);
         if (cbArchive.isSelected()) sources.add(SearchResult.SourceType.ARCHIVE);
         if (cbSharePoint.isSelected()) sources.add(SearchResult.SourceType.SHAREPOINT);
+        if (cbWiki.isSelected()) sources.add(SearchResult.SourceType.WIKI);
+        if (cbConfluence.isSelected()) sources.add(SearchResult.SourceType.CONFLUENCE);
         return sources;
     }
 
@@ -738,6 +746,8 @@ public class SearchTab extends JPanel implements FtpTab {
             case MAIL:  return "MAIL";
             case ARCHIVE: return "ARCHIVE";
             case SHAREPOINT: return "SHAREPOINT";
+            case WIKI: return "WIKI";
+            case CONFLUENCE: return "CONFLUENCE";
             default:    return "LOCAL";
         }
     }
@@ -868,6 +878,8 @@ public class SearchTab extends JPanel implements FtpTab {
         state.put("search.source.mail", String.valueOf(cbMail.isSelected()));
         state.put("search.source.archive", String.valueOf(cbArchive.isSelected()));
         state.put("search.source.sharepoint", String.valueOf(cbSharePoint.isSelected()));
+        state.put("search.source.wiki", String.valueOf(cbWiki.isSelected()));
+        state.put("search.source.confluence", String.valueOf(cbConfluence.isSelected()));
         de.bund.zrb.helper.SettingsHelper.save(s);
     }
 
@@ -880,6 +892,8 @@ public class SearchTab extends JPanel implements FtpTab {
         if (state.containsKey("search.source.mail")) cbMail.setSelected(Boolean.parseBoolean(state.get("search.source.mail")));
         if (state.containsKey("search.source.archive")) cbArchive.setSelected(Boolean.parseBoolean(state.get("search.source.archive")));
         if (state.containsKey("search.source.sharepoint")) cbSharePoint.setSelected(Boolean.parseBoolean(state.get("search.source.sharepoint")));
+        if (state.containsKey("search.source.wiki")) cbWiki.setSelected(Boolean.parseBoolean(state.get("search.source.wiki")));
+        if (state.containsKey("search.source.confluence")) cbConfluence.setSelected(Boolean.parseBoolean(state.get("search.source.confluence")));
     }
 
     // ═══════════════════════════════════════════════════════════════
