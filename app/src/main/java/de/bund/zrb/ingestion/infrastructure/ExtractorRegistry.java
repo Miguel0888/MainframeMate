@@ -32,6 +32,7 @@ public class ExtractorRegistry {
         register(new HtmlTextExtractor());
         register(new PdfTextExtractor());
         register(new DocxTextExtractor());
+        register(new XlsxTextExtractor());
 
         // Register fallback extractor (lowest priority)
         register(fallbackExtractor);
