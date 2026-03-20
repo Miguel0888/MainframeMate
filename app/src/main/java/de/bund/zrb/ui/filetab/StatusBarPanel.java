@@ -11,11 +11,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+/**
+ * Bottom status bar for FileTabImpl.
+ * Contains: FindBarPanel (orange, for regex line filtering) + Legende + Satzart dropdown.
+ * Compare / Undo / Redo buttons have been moved to the toolbar (SplitPreviewTab).
+ */
 public class StatusBarPanel extends JPanel {
-
-    private final JButton compareButton = new JButton("\uD83D\uDD00"); // 🔁
-    private final JButton undoButton = new JButton("↶");
-    private final JButton redoButton = new JButton("↷");
 
     private final FindBarPanel findBar;
     private final JComboBox<String> sentenceComboBox = new JComboBox<>();
@@ -38,20 +39,7 @@ public class StatusBarPanel extends JPanel {
                         + "<br>Nicht groß-/kleinschreibungssensitiv.<br>"
                         + "Alle Zeilen, die nicht passen, werden gefaltet.</html>");
 
-        // Button-Styling
-        styleIconButton(compareButton, 18f);
-        styleIconButton(undoButton, 18f);
-        styleIconButton(redoButton, 18f);
-
-        // Left: Compare, Undo, Redo
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        leftPanel.add(compareButton);
-        leftPanel.add(Box.createHorizontalStrut(8));
-        leftPanel.add(undoButton);
-        leftPanel.add(Box.createHorizontalStrut(4));
-        leftPanel.add(redoButton);
-
-        // Center: FindBarPanel (replaces old plain grepField)
+        // Left / Center: FindBarPanel
         JPanel centerPanel = new JPanel(new BorderLayout());
         centerPanel.add(findBar, BorderLayout.CENTER);
 
@@ -62,27 +50,8 @@ public class StatusBarPanel extends JPanel {
         rightPanel.add(Box.createHorizontalStrut(10));
         rightPanel.add(sentenceComboBox);
 
-        add(leftPanel, BorderLayout.WEST);
         add(centerPanel, BorderLayout.CENTER);
         add(rightPanel, BorderLayout.EAST);
-    }
-
-    private void styleIconButton(JButton button, float fontSize) {
-        button.setFont(button.getFont().deriveFont(Font.BOLD, fontSize));
-        button.setMargin(new Insets(0, 0, 0, 0));
-        button.setFocusable(false);
-    }
-
-    public JButton getCompareButton() {
-        return compareButton;
-    }
-
-    public JButton getUndoButton() {
-        return undoButton;
-    }
-
-    public JButton getRedoButton() {
-        return redoButton;
     }
 
     public JTextField getGrepField() {
@@ -125,64 +94,62 @@ public class StatusBarPanel extends JPanel {
             sentenceComboBox.removeAllItems();
             sentenceComboBox.addItem(""); // Leerer Eintrag
 
-        java.util.List<String> sentenceKeys = new java.util.ArrayList<>();
-        java.util.List<String> documentKeys = new java.util.ArrayList<>();
-        java.util.List<String> languageKeys = new java.util.ArrayList<>();
+            java.util.List<String> sentenceKeys = new java.util.ArrayList<>();
+            java.util.List<String> documentKeys = new java.util.ArrayList<>();
+            java.util.List<String> languageKeys = new java.util.ArrayList<>();
 
-        for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
-            if (entry.getValue().isFileType()) {
-                // Split file types into documents (no syntaxStyle) and languages (with syntaxStyle)
-                SentenceMeta meta = entry.getValue().getMeta();
-                if (meta != null && meta.hasSyntaxStyle()) {
-                    languageKeys.add(entry.getKey());
+            for (Map.Entry<String, SentenceDefinition> entry : definitions.entrySet()) {
+                if (entry.getValue().isFileType()) {
+                    SentenceMeta meta = entry.getValue().getMeta();
+                    if (meta != null && meta.hasSyntaxStyle()) {
+                        languageKeys.add(entry.getKey());
+                    } else {
+                        documentKeys.add(entry.getKey());
+                    }
                 } else {
-                    documentKeys.add(entry.getKey());
+                    sentenceKeys.add(entry.getKey());
                 }
-            } else {
-                sentenceKeys.add(entry.getKey());
             }
-        }
 
-        if (!sentenceKeys.isEmpty()) {
-            sentenceComboBox.addItem("── Satzarten ──");
-            for (String key : sentenceKeys) {
-                sentenceComboBox.addItem(key);
-            }
-        }
-
-        if (!documentKeys.isEmpty()) {
-            sentenceComboBox.addItem("── Dateitypen ──");
-            for (String key : documentKeys) {
-                sentenceComboBox.addItem(key);
-            }
-        }
-
-        if (!languageKeys.isEmpty()) {
-            sentenceComboBox.addItem("── Sprachen ──");
-            for (String key : languageKeys) {
-                sentenceComboBox.addItem(key);
-            }
-        }
-
-        // Custom renderer for separator items
-        sentenceComboBox.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                          boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value != null && value.toString().startsWith("──")) {
-                    setFont(getFont().deriveFont(Font.BOLD, 11f));
-                    setForeground(Color.GRAY);
-                    setEnabled(false);
+            if (!sentenceKeys.isEmpty()) {
+                sentenceComboBox.addItem("── Satzarten ──");
+                for (String key : sentenceKeys) {
+                    sentenceComboBox.addItem(key);
                 }
-                return this;
             }
-        });
+
+            if (!documentKeys.isEmpty()) {
+                sentenceComboBox.addItem("── Dateitypen ──");
+                for (String key : documentKeys) {
+                    sentenceComboBox.addItem(key);
+                }
+            }
+
+            if (!languageKeys.isEmpty()) {
+                sentenceComboBox.addItem("── Sprachen ──");
+                for (String key : languageKeys) {
+                    sentenceComboBox.addItem(key);
+                }
+            }
+
+            // Custom renderer for separator items
+            sentenceComboBox.setRenderer(new DefaultListCellRenderer() {
+                @Override
+                public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                              boolean isSelected, boolean cellHasFocus) {
+                    super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                    if (value != null && value.toString().startsWith("──")) {
+                        setFont(getFont().deriveFont(Font.BOLD, 11f));
+                        setForeground(Color.GRAY);
+                        setEnabled(false);
+                    }
+                    return this;
+                }
+            });
         } finally {
             suppressEvents = false;
         }
     }
-
 
     public void setSelectedSentenceType(String sentenceType) {
         suppressEvents = true;
@@ -229,17 +196,16 @@ public class StatusBarPanel extends JPanel {
         });
     }
 
+    /**
+     * Bind events. Compare/Undo/Redo are now handled by the toolbar buttons
+     * in SplitPreviewTab, so only sentence type and regex events are wired here.
+     */
     public void bindEvents(FileTabEventDispatcher dispatcher) {
         onSentenceTypeChanged(type -> dispatcher.publish(new SentenceTypeChangedEvent(type)));
         onRegexChanged(() -> dispatcher.publish(new RegexFilterChangedEvent(findBar.getText())));
 
         // Go-button / Enter in FindBarPanel also triggers filter
         findBar.addSearchAction(e -> dispatcher.publish(new RegexFilterChangedEvent(findBar.getText())));
-
-        compareButton.addActionListener(e -> dispatcher.publish(new ShowComparePanelEvent()));
-
-        undoButton.addActionListener(e -> dispatcher.publish(new UndoRequestedEvent()));
-        redoButton.addActionListener(e -> dispatcher.publish(new RedoRequestedEvent()));
     }
 
 }

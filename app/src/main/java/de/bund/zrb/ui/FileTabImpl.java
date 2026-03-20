@@ -203,6 +203,12 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
         statusBarPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
+
+        // Wire toolbar buttons (Compare / Undo / Redo) to event dispatcher
+        compareButton.addActionListener(e -> dispatcher.publish(new ShowComparePanelEvent()));
+        undoButton.addActionListener(e -> dispatcher.publish(new UndoRequestedEvent()));
+        redoButton.addActionListener(e -> dispatcher.publish(new RedoRequestedEvent()));
+
         eventManager.bindAll();
 
         SentenceTypeRegistry registry = tabbedPaneManager.getMainframeContext().getSentenceTypeRegistry();
@@ -306,16 +312,53 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     public void searchFor(String searchPattern) {
         if (searchPattern == null) return;
         statusBarPanel.getFindBar().setText(searchPattern.trim());
-        filterCoordinator.applyFilter(); // direkt ausführen
+        filterCoordinator.applyFilter(); // Zeilenfilterung im rawPane
+
+        // For binary/rendered documents, also highlight in HTML pane
+        if (needsHtmlRendering) {
+            highlightFindMatches();
+        }
+    }
+
+    /**
+     * Override: use the statusBarPanel's FindBarPanel text (the SplitPreviewTab findBar
+     * is replaced by statusBarPanel in the layout and is therefore hidden).
+     */
+    @Override
+    protected void highlightFindMatches() {
+        String query = statusBarPanel.getFindBar().getText().trim();
+
+        if (!isTextFile && needsHtmlRendering) {
+            // Binary document: rawPane has garbage, only search htmlRenderedPane
+            highlightInTextComponent(rawPane, ""); // clear old highlights
+            highlightInTextComponent(htmlRenderedPane, query);
+        } else if (needsHtmlRendering) {
+            // Text-based HTML — search both panes
+            highlightInTextComponent(rawPane, query);
+            highlightInTextComponent(htmlRenderedPane, query);
+        } else {
+            // Plain text / source code — only rawPane
+            highlightInTextComponent(rawPane, query);
+        }
     }
 
     public void updateTitle() {
         tabbedPaneManager.updateTitleFor(this);
     }
 
+    /** Package-visible: whether this tab currently uses HTML rendering. */
+    boolean isHtmlRendered() {
+        return needsHtmlRendering;
+    }
+
+    /** Package-visible: show/hide the compare button in the toolbar. */
+    void setCompareButtonVisible(boolean visible) {
+        compareButton.setVisible(visible);
+    }
+
     public void showComparePanel() {
         comparePanel.setVisible(true);
-        statusBarPanel.getCompareButton().setVisible(false);
+        compareButton.setVisible(false);
 
         // Apply divider location after layout is done, so the split pane has its final size
         SwingUtilities.invokeLater(() -> {
@@ -391,7 +434,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         comparePanel.setVisible(show);
 
         if (show) {
-            statusBarPanel.getCompareButton().setVisible(false);
+            compareButton.setVisible(false);
             SwingUtilities.invokeLater(this::applyDividerLocation);
         }
     }

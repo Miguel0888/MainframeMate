@@ -167,6 +167,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected byte[] rawBytes = null; // Binary content for download (set when reloaded as binary)
     protected JToolBar toolbar; // Toolbar reference for subclass extension
 
+    // Editing action buttons (in toolbar, only visible for editable text files)
+    protected final JButton compareButton;
+    protected final JButton undoButton;
+    protected final JButton redoButton;
+    /** true when the raw content is editable (text file, not BetaView read-only) */
+    protected final boolean isEditable;
+
     public SplitPreviewTab(String sourceName, String rawContent, DocumentMetadata metadata,
                            List<String> warnings, Document document, boolean isRemote) {
         this(sourceName, rawContent, metadata, warnings, document, isRemote,
@@ -189,6 +196,12 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.isSourceCode = isSourceCodeFile(sourceName);
         this.needsHtmlRendering = needsHtmlRendering(sourceName, metadata);
         this.markdownFormatter = ChatMarkdownFormatter.getInstance();
+        this.isEditable = isTextFile && !"BETAVIEW".equals(this.backendType);
+
+        // Editing action buttons — only shown for editable text files
+        this.compareButton = createIconButton("\uD83D\uDD00", "Vergleichen");  // 🔀
+        this.undoButton    = createIconButton("↶", "Rückgängig");
+        this.redoButton    = createIconButton("↷", "Wiederholen");
 
         setLayout(new BorderLayout());
 
@@ -564,6 +577,16 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         return split;
     }
 
+    /** Create a small icon-style toolbar button. */
+    private static JButton createIconButton(String text, String tooltip) {
+        JButton btn = new JButton(text);
+        btn.setToolTipText(tooltip);
+        btn.setFont(btn.getFont().deriveFont(Font.BOLD, 18f));
+        btn.setMargin(new Insets(0, 4, 0, 4));
+        btn.setFocusable(false);
+        return btn;
+    }
+
     protected JToolBar createToolbar() {
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
@@ -608,6 +631,16 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         toolbar.add(copyButton);
 
         toolbar.add(Box.createHorizontalGlue());
+
+        // ── Center: Compare / Undo / Redo (only for editable text files) ──
+        if (isEditable) {
+            toolbar.add(compareButton);
+            toolbar.addSeparator(new Dimension(8, 0));
+            toolbar.add(undoButton);
+            toolbar.add(Box.createHorizontalStrut(2));
+            toolbar.add(redoButton);
+            toolbar.addSeparator(new Dimension(16, 0));
+        }
 
         // View Mode selector
         JLabel modeLabel = new JLabel("Ansicht:");
@@ -930,18 +963,24 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     }
 
     /**
-     * Highlight all occurrences of the find bar query in the currently visible pane
-     * (rawPane for RAW/SPLIT mode, htmlRenderedPane for RENDERED mode).
+     * Highlight all occurrences of the find bar query in the currently visible pane(s).
+     * For binary documents (PDF, DOCX, etc.) only the HTML rendered pane is searched
+     * because the raw pane contains meaningless binary data.
      */
     protected void highlightFindMatches() {
         String query = findBar.getText().trim();
 
-        // Highlight in rawPane (always try — it's the primary text source)
-        highlightInTextComponent(rawPane, query);
-
-        // Highlight in htmlRenderedPane (for rendered/HTML documents)
-        if (needsHtmlRendering) {
+        if (!isTextFile && needsHtmlRendering) {
+            // Binary document: rawPane has garbage, only search htmlRenderedPane
+            highlightInTextComponent(rawPane, ""); // clear old highlights
             highlightInTextComponent(htmlRenderedPane, query);
+        } else if (needsHtmlRendering) {
+            // Text-based HTML (Markdown, HTML) — search both panes
+            highlightInTextComponent(rawPane, query);
+            highlightInTextComponent(htmlRenderedPane, query);
+        } else {
+            // Plain text / source code — only rawPane
+            highlightInTextComponent(rawPane, query);
         }
     }
 
@@ -949,7 +988,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
      * Highlight all case-insensitive occurrences of {@code query} in the given text component,
      * scrolling to the first match.
      */
-    private void highlightInTextComponent(javax.swing.text.JTextComponent comp, String query) {
+    protected void highlightInTextComponent(javax.swing.text.JTextComponent comp, String query) {
         Highlighter highlighter = comp.getHighlighter();
         highlighter.removeAllHighlights();
 

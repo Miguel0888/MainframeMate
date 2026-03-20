@@ -72,6 +72,10 @@ public class FileTabEventManager {
 
         fileTab.dispatcher.subscribe(RegexFilterChangedEvent.class, event -> {
             fileTab.filterCoordinator.applyFilter();
+            // For binary/rendered documents, also highlight in HTML pane
+            if (fileTab.isHtmlRendered()) {
+                fileTab.highlightFindMatches();
+            }
         });
 
         fileTab.dispatcher.subscribe(EditorContentChangedEvent.class, event -> {
@@ -90,7 +94,7 @@ public class FileTabEventManager {
             DiffHighlighter.clearDiffHighlights(fileTab.getRawPane());
             DiffHighlighter.clearDiffHighlights(fileTab.comparePanel.getOriginalTextArea());
             fileTab.comparePanel.setVisible(false);
-            fileTab.statusBarPanel.getCompareButton().setVisible(true);
+            fileTab.setCompareButtonVisible(true);
         });
 
         fileTab.dispatcher.subscribe(ShowComparePanelEvent.class, event -> {
