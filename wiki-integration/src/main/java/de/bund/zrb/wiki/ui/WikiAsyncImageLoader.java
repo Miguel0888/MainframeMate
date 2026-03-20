@@ -144,6 +144,10 @@ public final class WikiAsyncImageLoader {
      * For all other formats (PNG, JPEG, BMP, …) {@code ImageIO.read()} is used.
      */
     private static Image decodeImage(byte[] data) {
+        // SVG → rasterise with Apache Batik
+        if (SvgRenderer.isSvg(data)) {
+            return SvgRenderer.renderToBufferedImage(data);
+        }
         if (isGif(data)) {
             // ImageIcon uses Toolkit internally and supports animated GIF frames.
             // Its constructor blocks until the image is fully loaded (MediaTracker).

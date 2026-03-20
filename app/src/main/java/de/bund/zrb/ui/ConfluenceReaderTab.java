@@ -449,7 +449,12 @@ public class ConfluenceReaderTab implements ConnectionTab {
                         byte[] data = client.getBytes(downloadPath);
                         if (data == null || data.length == 0) continue;
 
-                        Image image = javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
+                        Image image;
+                        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
+                            image = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
+                        } else {
+                            image = javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
+                        }
                         if (image != null) {
                             URL imageUrl = resolveImageUrl(src);
                             if (imageUrl != null) {

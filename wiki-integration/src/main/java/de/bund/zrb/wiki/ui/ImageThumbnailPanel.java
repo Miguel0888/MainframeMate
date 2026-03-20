@@ -434,6 +434,10 @@ public class ImageThumbnailPanel extends JPanel {
      * because {@code ImageIO.read()} returns {@code null} for some animated GIFs.
      */
     private static BufferedImage decodeToBufferedImage(byte[] data, boolean isGif) {
+        // SVG → rasterise with Apache Batik
+        if (SvgRenderer.isSvg(data)) {
+            return SvgRenderer.renderToBufferedImage(data);
+        }
         if (isGif) {
             ImageIcon icon = new ImageIcon(data);
             int w = icon.getIconWidth();

@@ -561,6 +561,11 @@ public class ImageStripPanel extends JPanel {
                 @Override
                 protected LoadedImage doInBackground() throws Exception {
                     byte[] raw = downloadBytes(img.src());
+                    // SVG → rasterise with Apache Batik
+                    if (SvgRenderer.isSvg(raw)) {
+                        BufferedImage bi = SvgRenderer.renderToBufferedImage(raw);
+                        return new LoadedImage(bi, raw);
+                    }
                     boolean isGif = raw.length > 3
                             && raw[0] == 'G' && raw[1] == 'I' && raw[2] == 'F';
                     if (isGif) {

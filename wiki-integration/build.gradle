@@ -23,5 +23,10 @@ dependencies {
 
     // HTML cleaning + outline extraction
     implementation 'org.jsoup:jsoup:1.17.2'
+
+    // SVG rendering (Apache Batik — rasterises SVG to BufferedImage)
+    implementation 'org.apache.xmlgraphics:batik-transcoder:1.17'
+    // batik-codec needed at runtime for the PNG image writer Batik uses internally
+    implementation 'org.apache.xmlgraphics:batik-codec:1.17'
 }
 
