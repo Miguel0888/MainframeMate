@@ -3,7 +3,7 @@ package de.bund.zrb.wiki.ui;
 import de.bund.zrb.wiki.domain.ImageRef;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
-import de.zrb.bund.newApi.ui.SearchBarPanel;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -30,7 +30,7 @@ public class WikiFileTab implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final JEditorPane htmlPane;
-    private final SearchBarPanel searchBar;
+    private final FindBarPanel searchBar;
     private final String siteId;
     private final String pageTitle;
     private final String htmlContent;
@@ -186,8 +186,8 @@ public class WikiFileTab implements ConnectionTab {
         togglePanel.add(textModeBtn);
         togglePanel.add(renderedModeBtn);
 
-        // Search bar at bottom (with toggle buttons on the right)
-        searchBar = new SearchBarPanel("Text suchen\u2026");
+        // Find bar at bottom (with toggle buttons on the right)
+        searchBar = new FindBarPanel("Im Dokument suchen\u2026");
         searchBar.addSearchAction(e -> highlightSearch());
         searchBar.addEastComponent(togglePanel);
         mainPanel.add(searchBar, BorderLayout.SOUTH);
