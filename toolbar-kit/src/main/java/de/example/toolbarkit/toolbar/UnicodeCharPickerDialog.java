@@ -13,77 +13,95 @@ import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
- * Dialog showing a browsable grid of Unicode characters (BMP only, U+0000..U+FFFF).
- * Characters are organized by Unicode block. The user can search by hex codepoint
+ * Dialog showing a browsable grid of Unicode characters (BMP + Supplementary Plane).
+ * Characters are organized by Unicode block.  The user can search by hex codepoint
  * or character name, and select a character by click or double-click.
+ * <p>
+ * For emoji that support skin-tone modifiers (U+1F3FB..U+1F3FF) a variant panel
+ * is shown so the user can optionally pick a coloured variant.
+ * <p>
+ * <b>Note:</b> Java&nbsp;8 ships Unicode&nbsp;6.2 — many newer Supplementary-Plane
+ * characters are unknown to {@code Character.isDefined()}.  For blocks above U+FFFF
+ * the defined-check is therefore skipped so that the characters still appear when the
+ * installed font supports them.
  */
 public class UnicodeCharPickerDialog extends JDialog {
 
     private String selectedChar;
 
+    // ── Skin-tone modifiers (Fitzpatrick scale) ─────────────────
+    private static final int[] SKIN_TONES = {
+            0x1F3FB, // Type-1-2  (light)
+            0x1F3FC, // Type-3    (medium-light)
+            0x1F3FD, // Type-4    (medium)
+            0x1F3FE, // Type-5    (medium-dark)
+            0x1F3FF, // Type-6    (dark)
+    };
+
     /** Unicode blocks: { display-name, hex-start, hex-end }. Popular blocks first. */
     private static final String[][] BLOCKS = {
             // ── Popular Pictographs & Emoji (Supplementary Plane) ─────
-            {"\u2605 Piktogramme",              "1F300", "1F5FF"},
-            {"\u2605 Emoticons",                "1F600", "1F64F"},
-            {"\u2605 Transport & Karten",       "1F680", "1F6FF"},
-            {"\u2605 Erg. Piktogramme",         "1F900", "1F9FF"},
-            {"\u2605 Piktogramme Erw.-A",       "1FA70", "1FAFF"},
-            {"\u2605 Eingerahmt Erg.",           "1F100", "1F1FF"},
+            {"Piktogramme",              "1F300", "1F5FF"},
+            {"Emoticons",                "1F600", "1F64F"},
+            {"Transport & Karten",       "1F680", "1F6FF"},
+            {"Erg. Piktogramme",         "1F900", "1F9FF"},
+            {"Piktogramme Erw.-A",       "1FA70", "1FAFF"},
+            {"Eingerahmt Erg.",          "1F100", "1F1FF"},
 
             // ── Arrows ───────────────────────────────────────────────
-            {"Pfeile",                          "2190", "21FF"},
-            {"Erg. Pfeile-A",                   "27F0", "27FF"},
-            {"Erg. Pfeile-B",                   "2900", "297F"},
-            {"Erg. Pfeile-C",                   "1F800", "1F8FF"},
+            {"Pfeile",                   "2190", "21FF"},
+            {"Erg. Pfeile-A",            "27F0", "27FF"},
+            {"Erg. Pfeile-B",            "2900", "297F"},
+            {"Erg. Pfeile-C",            "1F800", "1F8FF"},
 
             // ── Shapes & Symbols ─────────────────────────────────────
-            {"Geometrische Formen",             "25A0", "25FF"},
-            {"Geometr. Formen Erw.",            "1F780", "1F7FF"},
-            {"Verschiedene Symbole",            "2600", "26FF"},
-            {"Dingbats",                        "2700", "27BF"},
-            {"Versch. Symbole & Pfeile",        "2B00", "2BFF"},
+            {"Geometrische Formen",      "25A0", "25FF"},
+            {"Geometr. Formen Erw.",     "1F780", "1F7FF"},
+            {"Verschiedene Symbole",     "2600", "26FF"},
+            {"Dingbats",                 "2700", "27BF"},
+            {"Versch. Symbole & Pfeile", "2B00", "2BFF"},
 
             // ── Technical & Math ─────────────────────────────────────
-            {"Technische Zeichen",              "2300", "23FF"},
-            {"Mathematische Operatoren",        "2200", "22FF"},
-            {"Erg. Mathematik-A",               "27C0", "27EF"},
-            {"Erg. Mathematik-B",               "2980", "29FF"},
-            {"Erg. Math. Operatoren",           "2A00", "2AFF"},
+            {"Technische Zeichen",       "2300", "23FF"},
+            {"Mathematische Operatoren", "2200", "22FF"},
+            {"Erg. Mathematik-A",        "27C0", "27EF"},
+            {"Erg. Mathematik-B",        "2980", "29FF"},
+            {"Erg. Math. Operatoren",    "2A00", "2AFF"},
 
             // ── Numbers & Letters ────────────────────────────────────
-            {"Eingerahmte Zeichen",             "2460", "24FF"},
-            {"Buchstabenartige Symbole",        "2100", "214F"},
-            {"Zahlformen",                      "2150", "218F"},
-            {"Hoch-/Tiefgestellt",              "2070", "209F"},
+            {"Eingerahmte Zeichen",      "2460", "24FF"},
+            {"Buchstabenartige Symbole", "2100", "214F"},
+            {"Zahlformen",               "2150", "218F"},
+            {"Hoch-/Tiefgestellt",       "2070", "209F"},
 
             // ── Punctuation & Currency ───────────────────────────────
-            {"Allgemeine Interpunktion",        "2000", "206F"},
-            {"W\u00e4hrungssymbole",            "20A0", "20CF"},
+            {"Allgemeine Interpunktion", "2000", "206F"},
+            {"W\u00e4hrungssymbole",     "20A0", "20CF"},
 
             // ── Box & Block ──────────────────────────────────────────
-            {"Blockelemente",                   "2580", "259F"},
-            {"Rahmenzeichen",                   "2500", "257F"},
+            {"Blockelemente",            "2580", "259F"},
+            {"Rahmenzeichen",            "2500", "257F"},
 
             // ── Latin & Scripts ──────────────────────────────────────
-            {"Lateinisch Erg\u00e4nzung",       "00A0", "00FF"},
-            {"Lateinisch Erweitert-A",          "0100", "017F"},
-            {"Griechisch & Koptisch",           "0370", "03FF"},
-            {"Kyrillisch",                      "0400", "04FF"},
+            {"Lateinisch Erg\u00e4nzung",  "00A0", "00FF"},
+            {"Lateinisch Erweitert-A",     "0100", "017F"},
+            {"Griechisch & Koptisch",      "0370", "03FF"},
+            {"Kyrillisch",                 "0400", "04FF"},
 
             // ── Games & Other ────────────────────────────────────────
-            {"Spielkarten",                     "1F0A0", "1F0FF"},
-            {"Mahjong-Steine",                  "1F000", "1F02F"},
-            {"Domino-Steine",                   "1F030", "1F09F"},
-            {"Braille-Muster",                  "2800", "28FF"},
-            {"Steuerzeichen-Bilder",            "2400", "243F"},
-            {"Alchemie-Symbole",                "1F700", "1F77F"},
+            {"Spielkarten",              "1F0A0", "1F0FF"},
+            {"Mahjong-Steine",           "1F000", "1F02F"},
+            {"Domino-Steine",            "1F030", "1F09F"},
+            {"Braille-Muster",           "2800", "28FF"},
+            {"Steuerzeichen-Bilder",     "2400", "243F"},
+            {"Alchemie-Symbole",         "1F700", "1F77F"},
     };
 
     private final JList<String> blockList;
     private final CharGridPanel charGrid;
     private final JLabel previewLabel;
     private final JLabel infoLabel;
+    private final JPanel variantPanel;
     private final JTextField searchField;
 
     public UnicodeCharPickerDialog(Window owner) {
@@ -105,6 +123,9 @@ public class UnicodeCharPickerDialog extends JDialog {
 
         infoLabel = new JLabel(" ", SwingConstants.CENTER);
         infoLabel.setFont(infoLabel.getFont().deriveFont(Font.PLAIN, 11f));
+
+        variantPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 3, 0));
+        variantPanel.setBorder(new EmptyBorder(4, 0, 0, 0));
 
         searchField = new JTextField();
 
@@ -163,23 +184,24 @@ public class UnicodeCharPickerDialog extends JDialog {
         JScrollPane gridScroll = new JScrollPane(charGrid);
         gridScroll.getVerticalScrollBar().setUnitIncrement(CharGridPanel.CELL_SIZE);
 
-        // ── Right: preview ───────────────────────────────────────
-        JPanel previewPanel = new JPanel(new BorderLayout(4, 8));
-        previewPanel.setBorder(BorderFactory.createCompoundBorder(
+        // ── Right: preview + variants ────────────────────────────
+        JPanel previewOuter = new JPanel(new BorderLayout(4, 4));
+        previewOuter.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createTitledBorder("Vorschau"),
                 new EmptyBorder(8, 8, 8, 8)));
-        previewPanel.add(previewLabel, BorderLayout.CENTER);
-        previewPanel.add(infoLabel, BorderLayout.SOUTH);
-        previewPanel.setPreferredSize(new Dimension(150, 0));
+        previewOuter.setPreferredSize(new Dimension(160, 0));
 
+        JPanel previewContent = new JPanel(new BorderLayout(0, 4));
+        previewContent.add(previewLabel, BorderLayout.CENTER);
+        previewContent.add(infoLabel, BorderLayout.SOUTH);
+        previewOuter.add(previewContent, BorderLayout.NORTH);
+        previewOuter.add(variantPanel, BorderLayout.CENTER);
+
+        // ── Selection callbacks ──────────────────────────────────
         charGrid.setSelectionListener(new Consumer<String>() {
             @Override
             public void accept(String ch) {
-                previewLabel.setText(ch);
-                int cp = ch.codePointAt(0);
-                String name = Character.getName(cp);
-                infoLabel.setText("<html><center>U+" + String.format("%04X", cp)
-                        + "<br><small>" + (name != null ? name : "") + "</small></center></html>");
+                onCharSelected(ch);
             }
         });
         charGrid.setDoubleClickListener(new Consumer<String>() {
@@ -209,12 +231,80 @@ public class UnicodeCharPickerDialog extends JDialog {
 
         JPanel centerAndPreview = new JPanel(new BorderLayout(8, 0));
         centerAndPreview.add(split, BorderLayout.CENTER);
-        centerAndPreview.add(previewPanel, BorderLayout.EAST);
+        centerAndPreview.add(previewOuter, BorderLayout.EAST);
 
         root.add(topPanel, BorderLayout.NORTH);
         root.add(centerAndPreview, BorderLayout.CENTER);
         root.add(btnPanel, BorderLayout.SOUTH);
         setContentPane(root);
+    }
+
+    /** Called when a character is clicked in the grid. */
+    private void onCharSelected(String ch) {
+        previewLabel.setText(ch);
+        int cp = ch.codePointAt(0);
+        String name = charName(cp);
+        infoLabel.setText("<html><center>U+" + String.format("%04X", cp)
+                + "<br><small>" + name + "</small></center></html>");
+
+        // Show skin-tone variants for supplementary emoji
+        variantPanel.removeAll();
+        if (cp >= 0x1F000 && cp <= 0x1FAFF) {
+            variantPanel.add(makeSmallLabel("Farbvarianten:"));
+
+            // Base (no modifier)
+            final String base = ch;
+            JButton baseBtn = makeVariantButton(base, "Ohne Modifikator");
+            baseBtn.addActionListener(e -> {
+                selectedChar = base;
+                previewLabel.setText(base);
+            });
+            variantPanel.add(baseBtn);
+
+            // 5 skin-tone variants
+            for (int tone : SKIN_TONES) {
+                final String variant = ch + new String(Character.toChars(tone));
+                String toneName = skinToneName(tone);
+                JButton btn = makeVariantButton(variant, toneName);
+                btn.addActionListener(e -> {
+                    selectedChar = variant;
+                    previewLabel.setText(variant);
+                });
+                variantPanel.add(btn);
+            }
+        }
+        variantPanel.revalidate();
+        variantPanel.repaint();
+    }
+
+    private JButton makeVariantButton(String text, String tooltip) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font(Font.DIALOG, Font.PLAIN, 20));
+        Dimension d = new Dimension(36, 36);
+        btn.setPreferredSize(d);
+        btn.setMinimumSize(d);
+        btn.setMaximumSize(d);
+        btn.setMargin(new Insets(0, 0, 0, 0));
+        btn.setFocusable(false);
+        btn.setToolTipText(tooltip);
+        return btn;
+    }
+
+    private static JLabel makeSmallLabel(String text) {
+        JLabel l = new JLabel(text);
+        l.setFont(l.getFont().deriveFont(10f));
+        return l;
+    }
+
+    private static String skinToneName(int cp) {
+        switch (cp) {
+            case 0x1F3FB: return "Hell (Typ 1\u20132)";
+            case 0x1F3FC: return "Mittel-hell (Typ 3)";
+            case 0x1F3FD: return "Mittel (Typ 4)";
+            case 0x1F3FE: return "Mittel-dunkel (Typ 5)";
+            case 0x1F3FF: return "Dunkel (Typ 6)";
+            default: return "";
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -224,12 +314,22 @@ public class UnicodeCharPickerDialog extends JDialog {
     private void loadBlock(int index) {
         int start = Integer.parseInt(BLOCKS[index][1], 16);
         int end = Integer.parseInt(BLOCKS[index][2], 16);
+        boolean supplementary = (start >= 0x10000);
+
         List<String> chars = new ArrayList<String>();
         for (int cp = start; cp <= end; cp++) {
-            if (Character.isDefined(cp) && !Character.isISOControl(cp)
-                    && Character.getType(cp) != Character.FORMAT
-                    && Character.getType(cp) != Character.SPACE_SEPARATOR) {
+            if (supplementary) {
+                // Java 8 ships Unicode 6.2 — many newer Supplementary-Plane
+                // characters are unknown to Character.isDefined().
+                // Include all codepoints and let the font decide what to render.
                 chars.add(new String(Character.toChars(cp)));
+            } else {
+                // BMP: use the normal filter
+                if (Character.isDefined(cp) && !Character.isISOControl(cp)
+                        && Character.getType(cp) != Character.FORMAT
+                        && Character.getType(cp) != Character.SPACE_SEPARATOR) {
+                    chars.add(new String(Character.toChars(cp)));
+                }
             }
         }
         charGrid.setCharacters(chars);
@@ -244,21 +344,19 @@ public class UnicodeCharPickerDialog extends JDialog {
         if (hex.matches("[0-9A-F]{2,6}")) {
             try {
                 int cp = Integer.parseInt(hex, 16);
-                if (cp >= 0 && cp <= 0x1FAFF && Character.isDefined(cp)) {
+                if (cp >= 0 && cp <= 0x1FAFF) {
                     String ch = new String(Character.toChars(cp));
                     charGrid.setCharacters(Collections.singletonList(ch));
-                    previewLabel.setText(ch);
-                    String name = Character.getName(cp);
-                    infoLabel.setText("<html><center>U+" + String.format("%04X", cp)
-                            + "<br><small>" + (name != null ? name : "") + "</small></center></html>");
+                    onCharSelected(ch);
                     return;
                 }
-            } catch (NumberFormatException ignore) { /* fall through to name search */ }
+            } catch (NumberFormatException ignore) { /* fall through */ }
         }
 
-        // Search by Unicode character name (BMP + popular supplementary ranges)
+        // Search by Unicode character name (BMP + supplementary ranges)
         List<String> results = new ArrayList<String>();
         String upper = query.toUpperCase(Locale.ROOT);
+
         // BMP
         for (int cp = 0x00A0; cp <= 0xFFFF; cp++) {
             if (!Character.isDefined(cp) || Character.isISOControl(cp)) continue;
@@ -268,6 +366,7 @@ public class UnicodeCharPickerDialog extends JDialog {
                 if (results.size() >= 512) break;
             }
         }
+
         // Supplementary Plane (popular pictograph ranges)
         if (results.size() < 512) {
             int[][] supplementaryRanges = {
@@ -275,7 +374,6 @@ public class UnicodeCharPickerDialog extends JDialog {
             };
             for (int[] range : supplementaryRanges) {
                 for (int cp = range[0]; cp <= range[1] && results.size() < 512; cp++) {
-                    if (!Character.isDefined(cp)) continue;
                     String name = Character.getName(cp);
                     if (name != null && name.contains(upper)) {
                         results.add(new String(Character.toChars(cp)));
@@ -283,7 +381,14 @@ public class UnicodeCharPickerDialog extends JDialog {
                 }
             }
         }
+
         charGrid.setCharacters(results);
+    }
+
+    /** Return the Unicode name of a codepoint, or empty string if unknown. */
+    private static String charName(int cp) {
+        String name = Character.getName(cp);
+        return (name != null) ? name : "";
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -351,7 +456,6 @@ public class UnicodeCharPickerDialog extends JDialog {
             selectedIndex = -1;
             revalidate();
             repaint();
-            // Scroll to top
             Container parent = getParent();
             if (parent instanceof JViewport) {
                 ((JViewport) parent).setViewPosition(new Point(0, 0));
