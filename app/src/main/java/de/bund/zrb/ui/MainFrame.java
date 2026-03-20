@@ -723,14 +723,22 @@ public class MainFrame extends JFrame implements MainframeContext {
      * Reuses an existing WikiConnectionTab if present, otherwise opens a new one.
      */
     private void openWikiBookmark(String rawPath) {
+        // Strip residual wiki:// prefix (legacy bookmarks may have had double prefix)
+        while (rawPath != null && rawPath.startsWith(de.bund.zrb.model.BookmarkEntry.PREFIX_WIKI)) {
+            rawPath = rawPath.substring(de.bund.zrb.model.BookmarkEntry.PREFIX_WIKI.length());
+        }
+
         // Try to find an existing WikiConnectionTab
         de.bund.zrb.wiki.ui.WikiConnectionTab existingTab =
                 tabManager.findTabOfType(de.bund.zrb.wiki.ui.WikiConnectionTab.class);
         if (existingTab != null) {
             tabManager.selectTab(existingTab);
-            // If the bookmark points to a specific page, trigger a search for it
+            // If the bookmark points to a specific page, open it directly as reader tab
+            String siteId = extractWikiSiteId(rawPath);
             String pageTitle = extractWikiPageTitle(rawPath);
-            if (pageTitle != null) {
+            if (pageTitle != null && siteId != null) {
+                existingTab.openPageExternally(siteId, pageTitle);
+            } else if (pageTitle != null) {
                 existingTab.searchFor(pageTitle);
             }
             return;
@@ -741,18 +749,33 @@ public class MainFrame extends JFrame implements MainframeContext {
                 de.bund.zrb.ui.commands.config.CommandRegistryImpl.getById("connection.wiki");
         if (cmd.isPresent()) {
             cmd.get().perform();
-            // After the command opens a tab, try to navigate to the specific page
+            // After the command opens a tab, try to open the specific page
+            String siteId = extractWikiSiteId(rawPath);
             String pageTitle = extractWikiPageTitle(rawPath);
             if (pageTitle != null) {
                 SwingUtilities.invokeLater(() -> {
                     de.bund.zrb.wiki.ui.WikiConnectionTab newTab =
                             tabManager.findTabOfType(de.bund.zrb.wiki.ui.WikiConnectionTab.class);
                     if (newTab != null) {
-                        newTab.searchFor(pageTitle);
+                        if (siteId != null) {
+                            newTab.openPageExternally(siteId, pageTitle);
+                        } else {
+                            newTab.searchFor(pageTitle);
+                        }
                     }
                 });
             }
         }
+    }
+
+    /** Extract wiki site id from a bookmark rawPath like "siteId/PageTitle". */
+    private static String extractWikiSiteId(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) return null;
+        int slash = rawPath.indexOf('/');
+        if (slash > 0) {
+            return rawPath.substring(0, slash);
+        }
+        return null;
     }
 
     /** Extract a wiki page title from a bookmark rawPath like "siteId/PageTitle". */

@@ -63,17 +63,23 @@ public class BookmarkEntry {
      */
     public static String buildPath(String backendType, String rawPath) {
         if (rawPath == null) return null;
-        if ("FTP".equals(backendType))   return PREFIX_FTP + rawPath;
-        if ("NDV".equals(backendType))   return PREFIX_NDV + rawPath;
-        if ("MAIL".equals(backendType))     return PREFIX_MAIL + rawPath;
-        if ("BETAVIEW".equals(backendType)) return PREFIX_BETAVIEW + rawPath;
-        if ("TN3270".equals(backendType))  return PREFIX_TN3270 + rawPath;
+        if ("FTP".equals(backendType))   return prefixIfNeeded(PREFIX_FTP, rawPath);
+        if ("NDV".equals(backendType))   return prefixIfNeeded(PREFIX_NDV, rawPath);
+        if ("MAIL".equals(backendType))     return prefixIfNeeded(PREFIX_MAIL, rawPath);
+        if ("BETAVIEW".equals(backendType)) return prefixIfNeeded(PREFIX_BETAVIEW, rawPath);
+        if ("TN3270".equals(backendType))  return prefixIfNeeded(PREFIX_TN3270, rawPath);
         if ("BROWSER".equals(backendType)) return rawPath; // URLs already have http(s):// scheme
-        if ("SHAREPOINT".equals(backendType)) return PREFIX_SHAREPOINT + rawPath;
-        if ("CONFLUENCE".equals(backendType)) return PREFIX_CONFLUENCE + rawPath;
-        if ("WIKI".equals(backendType))       return PREFIX_WIKI + rawPath;
+        if ("SHAREPOINT".equals(backendType)) return prefixIfNeeded(PREFIX_SHAREPOINT, rawPath);
+        if ("CONFLUENCE".equals(backendType)) return prefixIfNeeded(PREFIX_CONFLUENCE, rawPath);
+        if ("WIKI".equals(backendType))       return prefixIfNeeded(PREFIX_WIKI, rawPath);
         // LOCAL or unknown: prefix with local://
-        return PREFIX_LOCAL + rawPath;
+        return prefixIfNeeded(PREFIX_LOCAL, rawPath);
+    }
+
+   /** Add the prefix only if rawPath does not already start with it. */
+    private static String prefixIfNeeded(String prefix, String rawPath) {
+        if (rawPath.startsWith(prefix)) return rawPath;
+        return prefix + rawPath;
     }
 
     /**

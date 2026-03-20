@@ -48,6 +48,12 @@ public class BookmarkMenuCommand extends ShortcutMenuCommand {
             backendType = "BROWSER";
         } else if (tab instanceof SharePointConnectionTab) {
             backendType = "SHAREPOINT";
+        } else if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab
+                || tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
+            backendType = "WIKI";
+        } else if (tab instanceof de.bund.zrb.ui.ConfluenceConnectionTab
+                || tab instanceof de.bund.zrb.ui.ConfluenceReaderTab) {
+            backendType = "CONFLUENCE";
         } else if (tab instanceof FileTabImpl) {
             FileTabImpl ft = (FileTabImpl) tab;
             if (ft.getResource() != null) {
