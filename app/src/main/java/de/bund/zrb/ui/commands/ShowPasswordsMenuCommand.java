@@ -339,6 +339,15 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         certPanel.add(certAliasField, BorderLayout.CENTER);
         certPanel.add(certChooseBtn, BorderLayout.EAST);
 
+        // Checkbox to enable/disable certificate usage (default: checked)
+        final JCheckBox useCertCb = new JCheckBox("Zertifikat verwenden", true);
+        useCertCb.setToolTipText("mTLS-Zertifikat für die Verbindung verwenden");
+        useCertCb.addActionListener(e -> {
+            boolean use = useCertCb.isSelected();
+            certAliasField.setEnabled(use);
+            certChooseBtn.setEnabled(use);
+        });
+
         JCheckBox loginCb    = new JCheckBox("Login erforderlich");
         JCheckBox proxyCb    = new JCheckBox("Proxy verwenden");
         JCheckBox autoIdxCb  = new JCheckBox("Auto-Index");
@@ -370,7 +379,6 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         // URL label — will be updated based on category
         JLabel urlLabel = new JLabel("URL:");
-        JLabel certLabel = new JLabel("Zertifikat:");
 
         // Update URL requirement and cert visibility when category changes
         Runnable updateCategoryUi = new Runnable() {
@@ -380,7 +388,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 boolean urlRequired = "Wiki".equals(cat) || "SP".equals(cat) || "Confluence".equals(cat);
                 urlLabel.setText(urlRequired ? "URL: *" : "URL:");
                 boolean showCert = "Confluence".equals(cat);
-                certLabel.setVisible(showCert);
+                useCertCb.setVisible(showCert);
                 certPanel.setVisible(showCert);
             }
         };
@@ -391,10 +399,16 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                 || "Confluence".equals(existing.category))) {
             urlLabel.setText("URL: *");
         }
-        // Initial cert visibility
+        // Initial cert visibility and checkbox state
         boolean showCertInitial = existing != null && "Confluence".equals(existing.category);
-        certLabel.setVisible(showCertInitial);
+        useCertCb.setVisible(showCertInitial);
         certPanel.setVisible(showCertInitial);
+        // If editing an existing entry without a cert, uncheck the checkbox
+        if (existing != null && (existing.certAlias == null || existing.certAlias.trim().isEmpty())) {
+            useCertCb.setSelected(false);
+            certAliasField.setEnabled(false);
+            certChooseBtn.setEnabled(false);
+        }
 
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -439,7 +453,7 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         row++;
         gbc.gridx = 0; gbc.gridy = row; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(certLabel, gbc);
+        panel.add(useCertCb, gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
         panel.add(certPanel, gbc);
 
@@ -526,12 +540,18 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         confluenceTestBtn.addActionListener(e -> {
             String testUrl = urlField.getText().trim();
-            String testAlias = certAliasField.getText().trim();
+            String testAlias = useCertCb.isSelected() ? certAliasField.getText().trim() : "";
             String testUser = userField.getText().trim();
             String testPass = new String(passField.getPassword());
-            if (testUrl.isEmpty() || testAlias.isEmpty() || testUser.isEmpty()) {
+            if (testUrl.isEmpty() || testUser.isEmpty()) {
                 JOptionPane.showMessageDialog(dialog,
-                        "Bitte URL, Zertifikat-Alias und Benutzername eingeben.",
+                        "Bitte URL und Benutzername eingeben.",
+                        "Confluence-Test", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (useCertCb.isSelected() && testAlias.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog,
+                        "Bitte ein Zertifikat ausw\u00e4hlen oder \u201eZertifikat verwenden\u201c deaktivieren.",
                         "Confluence-Test", JOptionPane.WARNING_MESSAGE);
                 return;
             }
@@ -579,7 +599,50 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         });
 
         JButton okBtn = new JButton("OK");
-        okBtn.addActionListener(e -> { confirmed[0] = true; dialog.dispose(); });
+        okBtn.addActionListener(e -> {
+            // ── Validate BEFORE closing the dialog ──
+            String valCat = (String) categoryBox.getSelectedItem();
+            String valId = idField.getText().trim();
+            String valUrl = urlField.getText().trim();
+
+            if (valId.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog, "Die ID darf nicht leer sein.",
+                        "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            if (("Wiki".equals(valCat) || "SP".equals(valCat) || "Confluence".equals(valCat))
+                    && valUrl.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog,
+                        "Für " + valCat + "-Einträge ist die URL ein Pflichtfeld.",
+                        "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Confluence: cert hint (not blocking) if checkbox is checked but no cert chosen
+            if ("Confluence".equals(valCat) && useCertCb.isSelected()
+                    && certAliasField.getText().trim().isEmpty()) {
+                int choice = JOptionPane.showOptionDialog(dialog,
+                "Sie haben \u201eZertifikat verwenden\u201c aktiviert,\n"
+                                + "aber kein Zertifikat ausgew\u00e4hlt.\n\n"
+                                + "Ohne mTLS-Zertifikat kann die Verbindung zu\n"
+                                + "Confluence fehlschlagen, wenn der Server eines erfordert.\n\n"
+                                + "M\u00f6chten Sie trotzdem ohne Zertifikat speichern?",
+                        "Hinweis: Kein Zertifikat",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.INFORMATION_MESSAGE,
+                        null,
+                        new String[]{"Ohne Zertifikat speichern", "Zurück zum Bearbeiten"},
+                        "Zurück zum Bearbeiten");
+                if (choice != 0) {
+                    return; // dialog stays open — user can add cert
+                }
+                // User explicitly chose to continue without cert
+            }
+
+            confirmed[0] = true;
+            dialog.dispose();
+        });
         JButton cancelBtn = new JButton("Abbrechen");
         cancelBtn.addActionListener(e -> dialog.dispose());
 
@@ -606,33 +669,14 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
 
         if (!confirmed[0]) return null;
 
+        // All validation already done inside OK handler — just build the entry
         String category    = (String) categoryBox.getSelectedItem();
         String id          = idField.getText().trim();
         String displayName = displayNameField.getText().trim();
         String user        = userField.getText().trim();
         String pass        = new String(passField.getPassword());
         String url         = urlField.getText().trim();
-
-        if (id.isEmpty()) {
-            JOptionPane.showMessageDialog(parent, "Die ID darf nicht leer sein.",
-                    "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
-            return null;
-        }
-
-        if (("Wiki".equals(category) || "SP".equals(category) || "Confluence".equals(category)) && url.isEmpty()) {
-            JOptionPane.showMessageDialog(parent,
-                    "F\u00fcr " + category + "-Eintr\u00e4ge ist die URL ein Pflichtfeld.",
-                    "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
-            return null;
-        }
-
-        String certAlias = certAliasField.getText().trim();
-        if ("Confluence".equals(category) && certAlias.isEmpty()) {
-            JOptionPane.showMessageDialog(parent,
-                    "Für Confluence-Einträge muss ein Zertifikat ausgewählt werden.",
-                    "Ungültige Eingabe", JOptionPane.WARNING_MESSAGE);
-            return null;
-        }
+        String certAlias   = useCertCb.isSelected() ? certAliasField.getText().trim() : "";
 
         return new KeePassEntry(category, id, displayName, user, pass, url,
                 existing != null ? existing.uniqueID : "",

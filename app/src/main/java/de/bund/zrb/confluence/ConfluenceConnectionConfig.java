@@ -5,11 +5,13 @@ import java.util.Objects;
 /**
  * Immutable configuration for a Confluence Data Center REST connection.
  * <p>
- * Requires:
+ * Supports:
  * <ul>
- *   <li>mTLS with a client certificate from {@code Windows-MY} (selected by alias)</li>
+ *   <li>Optional mTLS with a client certificate from {@code Windows-MY} (selected by alias)</li>
  *   <li>HTTP Basic Auth (username + password)</li>
  * </ul>
+ * If {@code clientCertificateAlias} is {@code null} or empty, mTLS is disabled and
+ * only Basic Auth is used.
  */
 public final class ConfluenceConnectionConfig {
 
@@ -31,7 +33,8 @@ public final class ConfluenceConnectionConfig {
         this.baseUrl = requireNonBlank(baseUrl, "baseUrl");
         this.username = requireNonBlank(username, "username");
         this.password = Objects.requireNonNull(password, "password must not be null");
-        this.clientCertificateAlias = requireNonBlank(clientCertificateAlias, "clientCertificateAlias");
+        this.clientCertificateAlias = (clientCertificateAlias != null && !clientCertificateAlias.trim().isEmpty())
+                ? clientCertificateAlias : null;
         this.connectTimeoutMillis = connectTimeoutMillis;
         this.readTimeoutMillis = readTimeoutMillis;
     }
@@ -40,6 +43,7 @@ public final class ConfluenceConnectionConfig {
     public String getUsername()               { return username; }
     public String getPassword()               { return password; }
     public String getClientCertificateAlias() { return clientCertificateAlias; }
+    public boolean hasCertificate()           { return clientCertificateAlias != null; }
     public int getConnectTimeoutMillis()      { return connectTimeoutMillis; }
     public int getReadTimeoutMillis()         { return readTimeoutMillis; }
 

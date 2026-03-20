@@ -47,7 +47,17 @@ public final class ConfluenceRestClient {
 
     public ConfluenceRestClient(ConfluenceConnectionConfig config) {
         this.config = config;
-        this.sslContext = createSslContext(config.getClientCertificateAlias());
+        if (config.hasCertificate()) {
+            this.sslContext = createSslContext(config.getClientCertificateAlias());
+        } else {
+            // No client certificate — use default SSL context (no mTLS)
+            try {
+                this.sslContext = SSLContext.getDefault();
+            } catch (Exception e) {
+                throw new ConfluenceException("Standard-SSL-Kontext konnte nicht initialisiert werden", e);
+            }
+            LOG.info("[Confluence] Kein Zertifikat konfiguriert — nur Basic Auth (ohne mTLS)");
+        }
         this.authorizationHeaderValue = createBasicAuthHeader(
                 config.getUsername(), config.getPassword());
 
