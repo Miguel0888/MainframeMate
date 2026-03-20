@@ -1,6 +1,8 @@
 package de.bund.zrb.ui;
 
+import de.bund.zrb.model.BookmarkEntry;
 import de.bund.zrb.ui.search.SearchTab;
+import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.ui.FtpTab;
 
 import javax.swing.*;
@@ -8,6 +10,8 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.RoundRectangle2D;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * A polished search control designed to sit inside a {@link JMenuBar}.
@@ -36,6 +40,27 @@ public class MenuBarSearchField extends JPanel {
     private static final Color BG_FOCUSED     = Color.WHITE;
     private static final Color ICON_COLOR     = new Color(0x888888);
     private static final Color PLACEHOLDER_FG = new Color(0xAAAAAA);
+
+    /** Protocol prefixes that trigger direct resource opening instead of search. */
+    private static final List<String> RESOURCE_PREFIXES = Arrays.asList(
+            BookmarkEntry.PREFIX_FTP,        // ftp://
+            BookmarkEntry.PREFIX_NDV,        // ndv://
+            BookmarkEntry.PREFIX_LOCAL,      // local://
+            BookmarkEntry.PREFIX_MAIL,       // mail://
+            BookmarkEntry.PREFIX_SHAREPOINT, // sp://
+            BookmarkEntry.PREFIX_BETAVIEW,   // betaview://
+            BookmarkEntry.PREFIX_TN3270,     // tn3270://
+            BookmarkEntry.PREFIX_HTTP,       // http://
+            BookmarkEntry.PREFIX_HTTPS,      // https://
+            BookmarkEntry.PREFIX_CONFLUENCE, // confluence://
+            BookmarkEntry.PREFIX_WIKI        // wiki://
+    );
+
+    /** Short-hand prefixes (without "//") that also trigger direct open. */
+    private static final List<String> SHORT_PREFIXES = Arrays.asList(
+            "ftp:", "ndv:", "local:", "mail:", "sp:", "betaview:", "tn3270:",
+            "confluence:", "wiki:"
+    );
 
     private final JTextField textField;
     private final JButton goButton;
@@ -157,6 +182,19 @@ public class MenuBarSearchField extends JPanel {
 
     private void performSearch() {
         String query = textField.getText().trim();
+
+        // ── Check for bookmark / resource syntax (e.g. "ftp://host/path", "ndv:LIB/OBJ") ──
+        if (!query.isEmpty() && isResourcePath(query)) {
+            String resourcePath = normalizeResourcePath(query);
+            textField.setText("");
+            MainframeContext ctx = tabManager.getMainframeContext();
+            if (ctx != null) {
+                ctx.openFileOrDirectory(resourcePath);
+            }
+            return;
+        }
+
+        // ── Normal full-text search ─────────────────────────────
         SearchTab searchTab = new SearchTab(tabManager);
         tabManager.addTab(searchTab);
         if (!query.isEmpty()) {
@@ -165,6 +203,37 @@ public class MenuBarSearchField extends JPanel {
             SwingUtilities.invokeLater(searchTab::focusSearchField);
         }
         textField.setText("");
+    }
+
+    /**
+     * Returns {@code true} if the input looks like a resource path with a known protocol prefix.
+     */
+    private static boolean isResourcePath(String input) {
+        String lower = input.toLowerCase();
+        for (String prefix : RESOURCE_PREFIXES) {
+            if (lower.startsWith(prefix.toLowerCase())) return true;
+        }
+        for (String prefix : SHORT_PREFIXES) {
+            if (lower.startsWith(prefix)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Normalise short-hand prefixes into their full {@code protocol://} form so that
+     * {@link MainframeContext#openFileOrDirectory(String)} can route them correctly.
+     * E.g. {@code "ftp:host/path"} → {@code "ftp://host/path"}.
+     */
+    private static String normalizeResourcePath(String input) {
+        for (String shortPrefix : SHORT_PREFIXES) {
+            if (input.toLowerCase().startsWith(shortPrefix)
+                    && !input.toLowerCase().startsWith(shortPrefix + "//")) {
+                // Insert "//" after the short prefix
+                return input.substring(0, shortPrefix.length()) + "//"
+                        + input.substring(shortPrefix.length());
+            }
+        }
+        return input;
     }
 
     // ═══════════════════════════════════════════════════════════════
