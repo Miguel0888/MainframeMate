@@ -644,11 +644,87 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
                 model.resetChanged();
                 tabbedPaneManager.updateTitleFor(this);
+
+                // Re-index saved content in RAG
+                reindexTextContent(resolvedPath, newText);
             }
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
                     "Fehler beim Speichern (FileService):\n" + e.getMessage(),
                     "Speicherfehler", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Re-index text content in the RAG Lucene index after save.
+     * Runs asynchronously to avoid blocking the EDT or save operation.
+     */
+    private void reindexTextContent(final String docId, final String text) {
+        if (docId == null || text == null || text.trim().isEmpty()) return;
+        new Thread(() -> {
+            try {
+                de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+                if (rag.isIndexed(docId)) {
+                    rag.removeDocument(docId);
+                }
+                de.bund.zrb.ingestion.model.document.DocumentMetadata meta =
+                        de.bund.zrb.ingestion.model.document.DocumentMetadata.builder()
+                                .sourceName(sourceName)
+                                .mimeType(metadata != null ? metadata.getMimeType() : "text/plain")
+                                .build();
+                de.bund.zrb.ingestion.model.document.Document doc =
+                        de.bund.zrb.ingestion.model.document.Document.fromText(text, meta);
+                rag.indexDocument(docId, sourceName != null ? sourceName : docId, doc, false);
+                System.out.println("[FileTabImpl] Re-indexed after save: " + docId);
+                SwingUtilities.invokeLater(() -> sidebar.refreshIndexStatus());
+            } catch (Exception e) {
+                System.err.println("[FileTabImpl] Re-index after save failed: " + e.getMessage());
+            }
+        }, "Reindex-Save-" + docId).start();
+    }
+
+    /**
+     * Re-index binary content (PDF, DOCX, etc.) in the RAG Lucene index after upload.
+     * Extracts text via the ingestion pipeline and indexes it.
+     * Must be called from a background thread.
+     */
+    private void reindexBinaryContent(final String docId, final byte[] binaryData, final String fileName) {
+        if (docId == null || binaryData == null || binaryData.length == 0) return;
+        de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase extractor = null;
+        try {
+            de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
+            if (rag.isIndexed(docId)) {
+                rag.removeDocument(docId);
+            }
+
+            de.bund.zrb.ingestion.config.IngestionConfig config = new de.bund.zrb.ingestion.config.IngestionConfig()
+                    .setMaxFileSizeBytes(50 * 1024 * 1024)
+                    .setTimeoutPerExtractionMs(60000)
+                    .setEnableFallbackOnExtractorFailure(true);
+            extractor = new de.bund.zrb.ingestion.usecase.ExtractTextFromDocumentUseCase(config);
+
+            de.bund.zrb.ingestion.model.DocumentSource source =
+                    de.bund.zrb.ingestion.model.DocumentSource.fromBytes(binaryData, fileName);
+            de.bund.zrb.ingestion.model.ExtractionResult result = extractor.executeSync(source);
+
+            if (result.isSuccess() && result.getPlainText() != null && !result.getPlainText().trim().isEmpty()) {
+                de.bund.zrb.ingestion.model.document.DocumentMetadata meta =
+                        de.bund.zrb.ingestion.model.document.DocumentMetadata.builder()
+                                .sourceName(fileName)
+                                .mimeType(metadata != null ? metadata.getMimeType() : "application/octet-stream")
+                                .build();
+                de.bund.zrb.ingestion.model.document.Document doc =
+                        de.bund.zrb.ingestion.model.document.Document.fromText(result.getPlainText(), meta);
+                rag.indexDocument(docId, fileName, doc, false);
+                System.out.println("[FileTabImpl] Re-indexed after upload: " + docId);
+                SwingUtilities.invokeLater(() -> sidebar.refreshIndexStatus());
+            }
+        } catch (Exception e) {
+            System.err.println("[FileTabImpl] Re-index after upload failed: " + e.getMessage());
+        } finally {
+            if (extractor != null) {
+                extractor.shutdown();
+            }
         }
     }
 
@@ -726,6 +802,9 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
                 System.out.println("[FileTabImpl] Upload successful: " + selected.getName() +
                         " (" + fileBytes.length + " bytes) → " + resolvedPath);
+
+                // Re-index uploaded binary content in RAG
+                reindexBinaryContent(resolvedPath, fileBytes, selected.getName());
 
             } catch (Exception e) {
                 System.err.println("[FileTabImpl] Upload failed: " + e.getMessage());
