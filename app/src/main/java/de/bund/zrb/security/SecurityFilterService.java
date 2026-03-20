@@ -40,7 +40,7 @@ public class SecurityFilterService {
 
     /** All known connection groups (order matters for UI). */
     public static final String[] ALL_GROUPS = {
-            "LOCAL", "FTP", "NDV", "WIKI", "MAIL", "BETAVIEW", "SHAREPOINT"
+            "LOCAL", "FTP", "NDV", "WIKI", "CONFLUENCE", "MAIL", "BETAVIEW", "SHAREPOINT"
     };
 
     /** German display names for groups. */
@@ -51,6 +51,7 @@ public class SecurityFilterService {
         m.put("FTP", "FTP");
         m.put("NDV", "NDV (Natural)");
         m.put("WIKI", "Wiki");
+        m.put("CONFLUENCE", "Confluence");
         m.put("MAIL", "Mail");
         m.put("BETAVIEW", "BetaView");
         m.put("SHAREPOINT", "SharePoint");

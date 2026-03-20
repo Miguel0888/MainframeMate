@@ -273,6 +273,8 @@ public class TabbedPaneManager {
         if (tab instanceof CacheConnectionTab) return "CACHE";
         if (tab instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) return "WIKI";
         if (tab instanceof de.bund.zrb.wiki.ui.WikiFileTab) return "WIKI";
+        if (tab instanceof ConfluenceConnectionTab) return "CONFLUENCE";
+        if (tab instanceof ConfluenceReaderTab) return "CONFLUENCE";
         if (tab instanceof de.bund.zrb.ui.terminal.TerminalConnectionTab) return "TN3270";
         if (tab instanceof BrowserConnectionTab) return "BROWSER";
         return "LOCAL";

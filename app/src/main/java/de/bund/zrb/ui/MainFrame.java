@@ -599,12 +599,113 @@ public class MainFrame extends JFrame implements MainframeContext {
             case "SHAREPOINT":
                 openSharePointBookmark(rawPath);
                 break;
+            case "CONFLUENCE":
+                openConfluenceBookmark(rawPath);
+                break;
+            case "WIKI":
+                openWikiBookmark(rawPath);
+                break;
             default:
                 // LOCAL – forceFile avoids unnecessary list() probe
                 new VirtualResourceOpener(tabManager)
                         .open(rawPath, null, null, null, isFile);
                 break;
         }
+    }
+
+    /**
+     * Open a Confluence bookmark.
+     * rawPath format: "&lt;baseUrl&gt;" (connection) or "&lt;baseUrl&gt;/page/&lt;pageId&gt;" (reader).
+     * Reuses an existing ConfluenceConnectionTab if present, otherwise opens a new one.
+     */
+    private void openConfluenceBookmark(String rawPath) {
+        // Try to find an existing ConfluenceConnectionTab
+        ConfluenceConnectionTab existingTab = tabManager.findTabOfType(ConfluenceConnectionTab.class);
+        if (existingTab != null) {
+            tabManager.selectTab(existingTab);
+            // If the bookmark points to a specific page, open it
+            String pageId = extractConfluencePageId(rawPath);
+            if (pageId != null) {
+                existingTab.openPageByIdAsReaderTab(pageId);
+            }
+            return;
+        }
+
+        // No existing tab — invoke the connection command to create one
+        java.util.Optional<de.zrb.bund.api.MenuCommand> cmd =
+                de.bund.zrb.ui.commands.config.CommandRegistryImpl.getById("connection.confluence");
+        if (cmd.isPresent()) {
+            cmd.get().perform();
+            // After the command opens a tab, try to navigate to the specific page
+            String pageId = extractConfluencePageId(rawPath);
+            if (pageId != null) {
+                // Give the tab a moment to initialise, then navigate
+                SwingUtilities.invokeLater(() -> {
+                    ConfluenceConnectionTab newTab = tabManager.findTabOfType(ConfluenceConnectionTab.class);
+                    if (newTab != null) {
+                        newTab.openPageByIdAsReaderTab(pageId);
+                    }
+                });
+            }
+        }
+    }
+
+    /** Extract a Confluence page ID from a bookmark rawPath like "https://host/page/12345". */
+    private static String extractConfluencePageId(String rawPath) {
+        if (rawPath == null) return null;
+        int idx = rawPath.indexOf("/page/");
+        if (idx >= 0) {
+            return rawPath.substring(idx + "/page/".length());
+        }
+        return null;
+    }
+
+    /**
+     * Open a Wiki bookmark.
+     * rawPath format: "" (connection), or "&lt;siteId&gt;/&lt;pageTitle&gt;" (page).
+     * Reuses an existing WikiConnectionTab if present, otherwise opens a new one.
+     */
+    private void openWikiBookmark(String rawPath) {
+        // Try to find an existing WikiConnectionTab
+        de.bund.zrb.wiki.ui.WikiConnectionTab existingTab =
+                tabManager.findTabOfType(de.bund.zrb.wiki.ui.WikiConnectionTab.class);
+        if (existingTab != null) {
+            tabManager.selectTab(existingTab);
+            // If the bookmark points to a specific page, trigger a search for it
+            String pageTitle = extractWikiPageTitle(rawPath);
+            if (pageTitle != null) {
+                existingTab.searchFor(pageTitle);
+            }
+            return;
+        }
+
+        // No existing tab — invoke the connection command to create one
+        java.util.Optional<de.zrb.bund.api.MenuCommand> cmd =
+                de.bund.zrb.ui.commands.config.CommandRegistryImpl.getById("connection.wiki");
+        if (cmd.isPresent()) {
+            cmd.get().perform();
+            // After the command opens a tab, try to navigate to the specific page
+            String pageTitle = extractWikiPageTitle(rawPath);
+            if (pageTitle != null) {
+                SwingUtilities.invokeLater(() -> {
+                    de.bund.zrb.wiki.ui.WikiConnectionTab newTab =
+                            tabManager.findTabOfType(de.bund.zrb.wiki.ui.WikiConnectionTab.class);
+                    if (newTab != null) {
+                        newTab.searchFor(pageTitle);
+                    }
+                });
+            }
+        }
+    }
+
+    /** Extract a wiki page title from a bookmark rawPath like "siteId/PageTitle". */
+    private static String extractWikiPageTitle(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) return null;
+        int slash = rawPath.indexOf('/');
+        if (slash >= 0 && slash < rawPath.length() - 1) {
+            return rawPath.substring(slash + 1);
+        }
+        return null;
     }
 
     /**

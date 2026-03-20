@@ -66,6 +66,9 @@ public class ConfluenceReaderTab implements ConnectionTab {
             "<img\\s[^>]*src\\s*=\\s*[\"']([^\"']+)[\"']",
             Pattern.CASE_INSENSITIVE);
 
+    /** Full HTML string (for re-setting after async image load). */
+    private final String fullHtml;
+
     public ConfluenceReaderTab(ConfluenceRestClient client, String baseUrl,
                                String pageId, String pageTitle,
                                String htmlContent, OutlineNode outline) {
@@ -84,7 +87,15 @@ public class ConfluenceReaderTab implements ConnectionTab {
 
         // Inject heading anchors + wrap in full HTML
         String enrichedHtml = ConfluenceConnectionTab.injectHeadingAnchors(htmlContent);
-        String fullHtml = wrapHtml(enrichedHtml);
+        this.fullHtml = wrapHtml(enrichedHtml);
+
+        // Set base URL so relative img src attributes resolve to the Confluence server
+        try {
+            ((HTMLDocument) htmlPane.getDocument()).setBase(new URL(baseUrl));
+        } catch (MalformedURLException ignore) {
+            // fallback: leave without base — images with absolute URLs will still work
+        }
+
         htmlPane.setText(fullHtml);
         htmlPane.setCaretPosition(0);
 
@@ -191,10 +202,23 @@ public class ConfluenceReaderTab implements ConnectionTab {
                     Image img = (Image) pair[1];
                     cache.put(url, img);
                 }
+            }
 
-                // Force repaint to show newly loaded images
-                htmlPane.revalidate();
-                htmlPane.repaint();
+            @Override
+            protected void done() {
+                // Re-set HTML text to force ImageViews to be recreated —
+                // they cache "load failed" state and won't retry on just repaint()
+                try {
+                    int caretPos = Math.min(htmlPane.getCaretPosition(),
+                            htmlPane.getDocument().getLength());
+                    htmlPane.setText(fullHtml);
+                    try {
+                        htmlPane.setCaretPosition(Math.min(caretPos,
+                                htmlPane.getDocument().getLength()));
+                    } catch (Exception ignored) { }
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "[ConfluenceReader] Failed to refresh after image load", e);
+                }
             }
         }.execute();
     }

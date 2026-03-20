@@ -115,7 +115,6 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         spaceRow.add(refreshBtn, BorderLayout.WEST);
 
         spaceCheckboxPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        spaceCheckboxPanel.add(new JLabel("Spaces:"));
         spaceRow.add(spaceCheckboxPanel, BorderLayout.CENTER);
 
         indexBtn = new JButton("📥 Indexieren");
@@ -484,7 +483,8 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 String json = client.searchJson(cql, start, limit);
                 JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
-                int total = root.has("totalSize") ? root.get("totalSize").getAsInt() : -1;
+                int total = root.has("totalSize") ? root.get("totalSize").getAsInt()
+                        : root.has("total") ? root.get("total").getAsInt() : -1;
 
                 JsonArray results = root.getAsJsonArray("results");
                 if (results != null) {
@@ -574,13 +574,13 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
         if (totalResults >= 0) {
             int totalPages = Math.max(1, (int) Math.ceil((double) totalResults / pageSize));
-            pageInfoLabel.setText("Seite " + currentPage + " von " + totalPages);
+            pageInfoLabel.setText(currentPage + "/" + totalPages);
             statusLabel.setText(totalResults + " Treffer gesamt");
             prevBtn.setEnabled(currentPage > 1);
             nextBtn.setEnabled(currentPage < totalPages);
         } else {
             // totalSize unknown — fallback
-            pageInfoLabel.setText("Seite " + currentPage);
+            pageInfoLabel.setText(String.valueOf(currentPage));
             statusLabel.setText(fetchedCount + " Treffer");
             prevBtn.setEnabled(start > 0);
             nextBtn.setEnabled(fetchedCount >= pageSize);
@@ -883,6 +883,14 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private void loadPreviewImagesAsync(String html) {
         if (html == null || client == null) return;
 
+        // Build the full HTML that was set on the pane (same as in applyPreview)
+        final String previewFullHtml = "<html><head><base href=\"" + escHtml(baseUrl) + "\">"
+                + "<style>body{font-family:sans-serif;font-size:13px;padding:8px;}"
+                + "table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:4px;}"
+                + "img{max-width:100%;} h1,h2,h3{color:#333;} a{color:#0645ad;}"
+                + "pre,code{background:#f4f4f4;padding:4px;}</style></head><body>"
+                + injectHeadingAnchors(html) + "</body></html>";
+
         new SwingWorker<Void, Object[]>() {
             @Override
             protected Void doInBackground() {
@@ -929,9 +937,18 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     java.awt.Image img = (java.awt.Image) pair[1];
                     cache.put(url, img);
                 }
+            }
 
-                htmlPane.revalidate();
-                htmlPane.repaint();
+            @Override
+            protected void done() {
+                // Re-set HTML to force ImageViews to pick up the cached images
+                // (ImageView caches "load failed" state and won't retry on repaint alone)
+                try {
+                    htmlPane.setText(previewFullHtml);
+                    htmlPane.setCaretPosition(0);
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "[Confluence] Failed to refresh preview after image load", e);
+                }
             }
         }.execute();
     }
