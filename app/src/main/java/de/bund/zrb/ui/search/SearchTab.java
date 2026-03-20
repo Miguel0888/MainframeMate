@@ -1,8 +1,6 @@
 package de.bund.zrb.ui.search;
 
 import de.bund.zrb.archive.store.CacheRepository;
-import de.bund.zrb.rag.model.Chunk;
-import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
@@ -579,71 +577,16 @@ public class SearchTab extends JPanel implements AppTab {
                     .append(escHtml(r.getHeading())).append("</div>");
         }
 
-        // Load all chunks for this document to show full text
-        List<Chunk> docChunks = Collections.emptyList();
-        try {
-            docChunks = RagService.getInstance().getDocumentChunks(r.getDocumentId());
-        } catch (Exception ignored) {}
-
-        if (docChunks.isEmpty()) {
-            // Fallback: no chunks available — show snippet only
-            html.append("<div style='background:#FFFDE7;border:1px solid #FFF9C4;padding:6px;border-radius:4px;'>");
-            html.append(highlightTerms(escHtml(r.getSnippet()), lastQuery));
-            html.append("</div>");
-        } else {
-            // Full document text from all chunks
-            html.append("<div style='margin-top:4px;color:#999;font-size:10px;margin-bottom:6px;'>");
-            html.append("\uD83D\uDCDD ").append(docChunks.size()).append(" Chunk(s) im Dokument");
-            html.append("</div>");
-
-            for (Chunk chunk : docChunks) {
-                boolean isMatchChunk = chunk.getChunkId() != null
-                        && chunk.getChunkId().equals(r.getChunkId());
-                String text = chunk.getText();
-                if (text == null || text.isEmpty()) continue;
-
-                if (isMatchChunk) {
-                    // Matching chunk — highlighted with anchor for scrolling
-                    html.append("<div id='match' style='background:#FFFDE7;border:1px solid #FFD54F;")
-                            .append("padding:6px;border-radius:4px;margin-bottom:4px;'>");
-                    html.append("<div style='color:#E65100;font-size:10px;font-weight:bold;margin-bottom:2px;'>")
-                            .append("\u25B6 Treffer-Chunk");
-                    if (chunk.getHeading() != null && !chunk.getHeading().isEmpty()) {
-                        html.append(" \u2014 ").append(escHtml(chunk.getHeading()));
-                    }
-                    html.append("</div>");
-                    html.append(highlightTerms(escHtml(text), lastQuery));
-                    html.append("</div>");
-                } else {
-                    // Other chunks — normal style
-                    html.append("<div style='background:#F5F5F5;border:1px solid #E0E0E0;")
-                            .append("padding:6px;border-radius:4px;margin-bottom:4px;'>");
-                    if (chunk.getHeading() != null && !chunk.getHeading().isEmpty()) {
-                        html.append("<div style='color:#666;font-size:10px;margin-bottom:2px;'>")
-                                .append(escHtml(chunk.getHeading())).append("</div>");
-                    }
-                    html.append(highlightTerms(escHtml(text), lastQuery));
-                    html.append("</div>");
-                }
-            }
-        }
-
+        html.append("<div style='background:#FFFDE7;border:1px solid #FFF9C4;padding:6px;border-radius:4px;'>");
+        html.append(highlightTerms(escHtml(r.getSnippet()), lastQuery));
+        html.append("</div>");
         html.append("<div style='margin-top:8px;color:#999;font-size:10px;'>");
         html.append("\u2B50 Score: ").append(String.format("%.4f", r.getScore()));
         html.append(" &nbsp;|&nbsp; Chunk: ").append(escHtml(r.getChunkId()));
         html.append("</div></body></html>");
 
         previewPane.setText(html.toString());
-
-        // Scroll to the matching chunk
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Try to scroll to the anchor 'match'
-                previewPane.scrollToReference("match");
-            } catch (Exception ignored) {
-                previewPane.setCaretPosition(0);
-            }
-        });
+        previewPane.setCaretPosition(0);
     }
 
     private void openSelectedResult() {
