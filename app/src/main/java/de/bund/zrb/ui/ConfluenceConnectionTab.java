@@ -449,19 +449,34 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                         });
                         spaceCheckboxes.add(cb);
 
-                        // Underlined link label — opens space homepage in Reader
+                        // Underlined link label — opens space homepage in Reader,
+                        // or searches for pages in that space if no homepage is set.
                         JLabel link = new JLabel("<html><u>" + escHtml(sp.key) + "</u></html>");
-                        link.setToolTipText(sp.key + " — " + sp.name);
                         link.setForeground(UIManager.getColor("Hyperlink.foreground") != null
                                 ? UIManager.getColor("Hyperlink.foreground")
                                 : new Color(0x0066CC));
                         link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                        final String spKey = sp.key;
                         if (sp.homepageId != null) {
                             final String hpId = sp.homepageId;
+                            link.setToolTipText(sp.key + " — " + sp.name + " (Homepage öffnen)");
                             link.addMouseListener(new MouseAdapter() {
                                 @Override
                                 public void mouseClicked(MouseEvent e) {
                                     openPageByIdAsReaderTab(hpId);
+                                }
+                            });
+                        } else {
+                            // No homepage — clicking searches for pages in this space
+                            link.setToolTipText(sp.key + " — " + sp.name + " (Seiten anzeigen)");
+                            link.addMouseListener(new MouseAdapter() {
+                                @Override
+                                public void mouseClicked(MouseEvent e) {
+                                    String cql = "space=\"" + spKey + "\" AND type=page";
+                                    searchField.setText("space=" + spKey);
+                                    currentCql = cql;
+                                    currentStart = 0;
+                                    executeSearch(cql, 0);
                                 }
                             });
                         }
@@ -1032,26 +1047,16 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             @Override
             protected java.util.Hashtable<java.net.URL, java.awt.Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
-                int imgCount = 0;
                 while (matcher.find()) {
                     String src = matcher.group(1);
-                    imgCount++;
-                    System.out.println("[ConfluencePreview] IMG #" + imgCount + " src=" + src);
                     try {
                         String downloadPath = resolveImagePath(src);
-                        System.out.println("[ConfluencePreview]   downloadPath=" + downloadPath);
-                        if (downloadPath == null) {
-                            System.out.println("[ConfluencePreview]   SKIPPED (path=null)");
-                            continue;
-                        }
+                        if (downloadPath == null) continue;
 
                         byte[] data = client.getBytes(downloadPath);
-                        System.out.println("[ConfluencePreview]   bytes=" + (data != null ? data.length : "null"));
                         if (data == null || data.length == 0) continue;
 
                         boolean isSvgBytes = de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data);
-                        boolean isSvgUrl = de.bund.zrb.wiki.ui.SvgRenderer.isSvgUrl(src);
-                        System.out.println("[ConfluencePreview]   isSvg(bytes)=" + isSvgBytes + " isSvgUrl=" + isSvgUrl);
 
                         java.awt.Image image;
                         if (isSvgBytes) {
@@ -1060,21 +1065,17 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                             image = javax.imageio.ImageIO.read(
                                     new java.io.ByteArrayInputStream(data));
                         }
-                        System.out.println("[ConfluencePreview]   image=" + (image != null ? "OK" : "NULL"));
                         if (image != null) {
                             java.net.URL imageUrl = resolveImageUrl(src);
-                            System.out.println("[ConfluencePreview]   cacheKey=" + imageUrl);
                             if (imageUrl != null) {
                                 loaded.put(imageUrl, image);
                                 publish(new Object[]{imageUrl, image});
                             }
                         }
                     } catch (Exception e) {
-                        System.out.println("[ConfluencePreview]   EXCEPTION: " + e);
                         LOG.log(Level.FINE, "[Confluence] Preview image load failed: " + src, e);
                     }
                 }
-                System.out.println("[ConfluencePreview] TOTAL: " + imgCount + " found, " + loaded.size() + " loaded");
                 return loaded;
             }
 
