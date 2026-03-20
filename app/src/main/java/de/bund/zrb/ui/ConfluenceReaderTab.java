@@ -8,6 +8,7 @@ import de.bund.zrb.wiki.ui.HtmlImageExtractor;
 import de.bund.zrb.wiki.ui.ImageStripPanel;
 import de.bund.zrb.wiki.ui.ImageThumbnailPanel;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -57,7 +58,7 @@ public class ConfluenceReaderTab implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final JEditorPane htmlPane;
-    private final JTextField searchField;
+    private final SearchBarPanel searchBar;
     private final String baseUrl;
     private final String pageId;
     private final String pageTitle;
@@ -250,18 +251,12 @@ public class ConfluenceReaderTab implements ConnectionTab {
             refreshViewMode();
         });
 
-        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
-        togglePanel.add(textModeBtn);
-        togglePanel.add(renderedModeBtn);
 
         // Search bar at bottom (with toggle buttons on the right)
-        searchField = new JTextField();
-        searchField.setToolTipText("Text suchen (Enter)");
-        searchField.addActionListener(e -> highlightSearch());
-        JPanel searchBar = new JPanel(new BorderLayout(2, 0));
-        searchBar.add(new JLabel(" \uD83D\uDD0E "), BorderLayout.WEST);
-        searchBar.add(searchField, BorderLayout.CENTER);
-        searchBar.add(togglePanel, BorderLayout.EAST);
+        searchBar = new SearchBarPanel("Text suchen…", "Text suchen (Enter oder 🔎-Button)");
+        searchBar.addSearchAction(e -> highlightSearch());
+        searchBar.addEastComponent(textModeBtn);
+        searchBar.addEastComponent(renderedModeBtn);
         mainPanel.add(searchBar, BorderLayout.SOUTH);
     }
 
@@ -596,7 +591,7 @@ public class ConfluenceReaderTab implements ConnectionTab {
         Highlighter highlighter = htmlPane.getHighlighter();
         highlighter.removeAllHighlights();
 
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
         if (query.isEmpty()) return;
 
         try {
@@ -719,12 +714,12 @@ public class ConfluenceReaderTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
+        searchBar.focusField();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchField.setText(searchPattern);
+        searchBar.setText(searchPattern);
         highlightSearch();
     }
 
