@@ -27,10 +27,14 @@ final class HtmlPostProcessor {
             doc.setBaseUri(baseUrl);
         }
 
-        // Remove MediaWiki TOC, edit sections, scripts
+        // Remove MediaWiki TOC, edit sections, scripts, embedded styles
         doc.select("#toc, .toc, .mw-toc").remove();
         doc.select(".mw-editsection").remove();
         doc.select("script").remove();
+        // <style> tags in <body> are rendered as visible text by JEditorPane — strip them
+        doc.select("style").remove();
+        // Remove hidden/print-only/empty MediaWiki elements
+        doc.select(".mw-empty-elt, .noprint, .mw-indicators").remove();
 
         OutlineNode outlineRoot = buildOutline(doc);
 
