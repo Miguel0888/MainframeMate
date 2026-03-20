@@ -204,8 +204,14 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         statusBarPanel.bindEvents(dispatcher);
         comparePanel.bindEvents(dispatcher);
 
-        // Wire toolbar buttons (Compare / Undo / Redo) to event dispatcher
-        compareButton.addActionListener(e -> dispatcher.publish(new ShowComparePanelEvent()));
+        // Wire toolbar buttons (Compare toggle / Undo / Redo) to event dispatcher
+        compareButton.addActionListener(e -> {
+            if (compareButton.isSelected()) {
+                dispatcher.publish(new ShowComparePanelEvent());
+            } else {
+                dispatcher.publish(new CloseComparePanelEvent());
+            }
+        });
         undoButton.addActionListener(e -> dispatcher.publish(new UndoRequestedEvent()));
         redoButton.addActionListener(e -> dispatcher.publish(new RedoRequestedEvent()));
 
@@ -351,14 +357,14 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         return needsHtmlRendering;
     }
 
-    /** Package-visible: show/hide the compare button in the toolbar. */
-    void setCompareButtonVisible(boolean visible) {
-        compareButton.setVisible(visible);
+    /** Package-visible: select/deselect the compare toggle button in the toolbar. */
+    void setCompareButtonSelected(boolean selected) {
+        compareButton.setSelected(selected);
     }
 
     public void showComparePanel() {
         comparePanel.setVisible(true);
-        compareButton.setVisible(false);
+        compareButton.setSelected(true);
 
         // Apply divider location after layout is done, so the split pane has its final size
         SwingUtilities.invokeLater(() -> {
@@ -432,9 +438,9 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         }
 
         comparePanel.setVisible(show);
+        compareButton.setSelected(show);
 
         if (show) {
-            compareButton.setVisible(false);
             SwingUtilities.invokeLater(this::applyDividerLocation);
         }
     }

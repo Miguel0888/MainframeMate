@@ -32,13 +32,27 @@ public class FindBarPanel extends SearchBarPanel {
 
     public FindBarPanel(String placeholder, String tooltip) {
         super(placeholder, tooltip);
-        // Override the go-button symbol: down-arrow means "find next"
-        getGoButton().setText("\u25BC");
-        getGoButton().setToolTipText("N\u00e4chsten Treffer suchen");
+        // Override the go-button: clear button instead of find-next
+        getGoButton().setText("\u2715"); // ✕
+        getGoButton().setToolTipText("Suchfeld leeren");
+        // Remove inherited search-action listeners from the go button
+        for (java.awt.event.ActionListener al : getGoButton().getActionListeners()) {
+            getGoButton().removeActionListener(al);
+        }
+        // Clear button clears the text field
+        getGoButton().addActionListener(e -> setText(""));
     }
 
     public FindBarPanel(String placeholder) {
         this(placeholder, null);
+    }
+
+    /**
+     * Override: only wire Enter key to the search action, not the clear button.
+     */
+    @Override
+    public void addSearchAction(java.awt.event.ActionListener listener) {
+        getTextField().addActionListener(listener);
     }
 
     // ====================================================================

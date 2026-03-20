@@ -168,7 +168,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected JToolBar toolbar; // Toolbar reference for subclass extension
 
     // Editing action buttons (in toolbar, only visible for editable text files)
-    protected final JButton compareButton;
+    protected final JToggleButton compareButton;
     protected final JButton undoButton;
     protected final JButton redoButton;
     /** true when the raw content is editable (text file, not BetaView read-only) */
@@ -199,7 +199,7 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         this.isEditable = isTextFile && !"BETAVIEW".equals(this.backendType);
 
         // Editing action buttons — only shown for editable text files
-        this.compareButton = createIconButton("\uD83D\uDD00", "Vergleichen");  // 🔀
+        this.compareButton = createIconToggleButton("\uD83D\uDD00", "Vergleichen");  // 🔀
         this.undoButton    = createIconButton("↶", "Rückgängig");
         this.redoButton    = createIconButton("↷", "Wiederholen");
 
@@ -580,6 +580,16 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     /** Create a small icon-style toolbar button. */
     private static JButton createIconButton(String text, String tooltip) {
         JButton btn = new JButton(text);
+        btn.setToolTipText(tooltip);
+        btn.setFont(btn.getFont().deriveFont(Font.BOLD, 18f));
+        btn.setMargin(new Insets(0, 4, 0, 4));
+        btn.setFocusable(false);
+        return btn;
+    }
+
+    /** Create a small icon-style toolbar toggle button. */
+    private static JToggleButton createIconToggleButton(String text, String tooltip) {
+        JToggleButton btn = new JToggleButton(text);
         btn.setToolTipText(tooltip);
         btn.setFont(btn.getFont().deriveFont(Font.BOLD, 18f));
         btn.setMargin(new Insets(0, 4, 0, 4));

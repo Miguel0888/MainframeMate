@@ -94,10 +94,11 @@ public class FileTabEventManager {
             DiffHighlighter.clearDiffHighlights(fileTab.getRawPane());
             DiffHighlighter.clearDiffHighlights(fileTab.comparePanel.getOriginalTextArea());
             fileTab.comparePanel.setVisible(false);
-            fileTab.setCompareButtonVisible(true);
+            fileTab.setCompareButtonSelected(false);
         });
 
         fileTab.dispatcher.subscribe(ShowComparePanelEvent.class, event -> {
+            fileTab.setCompareButtonSelected(true);
             fileTab.showComparePanel(); // 👈 zentrales Verhalten
         });
 

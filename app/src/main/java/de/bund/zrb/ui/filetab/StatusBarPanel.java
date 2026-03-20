@@ -203,9 +203,6 @@ public class StatusBarPanel extends JPanel {
     public void bindEvents(FileTabEventDispatcher dispatcher) {
         onSentenceTypeChanged(type -> dispatcher.publish(new SentenceTypeChangedEvent(type)));
         onRegexChanged(() -> dispatcher.publish(new RegexFilterChangedEvent(findBar.getText())));
-
-        // Go-button / Enter in FindBarPanel also triggers filter
-        findBar.addSearchAction(e -> dispatcher.publish(new RegexFilterChangedEvent(findBar.getText())));
     }
 
 }
