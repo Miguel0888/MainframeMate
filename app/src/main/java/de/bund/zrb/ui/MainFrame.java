@@ -596,6 +596,20 @@ public class MainFrame extends JFrame implements MainframeContext {
             return null;
         }
 
+        // Route confluence:// paths to Confluence handler
+        if (path.startsWith(de.bund.zrb.model.BookmarkEntry.PREFIX_CONFLUENCE)) {
+            String confPath = path.substring(de.bund.zrb.model.BookmarkEntry.PREFIX_CONFLUENCE.length());
+            openConfluenceBookmark(confPath);
+            return null;
+        }
+
+        // Route wiki:// paths to Wiki handler
+        if (path.startsWith(de.bund.zrb.model.BookmarkEntry.PREFIX_WIKI)) {
+            String wikiPath = path.substring(de.bund.zrb.model.BookmarkEntry.PREFIX_WIKI.length());
+            openWikiBookmark(wikiPath);
+            return null;
+        }
+
         return new VirtualResourceOpener(tabManager)
                 .open(path, sentenceType, searchPattern, toCompare);
     }

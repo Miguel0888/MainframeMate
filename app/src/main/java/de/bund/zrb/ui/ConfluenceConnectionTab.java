@@ -485,6 +485,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 int total = root.has("totalSize") ? root.get("totalSize").getAsInt()
                         : root.has("total") ? root.get("total").getAsInt() : -1;
 
+                // Check whether the API signals more results via _links.next
+                boolean hasNext = root.has("_links")
+                        && root.getAsJsonObject("_links").has("next");
+
                 JsonArray results = root.getAsJsonArray("results");
                 if (results != null) {
                     for (JsonElement el : results) {
@@ -515,7 +519,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                         }
                     }
                 }
-                return new SearchResult(pages, total);
+                return new SearchResult(pages, total, hasNext);
             }
 
             @Override
@@ -525,7 +529,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     SearchResult result = get();
                     totalResults = result.totalSize;
                     pageModel.setItems(result.pages);
-                    updatePaginationUi(start, result.pages.size());
+                    updatePaginationUi(start, result.pages.size(), result.hasNextLink);
                     if (!result.pages.isEmpty() && pageTable.getRowCount() > 0) {
                         pageTable.setRowSelectionInterval(0, 0);
                     }
@@ -568,32 +572,37 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     }
 
     /** Update pagination buttons and page info label after a search completes. */
-    private void updatePaginationUi(int start, int fetchedCount) {
+    private void updatePaginationUi(int start, int fetchedCount, boolean hasNextLink) {
         int currentPage = (start / pageSize) + 1;
 
-        if (totalResults >= 0) {
+        if (totalResults > 0) {
             int totalPages = Math.max(1, (int) Math.ceil((double) totalResults / pageSize));
             pageInfoLabel.setText(currentPage + "/" + totalPages);
             statusLabel.setText(totalResults + " Treffer gesamt");
             prevBtn.setEnabled(currentPage > 1);
             nextBtn.setEnabled(currentPage < totalPages);
         } else {
-            // totalSize unknown — fallback
-            pageInfoLabel.setText(String.valueOf(currentPage));
-            statusLabel.setText(fetchedCount + " Treffer");
+            // totalSize unknown or 0 — use hasNextLink from the API
+            boolean hasMore = hasNextLink || fetchedCount >= pageSize;
+            pageInfoLabel.setText(hasMore
+                    ? currentPage + "/…"
+                    : String.valueOf(currentPage));
+            statusLabel.setText(fetchedCount + " Treffer" + (hasMore ? " (weitere vorhanden)" : ""));
             prevBtn.setEnabled(start > 0);
-            nextBtn.setEnabled(fetchedCount >= pageSize);
+            nextBtn.setEnabled(hasMore);
         }
     }
 
     /** Wrapper for search results including totalSize from the API. */
     private static final class SearchResult {
         final List<PageItem> pages;
-        final int totalSize; // -1 if unknown
+        final int totalSize;       // -1 if unknown
+        final boolean hasNextLink; // true if _links.next was present
 
-        SearchResult(List<PageItem> pages, int totalSize) {
+        SearchResult(List<PageItem> pages, int totalSize, boolean hasNextLink) {
             this.pages = pages;
             this.totalSize = totalSize;
+            this.hasNextLink = hasNextLink;
         }
     }
 

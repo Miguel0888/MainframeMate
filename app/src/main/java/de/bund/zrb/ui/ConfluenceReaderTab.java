@@ -85,9 +85,9 @@ public class ConfluenceReaderTab implements ConnectionTab {
         htmlPane.setEditable(false);
         htmlPane.setContentType("text/html");
 
-        // Inject heading anchors + wrap in full HTML
+        // Inject heading anchors + wrap in full HTML (with <base> for image resolution)
         String enrichedHtml = ConfluenceConnectionTab.injectHeadingAnchors(htmlContent);
-        this.fullHtml = wrapHtml(enrichedHtml);
+        this.fullHtml = wrapHtml(enrichedHtml, baseUrl);
 
         // Set base URL so relative img src attributes resolve to the Confluence server
         try {
@@ -126,23 +126,31 @@ public class ConfluenceReaderTab implements ConnectionTab {
     // ═══════════════════════════════════════════════════════════
 
     static String wrapHtml(String bodyHtml) {
-        return "<html><head>"
-                + "<style>"
-                + "body { font-family: sans-serif; font-size: 13px; padding: 12px; }"
-                + "h1, h2, h3 { color: #333; }"
-                + "a { color: #0645ad; }"
-                + "pre, code { background: #f4f4f4; padding: 4px; }"
-                + "table { border-collapse: collapse; }"
-                + "td, th { border: 1px solid #ccc; padding: 4px; }"
-                + "img { max-width: 100%; }"
-                + ".confluence-information-macro, .confluence-information-macro-body { "
-                + "  background: #e8f5e9; border-left: 4px solid #4caf50; padding: 8px; margin: 8px 0; }"
-                + ".confluence-warning-macro, .confluence-warning-macro-body { "
-                + "  background: #fff3e0; border-left: 4px solid #ff9800; padding: 8px; margin: 8px 0; }"
-                + "</style>"
-                + "</head><body>"
-                + bodyHtml
-                + "</body></html>";
+        return wrapHtml(bodyHtml, null);
+    }
+
+    static String wrapHtml(String bodyHtml, String baseUrl) {
+        StringBuilder sb = new StringBuilder("<html><head>");
+        if (baseUrl != null && !baseUrl.isEmpty()) {
+            sb.append("<base href=\"").append(baseUrl.replace("\"", "&quot;")).append("\">");
+        }
+        sb.append("<style>")
+                .append("body { font-family: sans-serif; font-size: 13px; padding: 12px; }")
+                .append("h1, h2, h3 { color: #333; }")
+                .append("a { color: #0645ad; }")
+                .append("pre, code { background: #f4f4f4; padding: 4px; }")
+                .append("table { border-collapse: collapse; }")
+                .append("td, th { border: 1px solid #ccc; padding: 4px; }")
+                .append("img { max-width: 100%; }")
+                .append(".confluence-information-macro, .confluence-information-macro-body { ")
+                .append("  background: #e8f5e9; border-left: 4px solid #4caf50; padding: 8px; margin: 8px 0; }")
+                .append(".confluence-warning-macro, .confluence-warning-macro-body { ")
+                .append("  background: #fff3e0; border-left: 4px solid #ff9800; padding: 8px; margin: 8px 0; }")
+                .append("</style>")
+                .append("</head><body>")
+                .append(bodyHtml)
+                .append("</body></html>");
+        return sb.toString();
     }
 
     // ═══════════════════════════════════════════════════════════
