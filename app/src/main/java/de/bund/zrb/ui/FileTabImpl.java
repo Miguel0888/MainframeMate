@@ -829,6 +829,12 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
         String sizeStr = formatFileSize(binaryData.length);
         final String displayName = fileName;
 
+        // For PDF files, render actual pages instead of extracted text
+        if ("PDF".equalsIgnoreCase(fileType)) {
+            SwingUtilities.invokeLater(() -> renderPdfPages(binaryData));
+            return;
+        }
+
         // Show loading indicator immediately
         SwingUtilities.invokeLater(() ->
                 htmlRenderedPane.setText("<html><body style='font-family: Segoe UI, sans-serif; padding: 20px;'>" +

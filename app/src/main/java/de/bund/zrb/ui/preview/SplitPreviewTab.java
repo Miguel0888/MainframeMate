@@ -497,8 +497,15 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     /**
      * Render content to HTML (for Markdown and document files).
+     * For PDFs with available raw bytes, delegates to {@link #renderPdfPages(byte[])}.
      */
     protected void renderHtmlContent() {
+        // If we already have binary PDF bytes, render actual pages instead of extracted text
+        if (rawBytes != null && isPdf()) {
+            renderPdfPages(rawBytes);
+            return;
+        }
+
         if (rawContent != null && !rawContent.isEmpty()) {
             try {
                 String html = markdownFormatter.renderToHtml(rawContent);
@@ -510,6 +517,42 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             }
         } else {
             htmlRenderedPane.setText("<html><body><p><i>Kein Inhalt</i></p></body></html>");
+        }
+    }
+
+    /**
+     * Render PDF pages visually using PDFBox and display them in the rendered scroll pane.
+     * This replaces the JEditorPane with a {@link PdfPagesPanel} showing actual page images.
+     *
+     * @param pdfBytes the raw PDF document bytes
+     */
+    protected void renderPdfPages(byte[] pdfBytes) {
+        PdfPagesPanel pagesPanel = new PdfPagesPanel();
+        htmlRenderedScrollPane.setViewportView(pagesPanel);
+        pagesPanel.loadAsync(pdfBytes);
+    }
+
+    /**
+     * Check whether this tab's document is a PDF (by extension or MIME type).
+     */
+    protected boolean isPdf() {
+        String ext = getExtension(sourceName);
+        if ("pdf".equalsIgnoreCase(ext)) return true;
+        if (metadata != null && metadata.getMimeType() != null) {
+            return metadata.getMimeType().toLowerCase().contains("pdf");
+        }
+        return false;
+    }
+
+    /**
+     * Set raw binary bytes and, if this is a PDF, re-render as actual pages.
+     *
+     * @param bytes the binary file bytes
+     */
+    public void setRawBytes(byte[] bytes) {
+        this.rawBytes = bytes;
+        if (bytes != null && isPdf() && needsHtmlRendering) {
+            renderPdfPages(bytes);
         }
     }
 

@@ -142,6 +142,7 @@ public class DocumentPreviewOpener {
                 List<String> warnings = extractionResult.getWarnings();
                 final Document finalDocument = document;
                 final boolean finalIsRemote = isRemote;
+                final byte[] rawFileBytes = bytes;
                 SwingUtilities.invokeLater(() -> {
                     try {
                         SplitPreviewTab previewTab = new SplitPreviewTab(
@@ -152,6 +153,8 @@ public class DocumentPreviewOpener {
                                 finalDocument,
                                 finalIsRemote
                         );
+                        // Pass raw bytes so PDF pages can be rendered visually
+                        previewTab.setRawBytes(rawFileBytes);
                         tabbedPaneManager.addTab(previewTab);
                         LOG.info("Preview tab opened for: " + fileName);
                     } catch (Exception e) {
@@ -224,6 +227,8 @@ public class DocumentPreviewOpener {
                                 finalDocument,
                                 false // isRemote
                         );
+                        // Pass raw bytes so PDF pages can be rendered visually
+                        previewTab.setRawBytes(bytes);
                         tabbedPaneManager.addTab(previewTab);
                     } catch (Exception e) {
                         showError(parentComponent, "Fehler beim Öffnen des Preview-Tabs:\n" + e.getMessage(), "Fehler");
