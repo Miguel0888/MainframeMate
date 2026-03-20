@@ -179,7 +179,7 @@ public class ImageThumbnailPanel extends JPanel {
                         byte[] data = ImageStripPanel.downloadBytes(images.get(i).src());
                         if (data == null || data.length == 0) continue;
 
-                        BufferedImage img = ImageIO.read(new ByteArrayInputStream(data));
+                        BufferedImage img = decodeToBufferedImage(data);
                         if (img != null) {
                             entries.get(i).originalImage = img;
                             entries.get(i).loaded = true;
@@ -261,6 +261,54 @@ public class ImageThumbnailPanel extends JPanel {
         g2.drawImage(src, 0, 0, w, h, null);
         g2.dispose();
         return dest;
+    }
+
+    /**
+     * Decode raw image bytes into a {@link BufferedImage}.
+     * <p>
+     * For GIF images (detected by magic bytes) this uses {@link ImageIcon} which is backed
+     * by {@link Toolkit} and can handle all GIF variants — including animated GIFs where
+     * {@code ImageIO.read()} sometimes returns {@code null}.
+     * The first frame is rendered into a {@code BufferedImage} for thumbnail scaling.
+     */
+    private static BufferedImage decodeToBufferedImage(byte[] data) {
+        boolean isGif = data.length > 3
+                && data[0] == 'G' && data[1] == 'I' && data[2] == 'F';
+
+        if (isGif) {
+            // ImageIcon uses Toolkit internally and handles all GIF variants
+            ImageIcon icon = new ImageIcon(data);
+            Image img = icon.getImage();
+            int w = icon.getIconWidth();
+            int h = icon.getIconHeight();
+            if (w <= 0 || h <= 0) return null;
+
+            // Render first frame into a BufferedImage for thumbnail scaling
+            BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = bi.createGraphics();
+            g2.drawImage(img, 0, 0, w, h, null);
+            g2.dispose();
+            return bi;
+        }
+
+        // Non-GIF: use ImageIO
+        try {
+            BufferedImage bi = ImageIO.read(new ByteArrayInputStream(data));
+            if (bi != null) return bi;
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Thumbnail] ImageIO.read failed, trying Toolkit fallback", e);
+        }
+
+        // Fallback for formats ImageIO cannot handle
+        ImageIcon icon = new ImageIcon(data);
+        int w = icon.getIconWidth();
+        int h = icon.getIconHeight();
+        if (w <= 0 || h <= 0) return null;
+        BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = bi.createGraphics();
+        g2.drawImage(icon.getImage(), 0, 0, w, h, null);
+        g2.dispose();
+        return bi;
     }
 }
 
