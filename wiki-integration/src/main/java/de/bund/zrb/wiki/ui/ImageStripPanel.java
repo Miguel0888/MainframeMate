@@ -242,10 +242,27 @@ public class ImageStripPanel extends JPanel {
     //  Overlay dialog
     // ═══════════════════════════════════════════════════════════
 
+    /**
+     * Public entry point for opening the image overlay dialog from any context.
+     * Used by the inline rendered view to allow image zoom/download on click.
+     *
+     * @param parent   parent component for dialog positioning
+     * @param allImages list of all images (for navigation)
+     * @param startIndex index of the initially displayed image
+     */
+    public static void openOverlay(Component parent, List<ImageRef> allImages, int startIndex) {
+        if (allImages == null || allImages.isEmpty()) return;
+        openOverlayImpl(parent, allImages, startIndex);
+    }
+
     private void showImageOverlay(int startIndex) {
+        openOverlayImpl(this, allImages, startIndex);
+    }
+
+    private static void openOverlayImpl(Component parentComp, final List<ImageRef> allImages, int startIndex) {
         final int[] currentIndex = { Math.max(0, Math.min(startIndex, allImages.size() - 1)) };
 
-        Window owner = SwingUtilities.getWindowAncestor(this);
+        Window owner = SwingUtilities.getWindowAncestor(parentComp);
         JDialog dialog = new JDialog(owner instanceof Frame ? (Frame) owner : null,
                 allImages.get(currentIndex[0]).description(), true);
         dialog.setLayout(new BorderLayout(0, 0));
@@ -416,7 +433,7 @@ public class ImageStripPanel extends JPanel {
 
                 // Download
                 if (p.x >= w - OVL_BTN - 20 && p.y <= OVL_BTN + 20) {
-                    downloadImage(allImages.get(currentIndex[0]));
+                    downloadImage(parentComp, allImages.get(currentIndex[0]));
                     return;
                 }
 
@@ -626,11 +643,11 @@ public class ImageStripPanel extends JPanel {
     //  Download
     // ═══════════════════════════════════════════════════════════
 
-    private void downloadImage(ImageRef img) {
+    private static void downloadImage(final Component parent, ImageRef img) {
         JFileChooser chooser = new JFileChooser();
         chooser.setSelectedFile(new File(guessFileName(img.src())));
 
-        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+        if (chooser.showSaveDialog(parent) == JFileChooser.APPROVE_OPTION) {
             File target = chooser.getSelectedFile();
             new SwingWorker<Void, Void>() {
                 @Override
@@ -657,11 +674,11 @@ public class ImageStripPanel extends JPanel {
                 protected void done() {
                     try {
                         get();
-                        JOptionPane.showMessageDialog(ImageStripPanel.this,
+                        JOptionPane.showMessageDialog(parent,
                                 "Bild gespeichert: " + target.getName(),
                                 "Download", JOptionPane.INFORMATION_MESSAGE);
                     } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(ImageStripPanel.this,
+                        JOptionPane.showMessageDialog(parent,
                                 "Fehler beim Speichern: " + ex.getMessage(),
                                 "Download-Fehler", JOptionPane.ERROR_MESSAGE);
                     }

@@ -81,6 +81,50 @@ public class WikiFileTab implements ConnectionTab {
             }
         });
 
+        // Click on inline image in rendered mode → open image overlay dialog
+        htmlPane.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (!renderedMode || images.isEmpty()) return;
+                int pos = htmlPane.viewToModel(e.getPoint());
+                if (pos < 0) return;
+                javax.swing.text.Document doc = htmlPane.getDocument();
+                if (!(doc instanceof javax.swing.text.html.HTMLDocument)) return;
+                javax.swing.text.Element elem =
+                        ((javax.swing.text.html.HTMLDocument) doc).getCharacterElement(pos);
+                if (elem == null) return;
+                String src = extractImgSrc(elem);
+                if (src == null) return;
+                int index = findImageIndex(images, src);
+                if (index >= 0) {
+                    ImageStripPanel.openOverlay(htmlPane, images, index);
+                }
+            }
+        });
+        // Hand cursor when hovering over images in rendered mode
+        htmlPane.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                if (!renderedMode || images.isEmpty()) {
+                    htmlPane.setCursor(Cursor.getDefaultCursor());
+                    return;
+                }
+                int pos = htmlPane.viewToModel(e.getPoint());
+                if (pos >= 0) {
+                    javax.swing.text.Document doc = htmlPane.getDocument();
+                    if (doc instanceof javax.swing.text.html.HTMLDocument) {
+                        javax.swing.text.Element elem =
+                                ((javax.swing.text.html.HTMLDocument) doc).getCharacterElement(pos);
+                        if (extractImgSrc(elem) != null) {
+                            htmlPane.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                            return;
+                        }
+                    }
+                }
+                htmlPane.setCursor(Cursor.getDefaultCursor());
+            }
+        });
+
         JScrollPane htmlScroll = new JScrollPane(htmlPane);
 
         // Center panel wrapping htmlScroll + optional image strip
@@ -269,6 +313,73 @@ public class WikiFileTab implements ConnectionTab {
     public void searchFor(String searchPattern) {
         searchField.setText(searchPattern);
         highlightSearch();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Image click helpers (rendered mode)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Extract the img src attribute from an HTMLDocument element.
+     * Checks both direct IMG tag and nested IMG attribute set.
+     */
+    private static String extractImgSrc(javax.swing.text.Element elem) {
+        if (elem == null) return null;
+        javax.swing.text.AttributeSet as = elem.getAttributes();
+        // Case 1: element IS an img (tag name = img)
+        if (as.getAttribute(javax.swing.text.StyleConstants.NameAttribute)
+                == javax.swing.text.html.HTML.Tag.IMG) {
+            return (String) as.getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+        }
+        // Case 2: content element with nested IMG attribute set
+        Object imgAs = as.getAttribute(javax.swing.text.html.HTML.Tag.IMG);
+        if (imgAs instanceof javax.swing.text.AttributeSet) {
+            return (String) ((javax.swing.text.AttributeSet) imgAs)
+                    .getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+        }
+        // Case 3: check parent element
+        javax.swing.text.Element parent = elem.getParentElement();
+        if (parent != null) {
+            javax.swing.text.AttributeSet pas = parent.getAttributes();
+            if (pas.getAttribute(javax.swing.text.StyleConstants.NameAttribute)
+                    == javax.swing.text.html.HTML.Tag.IMG) {
+                return (String) pas.getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+            }
+            Object pImgAs = pas.getAttribute(javax.swing.text.html.HTML.Tag.IMG);
+            if (pImgAs instanceof javax.swing.text.AttributeSet) {
+                return (String) ((javax.swing.text.AttributeSet) pImgAs)
+                        .getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Find the index of the ImageRef matching the given src URL.
+     * Tries exact match, then containment, then filename match.
+     */
+    private static int findImageIndex(List<ImageRef> images, String src) {
+        if (src == null || images == null) return -1;
+        // Exact match
+        for (int i = 0; i < images.size(); i++) {
+            if (src.equals(images.get(i).src())) return i;
+        }
+        // Containment match (one URL embedded in the other)
+        for (int i = 0; i < images.size(); i++) {
+            String imgSrc = images.get(i).src();
+            if (imgSrc != null && (imgSrc.contains(src) || src.contains(imgSrc))) return i;
+        }
+        // Filename match (last path segment)
+        int lastSlash = src.lastIndexOf('/');
+        String srcFile = lastSlash >= 0 && lastSlash < src.length() - 1
+                ? src.substring(lastSlash + 1) : src;
+        int qMark = srcFile.indexOf('?');
+        if (qMark > 0) srcFile = srcFile.substring(0, qMark);
+        for (int i = 0; i < images.size(); i++) {
+            String imgSrc = images.get(i).src();
+            if (imgSrc != null && imgSrc.contains(srcFile)) return i;
+        }
+        return -1;
     }
 
     // ═══════════════════════════════════════════════════════════
