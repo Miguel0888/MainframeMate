@@ -1371,7 +1371,13 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     public void markAsChanged() { }
 
     @Override
-    public String getPath() { return "confluence://" + baseUrl; }
+    public String getPath() {
+        String query = searchField.getText().trim();
+        if (!query.isEmpty()) {
+            return "search-confluence://" + query;
+        }
+        return "confluence://" + baseUrl;
+    }
 
     @Override
     public Type getType() { return Type.CONNECTION; }

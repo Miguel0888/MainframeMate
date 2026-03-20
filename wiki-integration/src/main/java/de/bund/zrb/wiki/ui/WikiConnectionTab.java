@@ -770,7 +770,13 @@ public class WikiConnectionTab implements ConnectionTab {
     @Override public void saveIfApplicable() { /* read-only */ }
     @Override public String getContent() { return ""; }
     @Override public void markAsChanged() { /* not applicable */ }
-    @Override public String getPath() { return "wiki://"; }
+    @Override public String getPath() {
+        String query = searchField.getText().trim();
+        if (!query.isEmpty()) {
+            return "search-wiki://" + query;
+        }
+        return "wiki://";
+    }
     @Override public Type getType() { return Type.CONNECTION; }
 
     @Override

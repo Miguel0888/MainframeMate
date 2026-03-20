@@ -59,7 +59,10 @@ public class MenuBarSearchField extends JPanel {
     /** Short-hand prefixes (without "//") that also trigger direct open. */
     private static final List<String> SHORT_PREFIXES = Arrays.asList(
             "ftp:", "ndv:", "local:", "mail:", "sp:", "betaview:", "tn3270:",
-            "confluence:", "wiki:"
+            "confluence:", "wiki:",
+            "search-ftp:", "search-ndv:", "search-local:", "search-mail:",
+            "search-sp:", "search-betaview:", "search-tn3270:",
+            "search-confluence:", "search-wiki:"
     );
 
     private final JTextField textField;
@@ -206,10 +209,13 @@ public class MenuBarSearchField extends JPanel {
     }
 
     /**
-     * Returns {@code true} if the input looks like a resource path with a known protocol prefix.
+     * Returns {@code true} if the input looks like a resource path with a known protocol prefix
+     * (including "search-*" variants).
      */
     private static boolean isResourcePath(String input) {
         String lower = input.toLowerCase();
+        // Check search-* meta-prefix first
+        if (lower.startsWith(BookmarkEntry.SEARCH_PREFIX)) return true;
         for (String prefix : RESOURCE_PREFIXES) {
             if (lower.startsWith(prefix.toLowerCase())) return true;
         }

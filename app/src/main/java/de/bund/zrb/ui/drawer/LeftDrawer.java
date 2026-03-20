@@ -503,7 +503,14 @@ public class LeftDrawer extends JPanel {
             return false;
         } else {
             String label;
-            if ("BROWSER".equals(backendType)
+            boolean isSearchBookmark = prefixedPath.startsWith(BookmarkEntry.SEARCH_PREFIX);
+            if (isSearchBookmark) {
+                // Search bookmark — use the query as label
+                // rawPath here is already the full prefixed path; extract the query
+                BookmarkEntry tmpEntry = new BookmarkEntry(null, prefixedPath, false);
+                String query = tmpEntry.getSearchQuery();
+                label = query != null && !query.isEmpty() ? query : rawPath;
+            } else if ("BROWSER".equals(backendType)
                     && (rawPath.startsWith("http://") || rawPath.startsWith("https://"))) {
                 // Use domain as label for browser bookmarks
                 try {
@@ -742,7 +749,15 @@ public class LeftDrawer extends JPanel {
                 } else {
                     String backend = entry.getBackendType();
                     String raw = entry.getRawPath();
-                    setToolTipText("[" + backend + "] " + raw);
+                    if (entry.isSearch()) {
+                        setToolTipText("[🔍 " + backend + "] " + raw);
+                        String label = entry.label;
+                        if (!label.startsWith("🔍")) {
+                            setText("🔍 " + label);
+                        }
+                    } else {
+                        setToolTipText("[" + backend + "] " + raw);
+                    }
                     if ("BROWSER".equals(backend)) {
                         String label = entry.label;
                         if (!label.startsWith("🌐")) {

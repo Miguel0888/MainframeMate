@@ -39,6 +39,16 @@ public class BookmarkEntry {
     public static final String PREFIX_CONFLUENCE = "confluence://";
     public static final String PREFIX_WIKI       = "wiki://";
 
+    /** Meta-prefix for search bookmarks (prepended to a backend prefix, e.g. "search-wiki://query"). */
+    public static final String SEARCH_PREFIX = "search-";
+
+    /** All known backend prefixes (order matters — longer/more-specific first where relevant). */
+    private static final String[] ALL_PREFIXES = {
+            PREFIX_CONFLUENCE, PREFIX_SHAREPOINT, PREFIX_BETAVIEW,
+            PREFIX_TN3270, PREFIX_LOCAL, PREFIX_MAIL, PREFIX_WIKI,
+            PREFIX_HTTPS, PREFIX_HTTP, PREFIX_NDV, PREFIX_FTP
+    };
+
     // ── TN3270 macro bookmark metadata ──
     /** Recorded macro steps as JSON array string, e.g. [{"type":"TEXT","value":"a"},{"type":"AID","value":"ENTER"}] */
     public String tn3270MacroSteps;
@@ -76,48 +86,86 @@ public class BookmarkEntry {
         return prefixIfNeeded(PREFIX_LOCAL, rawPath);
     }
 
-   /** Add the prefix only if rawPath does not already start with it. */
+   /** Add the prefix only if rawPath does not already start with any known prefix. */
     private static String prefixIfNeeded(String prefix, String rawPath) {
-        if (rawPath.startsWith(prefix)) return rawPath;
+        if (hasKnownPrefix(rawPath)) return rawPath;
         return prefix + rawPath;
+    }
+
+    /** Returns {@code true} if the path starts with any known protocol or search-* prefix. */
+    private static boolean hasKnownPrefix(String path) {
+        if (path == null) return false;
+        if (path.startsWith(SEARCH_PREFIX)) return true;
+        for (String p : ALL_PREFIXES) {
+            if (path.startsWith(p)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if this bookmark is a search bookmark (path starts with "search-").
+     */
+    public boolean isSearch() {
+        return path != null && path.startsWith(SEARCH_PREFIX);
+    }
+
+    /**
+     * For search bookmarks, returns the search query (the raw path after stripping "search-<prefix>").
+     * For non-search bookmarks returns {@code null}.
+     */
+    public String getSearchQuery() {
+        if (!isSearch()) return null;
+        return getRawPath();
     }
 
     /**
      * Extract the raw path (without protocol prefix).
+     * For search bookmarks like "search-wiki://query", strips "search-wiki://".
      * Legacy bookmarks without prefix are returned as-is.
      */
     public String getRawPath() {
         if (path == null) return null;
-        if (path.startsWith(PREFIX_LOCAL)) return path.substring(PREFIX_LOCAL.length());
-        if (path.startsWith(PREFIX_FTP))   return path.substring(PREFIX_FTP.length());
-        if (path.startsWith(PREFIX_NDV))   return path.substring(PREFIX_NDV.length());
-        if (path.startsWith(PREFIX_MAIL))     return path.substring(PREFIX_MAIL.length());
-        if (path.startsWith(PREFIX_BETAVIEW)) return path.substring(PREFIX_BETAVIEW.length());
-        if (path.startsWith(PREFIX_TN3270))   return path.substring(PREFIX_TN3270.length());
-        if (path.startsWith(PREFIX_SHAREPOINT)) return path.substring(PREFIX_SHAREPOINT.length());
-        if (path.startsWith(PREFIX_CONFLUENCE)) return path.substring(PREFIX_CONFLUENCE.length());
-        if (path.startsWith(PREFIX_WIKI))       return path.substring(PREFIX_WIKI.length());
+        // Handle search-* prefixes: strip "search-" then the backend prefix
+        String effective = path;
+        if (effective.startsWith(SEARCH_PREFIX)) {
+            effective = effective.substring(SEARCH_PREFIX.length());
+        }
+        if (effective.startsWith(PREFIX_LOCAL)) return effective.substring(PREFIX_LOCAL.length());
+        if (effective.startsWith(PREFIX_FTP))   return effective.substring(PREFIX_FTP.length());
+        if (effective.startsWith(PREFIX_NDV))   return effective.substring(PREFIX_NDV.length());
+        if (effective.startsWith(PREFIX_MAIL))     return effective.substring(PREFIX_MAIL.length());
+        if (effective.startsWith(PREFIX_BETAVIEW)) return effective.substring(PREFIX_BETAVIEW.length());
+        if (effective.startsWith(PREFIX_TN3270))   return effective.substring(PREFIX_TN3270.length());
+        if (effective.startsWith(PREFIX_SHAREPOINT)) return effective.substring(PREFIX_SHAREPOINT.length());
+        if (effective.startsWith(PREFIX_CONFLUENCE)) return effective.substring(PREFIX_CONFLUENCE.length());
+        if (effective.startsWith(PREFIX_WIKI))       return effective.substring(PREFIX_WIKI.length());
         // BROWSER: http/https URLs are returned as-is (the URL IS the raw path)
-        if (path.startsWith(PREFIX_HTTP) || path.startsWith(PREFIX_HTTPS)) return path;
+        if (effective.startsWith(PREFIX_HTTP) || effective.startsWith(PREFIX_HTTPS)) return effective;
         // Legacy: no prefix – treat as local
-        return path;
+        return effective;
     }
 
     /**
-     * Get the backend typSchluessel string from the protocol prefix.
+     * Get the backend type string from the protocol prefix.
+     * For search bookmarks like "search-wiki://query", returns "WIKI" (same as non-search).
      * Legacy bookmarks without prefix return "LOCAL".
      */
     public String getBackendType() {
         if (path == null) return "LOCAL";
-        if (path.startsWith(PREFIX_FTP))   return "FTP";
-        if (path.startsWith(PREFIX_NDV))   return "NDV";
-        if (path.startsWith(PREFIX_MAIL))     return "MAIL";
-        if (path.startsWith(PREFIX_BETAVIEW)) return "BETAVIEW";
-        if (path.startsWith(PREFIX_TN3270))   return "TN3270";
-        if (path.startsWith(PREFIX_SHAREPOINT)) return "SHAREPOINT";
-        if (path.startsWith(PREFIX_CONFLUENCE)) return "CONFLUENCE";
-        if (path.startsWith(PREFIX_WIKI))       return "WIKI";
-        if (path.startsWith(PREFIX_HTTP) || path.startsWith(PREFIX_HTTPS)) return "BROWSER";
+        // Strip search- meta-prefix for backend detection
+        String effective = path;
+        if (effective.startsWith(SEARCH_PREFIX)) {
+            effective = effective.substring(SEARCH_PREFIX.length());
+        }
+        if (effective.startsWith(PREFIX_FTP))   return "FTP";
+        if (effective.startsWith(PREFIX_NDV))   return "NDV";
+        if (effective.startsWith(PREFIX_MAIL))     return "MAIL";
+        if (effective.startsWith(PREFIX_BETAVIEW)) return "BETAVIEW";
+        if (effective.startsWith(PREFIX_TN3270))   return "TN3270";
+        if (effective.startsWith(PREFIX_SHAREPOINT)) return "SHAREPOINT";
+        if (effective.startsWith(PREFIX_CONFLUENCE)) return "CONFLUENCE";
+        if (effective.startsWith(PREFIX_WIKI))       return "WIKI";
+        if (effective.startsWith(PREFIX_HTTP) || effective.startsWith(PREFIX_HTTPS)) return "BROWSER";
         return "LOCAL";
     }
 

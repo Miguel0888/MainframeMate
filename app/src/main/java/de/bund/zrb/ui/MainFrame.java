@@ -570,6 +570,13 @@ public class MainFrame extends JFrame implements MainframeContext {
     public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
         if (path == null || path.isEmpty()) return null;
 
+        // Route search-* paths to search bookmark handler
+        if (path.startsWith(de.bund.zrb.model.BookmarkEntry.SEARCH_PREFIX)) {
+            de.bund.zrb.model.BookmarkEntry searchEntry = new de.bund.zrb.model.BookmarkEntry(null, path, false);
+            openSearchBookmark(searchEntry);
+            return null;
+        }
+
         // Route mail:// paths to the mail-opening logic (same as bookmarks)
         if (path.startsWith(de.bund.zrb.files.path.VirtualResourceRef.MAIL_PREFIX)) {
             String mailPath = path.substring(de.bund.zrb.files.path.VirtualResourceRef.MAIL_PREFIX.length());
@@ -616,9 +623,17 @@ public class MainFrame extends JFrame implements MainframeContext {
 
     /**
      * Open a bookmark – routes to the correct backend based on the bookmark's protocol prefix.
+     * Search bookmarks (path starts with "search-") open the connection tab with the query pre-filled.
      */
     private void openBookmark(de.bund.zrb.model.BookmarkEntry entry) {
         if (entry == null || entry.path == null) return;
+
+        // ── Search bookmarks ────────────────────────────────────
+        if (entry.isSearch()) {
+            openSearchBookmark(entry);
+            return;
+        }
+
         String backend = entry.getBackendType();
         String rawPath = entry.getRawPath();
         boolean isFile = !"DIRECTORY".equals(entry.resourceKind); // bookmarks from FileTabs are always files
@@ -786,6 +801,78 @@ public class MainFrame extends JFrame implements MainframeContext {
             return rawPath.substring(slash + 1);
         }
         return null;
+    }
+
+    /**
+     * Open a search bookmark.
+     * The search query is stored in the raw path, the backend type determines which connection tab to target.
+     */
+    private void openSearchBookmark(de.bund.zrb.model.BookmarkEntry entry) {
+        String backend = entry.getBackendType();
+        String query = entry.getSearchQuery();
+        if (query == null || query.isEmpty()) return;
+
+        switch (backend) {
+            case "WIKI":
+                openWikiSearchBookmark(query);
+                break;
+            case "CONFLUENCE":
+                openConfluenceSearchBookmark(query);
+                break;
+            default:
+                // For other backends, fall back to the global SearchTab
+                de.bund.zrb.ui.search.SearchTab searchTab =
+                        new de.bund.zrb.ui.search.SearchTab(tabManager);
+                tabManager.addTab(searchTab);
+                searchTab.searchFor(query);
+                break;
+        }
+    }
+
+    /** Open a wiki search bookmark — reuses or creates a WikiConnectionTab and triggers search. */
+    private void openWikiSearchBookmark(String query) {
+        de.bund.zrb.wiki.ui.WikiConnectionTab existingTab =
+                tabManager.findTabOfType(de.bund.zrb.wiki.ui.WikiConnectionTab.class);
+        if (existingTab != null) {
+            tabManager.selectTab(existingTab);
+            existingTab.searchFor(query);
+            return;
+        }
+        // Create new tab via command
+        java.util.Optional<de.zrb.bund.api.MenuCommand> cmd =
+                de.bund.zrb.ui.commands.config.CommandRegistryImpl.getById("connection.wiki");
+        if (cmd.isPresent()) {
+            cmd.get().perform();
+            SwingUtilities.invokeLater(() -> {
+                de.bund.zrb.wiki.ui.WikiConnectionTab newTab =
+                        tabManager.findTabOfType(de.bund.zrb.wiki.ui.WikiConnectionTab.class);
+                if (newTab != null) {
+                    newTab.searchFor(query);
+                }
+            });
+        }
+    }
+
+    /** Open a confluence search bookmark — reuses or creates a ConfluenceConnectionTab and triggers search. */
+    private void openConfluenceSearchBookmark(String query) {
+        ConfluenceConnectionTab existingTab = tabManager.findTabOfType(ConfluenceConnectionTab.class);
+        if (existingTab != null) {
+            tabManager.selectTab(existingTab);
+            existingTab.searchFor(query);
+            return;
+        }
+        // Create new tab via command
+        java.util.Optional<de.zrb.bund.api.MenuCommand> cmd =
+                de.bund.zrb.ui.commands.config.CommandRegistryImpl.getById("connection.confluence");
+        if (cmd.isPresent()) {
+            cmd.get().perform();
+            SwingUtilities.invokeLater(() -> {
+                ConfluenceConnectionTab newTab = tabManager.findTabOfType(ConfluenceConnectionTab.class);
+                if (newTab != null) {
+                    newTab.searchFor(query);
+                }
+            });
+        }
     }
 
     /**
