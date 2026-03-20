@@ -10,7 +10,7 @@ import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.annotation.Nullable;
 import javax.swing.*;
@@ -36,7 +36,7 @@ public final class VirtualResourceOpener {
         this.tabManager = tabManager;
     }
 
-    public FtpTab open(String rawPath,
+    public AppTab open(String rawPath,
                        @Nullable String sentenceType,
                        @Nullable String searchPattern,
                        @Nullable Boolean toCompare) {
@@ -47,7 +47,7 @@ public final class VirtualResourceOpener {
      * Open a resource. If forceFile is true, skip the directory/file detection and treat as FILE directly.
      * This is used by bookmarks that already know the resource kind.
      */
-    public FtpTab open(String rawPath,
+    public AppTab open(String rawPath,
                        @Nullable String sentenceType,
                        @Nullable String searchPattern,
                        @Nullable Boolean toCompare,
@@ -260,7 +260,7 @@ public final class VirtualResourceOpener {
         }
     }
 
-    private FtpTab openDirectory(VirtualResource resource, FileService fs, String searchPattern) {
+    private AppTab openDirectory(VirtualResource resource, FileService fs, String searchPattern) {
         if (resource.isLocal()) {
             LocalConnectionTabImpl tab = new LocalConnectionTabImpl(tabManager);
             tabManager.addTab(tab);
@@ -287,7 +287,7 @@ public final class VirtualResourceOpener {
         return tab;
     }
 
-    private FtpTab openMvsDirectory(VirtualResource resource, String searchPattern) {
+    private AppTab openMvsDirectory(VirtualResource resource, String searchPattern) {
         try {
             Settings settings = SettingsHelper.load();
             String host = resource.getFtpState().getConnectionId().getHost();
@@ -348,7 +348,7 @@ public final class VirtualResourceOpener {
         }
     }
 
-    private FtpTab openFile(VirtualResource resource, FileService fs,
+    private AppTab openFile(VirtualResource resource, FileService fs,
                             String sentenceType, String searchPattern, Boolean toCompare) throws FileServiceException {
         FilePayload payload = fs.readFile(resource.getResolvedPath());
         // IMPORTANT: Use getEditorText() for proper RECORD_STRUCTURE handling

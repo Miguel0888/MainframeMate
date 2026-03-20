@@ -1,6 +1,6 @@
 package de.bund.zrb.betaview;
 
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.*;
 import java.util.LinkedHashMap;
@@ -23,8 +23,8 @@ public final class BetaViewDocumentTabManager implements BetaViewConnectionTab.D
 
     /** Simple interface to add/remove tabs without depending on TabbedPaneManager directly. */
     public interface TabHost {
-        void addTab(FtpTab tab);
-        void removeTab(FtpTab tab);
+        void addTab(AppTab tab);
+        void removeTab(AppTab tab);
     }
 
     private final BetaViewClient client;

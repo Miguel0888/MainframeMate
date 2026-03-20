@@ -4,7 +4,7 @@ import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.ingestion.usecase.BuildDocumentFromTextUseCase;
 import de.bund.zrb.rag.service.RagService;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import java.util.List;
 import java.util.logging.Logger;
@@ -36,7 +36,7 @@ public class AttachTabToChatUseCase {
      * @param tab the tab to attach
      * @return the created attachment, or null if the tab cannot be attached
      */
-    public ChatAttachment execute(FtpTab tab) {
+    public ChatAttachment execute(AppTab tab) {
         if (tab == null) {
             return null;
         }

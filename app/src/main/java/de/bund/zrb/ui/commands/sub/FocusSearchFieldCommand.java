@@ -1,11 +1,8 @@
 package de.bund.zrb.ui.commands.sub;
 
-import de.bund.zrb.ui.FileTabImpl;
-
-import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.ShortcutMenuCommand;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 public class FocusSearchFieldCommand extends ShortcutMenuCommand {
 
@@ -28,8 +25,8 @@ public class FocusSearchFieldCommand extends ShortcutMenuCommand {
     @Override
     public void perform() {
         context.getSelectedTab().ifPresent(tab -> {
-            if (tab instanceof FtpTab) {
-                ((FtpTab) tab).focusSearchField();
+            if (tab instanceof AppTab) {
+                ((AppTab) tab).focusSearchField();
             }
         });
     }

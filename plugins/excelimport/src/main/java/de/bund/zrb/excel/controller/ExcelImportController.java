@@ -11,8 +11,8 @@ import de.bund.zrb.excel.ui.ExcelImportUiPanel;
 import de.zrb.bund.api.ExpressionRegistry;
 import de.zrb.bund.newApi.sentence.FieldMap;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
+import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.FileTab;
-import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.api.UiExpressionParser;
 
 import javax.annotation.Nullable;
@@ -148,7 +148,7 @@ public class ExcelImportController {
         }
 
         if(config.getDestination() != null && !config.getDestination().trim().isEmpty()) {
-            FtpTab ftpTab = plugin.getContext().openFileOrDirectory(config.getDestination(), satzartName, config.getSearchPattern(), config.getToCompare());
+            AppTab ftpTab = plugin.getContext().openFileOrDirectory(config.getDestination(), satzartName, config.getSearchPattern(), config.getToCompare());
             if(ftpTab == null) {
                 showError(plugin.getMainFrame(), "Zielpfad konnte nicht geöffnet werden: " + config.getDestination());
                 return null;

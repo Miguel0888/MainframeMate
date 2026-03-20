@@ -7,7 +7,7 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
@@ -31,7 +31,7 @@ import java.util.logging.Logger;
  * shows content of the selected spool file on the right with syntax highlighting
  * for JCL/COBOL/Natural.
  */
-public class JobDetailTab implements FtpTab {
+public class JobDetailTab implements AppTab {
 
     private static final Logger LOG = Logger.getLogger(JobDetailTab.class.getName());
     private static final String[] SPOOL_COLUMNS = {"#", "DD-Name", "Step", "Proc", "Class", "Records", "Bytes"};

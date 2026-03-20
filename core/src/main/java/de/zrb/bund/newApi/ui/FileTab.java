@@ -2,7 +2,7 @@ package de.zrb.bund.newApi.ui;
 
 import de.zrb.bund.api.Bookmarkable;
 
-public interface FileTab extends FtpTab, Bookmarkable {
+public interface FileTab extends AppTab, Bookmarkable {
     String getTitle();
 
     String getTooltip();

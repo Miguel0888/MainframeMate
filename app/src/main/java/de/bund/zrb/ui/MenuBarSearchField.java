@@ -3,7 +3,7 @@ package de.bund.zrb.ui;
 import de.bund.zrb.model.BookmarkEntry;
 import de.bund.zrb.ui.search.SearchTab;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
@@ -64,8 +64,8 @@ public class MenuBarSearchField extends SearchBarPanel {
                 if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                     setText("");
                     tabManager.getSelectedTab().ifPresent(tab -> {
-                        if (tab instanceof FtpTab) {
-                            ((FtpTab) tab).getComponent().requestFocusInWindow();
+                        if (tab instanceof AppTab) {
+                            ((AppTab) tab).getComponent().requestFocusInWindow();
                         }
                     });
                 }

@@ -6,7 +6,7 @@ import de.bund.zrb.login.LoginManager;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.api.ShortcutMenuCommand;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.*;
 import java.awt.*;
@@ -155,11 +155,11 @@ public class OpenBetaViewMenuCommand extends ShortcutMenuCommand {
                     BetaViewDocumentTabManager docManager = connTab.createAndWireDocumentTabManager(
                             new BetaViewDocumentTabManager.TabHost() {
                                 @Override
-                                public void addTab(FtpTab tab) {
+                                public void addTab(AppTab tab) {
                                     tabManager.addTab(tab);
                                 }
                                 @Override
-                                public void removeTab(FtpTab tab) {
+                                public void removeTab(AppTab tab) {
                                     // TabbedPaneManager handles close via onClose()
                                 }
                             }

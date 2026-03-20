@@ -1,6 +1,6 @@
 package de.zrb.bund.newApi.ui;
 
-public interface ConnectionTab extends FtpTab {
+public interface ConnectionTab extends AppTab {
     String getTitle();
 
     String getTooltip();

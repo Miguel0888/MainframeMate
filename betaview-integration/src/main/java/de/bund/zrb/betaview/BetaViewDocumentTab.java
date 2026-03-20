@@ -1,11 +1,10 @@
 package de.bund.zrb.betaview;
 
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -18,7 +17,7 @@ import java.util.Map;
  * This wraps a DocumentPreviewPanel and provides all document actions
  * (page navigation, download, bookmark, notes, search, etc.).
  */
-public final class BetaViewDocumentTab implements FtpTab {
+public final class BetaViewDocumentTab implements AppTab {
 
     private final BetaViewClient client;
     private final BetaViewSession session;

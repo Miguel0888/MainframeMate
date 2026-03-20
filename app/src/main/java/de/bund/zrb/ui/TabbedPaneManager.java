@@ -11,8 +11,8 @@ import de.bund.zrb.ui.preview.SplitPreviewTab;
 import de.bund.zrb.util.AppLogger;
 import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.api.Bookmarkable;
+import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.FileTab;
-import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
@@ -32,16 +32,16 @@ public class TabbedPaneManager {
 
     private final JTabbedPane tabbedPane = new JTabbedPane();
     private final TabbedPaneWithHelpOverlay tabbedPaneWrapper;
-    private final Map<Component, FtpTab> tabMap = new HashMap<>();
+    private final Map<Component, AppTab> tabMap = new HashMap<>();
     private final MainframeContext mainframeContext;
 
     // ── Tab-level navigation history ──────────────────────────
     /** Tabs previously active — used by "back" to return to. */
-    private final Deque<FtpTab> tabBackStack = new ArrayDeque<FtpTab>();
+    private final Deque<AppTab> tabBackStack = new ArrayDeque<AppTab>();
     /** Tabs removed via back navigation — used by "forward" to reopen. */
-    private final Deque<FtpTab> tabForwardStack = new ArrayDeque<FtpTab>();
+    private final Deque<AppTab> tabForwardStack = new ArrayDeque<AppTab>();
     /** The tab that was most recently selected (tracked across changes). */
-    private FtpTab lastActiveTab = null;
+    private AppTab lastActiveTab = null;
     /** Suppresses history recording during programmatic tab switches. */
     private boolean suppressTabHistory = false;
 
@@ -63,7 +63,7 @@ public class TabbedPaneManager {
                 updateJclOutlineForSelectedTab();
 
                 Component selected = tabbedPane.getSelectedComponent();
-                FtpTab currentTab = selected != null ? tabMap.get(selected) : null;
+                AppTab currentTab = selected != null ? tabMap.get(selected) : null;
 
                 // Track tab activation for back/forward navigation
                 if (!suppressTabHistory && lastActiveTab != null
@@ -80,7 +80,7 @@ public class TabbedPaneManager {
 
                 // Give the newly selected tab a chance to claim keyboard focus
                 if (selected != null) {
-                    FtpTab tab = tabMap.get(selected);
+                    AppTab tab = tabMap.get(selected);
                     if (tab != null) {
                         // Use invokeLater so the tab is fully visible when focus is requested
                         SwingUtilities.invokeLater(() -> tab.focusSearchField());
@@ -107,7 +107,7 @@ public class TabbedPaneManager {
                 if (tabIndex < 0) return;
 
                 Component tabComponent = tabbedPane.getComponentAt(tabIndex);
-                FtpTab tab = tabMap.get(tabComponent);
+                AppTab tab = tabMap.get(tabComponent);
                 if (tab == null) return;
 
                 JPopupMenu menu = tab.createContextMenu(() -> closeTab(tabIndex));
@@ -132,7 +132,7 @@ public class TabbedPaneManager {
      * Called by menu/keyboard command and mouse button 4.
      */
     public void performBack() {
-        Optional<FtpTab> sel = getSelectedTab();
+        Optional<AppTab> sel = getSelectedTab();
         if (sel.isPresent() && sel.get() instanceof Navigable) {
             Navigable nav = (Navigable) sel.get();
             if (nav.canNavigateBack()) {
@@ -153,7 +153,7 @@ public class TabbedPaneManager {
             navigateTabForward();
             return;
         }
-        Optional<FtpTab> sel = getSelectedTab();
+        Optional<AppTab> sel = getSelectedTab();
         if (sel.isPresent() && sel.get() instanceof Navigable) {
             ((Navigable) sel.get()).navigateForward();
         }
@@ -188,7 +188,7 @@ public class TabbedPaneManager {
         }, AWTEvent.MOUSE_EVENT_MASK);
     }
 
-    public void addTab(FtpTab tab) {
+    public void addTab(AppTab tab) {
         // Populate tabMap BEFORE addTab — JTabbedPane auto-selects the first tab
         // added to an empty pane, which fires a ChangeEvent.  The ChangeListener
         // must be able to find the tab in tabMap to initialise lastActiveTab.
@@ -200,7 +200,7 @@ public class TabbedPaneManager {
         tabbedPane.setSelectedComponent(tab.getComponent());
     }
 
-    public void updateTitleFor(FtpTab tab) {
+    public void updateTitleFor(AppTab tab) {
         Component comp = tab.getComponent();
         int index = tabbedPane.indexOfComponent(comp);
         if (index >= 0) {
@@ -221,7 +221,7 @@ public class TabbedPaneManager {
         }
     }
 
-    public void updateTooltipFor(FtpTab tab) {
+    public void updateTooltipFor(AppTab tab) {
         Component comp = tab.getComponent();
         int index = tabbedPane.indexOfComponent(comp);
         if (index >= 0) {
@@ -232,7 +232,7 @@ public class TabbedPaneManager {
     private static final String STAR_EMPTY = "☆";
     private static final String STAR_FILLED = "★";
 
-    private void addClosableTabComponent(int index, FtpTab tab) {
+    private void addClosableTabComponent(int index, AppTab tab) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         tabPanel.setOpaque(false);
 
@@ -259,7 +259,7 @@ public class TabbedPaneManager {
     /**
      * Determine the backend typSchluessel string for a tab.
      */
-    private String getBackendTypeForTab(FtpTab tab) {
+    private String getBackendTypeForTab(AppTab tab) {
         if (tab instanceof FileTabImpl) {
             VirtualResource res = ((FileTabImpl) tab).getResource();
             return res != null ? res.getBackendType().name() : "LOCAL";
@@ -283,7 +283,7 @@ public class TabbedPaneManager {
     /**
      * Determine the resource kind string for a tab.
      */
-    private String getResourceKindForTab(FtpTab tab) {
+    private String getResourceKindForTab(AppTab tab) {
         if (tab instanceof FileTabImpl) return "FILE";
         return "DIRECTORY";
     }
@@ -291,14 +291,14 @@ public class TabbedPaneManager {
     /**
      * Get the current path from any tab.
      */
-    private String getPathForTab(FtpTab tab) {
+    private String getPathForTab(AppTab tab) {
         if (tab instanceof Bookmarkable) {
             return ((Bookmarkable) tab).getPath();
         }
         return null;
     }
 
-    private JButton createStarButton(FtpTab tab) {
+    private JButton createStarButton(AppTab tab) {
         String rawPath = getPathForTab(tab);
         String backendType = getBackendTypeForTab(tab);
 
@@ -364,7 +364,13 @@ public class TabbedPaneManager {
                     return;
                 }
 
-                boolean added = d.toggleBookmark(path, backend, kind, ndvState);
+                // For Confluence/Wiki tabs, pass the tab title as display label
+                // (path-derived label would just be a numeric page ID)
+                String displayLabel = null;
+                if ("CONFLUENCE".equals(backend) || "WIKI".equals(backend)) {
+                    displayLabel = tab.getTitle();
+                }
+                boolean added = d.toggleBookmark(path, backend, kind, ndvState, null, displayLabel);
                 starButton.setText(added ? STAR_FILLED : STAR_EMPTY);
                 starButton.setForeground(added ? new Color(255, 200, 0) : Color.GRAY);
                 starButton.setToolTipText(added ? "Lesezeichen entfernen" : "Als Lesezeichen merken");
@@ -383,7 +389,7 @@ public class TabbedPaneManager {
 
     public void closeTab(int index) {
         Component comp = tabbedPane.getComponentAt(index);
-        FtpTab tab = tabMap.remove(comp);
+        AppTab tab = tabMap.remove(comp);
         if (tab != null) {
             tab.onClose();
             // Remove closed tab from navigation stacks
@@ -404,7 +410,7 @@ public class TabbedPaneManager {
         // Iterate backwards to avoid index shift issues
         for (int i = tabbedPane.getTabCount() - 1; i >= 0; i--) {
             Component comp = tabbedPane.getComponentAt(i);
-            FtpTab tab = tabMap.get(comp);
+            AppTab tab = tabMap.get(comp);
             if (tab != null && tabClass.isInstance(tab)) {
                 tabMap.remove(comp);
                 tab.onClose();
@@ -420,7 +426,7 @@ public class TabbedPaneManager {
     public void closeAllTabs() {
         for (int i = tabbedPane.getTabCount() - 1; i >= 0; i--) {
             Component comp = tabbedPane.getComponentAt(i);
-            FtpTab tab = tabMap.remove(comp);
+            AppTab tab = tabMap.remove(comp);
             if (tab != null) {
                 try {
                     tab.onClose();
@@ -444,7 +450,7 @@ public class TabbedPaneManager {
             if (!(tabComp instanceof JPanel)) continue;
 
             Component contentComp = tabbedPane.getComponentAt(i);
-            FtpTab tab = tabMap.get(contentComp);
+            AppTab tab = tabMap.get(contentComp);
             if (tab == null) continue;
 
             String rawPath = getPathForTab(tab);
@@ -475,7 +481,7 @@ public class TabbedPaneManager {
     /**
      * Refresh the star button for a specific tab (e.g. after directory navigation).
      */
-    public void refreshStarForTab(FtpTab tab) {
+    public void refreshStarForTab(AppTab tab) {
         if (tab == null) return;
         LeftDrawer drawer = getBookmarkDrawer();
         if (drawer == null) return;
@@ -511,7 +517,7 @@ public class TabbedPaneManager {
 
     public void saveSelectedComponent() {
         Component comp = tabbedPane.getSelectedComponent();
-        FtpTab tab = tabMap.get(comp);
+        AppTab tab = tabMap.get(comp);
         if (tab != null) tab.saveIfApplicable();
     }
 
@@ -519,7 +525,7 @@ public class TabbedPaneManager {
         Component comp = tabbedPane.getSelectedComponent();
         if (comp == null) return;
 
-        FtpTab tab = tabMap.get(comp);
+        AppTab tab = tabMap.get(comp);
         if (tab != null) {
             tab.saveIfApplicable(); // erst speichern
             int index = tabbedPane.indexOfComponent(comp);
@@ -568,9 +574,9 @@ public class TabbedPaneManager {
      */
     public boolean navigateTabBack() {
         // Find a valid previous tab that is still in the pane
-        FtpTab prevTab = null;
+        AppTab prevTab = null;
         while (!tabBackStack.isEmpty()) {
-            FtpTab candidate = tabBackStack.pop();
+            AppTab candidate = tabBackStack.pop();
             if (tabbedPane.indexOfComponent(candidate.getComponent()) >= 0) {
                 prevTab = candidate;
                 break;
@@ -579,7 +585,7 @@ public class TabbedPaneManager {
         if (prevTab == null) return false;
 
         Component currentComp = tabbedPane.getSelectedComponent();
-        FtpTab currentTab = currentComp != null ? tabMap.get(currentComp) : null;
+        AppTab currentTab = currentComp != null ? tabMap.get(currentComp) : null;
 
         suppressTabHistory = true;
         try {
@@ -611,9 +617,9 @@ public class TabbedPaneManager {
      */
     public boolean navigateTabForward() {
         if (tabForwardStack.isEmpty()) return false;
-        FtpTab forwardTab = tabForwardStack.pop();
+        AppTab forwardTab = tabForwardStack.pop();
 
-        FtpTab currentTab = lastActiveTab;
+        AppTab currentTab = lastActiveTab;
 
         suppressTabHistory = true;
         try {
@@ -635,7 +641,7 @@ public class TabbedPaneManager {
 
     /** @return {@code true} if {@link #navigateTabBack()} would succeed. */
     public boolean canNavigateTabBack() {
-        for (FtpTab tab : tabBackStack) {
+        for (AppTab tab : tabBackStack) {
             if (tabbedPane.indexOfComponent(tab.getComponent()) >= 0) return true;
         }
         return false;
@@ -650,14 +656,14 @@ public class TabbedPaneManager {
     // Plugin-Management
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    public Optional<FtpTab> getSelectedTab() {
+    public Optional<AppTab> getSelectedTab() {
         Component selected = tabbedPane.getSelectedComponent();
         return Optional.ofNullable(tabMap.get(selected));
     }
 
     public Optional<Bookmarkable> getSelectedFileTab() {
         Component selected = tabbedPane.getSelectedComponent();
-        FtpTab tab = tabMap.get(selected);
+        AppTab tab = tabMap.get(selected);
         if (tab instanceof FileTabImpl) {
             return Optional.of((FileTabImpl) tab);
         }
@@ -667,7 +673,7 @@ public class TabbedPaneManager {
 
     public java.util.List<Bookmarkable> getAllTabs() {
         java.util.List<Bookmarkable> result = new java.util.ArrayList<>();
-        for (FtpTab tab : tabMap.values()) {
+        for (AppTab tab : tabMap.values()) {
             if (tab instanceof Bookmarkable) {
                 result.add((Bookmarkable) tab);
             }
@@ -675,7 +681,7 @@ public class TabbedPaneManager {
         return result;
     }
 
-    public java.util.List<FtpTab> getAllOpenTabs() {
+    public java.util.List<AppTab> getAllOpenTabs() {
         return new java.util.ArrayList<>(tabMap.values());
     }
 
@@ -684,8 +690,8 @@ public class TabbedPaneManager {
      * @return the tab instance, or null if not found
      */
     @SuppressWarnings("unchecked")
-    public <T extends FtpTab> T findTabOfType(Class<T> clazz) {
-        for (FtpTab tab : tabMap.values()) {
+    public <T extends AppTab> T findTabOfType(Class<T> clazz) {
+        for (AppTab tab : tabMap.values()) {
             if (clazz.isInstance(tab)) {
                 return (T) tab;
             }
@@ -696,7 +702,7 @@ public class TabbedPaneManager {
     /**
      * Select (bring to front) the given tab.
      */
-    public void selectTab(FtpTab tab) {
+    public void selectTab(AppTab tab) {
         if (tab == null) return;
         Component comp = tab.getComponent();
         int index = tabbedPane.indexOfComponent(comp);
@@ -706,9 +712,9 @@ public class TabbedPaneManager {
     }
 
     public void focusTabByAdapter(Bookmarkable tab) {
-        if (!(tab instanceof FtpTab)) return;
+        if (!(tab instanceof AppTab)) return;
 
-        Component comp = ((FtpTab) tab).getComponent();
+        Component comp = ((AppTab) tab).getComponent();
         int index = tabbedPane.indexOfComponent(comp);
         if (index >= 0) {
             tabbedPane.setSelectedIndex(index);
@@ -719,7 +725,7 @@ public class TabbedPaneManager {
         return mainframeContext;
     }
 
-    public void replaceTab(FtpTab oldTab, FtpTab newTab) {
+    public void replaceTab(AppTab oldTab, AppTab newTab) {
         Component oldComponent = oldTab.getComponent();
         int index = tabbedPane.indexOfComponent(oldComponent);
         if (index >= 0) {
@@ -779,7 +785,7 @@ public class TabbedPaneManager {
             return;
         }
 
-        FtpTab tab = tabMap.get(selected);
+        AppTab tab = tabMap.get(selected);
         if (tab == null) {
             rightDrawer.clearJclOutline();
             rightDrawer.restoreCodeOutline();
@@ -996,7 +1002,7 @@ public class TabbedPaneManager {
     /**
      * Navigate to a specific line in the tab's editor.
      */
-    private void navigateToLine(FtpTab tab, int lineNumber) {
+    private void navigateToLine(AppTab tab, int lineNumber) {
         try {
             if (tab instanceof FileTabImpl) {
                 FileTabImpl fileTab = (FileTabImpl) tab;
@@ -1034,7 +1040,7 @@ public class TabbedPaneManager {
      * @param tab        the tab to navigate in
      * @param lineNumber 1-based line number
      */
-    public void navigateToLineInTab(FtpTab tab, int lineNumber) {
+    public void navigateToLineInTab(AppTab tab, int lineNumber) {
         navigateToLine(tab, lineNumber);
     }
 
@@ -1340,7 +1346,7 @@ public class TabbedPaneManager {
         return result;
     }
 
-    private void updateRelationsForNonWikiTab(MainFrame mainFrame, de.zrb.bund.newApi.ui.FtpTab tab) {
+    private void updateRelationsForNonWikiTab(MainFrame mainFrame, AppTab tab) {
         LeftDrawer leftDrawer = mainFrame.getBookmarkDrawer();
         if (leftDrawer == null) return;
 
@@ -1782,7 +1788,7 @@ public class TabbedPaneManager {
     /**
      * Extract the library name from a tab's path (for NDV paths like "LIBNAME/OBJNAME.ext").
      */
-    private String extractLibrary(de.zrb.bund.newApi.ui.FtpTab tab) {
+    private String extractLibrary(AppTab tab) {
         String path = tab.getPath();
         if (path == null) return null;
         // NDV paths: "LIBNAME/OBJNAME.NSP"
@@ -1860,7 +1866,7 @@ public class TabbedPaneManager {
     public void openWikiRelationAsTab(String siteId, String pageTitle) {
 
         // Try to find an open WikiConnectionTab to get its service + callback
-        for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
+        for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
             if (entry.getValue() instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
                 de.bund.zrb.wiki.ui.WikiConnectionTab wikiConn =
                         (de.bund.zrb.wiki.ui.WikiConnectionTab) entry.getValue();
@@ -1884,7 +1890,7 @@ public class TabbedPaneManager {
      * @return true if a WikiConnectionTab was found and the search was started
      */
     public boolean searchInWikiConnectionTab(String siteId, String searchTerm) {
-        for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
+        for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
             if (entry.getValue() instanceof de.bund.zrb.wiki.ui.WikiConnectionTab) {
                 de.bund.zrb.wiki.ui.WikiConnectionTab wikiConn =
                         (de.bund.zrb.wiki.ui.WikiConnectionTab) entry.getValue();
@@ -1914,7 +1920,7 @@ public class TabbedPaneManager {
      */
     public void openNdvDependencyTarget(String library, String objectName) {
         // Find an open NdvConnectionTab
-        for (java.util.Map.Entry<Component, de.zrb.bund.newApi.ui.FtpTab> entry : tabMap.entrySet()) {
+        for (java.util.Map.Entry<Component, AppTab> entry : tabMap.entrySet()) {
             if (entry.getValue() instanceof NdvConnectionTab) {
                 NdvConnectionTab ndvTab = (NdvConnectionTab) entry.getValue();
                 // Switch to this tab

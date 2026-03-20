@@ -490,11 +490,21 @@ public class LeftDrawer extends JPanel {
 
     public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
                                   de.bund.zrb.ui.NdvResourceState ndvState) {
-        return toggleBookmark(rawPath, backendType, resourceKind, ndvState, null);
+        return toggleBookmark(rawPath, backendType, resourceKind, ndvState, null, null);
     }
 
     public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
                                   de.bund.zrb.ui.NdvResourceState ndvState, String tn3270MacroSteps) {
+        return toggleBookmark(rawPath, backendType, resourceKind, ndvState, tn3270MacroSteps, null);
+    }
+
+    /**
+     * @param displayLabel optional human-readable label (e.g. page title); if {@code null},
+     *                     a label is derived from the path.
+     */
+    public boolean toggleBookmark(String rawPath, String backendType, String resourceKind,
+                                  de.bund.zrb.ui.NdvResourceState ndvState, String tn3270MacroSteps,
+                                  String displayLabel) {
         if (rawPath == null) return false;
         String prefixedPath = BookmarkEntry.buildPath(backendType, rawPath);
         if (isBookmarkedRecursive(BookmarkHelper.loadBookmarks(), prefixedPath)) {
@@ -503,8 +513,10 @@ public class LeftDrawer extends JPanel {
             return false;
         } else {
             String label;
-            boolean isSearchBookmark = prefixedPath.startsWith(BookmarkEntry.SEARCH_PREFIX);
-            if (isSearchBookmark) {
+            if (displayLabel != null && !displayLabel.trim().isEmpty()) {
+                // Explicit label provided (e.g. page title from Confluence/Wiki reader)
+                label = displayLabel.trim();
+            } else if (prefixedPath.startsWith(BookmarkEntry.SEARCH_PREFIX)) {
                 // Search bookmark — use the query as label
                 // rawPath here is already the full prefixed path; extract the query
                 BookmarkEntry tmpEntry = new BookmarkEntry(null, prefixedPath, false);

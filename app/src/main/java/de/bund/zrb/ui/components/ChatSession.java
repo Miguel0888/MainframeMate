@@ -25,7 +25,7 @@ import de.bund.zrb.ui.util.ToolApprovalRequest;
 import de.zrb.bund.api.ChatManager;
 import de.zrb.bund.api.ChatStreamListener;
 import de.zrb.bund.api.MainframeContext;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -289,7 +289,7 @@ public class ChatSession extends JPanel {
 
     private void showAttachTabDialog() {
         // Get available tabs from TabbedPaneManager
-        List<FtpTab> availableTabs = maeinframeContext.getAllOpenTabs();
+        List<AppTab> availableTabs = maeinframeContext.getAllOpenTabs();
 
         if (availableTabs.isEmpty()) {
             JOptionPane.showMessageDialog(this,
@@ -299,14 +299,14 @@ public class ChatSession extends JPanel {
         }
 
         AttachTabDialog dialog = new AttachTabDialog(SwingUtilities.getWindowAncestor(this), availableTabs);
-        List<FtpTab> selectedTabs = dialog.showAndGetSelection();
+        List<AppTab> selectedTabs = dialog.showAndGetSelection();
 
-        for (FtpTab tab : selectedTabs) {
+        for (AppTab tab : selectedTabs) {
             attachTab(tab);
         }
     }
 
-    private void attachTab(FtpTab tab) {
+    private void attachTab(AppTab tab) {
         if (tab == null) return;
 
         try {

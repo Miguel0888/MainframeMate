@@ -4,8 +4,8 @@ import de.zrb.bund.newApi.ToolRegistry;
 import de.zrb.bund.newApi.VariableRegistry;
 import de.zrb.bund.newApi.bot.AgentRegistry;
 import de.zrb.bund.newApi.browser.BrowserService;
+import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.FileTab;
-import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import javax.annotation.Nullable;
@@ -24,13 +24,13 @@ public interface MainframeContext {
     Optional<Bookmarkable> getSelectedTab();
     FileTab createFile(String content, String sentenceType);
 
-    FtpTab openFileOrDirectory(String path);
+    AppTab openFileOrDirectory(String path);
 
-    FtpTab openFileOrDirectory(String path, @Nullable String sentenceType);
+    AppTab openFileOrDirectory(String path, @Nullable String sentenceType);
 
-    FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern);
+    AppTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern);
 
-    FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare);
+    AppTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare);
 
     JFrame getMainFrame();
 
@@ -44,7 +44,7 @@ public interface MainframeContext {
     /**
      * Get all currently open tabs (for attachment selection).
      */
-    List<FtpTab> getAllOpenTabs();
+    List<AppTab> getAllOpenTabs();
 
     void focusFileTab(Bookmarkable tab);
 

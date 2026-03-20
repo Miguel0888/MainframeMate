@@ -1,7 +1,7 @@
 package de.bund.zrb.ui.components;
 
 import de.zrb.bund.api.Bookmarkable;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,12 +14,12 @@ import java.util.List;
  */
 public class AttachTabDialog extends JDialog {
 
-    private final List<FtpTab> availableTabs;
-    private final List<FtpTab> selectedTabs = new ArrayList<>();
+    private final List<AppTab> availableTabs;
+    private final List<AppTab> selectedTabs = new ArrayList<>();
     private final JPanel tabListPanel;
     private boolean confirmed = false;
 
-    public AttachTabDialog(Window owner, List<FtpTab> availableTabs) {
+    public AttachTabDialog(Window owner, List<AppTab> availableTabs) {
         super(owner, "📎 Tab anhängen", ModalityType.APPLICATION_MODAL);
         this.availableTabs = availableTabs;
 
@@ -67,11 +67,11 @@ public class AttachTabDialog extends JDialog {
         tabListPanel.removeAll();
 
         // Group tabs by typSchluessel
-        List<FtpTab> previewTabs = new ArrayList<>();
-        List<FtpTab> fileTabs = new ArrayList<>();
-        List<FtpTab> otherTabs = new ArrayList<>();
+        List<AppTab> previewTabs = new ArrayList<>();
+        List<AppTab> fileTabs = new ArrayList<>();
+        List<AppTab> otherTabs = new ArrayList<>();
 
-        for (FtpTab tab : availableTabs) {
+        for (AppTab tab : availableTabs) {
             Bookmarkable.Type type = tab.getType();
             if (type == Bookmarkable.Type.PREVIEW) {
                 previewTabs.add(tab);
@@ -104,21 +104,21 @@ public class AttachTabDialog extends JDialog {
         tabListPanel.repaint();
     }
 
-    private void addSection(String title, List<FtpTab> tabs) {
+    private void addSection(String title, List<AppTab> tabs) {
         JLabel sectionLabel = new JLabel(title);
         sectionLabel.setFont(sectionLabel.getFont().deriveFont(Font.BOLD, 12f));
         sectionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         sectionLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 5, 0));
         tabListPanel.add(sectionLabel);
 
-        for (FtpTab tab : tabs) {
+        for (AppTab tab : tabs) {
             JCheckBox checkBox = createTabCheckBox(tab);
             checkBox.setAlignmentX(Component.LEFT_ALIGNMENT);
             tabListPanel.add(checkBox);
         }
     }
 
-    private JCheckBox createTabCheckBox(FtpTab tab) {
+    private JCheckBox createTabCheckBox(AppTab tab) {
         String label = tab.getTitle();
         if (label.length() > 40) {
             label = label.substring(0, 37) + "...";
@@ -143,7 +143,7 @@ public class AttachTabDialog extends JDialog {
     /**
      * Show the dialog and return selected tabs.
      */
-    public List<FtpTab> showAndGetSelection() {
+    public List<AppTab> showAndGetSelection() {
         setVisible(true);
         return confirmed ? new ArrayList<>(selectedTabs) : new ArrayList<>();
     }
@@ -158,7 +158,7 @@ public class AttachTabDialog extends JDialog {
     /**
      * Get the selected tabs.
      */
-    public List<FtpTab> getSelectedTabs() {
+    public List<AppTab> getSelectedTabs() {
         return new ArrayList<>(selectedTabs);
     }
 }

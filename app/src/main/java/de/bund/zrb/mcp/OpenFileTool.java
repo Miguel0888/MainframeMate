@@ -8,7 +8,7 @@ import de.zrb.bund.api.MainframeContext;
 import de.zrb.bund.newApi.mcp.McpTool;
 import de.zrb.bund.newApi.mcp.McpToolResponse;
 import de.zrb.bund.newApi.mcp.ToolSpec;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.*;
 import java.util.Collections;
@@ -87,12 +87,12 @@ public class OpenFileTool implements McpTool {
             }
 
             // Open the tab via MainframeContext (handles EDT internally or delegates correctly)
-            AtomicReference<FtpTab> openedTab = new AtomicReference<>();
+            AtomicReference<AppTab> openedTab = new AtomicReference<>();
             AtomicReference<Exception> error = new AtomicReference<>();
 
             Runnable openAction = () -> {
                 try {
-                    FtpTab tab = context.openFileOrDirectory(file, satzart, search, toCompare);
+                    AppTab tab = context.openFileOrDirectory(file, satzart, search, toCompare);
                     openedTab.set(tab);
                 } catch (Exception e) {
                     error.set(e);

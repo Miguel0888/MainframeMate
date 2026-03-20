@@ -30,8 +30,8 @@ import de.bund.zrb.workflow.WorkflowRunnerImpl;
 import de.zrb.bund.api.*;
 import de.zrb.bund.newApi.McpService;
 import de.zrb.bund.newApi.ToolRegistry;
+import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.FileTab;
-import de.zrb.bund.newApi.ui.FtpTab;
 import de.zrb.bund.newApi.workflow.WorkflowRunner;
 
 import de.example.toolbarkit.command.ToolbarCommandRegistry;
@@ -491,7 +491,7 @@ public class MainFrame extends JFrame implements MainframeContext {
         // When user single-clicks a relation with lineNumber → navigate in current editor
         leftDrawer.setOnLineNavigate(lineNumber -> {
             if (tabManager != null) {
-                java.util.Optional<de.zrb.bund.newApi.ui.FtpTab> selectedOpt = tabManager.getSelectedTab();
+                java.util.Optional<AppTab> selectedOpt = tabManager.getSelectedTab();
                 if (selectedOpt.isPresent()) {
                     tabManager.navigateToLineInTab(selectedOpt.get(), lineNumber);
                 }
@@ -552,22 +552,22 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
-    public FtpTab openFileOrDirectory(String path) {
+    public AppTab openFileOrDirectory(String path) {
         return openFileOrDirectory(path, null);
     }
 
     @Override
-    public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType) {
+    public AppTab openFileOrDirectory(String path, @Nullable String sentenceType) {
         return openFileOrDirectory(path, null, null);
     }
 
     @Override
-    public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern) {
+    public AppTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern) {
         return openFileOrDirectory(path, null, null, null);
     }
 
     @Override
-    public FtpTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
+    public AppTab openFileOrDirectory(String path, @Nullable String sentenceType, String searchPattern, Boolean toCompare) {
         if (path == null || path.isEmpty()) return null;
 
         // Route search-* paths to search bookmark handler
@@ -1312,7 +1312,7 @@ public class MainFrame extends JFrame implements MainframeContext {
     }
 
     @Override
-    public List<FtpTab> getAllOpenTabs() {
+    public List<AppTab> getAllOpenTabs() {
         return tabManager.getAllOpenTabs();
     }
 

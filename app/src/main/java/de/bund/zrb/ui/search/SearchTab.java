@@ -4,7 +4,7 @@ import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
@@ -20,7 +20,7 @@ import java.util.concurrent.Future;
  * High-end search tab with faceted filtering, highlighting, sorting,
  * saved searches, and keyboard navigation.
  */
-public class SearchTab extends JPanel implements FtpTab {
+public class SearchTab extends JPanel implements AppTab {
 
     private final SearchService searchService = SearchService.getInstance();
     private final de.bund.zrb.ui.TabbedPaneManager tabManager;

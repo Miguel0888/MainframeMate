@@ -7,13 +7,12 @@ import de.bund.zrb.files.impl.auth.InteractiveCredentialsProvider;
 import de.bund.zrb.files.impl.factory.FileServiceFactory;
 import de.bund.zrb.files.model.FilePayload;
 import de.bund.zrb.login.LoginManager;
-import de.zrb.bund.newApi.ui.FtpTab;
+import de.zrb.bund.newApi.ui.AppTab;
 
 import javax.swing.*;
 import java.awt.*;
-import java.nio.charset.Charset;
 
-public class JobPollingTab implements FtpTab {
+public class JobPollingTab implements AppTab {
 
     private final JPanel panel = new JPanel(new BorderLayout());
     private final JLabel countdownLabel = new JLabel("3", SwingConstants.CENTER);
@@ -117,7 +116,7 @@ public class JobPollingTab implements FtpTab {
                 String content = payload.getEditorText();
 
                 // Open file tab with VirtualResource (no Legacy manager)
-                FtpTab realTab = tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);
+                AppTab realTab = tabManager.openFileTab(resource, content, sentenceType, searchPattern, toCompare);
                 tabManager.replaceTab(this, realTab);
             }
         } catch (FileServiceException ex) {

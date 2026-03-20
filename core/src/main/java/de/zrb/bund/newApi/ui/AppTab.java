@@ -4,7 +4,7 @@ import de.zrb.bund.api.Bookmarkable;
 
 import javax.swing.*;
 
-public interface FtpTab extends Bookmarkable {
+public interface AppTab extends Bookmarkable {
     String getTitle();
     String getTooltip();
     JComponent getComponent();
