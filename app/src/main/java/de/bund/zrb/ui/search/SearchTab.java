@@ -1,6 +1,10 @@
 package de.bund.zrb.ui.search;
 
+import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.store.CacheRepository;
+import de.bund.zrb.rag.model.Chunk;
+import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
@@ -52,6 +56,8 @@ public class SearchTab extends JPanel implements AppTab {
     private final List<SearchResult> currentResults = new ArrayList<>();
     private Future<?> currentSearch = null;
     private String lastQuery = "";
+    private SwingWorker<String, Void> previewLoader;
+    private static final int MAX_PREVIEW_CHARS = 50000;
 
     // Saved searches persistence
     private final List<SavedSearch> savedSearches = new ArrayList<>();
@@ -555,7 +561,70 @@ public class SearchTab extends JPanel implements AppTab {
         int modelRow = resultTable.convertRowIndexToModel(row);
         if (modelRow < 0 || modelRow >= currentResults.size()) { previewPane.setText(""); return; }
 
+        // Cancel previous preview load
+        if (previewLoader != null && !previewLoader.isDone()) {
+            previewLoader.cancel(true);
+        }
+
         SearchResult r = currentResults.get(modelRow);
+        final String headerHtml = buildPreviewHeader(r, modelRow);
+
+        // Show header + loading indicator immediately
+        previewPane.setText(headerHtml
+                + "<div style='color:#999;padding:8px;'>\u23F3 Lade Vorschau\u2026</div></body></html>");
+        previewPane.setCaretPosition(0);
+
+        // Load full content in background
+        previewLoader = new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                return loadDocumentContent(r);
+            }
+
+            @Override
+            protected void done() {
+                if (isCancelled()) return;
+                try {
+                    String content = get();
+                    StringBuilder html = new StringBuilder(headerHtml);
+
+                    if (content != null && !content.isEmpty()) {
+                        // Full document text with highlighting
+                        html.append("<div style='white-space:pre-wrap;font-family:Consolas,monospace;")
+                                .append("font-size:11px;background:#FAFAFA;border:1px solid #E0E0E0;")
+                                .append("padding:8px;border-radius:4px;line-height:1.5;'>");
+                        html.append(highlightTerms(escHtml(content), lastQuery));
+                        html.append("</div>");
+                    } else {
+                        // Fallback: only snippet available
+                        html.append("<div style='background:#FFFDE7;border:1px solid #FFF9C4;")
+                                .append("padding:6px;border-radius:4px;'>");
+                        html.append(highlightTerms(escHtml(r.getSnippet()), lastQuery));
+                        html.append("</div>");
+                        html.append("<div style='color:#999;font-size:10px;margin-top:4px;'>")
+                                .append("\u2139\uFE0F Nur Snippet verf\u00fcgbar \u2013 ")
+                                .append("Doppelklick zum \u00d6ffnen des Dokuments")
+                                .append("</div>");
+                    }
+
+                    html.append("<div style='margin-top:8px;color:#999;font-size:10px;'>");
+                    html.append("\u2B50 Score: ").append(String.format("%.4f", r.getScore()));
+                    html.append(" &nbsp;|&nbsp; Chunk: ").append(escHtml(r.getChunkId()));
+                    html.append("</div></body></html>");
+
+                    previewPane.setText(html.toString());
+                    previewPane.setCaretPosition(0);
+                } catch (Exception ignored) {}
+            }
+        };
+        previewLoader.execute();
+    }
+
+    /**
+     * Build the HTML header section for the preview (source info, title, bookmark star, heading).
+     * Returns an open HTML document (no closing body/html tags).
+     */
+    private String buildPreviewHeader(SearchResult r, int modelRow) {
         StringBuilder html = new StringBuilder();
         html.append("<html><body style='font-family:SansSerif;font-size:12px;padding:8px;'>");
         html.append("<div style='color:#666;font-size:11px;margin-bottom:4px;'>");
@@ -576,17 +645,101 @@ public class SearchTab extends JPanel implements AppTab {
             html.append("<div style='color:#1976D2;margin-bottom:6px;'>\uD83D\uDCCC ")
                     .append(escHtml(r.getHeading())).append("</div>");
         }
+        return html.toString();
+    }
 
-        html.append("<div style='background:#FFFDE7;border:1px solid #FFF9C4;padding:6px;border-radius:4px;'>");
-        html.append(highlightTerms(escHtml(r.getSnippet()), lastQuery));
-        html.append("</div>");
-        html.append("<div style='margin-top:8px;color:#999;font-size:10px;'>");
-        html.append("\u2B50 Score: ").append(String.format("%.4f", r.getScore()));
-        html.append(" &nbsp;|&nbsp; Chunk: ").append(escHtml(r.getChunkId()));
-        html.append("</div></body></html>");
+    /**
+     * Load the full document content for preview, trying multiple sources in priority order:
+     * 1. Cache (ArchiveDocument via CacheRepository → ResourceStorageService)
+     * 2. Local filesystem (direct read for LOCAL source)
+     * 3. RAG chunks (concatenated from RagService)
+     * 4. null → caller falls back to snippet
+     */
+    private String loadDocumentContent(SearchResult r) {
+        // 1. Try Cache (ArchiveDocument → textContentPath → StorageService)
+        try {
+            CacheRepository repo = CacheRepository.getInstance();
+            ArchiveDocument doc = null;
 
-        previewPane.setText(html.toString());
-        previewPane.setCaretPosition(0);
+            if (r.getSource() == SearchResult.SourceType.ARCHIVE) {
+                doc = repo.findDocumentById(r.getDocumentId());
+            } else {
+                String canonicalUrl = documentIdToCacheUrl(r.getDocumentId());
+                if (canonicalUrl != null) {
+                    doc = repo.findDocumentByCanonicalUrl(canonicalUrl);
+                }
+            }
+
+            if (doc != null) {
+                if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
+                    String content = ArchiveService.getInstance().getStorageService()
+                            .readContent(doc.getTextContentPath(), MAX_PREVIEW_CHARS);
+                    if (content != null && !content.isEmpty()) {
+                        return content;
+                    }
+                }
+                // Fallback to excerpt for ARCHIVE documents
+                if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
+                    return doc.getExcerpt();
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 2. For LOCAL files: try direct file read
+        if (r.getSource() == SearchResult.SourceType.LOCAL
+                && r.getDocumentId() != null && r.getDocumentId().startsWith("LOCAL:")) {
+            String path = r.getDocumentId().substring("LOCAL:".length());
+            try {
+                java.io.File file = new java.io.File(path);
+                if (file.exists() && file.isFile() && file.length() < MAX_PREVIEW_CHARS * 2) {
+                    byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+                    String content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                    if (content.length() > MAX_PREVIEW_CHARS) {
+                        content = content.substring(0, MAX_PREVIEW_CHARS) + "\n[... gek\u00fcrzt]";
+                    }
+                    return content;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Try RagService (concatenate all chunks for this document)
+        try {
+            java.util.List<Chunk> chunks = RagService.getInstance()
+                    .getDocumentChunks(r.getDocumentId());
+            if (!chunks.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                for (Chunk chunk : chunks) {
+                    if (chunk.getText() != null) {
+                        if (sb.length() > 0) sb.append("\n");
+                        sb.append(chunk.getText());
+                    }
+                    if (sb.length() >= MAX_PREVIEW_CHARS) {
+                        sb.setLength(MAX_PREVIEW_CHARS);
+                        sb.append("\n[... gek\u00fcrzt]");
+                        break;
+                    }
+                }
+                if (sb.length() > 0) return sb.toString();
+            }
+        } catch (Exception ignored) {}
+
+        // 4. Fallback: return null → caller shows snippet
+        return null;
+    }
+
+    /**
+     * Convert a Lucene documentId (e.g. "LOCAL:path", "FTP:host/path") to
+     * a cache canonical URL (e.g. "local://path", "ftp://host/path").
+     */
+    private static String documentIdToCacheUrl(String documentId) {
+        if (documentId == null) return null;
+        int colonIdx = documentId.indexOf(':');
+        if (colonIdx > 0 && colonIdx < documentId.length() - 1) {
+            String prefix = documentId.substring(0, colonIdx).toLowerCase();
+            String rest = documentId.substring(colonIdx + 1);
+            return prefix + "://" + rest;
+        }
+        return null;
     }
 
     private void openSelectedResult() {
