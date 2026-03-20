@@ -1044,7 +1044,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             protected java.util.Hashtable<java.net.URL, java.awt.Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
                 while (matcher.find()) {
-                    String src = matcher.group(1);
+                    String src = decodeHtmlEntities(matcher.group(1));
                     try {
                         String downloadPath = resolveImagePath(src);
                         if (downloadPath == null) continue;
@@ -1140,6 +1140,20 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         } catch (java.net.MalformedURLException e) {
             return null;
         }
+    }
+
+    /**
+     * Decode common HTML entities found in attribute values extracted from raw HTML.
+     * Confluence REST API returns rendered HTML where query-parameter separators
+     * appear as {@code &amp;} instead of plain {@code &}.
+     */
+    private static String decodeHtmlEntities(String s) {
+        if (s == null) return null;
+        return s.replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
     }
 
     // ═══════════════════════════════════════════════════════════
