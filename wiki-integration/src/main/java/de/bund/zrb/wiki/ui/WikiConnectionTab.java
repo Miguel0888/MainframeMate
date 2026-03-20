@@ -3,6 +3,7 @@ package de.bund.zrb.wiki.ui;
 import de.bund.zrb.wiki.domain.*;
 import de.bund.zrb.wiki.port.WikiContentService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -34,7 +35,7 @@ public class WikiConnectionTab implements ConnectionTab {
     private final JComboBox<WikiSiteDescriptor> siteSelector;
     private final JPanel siteCheckboxPanel;
     private final List<JCheckBox> siteCheckboxes = new ArrayList<JCheckBox>();
-    private final JTextField searchField;
+    private final SearchBarPanel searchBar;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
     private final JTextField resultFilterField;
@@ -121,13 +122,9 @@ public class WikiConnectionTab implements ConnectionTab {
         topControls.add(Box.createVerticalStrut(4));
 
         // Row 2: Search
-        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
-        searchPanel.add(new JLabel("🔍"), BorderLayout.WEST);
-        searchField = new JTextField();
-        searchField.setToolTipText("Wiki durchsuchen (Enter)");
-        searchField.addActionListener(e -> searchWiki());
-        // Arrow key navigation: DOWN → first result, UP → last result
-        searchField.addKeyListener(new KeyAdapter() {
+        searchBar = new SearchBarPanel("Wiki durchsuchen\u2026", "Wiki durchsuchen (Enter / Klick)");
+        searchBar.addSearchAction(e -> searchWiki());
+        searchBar.getTextField().addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 int rowCount = resultTable.getRowCount();
@@ -146,9 +143,8 @@ public class WikiConnectionTab implements ConnectionTab {
                 }
             }
         });
-        searchPanel.add(searchField, BorderLayout.CENTER);
-        searchPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topControls.add(searchPanel);
+        searchBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topControls.add(searchBar);
 
         // ═══════════════════════════════════════════════════════════
         //  Results table
@@ -582,7 +578,7 @@ public class WikiConnectionTab implements ConnectionTab {
     }
 
     private void searchWiki() {
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
         if (query.isEmpty()) return;
 
         // Collect all checked wikis
@@ -1053,7 +1049,7 @@ public class WikiConnectionTab implements ConnectionTab {
     @Override public String getContent() { return ""; }
     @Override public void markAsChanged() { /* not applicable */ }
     @Override public String getPath() {
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
         if (!query.isEmpty()) {
             return "search-wiki://" + query;
         }
@@ -1063,12 +1059,12 @@ public class WikiConnectionTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
+        searchBar.focusField();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchField.setText(searchPattern);
+        searchBar.setText(searchPattern);
         searchWiki();
     }
 

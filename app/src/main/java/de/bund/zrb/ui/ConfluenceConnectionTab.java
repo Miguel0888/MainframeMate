@@ -8,6 +8,7 @@ import de.bund.zrb.confluence.ConfluencePrefetchService;
 import de.bund.zrb.confluence.ConfluenceRestClient;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -50,7 +51,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     // ── UI components ──
     private final JPanel spaceCheckboxPanel;
     private final List<JCheckBox> spaceCheckboxes = new ArrayList<JCheckBox>();
-    private final JTextField searchField;
+    private final SearchBarPanel searchBar;
     private final JTextField filterField;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
@@ -148,12 +149,9 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         topControls.add(spaceRow);
         topControls.add(Box.createVerticalStrut(4));
 
-        // Row 2: [🔍 Search field] [◀ Seite X von Y ▶] [25▼]
-        JPanel searchRow = new JPanel(new BorderLayout(4, 0));
-        searchRow.add(new JLabel("🔍"), BorderLayout.WEST);
-        searchField = new JTextField();
-        searchField.setToolTipText(
-                "<html><b>Confluence durchsuchen</b> (Enter)<br>"
+        // Row 2: SearchBarPanel + pagination controls
+        searchBar = new SearchBarPanel("Confluence durchsuchen\u2026",
+                "<html><b>Confluence durchsuchen</b> (Enter / Klick)<br>"
                 + "Freitext-Suche oder CQL-Syntax:<br>"
                 + "<br>"
                 + "<b>Freitext:</b> Suchbegriff<br>"
@@ -163,10 +161,9 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 + "<b>Typ:</b> type=page AND text~\"Begriff\"<br>"
                 + "<b>Kombiniert:</b> space=KEY AND title~\"Test\"<br>"
                 + "<br>"
-                + "Ausgewählte Spaces werden automatisch als Filter ergänzt.</html>");
-        searchField.addActionListener(e -> searchConfluence());
-        // Arrow keys: move to result table
-        searchField.addKeyListener(new KeyAdapter() {
+                + "Ausgew\u00e4hlte Spaces werden automatisch als Filter erg\u00e4nzt.</html>");
+        searchBar.addSearchAction(e -> searchConfluence());
+        searchBar.getTextField().addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 int rowCount = pageTable.getRowCount();
@@ -185,7 +182,6 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 }
             }
         });
-        searchRow.add(searchField, BorderLayout.CENTER);
 
         // Pagination controls: [◀] [Seite X von Y] [▶] [25▼] — right of search
         JPanel paginationPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
@@ -289,9 +285,9 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         paginationPanel.add(nextBtn);
         paginationPanel.add(Box.createHorizontalStrut(4));
         paginationPanel.add(pageSizeCombo);
-        searchRow.add(paginationPanel, BorderLayout.EAST);
-        searchRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
-        topControls.add(searchRow);
+        searchBar.addEastComponent(paginationPanel);
+        searchBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        topControls.add(searchBar);
 
         // Status label below search row
         statusLabel = new JLabel(" ");
@@ -473,7 +469,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                                 @Override
                                 public void mouseClicked(MouseEvent e) {
                                     String cql = "space=\"" + spKey + "\" AND type=page";
-                                    searchField.setText("space=" + spKey);
+                                    searchBar.setText("space=" + spKey);
                                     currentCql = cql;
                                     currentStart = 0;
                                     executeSearch(cql, 0);
@@ -518,7 +514,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     }
 
     private void searchConfluence() {
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
 
         // Build CQL
         String cql;
@@ -1632,7 +1628,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
     @Override
     public String getPath() {
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
         if (!query.isEmpty()) {
             return "search-confluence://" + query;
         }
@@ -1644,12 +1640,12 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchField.requestFocusInWindow();
+        searchBar.focusField();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchField.setText(searchPattern);
+        searchBar.setText(searchPattern);
         searchConfluence();
     }
 

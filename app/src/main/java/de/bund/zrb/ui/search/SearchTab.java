@@ -72,17 +72,14 @@ public class SearchTab extends JPanel implements FtpTab {
         headerPanel.setBorder(new EmptyBorder(4, 4, 0, 4));
 
         // Search input row
-        JPanel searchRow = new JPanel(new BorderLayout(4, 0));
-        searchField = new JTextField();
-        searchField.setFont(searchField.getFont().deriveFont(14f));
-        searchField.putClientProperty("JTextField.placeholderText",
-                "Suchbegriff eingeben\u2026 (Lucene-Syntax: AND OR NOT \"phrase\" field:value)");
-        searchField.addActionListener(e -> performSearch());
-        searchField.addKeyListener(new KeyAdapter() {
+        searchBar = new SearchBarPanel("Suchbegriff eingeben\u2026 (Lucene-Syntax: AND OR NOT \"phrase\" field:value)",
+                "Suchbegriff eingeben (Lucene-Syntax)");
+        searchBar.addSearchAction(e -> performSearch());
+        searchBar.getTextField().addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    searchField.setText("");
+                    searchBar.setText("");
                     clearResults();
                 } else if (e.getKeyCode() == KeyEvent.VK_DOWN) {
                     if (resultTable.getRowCount() > 0) {
@@ -93,10 +90,6 @@ public class SearchTab extends JPanel implements FtpTab {
             }
         });
 
-        searchButton = new JButton("\uD83D\uDD0D Suchen");
-        searchButton.setFocusable(false);
-        searchButton.addActionListener(e -> performSearch());
-
         advancedToggle = new JToggleButton("\u2699");
         advancedToggle.setToolTipText("Erweiterte Suche: Lucene-Syntax\n\n"
                 + "Beispiele:\n"
@@ -105,14 +98,9 @@ public class SearchTab extends JPanel implements FtpTab {
                 + "  typSchluessel:pdf AND author:mueller");
         advancedToggle.setFocusable(false);
         advancedToggle.setMargin(new Insets(2, 6, 2, 6));
+        searchBar.addEastComponent(advancedToggle);
 
-        JPanel searchButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        searchButtons.add(searchButton);
-        searchButtons.add(advancedToggle);
-
-        searchRow.add(searchField, BorderLayout.CENTER);
-        searchRow.add(searchButtons, BorderLayout.EAST);
-        headerPanel.add(searchRow, BorderLayout.NORTH);
+        headerPanel.add(searchBar, BorderLayout.NORTH);
 
         // Filter row
         JPanel filterRow = new JPanel(new BorderLayout());
@@ -353,7 +341,7 @@ public class SearchTab extends JPanel implements FtpTab {
                     openSelectedResult();
                     e.consume();
                 } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    searchField.requestFocusInWindow();
+                    searchBar.focusField();
                 }
             }
         });
@@ -411,7 +399,7 @@ public class SearchTab extends JPanel implements FtpTab {
     // ═══════════════════════════════════════════════════════════════
 
     private void performSearch() {
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
         if (query.isEmpty()) return;
 
         // Detect source prefix shortcuts (e.g. "SP:query" → search only SharePoint)
@@ -431,7 +419,6 @@ public class SearchTab extends JPanel implements FtpTab {
         }
 
         clearResults();
-        searchButton.setEnabled(false);
         statusLabel.setText("\uD83D\uDD0D Suche nach: \"" + effectiveQuery + "\"\u2026"
                 + (forcedSources != null ? " [SharePoint]" : ""));
         statusLabel.setForeground(new Color(255, 152, 0));
@@ -478,7 +465,6 @@ public class SearchTab extends JPanel implements FtpTab {
                     statusLabel.setText("\u274C Fehler: " + e.getMessage());
                     statusLabel.setForeground(new Color(244, 67, 54));
                 } finally {
-                    searchButton.setEnabled(true);
                 }
             }
         }.execute();
@@ -547,16 +533,16 @@ public class SearchTab extends JPanel implements FtpTab {
                 cbNdv.setSelected(false); cbMail.setSelected(true);
                 break;
             case "pdf":
-                searchField.setText(searchField.getText().trim() + " *.pdf");
+                searchBar.setText(searchBar.getText().trim() + " *.pdf");
                 break;
             case "txt":
-                searchField.setText(searchField.getText().trim() + " *.txt");
+                searchBar.setText(searchBar.getText().trim() + " *.txt");
                 break;
             case "excel":
-                searchField.setText(searchField.getText().trim() + " *.xls*");
+                searchBar.setText(searchBar.getText().trim() + " *.xls*");
                 break;
         }
-        if (!searchField.getText().trim().isEmpty()) performSearch();
+        if (!searchBar.getText().trim().isEmpty()) performSearch();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -757,7 +743,7 @@ public class SearchTab extends JPanel implements FtpTab {
     // ═══════════════════════════════════════════════════════════════
 
     private void saveCurrentSearch() {
-        String query = searchField.getText().trim();
+        String query = searchBar.getText().trim();
         if (query.isEmpty()) return;
         String name = JOptionPane.showInputDialog(this, "Name f\u00fcr die Suche:", query);
         if (name == null || name.trim().isEmpty()) return;
@@ -769,7 +755,7 @@ public class SearchTab extends JPanel implements FtpTab {
     private void loadSavedSearch() {
         int idx = savedSearchList.getSelectedIndex();
         if (idx < 0 || idx >= savedSearches.size()) return;
-        searchField.setText(savedSearches.get(idx).query);
+        searchBar.setText(savedSearches.get(idx).query);
         performSearch();
     }
 
@@ -858,8 +844,8 @@ public class SearchTab extends JPanel implements FtpTab {
         if (currentSearch != null && !currentSearch.isDone()) currentSearch.cancel(true);
     }
     @Override public void saveIfApplicable() {}
-    @Override public void focusSearchField() { searchField.requestFocusInWindow(); searchField.selectAll(); }
-    @Override public void searchFor(String searchPattern) { searchField.setText(searchPattern); performSearch(); }
+    @Override public void focusSearchField() { searchBar.focusAndSelectAll(); }
+    @Override public void searchFor(String searchPattern) { searchBar.setText(searchPattern); performSearch(); }
     @Override public String getContent() { return ""; }
     @Override public void markAsChanged() {}
     @Override public String getPath() { return "search://global"; }
