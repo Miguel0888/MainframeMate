@@ -68,7 +68,7 @@ public final class WikiAsyncImageLoader {
                         byte[] data = downloadBytes(src);
                         if (data == null || data.length == 0) continue;
 
-                        Image image = ImageIO.read(new ByteArrayInputStream(data));
+                        Image image = decodeImage(data);
                         if (image != null) {
                             loaded.put(imageUrl, image);
                             publish(new Object[]{imageUrl, image});
@@ -131,6 +131,41 @@ public final class WikiAsyncImageLoader {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Decode raw image bytes into an {@link Image}.
+     * <p>
+     * For GIF images this uses {@link ImageIcon} (backed by {@link Toolkit}) which
+     * preserves animation frames.  {@code ImageIO.read()} only reads the first frame
+     * of an animated GIF and returns a static {@code BufferedImage} — causing animated
+     * GIFs to appear as broken/static placeholders.
+     * <p>
+     * For all other formats (PNG, JPEG, BMP, …) {@code ImageIO.read()} is used.
+     */
+    private static Image decodeImage(byte[] data) {
+        if (isGif(data)) {
+            // ImageIcon uses Toolkit internally and supports animated GIF frames.
+            // Its constructor blocks until the image is fully loaded (MediaTracker).
+            ImageIcon icon = new ImageIcon(data);
+            return icon.getIconWidth() > 0 ? icon.getImage() : null;
+        }
+        try {
+            return ImageIO.read(new ByteArrayInputStream(data));
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[WikiImageLoader] ImageIO.read failed, trying Toolkit", e);
+            // Fallback: Toolkit can handle some formats ImageIO cannot
+            ImageIcon icon = new ImageIcon(data);
+            return icon.getIconWidth() > 0 ? icon.getImage() : null;
+        }
+    }
+
+    /**
+     * Check whether the raw bytes represent a GIF image (magic bytes "GIF").
+     */
+    private static boolean isGif(byte[] data) {
+        return data != null && data.length > 3
+                && data[0] == 'G' && data[1] == 'I' && data[2] == 'F';
     }
 
     /**
