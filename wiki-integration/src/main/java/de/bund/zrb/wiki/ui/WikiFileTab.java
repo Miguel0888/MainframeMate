@@ -3,7 +3,6 @@ package de.bund.zrb.wiki.ui;
 import de.bund.zrb.wiki.domain.ImageRef;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
-import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -30,7 +29,7 @@ public class WikiFileTab implements ConnectionTab {
 
     private final JPanel mainPanel;
     private final JEditorPane htmlPane;
-    private final SearchBarPanel searchBar;
+    private final JTextField searchField;
     private final String siteId;
     private final String pageTitle;
     private final String htmlContent;
@@ -182,12 +181,18 @@ public class WikiFileTab implements ConnectionTab {
             refreshViewMode();
         });
 
+        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        togglePanel.add(textModeBtn);
+        togglePanel.add(renderedModeBtn);
 
         // Search bar at bottom (with toggle buttons on the right)
-        searchBar = new SearchBarPanel("Text suchen…", "Text suchen (Enter oder 🔎-Button)");
-        searchBar.addSearchAction(e -> highlightSearch());
-        searchBar.addEastComponent(textModeBtn);
-        searchBar.addEastComponent(renderedModeBtn);
+        searchField = new JTextField();
+        searchField.setToolTipText("Text suchen (Enter)");
+        searchField.addActionListener(e -> highlightSearch());
+        JPanel searchBar = new JPanel(new BorderLayout(2, 0));
+        searchBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
+        searchBar.add(searchField, BorderLayout.CENTER);
+        searchBar.add(togglePanel, BorderLayout.EAST);
         mainPanel.add(searchBar, BorderLayout.SOUTH);
     }
 
@@ -221,7 +226,7 @@ public class WikiFileTab implements ConnectionTab {
         Highlighter highlighter = htmlPane.getHighlighter();
         highlighter.removeAllHighlights();
 
-        String query = searchBar.getText().trim();
+        String query = searchField.getText().trim();
         if (query.isEmpty()) return;
 
         try {
@@ -443,12 +448,12 @@ public class WikiFileTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchBar.focusField();
+        searchField.requestFocusInWindow();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchBar.setText(searchPattern);
+        searchField.setText(searchPattern);
         highlightSearch();
     }
 
