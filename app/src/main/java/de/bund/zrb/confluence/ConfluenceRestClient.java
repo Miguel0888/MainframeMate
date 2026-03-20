@@ -104,10 +104,12 @@ public final class ConfluenceRestClient {
     }
 
     /**
-     * Convenience: GET {@code /rest/api/space?limit=<limit>&start=<start>}.
+     * Convenience: GET {@code /rest/api/space?limit=<limit>&start=<start>&expand=homepage}.
+     * The {@code homepage} expansion provides the space's home page ID.
      */
     public String getSpacesJson(int start, int limit) {
-        RestResponse response = get("/rest/api/space?start=" + start + "&limit=" + limit);
+        RestResponse response = get("/rest/api/space?start=" + start + "&limit=" + limit
+                + "&expand=homepage");
         ensureSuccess(response);
         return response.getBody();
     }

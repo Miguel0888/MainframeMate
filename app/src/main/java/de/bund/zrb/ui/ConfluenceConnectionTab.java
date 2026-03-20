@@ -346,7 +346,14 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                             JsonObject sp = el.getAsJsonObject();
                             String key = sp.get("key").getAsString();
                             String name = sp.has("name") ? sp.get("name").getAsString() : key;
-                            spaces.add(new SpaceItem(key, name));
+                            String homepageId = null;
+                            if (sp.has("homepage") && sp.get("homepage").isJsonObject()) {
+                                JsonObject hp = sp.getAsJsonObject("homepage");
+                                if (hp.has("id")) {
+                                    homepageId = hp.get("id").getAsString();
+                                }
+                            }
+                            spaces.add(new SpaceItem(key, name, homepageId));
                         }
                     }
                     // Pagination
@@ -368,14 +375,37 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     spaceCheckboxes.clear();
                     spaceCheckboxPanel.add(new JLabel("Spaces:"));
                     for (SpaceItem sp : spaces) {
-                        JCheckBox cb = new JCheckBox(sp.key, true);
+                        JCheckBox cb = new JCheckBox("", true);
                         cb.setToolTipText(sp.key + " — " + sp.name);
                         cb.putClientProperty("spaceItem", sp);
                         cb.addItemListener(e -> {
                             if (stateSaveCallback != null) stateSaveCallback.run();
                         });
                         spaceCheckboxes.add(cb);
-                        spaceCheckboxPanel.add(cb);
+
+                        // Underlined link label — opens space homepage in Reader
+                        JLabel link = new JLabel("<html><u>" + escHtml(sp.key) + "</u></html>");
+                        link.setToolTipText(sp.key + " — " + sp.name);
+                        link.setForeground(UIManager.getColor("Hyperlink.foreground") != null
+                                ? UIManager.getColor("Hyperlink.foreground")
+                                : new Color(0x0066CC));
+                        link.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                        if (sp.homepageId != null) {
+                            final String hpId = sp.homepageId;
+                            link.addMouseListener(new MouseAdapter() {
+                                @Override
+                                public void mouseClicked(MouseEvent e) {
+                                    openPageByIdAsReaderTab(hpId);
+                                }
+                            });
+                        }
+
+                        // Group checkbox + link as a compact pair
+                        JPanel pair = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+                        pair.setOpaque(false);
+                        pair.add(cb);
+                        pair.add(link);
+                        spaceCheckboxPanel.add(pair);
                     }
                     // Restore persisted checkbox states
                     if (stateSaveCallback != null) {
@@ -1348,10 +1378,12 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private static final class SpaceItem {
         final String key;
         final String name;
+        final String homepageId;
 
-        SpaceItem(String key, String name) {
+        SpaceItem(String key, String name, String homepageId) {
             this.key = key;
             this.name = name;
+            this.homepageId = homepageId;
         }
 
         @Override
