@@ -12,5 +12,11 @@ public interface Navigable {
 
     /** Navigate to the next location in history. */
     void navigateForward();
+
+    /** @return {@code true} if there is a previous location in the internal history. */
+    boolean canNavigateBack();
+
+    /** @return {@code true} if there is a next location in the internal history. */
+    boolean canNavigateForward();
 }
 

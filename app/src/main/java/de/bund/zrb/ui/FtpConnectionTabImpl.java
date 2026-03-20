@@ -595,6 +595,16 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return browserState.canGoBack();
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return browserState.canGoForward();
+    }
+
     private void navigateTo(String path, boolean addToHistory) {
         String normalized = navigator.normalize(path);
         if (addToHistory) {
@@ -1506,9 +1516,17 @@ public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
+                    if (canNavigateBack()) {
+                        navigateBack();
+                    } else {
+                        tabbedPaneManager.navigateTabBack();
+                    }
                 } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
+                    if (tabbedPaneManager.canNavigateTabForward()) {
+                        tabbedPaneManager.navigateTabForward();
+                    } else {
+                        navigateForward();
+                    }
                 }
             }
         });

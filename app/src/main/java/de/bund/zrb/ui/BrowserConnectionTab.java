@@ -299,6 +299,16 @@ public class BrowserConnectionTab implements ConnectionTab, Navigable, Bookmarka
         }
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return historyIndex > 0;
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return historyIndex < history.size() - 1;
+    }
+
     private void navigateToWithoutHistory(String url) {
         final String targetUrl = url;
         statusLabel.setText("⏳ Lade: " + targetUrl);

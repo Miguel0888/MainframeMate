@@ -318,6 +318,16 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         updateNavigationButtons();
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return !backHistory.isEmpty();
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return !forwardHistory.isEmpty();
+    }
+
     private void refresh() {
         restoreState(encodeState());
     }
@@ -778,8 +788,19 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         component.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseReleased(MouseEvent e) {
-                if (e.getButton() == MOUSE_BACK_BUTTON) navigateBack();
-                else if (e.getButton() == MOUSE_FORWARD_BUTTON) navigateForward();
+                if (e.getButton() == MOUSE_BACK_BUTTON) {
+                    if (canNavigateBack()) {
+                        navigateBack();
+                    } else {
+                        tabbedPaneManager.navigateTabBack();
+                    }
+                } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
+                    if (tabbedPaneManager.canNavigateTabForward()) {
+                        tabbedPaneManager.navigateTabForward();
+                    } else {
+                        navigateForward();
+                    }
+                }
             }
         });
     }

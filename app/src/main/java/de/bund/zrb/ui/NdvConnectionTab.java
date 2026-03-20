@@ -451,6 +451,16 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return historyIndex > 0 || currentLevel == BrowseLevel.OBJECTS;
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return historyIndex < history.size() - 1;
+    }
+
     private void addToHistory(String path) {
         // Remove forward history
         while (history.size() > historyIndex + 1) {
@@ -527,9 +537,17 @@ public class NdvConnectionTab implements ConnectionTab, Navigable {
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
+                    if (canNavigateBack()) {
+                        navigateBack();
+                    } else {
+                        tabbedPaneManager.navigateTabBack();
+                    }
                 } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
+                    if (tabbedPaneManager.canNavigateTabForward()) {
+                        tabbedPaneManager.navigateTabForward();
+                    } else {
+                        navigateForward();
+                    }
                 }
             }
         });

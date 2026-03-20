@@ -20,6 +20,8 @@ import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +32,16 @@ public class TabbedPaneManager {
     private final TabbedPaneWithHelpOverlay tabbedPaneWrapper;
     private final Map<Component, FtpTab> tabMap = new HashMap<>();
     private final MainframeContext mainframeContext;
+
+    // ── Tab-level navigation history ──────────────────────────
+    /** Tabs previously active — used by "back" to return to. */
+    private final Deque<FtpTab> tabBackStack = new ArrayDeque<FtpTab>();
+    /** Tabs removed via back navigation — used by "forward" to reopen. */
+    private final Deque<FtpTab> tabForwardStack = new ArrayDeque<FtpTab>();
+    /** The tab that was most recently selected (tracked across changes). */
+    private FtpTab lastActiveTab = null;
+    /** Suppresses history recording during programmatic tab switches. */
+    private boolean suppressTabHistory = false;
 
     public TabbedPaneManager(MainframeContext mainFrame) {
         this.mainframeContext = mainFrame;
@@ -42,13 +54,29 @@ public class TabbedPaneManager {
                         HelpContentProvider.HelpTopic.MAIN_TABS));
         tabbedPaneWrapper.setHelpComponent(helpButton);
 
-        // Tab change listener for JCL outline updates + focus management
+        // Tab change listener for JCL outline updates + focus management + tab history
         tabbedPane.addChangeListener(new ChangeListener() {
             @Override
             public void stateChanged(ChangeEvent e) {
                 updateJclOutlineForSelectedTab();
-                // Give the newly selected tab a chance to claim keyboard focus
+
                 Component selected = tabbedPane.getSelectedComponent();
+                FtpTab currentTab = selected != null ? tabMap.get(selected) : null;
+
+                // Track tab activation for back/forward navigation
+                if (!suppressTabHistory && lastActiveTab != null
+                        && currentTab != null && lastActiveTab != currentTab) {
+                    // Only push if the previous tab is still in the pane (not manually closed)
+                    if (tabMap.containsValue(lastActiveTab)) {
+                        tabBackStack.push(lastActiveTab);
+                    }
+                    tabForwardStack.clear();
+                }
+                if (currentTab != null) {
+                    lastActiveTab = currentTab;
+                }
+
+                // Give the newly selected tab a chance to claim keyboard focus
                 if (selected != null) {
                     FtpTab tab = tabMap.get(selected);
                     if (tab != null) {
@@ -279,7 +307,15 @@ public class TabbedPaneManager {
     public void closeTab(int index) {
         Component comp = tabbedPane.getComponentAt(index);
         FtpTab tab = tabMap.remove(comp);
-        if (tab != null) tab.onClose();
+        if (tab != null) {
+            tab.onClose();
+            // Remove closed tab from navigation stacks
+            while (tabBackStack.remove(tab)) { /* drain */ }
+            while (tabForwardStack.remove(tab)) { /* drain */ }
+            if (lastActiveTab == tab) {
+                lastActiveTab = null;
+            }
+        }
         tabbedPane.remove(index);
     }
 
@@ -441,6 +477,96 @@ public class TabbedPaneManager {
         addTab(fileTabImpl);
         focusTabByAdapter(fileTabImpl);
         return fileTabImpl;
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Tab-level back/forward navigation
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    /**
+     * Close the current tab and return to the previously active one.
+     * The closed tab is stored so that {@link #navigateTabForward()} can reopen it.
+     *
+     * @return {@code true} if navigation happened
+     */
+    public boolean navigateTabBack() {
+        // Find a valid previous tab that is still in the pane
+        FtpTab prevTab = null;
+        while (!tabBackStack.isEmpty()) {
+            FtpTab candidate = tabBackStack.pop();
+            if (tabbedPane.indexOfComponent(candidate.getComponent()) >= 0) {
+                prevTab = candidate;
+                break;
+            }
+        }
+        if (prevTab == null) return false;
+
+        Component currentComp = tabbedPane.getSelectedComponent();
+        FtpTab currentTab = currentComp != null ? tabMap.get(currentComp) : null;
+
+        suppressTabHistory = true;
+        try {
+            if (currentTab != null) {
+                // Remove from pane WITHOUT calling onClose — we want to reopen it via forward
+                int idx = tabbedPane.indexOfComponent(currentComp);
+                if (idx >= 0) {
+                    tabMap.remove(currentComp);
+                    tabbedPane.remove(idx);
+                }
+                tabForwardStack.push(currentTab);
+            }
+
+            int prevIdx = tabbedPane.indexOfComponent(prevTab.getComponent());
+            if (prevIdx >= 0) {
+                tabbedPane.setSelectedIndex(prevIdx);
+            }
+            lastActiveTab = prevTab;
+        } finally {
+            suppressTabHistory = false;
+        }
+        return true;
+    }
+
+    /**
+     * Reopen a tab that was previously closed via {@link #navigateTabBack()}.
+     *
+     * @return {@code true} if a tab was reopened
+     */
+    public boolean navigateTabForward() {
+        if (tabForwardStack.isEmpty()) return false;
+        FtpTab forwardTab = tabForwardStack.pop();
+
+        FtpTab currentTab = lastActiveTab;
+
+        suppressTabHistory = true;
+        try {
+            if (currentTab != null) {
+                tabBackStack.push(currentTab);
+            }
+            // Re-add the tab to the pane
+            tabbedPane.addTab(forwardTab.getTitle(), forwardTab.getComponent());
+            int index = tabbedPane.indexOfComponent(forwardTab.getComponent());
+            tabMap.put(forwardTab.getComponent(), forwardTab);
+            addClosableTabComponent(index, forwardTab);
+            tabbedPane.setSelectedComponent(forwardTab.getComponent());
+            lastActiveTab = forwardTab;
+        } finally {
+            suppressTabHistory = false;
+        }
+        return true;
+    }
+
+    /** @return {@code true} if {@link #navigateTabBack()} would succeed. */
+    public boolean canNavigateTabBack() {
+        for (FtpTab tab : tabBackStack) {
+            if (tabbedPane.indexOfComponent(tab.getComponent()) >= 0) return true;
+        }
+        return false;
+    }
+
+    /** @return {@code true} if {@link #navigateTabForward()} would succeed. */
+    public boolean canNavigateTabForward() {
+        return !tabForwardStack.isEmpty();
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

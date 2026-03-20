@@ -405,6 +405,16 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
         loadDirectory(next, false);
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return !backHistory.isEmpty();
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return !forwardHistory.isEmpty();
+    }
+
     private void navigateUp() {
         if (currentPath.isEmpty()) return;
         // UNC path: go up one level

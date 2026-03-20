@@ -583,6 +583,16 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return !backHistory.isEmpty();
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return !forwardHistory.isEmpty();
+    }
+
     private void updateNavigationButtons() {
         if (backButton != null) {
             backButton.setEnabled(!backHistory.isEmpty());
@@ -1328,9 +1338,17 @@ public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
+                    if (canNavigateBack()) {
+                        navigateBack();
+                    } else {
+                        tabbedPaneManager.navigateTabBack();
+                    }
                 } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
+                    if (tabbedPaneManager.canNavigateTabForward()) {
+                        tabbedPaneManager.navigateTabForward();
+                    } else {
+                        navigateForward();
+                    }
                 }
             }
         });

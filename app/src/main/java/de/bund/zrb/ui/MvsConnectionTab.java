@@ -411,6 +411,16 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
         tabbedPaneManager.refreshStarForTab(this);
     }
 
+    @Override
+    public boolean canNavigateBack() {
+        return controller.canGoBack();
+    }
+
+    @Override
+    public boolean canNavigateForward() {
+        return controller.canGoForward();
+    }
+
     private void updateNavigationButtons() {
         if (backButton != null) {
             backButton.setEnabled(controller.canGoBack());
@@ -964,9 +974,17 @@ public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserCon
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.getButton() == MOUSE_BACK_BUTTON) {
-                    navigateBack();
+                    if (canNavigateBack()) {
+                        navigateBack();
+                    } else {
+                        tabbedPaneManager.navigateTabBack();
+                    }
                 } else if (e.getButton() == MOUSE_FORWARD_BUTTON) {
-                    navigateForward();
+                    if (tabbedPaneManager.canNavigateTabForward()) {
+                        tabbedPaneManager.navigateTabForward();
+                    } else {
+                        navigateForward();
+                    }
                 }
             }
         });
