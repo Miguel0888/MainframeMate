@@ -62,6 +62,11 @@ public class BrowserConnectionTab implements ConnectionTab, Navigable, Bookmarka
     public BrowserConnectionTab(String homePage) {
         mainPanel = new JPanel(new BorderLayout(0, 2));
 
+        // ── Status bar (created early so toolbar lambdas can reference it) ──
+        statusLabel = new JLabel(" ");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+
         // ── Toolbar with address bar ──────────────────────────────
         JPanel toolbar = new JPanel(new BorderLayout(4, 0));
         toolbar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -91,14 +96,35 @@ public class BrowserConnectionTab implements ConnectionTab, Navigable, Bookmarka
         addressBar = new JTextField(homePage != null ? homePage : "https://www.google.com", 40);
         addressBar.addActionListener(e -> navigateTo(addressBar.getText().trim()));
 
-        goButton = new JButton("→");
+        goButton = new JButton("\u2192");
         goButton.setToolTipText("Navigieren");
         goButton.setMargin(new Insets(2, 8, 2, 8));
         goButton.addActionListener(e -> navigateTo(addressBar.getText().trim()));
 
+        JButton openExternalBtn = new JButton("\u2197");
+        openExternalBtn.setToolTipText("Im Standard-Browser \u00f6ffnen");
+        openExternalBtn.setMargin(new Insets(2, 6, 2, 6));
+        openExternalBtn.setFocusable(false);
+        openExternalBtn.addActionListener(e -> {
+            String url = currentUrl != null && !currentUrl.isEmpty()
+                    ? currentUrl : addressBar.getText().trim();
+            if (!url.isEmpty()) {
+                try {
+                    Desktop.getDesktop().browse(new java.net.URI(url));
+                } catch (Exception ex) {
+                    LOG.log(Level.WARNING, "[Browser] Externer Browser fehlgeschlagen", ex);
+                    statusLabel.setText("\u2717 Konnte Browser nicht \u00f6ffnen: " + ex.getMessage());
+                }
+            }
+        });
+
+        JPanel eastButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        eastButtons.add(goButton);
+        eastButtons.add(openExternalBtn);
+
         toolbar.add(navButtons, BorderLayout.WEST);
         toolbar.add(addressBar, BorderLayout.CENTER);
-        toolbar.add(goButton, BorderLayout.EAST);
+        toolbar.add(eastButtons, BorderLayout.EAST);
 
         // ── Content area ──────────────────────────────────────────
         contentArea = new JTextArea();
@@ -109,10 +135,6 @@ public class BrowserConnectionTab implements ConnectionTab, Navigable, Bookmarka
         contentArea.setText("Browser wird gestartet…");
 
 
-        // ── Status bar ────────────────────────────────────────────
-        statusLabel = new JLabel(" ");
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
 
         mainPanel.add(toolbar, BorderLayout.NORTH);
         mainPanel.add(new JScrollPane(contentArea), BorderLayout.CENTER);
