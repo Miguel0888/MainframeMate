@@ -189,11 +189,14 @@ public class TabbedPaneManager {
     }
 
     public void addTab(FtpTab tab) {
+        // Populate tabMap BEFORE addTab — JTabbedPane auto-selects the first tab
+        // added to an empty pane, which fires a ChangeEvent.  The ChangeListener
+        // must be able to find the tab in tabMap to initialise lastActiveTab.
+        tabMap.put(tab.getComponent(), tab);
         tabbedPane.addTab(tab.getTitle(), tab.getComponent());
         int index = tabbedPane.indexOfComponent(tab.getComponent());
 
         addClosableTabComponent(index, tab);
-        tabMap.put(tab.getComponent(), tab);
         tabbedPane.setSelectedComponent(tab.getComponent());
     }
 
@@ -616,9 +619,9 @@ public class TabbedPaneManager {
                 tabBackStack.push(currentTab);
             }
             // Re-add the tab to the pane
+            tabMap.put(forwardTab.getComponent(), forwardTab);
             tabbedPane.addTab(forwardTab.getTitle(), forwardTab.getComponent());
             int index = tabbedPane.indexOfComponent(forwardTab.getComponent());
-            tabMap.put(forwardTab.getComponent(), forwardTab);
             addClosableTabComponent(index, forwardTab);
             tabbedPane.setSelectedComponent(forwardTab.getComponent());
             lastActiveTab = forwardTab;
