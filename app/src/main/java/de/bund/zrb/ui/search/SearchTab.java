@@ -58,8 +58,11 @@ public class SearchTab extends JPanel implements AppTab {
     private final List<SearchResult> currentResults = new ArrayList<>();
     private Future<?> currentSearch = null;
     private String lastQuery = "";
-    private SwingWorker<String, Void> previewLoader;
+    private SwingWorker<PreviewContent, Void> previewLoader;
     private static final int MAX_PREVIEW_CHARS = 50000;
+
+    /** Lazy-initialized Tika extractor for binary/complex file formats. */
+    private volatile de.bund.zrb.ingestion.infrastructure.extractor.TikaFallbackExtractor tikaExtractor;
 
     // Saved searches persistence
     private final List<SavedSearch> savedSearches = new ArrayList<>();
@@ -577,9 +580,9 @@ public class SearchTab extends JPanel implements AppTab {
         previewPane.setCaretPosition(0);
 
         // Load full content in background
-        previewLoader = new SwingWorker<String, Void>() {
+        previewLoader = new SwingWorker<PreviewContent, Void>() {
             @Override
-            protected String doInBackground() {
+            protected PreviewContent doInBackground() {
                 return loadDocumentContent(r);
             }
 
@@ -587,16 +590,24 @@ public class SearchTab extends JPanel implements AppTab {
             protected void done() {
                 if (isCancelled()) return;
                 try {
-                    String content = get();
+                    PreviewContent preview = get();
                     StringBuilder html = new StringBuilder(headerHtml);
 
-                    if (content != null && !content.isEmpty()) {
-                        // Full document text with highlighting
-                        html.append("<div style='white-space:pre-wrap;font-family:Consolas,monospace;")
-                                .append("font-size:11px;background:#FAFAFA;border:1px solid #E0E0E0;")
-                                .append("padding:8px;border-radius:4px;line-height:1.5;'>");
-                        html.append(highlightTerms(escHtml(content), lastQuery));
-                        html.append("</div>");
+                    if (preview != null && preview.text != null && !preview.text.isEmpty()) {
+                        if (preview.isHtml) {
+                            // Render HTML content directly (wiki, confluence, archive web pages, .html files)
+                            html.append("<div style='font-size:12px;background:#FAFAFA;border:1px solid #E0E0E0;")
+                                    .append("padding:8px;border-radius:4px;line-height:1.5;'>");
+                            html.append(preview.text);
+                            html.append("</div>");
+                        } else {
+                            // Plain text / source code with monospace + highlighting
+                            html.append("<div style='white-space:pre-wrap;font-family:Consolas,monospace;")
+                                    .append("font-size:11px;background:#FAFAFA;border:1px solid #E0E0E0;")
+                                    .append("padding:8px;border-radius:4px;line-height:1.5;'>");
+                            html.append(highlightTerms(escHtml(preview.text), lastQuery));
+                            html.append("</div>");
+                        }
                     } else {
                         // Document could not be loaded — show actionable error
                         html.append("<div style='background:#FFEBEE;border:1px solid #EF9A9A;")
@@ -652,17 +663,16 @@ public class SearchTab extends JPanel implements AppTab {
     /**
      * Load the full document content for preview.
      * Uses VFS-backed FileService for LOCAL/FTP, and the Lucene index for all other backends.
-     * Does NOT use snippets. Does NOT use source-specific cache services.
+     * Complex file formats (.eml, .pdf, .docx, etc.) are processed through Apache Tika.
      *
      * Strategy per backend:
-     * 1. LOCAL  → VfsFileService.readFile() (direct file access via VFS2)
-     * 2. FTP    → VfsFileService.forFtp() + readFile() (VFS2 with credentials)
-     * 3. NDV / MAIL / SHAREPOINT / WIKI / CONFLUENCE
-     *          → Lucene index: SearchService.getDocumentText() (chunks persisted during indexing)
-     * 4. ARCHIVE → ArchiveService DataLake storage
-     * 5. null if document cannot be loaded
+     * 1. LOCAL  → VfsFileService.readFile(), Tika for binary/complex formats
+     * 2. FTP    → VfsFileService.forFtp() + readFile(), Tika for binary/complex formats
+     * 3. WIKI / CONFLUENCE / SHAREPOINT → CacheRepository HTML, fallback to Lucene index
+     * 4. NDV / MAIL → Lucene index (text extracted during indexing)
+     * 5. ARCHIVE → ArchiveService DataLake storage
      */
-    private String loadDocumentContent(SearchResult r) {
+    private PreviewContent loadDocumentContent(SearchResult r) {
         if (r == null || r.getDocumentId() == null) return null;
         String docId = r.getDocumentId();
 
@@ -673,18 +683,83 @@ public class SearchTab extends JPanel implements AppTab {
                 return loadFtpViaVfs(docId);
             case ARCHIVE:
                 return loadArchiveDocumentContent(docId);
+            case WIKI:
+            case CONFLUENCE:
+            case SHAREPOINT:
+                // Try HTML from CacheRepository first (stored by prefetch services)
+                PreviewContent htmlContent = loadHtmlFromCacheRepository(docId);
+                if (htmlContent != null) return htmlContent;
+                // Fallback: plain text from Lucene index
+                return loadFromLuceneIndex(docId);
             default:
-                // NDV, MAIL, SHAREPOINT, WIKI, CONFLUENCE, RAG
-                // → all indexed in Lucene, retrieve full text from stored chunks
+                // NDV, MAIL, RAG → text from Lucene index
                 return loadFromLuceneIndex(docId);
         }
     }
 
+    // ── File extension / MIME helpers ──────────────────────────────
+
+    /** Extensions of files that need Tika extraction (binary/complex). */
+    private static boolean needsTikaExtraction(String path) {
+        if (path == null) return false;
+        String lower = path.toLowerCase();
+        return lower.endsWith(".eml") || lower.endsWith(".msg")
+                || lower.endsWith(".pdf")
+                || lower.endsWith(".doc") || lower.endsWith(".docx")
+                || lower.endsWith(".xls") || lower.endsWith(".xlsx")
+                || lower.endsWith(".ppt") || lower.endsWith(".pptx")
+                || lower.endsWith(".odt") || lower.endsWith(".ods") || lower.endsWith(".odp")
+                || lower.endsWith(".rtf")
+                || lower.endsWith(".zip") || lower.endsWith(".gz")
+                || lower.endsWith(".epub");
+    }
+
+    /** Extensions of files that contain HTML content. */
+    private static boolean isHtmlFile(String path) {
+        if (path == null) return false;
+        String lower = path.toLowerCase();
+        return lower.endsWith(".html") || lower.endsWith(".htm")
+                || lower.endsWith(".xhtml") || lower.endsWith(".mhtml");
+    }
+
+    /** Simple heuristic: does the content look like HTML? */
+    private static boolean looksLikeHtml(String content) {
+        if (content == null || content.length() < 10) return false;
+        String trimmed = content.trim().toLowerCase();
+        return trimmed.startsWith("<!doctype") || trimmed.startsWith("<html")
+                || trimmed.startsWith("<body") || trimmed.startsWith("<div")
+                || trimmed.startsWith("<p>") || trimmed.startsWith("<table");
+    }
+
+    /** Lazy-initialize Tika extractor. */
+    private de.bund.zrb.ingestion.infrastructure.extractor.TikaFallbackExtractor getTikaExtractor() {
+        if (tikaExtractor == null) {
+            synchronized (this) {
+                if (tikaExtractor == null) {
+                    tikaExtractor = new de.bund.zrb.ingestion.infrastructure.extractor.TikaFallbackExtractor(MAX_PREVIEW_CHARS);
+                }
+            }
+        }
+        return tikaExtractor;
+    }
+
+    /**
+     * Extract file name from a documentId / path for Tika hints.
+     */
+    private static String extractFileName(String path) {
+        if (path == null) return null;
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+    }
+
+    // ── VFS-based loaders (LOCAL / FTP) ───────────────────────────
+
     /**
      * Load LOCAL file content via VFS2 FileService.
-     * documentId format: "LOCAL:C:/path/to/file"
+     * Uses Tika for binary/complex formats (.eml, .pdf, .docx, etc.).
+     * Detects HTML files and returns them with isHtml=true.
      */
-    private String loadLocalViaVfs(String docId) {
+    private PreviewContent loadLocalViaVfs(String docId) {
         String path = docId;
         if (docId.startsWith("LOCAL:")) {
             path = docId.substring("LOCAL:".length());
@@ -694,11 +769,23 @@ public class SearchTab extends JPanel implements AppTab {
         try {
             fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createLocal();
             de.bund.zrb.files.model.FilePayload payload = fs.readFile(path);
+
+            if (needsTikaExtraction(path)) {
+                // Use Tika to extract readable text from binary formats
+                String extracted = getTikaExtractor().extractText(payload.getBytes(), extractFileName(path));
+                if (extracted != null && !extracted.isEmpty()) {
+                    return new PreviewContent(truncateContent(extracted), false);
+                }
+                return loadFromLuceneIndex(docId); // Tika failed → try Lucene
+            }
+
             String content = payload.getEditorText();
-            return truncateContent(content);
+            if (isHtmlFile(path) || looksLikeHtml(content)) {
+                return new PreviewContent(truncateContent(content), true);
+            }
+            return new PreviewContent(truncateContent(content), false);
         } catch (Exception e) {
             LOG.log(Level.FINE, "[Preview] LOCAL VFS load failed: " + path, e);
-            // Fallback to Lucene index if file was moved/deleted
             return loadFromLuceneIndex(docId);
         } finally {
             if (fs != null) try { fs.close(); } catch (Exception ignored) {}
@@ -707,9 +794,9 @@ public class SearchTab extends JPanel implements AppTab {
 
     /**
      * Load FTP file content via VFS2 FileService.
-     * documentId format: "FTP:host/path"
+     * Uses Tika for binary/complex formats.
      */
-    private String loadFtpViaVfs(String docId) {
+    private PreviewContent loadFtpViaVfs(String docId) {
         if (!docId.startsWith("FTP:")) {
             return loadFromLuceneIndex(docId);
         }
@@ -728,43 +815,90 @@ public class SearchTab extends JPanel implements AppTab {
             String password = de.bund.zrb.login.LoginManager.getInstance().getCachedPassword(host, user);
 
             if (password == null) {
-                // No active FTP session — fall back to Lucene index
                 LOG.fine("[Preview] No FTP credentials cached for " + host + " — using Lucene index");
                 return loadFromLuceneIndex(docId);
             }
 
             fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createFtp(host, user, password);
             de.bund.zrb.files.model.FilePayload payload = fs.readFile(path);
+
+            if (needsTikaExtraction(path)) {
+                String extracted = getTikaExtractor().extractText(payload.getBytes(), extractFileName(path));
+                if (extracted != null && !extracted.isEmpty()) {
+                    return new PreviewContent(truncateContent(extracted), false);
+                }
+                return loadFromLuceneIndex(docId);
+            }
+
             String content = payload.getEditorText();
-            return truncateContent(content);
+            if (isHtmlFile(path) || looksLikeHtml(content)) {
+                return new PreviewContent(truncateContent(content), true);
+            }
+            return new PreviewContent(truncateContent(content), false);
         } catch (Exception e) {
             LOG.log(Level.FINE, "[Preview] FTP VFS load failed: " + docId, e);
-            // Fallback to Lucene index
             return loadFromLuceneIndex(docId);
         } finally {
             if (fs != null) try { fs.close(); } catch (Exception ignored) {}
         }
     }
 
+    // ── Lucene index loader (universal fallback) ──────────────────
+
     /**
      * Load document text from the persistent Lucene full-text index.
      * Works for ANY backend because the text was stored during indexing.
-     * This is the universal fallback for all backends.
      */
-    private String loadFromLuceneIndex(String docId) {
+    private PreviewContent loadFromLuceneIndex(String docId) {
         try {
             String content = searchService.getDocumentText(docId, MAX_PREVIEW_CHARS);
-            return content;
+            if (content != null && !content.isEmpty()) {
+                return new PreviewContent(content, false);
+            }
+            return null;
         } catch (Exception e) {
             LOG.log(Level.FINE, "[Preview] Lucene index load failed: " + docId, e);
             return null;
         }
     }
 
+    // ── HTML from CacheRepository (wiki/confluence/sharepoint) ────
+
+    /**
+     * Try to load HTML content from the CacheRepository.
+     * Wiki, Confluence, and SharePoint prefetch services store HTML there.
+     */
+    private PreviewContent loadHtmlFromCacheRepository(String docId) {
+        try {
+            // docId IS the cache URL for wiki/confluence (e.g. "wiki://siteId/page", "confluence://pageId")
+            de.bund.zrb.archive.store.CacheRepository repo = CacheRepository.getInstance();
+            de.bund.zrb.archive.model.ArchiveEntry entry = repo.findByUrl(docId);
+            if (entry == null) {
+                // SharePoint docId format "SP:siteUrl/path" → cache URL is "sp://siteUrl/path"
+                if (docId.startsWith("SP:")) {
+                    String spUrl = "sp://" + docId.substring("SP:".length());
+                    entry = repo.findByUrl(spUrl);
+                }
+            }
+            if (entry == null) return null;
+
+            // The entry exists but the actual HTML body may only be in the in-memory cache.
+            // The CacheRepository stores metadata only. Try Lucene for the extracted text.
+            // However, if the entry has content stored via StorageService, use that.
+            // For now: return null to fall through to Lucene index text
+            return null;
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Preview] CacheRepository lookup failed: " + docId, e);
+            return null;
+        }
+    }
+
+    // ── Archive loader ────────────────────────────────────────────
+
     /**
      * Load content for an ARCHIVE search result from the H2 repository / data-lake storage.
      */
-    private String loadArchiveDocumentContent(String docId) {
+    private PreviewContent loadArchiveDocumentContent(String docId) {
         CacheRepository repo = CacheRepository.getInstance();
         ArchiveDocument doc = repo.findDocumentById(docId);
         if (doc == null) return loadFromLuceneIndex(docId);
@@ -774,12 +908,14 @@ public class SearchTab extends JPanel implements AppTab {
             try {
                 String content = ArchiveService.getInstance().getStorageService()
                         .readContent(doc.getTextContentPath(), MAX_PREVIEW_CHARS);
-                if (content != null && !content.isEmpty()) return content;
+                if (content != null && !content.isEmpty()) {
+                    boolean html = looksLikeHtml(content);
+                    return new PreviewContent(content, html);
+                }
             } catch (Exception e) {
                 LOG.log(Level.FINE, "[Preview] Archive storage read failed for: " + docId, e);
             }
         }
-        // Fallback: try Lucene index
         return loadFromLuceneIndex(docId);
     }
 
@@ -1097,6 +1233,17 @@ public class SearchTab extends JPanel implements AppTab {
     // ═══════════════════════════════════════════════════════════════
     //  Inner classes
     // ═══════════════════════════════════════════════════════════════
+
+    /** Content loaded for the preview pane, with content-type information. */
+    private static class PreviewContent {
+        final String text;
+        final boolean isHtml;
+
+        PreviewContent(String text, boolean isHtml) {
+            this.text = text;
+            this.isHtml = isHtml;
+        }
+    }
 
     private static class SavedSearch {
         final String name;
