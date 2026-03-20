@@ -95,12 +95,25 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
                 }
             }
 
+            // If still no password (savePassword is off / no session cache) → prompt user
+            if (user != null && !user.isEmpty() && (pass == null || pass.isEmpty())) {
+                pass = promptForPassword("Confluence \u2014 " + selected.displayName, user);
+                if (pass == null) {
+                    return; // User cancelled
+                }
+                // Store in session cache if entry allows it
+                storeInSessionIfAllowed(selected.id, user, pass);
+            }
+
             if (user == null || user.isEmpty()) {
-                JOptionPane.showMessageDialog(null,
-                        "Kein Benutzername f\u00fcr den Confluence-Eintrag hinterlegt.\n"
-                                + "Bitte unter Einstellungen \u2192 Passw\u00f6rter vervollst\u00e4ndigen.",
-                        "Fehlende Zugangsdaten", JOptionPane.WARNING_MESSAGE);
-                return;
+                // No username at all → prompt for both user and password
+                String[] prompted = promptForCredentials("Confluence \u2014 " + selected.displayName);
+                if (prompted == null) {
+                    return; // User cancelled
+                }
+                user = prompted[0];
+                pass = prompted[1];
+                storeInSessionIfAllowed(selected.id, user, pass);
             }
         } else {
             // No login required — use empty credentials (cert-only or anonymous)
@@ -298,5 +311,88 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
         text = text.replaceAll("[ \\t]+", " ");
         text = text.replaceAll("\\n{3,}", "\n\n");
         return text.trim();
+    }
+
+    // ── Credential prompt helpers ────────────────────────────────────────
+
+    /**
+     * Prompt the user for a password only (username is known).
+     *
+     * @return the password, or {@code null} if the user cancelled
+     */
+    private static String promptForPassword(String title, String knownUser) {
+        JPasswordField passField = new JPasswordField(25);
+        JPanel panel = new JPanel(new java.awt.GridBagLayout());
+        java.awt.GridBagConstraints gbc = new java.awt.GridBagConstraints();
+        gbc.insets = new java.awt.Insets(4, 4, 4, 4);
+        gbc.anchor = java.awt.GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Benutzer:"), gbc);
+        gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        JLabel userLabel = new JLabel(knownUser);
+        panel.add(userLabel, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = java.awt.GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Passwort:"), gbc);
+        gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(passField, gbc);
+
+        SwingUtilities.invokeLater(passField::requestFocusInWindow);
+
+        int result = JOptionPane.showConfirmDialog(null, panel, title,
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return null;
+
+        String password = new String(passField.getPassword());
+        return password.isEmpty() ? null : password;
+    }
+
+    /**
+     * Prompt the user for username + password.
+     *
+     * @return {@code String[]{user, password}} or {@code null} if cancelled/empty
+     */
+    private static String[] promptForCredentials(String title) {
+        JTextField userField = new JTextField(25);
+        JPasswordField passField = new JPasswordField(25);
+        JPanel panel = new JPanel(new java.awt.GridBagLayout());
+        java.awt.GridBagConstraints gbc = new java.awt.GridBagConstraints();
+        gbc.insets = new java.awt.Insets(4, 4, 4, 4);
+        gbc.anchor = java.awt.GridBagConstraints.WEST;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Benutzer:"), gbc);
+        gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(userField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = java.awt.GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Passwort:"), gbc);
+        gbc.gridx = 1; gbc.fill = java.awt.GridBagConstraints.HORIZONTAL; gbc.weightx = 1;
+        panel.add(passField, gbc);
+
+        int result = JOptionPane.showConfirmDialog(null, panel, title,
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return null;
+
+        String user = userField.getText().trim();
+        String password = new String(passField.getPassword());
+        if (user.isEmpty()) return null;
+        return new String[]{user, password};
+    }
+
+    /**
+     * Store credentials in session cache if the matching password entry allows it.
+     */
+    private static void storeInSessionIfAllowed(String entryId, String user, String password) {
+        Settings settings = SettingsHelper.load();
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if (entryId.equals(meta.id)) {
+                if (!meta.savePassword && meta.sessionCache) {
+                    CredentialStore.storeInSession("pwd:" + entryId, user, password);
+                }
+                break;
+            }
+        }
     }
 }

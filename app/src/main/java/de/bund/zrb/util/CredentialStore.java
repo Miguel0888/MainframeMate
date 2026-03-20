@@ -4,6 +4,7 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
@@ -32,12 +33,21 @@ public final class CredentialStore {
     /** Separator between username and password inside the encrypted value. */
     static final char SEPARATOR = '|';
 
+    /**
+     * RAM-only session cache for credentials that must NOT be persisted to disk.
+     * Entries are encrypted with {@link SessionCipher} (pure Java, fast).
+     * Cleared on application exit via {@link #clearSessionCache()}.
+     * Key = component key (e.g. "pwd:my_entry"), Value = SessionCipher-encrypted "user|password".
+     */
+    private static final Map<String, String> sessionCache = new HashMap<String, String>();
+
     private CredentialStore() { /* utility */ }
 
     // ── Read ────────────────────────────────────────────────────────────────
 
     /**
      * Resolve stored credentials for the given component key.
+     * Checks session cache first, then persistent storage (KeePass / encrypted file).
      *
      * @param componentKey namespaced key, e.g. {@code "wiki:wikipedia_de"}
      * @return {@code String[]{user, password}} or {@code null} if no credentials are stored
@@ -46,6 +56,13 @@ public final class CredentialStore {
      * @throws KeePassNotAvailableException if KeePass is misconfigured
      */
     public static String[] resolve(String componentKey) {
+        // 1) Check RAM-only session cache first (fast, no I/O)
+        String[] fromSession = resolveFromSessionCache(componentKey);
+        if (fromSession != null) {
+            return fromSession;
+        }
+
+        // 2) Persistent storage
         Settings settings = SettingsHelper.load();
 
         // When using KeePass and the key is a password entry, look up in KeePass
@@ -84,11 +101,19 @@ public final class CredentialStore {
      * Resolve stored credentials, returning both user and password even when the
      * username is empty. Unlike {@link #resolve(String)}, this never returns
      * {@code null} — the fallback is {@code {"", ""}}.
+     * Checks session cache first, then persistent storage.
      *
      * @param componentKey namespaced key, e.g. {@code "pwd:wikipedia_de"}
      * @return {@code String[]{user, password}} — never {@code null}
      */
     public static String[] resolveIncludingEmpty(String componentKey) {
+        // 1) Check RAM-only session cache first (fast, no I/O)
+        String[] fromSession = resolveFromSessionCache(componentKey);
+        if (fromSession != null) {
+            return fromSession;
+        }
+
+        // 2) Persistent storage
         Settings settings = SettingsHelper.load();
 
         // When using KeePass and the key is a password entry, look up in KeePass
@@ -146,6 +171,61 @@ public final class CredentialStore {
         if (settings.componentCredentials.remove(componentKey) != null) {
             SettingsHelper.save(settings);
             LOG.fine("Removed credential for '" + componentKey + "'");
+        }
+        // Also clear session cache entry
+        synchronized (sessionCache) {
+            sessionCache.remove(componentKey);
+        }
+    }
+
+    // ── Session-only cache (RAM, not persisted) ─────────────────────────────
+
+    /**
+     * Store credentials in the RAM-only session cache.
+     * These credentials are encrypted with {@link SessionCipher} and are
+     * <b>never persisted</b> to disk (not to settings.json, not to KeePass).
+     * They are lost when the application exits.
+     *
+     * @param componentKey namespaced key, e.g. {@code "pwd:my_entry"}
+     * @param user         username
+     * @param password     password (plaintext)
+     */
+    public static void storeInSession(String componentKey, String user, String password) {
+        String plain = user + SEPARATOR + password;
+        String encrypted = SessionCipher.encrypt(plain);
+        synchronized (sessionCache) {
+            sessionCache.put(componentKey, encrypted);
+        }
+        LOG.fine("Stored credential in session cache for '" + componentKey + "' user='" + user + "'");
+    }
+
+    /**
+     * Remove a single entry from the session cache.
+     *
+     * @param componentKey namespaced key
+     */
+    public static void removeFromSession(String componentKey) {
+        synchronized (sessionCache) {
+            sessionCache.remove(componentKey);
+        }
+    }
+
+    /**
+     * Clear the entire session cache. Called on application exit.
+     */
+    public static void clearSessionCache() {
+        synchronized (sessionCache) {
+            sessionCache.clear();
+        }
+        LOG.fine("Session cache cleared");
+    }
+
+    /**
+     * Check if credentials exist in the session cache for the given key.
+     */
+    public static boolean hasSessionCredentials(String componentKey) {
+        synchronized (sessionCache) {
+            return sessionCache.containsKey(componentKey);
         }
     }
 
@@ -295,6 +375,30 @@ public final class CredentialStore {
     }
 
     // ── Private helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Try to resolve credentials from the RAM-only session cache.
+     *
+     * @return {@code String[]{user, password}} or {@code null} if not cached
+     */
+    private static String[] resolveFromSessionCache(String componentKey) {
+        if (componentKey == null) return null;
+        String encrypted;
+        synchronized (sessionCache) {
+            encrypted = sessionCache.get(componentKey);
+        }
+        if (encrypted == null) return null;
+        try {
+            String decrypted = SessionCipher.decrypt(encrypted);
+            int sep = decrypted.indexOf(SEPARATOR);
+            if (sep >= 0) {
+                return new String[]{decrypted.substring(0, sep), decrypted.substring(sep + 1)};
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to decrypt session-cached credential for '" + componentKey + "'", e);
+        }
+        return null;
+    }
 
     /** Check if the password method is set to KeePass. */
     private static boolean isKeePass(Settings settings) {

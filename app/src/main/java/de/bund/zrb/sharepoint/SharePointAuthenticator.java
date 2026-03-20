@@ -331,14 +331,28 @@ public final class SharePointAuthenticator {
     /**
      * Save credentials for a specific UNC path by looking up the matching
      * SP password entry and storing via CredentialStore.
+     * Respects the entry's {@code savePassword} and {@code sessionCache} flags.
      */
     private static void saveCredentialsForSite(String uncPath, String user, String password) {
         try {
             Settings settings = SettingsHelper.load();
             String siteId = findSiteIdForUncPath(settings, uncPath);
             if (siteId != null) {
-                CredentialStore.store("pwd:" + siteId, user, password);
-                LOG.fine("[SP-Auth] Site credentials saved for " + siteId + " user: " + user);
+                // Find the entry's meta to check savePassword flag
+                Settings.PasswordEntryMeta meta = findEntryMeta(settings, siteId);
+                if (meta != null && !meta.savePassword) {
+                    // savePassword is OFF — do NOT persist password to disk
+                    // Store username with empty password so username is still available
+                    CredentialStore.store("pwd:" + siteId, user, "");
+                    if (meta.sessionCache) {
+                        CredentialStore.storeInSession("pwd:" + siteId, user, password);
+                    }
+                    LOG.fine("[SP-Auth] Site credentials cached in session for " + siteId
+                            + " user: " + user + " (savePassword=off)");
+                } else {
+                    CredentialStore.store("pwd:" + siteId, user, password);
+                    LOG.fine("[SP-Auth] Site credentials saved for " + siteId + " user: " + user);
+                }
             } else {
                 // Fallback: save as global credentials
                 saveCredentials(user, password);
@@ -347,6 +361,17 @@ public final class SharePointAuthenticator {
             LOG.log(Level.WARNING, "[SP-Auth] Failed to save site credentials", e);
             saveCredentials(user, password);
         }
+    }
+
+    /**
+     * Find the PasswordEntryMeta for a given entry ID.
+     */
+    private static Settings.PasswordEntryMeta findEntryMeta(Settings settings, String entryId) {
+        if (entryId == null || settings.passwordEntries == null) return null;
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if (entryId.equals(meta.id)) return meta;
+        }
+        return null;
     }
 
     /**

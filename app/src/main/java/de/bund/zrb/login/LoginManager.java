@@ -110,8 +110,20 @@ public class LoginManager {
             return true;
         }
 
-        // Check password entries (Hilfe → Passwörter) — entry exists means credentials are available
-        return findMainframeEntry(host, settings) != null;
+        // Check password entries (Hilfe → Passwörter)
+        Settings.PasswordEntryMeta entry = findMainframeEntry(host, settings);
+        if (entry != null) {
+            if (entry.savePassword) {
+                // Credentials are persistently stored → considered logged in
+                return true;
+            }
+            // savePassword is OFF — only "logged in" if session cache has credentials
+            if (entry.sessionCache && CredentialStore.hasSessionCredentials("pwd:" + entry.id)) {
+                return true;
+            }
+            // savePassword OFF and no session cache → not logged in
+        }
+        return false;
     }
 
     public String getPassword(String host, String username) {
@@ -246,6 +258,7 @@ public class LoginManager {
 
     public void clearCache() {
         sessionPasswordCache.clear();
+        CredentialStore.clearSessionCache();
     }
 
     public boolean verifyPassword(String host, String username, String plainPassword) {
@@ -357,6 +370,7 @@ public class LoginManager {
     /**
      * Cache credentials temporarily in RAM only (not persistent).
      * Uses {@link SessionCipher} — pure Java, fast, no JNA/PS1 dependency.
+     * Also stores in {@link CredentialStore} session cache if the entry allows it.
      */
     private void cacheCredentialsTemporarily(LoginCredentials credentials, Settings settings) {
         String password = credentials.getPassword();
@@ -364,6 +378,12 @@ public class LoginManager {
         // Encrypt with SessionCipher for RAM-only cache (fast, pure Java)
         String key = toCacheKey(credentials.getHost(), credentials.getUsername());
         sessionPasswordCache.put(key, SessionCipher.encrypt(password));
+
+        // Also store in CredentialStore session cache for password entry if applicable
+        Settings.PasswordEntryMeta entry = findMainframeEntry(credentials.getHost(), settings);
+        if (entry != null && !entry.savePassword && entry.sessionCache) {
+            CredentialStore.storeInSession("pwd:" + entry.id, credentials.getUsername(), password);
+        }
 
         // Update host/user in settings but NOT the password yet
         settings.host = credentials.getHost();
@@ -374,6 +394,7 @@ public class LoginManager {
     /**
      * Persist credentials after successful login.
      * Decrypts from RAM cache (SessionCipher), re-encrypts with WindowsCryptoUtil for disk.
+     * When savePassword is off for the entry, only caches in session (RAM) if sessionCache is on.
      */
     private void persistCredentialsAfterSuccess(String host, String username) {
         Settings settings = SettingsHelper.load();
@@ -383,10 +404,23 @@ public class LoginManager {
             return; // Nothing to persist
         }
 
+        String plainPassword = SessionCipher.decrypt(sessionPasswordCache.get(key));
+
+        // Check if there's a Mainframe password entry for this host
+        Settings.PasswordEntryMeta entry = findMainframeEntry(host, settings);
+        if (entry != null && !entry.savePassword) {
+            // savePassword is OFF — do NOT persist to disk
+            if (entry.sessionCache) {
+                // Store in CredentialStore session cache (RAM-only) for other components
+                CredentialStore.storeInSession("pwd:" + entry.id, username, plainPassword);
+            }
+            // Do NOT write encryptedPassword to settings
+            return;
+        }
+
         // Store password only if savePassword setting is enabled
         if (shouldSavePassword(host, settings) && host.equals(settings.host) && username.equals(settings.user)) {
             // Decrypt from RAM (SessionCipher) → re-encrypt for disk (WindowsCryptoUtil)
-            String plainPassword = SessionCipher.decrypt(sessionPasswordCache.get(key));
             try {
                 settings.encryptedPassword = WindowsCryptoUtil.encrypt(plainPassword);
                 SettingsHelper.save(settings);
@@ -427,6 +461,29 @@ public class LoginManager {
     private String resolveFromPasswordEntries(String host, String username, Settings settings, String cacheKey) {
         Settings.PasswordEntryMeta entry = findMainframeEntry(host, settings);
         if (entry == null) {
+            return null;
+        }
+
+        // When savePassword is OFF, we must NOT look up persistent credentials
+        // (neither KeePass nor encrypted file). Only the session cache is checked.
+        if (!entry.savePassword) {
+            // Session cache is already checked earlier in getPassword() / getCachedPassword(),
+            // but CredentialStore.resolve() also checks session cache, so it's safe to call
+            // when sessionCache is true — it will only find session-cached entries.
+            if (entry.sessionCache && CredentialStore.hasSessionCredentials("pwd:" + entry.id)) {
+                try {
+                    String[] cred = CredentialStore.resolve("pwd:" + entry.id);
+                    if (cred != null && cred.length >= 2 && cred[1] != null && !cred[1].isEmpty()) {
+                        LOG.fine("[LoginManager] Resolved password from session cache for entry '"
+                                + entry.id + "' host " + host);
+                        return cred[1];
+                    }
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "Failed to resolve session-cached password for '"
+                            + entry.id + "'", e);
+                }
+            }
+            // savePassword=OFF and no session cache hit → return null → will prompt user
             return null;
         }
 

@@ -81,11 +81,17 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             LOG.fine("[Wiki] CredentialsCallback for site '" + siteKey + "' credKey='" + credKey + "'");
             try {
                 String[] cred = de.bund.zrb.util.CredentialStore.resolveIncludingEmpty(credKey);
-                if (cred != null) {
+                if (cred != null && !cred[0].isEmpty() && !cred[1].isEmpty()) {
                     LOG.fine("[Wiki] Resolved credentials: user='" + cred[0] + "' for site '" + siteKey + "'");
                     return new WikiCredentials(cred[0], cred[1].toCharArray());
                 }
-                LOG.fine("[Wiki] No credentials stored for site '" + siteKey + "'");
+                // Username present but password empty → savePassword is off → return null
+                // so the dialog prompt is shown for password entry
+                if (cred != null && !cred[0].isEmpty()) {
+                    LOG.fine("[Wiki] Username found but password empty for site '" + siteKey
+                            + "' (savePassword=off) → will prompt for password");
+                }
+                LOG.fine("[Wiki] No (complete) credentials stored for site '" + siteKey + "'");
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
@@ -99,13 +105,29 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         });
 
         // Wire up save callback: when user enters credentials via the login prompt,
-        // encrypt and persist them to componentCredentials via CredentialStore
+        // encrypt and persist them to componentCredentials via CredentialStore —
+        // but only if the entry has savePassword enabled. Otherwise use session cache.
         tab.setCredentialsSaveCallback((siteId, username, password) -> {
             try {
-                de.bund.zrb.util.CredentialStore.store(
-                        "pwd:" + siteId.value(),
-                        username, password);
-                LOG.info("[Wiki] Credentials saved for site '" + siteId.value() + "' user='" + username + "'");
+                String entryKey = siteId.value();
+                Settings.PasswordEntryMeta meta = findPasswordEntryMeta(entryKey);
+                if (meta != null && !meta.savePassword) {
+                    // savePassword is OFF — do NOT persist to disk
+                    if (meta.sessionCache) {
+                        de.bund.zrb.util.CredentialStore.storeInSession(
+                                "pwd:" + entryKey, username, password);
+                        LOG.info("[Wiki] Credentials stored in session cache for site '"
+                                + entryKey + "' user='" + username + "'");
+                    } else {
+                        LOG.info("[Wiki] Credentials NOT stored (savePassword=off, sessionCache=off) for site '"
+                                + entryKey + "'");
+                    }
+                } else {
+                    // savePassword is ON or no matching entry → persist normally
+                    de.bund.zrb.util.CredentialStore.store(
+                            "pwd:" + entryKey, username, password);
+                    LOG.info("[Wiki] Credentials saved for site '" + entryKey + "' user='" + username + "'");
+                }
             } catch (de.bund.zrb.util.JnaBlockedException e) {
                 throw e; // must not be swallowed — user needs to switch password method
             } catch (de.bund.zrb.util.PowerShellBlockedException e) {
@@ -323,9 +345,10 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             // Resolve from central password store (pwd:<id>)
             String[] cred = de.bund.zrb.util.CredentialStore.resolveIncludingEmpty(
                     "pwd:" + siteId.value());
-            if (cred != null && !cred[0].isEmpty()) {
+            if (cred != null && !cred[0].isEmpty() && !cred[1].isEmpty()) {
                 return new WikiCredentials(cred[0], cred[1].toCharArray());
             }
+            // Username present but password empty → savePassword is off, no session cache
         } catch (de.bund.zrb.util.JnaBlockedException e) {
             throw e; // must not be swallowed — user needs to switch password method
         } catch (de.bund.zrb.util.PowerShellBlockedException e) {
@@ -351,5 +374,21 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
         text = text.replaceAll("[ \\t]+", " ");
         text = text.replaceAll("\\n{3,}", "\n\n");
         return text.trim();
+    }
+
+    /**
+     * Find the PasswordEntryMeta for a given entry ID from settings.
+     *
+     * @return the matching meta, or {@code null} if not found
+     */
+    private static Settings.PasswordEntryMeta findPasswordEntryMeta(String entryId) {
+        if (entryId == null) return null;
+        Settings settings = SettingsHelper.load();
+        for (Settings.PasswordEntryMeta meta : settings.passwordEntries) {
+            if (entryId.equals(meta.id)) {
+                return meta;
+            }
+        }
+        return null;
     }
 }

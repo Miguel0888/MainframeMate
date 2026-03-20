@@ -1450,16 +1450,43 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         settings.passwordEntries.add(meta);
         SettingsHelper.save(settings);
 
-        CredentialStore.store(PWD_PREFIX + entry.title, entry.userName, entry.password);
+        if (entry.savePassword) {
+            // Persist credentials to disk (encrypted in componentCredentials)
+            CredentialStore.store(PWD_PREFIX + entry.title, entry.userName, entry.password);
+        } else {
+            // savePassword is OFF — persist only the username (with empty password)
+            // so other components can still resolve the username for dialog prefill.
+            // The actual password is NEVER persisted to disk.
+            CredentialStore.store(PWD_PREFIX + entry.title, entry.userName, "");
+
+            if (entry.sessionCache && entry.password != null && !entry.password.isEmpty()) {
+                // Store in RAM-only session cache (lost on app exit)
+                CredentialStore.storeInSession(PWD_PREFIX + entry.title, entry.userName, entry.password);
+            }
+        }
     }
 
     private static void saveToKeePass(KeePassEntry entry) {
-        // Try update first (works for new entries too — addLogin fallback inside)
-        CredentialStore.updateKeePassEntry(
-                entry.title, entry.userName, entry.password, entry.url,
-                entry.displayName, entry.category,
-                entry.requiresLogin, entry.useProxy, entry.autoIndex,
-                entry.certAlias);
+        if (entry.savePassword) {
+            // Persist credentials (user+password) to KeePass
+            CredentialStore.updateKeePassEntry(
+                    entry.title, entry.userName, entry.password, entry.url,
+                    entry.displayName, entry.category,
+                    entry.requiresLogin, entry.useProxy, entry.autoIndex,
+                    entry.certAlias);
+        } else {
+            // Save metadata to KeePass but with empty password
+            CredentialStore.updateKeePassEntry(
+                    entry.title, entry.userName, "", entry.url,
+                    entry.displayName, entry.category,
+                    entry.requiresLogin, entry.useProxy, entry.autoIndex,
+                    entry.certAlias);
+
+            if (entry.sessionCache && entry.password != null && !entry.password.isEmpty()) {
+                // Store in RAM-only session cache (lost on app exit)
+                CredentialStore.storeInSession(PWD_PREFIX + entry.title, entry.userName, entry.password);
+            }
+        }
 
         // Also persist metadata (without credentials) to settings.passwordEntries
         // so that other components (e.g. parseWikiSites) can discover entries.
