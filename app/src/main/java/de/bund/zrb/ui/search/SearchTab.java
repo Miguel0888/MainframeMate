@@ -39,8 +39,8 @@ public class SearchTab extends JPanel implements AppTab {
     private final JEditorPane previewPane;
     private final JLabel statusLabel;
 
-    // Source filter checkboxes
-    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbArchive, cbSharePoint, cbWiki, cbConfluence;
+    // Source filter checkboxes (Archiv removed — cache is transparent)
+    private final JCheckBox cbLocal, cbFtp, cbNdv, cbMail, cbSharePoint, cbWiki, cbConfluence;
     private final JLabel ragStatusLabel;
 
     // Sorting
@@ -121,7 +121,6 @@ public class SearchTab extends JPanel implements AppTab {
         cbFtp = new JCheckBox("\uD83C\uDF10 FTP", true);
         cbNdv = new JCheckBox("\uD83D\uDD17 NDV", true);
         cbMail = new JCheckBox("\uD83D\uDCE7 Mail", true);
-        cbArchive = new JCheckBox("\uD83D\uDCE6 Archiv", true);
         cbSharePoint = new JCheckBox("\uD83D\uDCCA SP", true);
         cbWiki = new JCheckBox("\uD83D\uDCD6 Wiki", true);
         cbConfluence = new JCheckBox("\uD83D\uDCD3 Confluence", true);
@@ -135,7 +134,6 @@ public class SearchTab extends JPanel implements AppTab {
         cbFtp.addItemListener(saveOnToggle);
         cbNdv.addItemListener(saveOnToggle);
         cbMail.addItemListener(saveOnToggle);
-        cbArchive.addItemListener(saveOnToggle);
         cbSharePoint.addItemListener(saveOnToggle);
         cbWiki.addItemListener(saveOnToggle);
         cbConfluence.addItemListener(saveOnToggle);
@@ -153,7 +151,6 @@ public class SearchTab extends JPanel implements AppTab {
         sourcePanel.add(cbFtp);
         sourcePanel.add(cbNdv);
         sourcePanel.add(cbMail);
-        sourcePanel.add(cbArchive);
         sourcePanel.add(cbSharePoint);
         sourcePanel.add(cbWiki);
         sourcePanel.add(cbConfluence);
@@ -457,9 +454,23 @@ public class SearchTab extends JPanel implements AppTab {
                     long elapsed = System.currentTimeMillis() - startTime;
                     int sem = de.bund.zrb.rag.service.RagService.getInstance().getSemanticIndexSize();
                     String mode = sem > 0 ? "Hybrid (BM25 + " + sem + " Embeddings)" : "BM25";
+
+                    // Show warnings from live backend searches (e.g. "not yet implemented")
+                    List<String> warnings = searchService.getLastSearchWarnings();
+                    String warnSuffix = "";
+                    if (warnings != null && !warnings.isEmpty()) {
+                        StringBuilder wb = new StringBuilder();
+                        for (String w : warnings) {
+                            if (wb.length() > 0) wb.append(" | ");
+                            wb.append(w);
+                        }
+                        warnSuffix = "  ⚠ " + wb.toString();
+                    }
+
                     statusLabel.setText("\u2705 " + results.size() + " Ergebnis(se) in "
-                            + elapsed + " ms (" + mode + ")");
-                    statusLabel.setForeground(new Color(76, 175, 80));
+                            + elapsed + " ms (" + mode + ")" + warnSuffix);
+                    statusLabel.setForeground(warnings != null && !warnings.isEmpty()
+                            ? new Color(255, 152, 0) : new Color(76, 175, 80));
 
                     if (results.isEmpty()) {
                         statusLabel.setText("Keine Ergebnisse f\u00fcr: \"" + query
@@ -506,7 +517,6 @@ public class SearchTab extends JPanel implements AppTab {
         if (cbFtp.isSelected()) sources.add(SearchResult.SourceType.FTP);
         if (cbNdv.isSelected()) sources.add(SearchResult.SourceType.NDV);
         if (cbMail.isSelected()) sources.add(SearchResult.SourceType.MAIL);
-        if (cbArchive.isSelected()) sources.add(SearchResult.SourceType.ARCHIVE);
         if (cbSharePoint.isSelected()) sources.add(SearchResult.SourceType.SHAREPOINT);
         if (cbWiki.isSelected()) sources.add(SearchResult.SourceType.WIKI);
         if (cbConfluence.isSelected()) sources.add(SearchResult.SourceType.CONFLUENCE);
@@ -1210,7 +1220,6 @@ public class SearchTab extends JPanel implements AppTab {
         state.put("search.source.ftp", String.valueOf(cbFtp.isSelected()));
         state.put("search.source.ndv", String.valueOf(cbNdv.isSelected()));
         state.put("search.source.mail", String.valueOf(cbMail.isSelected()));
-        state.put("search.source.archive", String.valueOf(cbArchive.isSelected()));
         state.put("search.source.sharepoint", String.valueOf(cbSharePoint.isSelected()));
         state.put("search.source.wiki", String.valueOf(cbWiki.isSelected()));
         state.put("search.source.confluence", String.valueOf(cbConfluence.isSelected()));
@@ -1224,7 +1233,6 @@ public class SearchTab extends JPanel implements AppTab {
         if (state.containsKey("search.source.ftp")) cbFtp.setSelected(Boolean.parseBoolean(state.get("search.source.ftp")));
         if (state.containsKey("search.source.ndv")) cbNdv.setSelected(Boolean.parseBoolean(state.get("search.source.ndv")));
         if (state.containsKey("search.source.mail")) cbMail.setSelected(Boolean.parseBoolean(state.get("search.source.mail")));
-        if (state.containsKey("search.source.archive")) cbArchive.setSelected(Boolean.parseBoolean(state.get("search.source.archive")));
         if (state.containsKey("search.source.sharepoint")) cbSharePoint.setSelected(Boolean.parseBoolean(state.get("search.source.sharepoint")));
         if (state.containsKey("search.source.wiki")) cbWiki.setSelected(Boolean.parseBoolean(state.get("search.source.wiki")));
         if (state.containsKey("search.source.confluence")) cbConfluence.setSelected(Boolean.parseBoolean(state.get("search.source.confluence")));

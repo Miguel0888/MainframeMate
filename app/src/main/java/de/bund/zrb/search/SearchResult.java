@@ -11,6 +11,7 @@ public class SearchResult implements Comparable<SearchResult> {
         NDV("🔗", "NDV"),
         MAIL("📧", "Mail"),
         RAG("🤖", "RAG"),
+        /** @deprecated Cache is transparent — entries appear under their real source type. */
         ARCHIVE("📦", "Archiv"),
         SHAREPOINT("📊", "SharePoint"),
         WIKI("📖", "Wiki"),

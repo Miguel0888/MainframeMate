@@ -1,7 +1,5 @@
 package de.bund.zrb.search;
 
-import de.bund.zrb.archive.model.ArchiveDocument;
-import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.rag.model.Chunk;
 import de.bund.zrb.rag.model.ScoredChunk;
 import de.bund.zrb.rag.service.RagService;
@@ -13,14 +11,21 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Central search service that queries the Lucene index across all source types.
+ * Central search service that queries the Lucene index across all source types
+ * and dispatches live backend searches in parallel.
  *
- * Features:
- * - Parallel search across multiple source categories
- * - BM25 full-text search (Lucene)
- * - Optional RAG hybrid search (BM25 + embeddings)
- * - Streaming results via callback (results appear as found)
- * - Snippet extraction with query highlighting
+ * <p>The cache is <b>transparent</b>: every cached entry is found under its
+ * real source type (WIKI, CONFLUENCE, FTP, …), not as a separate "Archive".
+ * Connected backends supplement the Lucene index with live API search results
+ * so that even non-indexed content can be discovered.
+ *
+ * <h3>Search pipeline</h3>
+ * <ol>
+ *   <li>Lucene BM25 full-text search (covers all indexed/cached content)</li>
+ *   <li>Optional RAG hybrid search (BM25 + embeddings)</li>
+ *   <li>Parallel live backend searches via registered {@link BackendSearchProvider}s</li>
+ *   <li>Merge, deduplicate, sort by score</li>
+ * </ol>
  */
 public class SearchService {
 
@@ -29,6 +34,13 @@ public class SearchService {
     private static volatile SearchService instance;
 
     private final ExecutorService executor;
+
+    /** Registered live-search backend providers (one per SourceType). */
+    private final ConcurrentHashMap<SearchResult.SourceType, BackendSearchProvider> backendProviders =
+            new ConcurrentHashMap<SearchResult.SourceType, BackendSearchProvider>();
+
+    /** Warnings from the last search (e.g. "Mail: not yet implemented"). Thread-confined to caller. */
+    private volatile List<String> lastSearchWarnings = Collections.emptyList();
 
     private SearchService() {
         this.executor = Executors.newFixedThreadPool(4, r -> {
@@ -45,6 +57,41 @@ public class SearchService {
         return instance;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  Backend provider registry
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Register a live backend search provider for a specific source type.
+     * Replaces any previously registered provider for that type.
+     */
+    public void registerBackendSearchProvider(BackendSearchProvider provider) {
+        if (provider != null && provider.getSourceType() != null) {
+            backendProviders.put(provider.getSourceType(), provider);
+            LOG.info("[Search] Registered backend search provider: " + provider.getSourceType());
+        }
+    }
+
+    /**
+     * Unregister a live backend search provider.
+     */
+    public void unregisterBackendSearchProvider(SearchResult.SourceType type) {
+        if (type != null) {
+            backendProviders.remove(type);
+        }
+    }
+
+    /**
+     * Get warnings from the last search (e.g. "not yet implemented" for certain backends).
+     */
+    public List<String> getLastSearchWarnings() {
+        return lastSearchWarnings;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Search API
+    // ═══════════════════════════════════════════════════════════════
+
     /**
      * Search across all enabled sources.
      *
@@ -59,9 +106,10 @@ public class SearchService {
                                                     int maxResults, boolean useRag,
                                                     Consumer<List<SearchResult>> onResult) {
         return executor.submit(() -> {
+            List<String> warnings = new ArrayList<String>();
             List<SearchResult> allResults = new ArrayList<>();
 
-            // Always start with Lucene BM25 (finds ALL indexed documents)
+            // ── 1. Lucene BM25 (finds ALL indexed/cached documents) ──
             try {
                 List<SearchResult> lexResults = searchLucene(query, maxResults);
                 if (!lexResults.isEmpty()) {
@@ -73,16 +121,12 @@ public class SearchService {
                 LOG.log(Level.WARNING, "[Search] Lucene search failed", e);
             }
 
-            // Additionally run semantic search if embeddings are available
-            // Semantic results boost documents that have embeddings;
-            // documents without embeddings are simply not in the semantic index
-            // and keep their lexical-only score.
+            // ── 2. Optional semantic/RAG search ──
             if (isSemanticAvailable()) {
                 try {
                     List<SearchResult> semResults = searchRag(query, maxResults);
                     if (!semResults.isEmpty()) {
                         List<SearchResult> tagged = tagBySource(semResults, sources);
-                        // Merge: boost scores for docs found in both
                         mergeSemanticInto(allResults, tagged);
                     }
                 } catch (Exception e) {
@@ -90,18 +134,74 @@ public class SearchService {
                 }
             }
 
-            // Search the Archive (ArchiveDocuments) if ARCHIVE source is selected
-            if (sources.contains(SearchResult.SourceType.ARCHIVE)) {
-                try {
-                    List<SearchResult> archiveResults = searchArchive(query, maxResults);
-                    allResults.addAll(archiveResults);
-                    if (onResult != null && !archiveResults.isEmpty()) {
-                        onResult.accept(archiveResults);
+            // ── 3. Parallel live backend searches ──
+            List<Future<List<SearchResult>>> liveFutures = new ArrayList<Future<List<SearchResult>>>();
+            final List<SearchResult.SourceType> liveTypes = new ArrayList<SearchResult.SourceType>();
+
+            for (final SearchResult.SourceType src : sources) {
+                // Skip types that don't have live backends or are not yet implemented
+                if (src == SearchResult.SourceType.RAG) continue;
+                // ARCHIVE is no longer a separate search path — it's transparent
+                if (src == SearchResult.SourceType.ARCHIVE) continue;
+
+                // Check for "not yet implemented" backends
+                if (src == SearchResult.SourceType.MAIL) {
+                    warnings.add("\uD83D\uDCE7 Mail-Suche: noch nicht implementiert");
+                    continue;
+                }
+                if (src == SearchResult.SourceType.SHAREPOINT) {
+                    warnings.add("\uD83D\uDCCA SharePoint-Suche: noch nicht implementiert");
+                    continue;
+                }
+
+                BackendSearchProvider provider = backendProviders.get(src);
+                if (provider == null || !provider.isAvailable()) continue;
+
+                liveTypes.add(src);
+                final BackendSearchProvider p = provider;
+                final int max = maxResults;
+                liveFutures.add(executor.submit(new Callable<List<SearchResult>>() {
+                    @Override
+                    public List<SearchResult> call() throws Exception {
+                        return p.search(query, max);
                     }
+                }));
+            }
+
+            // Collect live results (with timeout per provider)
+            for (int i = 0; i < liveFutures.size(); i++) {
+                SearchResult.SourceType src = liveTypes.get(i);
+                try {
+                    List<SearchResult> liveResults = liveFutures.get(i).get(20, TimeUnit.SECONDS);
+                    if (liveResults != null && !liveResults.isEmpty()) {
+                        // Merge: skip duplicates (same documentId)
+                        Set<String> existingIds = new HashSet<String>();
+                        for (SearchResult r : allResults) {
+                            existingIds.add(r.getDocumentId());
+                        }
+                        List<SearchResult> newResults = new ArrayList<SearchResult>();
+                        for (SearchResult lr : liveResults) {
+                            if (!existingIds.contains(lr.getDocumentId())) {
+                                newResults.add(lr);
+                            }
+                        }
+                        allResults.addAll(newResults);
+                        if (onResult != null && !newResults.isEmpty()) {
+                            onResult.accept(newResults);
+                        }
+                        LOG.fine("[Search] Live " + src + ": " + liveResults.size()
+                                + " total, " + newResults.size() + " new");
+                    }
+                } catch (TimeoutException te) {
+                    warnings.add(src.getLabel() + ": Zeitüberschreitung bei Live-Suche");
+                    LOG.warning("[Search] Live " + src + " timed out");
                 } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[Search] Archive search failed", e);
+                    warnings.add(src.getLabel() + ": " + e.getMessage());
+                    LOG.log(Level.WARNING, "[Search] Live " + src + " failed", e);
                 }
             }
+
+            lastSearchWarnings = warnings;
 
             // Sort all results by score
             Collections.sort(allResults);
@@ -156,43 +256,6 @@ public class SearchService {
         } catch (Exception e) {
             return false;
         }
-    }
-
-    /**
-     * Search the Archive (ArchiveDocuments from H2 database).
-     * Converts matches to SearchResult with ARCHIVE source typSchluessel.
-     */
-    private List<SearchResult> searchArchive(String query, int maxResults) {
-        List<SearchResult> results = new ArrayList<>();
-        try {
-            CacheRepository repo = CacheRepository.getInstance();
-            List<ArchiveDocument> docs = repo.searchDocuments(query, null, maxResults);
-            for (ArchiveDocument doc : docs) {
-                String snippet = doc.getExcerpt() != null ? doc.getExcerpt() : "";
-                if (snippet.length() > 300) snippet = snippet.substring(0, 300) + "…";
-                String title = doc.getTitle() != null ? doc.getTitle() : "(kein Titel)";
-                String host = doc.getHost() != null ? doc.getHost() : "";
-                // Score: simple relevance heuristic (title match > excerpt match)
-                float score = 1.0f;
-                String lq = query.toLowerCase();
-                if (title.toLowerCase().contains(lq)) score += 0.5f;
-                if (snippet.toLowerCase().contains(lq)) score += 0.3f;
-
-                results.add(new SearchResult(
-                        SearchResult.SourceType.ARCHIVE,
-                        doc.getDocId(),
-                        title,
-                        host,
-                        snippet,
-                        score,
-                        doc.getDocId(),
-                        doc.getKind()
-                ));
-            }
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[Search] Archive search failed", e);
-        }
-        return results;
     }
 
     /**

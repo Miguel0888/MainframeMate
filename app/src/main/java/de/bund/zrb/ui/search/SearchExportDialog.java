@@ -12,8 +12,10 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * Modal dialog for exporting search index + archive data to a ZIP file.
+ * Modal dialog for exporting search index + cache data to a ZIP file.
  * User selects which source types to include; MAIL is deselected by default.
+ * Cache data (H2 database + snapshots) is always included because the cache
+ * is transparent — every entry belongs to its real source type.
  */
 public final class SearchExportDialog extends JDialog {
 
@@ -21,7 +23,6 @@ public final class SearchExportDialog extends JDialog {
     private final JCheckBox cbFtp     = new JCheckBox("🌐 FTP", true);
     private final JCheckBox cbNdv     = new JCheckBox("🔗 NDV", true);
     private final JCheckBox cbMail    = new JCheckBox("📧 Mail", false); // default OFF
-    private final JCheckBox cbArchive = new JCheckBox("📦 Archiv", true);
 
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JLabel statusLabel = new JLabel("Bereit.");
@@ -57,12 +58,11 @@ public final class SearchExportDialog extends JDialog {
         sourcePanel.add(cbFtp);
         sourcePanel.add(cbNdv);
         sourcePanel.add(cbMail);
-        sourcePanel.add(cbArchive);
 
         JPanel info = new JPanel(new BorderLayout(4, 4));
         info.add(sourcePanel, BorderLayout.CENTER);
         JLabel hint = new JLabel("<html><small>Der Lucene-Index wird immer vollständig exportiert.<br>"
-                + "Archiv-Snapshots und Datenbank nur bei aktiviertem \"Archiv\".</small></html>");
+                + "Cache-Daten (Datenbank + Snapshots) werden automatisch einbezogen.</small></html>");
         hint.setBorder(new EmptyBorder(6, 4, 0, 0));
         info.add(hint, BorderLayout.SOUTH);
 
@@ -99,7 +99,8 @@ public final class SearchExportDialog extends JDialog {
         if (cbFtp.isSelected())     types.add("FTP");
         if (cbNdv.isSelected())     types.add("NDV");
         if (cbMail.isSelected())    types.add("MAIL");
-        if (cbArchive.isSelected()) types.add("ARCHIVE");
+        // Cache data is always exported (transparent cache)
+        types.add("ARCHIVE");
         return types;
     }
 
@@ -245,6 +246,5 @@ public final class SearchExportDialog extends JDialog {
         cbFtp.setEnabled(enabled);
         cbNdv.setEnabled(enabled);
         cbMail.setEnabled(enabled);
-        cbArchive.setEnabled(enabled);
     }
 }

@@ -73,6 +73,12 @@ public class OpenWebMenuCommand extends ShortcutMenuCommand {
             return resolveCredentials(siteId);
         });
 
+        // Register live wiki search provider so the global search can delegate to the Wiki API
+        de.bund.zrb.search.SearchService.getInstance().registerBackendSearchProvider(
+                new de.bund.zrb.search.provider.WikiSearchProvider(service, siteId -> {
+                    return resolveCredentials(siteId);
+                }));
+
         // Wire up credentials callback: resolves encrypted credentials from componentCredentials
         // (loads settings fresh each time to pick up credentials set after tab was opened)
         tab.setCredentialsCallback(siteId -> {

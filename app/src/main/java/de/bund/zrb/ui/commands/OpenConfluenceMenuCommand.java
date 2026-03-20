@@ -130,6 +130,10 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
 
             ConfluenceConnectionTab tab = new ConfluenceConnectionTab(client, selected.url);
 
+            // Register live Confluence search provider so the global search can delegate CQL queries
+            de.bund.zrb.search.SearchService.getInstance().registerBackendSearchProvider(
+                    new de.bund.zrb.search.provider.ConfluenceSearchProvider(client, selected.url));
+
             // Wire up prefetch: cache search results in the background
             try {
                 de.bund.zrb.archive.store.CacheRepository cacheRepo =
