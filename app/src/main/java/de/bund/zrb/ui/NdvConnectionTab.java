@@ -13,6 +13,7 @@ import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.service.NdvSourceCacheService;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -38,7 +39,7 @@ import java.util.List;
  * 1. Libraries (root) - list of Natural libraries
  * 2. Objects - list of Natural objects in a library
  */
-public class NdvConnectionTab implements ConnectionTab {
+public class NdvConnectionTab implements ConnectionTab, Navigable {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
@@ -411,7 +412,8 @@ public class NdvConnectionTab implements ConnectionTab {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         if (historyIndex > 0) {
             historyIndex--;
             String path = history.get(historyIndex);
@@ -431,7 +433,8 @@ public class NdvConnectionTab implements ConnectionTab {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         if (historyIndex < history.size() - 1) {
             historyIndex++;
             String path = history.get(historyIndex);

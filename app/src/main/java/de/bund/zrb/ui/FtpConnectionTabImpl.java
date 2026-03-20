@@ -12,6 +12,7 @@ import de.bund.zrb.service.FtpSourceCacheService;
 import de.bund.zrb.ui.browser.BrowserSessionState;
 import de.bund.zrb.ui.browser.PathNavigator;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -30,7 +31,7 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 
-public class FtpConnectionTabImpl implements ConnectionTab {
+public class FtpConnectionTabImpl implements ConnectionTab, Navigable {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
@@ -574,7 +575,8 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         navigateTo(path, true);
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         browserState.back();
         pathField.setText(browserState.getCurrentPath());
         updateNavigationButtons();
@@ -583,7 +585,8 @@ public class FtpConnectionTabImpl implements ConnectionTab {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         browserState.forward();
         pathField.setText(browserState.getCurrentPath());
         updateNavigationButtons();

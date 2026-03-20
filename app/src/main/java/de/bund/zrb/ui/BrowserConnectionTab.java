@@ -10,6 +10,7 @@ import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.browser.NavigationResult;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -26,7 +27,7 @@ import java.util.regex.Pattern;
  * Provides an address bar for navigation, displays extracted page text content,
  * and shows extracted links and a document outline in the left drawer.
  */
-public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
+public class BrowserConnectionTab implements ConnectionTab, Navigable, Bookmarkable {
 
     private static final Logger LOG = Logger.getLogger(BrowserConnectionTab.class.getName());
 
@@ -280,7 +281,8 @@ public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
         }.execute();
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         if (historyIndex > 0) {
             historyIndex--;
             String url = history.get(historyIndex);
@@ -288,7 +290,8 @@ public class BrowserConnectionTab implements ConnectionTab, Bookmarkable {
         }
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         if (historyIndex < history.size() - 1) {
             historyIndex++;
             String url = history.get(historyIndex);

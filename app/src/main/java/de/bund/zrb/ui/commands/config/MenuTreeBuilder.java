@@ -41,6 +41,8 @@ public class MenuTreeBuilder {
         ));
         // Navigieren-Menü Reihenfolge
         SUBMENU_ORDER.put("navigate", Arrays.asList(
+                "back", "forward",
+                "---1",
                 "searchEverywhere"
         ));
         // Bearbeiten-Menü Reihenfolge

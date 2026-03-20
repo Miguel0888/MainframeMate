@@ -361,8 +361,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             savePwCb.setSelected(existing.savePassword);
             sessionCb.setSelected(existing.sessionCache);
         } else {
-            // Default: Confluence entries require login
+            // Defaults for new entries
             loginCb.setSelected(true);
+            savePwCb.setSelected(true);
         }
 
         // Show/hide password toggle
@@ -641,12 +642,31 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.INFORMATION_MESSAGE,
                         null,
-                        new String[]{"Ohne Zertifikat speichern", "Zurück zum Bearbeiten"},
-                        "Zurück zum Bearbeiten");
+                        new String[]{"Ohne Zertifikat speichern", "Zur\u00fcck zum Bearbeiten"},
+                        "Zur\u00fcck zum Bearbeiten");
                 if (choice != 0) {
                     return; // dialog stays open — user can add cert
                 }
                 // User explicitly chose to continue without cert
+            }
+
+            // Warning when disabling "PW speichern" on an existing entry
+            // that previously had a saved password
+            if (existing != null && existing.savePassword && !savePwCb.isSelected()) {
+                int choice = JOptionPane.showOptionDialog(dialog,
+                        "Sie haben \u201ePW speichern\u201c deaktiviert.\n\n"
+                                + "Das gespeicherte Passwort wird aus dem Keystore\n"
+                                + "bzw. der Einstellungsdatei gel\u00f6scht.\n\n"
+                                + "M\u00f6chten Sie fortfahren?",
+                        "Passwort l\u00f6schen",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE,
+                        null,
+                        new String[]{"Passwort l\u00f6schen", "Zur\u00fcck"},
+                        "Zur\u00fcck");
+                if (choice != 0) {
+                    return; // dialog stays open
+                }
             }
 
             confirmed[0] = true;

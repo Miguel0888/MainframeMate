@@ -7,6 +7,7 @@ import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.security.SecurityFilterService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -32,7 +33,7 @@ import java.util.List;
  * - Security integration (whitelist/blacklist)
  * - File operations (new folder, new member, delete)
  */
-public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.BrowserListener {
+public class MvsConnectionTab implements ConnectionTab, Navigable, MvsBrowserController.BrowserListener {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
@@ -385,7 +386,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         tabbedPaneManager.refreshStarForTab(this);
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         if (!controller.canGoBack()) {
             showOverlayMessage("Bitte HLQ eingeben (z.B. BENUTZERKENNUNG)", Color.GRAY);
             return;
@@ -397,7 +399,8 @@ public class MvsConnectionTab implements ConnectionTab, MvsBrowserController.Bro
         tabbedPaneManager.refreshStarForTab(this);
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         if (!controller.canGoForward()) {
             return;
         }

@@ -14,6 +14,7 @@ import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -35,7 +36,7 @@ import java.util.regex.Pattern;
  * Navigation hierarchy:
  *   Mailbox list → Category page (Mail/Kalender/…) → Folder list → Messages (paged)
  */
-public class MailConnectionTab implements ConnectionTab {
+public class MailConnectionTab implements ConnectionTab, Navigable {
 
     private static final Logger LOG = Logger.getLogger(MailConnectionTab.class.getName());
     private static final int MOUSE_BACK_BUTTON = 4;
@@ -301,14 +302,16 @@ public class MailConnectionTab implements ConnectionTab {
         updateNavigationButtons();
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         if (backHistory.isEmpty()) return;
         forwardHistory.add(encodeState());
         restoreState(backHistory.remove(backHistory.size() - 1));
         updateNavigationButtons();
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         if (forwardHistory.isEmpty()) return;
         backHistory.add(encodeState());
         restoreState(forwardHistory.remove(forwardHistory.size() - 1));

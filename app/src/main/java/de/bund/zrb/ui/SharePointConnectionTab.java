@@ -15,6 +15,7 @@ import de.bund.zrb.sharepoint.SharePointSite;
 import de.bund.zrb.sharepoint.SharePointSiteStore;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -48,7 +49,7 @@ import java.util.logging.Logger;
  * (via {@link SharePointCacheService}) so they become searchable through
  * SearchEverywhere with the "SP" prefix.
  */
-public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
+public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookmarkable {
 
     private static final Logger LOG = Logger.getLogger(SharePointConnectionTab.class.getName());
     private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("dd.MM.yyyy HH:mm");
@@ -388,14 +389,16 @@ public class SharePointConnectionTab implements ConnectionTab, Bookmarkable {
         }.execute();
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         if (backHistory.isEmpty()) return;
         forwardHistory.add(currentPath);
         String prev = backHistory.remove(backHistory.size() - 1);
         loadDirectory(prev, false);
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         if (forwardHistory.isEmpty()) return;
         backHistory.add(currentPath);
         String next = forwardHistory.remove(forwardHistory.size() - 1);

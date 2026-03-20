@@ -12,6 +12,7 @@ import de.bund.zrb.security.SecurityFilterService;
 import de.bund.zrb.service.FtpSourceCacheService;
 import de.bund.zrb.service.LocalSourceCacheService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.Navigable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -33,7 +34,7 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Pattern;
 
-public class LocalConnectionTabImpl implements ConnectionTab {
+public class LocalConnectionTabImpl implements ConnectionTab, Navigable {
 
     private static final int MOUSE_BACK_BUTTON = 4;
     private static final int MOUSE_FORWARD_BUTTON = 5;
@@ -554,7 +555,8 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         handleItemActivation(false);
     }
 
-    private void navigateBack() {
+    @Override
+    public void navigateBack() {
         if (backHistory.isEmpty()) {
             return;
         }
@@ -567,7 +569,8 @@ public class LocalConnectionTabImpl implements ConnectionTab {
         tabbedPaneManager.refreshStarForTab(this);
     }
 
-    private void navigateForward() {
+    @Override
+    public void navigateForward() {
         if (forwardHistory.isEmpty()) {
             return;
         }
