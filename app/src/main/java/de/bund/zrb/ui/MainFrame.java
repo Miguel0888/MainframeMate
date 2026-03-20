@@ -312,13 +312,49 @@ public class MainFrame extends JFrame implements MainframeContext {
         actionToolbar.reload(); // rebuild so the hardcoded gear button is replaced by the command
 
         // 4. Menübaum aufbauen (nachdem alle Commands + Toolbar da sind!)
-        JMenuBar menuBar = MenuTreeBuilder.buildMenuBar();
+        JMenuBar builtMenuBar = MenuTreeBuilder.buildMenuBar();
+        final JTextField menuSearchField = createMenuBarSearchField();
 
-        // ── Globale Suchleiste in der Menüleiste (zentriert / rechts) ──
+        // ── Custom JMenuBar: true-center search field ───────────
+        // doLayout() positions the search field at the absolute center of the
+        // bar.  If the menus are too wide the field shifts right so it never
+        // overlaps a menu.
+        final JMenuBar menuBar = new JMenuBar() {
+            @Override
+            public void doLayout() {
+                super.doLayout();
+                int barW = getWidth();
+                int barH = getHeight();
+                if (barW <= 0) return;
+
+                int fieldW = Math.min(340, Math.max(200, barW / 4));
+                int fieldH = barH - 4;
+
+                // Find where the last real menu ends
+                int menusEnd = 0;
+                for (int i = 0; i < getComponentCount(); i++) {
+                    Component c = getComponent(i);
+                    if (c == menuSearchField || c instanceof Box.Filler) continue;
+                    if (c.isVisible()) {
+                        menusEnd = Math.max(menusEnd, c.getX() + c.getWidth());
+                    }
+                }
+
+                int centeredX = (barW - fieldW) / 2;
+                int x = Math.max(centeredX, menusEnd + 16);
+                x = Math.min(x, barW - fieldW - 4);
+                int y = Math.max(2, (barH - fieldH) / 2);
+                menuSearchField.setBounds(x, y, fieldW, fieldH);
+            }
+        };
+
+        // Transfer menus from built bar → custom bar
+        List<Component> menus = new ArrayList<Component>();
+        for (Component c : builtMenuBar.getComponents()) menus.add(c);
+        for (Component c : menus) menuBar.add(c);
+
         menuBar.add(Box.createHorizontalGlue());
-        JTextField menuSearchField = createMenuBarSearchField();
         menuBar.add(menuSearchField);
-        menuBar.add(Box.createHorizontalGlue());
 
         setJMenuBar(menuBar);
 
