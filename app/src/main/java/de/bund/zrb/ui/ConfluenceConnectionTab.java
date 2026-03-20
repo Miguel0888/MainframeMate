@@ -1032,41 +1032,33 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             @Override
             protected java.util.Hashtable<java.net.URL, java.awt.Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
-                int count = 0;
                 while (matcher.find()) {
-                    String src = decodeHtmlEntities(matcher.group(1));
-                    count++;
+                    String src = matcher.group(1);
                     try {
                         String downloadPath = resolveImagePath(src);
                         if (downloadPath == null) continue;
 
                         byte[] data = client.getBytes(downloadPath);
-                        if (data == null || data.length == 0) {
-                            LOG.info("[Confluence] Empty preview image response: " + src);
-                            continue;
-                        }
+                        if (data == null || data.length == 0) continue;
 
-                        java.awt.Image image = decodeImage(data, src);
+                        java.awt.Image image;
+                        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
+                            image = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
+                        } else {
+                            image = javax.imageio.ImageIO.read(
+                                    new java.io.ByteArrayInputStream(data));
+                        }
                         if (image != null) {
                             java.net.URL imageUrl = resolveImageUrl(src);
                             if (imageUrl != null) {
                                 loaded.put(imageUrl, image);
                                 publish(new Object[]{imageUrl, image});
                             }
-                        } else {
-                            LOG.info("[Confluence] Could not decode preview image ("
-                                    + data.length + " bytes, isSvg="
-                                    + de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)
-                                    + ", isSvgUrl="
-                                    + de.bund.zrb.wiki.ui.SvgRenderer.isSvgUrl(src)
-                                    + "): " + src);
                         }
                     } catch (Exception e) {
-                        LOG.log(Level.WARNING, "[Confluence] Preview image load failed: " + src, e);
+                        LOG.log(Level.FINE, "[Confluence] Preview image load failed: " + src, e);
                     }
                 }
-                LOG.info("[Confluence] Preview inline images: " + count + " found, "
-                        + loaded.size() + " loaded");
                 return loaded;
             }
 
@@ -1110,54 +1102,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
                     htmlPane.setCaretPosition(0);
                 } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[Confluence] Failed to refresh preview after image load", e);
+                    LOG.log(Level.FINE, "[Confluence] Failed to refresh preview after image load", e);
                 }
             }
         }.execute();
-    }
-
-    /**
-     * Decode raw image bytes into an {@link java.awt.Image}.
-     * Handles SVG (byte + URL heuristic), GIF (animated), and standard formats.
-     */
-    private static java.awt.Image decodeImage(byte[] data, String src) {
-        // ── SVG: byte-level detection ──
-        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
-            LOG.info("[Confluence] SVG detected (bytes): " + src);
-            return de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
-        }
-        // ── SVG: URL-based fallback ──
-        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvgUrl(src)) {
-            LOG.info("[Confluence] SVG detected (URL heuristic): " + src);
-            java.awt.image.BufferedImage bi = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
-            if (bi != null) return bi;
-            LOG.info("[Confluence] Batik SVG rendering failed, trying ImageIO for: " + src);
-        }
-        // ── GIF: use Toolkit/ImageIcon to preserve animation frames ──
-        if (data.length > 3 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F') {
-            javax.swing.ImageIcon icon = new javax.swing.ImageIcon(data);
-            return icon.getIconWidth() > 0 ? icon.getImage() : null;
-        }
-        // ── Fallback: ImageIO ──
-        try {
-            return javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(data));
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[Confluence] ImageIO.read failed for: " + src, e);
-            javax.swing.ImageIcon icon = new javax.swing.ImageIcon(data);
-            return icon.getIconWidth() > 0 ? icon.getImage() : null;
-        }
-    }
-
-    /**
-     * Decode HTML entities in img src attribute values.
-     */
-    private static String decodeHtmlEntities(String s) {
-        if (s == null) return null;
-        return s.replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'");
     }
 
     /** Resolve an img src to a relative REST path for the ConfluenceRestClient. */

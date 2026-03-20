@@ -440,41 +440,32 @@ public class ConfluenceReaderTab implements ConnectionTab {
             @Override
             protected Hashtable<URL, Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
-                int count = 0;
                 while (matcher.find()) {
-                    String src = decodeHtmlEntities(matcher.group(1));
-                    count++;
+                    String src = matcher.group(1);
                     try {
                         String downloadPath = resolveImagePath(src);
-                        if (downloadPath == null) {
-                            LOG.fine("[ConfluenceReader] Skipped (unresolvable): " + src);
-                            continue;
-                        }
+                        if (downloadPath == null) continue;
 
                         byte[] data = client.getBytes(downloadPath);
-                        if (data == null || data.length == 0) {
-                            LOG.info("[ConfluenceReader] Empty response for: " + src);
-                            continue;
-                        }
+                        if (data == null || data.length == 0) continue;
 
-                        Image image = decodeImage(data, src);
+                        Image image;
+                        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
+                            image = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
+                        } else {
+                            image = javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
+                        }
                         if (image != null) {
                             URL imageUrl = resolveImageUrl(src);
                             if (imageUrl != null) {
                                 loaded.put(imageUrl, image);
                                 publish(new Object[]{imageUrl, image});
                             }
-                        } else {
-                            LOG.info("[ConfluenceReader] Could not decode image (" + data.length
-                                    + " bytes, isSvg=" + de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)
-                                    + ", isSvgUrl=" + de.bund.zrb.wiki.ui.SvgRenderer.isSvgUrl(src)
-                                    + "): " + src);
                         }
                     } catch (Exception e) {
-                        LOG.log(Level.WARNING, "[ConfluenceReader] Image load failed: " + src, e);
+                        LOG.log(Level.FINE, "[ConfluenceReader] Image load failed: " + src, e);
                     }
                 }
-                LOG.info("[ConfluenceReader] Inline images: " + count + " found, " + loaded.size() + " loaded");
                 return loaded;
             }
 
@@ -519,64 +510,10 @@ public class ConfluenceReaderTab implements ConnectionTab {
                                 htmlPane.getDocument().getLength()));
                     } catch (Exception ignored) { }
                 } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[ConfluenceReader] Failed to refresh after image load", e);
+                    LOG.log(Level.FINE, "[ConfluenceReader] Failed to refresh after image load", e);
                 }
             }
         }.execute();
-    }
-
-    /**
-     * Decode raw image bytes into an {@link Image}.
-     * <p>
-     * Tries the following strategies in order:
-     * <ol>
-     *   <li>SVG detection (byte-level via {@link de.bund.zrb.wiki.ui.SvgRenderer#isSvg(byte[])}
-     *       and URL-based fallback via {@link de.bund.zrb.wiki.ui.SvgRenderer#isSvgUrl(String)})</li>
-     *   <li>GIF detection → {@link javax.swing.ImageIcon} for animated GIF support</li>
-     *   <li>Fallback to {@link javax.imageio.ImageIO}</li>
-     * </ol>
-     */
-    private static Image decodeImage(byte[] data, String src) {
-        // ── SVG: byte-level detection ──
-        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
-            LOG.info("[ConfluenceReader] SVG detected (bytes): " + src);
-            return de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
-        }
-        // ── SVG: URL-based fallback (e.g. server wraps SVG with BOM/comments) ──
-        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvgUrl(src)) {
-            LOG.info("[ConfluenceReader] SVG detected (URL heuristic): " + src);
-            java.awt.image.BufferedImage bi = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
-            if (bi != null) return bi;
-            LOG.info("[ConfluenceReader] Batik SVG rendering failed, trying ImageIO for: " + src);
-        }
-        // ── GIF: use Toolkit/ImageIcon to preserve animation frames ──
-        if (data.length > 3 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F') {
-            javax.swing.ImageIcon icon = new javax.swing.ImageIcon(data);
-            return icon.getIconWidth() > 0 ? icon.getImage() : null;
-        }
-        // ── Fallback: ImageIO (PNG, JPEG, BMP, …) ──
-        try {
-            return javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[ConfluenceReader] ImageIO.read failed for: " + src, e);
-            // Last resort: Toolkit
-            javax.swing.ImageIcon icon = new javax.swing.ImageIcon(data);
-            return icon.getIconWidth() > 0 ? icon.getImage() : null;
-        }
-    }
-
-    /**
-     * Decode HTML entities in img src attribute values.
-     * Confluence REST API returns rendered HTML where {@code &amp;} in query
-     * parameters appears as the literal entity.
-     */
-    private static String decodeHtmlEntities(String s) {
-        if (s == null) return null;
-        return s.replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'");
     }
 
     /**

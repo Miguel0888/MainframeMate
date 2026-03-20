@@ -39,16 +39,6 @@ public final class SvgRenderer {
         } catch (Exception e) {
             return false;
         }
-        // Strip UTF-8 BOM (U+FEFF) that some servers prepend
-        if (prefix.length() > 0 && prefix.charAt(0) == '\uFEFF') {
-            prefix = prefix.substring(1).trim();
-        }
-        // Strip leading HTML/XML comments <!-- ... -->
-        while (prefix.startsWith("<!--")) {
-            int end = prefix.indexOf("-->");
-            if (end < 0) break;
-            prefix = prefix.substring(end + 3).trim();
-        }
         if (prefix.startsWith("<svg")
                 || prefix.startsWith("<?xml")
                 || prefix.startsWith("<!doctype svg")) {

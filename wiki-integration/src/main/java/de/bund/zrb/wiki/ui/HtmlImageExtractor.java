@@ -48,7 +48,7 @@ public final class HtmlImageExtractor {
 
             Matcher srcM = SRC_ATTR.matcher(tag);
             if (!srcM.find()) continue;
-            String src = decodeHtmlEntities(srcM.group(1));
+            String src = srcM.group(1);
 
             // Skip data URIs and tiny decoration images (emoticons, icons)
             if (src.startsWith("data:")) continue;
@@ -85,20 +85,6 @@ public final class HtmlImageExtractor {
     private static String extractAttr(String tag, Pattern p) {
         Matcher m = p.matcher(tag);
         return m.find() ? m.group(1) : "";
-    }
-
-    /**
-     * Decode common HTML entities in attribute values.
-     * Confluence REST API returns rendered HTML where query parameter separators
-     * appear as {@code &amp;} instead of plain {@code &}.
-     */
-    private static String decodeHtmlEntities(String s) {
-        if (s == null) return null;
-        return s.replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'");
     }
 
     private static int extractInt(String tag, Pattern p) {
