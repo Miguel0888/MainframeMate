@@ -16,7 +16,6 @@ import de.bund.zrb.sharepoint.SharePointSiteStore;
 import de.zrb.bund.api.Bookmarkable;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import de.zrb.bund.newApi.ui.Navigable;
-import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -63,7 +62,7 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
     private final DefaultListModel<Object> listModel;
     private final JList<Object> fileList;
     private final JTextField pathField;
-    private final SearchBarPanel searchBar;
+    private final JTextField searchField;
     private final JLabel statusLabel;
     private final JTextArea previewArea;
     private JButton backButton;
@@ -91,7 +90,7 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
         this.listModel = new DefaultListModel<Object>();
         this.fileList = new JList<Object>(listModel);
         this.pathField = new JTextField();
-        this.searchBar = new SearchBarPanel("Dateien filtern…", "Dateien filtern…");
+        this.searchField = new JTextField();
         this.statusLabel = new JLabel(" ");
         this.previewArea = new JTextArea();
 
@@ -183,11 +182,17 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
         });
 
         // Search/filter
-        searchBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
+        searchField.setToolTipText("Dateien filtern…");
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { applyFileFilter(); }
             @Override public void removeUpdate(DocumentEvent e) { applyFileFilter(); }
             @Override public void changedUpdate(DocumentEvent e) { applyFileFilter(); }
         });
+
+        JPanel searchPanel = new JPanel(new BorderLayout(4, 0));
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        searchPanel.add(new JLabel("🔎"), BorderLayout.WEST);
+        searchPanel.add(searchField, BorderLayout.CENTER);
 
         // Preview
         previewArea.setEditable(false);
@@ -202,7 +207,7 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
                 new JScrollPane(fileList), new JScrollPane(previewArea));
         filePreviewSplit.setDividerLocation(300);
         filePanel.add(filePreviewSplit, BorderLayout.CENTER);
-        filePanel.add(searchBar, BorderLayout.SOUTH);
+        filePanel.add(searchPanel, BorderLayout.SOUTH);
 
         // ── Assembly ────────────────────────────────────────
         JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, filePanel);
@@ -431,7 +436,7 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
     // ═══════════════════════════════════════════════════════════
 
     private void applyFileFilter() {
-        String filter = searchBar.getText().trim().toLowerCase();
+        String filter = searchField.getText().trim().toLowerCase();
         listModel.clear();
         List<FileNode> filtered = new ArrayList<FileNode>();
         for (FileNode n : currentNodes) {
@@ -721,12 +726,13 @@ public class SharePointConnectionTab implements ConnectionTab, Navigable, Bookma
 
     @Override
     public void focusSearchField() {
-        searchBar.focusAndSelectAll();
+        searchField.requestFocusInWindow();
+        searchField.selectAll();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchBar.setText(searchPattern);
+        searchField.setText(searchPattern);
         applyFileFilter();
     }
 

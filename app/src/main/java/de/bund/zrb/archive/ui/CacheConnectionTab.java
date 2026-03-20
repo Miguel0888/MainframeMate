@@ -8,7 +8,6 @@ import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchHighlighter;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
-import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -30,7 +29,7 @@ public class CacheConnectionTab implements ConnectionTab {
     private final CacheRepository repo;
     private final ResourceStorageService storageService;
     private final JTextArea previewArea;
-    private final SearchBarPanel searchBar;
+    private final JTextField searchField;
     private final JLabel statusLabel;
     private final TabbedPaneManager tabbedPaneManager;
 
@@ -92,17 +91,20 @@ public class CacheConnectionTab implements ConnectionTab {
         leftPanel.add(deleteBtn);
 
         // Center: search + advanced toggle
-        searchBar = new SearchBarPanel("Cache durchsuchen\u2026", "Cache durchsuchen (Enter)");
-        searchBar.addSearchAction(e -> filterDocuments());
+        JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
+        searchField = new JTextField();
+        searchField.setToolTipText("Cache durchsuchen (Enter)…");
+        searchField.addActionListener(e -> filterDocuments());
         advancedToggle = new JToggleButton("\u2699");
         advancedToggle.setToolTipText("Erweiterte Suche: AND OR NOT \"phrase\"\n\n"
                 + "Beispiele:\n"
                 + "  bundestag AND asyl  (beide Begriffe)\n"
                 + "  klima OR energie    (einer der Begriffe)\n"
-                + "  \"exakte phrase\"     (w\u00f6rtlich)");
+                + "  \"exakte phrase\"     (wörtlich)");
         advancedToggle.setFocusable(false);
         advancedToggle.setMargin(new Insets(2, 6, 2, 6));
-        searchBar.addEastComponent(advancedToggle);
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(advancedToggle, BorderLayout.EAST);
 
         // Right: host + kind filters (only visible for Web)
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
@@ -122,7 +124,7 @@ public class CacheConnectionTab implements ConnectionTab {
         filterPanel.add(kindFilterPanel);
 
         toolbar.add(leftPanel, BorderLayout.WEST);
-        toolbar.add(searchBar, BorderLayout.CENTER);
+        toolbar.add(searchPanel, BorderLayout.CENTER);
         toolbar.add(filterPanel, BorderLayout.EAST);
         mainPanel.add(toolbar, BorderLayout.NORTH);
 
@@ -311,7 +313,7 @@ public class CacheConnectionTab implements ConnectionTab {
             return;
         }
 
-        String query = searchBar.getText();
+        String query = searchField.getText();
         String selectedHost = (String) hostFilter.getSelectedItem();
         String selectedKind = (String) kindFilter.getSelectedItem();
 
@@ -536,12 +538,12 @@ public class CacheConnectionTab implements ConnectionTab {
 
     @Override
     public void focusSearchField() {
-        searchBar.focusField();
+        searchField.requestFocusInWindow();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        searchBar.setText(searchPattern);
+        searchField.setText(searchPattern);
         filterDocuments();
     }
 

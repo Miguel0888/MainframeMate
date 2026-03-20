@@ -5,9 +5,18 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
-import de.zrb.bund.newApi.ui.FindBarPanel;
-
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
+import javax.swing.JSpinner;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -71,7 +80,8 @@ public final class DocumentPreviewPanel extends JPanel {
     private final JButton marksRefreshBtn;
 
     // ---- fulltext search drawer ----
-    private final FindBarPanel searchBar;
+    private final JTextField searchField;
+    private final JButton searchBtn;
     private final JTextArea searchResultArea;
 
     // ---- info popup ----
@@ -231,15 +241,20 @@ public final class DocumentPreviewPanel extends JPanel {
         drawerPanel.add(marksCard, DRAWER_MARKS);
 
         // fulltext search card
-        searchBar = new FindBarPanel("Volltextsuche\u2026", "Im Dokument suchen (Enter)");
+        searchField = new JTextField(20);
+        searchBtn = new JButton("Suchen");
         searchResultArea = new JTextArea(4, 40);
         searchResultArea.setEditable(false);
         searchResultArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         searchResultArea.setLineWrap(true);
         searchResultArea.setWrapStyleWord(true);
+        JPanel searchTop = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        searchTop.add(new JLabel("Suche:"));
+        searchTop.add(searchField);
+        searchTop.add(searchBtn);
         JPanel searchCard = new JPanel(new BorderLayout(4, 2));
         searchCard.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-        searchCard.add(searchBar, BorderLayout.NORTH);
+        searchCard.add(searchTop, BorderLayout.NORTH);
         searchCard.add(new JScrollPane(searchResultArea), BorderLayout.CENTER);
         drawerPanel.add(searchCard, DRAWER_SEARCH);
 
@@ -314,7 +329,8 @@ public final class DocumentPreviewPanel extends JPanel {
         marksRefreshBtn.addActionListener(e -> {
             if (marksRefreshListener != null) marksRefreshListener.run();
         });
-        searchBar.addSearchAction(e -> fireFulltextSearch());
+        searchBtn.addActionListener(e -> fireFulltextSearch());
+        searchField.addActionListener(e -> fireFulltextSearch());
 
         setNavigationEnabled(false);
     }
@@ -652,7 +668,7 @@ public final class DocumentPreviewPanel extends JPanel {
     }
 
     private void fireFulltextSearch() {
-        String q = searchBar.getText().trim();
+        String q = searchField.getText().trim();
         if (!q.isEmpty() && fulltextSearchListener != null) {
             fulltextSearchListener.onSearch(q);
         }
