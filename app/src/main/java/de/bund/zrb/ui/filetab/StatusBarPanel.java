@@ -3,6 +3,7 @@ package de.bund.zrb.ui.filetab;
 import de.bund.zrb.ui.filetab.event.*;
 import de.zrb.bund.newApi.sentence.SentenceDefinition;
 import de.zrb.bund.newApi.sentence.SentenceMeta;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,7 +17,7 @@ public class StatusBarPanel extends JPanel {
     private final JButton undoButton = new JButton("↶");
     private final JButton redoButton = new JButton("↷");
 
-    private final JTextField grepField = new JTextField();
+    private final FindBarPanel findBar;
     private final JComboBox<String> sentenceComboBox = new JComboBox<>();
     private final JPanel legendWrapper = new JPanel(new BorderLayout());
 
@@ -25,7 +26,17 @@ public class StatusBarPanel extends JPanel {
     public StatusBarPanel() {
         super(new BorderLayout());
 
-
+        // FindBarPanel (orange) for grep/filter
+        findBar = new FindBarPanel("Regulärer Ausdruck\u2026",
+                "<html>Regulärer Ausdruck für die Zeilenfilterung<br>"
+                        + "<br><b>Beispiele:</b><br>"
+                        + "&bull; <code>abc</code> – enthält 'abc'<br>"
+                        + "&bull; <code>^abc</code> – beginnt mit 'abc'<br>"
+                        + "&bull; <code>abc$</code> – endet mit 'abc'<br>"
+                        + "&bull; <code>.*test.*</code> – enthält 'test'<br>"
+                        + "&bull; <code>\\d+</code> – Ziffern<br>"
+                        + "<br>Nicht groß-/kleinschreibungssensitiv.<br>"
+                        + "Alle Zeilen, die nicht passen, werden gefaltet.</html>");
 
         // Button-Styling
         styleIconButton(compareButton, 18f);
@@ -40,10 +51,9 @@ public class StatusBarPanel extends JPanel {
         leftPanel.add(Box.createHorizontalStrut(4));
         leftPanel.add(redoButton);
 
-        // Center: Regex
+        // Center: FindBarPanel (replaces old plain grepField)
         JPanel centerPanel = new JPanel(new BorderLayout());
-        centerPanel.add(new JLabel("🔎 ", JLabel.RIGHT), BorderLayout.WEST);
-        centerPanel.add(grepField, BorderLayout.CENTER);
+        centerPanel.add(findBar, BorderLayout.CENTER);
 
         // Right: Legende + Satzart
         JPanel rightPanel = new JPanel();
@@ -76,7 +86,12 @@ public class StatusBarPanel extends JPanel {
     }
 
     public JTextField getGrepField() {
-        return grepField;
+        return findBar.getTextField();
+    }
+
+    /** Return the FindBarPanel (orange) used for grep/filter. */
+    public FindBarPanel getFindBar() {
+        return findBar;
     }
 
     public JComboBox<String> getSentenceComboBox() {
@@ -207,7 +222,7 @@ public class StatusBarPanel extends JPanel {
     }
 
     public void onRegexChanged(Runnable callback) {
-        grepField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        findBar.getTextField().getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { callback.run(); }
             public void removeUpdate(javax.swing.event.DocumentEvent e) { callback.run(); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { callback.run(); }
@@ -216,7 +231,10 @@ public class StatusBarPanel extends JPanel {
 
     public void bindEvents(FileTabEventDispatcher dispatcher) {
         onSentenceTypeChanged(type -> dispatcher.publish(new SentenceTypeChangedEvent(type)));
-        onRegexChanged(() -> dispatcher.publish(new RegexFilterChangedEvent(getGrepField().getText())));
+        onRegexChanged(() -> dispatcher.publish(new RegexFilterChangedEvent(findBar.getText())));
+
+        // Go-button / Enter in FindBarPanel also triggers filter
+        findBar.addSearchAction(e -> dispatcher.publish(new RegexFilterChangedEvent(findBar.getText())));
 
         compareButton.addActionListener(e -> dispatcher.publish(new ShowComparePanelEvent()));
 

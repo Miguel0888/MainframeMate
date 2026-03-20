@@ -8,6 +8,7 @@ import de.bund.zrb.confluence.ConfluencePrefetchService;
 import de.bund.zrb.confluence.ConfluenceRestClient;
 import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
@@ -52,7 +53,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private final JPanel spaceCheckboxPanel;
     private final List<JCheckBox> spaceCheckboxes = new ArrayList<JCheckBox>();
     private final SearchBarPanel searchBar;
-    private final JTextField filterField;
+    private final FindBarPanel filterBar;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
     private final JLabel pageInfoLabel;
@@ -292,17 +293,13 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         // Status label below search row
         statusLabel = new JLabel(" ");
 
-        // Filter bar for local regex filtering
-        filterField = new JTextField();
-        filterField.setToolTipText("Ergebnisse filtern (Regex)");
-        filterField.getDocument().addDocumentListener(new DocumentListener() {
+        // Filter bar for local regex filtering (orange FindBarPanel)
+        filterBar = new FindBarPanel("Ergebnisse filtern (Regex)\u2026");
+        filterBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { applyFilter(); }
             public void removeUpdate(DocumentEvent e) { applyFilter(); }
             public void changedUpdate(DocumentEvent e) { applyFilter(); }
         });
-        JPanel filterBar = new JPanel(new BorderLayout(2, 0));
-        filterBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
-        filterBar.add(filterField, BorderLayout.CENTER);
 
         JPanel topHalf = new JPanel(new BorderLayout(0, 0));
         topHalf.add(topControls, BorderLayout.NORTH);
@@ -379,7 +376,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         togglePanel.add(textModeBtn);
         togglePanel.add(renderedModeBtn);
 
-        filterBar.add(togglePanel, BorderLayout.EAST);
+        filterBar.addEastComponent(togglePanel);
         mainPanel.add(filterBar, BorderLayout.SOUTH);
 
         // Trigger initial load of spaces
@@ -1264,7 +1261,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     }
 
     private void applyFilter() {
-        String text = filterField.getText().trim();
+        String text = filterBar.getText().trim();
         if (text.isEmpty()) {
             pageSorter.setRowFilter(null);
         } else {

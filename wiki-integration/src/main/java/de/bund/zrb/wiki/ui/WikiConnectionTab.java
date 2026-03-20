@@ -3,6 +3,7 @@ package de.bund.zrb.wiki.ui;
 import de.bund.zrb.wiki.domain.*;
 import de.bund.zrb.wiki.port.WikiContentService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
@@ -38,7 +39,7 @@ public class WikiConnectionTab implements ConnectionTab {
     private final SearchBarPanel searchBar;
     private final JEditorPane htmlPane;
     private final JLabel statusLabel;
-    private final JTextField resultFilterField;
+    private final FindBarPanel resultFilterBar;
 
     // Results table
     private final WikiResultTableModel resultModel;
@@ -195,17 +196,13 @@ public class WikiConnectionTab implements ConnectionTab {
         JScrollPane resultScroll = new JScrollPane(resultTable);
         resultScroll.setBorder(BorderFactory.createTitledBorder("Suchergebnisse"));
 
-        // Result filter bar
-        resultFilterField = new JTextField();
-        resultFilterField.setToolTipText("Ergebnisse filtern (Regex)");
-        resultFilterField.getDocument().addDocumentListener(new DocumentListener() {
+        // Result filter bar (orange FindBarPanel)
+        resultFilterBar = new FindBarPanel("Ergebnisse filtern (Regex)\u2026");
+        resultFilterBar.getTextField().getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { applyResultFilter(); }
             public void removeUpdate(DocumentEvent e) { applyResultFilter(); }
             public void changedUpdate(DocumentEvent e) { applyResultFilter(); }
         });
-        JPanel resultFilterBar = new JPanel(new BorderLayout(2, 0));
-        resultFilterBar.add(new JLabel(" 🔎 "), BorderLayout.WEST);
-        resultFilterBar.add(resultFilterField, BorderLayout.CENTER);
 
         // Top half: controls + results (no filter bar here)
         JPanel topHalf = new JPanel(new BorderLayout(0, 0));
@@ -317,12 +314,10 @@ public class WikiConnectionTab implements ConnectionTab {
         togglePanel.add(renderedModeBtn);
 
         // Filter bar below everything
-        JPanel bottomBar = new JPanel(new BorderLayout(0, 0));
-        bottomBar.add(resultFilterBar, BorderLayout.CENTER);
-        bottomBar.add(togglePanel, BorderLayout.EAST);
+        resultFilterBar.addEastComponent(togglePanel);
         // statusLabel is kept as a field but not added to the layout — no "Vorschau:" text visible
         statusLabel = new JLabel(" ");
-        mainPanel.add(bottomBar, BorderLayout.SOUTH);
+        mainPanel.add(resultFilterBar, BorderLayout.SOUTH);
 
         if (siteSelector.getItemCount() > 0) {
             siteSelector.setSelectedIndex(0);
@@ -802,16 +797,17 @@ public class WikiConnectionTab implements ConnectionTab {
     // ═══════════════════════════════════════════════════════════
 
     private void applyResultFilter() {
-        String regex = resultFilterField.getText().trim();
+        String regex = resultFilterBar.getText().trim();
+        JTextField field = resultFilterBar.getTextField();
         if (regex.isEmpty()) {
             resultSorter.setRowFilter(null);
-            resultFilterField.setBackground(UIManager.getColor("TextField.background"));
+            field.setBackground(UIManager.getColor("TextField.background"));
         } else {
             try {
                 resultSorter.setRowFilter(RowFilter.regexFilter("(?i)" + regex, 0));
-                resultFilterField.setBackground(UIManager.getColor("TextField.background"));
+                field.setBackground(UIManager.getColor("TextField.background"));
             } catch (Exception ex) {
-                resultFilterField.setBackground(new Color(255, 200, 200));
+                field.setBackground(new Color(255, 200, 200));
             }
         }
     }

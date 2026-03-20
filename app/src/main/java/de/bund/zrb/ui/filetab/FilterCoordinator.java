@@ -22,24 +22,6 @@ public class FilterCoordinator {
         this.originalArea = originalArea;
         this.grepField = grepField;
         this.soundEnabled = soundEnabled;
-
-        grepField.setToolTipText("Regulärer Ausdruck für Zeilenfilterung");
-        grepField.setToolTipText(
-                "<html>" +
-                        "Regulärer Ausdruck für die Zeilenfilterung<br>" +
-                        "<br>" +
-                        "<b>Beispiele:</b><br>" +
-                        "&bull; <code>abc</code> – enthält 'abc'<br>" +
-                        "&bull; <code>^abc</code> – beginnt mit 'abc'<br>" +
-                        "&bull; <code>abc$</code> – endet mit 'abc'<br>" +
-                        "&bull; <code>.*test.*</code> – enthält 'test' (beliebiger Kontext)<br>" +
-                        "&bull; <code>\\d+</code> – enthält eine oder mehrere Ziffern<br>" +
-                        "&bull; <code>[A-Z]{3}</code> – genau drei Großbuchstaben<br>" +
-                        "<br>" +
-                        "Hinweis: Die Suche ist <b>nicht</b> groß-/kleinschreibungssensitiv.<br>" +
-                        "Alle Zeilen, die nicht passen, werden gefaltet." +
-                        "</html>"
-        );
     }
 
     public void applyFilter() {

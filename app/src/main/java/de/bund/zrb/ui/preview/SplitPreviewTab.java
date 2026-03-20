@@ -7,12 +7,16 @@ import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.ingestion.ui.ChatMarkdownFormatter;
 import de.bund.zrb.rag.service.RagService;
 import de.zrb.bund.newApi.ui.ConnectionTab;
+import de.zrb.bund.newApi.ui.FindBarPanel;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.html.StyleSheet;
 import java.awt.*;
@@ -147,6 +151,11 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
     protected final JScrollPane htmlRenderedScrollPane;
     protected final IndexStatusSidebar sidebar;
     protected final JPanel contentPanel;
+    protected final FindBarPanel findBar;                 // Orange find-in-document bar
+
+    // Highlight painter for find-in-document matches
+    private static final Highlighter.HighlightPainter YELLOW_PAINTER =
+            new DefaultHighlighter.DefaultHighlightPainter(new Color(0xFF, 0xEB, 0x3B, 180));
 
     // State
     protected ViewMode currentMode;
@@ -203,8 +212,13 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
         contentPanel = new JPanel(new BorderLayout());
         contentPanel.add(splitPane, BorderLayout.CENTER);
 
+        // FindBarPanel (orange) for in-document search
+        this.findBar = new FindBarPanel("Im Dokument suchen\u2026");
+        findBar.addSearchAction(e -> highlightFindMatches());
+
         // Main panel assembly
         mainPanel.add(contentPanel, BorderLayout.CENTER);
+        mainPanel.add(findBar, BorderLayout.SOUTH);
 
         // Add sidebar (initially hidden)
         sidebar.setVisible(false);
@@ -905,12 +919,77 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
     @Override
     public void focusSearchField() {
-        // Could implement search
+        findBar.focusAndSelectAll();
     }
 
     @Override
     public void searchFor(String searchPattern) {
-        // Could implement search
+        if (searchPattern == null || searchPattern.trim().isEmpty()) return;
+        findBar.setText(searchPattern.trim());
+        highlightFindMatches();
+    }
+
+    /**
+     * Highlight all occurrences of the find bar query in the currently visible pane
+     * (rawPane for RAW/SPLIT mode, htmlRenderedPane for RENDERED mode).
+     */
+    protected void highlightFindMatches() {
+        String query = findBar.getText().trim();
+
+        // Highlight in rawPane (always try — it's the primary text source)
+        highlightInTextComponent(rawPane, query);
+
+        // Highlight in htmlRenderedPane (for rendered/HTML documents)
+        if (needsHtmlRendering) {
+            highlightInTextComponent(htmlRenderedPane, query);
+        }
+    }
+
+    /**
+     * Highlight all case-insensitive occurrences of {@code query} in the given text component,
+     * scrolling to the first match.
+     */
+    private void highlightInTextComponent(javax.swing.text.JTextComponent comp, String query) {
+        Highlighter highlighter = comp.getHighlighter();
+        highlighter.removeAllHighlights();
+
+        if (query.isEmpty()) return;
+
+        try {
+            javax.swing.text.Document doc = comp.getDocument();
+            String fullText = doc.getText(0, doc.getLength());
+            String lowerText = fullText.toLowerCase();
+            String lowerQuery = query.toLowerCase();
+
+            int firstHit = -1;
+            int pos = 0;
+
+            while (pos < lowerText.length()) {
+                int idx = lowerText.indexOf(lowerQuery, pos);
+                if (idx < 0) break;
+
+                int end = idx + query.length();
+                highlighter.addHighlight(idx, end, YELLOW_PAINTER);
+
+                if (firstHit < 0) {
+                    firstHit = idx;
+                }
+                pos = end;
+            }
+
+            // Scroll to first match
+            if (firstHit >= 0) {
+                comp.setCaretPosition(firstHit);
+                if (comp instanceof JEditorPane) {
+                    Rectangle rect = comp.modelToView(firstHit);
+                    if (rect != null) {
+                        comp.scrollRectToVisible(rect);
+                    }
+                }
+            }
+        } catch (BadLocationException ex) {
+            // ignore
+        }
     }
 
     // === DocumentPreviewTabAdapter Interface ===

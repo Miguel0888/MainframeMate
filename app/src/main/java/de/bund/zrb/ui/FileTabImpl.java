@@ -305,7 +305,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
     @Override
     public void searchFor(String searchPattern) {
         if (searchPattern == null) return;
-        statusBarPanel.getGrepField().setText(searchPattern.trim());
+        statusBarPanel.getFindBar().setText(searchPattern.trim());
         filterCoordinator.applyFilter(); // direkt ausführen
     }
 
@@ -903,8 +903,7 @@ public class FileTabImpl extends SplitPreviewTab implements FileTab {
 
     @Override
     public void focusSearchField() {
-        statusBarPanel.getGrepField().requestFocusInWindow();
-        statusBarPanel.getGrepField().selectAll();
+        statusBarPanel.getFindBar().focusAndSelectAll();
     }
 
     private String detectSentenceTypeByPath(String filePath) {
