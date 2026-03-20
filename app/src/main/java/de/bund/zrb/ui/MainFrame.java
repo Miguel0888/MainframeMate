@@ -312,7 +312,15 @@ public class MainFrame extends JFrame implements MainframeContext {
         actionToolbar.reload(); // rebuild so the hardcoded gear button is replaced by the command
 
         // 4. Menübaum aufbauen (nachdem alle Commands + Toolbar da sind!)
-        setJMenuBar(MenuTreeBuilder.buildMenuBar());
+        JMenuBar menuBar = MenuTreeBuilder.buildMenuBar();
+
+        // ── Globale Suchleiste in der Menüleiste (zentriert / rechts) ──
+        menuBar.add(Box.createHorizontalGlue());
+        JTextField menuSearchField = createMenuBarSearchField();
+        menuBar.add(menuSearchField);
+        menuBar.add(Box.createHorizontalGlue());
+
+        setJMenuBar(menuBar);
 
         // Initialisiere die mittlere Komponente
         Component tabContent = tabManager.getComponent();
@@ -331,6 +339,46 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Register live settings listener – applies changes without restart
         SettingsHelper.addChangeListener(this::onSettingsChanged);
+    }
+
+    /**
+     * Create the global search field that lives in the JMenuBar.
+     * Enter opens a SearchTab with the query; Escape clears and returns focus.
+     */
+    private JTextField createMenuBarSearchField() {
+        JTextField field = new JTextField(18);
+        field.setMaximumSize(new Dimension(340, 26));
+        field.putClientProperty("JTextField.placeholderText", "\u2315 \u00DCberall suchen\u2026");
+        field.setToolTipText("\u00DCberall suchen (Enter)");
+
+        field.addActionListener(e -> {
+            String query = field.getText().trim();
+            de.bund.zrb.ui.search.SearchTab searchTab = new de.bund.zrb.ui.search.SearchTab(tabManager);
+            tabManager.addTab(searchTab);
+            if (!query.isEmpty()) {
+                searchTab.searchFor(query);
+            } else {
+                SwingUtilities.invokeLater(searchTab::focusSearchField);
+            }
+            field.setText("");
+        });
+
+        field.addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent e) {
+                if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
+                    field.setText("");
+                    // Return focus to the current tab
+                    tabManager.getSelectedTab().ifPresent(tab -> {
+                        if (tab instanceof FtpTab) {
+                            ((FtpTab) tab).getComponent().requestFocusInWindow();
+                        }
+                    });
+                }
+            }
+        });
+
+        return field;
     }
 
     /** Called whenever settings are saved – applies changes to running UI components. */
