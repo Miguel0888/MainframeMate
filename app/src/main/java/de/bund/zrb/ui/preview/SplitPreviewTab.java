@@ -652,25 +652,27 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
             toolbar.addSeparator(new Dimension(16, 0));
         }
 
-        // View Mode selector
-        JLabel modeLabel = new JLabel("Ansicht:");
-        toolbar.add(modeLabel);
-        toolbar.add(Box.createHorizontalStrut(4));
+        // View Mode selector (only for non-editable content — editable files are always raw text)
+        if (!isEditable) {
+            JLabel modeLabel = new JLabel("Ansicht:");
+            toolbar.add(modeLabel);
+            toolbar.add(Box.createHorizontalStrut(4));
 
-        JComboBox<ViewMode> modeCombo = new JComboBox<>(ViewMode.values());
-        modeCombo.setName("viewModeCombo");
-        // Default is RENDERED_ONLY
-        modeCombo.setSelectedItem(ViewMode.RENDERED_ONLY);
-        modeCombo.setMaximumSize(new Dimension(120, 28));
-        modeCombo.addActionListener(e -> {
-            ViewMode selected = (ViewMode) modeCombo.getSelectedItem();
-            if (selected != null) {
-                applyViewMode(selected);
-            }
-        });
-        toolbar.add(modeCombo);
+            JComboBox<ViewMode> modeCombo = new JComboBox<>(ViewMode.values());
+            modeCombo.setName("viewModeCombo");
+            // Default is RENDERED_ONLY
+            modeCombo.setSelectedItem(ViewMode.RENDERED_ONLY);
+            modeCombo.setMaximumSize(new Dimension(120, 28));
+            modeCombo.addActionListener(e -> {
+                ViewMode selected = (ViewMode) modeCombo.getSelectedItem();
+                if (selected != null) {
+                    applyViewMode(selected);
+                }
+            });
+            toolbar.add(modeCombo);
 
-        toolbar.addSeparator(new Dimension(16, 0));
+            toolbar.addSeparator(new Dimension(16, 0));
+        }
 
         // Sidebar toggle
         JToggleButton sidebarBtn = new JToggleButton("📊 Details");
