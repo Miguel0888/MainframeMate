@@ -38,11 +38,19 @@ public class ImageStripPanel extends JPanel {
     /** Callback fired when user clicks the expand button (◀◀). */
     private Runnable expandCallback;
 
+    /** Optional authenticated downloader (e.g. for Confluence mTLS). */
+    private static ByteDownloader activeDownloader;
+
     public ImageStripPanel(List<ImageRef> images) {
+        this(images, null);
+    }
+
+    public ImageStripPanel(List<ImageRef> images, ByteDownloader downloader) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         setPreferredSize(new Dimension(ICON_SIZE + 8, 0));
         this.allImages = images;
+        activeDownloader = downloader;
 
         if (images == null || images.isEmpty()) {
             setVisible(false);
@@ -278,6 +286,16 @@ public class ImageStripPanel extends JPanel {
      */
     public static void openOverlay(Component parent, List<ImageRef> allImages, int startIndex) {
         if (allImages == null || allImages.isEmpty()) return;
+        openOverlayImpl(parent, allImages, startIndex);
+    }
+
+    /**
+     * Overload accepting a custom {@link ByteDownloader} for authenticated image access.
+     */
+    public static void openOverlay(Component parent, List<ImageRef> allImages, int startIndex,
+                                   ByteDownloader downloader) {
+        if (allImages == null || allImages.isEmpty()) return;
+        activeDownloader = downloader;
         openOverlayImpl(parent, allImages, startIndex);
     }
 
@@ -678,20 +696,12 @@ public class ImageStripPanel extends JPanel {
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() throws Exception {
-                    InputStream in = openImageStream(img.src());
+                    byte[] data = downloadBytes(img.src());
+                    java.io.FileOutputStream out = new java.io.FileOutputStream(target);
                     try {
-                        java.io.FileOutputStream out = new java.io.FileOutputStream(target);
-                        try {
-                            byte[] buf = new byte[8192];
-                            int n;
-                            while ((n = in.read(buf)) != -1) {
-                                out.write(buf, 0, n);
-                            }
-                        } finally {
-                            out.close();
-                        }
+                        out.write(data);
                     } finally {
-                        in.close();
+                        out.close();
                     }
                     return null;
                 }
@@ -729,6 +739,10 @@ public class ImageStripPanel extends JPanel {
 
     /** Download the full image into a byte array. Package-private for reuse by ImageThumbnailPanel. */
     static byte[] downloadBytes(String imageUrl) throws java.io.IOException {
+        // Use custom downloader if available (e.g. Confluence with mTLS)
+        if (activeDownloader != null) {
+            return activeDownloader.download(imageUrl);
+        }
         InputStream in = openImageStream(imageUrl);
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream(32768);

@@ -1,10 +1,17 @@
 package de.bund.zrb.ui;
 
 import de.bund.zrb.confluence.ConfluenceRestClient;
+import de.bund.zrb.wiki.domain.ImageRef;
 import de.bund.zrb.wiki.domain.OutlineNode;
+import de.bund.zrb.wiki.ui.ByteDownloader;
+import de.bund.zrb.wiki.ui.HtmlImageExtractor;
+import de.bund.zrb.wiki.ui.ImageStripPanel;
+import de.bund.zrb.wiki.ui.ImageThumbnailPanel;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
@@ -12,11 +19,16 @@ import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
 import javax.swing.text.html.HTMLDocument;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Dictionary;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -24,6 +36,15 @@ import java.util.regex.Pattern;
 
 /**
  * Read-only tab for displaying a single Confluence page in a full HTML reader view.
+ * <p>
+ * Supports two display modes:
+ * <ul>
+ *   <li><b>Text mode</b> (default): images are stripped from the HTML and shown in a
+ *       side strip ({@link ImageStripPanel}) that can be expanded into a thumbnail panel
+ *       ({@link ImageThumbnailPanel}).</li>
+ *   <li><b>Rendered mode</b>: images are displayed inline in the HTML with async loading.</li>
+ * </ul>
+ * Toggle buttons at the bottom-right of the search bar switch between modes.
  * <p>
  * Analogous to {@code WikiFileTab} in the wiki-integration module.
  * Images are loaded asynchronously via the {@link ConfluenceRestClient} (mTLS + Basic Auth).
@@ -43,6 +64,12 @@ public class ConfluenceReaderTab implements ConnectionTab {
     private final String htmlContent;
     private final OutlineNode outline;
     private final ConfluenceRestClient client;
+
+    /** Extracted images from the HTML body. */
+    private final List<ImageRef> images;
+
+    /** Authenticated image downloader wrapping the ConfluenceRestClient. */
+    private final ByteDownloader downloader;
 
     /** Yellow highlight painter for search hits. */
     private static final Highlighter.HighlightPainter YELLOW_PAINTER =
@@ -66,8 +93,28 @@ public class ConfluenceReaderTab implements ConnectionTab {
             "<img\\s[^>]*src\\s*=\\s*[\"']([^\"']+)[\"']",
             Pattern.CASE_INSENSITIVE);
 
-    /** Full HTML string (for re-setting after async image load). */
-    private final String fullHtml;
+    /** Full HTML string for rendered mode (with images). */
+    private final String renderedFullHtml;
+
+    /** Full HTML string for text mode (images stripped). */
+    private final String textFullHtml;
+
+    // ── View mode state ──
+    /** true = rendered mode (images inline), false = text mode (images in side strip). */
+    private boolean renderedMode = false;
+    private JToggleButton textModeBtn;
+    private JToggleButton renderedModeBtn;
+    /** Center panel wrapping htmlScroll + optional image strip or split pane. */
+    private JPanel centerPanel;
+    /** Scroll pane wrapping htmlPane — kept as field for split-pane attach/detach. */
+    private JScrollPane htmlScroll;
+
+    // ── Image strip expand / collapse state ──
+    private boolean imageStripExpanded = false;
+    private JSplitPane imageSplitPane;
+    private ImageThumbnailPanel thumbnailPanel;
+    private int lastDividerLocation = -1;
+    private ChangeListener scrollSyncListener;
 
     public ConfluenceReaderTab(ConfluenceRestClient client, String baseUrl,
                                String pageId, String pageTitle,
@@ -80,23 +127,38 @@ public class ConfluenceReaderTab implements ConnectionTab {
         this.outline = outline;
         this.mainPanel = new JPanel(new BorderLayout(0, 0));
 
-        // HTML pane with async image loading support
+        // Create authenticated downloader for Confluence images
+        this.downloader = new ByteDownloader() {
+            @Override
+            public byte[] download(String url) throws IOException {
+                String path = resolveImagePath(url);
+                if (path == null) throw new IOException("Cannot resolve image: " + url);
+                return client.getBytes(path);
+            }
+        };
+
+        // Extract images from HTML
+        this.images = HtmlImageExtractor.extractImages(htmlContent, baseUrl);
+
+        // Build HTML variants
+        String enrichedHtml = ConfluenceConnectionTab.injectHeadingAnchors(htmlContent);
+        this.renderedFullHtml = wrapHtml(enrichedHtml, baseUrl);
+
+        String strippedHtml = HtmlImageExtractor.stripImgTags(htmlContent);
+        String enrichedStripped = ConfluenceConnectionTab.injectHeadingAnchors(strippedHtml);
+        this.textFullHtml = wrapHtml(enrichedStripped, baseUrl);
+
+        // HTML pane
         htmlPane = new JEditorPane();
         htmlPane.setEditable(false);
         htmlPane.setContentType("text/html");
 
-        // Inject heading anchors + wrap in full HTML (with <base> for image resolution)
-        String enrichedHtml = ConfluenceConnectionTab.injectHeadingAnchors(htmlContent);
-        this.fullHtml = wrapHtml(enrichedHtml, baseUrl);
-
-        // Set base URL so relative img src attributes resolve to the Confluence server
         try {
             ((HTMLDocument) htmlPane.getDocument()).setBase(new URL(baseUrl));
-        } catch (MalformedURLException ignore) {
-            // fallback: leave without base — images with absolute URLs will still work
-        }
+        } catch (MalformedURLException ignore) { }
 
-        htmlPane.setText(fullHtml);
+        // Default: text mode (images stripped)
+        htmlPane.setText(textFullHtml);
         htmlPane.setCaretPosition(0);
 
         htmlPane.addHyperlinkListener(e -> {
@@ -105,20 +167,232 @@ public class ConfluenceReaderTab implements ConnectionTab {
             }
         });
 
-        JScrollPane htmlScroll = new JScrollPane(htmlPane);
-        mainPanel.add(htmlScroll, BorderLayout.CENTER);
+        // Click on inline image in rendered mode → open image overlay dialog
+        htmlPane.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!renderedMode || images.isEmpty()) return;
+                int pos = htmlPane.viewToModel(e.getPoint());
+                if (pos < 0) return;
+                Document doc = htmlPane.getDocument();
+                if (!(doc instanceof HTMLDocument)) return;
+                javax.swing.text.Element elem = ((HTMLDocument) doc).getCharacterElement(pos);
+                if (elem == null) return;
+                String src = extractImgSrc(elem);
+                if (src == null) return;
+                int index = findImageIndex(images, src);
+                if (index >= 0) {
+                    ImageStripPanel.openOverlay(htmlPane, images, index, downloader);
+                }
+            }
+        });
+        // Hand cursor when hovering over images in rendered mode
+        htmlPane.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                if (!renderedMode || images.isEmpty()) {
+                    htmlPane.setCursor(Cursor.getDefaultCursor());
+                    return;
+                }
+                int pos = htmlPane.viewToModel(e.getPoint());
+                if (pos >= 0) {
+                    Document doc = htmlPane.getDocument();
+                    if (doc instanceof HTMLDocument) {
+                        javax.swing.text.Element elem = ((HTMLDocument) doc).getCharacterElement(pos);
+                        if (extractImgSrc(elem) != null) {
+                            htmlPane.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                            return;
+                        }
+                    }
+                }
+                htmlPane.setCursor(Cursor.getDefaultCursor());
+            }
+        });
 
-        // Search bar at bottom
+        htmlScroll = new JScrollPane(htmlPane);
+
+        // Center panel wrapping htmlScroll + optional image strip
+        centerPanel = new JPanel(new BorderLayout(0, 0));
+        centerPanel.add(htmlScroll, BorderLayout.CENTER);
+
+        // Image strip on the right (text mode default)
+        if (!images.isEmpty()) {
+            ImageStripPanel strip = new ImageStripPanel(images, downloader);
+            strip.setExpandCallback(this::expandImageStrip);
+            centerPanel.add(strip, BorderLayout.EAST);
+        }
+        mainPanel.add(centerPanel, BorderLayout.CENTER);
+
+        // ── Toggle buttons: Text vs Rendered ────────────────────
+        textModeBtn = new JToggleButton("Aa");
+        textModeBtn.setToolTipText("Textmodus (Bilder als Seitenleiste)");
+        textModeBtn.setFocusable(false);
+        textModeBtn.setSelected(true);
+        textModeBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        renderedModeBtn = new JToggleButton("\uD83D\uDDBC");
+        renderedModeBtn.setToolTipText("Gerenderte Ansicht (Bilder inline)");
+        renderedModeBtn.setFocusable(false);
+        renderedModeBtn.setMargin(new Insets(2, 6, 2, 6));
+
+        ButtonGroup viewModeGroup = new ButtonGroup();
+        viewModeGroup.add(textModeBtn);
+        viewModeGroup.add(renderedModeBtn);
+
+        textModeBtn.addActionListener(e -> {
+            if (!renderedMode) return;
+            renderedMode = false;
+            refreshViewMode();
+        });
+        renderedModeBtn.addActionListener(e -> {
+            if (renderedMode) return;
+            renderedMode = true;
+            refreshViewMode();
+        });
+
+        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        togglePanel.add(textModeBtn);
+        togglePanel.add(renderedModeBtn);
+
+        // Search bar at bottom (with toggle buttons on the right)
         searchField = new JTextField();
         searchField.setToolTipText("Text suchen (Enter)");
         searchField.addActionListener(e -> highlightSearch());
         JPanel searchBar = new JPanel(new BorderLayout(2, 0));
         searchBar.add(new JLabel(" \uD83D\uDD0E "), BorderLayout.WEST);
         searchBar.add(searchField, BorderLayout.CENTER);
+        searchBar.add(togglePanel, BorderLayout.EAST);
         mainPanel.add(searchBar, BorderLayout.SOUTH);
+    }
 
-        // Load images asynchronously in background
-        loadImagesAsync(htmlContent);
+    // ═══════════════════════════════════════════════════════════
+    //  View mode switching
+    // ═══════════════════════════════════════════════════════════
+
+    private void refreshViewMode() {
+        if (imageStripExpanded) {
+            collapseImageStripSilently();
+        }
+
+        Component eastComp = ((BorderLayout) centerPanel.getLayout())
+                .getLayoutComponent(BorderLayout.EAST);
+        if (eastComp != null) {
+            centerPanel.remove(eastComp);
+        }
+
+        if (renderedMode) {
+            htmlPane.setText(renderedFullHtml);
+            htmlPane.setCaretPosition(0);
+            try {
+                ((HTMLDocument) htmlPane.getDocument()).setBase(new URL(baseUrl));
+            } catch (MalformedURLException ignore) { }
+            loadImagesAsync(htmlContent);
+        } else {
+            htmlPane.setText(textFullHtml);
+            htmlPane.setCaretPosition(0);
+            if (!images.isEmpty()) {
+                ImageStripPanel strip = new ImageStripPanel(images, downloader);
+                strip.setExpandCallback(this::expandImageStrip);
+                centerPanel.add(strip, BorderLayout.EAST);
+            }
+        }
+
+        centerPanel.revalidate();
+        centerPanel.repaint();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Image strip expand / collapse
+    // ═══════════════════════════════════════════════════════════
+
+    private void expandImageStrip() {
+        if (images.isEmpty() || imageStripExpanded || renderedMode) return;
+        imageStripExpanded = true;
+
+        Component eastComp = ((BorderLayout) centerPanel.getLayout())
+                .getLayoutComponent(BorderLayout.EAST);
+        if (eastComp != null) centerPanel.remove(eastComp);
+
+        centerPanel.remove(htmlScroll);
+
+        thumbnailPanel = new ImageThumbnailPanel(images, downloader);
+        thumbnailPanel.setCollapseCallback(this::collapseImageStrip);
+
+        imageSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, htmlScroll, thumbnailPanel);
+        imageSplitPane.setResizeWeight(0.7);
+        int divLoc = lastDividerLocation > 0 ? lastDividerLocation
+                : centerPanel.getWidth() * 3 / 4;
+        imageSplitPane.setDividerLocation(divLoc);
+
+        centerPanel.add(imageSplitPane, BorderLayout.CENTER);
+
+        installScrollSync();
+
+        centerPanel.revalidate();
+        centerPanel.repaint();
+    }
+
+    private void collapseImageStrip() {
+        if (!imageStripExpanded) return;
+
+        if (imageSplitPane != null) {
+            lastDividerLocation = imageSplitPane.getDividerLocation();
+        }
+
+        collapseImageStripSilently();
+
+        ImageStripPanel strip = new ImageStripPanel(images, downloader);
+        strip.setExpandCallback(this::expandImageStrip);
+        centerPanel.add(strip, BorderLayout.EAST);
+
+        centerPanel.revalidate();
+        centerPanel.repaint();
+    }
+
+    private void collapseImageStripSilently() {
+        if (!imageStripExpanded) return;
+        imageStripExpanded = false;
+
+        removeScrollSync();
+
+        if (imageSplitPane != null) {
+            imageSplitPane.remove(htmlScroll);
+            centerPanel.remove(imageSplitPane);
+        }
+
+        centerPanel.add(htmlScroll, BorderLayout.CENTER);
+
+        imageSplitPane = null;
+        thumbnailPanel = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Scroll synchronisation
+    // ═══════════════════════════════════════════════════════════
+
+    private void installScrollSync() {
+        if (scrollSyncListener != null) return;
+        scrollSyncListener = new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                if (thumbnailPanel == null || images.isEmpty()) return;
+                JViewport viewport = htmlScroll.getViewport();
+                int viewY = viewport.getViewPosition().y;
+                int totalH = htmlPane.getPreferredSize().height - viewport.getHeight();
+                if (totalH <= 0) return;
+                double fraction = Math.min(1.0, Math.max(0.0, (double) viewY / totalH));
+                int targetIndex = (int) Math.round(fraction * (images.size() - 1));
+                thumbnailPanel.scrollToImage(targetIndex);
+            }
+        };
+        htmlScroll.getViewport().addChangeListener(scrollSyncListener);
+    }
+
+    private void removeScrollSync() {
+        if (scrollSyncListener != null) {
+            htmlScroll.getViewport().removeChangeListener(scrollSyncListener);
+            scrollSyncListener = null;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -154,24 +428,13 @@ public class ConfluenceReaderTab implements ConnectionTab {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Asynchronous image loading
+    //  Asynchronous image loading (rendered mode only)
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * Scans the HTML for img tags and loads each image via the ConfluenceRestClient
-     * in a background thread, then injects them into the JEditorPane's image cache.
-     * <p>
-     * Images are collected into a single {@link Hashtable} during background loading.
-     * In {@code done()} the cache is populated on the document <b>before</b> calling
-     * {@code setText()} so that newly created {@code ImageView} instances find the
-     * images immediately.  An additional safety re-populate after {@code setText()}
-     * covers the edge-case where {@code setText()} replaced the document object.
-     */
     private void loadImagesAsync(String html) {
         if (html == null || client == null) return;
 
         new SwingWorker<Hashtable<URL, Image>, Object[]>() {
-            /** Accumulates loaded images (thread-safe). */
             private final Hashtable<URL, Image> loaded = new Hashtable<URL, Image>();
 
             @Override
@@ -204,7 +467,6 @@ public class ConfluenceReaderTab implements ConnectionTab {
             @Override
             @SuppressWarnings("unchecked")
             protected void process(java.util.List<Object[]> chunks) {
-                // Incremental cache population — lets images appear as they load
                 Document doc = htmlPane.getDocument();
                 if (!(doc instanceof HTMLDocument)) return;
 
@@ -225,22 +487,17 @@ public class ConfluenceReaderTab implements ConnectionTab {
                     Hashtable<URL, Image> allImages = get();
                     if (allImages == null || allImages.isEmpty()) return;
 
-                    // 1) Ensure the cache is on the current document BEFORE setText()
-                    //    so that ImageViews created during parsing find the images.
                     Document doc = htmlPane.getDocument();
                     doc.putProperty("imageCache", allImages);
 
                     int caretPos = Math.min(htmlPane.getCaretPosition(), doc.getLength());
 
-                    // 2) Re-set HTML to force fresh ImageViews (they cache "load failed"
-                    //    state from the initial load and won't retry on repaint alone).
-                    htmlPane.setText(fullHtml);
+                    htmlPane.setText(renderedFullHtml);
 
-                    // 3) Safety: if setText() replaced the document, re-apply cache.
                     Document newDoc = htmlPane.getDocument();
                     if (newDoc != doc) {
                         newDoc.putProperty("imageCache", allImages);
-                        htmlPane.setText(fullHtml);
+                        htmlPane.setText(renderedFullHtml);
                     }
 
                     try {
@@ -259,33 +516,13 @@ public class ConfluenceReaderTab implements ConnectionTab {
      */
     private String resolveImagePath(String src) {
         if (src == null || src.isEmpty()) return null;
-
-        // Already a full URL pointing to our Confluence instance
-        if (src.startsWith(baseUrl)) {
-            return src.substring(baseUrl.length());
-        }
-
-        // Relative path (e.g. /download/attachments/... or /rest/...)
-        if (src.startsWith("/")) {
-            return src;
-        }
-
-        // Data URIs or external URLs — skip
-        if (src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://")) {
+        if (src.startsWith(baseUrl)) return src.substring(baseUrl.length());
+        if (src.startsWith("/")) return src;
+        if (src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://"))
             return null;
-        }
-
-        // Relative to base
         return "/" + src;
     }
 
-    /**
-     * Resolve the img src to a full URL (as the HTMLDocument would key it).
-     * Must use the same resolution logic as {@code ImageView.getImageURL()},
-     * which calls {@code new URL(document.getBase(), src)}.
-     * Using string concatenation instead would produce mismatched URLs
-     * (e.g. double slashes) that cause image cache misses.
-     */
     private URL resolveImageUrl(String src) {
         try {
             return new URL(new URL(baseUrl), src);
@@ -308,14 +545,12 @@ public class ConfluenceReaderTab implements ConnectionTab {
         String url = e.getURL() != null ? e.getURL().toString() : desc;
         if (url == null) return;
 
-        // Try to extract a Confluence page ID from the link
         String linkedPageId = extractPageId(url);
         if (linkedPageId != null && linkCallback != null) {
             linkCallback.openLinkedPage(linkedPageId);
             return;
         }
 
-        // External link → open in browser
         try {
             Desktop.getDesktop().browse(new java.net.URI(url));
         } catch (Exception ex) {
@@ -323,9 +558,6 @@ public class ConfluenceReaderTab implements ConnectionTab {
         }
     }
 
-    /**
-     * Extract a page ID from a Confluence URL.
-     */
     static String extractPageId(String url) {
         if (url == null) return null;
         Matcher m = PAGE_ID_PATTERN.matcher(url);
@@ -378,6 +610,59 @@ public class ConfluenceReaderTab implements ConnectionTab {
         } catch (BadLocationException ex) {
             LOG.log(Level.FINE, "[ConfluenceReader] Search highlight error", ex);
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Image click helpers (rendered mode)
+    // ═══════════════════════════════════════════════════════════
+
+    private static String extractImgSrc(javax.swing.text.Element elem) {
+        if (elem == null) return null;
+        javax.swing.text.AttributeSet as = elem.getAttributes();
+        if (as.getAttribute(javax.swing.text.StyleConstants.NameAttribute)
+                == javax.swing.text.html.HTML.Tag.IMG) {
+            return (String) as.getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+        }
+        Object imgAs = as.getAttribute(javax.swing.text.html.HTML.Tag.IMG);
+        if (imgAs instanceof javax.swing.text.AttributeSet) {
+            return (String) ((javax.swing.text.AttributeSet) imgAs)
+                    .getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+        }
+        javax.swing.text.Element parent = elem.getParentElement();
+        if (parent != null) {
+            javax.swing.text.AttributeSet pas = parent.getAttributes();
+            if (pas.getAttribute(javax.swing.text.StyleConstants.NameAttribute)
+                    == javax.swing.text.html.HTML.Tag.IMG) {
+                return (String) pas.getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+            }
+            Object pImgAs = pas.getAttribute(javax.swing.text.html.HTML.Tag.IMG);
+            if (pImgAs instanceof javax.swing.text.AttributeSet) {
+                return (String) ((javax.swing.text.AttributeSet) pImgAs)
+                        .getAttribute(javax.swing.text.html.HTML.Attribute.SRC);
+            }
+        }
+        return null;
+    }
+
+    private static int findImageIndex(List<ImageRef> images, String src) {
+        if (src == null || images == null) return -1;
+        for (int i = 0; i < images.size(); i++) {
+            if (src.equals(images.get(i).src())) return i;
+        }
+        for (int i = 0; i < images.size(); i++) {
+            String imgSrc = images.get(i).src();
+            if (imgSrc != null && (imgSrc.contains(src) || src.contains(imgSrc))) return i;
+        }
+        int lastSlash = src.lastIndexOf('/');
+        String srcFile = lastSlash >= 0 && lastSlash < src.length() - 1
+                ? src.substring(lastSlash + 1) : src;
+        int qMark = srcFile.indexOf('?');
+        if (qMark > 0) srcFile = srcFile.substring(0, qMark);
+        for (int i = 0; i < images.size(); i++) {
+            String imgSrc = images.get(i).src();
+            if (imgSrc != null && imgSrc.contains(srcFile)) return i;
+        }
+        return -1;
     }
 
     // ═══════════════════════════════════════════════════════════

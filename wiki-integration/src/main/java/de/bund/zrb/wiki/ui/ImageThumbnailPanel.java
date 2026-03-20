@@ -39,6 +39,8 @@ public class ImageThumbnailPanel extends JPanel {
     private final JPanel contentPanel;
     private final JScrollPane scrollPane;
     private Runnable collapseCallback;
+    /** Optional authenticated downloader (e.g. for Confluence mTLS). */
+    private final ByteDownloader downloader;
 
     /** Tracks the last width used for scaling to avoid redundant rescale passes. */
     private int lastScaleWidth = -1;
@@ -151,7 +153,12 @@ public class ImageThumbnailPanel extends JPanel {
     // ═══════════════════════════════════════════════════════════
 
     public ImageThumbnailPanel(final List<ImageRef> images) {
+        this(images, null);
+    }
+
+    public ImageThumbnailPanel(final List<ImageRef> images, ByteDownloader downloader) {
         this.images = images;
+        this.downloader = downloader;
         setLayout(new BorderLayout(0, 0));
         setMinimumSize(new Dimension(80, 0));
 
@@ -192,7 +199,7 @@ public class ImageThumbnailPanel extends JPanel {
                     if (entry.animatedGif && isInsideOverlayCircle(entry.imageLabel, e.getX(), e.getY())) {
                         toggleAnimation(entry);
                     } else {
-                        ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx);
+                        ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx, downloader);
                     }
                 }
             });
