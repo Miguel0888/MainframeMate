@@ -198,18 +198,4 @@ public final class ToolbarDefaults {
         return null;
     }
 
-    private static String findIdContaining(List<ToolbarCommand> all, String... tokens) {
-        for (int i = 0; i < tokens.length; i++) {
-            String needle = tokens[i].toLowerCase(Locale.ROOT);
-            for (ToolbarCommand c : all) {
-                String id = Objects.toString(c.getId(), "");
-                if (id.toLowerCase(Locale.ROOT).contains(needle)) return id;
-            }
-        }
-        return null;
-    }
-
-    private static String cp(int codePoint) {
-        return new String(Character.toChars(codePoint));
-    }
 }

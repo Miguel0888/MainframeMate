@@ -310,6 +310,7 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         // Register toolbar config command (needs actionToolbar reference)
         CommandRegistryImpl.register(new ShowToolbarConfigMenuCommand(actionToolbar));
+        actionToolbar.reload(); // rebuild so the hardcoded gear button is replaced by the command
 
         // 4. Menübaum aufbauen (nachdem alle Commands + Toolbar da sind!)
         setJMenuBar(MenuTreeBuilder.buildMenuBar());
