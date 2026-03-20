@@ -130,7 +130,6 @@ dependencies {
 
 shadowJar {
     mergeServiceFiles()
-    zip64 = true
 }
 
 application {
