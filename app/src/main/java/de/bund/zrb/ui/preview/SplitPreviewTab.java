@@ -886,6 +886,10 @@ public class SplitPreviewTab extends JPanel implements ConnectionTab, AttachTabT
 
         try {
             RagService ragService = RagService.getInstance();
+            // Remove old version first to avoid orphaned chunks with stale content
+            if (ragService.isIndexed(docId)) {
+                ragService.removeDocument(docId);
+            }
             // Build a minimal Document from the current content if none exists
             Document doc = this.document;
             if (doc == null) {
