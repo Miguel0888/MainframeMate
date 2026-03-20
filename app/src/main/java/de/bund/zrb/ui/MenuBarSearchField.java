@@ -53,12 +53,12 @@ public class MenuBarSearchField extends JPanel {
             @Override
             protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
-                // Paint placeholder when empty and not focused
-                if (getText().isEmpty() && !hasFocus()) {
+                // Paint placeholder when empty
+                if (getText().isEmpty()) {
                     Graphics2D g2 = (Graphics2D) g.create();
                     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                             RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                    g2.setColor(PLACEHOLDER_FG);
+                    g2.setColor(hasFocus() ? new Color(0xCC, 0xCC, 0xCC) : PLACEHOLDER_FG);
                     g2.setFont(getFont().deriveFont(Font.PLAIN));
                     FontMetrics fm = g2.getFontMetrics();
                     int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
@@ -75,7 +75,7 @@ public class MenuBarSearchField extends JPanel {
         goButton = new JButton("\u25B6") {
             @Override
             public Dimension getPreferredSize() {
-                int h = MenuBarSearchField.this.getPreferredSize().height - 4;
+                int h = textField.getPreferredSize().height;
                 int side = Math.max(h, 20);
                 return new Dimension(side, side);
             }
