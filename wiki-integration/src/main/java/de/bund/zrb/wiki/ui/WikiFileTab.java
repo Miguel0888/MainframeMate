@@ -5,6 +5,8 @@ import de.bund.zrb.wiki.domain.OutlineNode;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 
 import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
@@ -47,8 +49,21 @@ public class WikiFileTab implements ConnectionTab {
     private boolean renderedMode = false;
     private JToggleButton textModeBtn;
     private JToggleButton renderedModeBtn;
-    /** Center panel wrapping htmlScroll + optional image strip. */
+    /** Center panel wrapping htmlScroll + optional image strip or split pane. */
     private JPanel centerPanel;
+    /** Scroll pane wrapping htmlPane — kept as field for split-pane attach/detach. */
+    private JScrollPane htmlScroll;
+
+    /** true when the image strip is expanded into the thumbnail split pane. */
+    private boolean imageStripExpanded = false;
+    /** The horizontal split pane used in expanded thumbnail mode. */
+    private JSplitPane imageSplitPane;
+    /** The thumbnail panel shown in expanded mode. */
+    private ImageThumbnailPanel thumbnailPanel;
+    /** Remembers last divider position so re-expanding restores the same width. */
+    private int lastDividerLocation = -1;
+    /** Scroll-sync listener (added/removed on expand/collapse). */
+    private ChangeListener scrollSyncListener;
 
     public WikiFileTab(String siteId, String pageTitle, String htmlContent, OutlineNode outline) {
         this(siteId, pageTitle, htmlContent, null, outline, Collections.<ImageRef>emptyList());
@@ -85,7 +100,7 @@ public class WikiFileTab implements ConnectionTab {
         htmlPane.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (!renderedMode || images.isEmpty()) return;
+                if (!renderedMode || WikiFileTab.this.images.isEmpty()) return;
                 int pos = htmlPane.viewToModel(e.getPoint());
                 if (pos < 0) return;
                 javax.swing.text.Document doc = htmlPane.getDocument();
@@ -95,9 +110,9 @@ public class WikiFileTab implements ConnectionTab {
                 if (elem == null) return;
                 String src = extractImgSrc(elem);
                 if (src == null) return;
-                int index = findImageIndex(images, src);
+                int index = findImageIndex(WikiFileTab.this.images, src);
                 if (index >= 0) {
-                    ImageStripPanel.openOverlay(htmlPane, images, index);
+                    ImageStripPanel.openOverlay(htmlPane, WikiFileTab.this.images, index);
                 }
             }
         });
@@ -105,7 +120,7 @@ public class WikiFileTab implements ConnectionTab {
         htmlPane.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override
             public void mouseMoved(java.awt.event.MouseEvent e) {
-                if (!renderedMode || images.isEmpty()) {
+                if (!renderedMode || WikiFileTab.this.images.isEmpty()) {
                     htmlPane.setCursor(Cursor.getDefaultCursor());
                     return;
                 }
@@ -125,7 +140,7 @@ public class WikiFileTab implements ConnectionTab {
             }
         });
 
-        JScrollPane htmlScroll = new JScrollPane(htmlPane);
+        htmlScroll = new JScrollPane(htmlPane);
 
         // Center panel wrapping htmlScroll + optional image strip
         centerPanel = new JPanel(new BorderLayout(0, 0));
@@ -133,7 +148,9 @@ public class WikiFileTab implements ConnectionTab {
 
         // Image strip on the right (only if images exist, text mode default)
         if (!this.images.isEmpty()) {
-            centerPanel.add(new ImageStripPanel(this.images), BorderLayout.EAST);
+            ImageStripPanel strip = new ImageStripPanel(this.images);
+            strip.setExpandCallback(this::expandImageStrip);
+            centerPanel.add(strip, BorderLayout.EAST);
         }
         mainPanel.add(centerPanel, BorderLayout.CENTER);
 
@@ -256,11 +273,21 @@ public class WikiFileTab implements ConnectionTab {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  View mode switching
+    // ═══════════════════════════════════════════════════════════
+
     /**
      * Re-apply content with the currently selected view mode.
+     * Collapsing any expanded thumbnail panel on mode switch.
      */
     private void refreshViewMode() {
-        // Remove existing image strip (EAST component)
+        // Collapse expanded thumbnails first
+        if (imageStripExpanded) {
+            collapseImageStripSilently();
+        }
+
+        // Remove existing EAST component (strip)
         Component eastComp = ((BorderLayout) centerPanel.getLayout())
                 .getLayoutComponent(BorderLayout.EAST);
         if (eastComp != null) {
@@ -278,12 +305,127 @@ public class WikiFileTab implements ConnectionTab {
             htmlPane.setText(WikiConnectionTab.wrapHtml(htmlContent));
             htmlPane.setCaretPosition(0);
             if (!images.isEmpty()) {
-                centerPanel.add(new ImageStripPanel(images), BorderLayout.EAST);
+                ImageStripPanel strip = new ImageStripPanel(images);
+                strip.setExpandCallback(this::expandImageStrip);
+                centerPanel.add(strip, BorderLayout.EAST);
             }
         }
 
         centerPanel.revalidate();
         centerPanel.repaint();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Image strip expand / collapse
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Expand the narrow image strip into a resizable thumbnail split pane.
+     */
+    private void expandImageStrip() {
+        if (images.isEmpty() || imageStripExpanded || renderedMode) return;
+        imageStripExpanded = true;
+
+        // Remove ImageStripPanel
+        Component eastComp = ((BorderLayout) centerPanel.getLayout())
+                .getLayoutComponent(BorderLayout.EAST);
+        if (eastComp != null) centerPanel.remove(eastComp);
+
+        // Detach htmlScroll from centerPanel
+        centerPanel.remove(htmlScroll);
+
+        // Create thumbnail panel
+        thumbnailPanel = new ImageThumbnailPanel(images);
+        thumbnailPanel.setCollapseCallback(this::collapseImageStrip);
+
+        // Create horizontal split pane
+        imageSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, htmlScroll, thumbnailPanel);
+        imageSplitPane.setResizeWeight(0.7);
+        int divLoc = lastDividerLocation > 0 ? lastDividerLocation
+                : centerPanel.getWidth() * 3 / 4;
+        imageSplitPane.setDividerLocation(divLoc);
+
+        centerPanel.add(imageSplitPane, BorderLayout.CENTER);
+
+        // Install scroll sync
+        installScrollSync();
+
+        centerPanel.revalidate();
+        centerPanel.repaint();
+    }
+
+    /**
+     * Collapse the thumbnail split pane back to the narrow image strip.
+     */
+    private void collapseImageStrip() {
+        if (!imageStripExpanded) return;
+
+        // Remember divider position for next expand
+        if (imageSplitPane != null) {
+            lastDividerLocation = imageSplitPane.getDividerLocation();
+        }
+
+        collapseImageStripSilently();
+
+        // Re-add ImageStripPanel
+        ImageStripPanel strip = new ImageStripPanel(images);
+        strip.setExpandCallback(this::expandImageStrip);
+        centerPanel.add(strip, BorderLayout.EAST);
+
+        centerPanel.revalidate();
+        centerPanel.repaint();
+    }
+
+    /**
+     * Internal collapse without re-adding the strip (used by mode-switch too).
+     */
+    private void collapseImageStripSilently() {
+        if (!imageStripExpanded) return;
+        imageStripExpanded = false;
+
+        // Remove scroll sync
+        removeScrollSync();
+
+        // Detach from split pane
+        if (imageSplitPane != null) {
+            imageSplitPane.remove(htmlScroll);
+            centerPanel.remove(imageSplitPane);
+        }
+
+        // Re-add htmlScroll directly
+        centerPanel.add(htmlScroll, BorderLayout.CENTER);
+
+        imageSplitPane = null;
+        thumbnailPanel = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Scroll synchronisation
+    // ═══════════════════════════════════════════════════════════
+
+    private void installScrollSync() {
+        if (scrollSyncListener != null) return;
+        scrollSyncListener = new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                if (thumbnailPanel == null || images.isEmpty()) return;
+                JViewport viewport = htmlScroll.getViewport();
+                int viewY = viewport.getViewPosition().y;
+                int totalH = htmlPane.getPreferredSize().height - viewport.getHeight();
+                if (totalH <= 0) return;
+                double fraction = Math.min(1.0, Math.max(0.0, (double) viewY / totalH));
+                int targetIndex = (int) Math.round(fraction * (images.size() - 1));
+                thumbnailPanel.scrollToImage(targetIndex);
+            }
+        };
+        htmlScroll.getViewport().addChangeListener(scrollSyncListener);
+    }
+
+    private void removeScrollSync() {
+        if (scrollSyncListener != null) {
+            htmlScroll.getViewport().removeChangeListener(scrollSyncListener);
+            scrollSyncListener = null;
+        }
     }
 
     public OutlineNode getOutline() { return outline; }

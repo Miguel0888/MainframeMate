@@ -1,0 +1,266 @@
+package de.bund.zrb.wiki.ui;
+
+import de.bund.zrb.wiki.domain.ImageRef;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Expandable thumbnail panel showing image previews from a wiki page.
+ * <p>
+ * Thumbnails resize dynamically when the enclosing splitter is dragged wider or narrower.
+ * Click on a thumbnail opens the full-size image overlay dialog (via {@link ImageStripPanel#openOverlay}).
+ * A "▶▶" button at the bottom collapses the panel back to the narrow {@link ImageStripPanel}.
+ * <p>
+ * The panel supports synchronised scrolling with the text pane via {@link #scrollToImage(int)}.
+ */
+public class ImageThumbnailPanel extends JPanel {
+
+    private static final Logger LOG = Logger.getLogger(ImageThumbnailPanel.class.getName());
+
+    private static final int PADDING = 6;
+
+    private final List<ImageRef> images;
+    private final List<ThumbnailEntry> entries = new ArrayList<ThumbnailEntry>();
+    private final JPanel contentPanel;
+    private final JScrollPane scrollPane;
+    private Runnable collapseCallback;
+
+    /** Tracks the last width used for scaling to avoid redundant rescale passes. */
+    private int lastScaleWidth = -1;
+
+    // ═══════════════════════════════════════════════════════════
+    //  Thumbnail entry
+    // ═══════════════════════════════════════════════════════════
+
+    private static class ThumbnailEntry {
+        final ImageRef imageRef;
+        final int index;
+        final JPanel panel;
+        final JLabel imageLabel;
+        final JLabel captionLabel;
+        BufferedImage originalImage;   // null until loaded
+        boolean loaded;
+
+        ThumbnailEntry(ImageRef ref, int idx) {
+            this.imageRef = ref;
+            this.index = idx;
+
+            panel = new JPanel(new BorderLayout(0, 2));
+            panel.setBorder(BorderFactory.createEmptyBorder(4, PADDING, 4, PADDING));
+            panel.setOpaque(false);
+
+            imageLabel = new JLabel("\u23f3", SwingConstants.CENTER);
+            imageLabel.setOpaque(true);
+            imageLabel.setBackground(new Color(230, 230, 230));
+            imageLabel.setPreferredSize(new Dimension(80, 60));
+            imageLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+            String desc = ref.description();
+            if (desc.length() > 60) desc = desc.substring(0, 57) + "…";
+            captionLabel = new JLabel(desc, SwingConstants.CENTER);
+            captionLabel.setFont(captionLabel.getFont().deriveFont(10f));
+            captionLabel.setForeground(Color.GRAY);
+
+            panel.add(imageLabel, BorderLayout.CENTER);
+            panel.add(captionLabel, BorderLayout.SOUTH);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Constructor
+    // ═══════════════════════════════════════════════════════════
+
+    public ImageThumbnailPanel(final List<ImageRef> images) {
+        this.images = images;
+        setLayout(new BorderLayout(0, 0));
+        setMinimumSize(new Dimension(80, 0));
+
+        contentPanel = new JPanel();
+        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+        contentPanel.setBackground(new Color(248, 248, 248));
+
+        scrollPane = new JScrollPane(contentPanel);
+        scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(30);
+        scrollPane.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, Color.LIGHT_GRAY));
+        add(scrollPane, BorderLayout.CENTER);
+
+        // ── Collapse button at bottom ──
+        JButton collapseBtn = new JButton("\u25b6\u25b6");
+        collapseBtn.setToolTipText("Miniaturansicht zuklappen");
+        collapseBtn.setFocusable(false);
+        collapseBtn.setMargin(new Insets(2, 6, 2, 6));
+        collapseBtn.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (collapseCallback != null) collapseCallback.run();
+            }
+        });
+        JPanel bottomBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 2));
+        bottomBar.add(collapseBtn);
+        add(bottomBar, BorderLayout.SOUTH);
+
+        // ── Create placeholder entries ──
+        for (int i = 0; i < images.size(); i++) {
+            final ThumbnailEntry entry = new ThumbnailEntry(images.get(i), i);
+            final int idx = i;
+            entry.imageLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx);
+                }
+            });
+            entries.add(entry);
+            contentPanel.add(entry.panel);
+        }
+
+        // ── Rescale thumbnails on resize ──
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                int newW = getAvailableWidth();
+                if (newW != lastScaleWidth && newW > 20) {
+                    lastScaleWidth = newW;
+                    rescaleAll();
+                }
+            }
+        });
+
+        // ── Load thumbnails asynchronously ──
+        loadThumbnailsAsync();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Public API
+    // ═══════════════════════════════════════════════════════════
+
+    public void setCollapseCallback(Runnable callback) {
+        this.collapseCallback = callback;
+    }
+
+    /**
+     * Scroll the thumbnail list so that the image at the given index is visible.
+     * Used for synchronised scrolling with the text pane.
+     */
+    public void scrollToImage(final int index) {
+        if (index < 0 || index >= entries.size()) return;
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                JPanel target = entries.get(index).panel;
+                Rectangle bounds = target.getBounds();
+                // Show the target and a bit beyond for context
+                scrollPane.getViewport().setViewPosition(
+                        new Point(0, Math.max(0, bounds.y - 4)));
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Async thumbnail loading
+    // ═══════════════════════════════════════════════════════════
+
+    private void loadThumbnailsAsync() {
+        new SwingWorker<Void, Integer>() {
+            @Override
+            protected Void doInBackground() {
+                for (int i = 0; i < images.size(); i++) {
+                    try {
+                        byte[] data = ImageStripPanel.downloadBytes(images.get(i).src());
+                        if (data == null || data.length == 0) continue;
+
+                        BufferedImage img = ImageIO.read(new ByteArrayInputStream(data));
+                        if (img != null) {
+                            entries.get(i).originalImage = img;
+                            entries.get(i).loaded = true;
+                            publish(i);
+                        }
+                    } catch (Exception e) {
+                        LOG.log(Level.FINE, "[Thumbnail] Load failed: " + images.get(i).src(), e);
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(java.util.List<Integer> indices) {
+                for (int idx : indices) {
+                    rescaleEntry(entries.get(idx));
+                }
+            }
+        }.execute();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Thumbnail scaling
+    // ═══════════════════════════════════════════════════════════
+
+    private int getAvailableWidth() {
+        int sbWidth = scrollPane.getVerticalScrollBar().isVisible()
+                ? scrollPane.getVerticalScrollBar().getWidth() : 12;
+        return getWidth() - PADDING * 2 - sbWidth - 4;
+    }
+
+    private void rescaleAll() {
+        for (ThumbnailEntry entry : entries) {
+            if (entry.loaded) {
+                rescaleEntry(entry);
+            }
+        }
+    }
+
+    private void rescaleEntry(ThumbnailEntry entry) {
+        if (entry.originalImage == null) return;
+
+        int availW = getAvailableWidth();
+        if (availW < 30) availW = 30;
+
+        BufferedImage orig = entry.originalImage;
+        double scale = (double) availW / orig.getWidth();
+        int thumbW = availW;
+        int thumbH = Math.max(1, (int) (orig.getHeight() * scale));
+
+        // Cap very tall images to a reasonable height
+        int maxH = Math.max(400, getHeight());
+        if (thumbH > maxH) {
+            thumbH = maxH;
+            thumbW = Math.max(1, (int) (orig.getWidth() * ((double) maxH / orig.getHeight())));
+        }
+
+        BufferedImage scaled = scaleImage(orig, thumbW, thumbH);
+        entry.imageLabel.setIcon(new ImageIcon(scaled));
+        entry.imageLabel.setText(null);
+        entry.imageLabel.setBackground(null);
+        entry.imageLabel.setOpaque(false);
+        entry.imageLabel.setPreferredSize(new Dimension(thumbW, thumbH));
+        entry.panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, thumbH + 24));
+
+        contentPanel.revalidate();
+    }
+
+    /**
+     * High-quality image scaling using Graphics2D with bilinear interpolation.
+     */
+    private static BufferedImage scaleImage(BufferedImage src, int w, int h) {
+        BufferedImage dest = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = dest.createGraphics();
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING,
+                RenderingHints.VALUE_RENDER_QUALITY);
+        g2.drawImage(src, 0, 0, w, h, null);
+        g2.dispose();
+        return dest;
+    }
+}
+

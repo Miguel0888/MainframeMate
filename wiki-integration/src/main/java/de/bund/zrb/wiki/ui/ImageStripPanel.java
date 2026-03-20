@@ -35,6 +35,9 @@ public class ImageStripPanel extends JPanel {
     /** All images on this page — kept for navigation inside the overlay. */
     private List<ImageRef> allImages;
 
+    /** Callback fired when user clicks the expand button (◀◀). */
+    private Runnable expandCallback;
+
     public ImageStripPanel(List<ImageRef> images) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
@@ -74,6 +77,29 @@ public class ImageStripPanel extends JPanel {
         }
 
         add(Box.createVerticalGlue());
+
+        // ── Expand button at the very bottom ──
+        JLabel expandBtn = new JLabel("\u25c0\u25c0");
+        expandBtn.setFont(expandBtn.getFont().deriveFont(Font.BOLD, 11f));
+        expandBtn.setHorizontalAlignment(SwingConstants.CENTER);
+        expandBtn.setPreferredSize(new Dimension(ICON_SIZE, ICON_SIZE));
+        expandBtn.setMaximumSize(new Dimension(ICON_SIZE, ICON_SIZE));
+        expandBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        expandBtn.setToolTipText("Miniaturansicht aufklappen");
+        expandBtn.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (expandCallback != null) expandCallback.run();
+            }
+        });
+        add(expandBtn);
+    }
+
+    /**
+     * Set the callback invoked when the user clicks the expand button (◀◀).
+     */
+    public void setExpandCallback(Runnable callback) {
+        this.expandCallback = callback;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -701,8 +727,8 @@ public class ImageStripPanel extends JPanel {
         return conn.getInputStream();
     }
 
-    /** Download the full image into a byte array. */
-    private static byte[] downloadBytes(String imageUrl) throws java.io.IOException {
+    /** Download the full image into a byte array. Package-private for reuse by ImageThumbnailPanel. */
+    static byte[] downloadBytes(String imageUrl) throws java.io.IOException {
         InputStream in = openImageStream(imageUrl);
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream(32768);

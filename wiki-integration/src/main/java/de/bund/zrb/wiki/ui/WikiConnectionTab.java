@@ -73,6 +73,13 @@ public class WikiConnectionTab implements ConnectionTab {
     /** Reference to the htmlScroll pane for layout updates. */
     private JScrollPane htmlScrollPane;
 
+    /** true when the image strip is expanded into the thumbnail split pane. */
+    private boolean imageStripExpanded = false;
+    private JSplitPane imageSplitPane;
+    private ImageThumbnailPanel thumbnailPanel;
+    private int lastDividerLocation = -1;
+    private javax.swing.event.ChangeListener scrollSyncListener;
+
     public WikiConnectionTab(WikiContentService service) {
         this.service = service;
         this.mainPanel = new JPanel(new BorderLayout(0, 0));
@@ -481,6 +488,11 @@ public class WikiConnectionTab implements ConnectionTab {
     private void applyPreviewContent(WikiPageView view) {
         if (view == null) return;
 
+        // Collapse expanded thumbnails if switching content
+        if (imageStripExpanded) {
+            collapsePreviewImageStripSilently();
+        }
+
         // Remove existing image strip (EAST component)
         Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
                 .getLayoutComponent(java.awt.BorderLayout.EAST);
@@ -500,7 +512,9 @@ public class WikiConnectionTab implements ConnectionTab {
             htmlPane.setText(wrapHtml(view.cleanedHtml()));
             htmlPane.setCaretPosition(0);
             if (view.images() != null && !view.images().isEmpty()) {
-                previewPanel.add(new ImageStripPanel(view.images()), java.awt.BorderLayout.EAST);
+                ImageStripPanel strip = new ImageStripPanel(view.images());
+                strip.setExpandCallback(this::expandPreviewImageStrip);
+                previewPanel.add(strip, java.awt.BorderLayout.EAST);
             }
         }
 
@@ -692,6 +706,98 @@ public class WikiConnectionTab implements ConnectionTab {
             } catch (Exception ex) {
                 LOG.log(Level.FINE, "[Wiki] Could not open external link", ex);
             }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Preview image strip expand / collapse
+    // ═══════════════════════════════════════════════════════════
+
+    private void expandPreviewImageStrip() {
+        if (currentPreview == null || imageStripExpanded || renderedMode) return;
+        java.util.List<ImageRef> imgs = currentPreview.images();
+        if (imgs == null || imgs.isEmpty()) return;
+        imageStripExpanded = true;
+
+        // Remove ImageStripPanel
+        Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
+                .getLayoutComponent(java.awt.BorderLayout.EAST);
+        if (eastComp != null) previewPanel.remove(eastComp);
+
+        // Detach htmlScroll
+        previewPanel.remove(htmlScrollPane);
+
+        // Create thumbnail panel
+        thumbnailPanel = new ImageThumbnailPanel(imgs);
+        thumbnailPanel.setCollapseCallback(this::collapsePreviewImageStrip);
+
+        // Create horizontal split pane
+        imageSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, htmlScrollPane, thumbnailPanel);
+        imageSplitPane.setResizeWeight(0.7);
+        int divLoc = lastDividerLocation > 0 ? lastDividerLocation
+                : previewPanel.getWidth() * 3 / 4;
+        imageSplitPane.setDividerLocation(divLoc);
+
+        previewPanel.add(imageSplitPane, java.awt.BorderLayout.CENTER);
+        installPreviewScrollSync();
+        previewPanel.revalidate();
+        previewPanel.repaint();
+    }
+
+    private void collapsePreviewImageStrip() {
+        if (!imageStripExpanded) return;
+        if (imageSplitPane != null) {
+            lastDividerLocation = imageSplitPane.getDividerLocation();
+        }
+        collapsePreviewImageStripSilently();
+
+        // Re-add ImageStripPanel
+        if (currentPreview != null && currentPreview.images() != null && !currentPreview.images().isEmpty()) {
+            ImageStripPanel strip = new ImageStripPanel(currentPreview.images());
+            strip.setExpandCallback(this::expandPreviewImageStrip);
+            previewPanel.add(strip, java.awt.BorderLayout.EAST);
+        }
+        previewPanel.revalidate();
+        previewPanel.repaint();
+    }
+
+    private void collapsePreviewImageStripSilently() {
+        if (!imageStripExpanded) return;
+        imageStripExpanded = false;
+        removePreviewScrollSync();
+        if (imageSplitPane != null) {
+            imageSplitPane.remove(htmlScrollPane);
+            previewPanel.remove(imageSplitPane);
+        }
+        previewPanel.add(htmlScrollPane, java.awt.BorderLayout.CENTER);
+        imageSplitPane = null;
+        thumbnailPanel = null;
+    }
+
+    private void installPreviewScrollSync() {
+        if (scrollSyncListener != null) return;
+        scrollSyncListener = new javax.swing.event.ChangeListener() {
+            @Override
+            public void stateChanged(javax.swing.event.ChangeEvent e) {
+                if (thumbnailPanel == null || currentPreview == null) return;
+                java.util.List<ImageRef> imgs = currentPreview.images();
+                if (imgs == null || imgs.isEmpty()) return;
+                JViewport viewport = htmlScrollPane.getViewport();
+                int viewY = viewport.getViewPosition().y;
+                int totalH = htmlPane.getPreferredSize().height - viewport.getHeight();
+                if (totalH <= 0) return;
+                double fraction = Math.min(1.0, Math.max(0.0, (double) viewY / totalH));
+                int targetIndex = (int) Math.round(fraction * (imgs.size() - 1));
+                thumbnailPanel.scrollToImage(targetIndex);
+            }
+        };
+        htmlScrollPane.getViewport().addChangeListener(scrollSyncListener);
+    }
+
+    private void removePreviewScrollSync() {
+        if (scrollSyncListener != null) {
+            htmlScrollPane.getViewport().removeChangeListener(scrollSyncListener);
+            scrollSyncListener = null;
         }
     }
 
