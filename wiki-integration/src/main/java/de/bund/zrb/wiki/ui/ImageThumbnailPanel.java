@@ -283,11 +283,20 @@ public class ImageThumbnailPanel extends JPanel {
             int h = icon.getIconHeight();
             if (w <= 0 || h <= 0) return null;
 
-            // Render first frame into a BufferedImage for thumbnail scaling
+            // Use PixelGrabber to synchronously extract the first frame's pixels.
+            // Graphics2D.drawImage() with null ImageObserver returns empty for
+            // Toolkit-loaded animated GIFs because pixel transfer is asynchronous.
+            int[] pixels = new int[w * h];
+            java.awt.image.PixelGrabber pg =
+                    new java.awt.image.PixelGrabber(img, 0, 0, w, h, pixels, 0, w);
+            try {
+                pg.grabPixels();
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+
             BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2 = bi.createGraphics();
-            g2.drawImage(img, 0, 0, w, h, null);
-            g2.dispose();
+            bi.setRGB(0, 0, w, h, pixels, 0, w);
             return bi;
         }
 
@@ -304,10 +313,16 @@ public class ImageThumbnailPanel extends JPanel {
         int w = icon.getIconWidth();
         int h = icon.getIconHeight();
         if (w <= 0 || h <= 0) return null;
+        int[] pixels = new int[w * h];
+        java.awt.image.PixelGrabber pg =
+                new java.awt.image.PixelGrabber(icon.getImage(), 0, 0, w, h, pixels, 0, w);
+        try {
+            pg.grabPixels();
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
         BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g2 = bi.createGraphics();
-        g2.drawImage(icon.getImage(), 0, 0, w, h, null);
-        g2.dispose();
+        bi.setRGB(0, 0, w, h, pixels, 0, w);
         return bi;
     }
 }
