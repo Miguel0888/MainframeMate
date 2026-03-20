@@ -58,8 +58,13 @@ public final class ConfluenceRestClient {
             }
             LOG.info("[Confluence] Kein Zertifikat konfiguriert — nur Basic Auth (ohne mTLS)");
         }
-        this.authorizationHeaderValue = createBasicAuthHeader(
-                config.getUsername(), config.getPassword());
+        if (config.hasCredentials()) {
+            this.authorizationHeaderValue = createBasicAuthHeader(
+                    config.getUsername(), config.getPassword());
+        } else {
+            this.authorizationHeaderValue = null;
+            LOG.info("[Confluence] Keine Zugangsdaten konfiguriert — nur Zertifikat / anonymer Zugriff");
+        }
 
         // Resolve proxy from central proxy settings
         Proxy resolved = Proxy.NO_PROXY;
@@ -324,7 +329,9 @@ public final class ConfluenceRestClient {
         connection.setConnectTimeout(config.getConnectTimeoutMillis());
         connection.setReadTimeout(config.getReadTimeoutMillis());
         connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("Authorization", authorizationHeaderValue);
+        if (authorizationHeaderValue != null) {
+            connection.setRequestProperty("Authorization", authorizationHeaderValue);
+        }
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
 

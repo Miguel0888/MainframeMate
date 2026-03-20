@@ -82,24 +82,30 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
         // ── 3. Resolve credentials ──
         String user = selected.userName;
         String pass = selected.password;
-        if ((user == null || user.isEmpty()) && (pass == null || pass.isEmpty())) {
-            try {
-                String[] creds = CredentialStore.resolveIncludingEmpty("pwd:" + selected.id);
-                if (creds != null) {
-                    user = creds[0];
-                    pass = creds[1];
+        if (selected.requiresLogin) {
+            if ((user == null || user.isEmpty()) && (pass == null || pass.isEmpty())) {
+                try {
+                    String[] creds = CredentialStore.resolveIncludingEmpty("pwd:" + selected.id);
+                    if (creds != null) {
+                        user = creds[0];
+                        pass = creds[1];
+                    }
+                } catch (Exception e) {
+                    LOG.log(Level.WARNING, "[Confluence] Credentials aufl\u00f6sen fehlgeschlagen", e);
                 }
-            } catch (Exception e) {
-                LOG.log(Level.WARNING, "[Confluence] Credentials aufl\u00f6sen fehlgeschlagen", e);
             }
-        }
 
-        if (user == null || user.isEmpty()) {
-            JOptionPane.showMessageDialog(null,
-                    "Kein Benutzername f\u00fcr den Confluence-Eintrag hinterlegt.\n"
-                            + "Bitte unter Einstellungen \u2192 Passw\u00f6rter vervollst\u00e4ndigen.",
-                    "Fehlende Zugangsdaten", JOptionPane.WARNING_MESSAGE);
-            return;
+            if (user == null || user.isEmpty()) {
+                JOptionPane.showMessageDialog(null,
+                        "Kein Benutzername f\u00fcr den Confluence-Eintrag hinterlegt.\n"
+                                + "Bitte unter Einstellungen \u2192 Passw\u00f6rter vervollst\u00e4ndigen.",
+                        "Fehlende Zugangsdaten", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } else {
+            // No login required — use empty credentials (cert-only or anonymous)
+            user = "";
+            pass = "";
         }
 
         // ── 4. Build client + open tab ──
@@ -251,7 +257,7 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
                         meta.displayName != null ? meta.displayName : meta.id,
                         meta.url != null ? meta.url : "",
                         meta.certAlias != null ? meta.certAlias : "",
-                        user, pass));
+                        user, pass, meta.requiresLogin));
             }
         }
         return result;
@@ -264,15 +270,18 @@ public class OpenConfluenceMenuCommand extends ShortcutMenuCommand {
         final String certAlias;
         final String userName;
         final String password;
+        final boolean requiresLogin;
 
         ConfluenceEntry(String id, String displayName, String url,
-                        String certAlias, String userName, String password) {
+                        String certAlias, String userName, String password,
+                        boolean requiresLogin) {
             this.id = id;
             this.displayName = displayName;
             this.url = url;
             this.certAlias = certAlias;
             this.userName = userName;
             this.password = password;
+            this.requiresLogin = requiresLogin;
         }
     }
 

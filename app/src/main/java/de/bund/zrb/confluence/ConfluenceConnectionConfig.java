@@ -1,6 +1,5 @@
 package de.bund.zrb.confluence;
 
-import java.util.Objects;
 
 /**
  * Immutable configuration for a Confluence Data Center REST connection.
@@ -8,10 +7,10 @@ import java.util.Objects;
  * Supports:
  * <ul>
  *   <li>Optional mTLS with a client certificate from {@code Windows-MY} (selected by alias)</li>
- *   <li>HTTP Basic Auth (username + password)</li>
+ *   <li>Optional HTTP Basic Auth (username + password)</li>
  * </ul>
- * If {@code clientCertificateAlias} is {@code null} or empty, mTLS is disabled and
- * only Basic Auth is used.
+ * If {@code clientCertificateAlias} is {@code null} or empty, mTLS is disabled.
+ * If {@code username} is {@code null} or empty, Basic Auth is disabled.
  */
 public final class ConfluenceConnectionConfig {
 
@@ -31,8 +30,8 @@ public final class ConfluenceConnectionConfig {
             int readTimeoutMillis) {
 
         this.baseUrl = requireNonBlank(baseUrl, "baseUrl");
-        this.username = requireNonBlank(username, "username");
-        this.password = Objects.requireNonNull(password, "password must not be null");
+        this.username = (username != null && !username.trim().isEmpty()) ? username : null;
+        this.password = password != null ? password : "";
         this.clientCertificateAlias = (clientCertificateAlias != null && !clientCertificateAlias.trim().isEmpty())
                 ? clientCertificateAlias : null;
         this.connectTimeoutMillis = connectTimeoutMillis;
@@ -44,6 +43,7 @@ public final class ConfluenceConnectionConfig {
     public String getPassword()               { return password; }
     public String getClientCertificateAlias() { return clientCertificateAlias; }
     public boolean hasCertificate()           { return clientCertificateAlias != null; }
+    public boolean hasCredentials()            { return username != null; }
     public int getConnectTimeoutMillis()      { return connectTimeoutMillis; }
     public int getReadTimeoutMillis()         { return readTimeoutMillis; }
 

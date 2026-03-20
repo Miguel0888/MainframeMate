@@ -360,6 +360,9 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
             autoIdxCb.setSelected(existing.autoIndex);
             savePwCb.setSelected(existing.savePassword);
             sessionCb.setSelected(existing.sessionCache);
+        } else {
+            // Default: Confluence entries require login
+            loginCb.setSelected(true);
         }
 
         // Show/hide password toggle
@@ -541,11 +544,17 @@ public class ShowPasswordsMenuCommand extends ShortcutMenuCommand {
         confluenceTestBtn.addActionListener(e -> {
             String testUrl = urlField.getText().trim();
             String testAlias = useCertCb.isSelected() ? certAliasField.getText().trim() : "";
-            String testUser = userField.getText().trim();
-            String testPass = new String(passField.getPassword());
-            if (testUrl.isEmpty() || testUser.isEmpty()) {
+            String testUser = loginCb.isSelected() ? userField.getText().trim() : "";
+            String testPass = loginCb.isSelected() ? new String(passField.getPassword()) : "";
+            if (testUrl.isEmpty()) {
                 JOptionPane.showMessageDialog(dialog,
-                        "Bitte URL und Benutzername eingeben.",
+                        "Bitte eine URL eingeben.",
+                        "Confluence-Test", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            if (loginCb.isSelected() && testUser.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog,
+                        "Bitte einen Benutzernamen eingeben oder \u201eLogin erforderlich\u201c deaktivieren.",
                         "Confluence-Test", JOptionPane.WARNING_MESSAGE);
                 return;
             }
