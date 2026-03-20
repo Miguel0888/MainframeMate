@@ -1032,33 +1032,49 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             @Override
             protected java.util.Hashtable<java.net.URL, java.awt.Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
+                int imgCount = 0;
                 while (matcher.find()) {
                     String src = matcher.group(1);
+                    imgCount++;
+                    System.out.println("[ConfluencePreview] IMG #" + imgCount + " src=" + src);
                     try {
                         String downloadPath = resolveImagePath(src);
-                        if (downloadPath == null) continue;
+                        System.out.println("[ConfluencePreview]   downloadPath=" + downloadPath);
+                        if (downloadPath == null) {
+                            System.out.println("[ConfluencePreview]   SKIPPED (path=null)");
+                            continue;
+                        }
 
                         byte[] data = client.getBytes(downloadPath);
+                        System.out.println("[ConfluencePreview]   bytes=" + (data != null ? data.length : "null"));
                         if (data == null || data.length == 0) continue;
 
+                        boolean isSvgBytes = de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data);
+                        boolean isSvgUrl = de.bund.zrb.wiki.ui.SvgRenderer.isSvgUrl(src);
+                        System.out.println("[ConfluencePreview]   isSvg(bytes)=" + isSvgBytes + " isSvgUrl=" + isSvgUrl);
+
                         java.awt.Image image;
-                        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
+                        if (isSvgBytes) {
                             image = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
                         } else {
                             image = javax.imageio.ImageIO.read(
                                     new java.io.ByteArrayInputStream(data));
                         }
+                        System.out.println("[ConfluencePreview]   image=" + (image != null ? "OK" : "NULL"));
                         if (image != null) {
                             java.net.URL imageUrl = resolveImageUrl(src);
+                            System.out.println("[ConfluencePreview]   cacheKey=" + imageUrl);
                             if (imageUrl != null) {
                                 loaded.put(imageUrl, image);
                                 publish(new Object[]{imageUrl, image});
                             }
                         }
                     } catch (Exception e) {
+                        System.out.println("[ConfluencePreview]   EXCEPTION: " + e);
                         LOG.log(Level.FINE, "[Confluence] Preview image load failed: " + src, e);
                     }
                 }
+                System.out.println("[ConfluencePreview] TOTAL: " + imgCount + " found, " + loaded.size() + " loaded");
                 return loaded;
             }
 

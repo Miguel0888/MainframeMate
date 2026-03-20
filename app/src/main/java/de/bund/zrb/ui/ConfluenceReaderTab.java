@@ -88,9 +88,9 @@ public class ConfluenceReaderTab implements ConnectionTab {
     private static final Pattern PAGE_ID_PATTERN = Pattern.compile("pageId=(\\d+)");
     private static final Pattern VIEWPAGE_PATTERN = Pattern.compile("/pages/viewpage\\.action\\?pageId=(\\d+)");
 
-    /** Pattern to find img src attributes in HTML. */
+    /** Pattern to find img src attributes in HTML (must not match data-image-src etc.). */
     private static final Pattern IMG_SRC_PATTERN = Pattern.compile(
-            "<img\\s[^>]*src\\s*=\\s*[\"']([^\"']+)[\"']",
+            "<img\\s[^>]*(?<=\\s)src\\s*=\\s*[\"']([^\"']+)[\"']",
             Pattern.CASE_INSENSITIVE);
 
     /** Full HTML string for rendered mode (with images). */
@@ -441,7 +441,7 @@ public class ConfluenceReaderTab implements ConnectionTab {
             protected Hashtable<URL, Image> doInBackground() {
                 Matcher matcher = IMG_SRC_PATTERN.matcher(html);
                 while (matcher.find()) {
-                    String src = matcher.group(1);
+                    String src = decodeHtmlEntities(matcher.group(1));
                     try {
                         String downloadPath = resolveImagePath(src);
                         if (downloadPath == null) continue;
@@ -449,8 +449,10 @@ public class ConfluenceReaderTab implements ConnectionTab {
                         byte[] data = client.getBytes(downloadPath);
                         if (data == null || data.length == 0) continue;
 
+                        boolean isSvgBytes = de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data);
+
                         Image image;
-                        if (de.bund.zrb.wiki.ui.SvgRenderer.isSvg(data)) {
+                        if (isSvgBytes) {
                             image = de.bund.zrb.wiki.ui.SvgRenderer.renderToBufferedImage(data);
                         } else {
                             image = javax.imageio.ImageIO.read(new ByteArrayInputStream(data));
@@ -514,6 +516,20 @@ public class ConfluenceReaderTab implements ConnectionTab {
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Decode common HTML entities found in attribute values extracted from raw HTML.
+     * Confluence REST API returns rendered HTML where query-parameter separators
+     * appear as {@code &amp;} instead of plain {@code &}.
+     */
+    private static String decodeHtmlEntities(String s) {
+        if (s == null) return null;
+        return s.replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
     }
 
     /**
