@@ -16,8 +16,7 @@ import java.util.List;
  */
 public class SettingsDialog {
 
-    public static final int TAB_INDEX_MAILS = 17;
-    public static final int TAB_INDEX_DEBUG = 18;
+    public static final int TAB_INDEX_DEBUG = 19;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -46,7 +45,6 @@ public class SettingsDialog {
         categories.add(wrapPanel("mcp", "MCP Registry", new McpRegistryPanel(), null));
         categories.add(new SystemFunctionSettingsPanel());
         categories.add(new ToolConfigSettingsPanel());
-        categories.add(new MailSettingsPanel());
         categories.add(new DebugSettingsPanel());
         categories.add(new VideoSettingsPanel(parent));
 

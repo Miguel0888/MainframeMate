@@ -372,7 +372,6 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     // Rebuild checkbox panel
                     spaceCheckboxPanel.removeAll();
                     spaceCheckboxes.clear();
-                    spaceCheckboxPanel.add(new JLabel("Spaces:"));
                     for (SpaceItem sp : spaces) {
                         JCheckBox cb = new JCheckBox("", true);
                         cb.setToolTipText(sp.key + " — " + sp.name);
