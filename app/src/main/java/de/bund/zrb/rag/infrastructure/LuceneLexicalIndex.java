@@ -468,6 +468,60 @@ public class LuceneLexicalIndex implements LexicalIndex {
     }
 
     /**
+     * Return all chunks currently in the in-memory cache.
+     * After a persistent index is opened, the cache is rebuilt from the index
+     * on startup, so this returns ALL known chunks.
+     * Used by RagService to restore its own in-memory maps after restart.
+     *
+     * @return unmodifiable collection of all cached chunks
+     */
+    public Collection<Chunk> getAllCachedChunks() {
+        return Collections.unmodifiableCollection(chunkCache.values());
+    }
+
+    /**
+     * Get all chunks for a specific document from the persistent Lucene index,
+     * sorted by chunk position. This is the universal way to reconstruct a
+     * document's full text regardless of backend (LOCAL, FTP, NDV, etc.).
+     *
+     * @param documentId the document ID (e.g. "LOCAL:C:/path", "FTP:host/path")
+     * @return list of chunks sorted by position, or empty list
+     */
+    public synchronized List<Chunk> getChunksByDocumentId(String documentId) {
+        List<Chunk> result = new ArrayList<>();
+        if (!available || documentId == null) return result;
+
+        try {
+            refreshReader();
+            if (searcher == null) return result;
+
+            // Use TermQuery for exact match on documentId field
+            org.apache.lucene.search.TermQuery termQuery =
+                    new org.apache.lucene.search.TermQuery(new Term(FIELD_DOCUMENT_ID, documentId));
+            TopDocs topDocs = searcher.search(termQuery, 10000);
+
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.doc(scoreDoc.doc);
+                Chunk chunk = chunkFromDocument(doc);
+                if (chunk != null) {
+                    result.add(chunk);
+                }
+            }
+
+            // Sort by position so the full text is in the correct order
+            Collections.sort(result, new Comparator<Chunk>() {
+                @Override
+                public int compare(Chunk a, Chunk b) {
+                    return Integer.compare(a.getPosition(), b.getPosition());
+                }
+            });
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Lucene] getChunksByDocumentId failed for: " + documentId, e);
+        }
+        return result;
+    }
+
+    /**
      * Flush/commit the index writer so that all pending changes are persisted
      * to disk.  The writer stays open – this is intended for backup/export use
      * where we need a consistent on-disk snapshot.

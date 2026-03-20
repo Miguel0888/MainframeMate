@@ -2,6 +2,7 @@ package de.bund.zrb.files.impl.local;
 
 import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
+import de.bund.zrb.files.impl.vfs.VfsFileService;
 import de.bund.zrb.files.model.FileNode;
 import de.bund.zrb.files.model.FilePayload;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,7 @@ class VfsLocalFileServiceTest {
 
     @Test
     void listReadWriteDeleteCycle() throws Exception {
-        FileService service = new VfsLocalFileService(tempDir);
+        FileService service = VfsFileService.forLocal(tempDir);
 
         Path file = tempDir.resolve("hello.txt");
         FilePayload payload = FilePayload.fromBytes("hello".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8, false);
@@ -41,7 +42,7 @@ class VfsLocalFileServiceTest {
 
     @Test
     void createDirectoryWorks() throws FileServiceException {
-        FileService service = new VfsLocalFileService(tempDir);
+        FileService service = VfsFileService.forLocal(tempDir);
         Path dir = tempDir.resolve("child");
 
         assertTrue(service.createDirectory(dir.toString()));
@@ -50,7 +51,7 @@ class VfsLocalFileServiceTest {
 
     @Test
     void listReturnsPathsReadableByReadFile() throws Exception {
-        FileService service = new VfsLocalFileService(tempDir);
+        FileService service = VfsFileService.forLocal(tempDir);
 
         Path file = tempDir.resolve("roundtrip.txt");
         FilePayload payload = FilePayload.fromBytes("data".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8, false);

@@ -92,7 +92,51 @@ public class RagService {
             return t;
         });
 
+        // Restore in-memory maps from persistent Lucene index (survives restarts)
+        rebuildInMemoryMapsFromIndex();
+
         LOG.info("RAG service initialized");
+    }
+
+    /**
+     * Rebuild the in-memory chunkStore, documentChunkIds and indexedDocuments
+     * maps from the persisted Lucene index.  The LuceneLexicalIndex already
+     * rebuilds its own chunk cache from disk on startup – we piggy-back on
+     * that to restore the RagService maps so that getDocumentChunks(), getChunk()
+     * and friends work correctly after an application restart.
+     */
+    private void rebuildInMemoryMapsFromIndex() {
+        if (!(lexicalIndex instanceof LuceneLexicalIndex)) return;
+
+        Collection<Chunk> cachedChunks = ((LuceneLexicalIndex) lexicalIndex).getAllCachedChunks();
+        if (cachedChunks == null || cachedChunks.isEmpty()) return;
+
+        int count = 0;
+        for (Chunk chunk : cachedChunks) {
+            chunkStore.put(chunk.getChunkId(), chunk);
+            List<String> ids = documentChunkIds.get(chunk.getDocumentId());
+            if (ids == null) {
+                ids = new ArrayList<>();
+                documentChunkIds.put(chunk.getDocumentId(), ids);
+            }
+            ids.add(chunk.getChunkId());
+            count++;
+        }
+
+        // Rebuild indexedDocuments metadata (document name + chunk count)
+        for (Map.Entry<String, List<String>> entry : documentChunkIds.entrySet()) {
+            String docId = entry.getKey();
+            List<String> chunkIds = entry.getValue();
+            if (!indexedDocuments.containsKey(docId) && !chunkIds.isEmpty()) {
+                Chunk firstChunk = chunkStore.get(chunkIds.get(0));
+                String docName = (firstChunk != null && firstChunk.getSourceName() != null)
+                        ? firstChunk.getSourceName() : docId;
+                indexedDocuments.put(docId, new IndexedDocument(docId, docName, chunkIds.size()));
+            }
+        }
+
+        LOG.info("Restored " + count + " chunks for " + documentChunkIds.size()
+                + " documents from persistent Lucene index");
     }
 
     /**
@@ -233,6 +277,17 @@ public class RagService {
      */
     public int getLexicalIndexSize() {
         return lexicalIndex != null ? lexicalIndex.size() : 0;
+    }
+
+    /**
+     * Get the underlying Lucene lexical index.
+     * Used by SearchService for direct document-level queries (e.g. preview).
+     *
+     * @return the LuceneLexicalIndex, or null if not a Lucene-backed index
+     */
+    public LuceneLexicalIndex getLexicalIndex() {
+        return (lexicalIndex instanceof LuceneLexicalIndex)
+                ? (LuceneLexicalIndex) lexicalIndex : null;
     }
 
     /**

@@ -369,4 +369,42 @@ public class SearchService {
         int slash = p.lastIndexOf('/');
         return slash >= 0 ? p.substring(slash + 1) : p;
     }
+
+    /**
+     * Get the full text of an indexed document by concatenating all its chunks
+     * from the persistent Lucene index. Works for any backend (LOCAL, FTP, NDV, etc.)
+     * because the text was extracted during indexing.
+     *
+     * @param documentId the document ID as stored in the index
+     * @param maxLength  max characters to return (0 = unlimited)
+     * @return the full document text, or null if not found
+     */
+    public String getDocumentText(String documentId, int maxLength) {
+        if (documentId == null) return null;
+        try {
+            RagService rag = RagService.getInstance();
+            de.bund.zrb.rag.infrastructure.LuceneLexicalIndex index = rag.getLexicalIndex();
+            if (index == null) return null;
+
+            List<Chunk> chunks = index.getChunksByDocumentId(documentId);
+            if (chunks.isEmpty()) return null;
+
+            StringBuilder sb = new StringBuilder();
+            for (Chunk chunk : chunks) {
+                if (chunk.getText() != null) {
+                    if (sb.length() > 0) sb.append("\n");
+                    sb.append(chunk.getText());
+                }
+                if (maxLength > 0 && sb.length() >= maxLength) {
+                    sb.setLength(maxLength);
+                    sb.append("\n[... gek\u00fcrzt]");
+                    break;
+                }
+            }
+            return sb.length() > 0 ? sb.toString() : null;
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Search] getDocumentText failed for: " + documentId, e);
+            return null;
+        }
+    }
 }

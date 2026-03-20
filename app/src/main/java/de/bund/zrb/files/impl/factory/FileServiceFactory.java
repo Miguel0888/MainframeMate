@@ -4,9 +4,7 @@ import de.bund.zrb.files.api.FileService;
 import de.bund.zrb.files.api.FileServiceException;
 import de.bund.zrb.files.auth.ConnectionId;
 import de.bund.zrb.files.auth.CredentialsProvider;
-import de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService;
-import de.bund.zrb.files.impl.local.VfsLocalFileService;
-import de.bund.zrb.files.impl.ndv.NdvFileService;
+import de.bund.zrb.files.impl.vfs.VfsFileService;
 import de.bund.zrb.ui.FtpResourceState;
 import de.bund.zrb.ui.NdvResourceState;
 import de.bund.zrb.ui.VirtualBackendType;
@@ -14,18 +12,24 @@ import de.bund.zrb.ui.VirtualResource;
 
 import java.nio.file.Path;
 
+/**
+ * Factory for creating FileService instances.
+ * <p>
+ * All backends (local, FTP, NDV) are now backed by Apache Commons VFS2
+ * through the unified {@link VfsFileService}.
+ */
 public class FileServiceFactory {
 
     public FileService createLocal() {
-        return new VfsLocalFileService();
+        return VfsFileService.forLocal();
     }
 
     public FileService createLocal(Path baseRoot) {
-        return new VfsLocalFileService(baseRoot);
+        return VfsFileService.forLocal(baseRoot);
     }
 
     public FileService createFtp(String host, String user, String password) throws FileServiceException {
-        return new CommonsNetFtpFileService(host, user, password);
+        return VfsFileService.forFtp(host, user, password);
     }
 
     public FileService createFtp(ConnectionId connectionId, CredentialsProvider credentialsProvider) throws FileServiceException {
@@ -34,12 +38,12 @@ public class FileServiceFactory {
                     "No CredentialsProvider configured");
         }
 
-        return new CommonsNetFtpFileService(credentialsProvider, connectionId);
+        return VfsFileService.forFtp(connectionId, credentialsProvider);
     }
 
     /**
-     * Creates a FileService based on the VirtualResource backend typSchluessel.
-     * For FTP, uses connectionId from FtpResourceState; credentials come from provider.
+     * Creates a FileService based on the VirtualResource backend type.
+     * All backends use Apache Commons VFS2 through {@link VfsFileService}.
      */
     public FileService create(VirtualResource resource, CredentialsProvider credentialsProvider) throws FileServiceException {
         if (resource == null) {
@@ -56,10 +60,10 @@ public class FileServiceFactory {
                 throw new FileServiceException(de.bund.zrb.files.api.FileServiceErrorCode.IO_ERROR,
                         "Missing NdvResourceState in VirtualResource");
             }
-            return new NdvFileService(ndvState.getService(), ndvState.getLibrary(), ndvState.getObjectInfo());
+            return VfsFileService.forNdv(ndvState.getService(), ndvState.getLibrary(), ndvState.getObjectInfo());
         }
 
-        // FTP
+        // FTP — via VFS
         FtpResourceState ftpState = resource.getFtpState();
         ConnectionId connectionId = ftpState != null ? ftpState.getConnectionId() : null;
         if (connectionId == null) {

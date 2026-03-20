@@ -3,9 +3,11 @@ package de.bund.zrb.ui.search;
 import de.bund.zrb.archive.model.ArchiveDocument;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.store.CacheRepository;
-import de.bund.zrb.rag.model.Chunk;
-import de.bund.zrb.rag.service.RagService;
 import de.bund.zrb.search.SearchResult;
+import de.bund.zrb.service.FtpSourceCacheService;
+import de.bund.zrb.service.LocalSourceCacheService;
+import de.bund.zrb.service.NdvSourceCacheService;
+import de.bund.zrb.sharepoint.SharePointCacheService;
 import de.bund.zrb.search.SearchService;
 import de.bund.zrb.search.SearchHighlighter;
 import de.zrb.bund.newApi.ui.AppTab;
@@ -19,12 +21,16 @@ import java.awt.event.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.Future;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * High-end search tab with faceted filtering, highlighting, sorting,
  * saved searches, and keyboard navigation.
  */
 public class SearchTab extends JPanel implements AppTab {
+
+    private static final Logger LOG = Logger.getLogger(SearchTab.class.getName());
 
     private final SearchService searchService = SearchService.getInstance();
     private final de.bund.zrb.ui.TabbedPaneManager tabManager;
@@ -649,97 +655,172 @@ public class SearchTab extends JPanel implements AppTab {
     }
 
     /**
-     * Load the full document content for preview, trying multiple sources in priority order:
-     * 1. Cache (ArchiveDocument via CacheRepository → ResourceStorageService)
-     * 2. Local filesystem (direct read for LOCAL source)
-     * 3. RAG chunks (concatenated from RagService)
+     * Load the full document content for preview.
+     * Uses source-specific cache services and the VirtualResource pipeline.
+     * Does NOT use RagService.
+     *
+     * Priority:
+     * 1. Source-specific in-memory cache (LocalSourceCacheService, FtpSourceCacheService, etc.)
+     * 2. VirtualResource pipeline (resolve → FileService → readFile) for LOCAL/FTP
+     * 3. Archive storage for ARCHIVE results
      * 4. null → caller falls back to snippet
      */
     private String loadDocumentContent(SearchResult r) {
-        // 1. Try Cache (ArchiveDocument → textContentPath → StorageService)
+        if (r == null || r.getDocumentId() == null) return null;
+        String docId = r.getDocumentId();
+
+        // ── 1. Try source-specific in-memory cache services ──
         try {
-            CacheRepository repo = CacheRepository.getInstance();
-            ArchiveDocument doc = null;
-
-            if (r.getSource() == SearchResult.SourceType.ARCHIVE) {
-                doc = repo.findDocumentById(r.getDocumentId());
-            } else {
-                String canonicalUrl = documentIdToCacheUrl(r.getDocumentId());
-                if (canonicalUrl != null) {
-                    doc = repo.findDocumentByCanonicalUrl(canonicalUrl);
-                }
+            String cached = loadFromCacheService(r.getSource(), docId);
+            if (cached != null && !cached.isEmpty()) {
+                return truncateContent(cached);
             }
-
-            if (doc != null) {
-                if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
-                    String content = ArchiveService.getInstance().getStorageService()
-                            .readContent(doc.getTextContentPath(), MAX_PREVIEW_CHARS);
-                    if (content != null && !content.isEmpty()) {
-                        return content;
-                    }
-                }
-                // Fallback to excerpt for ARCHIVE documents
-                if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
-                    return doc.getExcerpt();
-                }
-            }
-        } catch (Exception ignored) {}
-
-        // 2. For LOCAL files: try direct file read
-        if (r.getSource() == SearchResult.SourceType.LOCAL
-                && r.getDocumentId() != null && r.getDocumentId().startsWith("LOCAL:")) {
-            String path = r.getDocumentId().substring("LOCAL:".length());
-            try {
-                java.io.File file = new java.io.File(path);
-                if (file.exists() && file.isFile() && file.length() < MAX_PREVIEW_CHARS * 2) {
-                    byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
-                    String content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-                    if (content.length() > MAX_PREVIEW_CHARS) {
-                        content = content.substring(0, MAX_PREVIEW_CHARS) + "\n[... gek\u00fcrzt]";
-                    }
-                    return content;
-                }
-            } catch (Exception ignored) {}
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Preview] Cache service lookup failed for: " + docId, e);
         }
 
-        // 3. Try RagService (concatenate all chunks for this document)
+        // ── 2. Try VirtualResource pipeline (LOCAL / FTP) ──
         try {
-            java.util.List<Chunk> chunks = RagService.getInstance()
-                    .getDocumentChunks(r.getDocumentId());
-            if (!chunks.isEmpty()) {
-                StringBuilder sb = new StringBuilder();
-                for (Chunk chunk : chunks) {
-                    if (chunk.getText() != null) {
-                        if (sb.length() > 0) sb.append("\n");
-                        sb.append(chunk.getText());
-                    }
-                    if (sb.length() >= MAX_PREVIEW_CHARS) {
-                        sb.setLength(MAX_PREVIEW_CHARS);
-                        sb.append("\n[... gek\u00fcrzt]");
-                        break;
-                    }
-                }
-                if (sb.length() > 0) return sb.toString();
+            String content = loadViaVirtualResource(r);
+            if (content != null && !content.isEmpty()) {
+                return truncateContent(content);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Preview] VirtualResource load failed for: " + docId, e);
+        }
 
-        // 4. Fallback: return null → caller shows snippet
+        // ── 3. For ARCHIVE: try ArchiveDocument → textContentPath → StorageService ──
+        if (r.getSource() == SearchResult.SourceType.ARCHIVE) {
+            try {
+                return loadArchiveDocumentContent(docId);
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "[Preview] Archive load failed for: " + docId, e);
+            }
+        }
+
+        // ── 4. null → caller shows snippet ──
         return null;
     }
 
     /**
-     * Convert a Lucene documentId (e.g. "LOCAL:path", "FTP:host/path") to
-     * a cache canonical URL (e.g. "local://path", "ftp://host/path").
+     * Try to get the full text from the source-specific in-memory cache service.
+     * These caches are populated when the user visits a file during the current session.
      */
-    private static String documentIdToCacheUrl(String documentId) {
-        if (documentId == null) return null;
-        int colonIdx = documentId.indexOf(':');
-        if (colonIdx > 0 && colonIdx < documentId.length() - 1) {
-            String prefix = documentId.substring(0, colonIdx).toLowerCase();
-            String rest = documentId.substring(colonIdx + 1);
-            return prefix + "://" + rest;
+    private String loadFromCacheService(SearchResult.SourceType source, String docId) {
+        switch (source) {
+            case LOCAL:
+                if (docId.startsWith("LOCAL:")) {
+                    String path = docId.substring("LOCAL:".length());
+                    return LocalSourceCacheService.getInstance().getCachedContent(path);
+                }
+                break;
+            case FTP:
+                if (docId.startsWith("FTP:")) {
+                    // FTP documentId format: "FTP:host/path"
+                    String rest = docId.substring("FTP:".length());
+                    int slash = rest.indexOf('/');
+                    if (slash > 0) {
+                        String host = rest.substring(0, slash);
+                        String path = rest.substring(slash);
+                        return FtpSourceCacheService.getInstance().getCachedContent(host, path);
+                    }
+                }
+                break;
+            case NDV:
+                if (docId.startsWith("NDV:")) {
+                    // NDV documentId format: "NDV:LIBRARY/OBJNAME.EXT"
+                    String rest = docId.substring("NDV:".length());
+                    int slash = rest.indexOf('/');
+                    if (slash > 0) {
+                        String library = rest.substring(0, slash);
+                        String objWithExt = rest.substring(slash + 1);
+                        // Strip extension for cache key (cache key is LIBRARY/OBJNAME)
+                        int dot = objWithExt.lastIndexOf('.');
+                        String objName = dot > 0 ? objWithExt.substring(0, dot) : objWithExt;
+                        return NdvSourceCacheService.getInstance().getCachedSource(library, objName);
+                    }
+                }
+                break;
+            case SHAREPOINT:
+                if (docId.startsWith("SP:")) {
+                    // SP documentId format: "SP:siteUrl/pagePath"
+                    String rest = docId.substring("SP:".length());
+                    int slash = rest.indexOf('/');
+                    if (slash > 0) {
+                        String siteUrl = rest.substring(0, slash);
+                        String pagePath = rest.substring(slash + 1);
+                        return SharePointCacheService.getInstance().getCachedContent(siteUrl, pagePath);
+                    }
+                }
+                break;
+            default:
+                break;
         }
         return null;
+    }
+
+    /**
+     * Load content through the VirtualResource pipeline (resolve → FileService → readFile).
+     * Only used for LOCAL files. For FTP, the resolve() opens a remote connection
+     * which is too heavy for a background preview – FTP content comes from the cache service.
+     */
+    private String loadViaVirtualResource(SearchResult r) {
+        // Only LOCAL files go through VirtualResource pipeline for preview
+        if (r.getSource() != SearchResult.SourceType.LOCAL) return null;
+
+        String docId = r.getDocumentId();
+        if (docId == null || !docId.startsWith("LOCAL:")) return null;
+
+        String path = docId.substring("LOCAL:".length());
+        String prefixedPath = de.bund.zrb.files.path.VirtualResourceRef.LOCAL_PREFIX + path;
+
+        de.bund.zrb.ui.VirtualResourceResolver resolver = new de.bund.zrb.ui.VirtualResourceResolver();
+        de.bund.zrb.files.api.FileService fs = null;
+        try {
+            de.bund.zrb.ui.VirtualResource resource = resolver.resolve(prefixedPath);
+            if (resource.getKind() == de.bund.zrb.ui.VirtualResourceKind.DIRECTORY) return null;
+
+            fs = new de.bund.zrb.files.impl.factory.FileServiceFactory().createLocal();
+            de.bund.zrb.files.model.FilePayload payload = fs.readFile(resource.getResolvedPath());
+            return payload.getEditorText();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[Preview] VirtualResource pipeline failed: " + prefixedPath, e);
+            return null;
+        } finally {
+            if (fs != null) {
+                try { fs.close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    /**
+     * Load content for an ARCHIVE search result from the H2 repository / data-lake storage.
+     */
+    private String loadArchiveDocumentContent(String docId) {
+        CacheRepository repo = CacheRepository.getInstance();
+        ArchiveDocument doc = repo.findDocumentById(docId);
+        if (doc == null) return null;
+
+        // Try full text from data-lake storage
+        if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
+            try {
+                String content = ArchiveService.getInstance().getStorageService()
+                        .readContent(doc.getTextContentPath(), MAX_PREVIEW_CHARS);
+                if (content != null && !content.isEmpty()) return content;
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "[Preview] Archive storage read failed for: " + docId, e);
+            }
+        }
+        // Fallback: excerpt
+        return doc.getExcerpt();
+    }
+
+    private String truncateContent(String content) {
+        if (content == null) return null;
+        if (content.length() > MAX_PREVIEW_CHARS) {
+            return content.substring(0, MAX_PREVIEW_CHARS) + "\n[... gek\u00fcrzt]";
+        }
+        return content;
     }
 
     private void openSelectedResult() {

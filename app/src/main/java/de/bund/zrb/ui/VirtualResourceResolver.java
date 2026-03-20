@@ -74,8 +74,8 @@ public class VirtualResourceResolver {
             // Mark session as active after successful FTP connection
             LoginManager.getInstance().onLoginSuccess(connectionId.getHost(), connectionId.getUsername());
 
-            if (fs instanceof de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService) {
-                de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService svc = (de.bund.zrb.files.impl.ftp.CommonsNetFtpFileService) fs;
+            if (fs instanceof de.bund.zrb.files.impl.vfs.VfsFileService) {
+                de.bund.zrb.files.impl.vfs.VfsFileService svc = (de.bund.zrb.files.impl.vfs.VfsFileService) fs;
                 lastMvsMode = svc.isMvsMode();
                 lastSystemType = svc.getSystemType();
             } else {
