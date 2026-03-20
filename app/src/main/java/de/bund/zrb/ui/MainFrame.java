@@ -663,9 +663,9 @@ public class MainFrame extends JFrame implements MainframeContext {
                 openWikiBookmark(rawPath);
                 break;
             default:
-                // LOCAL – forceFile avoids unnecessary list() probe
-                new VirtualResourceOpener(tabManager)
-                        .open(rawPath, null, null, null, isFile);
+                // LOCAL — route through openFileOrDirectory so that legacy bookmarks
+                // with nested prefixes (e.g. "local://wiki://…") are correctly dispatched.
+                openFileOrDirectory(rawPath);
                 break;
         }
     }
