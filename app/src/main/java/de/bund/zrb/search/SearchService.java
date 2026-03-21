@@ -153,7 +153,12 @@ public class SearchService {
 
                 // Check for "not yet implemented" backends
                 if (src == SearchResult.SourceType.MAIL) {
-                    warnings.add("\uD83D\uDCE7 Mail-Suche: noch nicht implementiert");
+                    // Mail is indexed via Lucene (MailService → MailIndexUpdater → RagService)
+                    // so MAIL results come from the Lucene BM25 path above.
+                    // Trigger freshness check to ensure index is up-to-date before search.
+                    try {
+                        de.bund.zrb.mail.service.MailService.getInstance().freshnessCheckBeforeSearch();
+                    } catch (Exception ignored) {}
                     continue;
                 }
                 if (src == SearchResult.SourceType.SHAREPOINT) {
