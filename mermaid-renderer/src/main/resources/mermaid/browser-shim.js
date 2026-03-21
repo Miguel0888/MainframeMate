@@ -296,8 +296,16 @@ function createDomElement(tagName, namespaceURI) {
             el._textContent = val;
             el.childNodes = [];
             el.children = [];
-            el.firstChild = null;
-            el.lastChild = null;
+            // Create a text node child so serialization picks up the content
+            if (val != null && val !== '') {
+                var textNode = { nodeType: 3, textContent: String(val), ownerDocument: el.ownerDocument };
+                el.childNodes.push(textNode);
+                el.firstChild = textNode;
+                el.lastChild = textNode;
+            } else {
+                el.firstChild = null;
+                el.lastChild = null;
+            }
         },
         configurable: true,
         enumerable: true

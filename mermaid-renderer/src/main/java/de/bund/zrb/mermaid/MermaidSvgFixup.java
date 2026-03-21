@@ -59,6 +59,7 @@ public final class MermaidSvgFixup {
             fixStrokeNoneOnLines(doc);
             fixCssFillNone(doc);
             fixCssForBatik(doc);           // hsl()→hex, strip unsupported CSS
+            fixSequenceLifelines(doc);     // extend lifelines to bottom actor boxes
             fixViewBoxFromAttributes(doc);
 
             return serialise(doc);
@@ -372,7 +373,9 @@ public final class MermaidSvgFixup {
             Node n = allGs.item(i);
             if (!(n instanceof Element)) continue;
             Element g = (Element) n;
-            if (!attr(g, "class").contains("edgeLabel")) continue;
+            String cls = attr(g, "class");
+            // Match "edgeLabel" but NOT "edgeLabels" (the container)
+            if (!cls.contains("edgeLabel") || cls.contains("edgeLabels")) continue;
 
             // Also recenter the label text inside edgeLabels
             NodeList labelGs = g.getElementsByTagNameNS("*", "g");
@@ -395,8 +398,9 @@ public final class MermaidSvgFixup {
                 Element rect = (Element) rects.item(j);
                 if (!rect.hasAttribute("fill")) {
                     rect.setAttribute("fill", "#e8e8e8");
-                    rect.setAttribute("opacity", "0.5");
                 }
+                // Force full opacity so the edge line is hidden behind the label
+                rect.setAttribute("style", "opacity:1");
             }
         }
     }
@@ -473,7 +477,9 @@ public final class MermaidSvgFixup {
             Node n = allGs.item(i);
             if (!(n instanceof Element)) continue;
             Element g = (Element) n;
-            if (!attr(g, "class").contains("edgeLabel")) continue;
+            String cls = attr(g, "class");
+            // Match "edgeLabel" but NOT "edgeLabels" (the container)
+            if (!cls.contains("edgeLabel") || cls.contains("edgeLabels")) continue;
 
             // Check if there's already a rect
             NodeList rects = g.getElementsByTagNameNS("*", "rect");
@@ -499,6 +505,7 @@ public final class MermaidSvgFixup {
             rect.setAttribute("width", String.valueOf(width));
             rect.setAttribute("height", String.valueOf(height));
             rect.setAttribute("fill", "#e8e8e8");
+            rect.setAttribute("style", "opacity:1");
             rect.setAttribute("rx", "3");
             rect.setAttribute("ry", "3");
 
@@ -815,6 +822,94 @@ public final class MermaidSvgFixup {
             parent = parent.getParentNode();
         }
         return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix — extend sequence-diagram lifelines to bottom actor boxes
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid's sequence-diagram lifelines may be too short when the
+     * browser shim's {@code getBBox()} returns approximate values.
+     * This fix finds the bottom actor boxes and extends lifeline
+     * {@code y2} so they reach the top of those boxes.
+     * It also adjusts {@code y1} to start at the bottom of the top boxes.
+     */
+    private static void fixSequenceLifelines(Document doc) {
+        // Detect sequence diagram by looking for actor lines
+        NodeList lines = doc.getElementsByTagNameNS("*", "line");
+        List<Element> lifelines = new ArrayList<Element>();
+        for (int i = 0; i < lines.getLength(); i++) {
+            Node n = lines.item(i);
+            if (!(n instanceof Element)) continue;
+            Element line = (Element) n;
+            String id = attr(line, "id");
+            // Mermaid sequence diagrams use id="actor0", "actor1", etc.
+            if (id.matches("actor\\d+")) {
+                lifelines.add(line);
+            }
+        }
+        if (lifelines.isEmpty()) return;
+
+        // Collect all actor rects — find the highest y (bottom actor boxes)
+        // and the lowest y (top actor boxes)
+        NodeList rects = doc.getElementsByTagNameNS("*", "rect");
+        double topBoxBottom = 0;
+        double bottomBoxTop = Double.MAX_VALUE;
+        boolean foundBottom = false;
+
+        // First pass: find all actor rects and their y positions
+        List<double[]> actorRectYH = new ArrayList<double[]>();
+        for (int i = 0; i < rects.getLength(); i++) {
+            Node n = rects.item(i);
+            if (!(n instanceof Element)) continue;
+            Element rect = (Element) n;
+            if (!attr(rect, "class").contains("actor")) continue;
+
+            try {
+                double y = Double.parseDouble(rect.getAttribute("y"));
+                double h = Double.parseDouble(rect.getAttribute("height"));
+                actorRectYH.add(new double[]{y, h});
+            } catch (NumberFormatException ignored) {}
+        }
+        if (actorRectYH.size() < 2) return;
+
+        // Determine top-box bottom and bottom-box top
+        // Top boxes have the lowest y, bottom boxes have the highest y
+        double minY = Double.MAX_VALUE;
+        double maxY = Double.MIN_VALUE;
+        for (double[] yh : actorRectYH) {
+            if (yh[0] < minY) minY = yh[0];
+            if (yh[0] > maxY) maxY = yh[0];
+        }
+        // If all boxes are at the same y, nothing to fix
+        if (Math.abs(maxY - minY) < 1.0) return;
+
+        // Top box bottom = minY + height of a top box
+        for (double[] yh : actorRectYH) {
+            if (Math.abs(yh[0] - minY) < 1.0) {
+                topBoxBottom = Math.max(topBoxBottom, yh[0] + yh[1]);
+            }
+            if (Math.abs(yh[0] - maxY) < 1.0) {
+                bottomBoxTop = Math.min(bottomBoxTop, yh[0]);
+            }
+        }
+
+        // Extend all lifelines
+        for (Element line : lifelines) {
+            try {
+                double y1 = Double.parseDouble(line.getAttribute("y1"));
+                double y2 = Double.parseDouble(line.getAttribute("y2"));
+                // Extend y2 to reach the top of the bottom actor box
+                if (y2 < bottomBoxTop) {
+                    line.setAttribute("y2", String.valueOf(bottomBoxTop));
+                }
+                // Optionally adjust y1 to start at the bottom of the top box
+                if (y1 < topBoxBottom) {
+                    line.setAttribute("y1", String.valueOf(topBoxBottom));
+                }
+            } catch (NumberFormatException ignored) {}
+        }
     }
 
     // ═══════════════════════════════════════════════════════════

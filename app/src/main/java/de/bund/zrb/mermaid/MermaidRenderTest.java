@@ -143,11 +143,12 @@ public final class MermaidRenderTest {
         // 4 — Diamond shape
         s.add(new DiagramSpec("diamond",
                 "4 \u2014 Rautenform",
-                "Ein einzelner Knoten in RAUTENFORM (auf der Spitze stehendes Quadrat) "
-                        + "mit dem Text \"Ja?\" darin.",
+                "Ein einzelner Knoten in RAUTENFORM (auf der Spitze stehendes Quadrat, 45\u00b0 gedreht) "
+                        + "mit dem Text \"Ja?\" darin. Mermaid erzeugt Rauten als gedrehte Quadrate mit 90\u00b0-Ecken \u2014 "
+                        + "das ist KORREKT.",
                 "graph TD\n    D{Ja?}",
                 new String[][] {
-                        {"is-diamond", "Hat der Knoten eine Rautenform (Rhombus/Diamant), NICHT ein Rechteck?"},
+                        {"is-diamond", "Ist die Form auf der Spitze stehend (gedrehtes Quadrat / Raute), NICHT ein normales achsenparalleles Rechteck?"},
                         {"text-in-diamond", "Steht der Text \"Ja?\" innerhalb der Raute?"}
                 }));
 
@@ -182,12 +183,14 @@ public final class MermaidRenderTest {
                 "7 \u2014 Sequenzdiagramm",
                 "Zwei senkrechte Lebenslinien mit den Namen \"Alice\" (links) und \"Bob\" (rechts). "
                         + "Ein Pfeil von Alice nach Bob mit dem Text \"Hallo\". "
-                        + "Ein gestrichelter R\u00fcckpfeil von Bob nach Alice mit \"Hi\".",
+                        + "Ein gestrichelter R\u00fcckpfeil von Bob nach Alice mit \"Hi\". "
+                        + "Unten wiederholen sich die Actor-Boxen. Die Lebenslinien m\u00fcssen BIS zu den unteren Boxen reichen.",
                 "sequenceDiagram\n    Alice->>Bob: Hallo\n    Bob-->>Alice: Hi",
                 new String[][] {
                         {"rendered", "Wird das Diagramm \u00fcberhaupt angezeigt (kein roter Fehler)?"},
                         {"names-visible", "Sind die Namen \"Alice\" und \"Bob\" lesbar?"},
-                        {"arrows-visible", "Sind Pfeile zwischen den Lebenslinien sichtbar?"}
+                        {"arrows-visible", "Sind Pfeile zwischen den Lebenslinien sichtbar?"},
+                        {"lifelines-reach-bottom", "Reichen die Lebenslinien bis zu den UNTEREN Actor-Boxen?"}
                 }));
 
         // 8 — Stadium node shape

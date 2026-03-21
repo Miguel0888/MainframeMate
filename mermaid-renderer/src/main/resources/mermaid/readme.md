@@ -53,6 +53,7 @@ wendet folgende DOM-Level-Fixes an:
 | `fixEdgeLabelRect` | Kein Rect hinter Label-Text | Background-Rect einfügen (opacity=1) |
 | `fixCssFillNone` | CSS `fill:none` überschreibt Marker-Fill | CSS-Override für `.arrowMarkerPath` |
 | `fixCssForBatik` | **`hsl()`, `rgba()`, `filter`, `position` → Batik crasht** | hsl→hex, rgba→hex, unsupported props strippen |
+| `fixSequenceLifelines` | **Lebenslinien zu kurz → enden vor unteren Actor-Boxen** | y2 auf Top der unteren Boxen verlängern, y1 auf Bottom der oberen Boxen |
 | `fixViewBoxFromAttributes` | ViewBox zu klein (fehlende Element-Koordinaten) | Alle x/y/width/height/x1/y1/x2/y2 scannen |
 
 ### Ressourcen
