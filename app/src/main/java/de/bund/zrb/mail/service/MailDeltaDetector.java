@@ -1,8 +1,9 @@
 package de.bund.zrb.mail.service;
 
-import com.pff.*;
+import de.bund.zrb.mail.model.MailFolderRef;
+import de.bund.zrb.mail.model.MailMessageHeader;
+import de.bund.zrb.mail.port.MailboxReader;
 
-import java.io.File;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,9 +14,12 @@ import java.util.logging.Logger;
  * Detects new and changed mails in a PST/OST store by comparing mail metadata
  * against persisted watermarks and fingerprints.
  * <p>
+ * Delegates ALL file access to {@link MailboxReader} — does NOT use com.pff directly.
+ * This ensures the same robust error handling that PstMailboxReader provides.
+ * <p>
  * Delta strategy:
  * <ol>
- *   <li>Read mail metadata from the store (subject, sender, date, size, nodeId)</li>
+ *   <li>Read mail headers from the store via MailboxReader</li>
  *   <li>Select candidates via time-based watermarks with overlap window</li>
  *   <li>Compare each candidate's stable key and fingerprint against known state</li>
  *   <li>Report new and changed mails</li>
@@ -33,6 +37,12 @@ public class MailDeltaDetector {
     /** Maximum folder recursion depth. */
     private static final int MAX_DEPTH = 15;
 
+    /** Maximum messages to process per folder (safety limit for huge folders). */
+    private static final int MAX_MESSAGES_PER_FOLDER = 50000;
+
+    /** The reader that handles all PST/OST file access. */
+    private final MailboxReader mailboxReader;
+
     // ── Persisted state per connection ──
     // Key: connectionId → watermarks and known fingerprints
 
@@ -45,6 +55,10 @@ public class MailDeltaDetector {
             new ConcurrentHashMap<String, Map<String, String>>();
     /** Last successful sync time per connection. */
     private final Map<String, Long> lastSyncTime = new ConcurrentHashMap<String, Long>();
+
+    public MailDeltaDetector(MailboxReader mailboxReader) {
+        this.mailboxReader = mailboxReader;
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Delta result
@@ -124,7 +138,8 @@ public class MailDeltaDetector {
      */
     public DeltaResult initialSync(MailConnection connection) {
         String connId = connection.getConnectionId();
-        LOG.info("[MailDelta] Initial sync: " + connection.getFilePath());
+        String mailboxPath = connection.getFilePath();
+        LOG.info("[MailDelta] Initial sync: " + mailboxPath);
 
         // Reset state for this connection
         maxDeliveryTime.put(connId, 0L);
@@ -135,16 +150,17 @@ public class MailDeltaDetector {
         List<MailCandidate> allMails = new ArrayList<MailCandidate>();
         int[] counters = {0, 0, 0}; // scanned, skipped, errors
 
-        PSTFile pstFile = null;
         try {
-            pstFile = new PSTFile(new File(connection.getFilePath()));
-            PSTFolder contentRoot = findContentRoot(pstFile);
-            scanFolder(contentRoot, "", connection, allMails, counters, 0, false);
+            // List all folders via MailboxReader (robust, handles OST quirks)
+            List<MailFolderRef> folders = listAllFoldersRecursive(mailboxPath);
+            LOG.info("[MailDelta] Found " + folders.size() + " folders in " + mailboxPath);
+
+            for (MailFolderRef folder : folders) {
+                scanFolder(mailboxPath, folder, allMails, counters, false, connId);
+            }
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[MailDelta] Initial sync error: " + connection.getFilePath(), e);
+            LOG.log(Level.WARNING, "[MailDelta] Initial sync error: " + mailboxPath, e);
             counters[2]++;
-        } finally {
-            closeSilently(pstFile);
         }
 
         // Update watermarks and fingerprints
@@ -154,8 +170,8 @@ public class MailDeltaDetector {
             if (mc.deliveryTime != null && mc.deliveryTime.getTime() > maxDel) {
                 maxDel = mc.deliveryTime.getTime();
             }
-            if (mc.modificationTime != null && mc.modificationTime.getTime() > maxMod) {
-                maxMod = mc.modificationTime.getTime();
+            if (mc.deliveryTime != null && mc.deliveryTime.getTime() > maxMod) {
+                maxMod = mc.deliveryTime.getTime();
             }
         }
         maxDeliveryTime.put(connId, maxDel);
@@ -181,7 +197,8 @@ public class MailDeltaDetector {
      */
     public DeltaResult deltaSync(MailConnection connection) {
         String connId = connection.getConnectionId();
-        LOG.info("[MailDelta] Delta sync: " + connection.getFilePath());
+        String mailboxPath = connection.getFilePath();
+        LOG.info("[MailDelta] Delta sync: " + mailboxPath);
 
         Map<String, String> fps = knownFingerprints.get(connId);
         if (fps == null) {
@@ -194,14 +211,14 @@ public class MailDeltaDetector {
         List<MailCandidate> changedMails = new ArrayList<MailCandidate>();
         int[] counters = {0, 0, 0}; // scanned, skipped, errors
 
-        PSTFile pstFile = null;
         try {
-            pstFile = new PSTFile(new File(connection.getFilePath()));
-            PSTFolder contentRoot = findContentRoot(pstFile);
+            List<MailFolderRef> folders = listAllFoldersRecursive(mailboxPath);
 
             // Collect candidates
             List<MailCandidate> candidates = new ArrayList<MailCandidate>();
-            scanFolder(contentRoot, "", connection, candidates, counters, 0, true);
+            for (MailFolderRef folder : folders) {
+                scanFolder(mailboxPath, folder, candidates, counters, true, connId);
+            }
 
             // Compare against known state
             for (MailCandidate mc : candidates) {
@@ -218,10 +235,8 @@ public class MailDeltaDetector {
                 // else: unchanged, skip
             }
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "[MailDelta] Delta sync error: " + connection.getFilePath(), e);
+            LOG.log(Level.WARNING, "[MailDelta] Delta sync error: " + mailboxPath, e);
             counters[2]++;
-        } finally {
-            closeSilently(pstFile);
         }
 
         // Update watermarks with new data
@@ -229,11 +244,11 @@ public class MailDeltaDetector {
         long maxMod = getOrDefault(maxModificationTime, connId, 0L);
         for (MailCandidate mc : newMails) {
             if (mc.deliveryTime != null && mc.deliveryTime.getTime() > maxDel) maxDel = mc.deliveryTime.getTime();
-            if (mc.modificationTime != null && mc.modificationTime.getTime() > maxMod) maxMod = mc.modificationTime.getTime();
+            if (mc.deliveryTime != null && mc.deliveryTime.getTime() > maxMod) maxMod = mc.deliveryTime.getTime();
         }
         for (MailCandidate mc : changedMails) {
             if (mc.deliveryTime != null && mc.deliveryTime.getTime() > maxDel) maxDel = mc.deliveryTime.getTime();
-            if (mc.modificationTime != null && mc.modificationTime.getTime() > maxMod) maxMod = mc.modificationTime.getTime();
+            if (mc.deliveryTime != null && mc.deliveryTime.getTime() > maxMod) maxMod = mc.deliveryTime.getTime();
         }
         maxDeliveryTime.put(connId, maxDel);
         maxModificationTime.put(connId, maxMod);
@@ -263,72 +278,94 @@ public class MailDeltaDetector {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Folder scanning
+    //  Folder enumeration via MailboxReader
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Recursively scan a folder for mail candidates.
-     *
-     * @param deltaOnly if true, only consider mails within the watermark + overlap window
+     * Recursively enumerates all folders in the mailbox via MailboxReader.
+     * Uses the same robust PST/OST reading that PstMailboxReader provides.
      */
-    private void scanFolder(PSTFolder folder, String path, MailConnection connection,
-                            List<MailCandidate> results, int[] counters,
-                            int depth, boolean deltaOnly) {
-        if (depth > MAX_DEPTH) return;
+    private List<MailFolderRef> listAllFoldersRecursive(String mailboxPath) throws Exception {
+        List<MailFolderRef> allFolders = new ArrayList<MailFolderRef>();
 
+        // Get top-level folders
+        List<MailFolderRef> topLevel = mailboxReader.listFolders(mailboxPath);
+        for (MailFolderRef folder : topLevel) {
+            allFolders.add(folder);
+            if (folder.getSubFolderCount() > 0) {
+                collectSubFolders(mailboxPath, folder.getFolderPath(), allFolders, 1);
+            }
+        }
+
+        return allFolders;
+    }
+
+    private void collectSubFolders(String mailboxPath, String folderPath,
+                                   List<MailFolderRef> result, int depth) {
+        if (depth > MAX_DEPTH) return;
         try {
-            int contentCount = folder.getContentCount();
-            if (contentCount > 0) {
-                PSTObject child = safeGetNextChild(folder);
-                while (child != null) {
-                    if (child instanceof PSTMessage) {
-                        PSTMessage msg = (PSTMessage) child;
-                        counters[0]++;
-                        try {
-                            if (shouldSkipMessageClass(msg.getMessageClass())) {
-                                counters[1]++;
-                            } else if (deltaOnly && !isCandidate(msg, connection.getConnectionId())) {
-                                counters[1]++;
-                            } else {
-                                MailCandidate mc = buildCandidate(msg, connection.getFilePath(), path);
-                                results.add(mc);
-                            }
-                        } catch (Exception e) {
-                            counters[2]++;
-                            LOG.log(Level.FINE, "[MailDelta] Error processing message in " + path, e);
-                        }
-                    }
-                    child = safeGetNextChild(folder);
+            List<MailFolderRef> subs = mailboxReader.listSubFolders(mailboxPath, folderPath);
+            for (MailFolderRef sub : subs) {
+                result.add(sub);
+                if (sub.getSubFolderCount() > 0) {
+                    collectSubFolders(mailboxPath, sub.getFolderPath(), result, depth + 1);
                 }
             }
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[MailDelta] Error scanning folder " + path, e);
-            counters[2]++;
+            LOG.log(Level.FINE, "[MailDelta] Cannot list subfolders of " + folderPath, e);
         }
+    }
 
-        // Recurse into sub-folders
+    // ═══════════════════════════════════════════════════════════════
+    //  Message scanning via MailboxReader
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Scan messages in a single folder via MailboxReader.
+     *
+     * @param deltaOnly if true, only consider mails within the watermark + overlap window
+     */
+    private void scanFolder(String mailboxPath, MailFolderRef folder,
+                            List<MailCandidate> results, int[] counters,
+                            boolean deltaOnly, String connectionId) {
+        if (folder.getItemCount() <= 0) return;
+
         try {
-            for (PSTFolder sub : folder.getSubFolders()) {
-                String subPath = path.isEmpty() ? "/" + sub.getDisplayName() : path + "/" + sub.getDisplayName();
-                scanFolder(sub, subPath, connection, results, counters, depth + 1, deltaOnly);
+            List<MailMessageHeader> headers = mailboxReader.listMessages(
+                    mailboxPath, folder.getFolderPath(), 0, MAX_MESSAGES_PER_FOLDER);
+
+            for (MailMessageHeader header : headers) {
+                counters[0]++;
+                try {
+                    if (shouldSkipMessageClass(header.getMessageClass())) {
+                        counters[1]++;
+                    } else if (deltaOnly && !isCandidate(header, connectionId)) {
+                        counters[1]++;
+                    } else {
+                        MailCandidate mc = buildCandidate(header, mailboxPath);
+                        results.add(mc);
+                    }
+                } catch (Exception e) {
+                    counters[2]++;
+                    LOG.log(Level.FINE, "[MailDelta] Error processing header in "
+                            + folder.getFolderPath(), e);
+                }
             }
         } catch (Exception e) {
-            LOG.log(Level.FINE, "[MailDelta] Cannot get subfolders of " + path, e);
+            LOG.log(Level.FINE, "[MailDelta] Error scanning folder "
+                    + folder.getFolderPath() + ": " + e.getMessage());
+            counters[2]++;
         }
     }
 
     /**
      * Check whether a message is a delta candidate (within watermark + overlap window).
      */
-    private boolean isCandidate(PSTMessage msg, String connectionId) {
+    private boolean isCandidate(MailMessageHeader header, String connectionId) {
         long deliveryCutoff = getOrDefault(maxDeliveryTime, connectionId, 0L) - OVERLAP_WINDOW_MS;
-        long modifCutoff = getOrDefault(maxModificationTime, connectionId, 0L) - OVERLAP_WINDOW_MS;
 
-        Date delivery = msg.getMessageDeliveryTime();
-        Date modification = msg.getLastModificationTime();
-
+        Date delivery = header.getDate();
         if (delivery != null && delivery.getTime() >= deliveryCutoff) return true;
-        if (modification != null && modification.getTime() >= modifCutoff) return true;
 
         return false;
     }
@@ -337,27 +374,26 @@ public class MailDeltaDetector {
     //  Key and fingerprint computation
     // ═══════════════════════════════════════════════════════════════
 
-    private MailCandidate buildCandidate(PSTMessage msg, String mailboxPath, String folderPath) {
-        String subject = safe(msg.getSubject());
-        String sender = safe(msg.getSenderName());
-        String senderEmail = safe(msg.getSenderEmailAddress());
-        String recipients = safe(msg.getDisplayTo());
-        Date deliveryTime = msg.getMessageDeliveryTime();
-        Date modificationTime = msg.getLastModificationTime();
-        long size = msg.getMessageSize();
-        long nodeId = msg.getDescriptorNodeId();
-        String messageClass = msg.getMessageClass();
-        boolean hasAttachments = msg.hasAttachments();
+    private MailCandidate buildCandidate(MailMessageHeader header, String mailboxPath) {
+        String subject = safe(header.getSubject());
+        String sender = safe(header.getFrom());
+        String recipients = safe(header.getTo());
+        Date deliveryTime = header.getDate();
+        long size = header.getMessageSize();
+        long nodeId = header.getDescriptorNodeId();
+        String messageClass = header.getMessageClass();
+        boolean hasAttachments = header.hasAttachments();
+        String folderPath = header.getFolderPath();
 
         // Internet Message-ID (preferred key)
-        String messageId = safe(msg.getInternetMessageId());
+        String messageId = safe(header.getInternetMessageId());
 
         String mailKey = buildMailKey(messageId, mailboxPath, folderPath, subject, sender, deliveryTime, size);
-        String fingerprint = buildFingerprint(mailKey, modificationTime, subject, size, sender);
+        String fingerprint = buildFingerprint(mailKey, deliveryTime, subject, size, sender);
 
         return new MailCandidate(mailKey, fingerprint, mailboxPath, folderPath, nodeId,
-                subject, senderEmail.isEmpty() ? sender : sender + " <" + senderEmail + ">",
-                recipients, deliveryTime, modificationTime, size, messageClass, hasAttachments);
+                subject, sender, recipients, deliveryTime, deliveryTime,
+                size, messageClass, hasAttachments);
     }
 
     /**
@@ -387,13 +423,13 @@ public class MailDeltaDetector {
 
     /**
      * Build a fingerprint for change detection.
-     * Based on key + modification time + subject + size.
+     * Based on key + delivery time + subject + size.
      */
-    static String buildFingerprint(String mailKey, Date modificationTime,
+    static String buildFingerprint(String mailKey, Date deliveryTime,
                                    String subject, long size, String sender) {
         StringBuilder sb = new StringBuilder();
         sb.append(mailKey).append('|');
-        sb.append(modificationTime != null ? modificationTime.getTime() : 0).append('|');
+        sb.append(deliveryTime != null ? deliveryTime.getTime() : 0).append('|');
         sb.append(normalizeSubject(subject)).append('|');
         sb.append(size).append('|');
         sb.append(safe(sender).toLowerCase());
@@ -416,53 +452,8 @@ public class MailDeltaDetector {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  PST helpers
+    //  Filter
     // ═══════════════════════════════════════════════════════════════
-
-    private PSTFolder findContentRoot(PSTFile pstFile) throws Exception {
-        PSTFolder root = pstFile.getRootFolder();
-        PSTFolder best = null;
-        int bestCount = -1;
-
-        for (PSTFolder l1 : root.getSubFolders()) {
-            if ("IPM_SUBTREE".equalsIgnoreCase(l1.getDisplayName())) {
-                int cc = countContentChildren(l1);
-                if (cc > bestCount) { best = l1; bestCount = cc; }
-            }
-            try {
-                for (PSTFolder l2 : l1.getSubFolders()) {
-                    if ("IPM_SUBTREE".equalsIgnoreCase(l2.getDisplayName())) {
-                        int cc = countContentChildren(l2);
-                        if (cc > bestCount) { best = l2; bestCount = cc; }
-                    }
-                    try {
-                        for (PSTFolder l3 : l2.getSubFolders()) {
-                            if ("IPM_SUBTREE".equalsIgnoreCase(l3.getDisplayName())) {
-                                int cc = countContentChildren(l3);
-                                if (cc > bestCount) { best = l3; bestCount = cc; }
-                            }
-                        }
-                    } catch (Exception ignored) {}
-                }
-            } catch (Exception ignored) {}
-        }
-        return best != null ? best : root;
-    }
-
-    private int countContentChildren(PSTFolder folder) {
-        try {
-            int count = 0;
-            for (PSTFolder sub : folder.getSubFolders()) {
-                if (sub.getContentCount() > 0) count++;
-            }
-            return count;
-        } catch (Exception e) { return 0; }
-    }
-
-    private PSTObject safeGetNextChild(PSTFolder folder) {
-        try { return folder.getNextChild(); }
-        catch (Exception e) { return null; }
-    }
 
     private boolean shouldSkipMessageClass(String msgClass) {
         if (msgClass == null || msgClass.isEmpty()) return false;
@@ -474,12 +465,6 @@ public class MailDeltaDetector {
         if (upper.startsWith("IPM.MICROSOFT.")) return true;
         if (upper.startsWith("IPM.INFOPATH")) return true;
         return false;
-    }
-
-    private void closeSilently(PSTFile pstFile) {
-        if (pstFile != null) {
-            try { pstFile.close(); } catch (Exception ignored) {}
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════

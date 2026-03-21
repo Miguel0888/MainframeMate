@@ -23,6 +23,10 @@ public class MailMessageHeader {
     private final boolean hasAttachments;
     private final String messageClass;
 
+    // ── Optional fields for delta detection / indexing ──
+    private String internetMessageId;   // RFC 2822 Message-ID (if available)
+    private long messageSize;           // approximate message size in bytes
+
     // ── Optional fields for non-mail items ──
     private Date startDate;    // Appointment: start time, Task: due date
     private Date endDate;      // Appointment: end time
@@ -50,6 +54,13 @@ public class MailMessageHeader {
     }
 
     // ── Setters for optional fields (builder-style) ──
+
+    /** Set fields used for indexing / delta detection. */
+    public MailMessageHeader withIndexFields(String internetMessageId, long messageSize) {
+        this.internetMessageId = internetMessageId;
+        this.messageSize = messageSize;
+        return this;
+    }
 
     public MailMessageHeader withAppointmentInfo(Date startDate, Date endDate, String location, boolean allDay) {
         this.startDate = startDate;
@@ -80,6 +91,8 @@ public class MailMessageHeader {
     public long getDescriptorNodeId() { return descriptorNodeId; }
     public boolean hasAttachments() { return hasAttachments; }
     public String getMessageClass() { return messageClass; }
+    public String getInternetMessageId() { return internetMessageId; }
+    public long getMessageSize() { return messageSize; }
     public Date getStartDate() { return startDate; }
     public Date getEndDate() { return endDate; }
     public String getLocation() { return location; }

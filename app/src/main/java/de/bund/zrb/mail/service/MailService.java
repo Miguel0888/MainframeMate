@@ -38,8 +38,8 @@ public class MailService {
 
     // ── Components ──
     private final List<MailConnection> connections = new CopyOnWriteArrayList<MailConnection>();
-    private final MailDeltaDetector deltaDetector = new MailDeltaDetector();
     private final MailboxReader mailboxReader = new PstMailboxReader();
+    private final MailDeltaDetector deltaDetector = new MailDeltaDetector(mailboxReader);
     private final MailIndexUpdater indexUpdater = new MailIndexUpdater(mailboxReader);
 
     private MailStoreWatcher watcher;
