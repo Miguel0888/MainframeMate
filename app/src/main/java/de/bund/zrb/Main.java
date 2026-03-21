@@ -2,6 +2,7 @@ package de.bund.zrb;
 
 import de.bund.zrb.history.LocalHistoryService;
 import de.bund.zrb.indexing.service.IndexingService;
+import de.bund.zrb.mail.service.MailService;
 import de.bund.zrb.ui.MainFrame;
 import de.bund.zrb.ui.syntax.MainframeSyntaxSupport;
 import de.bund.zrb.ui.branding.IconThemeInstaller;
