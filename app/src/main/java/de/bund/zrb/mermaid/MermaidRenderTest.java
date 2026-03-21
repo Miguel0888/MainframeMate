@@ -165,7 +165,10 @@ public final class MermaidRenderTest {
                 continue;
             }
 
-            // Save SVG for manual inspection
+            // Apply Batik-compatibility fixes (z-order, marker fills)
+            svg = MermaidSvgFixup.fixForBatik(svg);
+
+            // Save fixed SVG for inspection
             File svgFile = new File(System.getProperty("user.dir"),
                     "mermaid-test-" + spec.id + ".svg");
             Writer w = new OutputStreamWriter(new FileOutputStream(svgFile), "UTF-8");
@@ -358,4 +361,3 @@ public final class MermaidRenderTest {
         dialog.setVisible(true);
     }
 }
-
