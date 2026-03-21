@@ -7,6 +7,7 @@ import de.bund.zrb.mail.infrastructure.PstStderrFilter;
 import de.bund.zrb.mail.model.*;
 import de.bund.zrb.mail.port.MailStore;
 import de.bund.zrb.mail.port.MailboxReader;
+import de.bund.zrb.mail.service.MailService;
 import de.bund.zrb.mail.usecase.ListMailboxItemsUseCase;
 import de.bund.zrb.mail.usecase.ListMailboxesUseCase;
 import de.bund.zrb.mail.usecase.OpenMailMessageUseCase;
@@ -845,7 +846,9 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     /**
      * Load folder contents from the {@link MailMetadataIndex} (sorted by date).
      * Sub-folders are still loaded from PST (fast), but messages come from the index.
-     * Falls back to PST-based loading if the index has no data for this folder.
+     * <p>
+     * If the index has no data for this folder yet, triggers a fast metadata-only scan
+     * (reads only mail headers, no full-text extraction) so the user can sort immediately.
      */
     private void loadFolderFromIndex(final String mailboxPath, final String folderPath,
                                      final boolean ascending) {
@@ -856,7 +859,6 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
             private List<MailMetadataIndex.MailMetadataEntry> metaEntries = new ArrayList<>();
             private int indexCount = 0;
             private String error = null;
-            private boolean fallback = false;
 
             @Override
             protected Void doInBackground() {
@@ -874,13 +876,19 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                     indexCount = idx.countByFolder(mailboxPath, folderPath);
 
                     if (indexCount == 0) {
-                        // Index has no data for this folder — fall back to PST
-                        fallback = true;
-                        return null;
+                        // Index has no data for this folder yet → build it now (fast, header-only)
+                        LOG.info("[MailConnectionTab] Index empty for " + folderPath + " — building on demand…");
+                        int built = MailService.getInstance()
+                                .ensureMetadataIndexForFolder(mailboxPath, folderPath);
+                        indexCount = idx.countByFolder(mailboxPath, folderPath);
+                        LOG.info("[MailConnectionTab] On-demand index built: " + built
+                                + " entries, count now: " + indexCount);
                     }
 
-                    metaEntries = idx.listByFolder(mailboxPath, folderPath,
-                            ascending, 0, PAGE_SIZE);
+                    if (indexCount > 0) {
+                        metaEntries = idx.listByFolder(mailboxPath, folderPath,
+                                ascending, 0, PAGE_SIZE);
+                    }
                 } catch (Exception e) {
                     LOG.log(Level.WARNING, "Error loading from index", e);
                     error = extractErrorMessage(e);
@@ -896,11 +904,23 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                     return;
                 }
 
-                if (fallback) {
-                    // No index data → inform user and stay in PST mode
-                    indexMode = false;
-                    statusLabel.setText("⚠ Kein Index für diesen Ordner — Sync läuft noch? Zeige Originalreihenfolge.");
-                    sortCombo.setSelectedItem(SORT_ORIGINAL);
+                if (indexCount == 0) {
+                    // Still empty after on-demand build — no messages in this folder
+                    indexMode = true;
+                    currentFolders = folders;
+                    currentMessages = Collections.emptyList();
+                    currentMailboxes = Collections.emptyList();
+                    totalMessageCount = 0;
+                    rebuildDisplayList();
+
+                    for (MailFolderRef f : folders) {
+                        String display = f.toString();
+                        currentDisplayNames.add(display);
+                        displayToFolder.put(display, f);
+                        listModel.addElement(display);
+                    }
+                    statusLabel.setText("Leer");
+                    tabbedPaneManager.refreshStarForTab(MailConnectionTab.this);
                     return;
                 }
 

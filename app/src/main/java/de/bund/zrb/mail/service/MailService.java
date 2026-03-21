@@ -397,6 +397,33 @@ public class MailService {
 
 
     // ═══════════════════════════════════════════════════════════════
+    //  On-demand metadata indexing (fast, for sort support)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Ensures the metadata index has entries for the given folder.
+     * If the index is empty for this folder, performs a fast header-only scan
+     * (no full-text extraction) so that sorted browsing works immediately.
+     *
+     * @return number of newly indexed entries (0 if index was already populated)
+     */
+    public int ensureMetadataIndexForFolder(String mailboxPath, String folderPath) {
+        MailMetadataIndex metaIdx = MailMetadataIndex.getInstance();
+        int existing = metaIdx.countByFolder(mailboxPath, folderPath);
+        if (existing > 0) {
+            LOG.fine("[MailService] Metadata index already has " + existing + " entries for " + folderPath);
+            return 0;
+        }
+        LOG.info("[MailService] Building metadata index for folder: " + folderPath);
+        PstStderrFilter.Guard g = PstStderrFilter.install();
+        try {
+            return indexUpdater.indexMetadataForFolder(mailboxPath, folderPath);
+        } finally {
+            g.uninstall();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Shutdown
     // ═══════════════════════════════════════════════════════════════
 

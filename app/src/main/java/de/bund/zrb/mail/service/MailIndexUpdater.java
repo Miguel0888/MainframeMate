@@ -41,8 +41,15 @@ public class MailIndexUpdater {
         }
     }
 
+    /** Chunk size for incremental metadata index commits. */
+    private static final int META_BATCH_CHUNK = 500;
+
     /**
      * Index all candidates (new + changed) from a delta result.
+     * <p>
+     * Metadata (subject, sender, date, …) is committed in chunks of {@value #META_BATCH_CHUNK}
+     * so that sorted browsing works immediately — even while the slow full-text extraction
+     * for the RAG index is still running.
      */
     public UpdateResult indexCandidates(List<MailDeltaDetector.MailCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) {
@@ -54,7 +61,7 @@ public class MailIndexUpdater {
         int indexed = 0;
         int errors = 0;
 
-        // Collect metadata entries for batch indexing
+        // Collect metadata entries for batch indexing — flushed in chunks
         List<MailMetadataIndex.MailMetadataEntry> metaBatch =
                 new ArrayList<MailMetadataIndex.MailMetadataEntry>();
 
@@ -78,6 +85,16 @@ public class MailIndexUpdater {
                         mc.hasAttachments,
                         mc.size
                 ));
+
+                // Flush metadata chunk so sorted browsing works while RAG extraction is still running
+                if (metaBatch.size() >= META_BATCH_CHUNK) {
+                    try {
+                        metaIndex.indexBatch(metaBatch);
+                    } catch (Exception ex) {
+                        LOG.log(Level.WARNING, "[MailIndex] Metadata chunk flush failed", ex);
+                    }
+                    metaBatch = new ArrayList<MailMetadataIndex.MailMetadataEntry>();
+                }
 
                 // ── 2. Full-text RAG index (may fail for large/corrupt mails) ──
                 // Read full content via MailboxReader
@@ -126,15 +143,81 @@ public class MailIndexUpdater {
             LOG.log(Level.WARNING, "[MailIndex] Flush failed", e);
         }
 
-        // Batch-flush metadata index
-        try {
-            metaIndex.indexBatch(metaBatch);
-        } catch (Exception e) {
-            LOG.log(Level.WARNING, "[MailIndex] Metadata batch index failed", e);
+        // Flush remaining metadata entries
+        if (!metaBatch.isEmpty()) {
+            try {
+                metaIndex.indexBatch(metaBatch);
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[MailIndex] Metadata final flush failed", e);
+            }
         }
 
         LOG.info("[MailIndex] Indexed: " + indexed + ", errors: " + errors);
         return new UpdateResult(indexed, errors);
+    }
+
+    /**
+     * Fast metadata-only indexing for a single folder — reads only mail headers
+     * (no full text extraction) via {@link de.bund.zrb.mail.port.MailboxReader}.
+     * <p>
+     * Used when the metadata index is empty for a folder and the user wants to
+     * sort by date immediately, without waiting for the full RAG index build.
+     *
+     * @return number of headers indexed
+     */
+    public int indexMetadataForFolder(String mailboxPath, String folderPath) {
+        MailMetadataIndex metaIndex = MailMetadataIndex.getInstance();
+        int count = 0;
+        try {
+            // Read headers in pages (same as MailConnectionTab)
+            int offset = 0;
+            int pageSize = 2000;
+            List<MailMetadataIndex.MailMetadataEntry> batch =
+                    new ArrayList<MailMetadataIndex.MailMetadataEntry>();
+
+            while (true) {
+                List<de.bund.zrb.mail.model.MailMessageHeader> headers =
+                        mailboxReader.listMessages(mailboxPath, folderPath, offset, pageSize);
+                if (headers.isEmpty()) break;
+
+                for (de.bund.zrb.mail.model.MailMessageHeader h : headers) {
+                    String itemPath = mailboxPath + "#" + h.getFolderPath() + "#" + h.getDescriptorNodeId();
+                    batch.add(new MailMetadataIndex.MailMetadataEntry(
+                            itemPath,
+                            mailboxPath,
+                            h.getFolderPath(),
+                            h.getDescriptorNodeId(),
+                            h.getSubject(),
+                            h.getFrom(),
+                            h.getTo(),
+                            h.getDate() != null ? h.getDate().getTime() : 0,
+                            h.getMessageClass(),
+                            h.hasAttachments(),
+                            h.getMessageSize()
+                    ));
+
+                    if (batch.size() >= META_BATCH_CHUNK) {
+                        metaIndex.indexBatch(batch);
+                        count += batch.size();
+                        batch = new ArrayList<MailMetadataIndex.MailMetadataEntry>();
+                    }
+                }
+
+                offset += headers.size();
+                if (headers.size() < pageSize) break; // last page
+            }
+
+            // Flush remainder
+            if (!batch.isEmpty()) {
+                metaIndex.indexBatch(batch);
+                count += batch.size();
+            }
+
+            LOG.info("[MailIndex] Metadata-only indexed " + count + " headers for " + folderPath);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[MailIndex] Metadata-only index failed for " + folderPath, e);
+        }
+        return count;
     }
 
     // ═══════════════════════════════════════════════════════════════
