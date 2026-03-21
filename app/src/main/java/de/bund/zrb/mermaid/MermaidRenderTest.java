@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -348,7 +349,22 @@ public final class MermaidRenderTest {
                     results.add(tcr);
                 }
                 Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                System.out.println(gson.toJson(results));
+                String json = gson.toJson(results);
+                System.out.println(json);
+
+                // Also write to file so background callers can read it
+                try {
+                    File resultFile = new File(System.getProperty("user.dir"),
+                            "mermaid-test-result.json");
+                    Writer fw = new OutputStreamWriter(
+                            new FileOutputStream(resultFile),
+                            Charset.forName("UTF-8"));
+                    try { fw.write(json); } finally { fw.close(); }
+                    System.err.println("[MermaidRenderTest] Result written to " + resultFile.getAbsolutePath());
+                } catch (Exception ex) {
+                    System.err.println("[MermaidRenderTest] Failed to write result file: " + ex);
+                }
+
                 dialog.dispose();
             }
         });

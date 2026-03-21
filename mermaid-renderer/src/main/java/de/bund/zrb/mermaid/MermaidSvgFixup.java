@@ -25,22 +25,24 @@ import java.util.logging.Logger;
  * <p>
  * Mermaid emits SVG that relies on browser-specific CSS/z-index behaviour.
  * Batik honours the SVG paint order (later siblings drawn on top), which
- * causes two problems:
+ * causes several problems:
  * <ol>
  *   <li><b>Text behind shapes</b> — inside each {@code <g class="node">}
  *       the label ({@code <text>}) is emitted <em>before</em> the shape
  *       ({@code <rect>}, {@code <polygon>}, …), so the filled shape covers
  *       the text.</li>
- *   <li><b>Invisible arrowheads</b> — {@code <path>} elements inside
- *       {@code <marker>} definitions have no explicit {@code fill},
- *       relying on CSS class inheritance that Batik does not resolve
- *       inside marker contexts.</li>
+ *   <li><b>Invisible arrowheads</b> — {@code <marker>} elements are placed
+ *       inside a regular {@code <g>} instead of {@code <defs>}, and their
+ *       child paths lack an explicit {@code fill}.</li>
+ *   <li><b>Invisible sequence-diagram lines</b> — message lines have an
+ *       inline {@code stroke="none"} that overrides CSS.</li>
  * </ol>
  * Call {@link #fixForBatik(String)} to obtain a corrected SVG string.
  */
 public final class MermaidSvgFixup {
 
     private static final Logger LOG = Logger.getLogger(MermaidSvgFixup.class.getName());
+    private static final String SVG_NS = "http://www.w3.org/2000/svg";
 
     private MermaidSvgFixup() {}
 
@@ -58,9 +60,11 @@ public final class MermaidSvgFixup {
             DocumentBuilder db = dbf.newDocumentBuilder();
             Document doc = db.parse(new ByteArrayInputStream(svg.getBytes("UTF-8")));
 
-            fixNodeZOrder(doc);
+            moveMarkersToDefs(doc);
             fixMarkerFills(doc);
+            fixNodeZOrder(doc);
             fixEdgeLabelBackground(doc);
+            fixStrokeNoneOnLines(doc);
 
             return serialise(doc);
         } catch (Exception e) {
@@ -70,56 +74,43 @@ public final class MermaidSvgFixup {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Fix 1 — node z-order: move shape elements before labels
+    //  Fix 1 — move <marker> elements into <defs>
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * Inside every {@code <g class="node ...">} element, reorder children
-     * so that shape elements ({@code rect, circle, ellipse, polygon, path})
-     * are painted first (bottom), and label groups on top.
+     * Batik only resolves {@code url(#id)} marker references when the
+     * {@code <marker>} lives inside a {@code <defs>} block.  Mermaid places
+     * them as direct children of a {@code <g>}.  This method collects all
+     * markers and moves them into a single {@code <defs>} element at the
+     * start of the SVG root.
      */
-    private static void fixNodeZOrder(Document doc) {
-        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
-        for (int i = 0; i < allGs.getLength(); i++) {
-            Node n = allGs.item(i);
-            if (!(n instanceof Element)) continue;
-            Element g = (Element) n;
-            String cls = g.getAttribute("class");
-            if (cls == null || !cls.contains("node")) continue;
+    private static void moveMarkersToDefs(Document doc) {
+        NodeList markers = doc.getElementsByTagNameNS("*", "marker");
+        if (markers.getLength() == 0) return;
 
-            // Collect children into shapes vs. others
-            List<Node> shapes = new ArrayList<Node>();
-            List<Node> others = new ArrayList<Node>();
-
-            Node child = g.getFirstChild();
-            while (child != null) {
-                Node next = child.getNextSibling();
-                if (child instanceof Element) {
-                    String tag = child.getLocalName();
-                    if (isShapeElement(tag)) {
-                        shapes.add(child);
-                    } else {
-                        others.add(child);
-                    }
-                } else {
-                    others.add(child); // whitespace text nodes etc.
-                }
-                g.removeChild(child);
-                child = next;
-            }
-
-            // Re-append: shapes first, then labels/text on top
-            for (Node s : shapes) g.appendChild(s);
-            for (Node o : others) g.appendChild(o);
+        // Collect markers (snapshot, because we'll be moving nodes)
+        List<Element> markerList = new ArrayList<Element>();
+        for (int i = 0; i < markers.getLength(); i++) {
+            Node n = markers.item(i);
+            if (n instanceof Element) markerList.add((Element) n);
         }
-    }
 
-    private static boolean isShapeElement(String localName) {
-        return "rect".equals(localName)
-                || "circle".equals(localName)
-                || "ellipse".equals(localName)
-                || "polygon".equals(localName)
-                || "path".equals(localName);
+        // Find or create <defs> as first child of <svg>
+        Element svgRoot = doc.getDocumentElement();
+        Element defs = null;
+        NodeList defsList = svgRoot.getElementsByTagNameNS("*", "defs");
+        if (defsList.getLength() > 0) {
+            defs = (Element) defsList.item(0);
+        } else {
+            defs = doc.createElementNS(SVG_NS, "defs");
+            svgRoot.insertBefore(defs, svgRoot.getFirstChild());
+        }
+
+        // Move each marker into <defs>
+        for (Element marker : markerList) {
+            marker.getParentNode().removeChild(marker);
+            defs.appendChild(marker);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -152,13 +143,64 @@ public final class MermaidSvgFixup {
                     el.setAttribute("fill", fill);
                 }
             }
-            // recurse
             addFillToDescendants(el, fill);
         }
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Fix 3 — edge label backgrounds
+    //  Fix 3 — node z-order: move shape elements before labels
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Inside every {@code <g class="node ...">} element, reorder children
+     * so that shape elements ({@code rect, circle, ellipse, polygon, path})
+     * are painted first (bottom), and label groups on top.
+     */
+    private static void fixNodeZOrder(Document doc) {
+        NodeList allGs = doc.getElementsByTagNameNS("*", "g");
+        for (int i = 0; i < allGs.getLength(); i++) {
+            Node n = allGs.item(i);
+            if (!(n instanceof Element)) continue;
+            Element g = (Element) n;
+            String cls = g.getAttribute("class");
+            if (cls == null || !cls.contains("node")) continue;
+
+            List<Node> shapes = new ArrayList<Node>();
+            List<Node> others = new ArrayList<Node>();
+
+            Node child = g.getFirstChild();
+            while (child != null) {
+                Node next = child.getNextSibling();
+                if (child instanceof Element) {
+                    String tag = child.getLocalName();
+                    if (isShapeElement(tag)) {
+                        shapes.add(child);
+                    } else {
+                        others.add(child);
+                    }
+                } else {
+                    others.add(child);
+                }
+                g.removeChild(child);
+                child = next;
+            }
+
+            // Re-append: shapes first (bottom), then labels on top
+            for (Node s : shapes) g.appendChild(s);
+            for (Node o : others) g.appendChild(o);
+        }
+    }
+
+    private static boolean isShapeElement(String localName) {
+        return "rect".equals(localName)
+                || "circle".equals(localName)
+                || "ellipse".equals(localName)
+                || "polygon".equals(localName)
+                || "path".equals(localName);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 4 — edge label backgrounds
     // ═══════════════════════════════════════════════════════════
 
     /**
@@ -175,13 +217,40 @@ public final class MermaidSvgFixup {
             String cls = g.getAttribute("class");
             if (cls == null || !cls.contains("edgeLabel")) continue;
 
-            // Find rect children and ensure fill
             NodeList rects = g.getElementsByTagNameNS("*", "rect");
             for (int j = 0; j < rects.getLength(); j++) {
                 Element rect = (Element) rects.item(j);
                 if (!rect.hasAttribute("fill")) {
                     rect.setAttribute("fill", "#e8e8e8");
                     rect.setAttribute("opacity", "0.5");
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Fix 5 — stroke="none" on sequence-diagram lines
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Mermaid sequence diagrams emit {@code <line stroke="none">} on
+     * message lines, relying on CSS to override.  Batik treats the
+     * attribute as authoritative.  Replace with the correct stroke.
+     */
+    private static void fixStrokeNoneOnLines(Document doc) {
+        NodeList lines = doc.getElementsByTagNameNS("*", "line");
+        for (int i = 0; i < lines.getLength(); i++) {
+            Node n = lines.item(i);
+            if (!(n instanceof Element)) continue;
+            Element line = (Element) n;
+
+            String cls = line.getAttribute("class");
+            String stroke = line.getAttribute("stroke");
+
+            if ("none".equals(stroke)) {
+                // messageLine0 = solid, messageLine1 = dashed
+                if (cls != null && (cls.contains("messageLine") || cls.contains("actor-line"))) {
+                    line.setAttribute("stroke", "#333");
                 }
             }
         }
