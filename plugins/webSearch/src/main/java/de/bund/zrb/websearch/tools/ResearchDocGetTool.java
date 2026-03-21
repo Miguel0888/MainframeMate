@@ -1,7 +1,7 @@
 package de.bund.zrb.websearch.tools;
 
 import com.google.gson.JsonObject;
-import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.model.ArchiveResource;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.service.ResourceStorageService;
@@ -16,8 +16,8 @@ import java.util.*;
 import java.util.logging.Logger;
 
 /**
- * MCP Tool to retrieve catalog documents or resources from the archive.
- * Catalog-first: looks up Documents by docId or URL first, falls back to Resources.
+ * MCP Tool to retrieve cached/cataloged entries or resources from the archive.
+ * Entry-first: looks up entries by entryId or URL first, falls back to Resources.
  */
 public class ResearchDocGetTool implements McpTool {
 
@@ -27,9 +27,9 @@ public class ResearchDocGetTool implements McpTool {
     public ToolSpec getSpec() {
         Map<String, ToolSpec.Property> props = new LinkedHashMap<>();
         props.put("docId", new ToolSpec.Property("string",
-                "Catalog document ID (UUID). Use this to get a curated document with title, excerpt, and extracted text."));
+                "Archive entry ID (UUID). Use this to get a cached entry with title, excerpt, and extracted text."));
         props.put("url", new ToolSpec.Property("string",
-                "URL of the archived page. Looks up the most recent catalog document for this URL."));
+                "URL of the archived page. Looks up the most recent entry for this URL."));
         props.put("maxTextLength", new ToolSpec.Property("integer",
                 "Max characters of extracted text to return (default: 5000, max: 20000)"));
         props.put("format", new ToolSpec.Property("string",
@@ -39,7 +39,7 @@ public class ResearchDocGetTool implements McpTool {
 
         return new ToolSpec(
                 "research_doc_get",
-                "Retrieve a catalog document from the archive. Documents are curated, indexed entries "
+                "Retrieve a cached entry from the archive. Entries are indexed content "
               + "with clean title, excerpt, and extracted text. Look up by docId or URL. "
               + "For raw resource access, use research_resource_get instead.",
                 inputSchema, null);
@@ -61,7 +61,7 @@ public class ResearchDocGetTool implements McpTool {
         if ((docId == null || docId.isEmpty()) && (url == null || url.isEmpty())) {
             JsonObject err = new JsonObject();
             err.addProperty("status", "error");
-            err.addProperty("message", "Provide either 'docId' or 'url' to look up a document.");
+            err.addProperty("message", "Provide either 'docId' or 'url' to look up an entry.");
             return new McpToolResponse(err, resultVar, null);
         }
 
@@ -70,19 +70,19 @@ public class ResearchDocGetTool implements McpTool {
             ArchiveService archiveService = ArchiveService.getInstance();
             ResourceStorageService storageService = archiveService.getStorageService();
 
-            ArchiveDocument doc = null;
+            ArchiveEntry entry = null;
 
-            // 1. Try catalog lookup
+            // 1. Try entry lookup by ID
             if (docId != null && !docId.isEmpty()) {
-                doc = repo.findDocumentById(docId);
+                entry = repo.findById(docId);
             }
-            if (doc == null && url != null && !url.isEmpty()) {
+            if (entry == null && url != null && !url.isEmpty()) {
                 String canonicalUrl = UrlNormalizer.canonicalize(url);
-                doc = repo.findDocumentByCanonicalUrl(canonicalUrl);
+                entry = repo.findByUrl(canonicalUrl);
             }
 
-            if (doc != null) {
-                return buildDocumentResponse(doc, storageService, maxText, resultVar);
+            if (entry != null) {
+                return buildEntryResponse(entry, storageService, maxText, resultVar);
             }
 
             // 2. Fallback: try resource lookup (legacy docId might be a resourceId)
@@ -96,9 +96,9 @@ public class ResearchDocGetTool implements McpTool {
             // 3. Not found
             JsonObject resp = new JsonObject();
             resp.addProperty("status", "not_found");
-            resp.addProperty("message", "No document found for "
+            resp.addProperty("message", "No entry found for "
                     + (docId != null ? "docId=" + docId : "url=" + url)
-                    + ". Try research_search to find documents by keyword.");
+                    + ". Try research_search to find entries by keyword.");
             return new McpToolResponse(resp, resultVar, null);
 
         } catch (Exception e) {
@@ -109,29 +109,29 @@ public class ResearchDocGetTool implements McpTool {
         }
     }
 
-    private McpToolResponse buildDocumentResponse(ArchiveDocument doc, ResourceStorageService storageService,
+    private McpToolResponse buildEntryResponse(ArchiveEntry entry, ResourceStorageService storageService,
                                                    int maxText, String resultVar) {
         JsonObject resp = new JsonObject();
         resp.addProperty("status", "ok");
-        resp.addProperty("docId", doc.getDocId());
-        resp.addProperty("title", doc.getTitle());
-        resp.addProperty("url", doc.getCanonicalUrl());
-        resp.addProperty("kind", doc.getKind());
-        resp.addProperty("createdAt", doc.getCreatedAt());
-        resp.addProperty("createdAtFormatted", formatTimestamp(doc.getCreatedAt()));
-        resp.addProperty("language", doc.getLanguage());
-        resp.addProperty("wordCount", doc.getWordCount());
-        resp.addProperty("host", doc.getHost());
-        resp.addProperty("runId", doc.getRunId());
-        resp.addProperty("sourceResourceIds", doc.getSourceResourceIds());
+        resp.addProperty("docId", entry.getEntryId());
+        resp.addProperty("title", entry.getTitle());
+        resp.addProperty("url", entry.getUrl());
+        resp.addProperty("kind", entry.getKind());
+        resp.addProperty("createdAt", entry.getCrawlTimestamp());
+        resp.addProperty("createdAtFormatted", formatTimestamp(entry.getCrawlTimestamp()));
+        resp.addProperty("language", entry.getLanguage());
+        resp.addProperty("wordCount", entry.getWordCount());
+        resp.addProperty("host", entry.getHost());
+        resp.addProperty("runId", entry.getRunId());
+        resp.addProperty("sourceResourceIds", entry.getSourceResourceIds());
 
-        if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
-            resp.addProperty("excerpt", doc.getExcerpt());
+        if (entry.getExcerpt() != null && !entry.getExcerpt().isEmpty()) {
+            resp.addProperty("excerpt", entry.getExcerpt());
         }
 
         // Read extracted text from storage
-        if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
-            String text = storageService.readContent(doc.getTextContentPath(), maxText);
+        if (entry.getTextContentPath() != null && !entry.getTextContentPath().isEmpty()) {
+            String text = storageService.readContent(entry.getTextContentPath(), maxText);
             if (text != null) {
                 resp.addProperty("extractedText", text);
             }

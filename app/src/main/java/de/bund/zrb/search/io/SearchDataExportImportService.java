@@ -321,9 +321,9 @@ public final class SearchDataExportImportService {
                 }
             }
 
-            List<de.bund.zrb.archive.model.ArchiveDocument> docs = repo.findAllDocuments();
-            for (de.bund.zrb.archive.model.ArchiveDocument doc : docs) {
-                String tp = doc.getTextContentPath();
+            List<de.bund.zrb.archive.model.ArchiveEntry> catalogEntries = repo.findEntriesByRunId();
+            for (de.bund.zrb.archive.model.ArchiveEntry entry : catalogEntries) {
+                String tp = entry.getTextContentPath();
                 if (tp != null && !tp.isEmpty() && seen.add(tp)) {
                     File f = storage.getFile(tp);
                     if (f != null && f.exists() && f.isFile()) {

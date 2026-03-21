@@ -5,11 +5,16 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Represents a single document in the archive – either a web-page snapshot
- * or a manually imported file.
+ * Unified cache/archive entry. Represents ANY cached or cataloged content:
+ * web pages (from RechercheAgent), wiki/confluence prefetch, FTP, NDV, etc.
+ * <p>
+ * This is the single model for both the old {@code archive_entries} (cache)
+ * and the old {@code archive_documents} (catalog) tables — now unified in
+ * {@code archive_entries}.
  */
 public class ArchiveEntry {
 
+    // ── Core fields (original archive_entries) ──
     private String entryId = UUID.randomUUID().toString();
     private String url = "";                     // source URL (empty for manual imports)
     private String title = "";                   // page title or filename
@@ -24,7 +29,17 @@ public class ArchiveEntry {
     private String errorMessage = "";
     private Map<String, String> metadata = new HashMap<String, String>();
 
-    // ── Getters & Setters ──
+    // ── Catalog fields (formerly ArchiveDocument) ──
+    private String runId = "";                   // research run ID (empty if not from RechercheAgent)
+    private String kind = "PAGE";                // document kind: PAGE, ARTICLE, LISTING, FEED_ENTRY, OTHER
+    private String excerpt = "";                 // short text excerpt (max ~1200 chars)
+    private String textContentPath = "";         // path to extracted text file (for Lucene)
+    private String language = "";                // heuristic language detection
+    private int wordCount;                       // word count of extracted text
+    private String host = "";                    // hostname for filtering
+    private String sourceResourceIds = "";       // comma-separated resource IDs
+
+    // ── Getters & Setters (core) ──
 
     public String getEntryId() { return entryId; }
     public void setEntryId(String entryId) { this.entryId = entryId; }
@@ -64,6 +79,39 @@ public class ArchiveEntry {
 
     public Map<String, String> getMetadata() { return metadata; }
     public void setMetadata(Map<String, String> metadata) { this.metadata = metadata; }
+
+    // ── Getters & Setters (catalog) ──
+
+    public String getRunId() { return runId; }
+    public void setRunId(String runId) { this.runId = runId; }
+
+    public String getKind() { return kind; }
+    public void setKind(String kind) { this.kind = kind; }
+
+    public String getExcerpt() { return excerpt; }
+    public void setExcerpt(String excerpt) { this.excerpt = excerpt; }
+
+    public String getTextContentPath() { return textContentPath; }
+    public void setTextContentPath(String textContentPath) { this.textContentPath = textContentPath; }
+
+    public String getLanguage() { return language; }
+    public void setLanguage(String language) { this.language = language; }
+
+    public int getWordCount() { return wordCount; }
+    public void setWordCount(int wordCount) { this.wordCount = wordCount; }
+
+    public String getHost() { return host; }
+    public void setHost(String host) { this.host = host; }
+
+    public String getSourceResourceIds() { return sourceResourceIds; }
+    public void setSourceResourceIds(String sourceResourceIds) { this.sourceResourceIds = sourceResourceIds; }
+
+    // ── Convenience ──
+
+    /** True if this entry was created by the RechercheAgent (has a run_id). */
+    public boolean isFromResearchRun() {
+        return runId != null && !runId.isEmpty();
+    }
 
     @Override
     public String toString() {

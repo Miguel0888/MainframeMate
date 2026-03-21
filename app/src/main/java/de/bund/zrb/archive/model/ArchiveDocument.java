@@ -3,12 +3,14 @@ package de.bund.zrb.archive.model;
 import java.util.UUID;
 
 /**
- * A curated, bot-friendly catalog entry derived from one or more ArchiveResources.
- * Documents are always indexable and provide clean title, excerpt, and extracted text.
+ * @deprecated Use {@link ArchiveEntry} directly. This class is kept only for
+ *             backwards compatibility during the migration period.
+ *             All catalog data now lives in the unified {@code archive_entries} table.
  */
+@Deprecated
 public class ArchiveDocument {
 
-    /** Document kind taxonomy. */
+    /** Document kind taxonomy (also available as String constants on ArchiveEntry). */
     public enum Kind {
         ARTICLE,
         LISTING,
@@ -19,17 +21,17 @@ public class ArchiveDocument {
 
     private String docId = UUID.randomUUID().toString();
     private String runId = "";
-    private long createdAt;                     // epoch millis UTC
-    private String kind = Kind.PAGE.name();     // Kind.name()
-    private String title = "";                  // stable title, NEVER just the URL
+    private long createdAt;
+    private String kind = Kind.PAGE.name();
+    private String title = "";
     private String canonicalUrl = "";
-    private String sourceResourceIds = "";      // comma-separated resource IDs
-    private String excerpt = "";                // short text (max ~1200 chars)
-    private String textContentPath = "";        // path to extracted text file (for Lucene)
-    private String language = "";               // heuristic language detection
-    private long indexedAt;                     // epoch millis of last Lucene indexing
+    private String sourceResourceIds = "";
+    private String excerpt = "";
+    private String textContentPath = "";
+    private String language = "";
+    private long indexedAt;
     private int wordCount;
-    private String host = "";                   // for filtering in UI
+    private String host = "";
 
     // ── Getters & Setters ──
 
@@ -71,6 +73,26 @@ public class ArchiveDocument {
 
     public String getHost() { return host; }
     public void setHost(String host) { this.host = host; }
+
+    /** Convert this deprecated document to the unified ArchiveEntry. */
+    public ArchiveEntry toEntry() {
+        ArchiveEntry e = new ArchiveEntry();
+        e.setEntryId(docId);
+        e.setUrl(canonicalUrl);
+        e.setTitle(title);
+        e.setCrawlTimestamp(createdAt);
+        e.setLastIndexed(indexedAt);
+        e.setStatus(ArchiveEntryStatus.INDEXED);
+        e.setRunId(runId);
+        e.setKind(kind);
+        e.setExcerpt(excerpt);
+        e.setTextContentPath(textContentPath);
+        e.setLanguage(language);
+        e.setWordCount(wordCount);
+        e.setHost(host);
+        e.setSourceResourceIds(sourceResourceIds);
+        return e;
+    }
 
     @Override
     public String toString() {

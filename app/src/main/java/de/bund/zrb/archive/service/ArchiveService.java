@@ -164,15 +164,15 @@ public class ArchiveService {
 
             repository.saveResource(resource);
 
-            // 7. Catalog Pipeline: derive Document if indexable
+            // 7. Catalog Pipeline: derive Entry if indexable
             String resultId = resource.getResourceId();
             if (indexable) {
-                ArchiveDocument doc = catalogPipeline.process(resource, bodyText);
-                if (doc != null) {
-                    resultId = doc.getDocId();
-                    LOG.info("[Archive] 📄 Document created: " + doc.getTitle()
-                            + " (kind=" + doc.getKind() + ", words=" + doc.getWordCount()
-                            + ", host=" + doc.getHost() + ")");
+                ArchiveEntry catalogEntry = catalogPipeline.process(resource, bodyText);
+                if (catalogEntry != null) {
+                    resultId = catalogEntry.getEntryId();
+                    LOG.info("[Archive] 📄 Entry created: " + catalogEntry.getTitle()
+                            + " (kind=" + catalogEntry.getKind() + ", words=" + catalogEntry.getWordCount()
+                            + ", host=" + catalogEntry.getHost() + ")");
                 }
             }
 

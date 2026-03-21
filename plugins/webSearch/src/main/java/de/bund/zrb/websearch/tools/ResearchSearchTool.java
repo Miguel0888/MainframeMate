@@ -2,7 +2,7 @@ package de.bund.zrb.websearch.tools;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.search.SearchService;
@@ -15,9 +15,9 @@ import java.util.*;
 import java.util.logging.Logger;
 
 /**
- * MCP Tool to search the catalog (Documents) via Lucene index.
- * Catalog-first: returns curated Documents with title, excerpt, and metadata.
- * Use research_doc_get with docId to get full document content.
+ * MCP Tool to search the archive (unified entries) via Lucene index + H2.
+ * Returns entries with title, excerpt, and metadata.
+ * Use research_doc_get with docId to get full content.
  */
 public class ResearchSearchTool implements McpTool {
 
@@ -70,9 +70,9 @@ public class ResearchSearchTool implements McpTool {
             SearchService searchService = SearchService.getInstance();
             List<SearchResult> luceneResults = searchService.search(query, null, maxResults, false);
 
-            // Also search the catalog DB directly for title/excerpt matches
+            // Also search the H2 entries directly for title/excerpt/url matches
             CacheRepository repo = CacheRepository.getInstance();
-            List<ArchiveDocument> dbDocs = repo.searchDocuments(query, host, maxResults);
+            List<ArchiveEntry> dbEntries = repo.searchEntriesWithHost(query, host, maxResults);
 
             JsonObject resp = new JsonObject();
             resp.addProperty("status", "ok");
@@ -96,48 +96,48 @@ public class ResearchSearchTool implements McpTool {
                     hit.addProperty("snippet", r.getSnippet());
                 }
 
-                // Enrich with catalog metadata if available
-                ArchiveDocument doc = repo.findDocumentById(r.getDocumentId());
-                if (doc != null) {
-                    hit.addProperty("docId", doc.getDocId());
-                    hit.addProperty("title", doc.getTitle());
-                    hit.addProperty("url", doc.getCanonicalUrl());
-                    hit.addProperty("kind", doc.getKind());
-                    hit.addProperty("createdAt", doc.getCreatedAt());
-                    hit.addProperty("createdAtFormatted", formatTimestamp(doc.getCreatedAt()));
-                    hit.addProperty("host", doc.getHost());
-                    hit.addProperty("wordCount", doc.getWordCount());
-                    if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
-                        hit.addProperty("excerpt", doc.getExcerpt());
+                // Enrich with entry metadata if available
+                ArchiveEntry entry = repo.findById(r.getDocumentId());
+                if (entry != null) {
+                    hit.addProperty("docId", entry.getEntryId());
+                    hit.addProperty("title", entry.getTitle());
+                    hit.addProperty("url", entry.getUrl());
+                    hit.addProperty("kind", entry.getKind());
+                    hit.addProperty("createdAt", entry.getCrawlTimestamp());
+                    hit.addProperty("createdAtFormatted", formatTimestamp(entry.getCrawlTimestamp()));
+                    hit.addProperty("host", entry.getHost());
+                    hit.addProperty("wordCount", entry.getWordCount());
+                    if (entry.getExcerpt() != null && !entry.getExcerpt().isEmpty()) {
+                        hit.addProperty("excerpt", entry.getExcerpt());
                     }
-                    seenDocIds.add(doc.getDocId());
+                    seenDocIds.add(entry.getEntryId());
 
                     // Filter by runId if specified
-                    if (runId != null && !runId.equals(doc.getRunId())) continue;
+                    if (runId != null && !runId.equals(entry.getRunId())) continue;
                     // Filter by host if specified
-                    if (host != null && !host.equals(doc.getHost())) continue;
+                    if (host != null && !host.equals(entry.getHost())) continue;
                 }
 
                 hits.add(hit);
             }
 
             // Add DB-only results (not in Lucene)
-            for (ArchiveDocument doc : dbDocs) {
-                if (seenDocIds.contains(doc.getDocId())) continue;
-                if (runId != null && !runId.equals(doc.getRunId())) continue;
+            for (ArchiveEntry entry : dbEntries) {
+                if (seenDocIds.contains(entry.getEntryId())) continue;
+                if (runId != null && !runId.equals(entry.getRunId())) continue;
 
                 JsonObject hit = new JsonObject();
-                hit.addProperty("docId", doc.getDocId());
-                hit.addProperty("title", doc.getTitle());
-                hit.addProperty("url", doc.getCanonicalUrl());
-                hit.addProperty("kind", doc.getKind());
-                hit.addProperty("createdAt", doc.getCreatedAt());
-                hit.addProperty("createdAtFormatted", formatTimestamp(doc.getCreatedAt()));
-                hit.addProperty("host", doc.getHost());
-                hit.addProperty("wordCount", doc.getWordCount());
+                hit.addProperty("docId", entry.getEntryId());
+                hit.addProperty("title", entry.getTitle());
+                hit.addProperty("url", entry.getUrl());
+                hit.addProperty("kind", entry.getKind());
+                hit.addProperty("createdAt", entry.getCrawlTimestamp());
+                hit.addProperty("createdAtFormatted", formatTimestamp(entry.getCrawlTimestamp()));
+                hit.addProperty("host", entry.getHost());
+                hit.addProperty("wordCount", entry.getWordCount());
                 hit.addProperty("source", "CATALOG");
-                if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
-                    hit.addProperty("excerpt", doc.getExcerpt());
+                if (entry.getExcerpt() != null && !entry.getExcerpt().isEmpty()) {
+                    hit.addProperty("excerpt", entry.getExcerpt());
                 }
                 hits.add(hit);
             }

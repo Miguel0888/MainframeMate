@@ -1,6 +1,8 @@
 package de.bund.zrb.archive.service;
 
 import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.model.ArchiveEntry;
+import de.bund.zrb.archive.model.ArchiveEntryStatus;
 import de.bund.zrb.archive.model.ArchiveResource;
 import de.bund.zrb.archive.model.ResourceKind;
 import de.bund.zrb.archive.store.CacheRepository;
@@ -15,7 +17,7 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>Classifies resources by kind</li>
  *   <li>Extracts title, excerpt, and text content from HTML/text</li>
- *   <li>Creates ArchiveDocument entries in H2</li>
+ *   <li>Creates ArchiveEntry records in H2 (unified table)</li>
  *   <li>Stores extracted text for Lucene indexing</li>
  * </ul>
  */
@@ -44,13 +46,13 @@ public class CatalogPipeline {
     }
 
     /**
-     * Process a resource and create a Document if the resource is indexable.
+     * Process a resource and create an ArchiveEntry if the resource is indexable.
      *
      * @param resource    the resource to process
      * @param bodyText    the raw body text
-     * @return the created ArchiveDocument, or null if not indexable
+     * @return the created ArchiveEntry, or null if not indexable
      */
-    public ArchiveDocument process(ArchiveResource resource, String bodyText) {
+    public ArchiveEntry process(ArchiveResource resource, String bodyText) {
         if (resource == null || bodyText == null || bodyText.isEmpty()) return null;
         if (!resource.isIndexable()) {
             LOG.fine("[CatalogPipeline] Skipping non-indexable resource: " + resource.getUrl());
@@ -81,24 +83,27 @@ public class CatalogPipeline {
                     textContent
             );
 
-            // Create ArchiveDocument
-            ArchiveDocument doc = new ArchiveDocument();
-            doc.setRunId(resource.getRunId());
-            doc.setCreatedAt(System.currentTimeMillis());
-            doc.setKind(docKind.name());
-            doc.setTitle(title);
-            doc.setCanonicalUrl(resource.getCanonicalUrl());
-            doc.setSourceResourceIds(resource.getResourceId());
-            doc.setExcerpt(excerpt);
-            doc.setTextContentPath(textPath != null ? textPath : "");
-            doc.setLanguage(detectLanguage(textContent));
-            doc.setWordCount(countWords(textContent));
-            doc.setHost(UrlNormalizer.extractHost(resource.getUrl()));
+            // Create unified ArchiveEntry (replaces old ArchiveDocument)
+            ArchiveEntry entry = new ArchiveEntry();
+            entry.setUrl(resource.getCanonicalUrl());
+            entry.setTitle(title);
+            entry.setMimeType(resource.getMimeType() != null ? resource.getMimeType() : "text/html");
+            entry.setCrawlTimestamp(System.currentTimeMillis());
+            entry.setStatus(ArchiveEntryStatus.INDEXED);
+            entry.setRunId(resource.getRunId());
+            entry.setKind(docKind.name());
+            entry.setExcerpt(excerpt);
+            entry.setTextContentPath(textPath != null ? textPath : "");
+            entry.setLanguage(detectLanguage(textContent));
+            entry.setWordCount(countWords(textContent));
+            entry.setHost(UrlNormalizer.extractHost(resource.getUrl()));
+            entry.setSourceResourceIds(resource.getResourceId());
+            entry.setContentLength(textContent.length());
 
-            repository.saveDocument(doc);
+            repository.save(entry);
 
-            LOG.fine("[CatalogPipeline] Document created: " + doc.getDocId() + " – " + title);
-            return doc;
+            LOG.fine("[CatalogPipeline] Entry created: " + entry.getEntryId() + " – " + title);
+            return entry;
 
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[CatalogPipeline] Failed to process resource: " + resource.getUrl(), e);

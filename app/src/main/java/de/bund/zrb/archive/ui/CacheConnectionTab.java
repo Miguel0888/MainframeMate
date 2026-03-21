@@ -383,9 +383,15 @@ public class CacheConnectionTab implements ConnectionTab {
 
     private void updateHostFilter() {
         Set<String> hosts = new TreeSet<String>();
-        for (ArchiveEntry e : repo.findByUrlPrefix("http")) {
+        for (ArchiveEntry e : repo.findAll()) {
+            // Use the host field if available (from catalog entries)
+            if (e.getHost() != null && !e.getHost().isEmpty()) {
+                hosts.add(e.getHost());
+                continue;
+            }
+            // Fallback: extract from URL
             String url = e.getUrl();
-            if (url != null) {
+            if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
                 try {
                     java.net.URL u = new java.net.URL(url);
                     hosts.add(u.getHost());
@@ -445,6 +451,19 @@ public class CacheConnectionTab implements ConnectionTab {
         sb.append("Indexiert: ").append(entry.getLastIndexed() > 0 ? formatTime(entry.getLastIndexed()) : "–").append("\n");
         sb.append("Quelle:    ").append(entry.getSourceId()).append("\n");
         sb.append("Entry-ID:  ").append(entry.getEntryId()).append("\n");
+        // Catalog fields (from research runs)
+        if (entry.isFromResearchRun()) {
+            sb.append("\n── Recherche ──\n");
+            sb.append("Run-ID:    ").append(entry.getRunId()).append("\n");
+            sb.append("Art:       ").append(entry.getKind()).append("\n");
+            sb.append("Host:      ").append(entry.getHost()).append("\n");
+            sb.append("Sprache:   ").append(entry.getLanguage()).append("\n");
+            sb.append("Wörter:    ").append(entry.getWordCount()).append("\n");
+        }
+        if (entry.getExcerpt() != null && !entry.getExcerpt().isEmpty()) {
+            sb.append("\n── Auszug ──\n");
+            sb.append(entry.getExcerpt()).append("\n");
+        }
         if (entry.getErrorMessage() != null && !entry.getErrorMessage().isEmpty()) {
             sb.append("\n⚠ Fehler: ").append(entry.getErrorMessage()).append("\n");
         }

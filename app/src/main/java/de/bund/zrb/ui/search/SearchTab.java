@@ -1,6 +1,6 @@
 package de.bund.zrb.ui.search;
 
-import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.search.SearchResult;
@@ -1015,14 +1015,14 @@ public class SearchTab extends JPanel implements AppTab {
      */
     private PreviewContent loadArchiveDocumentContent(String docId) {
         CacheRepository repo = CacheRepository.getInstance();
-        ArchiveDocument doc = repo.findDocumentById(docId);
-        if (doc == null) return loadFromLuceneIndex(docId);
+        ArchiveEntry entry = repo.findById(docId);
+        if (entry == null) return loadFromLuceneIndex(docId);
 
         // Try full text from data-lake storage
-        if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
+        if (entry.getTextContentPath() != null && !entry.getTextContentPath().isEmpty()) {
             try {
                 String content = ArchiveService.getInstance().getStorageService()
-                        .readContent(doc.getTextContentPath(), MAX_PREVIEW_CHARS);
+                        .readContent(entry.getTextContentPath(), MAX_PREVIEW_CHARS);
                 if (content != null && !content.isEmpty()) {
                     boolean html = looksLikeHtml(content);
                     return new PreviewContent(content, html);
@@ -1117,33 +1117,33 @@ public class SearchTab extends JPanel implements AppTab {
         try {
             CacheRepository repo =
                     CacheRepository.getInstance();
-            de.bund.zrb.archive.model.ArchiveDocument doc = repo.findDocumentById(docId);
+            de.bund.zrb.archive.model.ArchiveEntry entry = repo.findById(docId);
 
-            if (doc == null) {
+            if (entry == null) {
                 JOptionPane.showMessageDialog(this,
-                        "Archiv-Dokument nicht gefunden: " + docId,
+                        "Archiv-Eintrag nicht gefunden: " + docId,
                         "Archiv-Fehler", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
             // Load text content from Data Lake storage
             String content = null;
-            if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
+            if (entry.getTextContentPath() != null && !entry.getTextContentPath().isEmpty()) {
                 de.bund.zrb.archive.service.ArchiveService archiveService =
                         de.bund.zrb.archive.service.ArchiveService.getInstance();
-                content = archiveService.getStorageService().readContent(doc.getTextContentPath());
+                content = archiveService.getStorageService().readContent(entry.getTextContentPath());
             }
 
             if (content == null || content.isEmpty()) {
                 // Fallback: show excerpt if no full content available
-                content = doc.getExcerpt() != null ? doc.getExcerpt() : "(Kein Inhalt verfügbar)";
+                content = entry.getExcerpt() != null ? entry.getExcerpt() : "(Kein Inhalt verfügbar)";
             }
 
             // Build a display title
-            String title = doc.getTitle() != null && !doc.getTitle().isEmpty()
-                    ? doc.getTitle()
+            String title = entry.getTitle() != null && !entry.getTitle().isEmpty()
+                    ? entry.getTitle()
                     : result.getDocumentName();
-            String url = doc.getCanonicalUrl() != null ? doc.getCanonicalUrl() : "";
+            String url = entry.getUrl() != null ? entry.getUrl() : "";
 
             // Open as a virtual file tab
             String sourceName = "📦 " + title;

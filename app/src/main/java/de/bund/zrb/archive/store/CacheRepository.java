@@ -66,7 +66,16 @@ public class CacheRepository {
                     + "last_indexed BIGINT,"
                     + "status VARCHAR(20),"
                     + "source_id VARCHAR(36),"
-                    + "error_message VARCHAR(2048)"
+                    + "error_message VARCHAR(2048),"
+                    // ── Catalog fields (unified from archive_documents) ──
+                    + "run_id VARCHAR(36) DEFAULT '',"
+                    + "kind VARCHAR(30) DEFAULT 'PAGE',"
+                    + "excerpt CLOB,"
+                    + "text_content_path VARCHAR(1024),"
+                    + "language VARCHAR(10),"
+                    + "word_count INT DEFAULT 0,"
+                    + "host VARCHAR(256),"
+                    + "source_resource_ids CLOB"
                     + ")");
 
             stmt.execute("CREATE TABLE IF NOT EXISTS archive_metadata ("
@@ -151,6 +160,18 @@ public class CacheRepository {
             try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS volatile_flag BOOLEAN DEFAULT FALSE"); } catch (Exception ignored) {}
             try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_volatile ON archive_entries(volatile_flag)"); } catch (Exception ignored) {}
 
+            // Migration: add catalog fields (unified from archive_documents)
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS run_id VARCHAR(36) DEFAULT ''"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS kind VARCHAR(30) DEFAULT 'PAGE'"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS excerpt CLOB"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS text_content_path VARCHAR(1024)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS language VARCHAR(10)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS word_count INT DEFAULT 0"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS host VARCHAR(256)"); } catch (Exception ignored) {}
+            try { stmt.execute("ALTER TABLE archive_entries ADD COLUMN IF NOT EXISTS source_resource_ids CLOB"); } catch (Exception ignored) {}
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_run ON archive_entries(run_id)"); } catch (Exception ignored) {}
+            try { stmt.execute("CREATE INDEX IF NOT EXISTS idx_entries_host ON archive_entries(host)"); } catch (Exception ignored) {}
+
             stmt.close();
             LOG.info("[Archive] Database initialized at " + jdbcUrl);
         } catch (Exception e) {
@@ -168,8 +189,9 @@ public class CacheRepository {
             // Upsert via MERGE
             PreparedStatement ps = conn.prepareStatement(
                     "MERGE INTO archive_entries (entry_id, url, title, mime_type, snapshot_path, "
-                            + "content_length, file_size_bytes, crawl_timestamp, last_indexed, status, source_id, error_message) "
-                            + "KEY(entry_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+                            + "content_length, file_size_bytes, crawl_timestamp, last_indexed, status, source_id, error_message, "
+                            + "run_id, kind, excerpt, text_content_path, language, word_count, host, source_resource_ids) "
+                            + "KEY(entry_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
             ps.setString(1, entry.getEntryId());
             ps.setString(2, truncate(entry.getUrl(), 2048));
             ps.setString(3, truncate(entry.getTitle(), 512));
@@ -182,6 +204,14 @@ public class CacheRepository {
             ps.setString(10, entry.getStatus().name());
             ps.setString(11, entry.getSourceId());
             ps.setString(12, entry.getErrorMessage());
+            ps.setString(13, entry.getRunId() != null ? entry.getRunId() : "");
+            ps.setString(14, entry.getKind() != null ? entry.getKind() : "PAGE");
+            ps.setString(15, entry.getExcerpt());
+            ps.setString(16, entry.getTextContentPath());
+            ps.setString(17, entry.getLanguage());
+            ps.setInt(18, entry.getWordCount());
+            ps.setString(19, truncate(entry.getHost(), 256));
+            ps.setString(20, entry.getSourceResourceIds());
             ps.executeUpdate();
             ps.close();
 
@@ -764,7 +794,7 @@ public class CacheRepository {
             rs1.close(); ps1.close();
 
             PreparedStatement ps2 = conn.prepareStatement(
-                    "SELECT COUNT(*) FROM archive_documents WHERE run_id=?");
+                    "SELECT COUNT(*) FROM archive_entries WHERE run_id=?");
             ps2.setString(1, runId);
             ResultSet rs2 = ps2.executeQuery();
             if (rs2.next()) documentCount = rs2.getInt(1);
@@ -851,66 +881,30 @@ public class CacheRepository {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  CRUD for ArchiveDocument
+    //  Legacy ArchiveDocument methods — now delegate to archive_entries
     // ═══════════════════════════════════════════════════════════
 
+    /** @deprecated Use {@link #save(ArchiveEntry)} directly. Converts and saves to archive_entries. */
+    @Deprecated
     public void saveDocument(ArchiveDocument doc) {
-        try {
-            PreparedStatement ps = getConnection().prepareStatement(
-                    "MERGE INTO archive_documents (doc_id, run_id, created_at, kind, title, "
-                            + "canonical_url, source_resource_ids, excerpt, text_content_path, "
-                            + "language, indexed_at, word_count, host) "
-                            + "KEY(doc_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
-            ps.setString(1, doc.getDocId());
-            ps.setString(2, doc.getRunId());
-            ps.setLong(3, doc.getCreatedAt());
-            ps.setString(4, doc.getKind());
-            ps.setString(5, truncate(doc.getTitle(), 512));
-            ps.setString(6, truncate(doc.getCanonicalUrl(), 2048));
-            ps.setString(7, doc.getSourceResourceIds());
-            ps.setString(8, doc.getExcerpt());
-            ps.setString(9, doc.getTextContentPath());
-            ps.setString(10, doc.getLanguage());
-            ps.setLong(11, doc.getIndexedAt());
-            ps.setInt(12, doc.getWordCount());
-            ps.setString(13, doc.getHost());
-            ps.executeUpdate();
-            ps.close();
-        } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] saveDocument failed: " + doc.getDocId(), e);
-        }
+        save(doc.toEntry());
     }
 
+    /**
+     * Find an entry by its ID. Works for both old docId and new entryId.
+     * @deprecated Use {@link #findById(String)} instead.
+     */
+    @Deprecated
     public ArchiveDocument findDocumentById(String docId) {
-        try {
-            PreparedStatement ps = getConnection().prepareStatement(
-                    "SELECT * FROM archive_documents WHERE doc_id=?");
-            ps.setString(1, docId);
-            ResultSet rs = ps.executeQuery();
-            ArchiveDocument doc = rs.next() ? mapDocument(rs) : null;
-            rs.close();
-            ps.close();
-            return doc;
-        } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] findDocumentById failed", e);
-            return null;
-        }
+        ArchiveEntry entry = findById(docId);
+        return entry != null ? entryToDocument(entry) : null;
     }
 
+    /** @deprecated Use {@link #findByUrl(String)} instead. */
+    @Deprecated
     public ArchiveDocument findDocumentByCanonicalUrl(String canonicalUrl) {
-        try {
-            PreparedStatement ps = getConnection().prepareStatement(
-                    "SELECT * FROM archive_documents WHERE canonical_url=? ORDER BY created_at DESC LIMIT 1");
-            ps.setString(1, canonicalUrl);
-            ResultSet rs = ps.executeQuery();
-            ArchiveDocument doc = rs.next() ? mapDocument(rs) : null;
-            rs.close();
-            ps.close();
-            return doc;
-        } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] findDocumentByCanonicalUrl failed", e);
-            return null;
-        }
+        ArchiveEntry entry = findByUrl(canonicalUrl);
+        return entry != null ? entryToDocument(entry) : null;
     }
 
     public ArchiveResource findResourceById(String resourceId) {
@@ -929,25 +923,39 @@ public class CacheRepository {
         }
     }
 
+    /** @deprecated Use {@link #searchEntries(String, String, int)} instead. */
+    @Deprecated
     public List<ArchiveDocument> searchDocuments(String query, String host, int maxResults) {
         List<ArchiveDocument> list = new ArrayList<ArchiveDocument>();
+        List<ArchiveEntry> entries = searchEntriesWithHost(query, host, maxResults);
+        for (ArchiveEntry e : entries) {
+            list.add(entryToDocument(e));
+        }
+        return list;
+    }
+
+    /**
+     * Search archive entries by title/URL/excerpt with optional host filter.
+     */
+    public List<ArchiveEntry> searchEntriesWithHost(String query, String host, int maxResults) {
+        List<ArchiveEntry> list = new ArrayList<ArchiveEntry>();
         try {
             String sql;
             boolean hasHost = host != null && !host.isEmpty();
             boolean hasQuery = query != null && !query.isEmpty();
 
             if (hasQuery && hasHost) {
-                sql = "SELECT * FROM archive_documents WHERE host=? "
-                        + "AND (LOWER(title) LIKE ? OR LOWER(excerpt) LIKE ?) "
-                        + "ORDER BY created_at DESC LIMIT ?";
+                sql = "SELECT * FROM archive_entries WHERE host=? "
+                        + "AND (LOWER(title) LIKE ? OR LOWER(excerpt) LIKE ? OR LOWER(url) LIKE ?) "
+                        + "ORDER BY crawl_timestamp DESC LIMIT ?";
             } else if (hasQuery) {
-                sql = "SELECT * FROM archive_documents WHERE "
-                        + "(LOWER(title) LIKE ? OR LOWER(excerpt) LIKE ?) "
-                        + "ORDER BY created_at DESC LIMIT ?";
+                sql = "SELECT * FROM archive_entries WHERE "
+                        + "(LOWER(title) LIKE ? OR LOWER(excerpt) LIKE ? OR LOWER(url) LIKE ?) "
+                        + "ORDER BY crawl_timestamp DESC LIMIT ?";
             } else if (hasHost) {
-                sql = "SELECT * FROM archive_documents WHERE host=? ORDER BY created_at DESC LIMIT ?";
+                sql = "SELECT * FROM archive_entries WHERE host=? ORDER BY crawl_timestamp DESC LIMIT ?";
             } else {
-                sql = "SELECT * FROM archive_documents ORDER BY created_at DESC LIMIT ?";
+                sql = "SELECT * FROM archive_entries ORDER BY crawl_timestamp DESC LIMIT ?";
             }
 
             PreparedStatement ps = getConnection().prepareStatement(sql);
@@ -957,9 +965,11 @@ public class CacheRepository {
                 String pattern = "%" + query.toLowerCase() + "%";
                 ps.setString(idx++, pattern);
                 ps.setString(idx++, pattern);
+                ps.setString(idx++, pattern);
                 ps.setInt(idx, maxResults);
             } else if (hasQuery) {
                 String pattern = "%" + query.toLowerCase() + "%";
+                ps.setString(idx++, pattern);
                 ps.setString(idx++, pattern);
                 ps.setString(idx++, pattern);
                 ps.setInt(idx, maxResults);
@@ -971,32 +981,30 @@ public class CacheRepository {
             }
 
             ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                list.add(mapDocument(rs));
-            }
-            rs.close();
-            ps.close();
+            while (rs.next()) { list.add(mapEntry(rs)); }
+            rs.close(); ps.close();
         } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] searchDocuments failed", e);
+            LOG.log(Level.WARNING, "[Archive] searchEntriesWithHost failed", e);
         }
         return list;
     }
 
-    private ArchiveDocument mapDocument(ResultSet rs) throws SQLException {
+    /** Convert an ArchiveEntry to the deprecated ArchiveDocument for legacy callers. */
+    private static ArchiveDocument entryToDocument(ArchiveEntry e) {
         ArchiveDocument d = new ArchiveDocument();
-        d.setDocId(rs.getString("doc_id"));
-        d.setRunId(rs.getString("run_id"));
-        d.setCreatedAt(rs.getLong("created_at"));
-        d.setKind(rs.getString("kind"));
-        d.setTitle(rs.getString("title"));
-        d.setCanonicalUrl(rs.getString("canonical_url"));
-        d.setSourceResourceIds(rs.getString("source_resource_ids"));
-        d.setExcerpt(rs.getString("excerpt"));
-        d.setTextContentPath(rs.getString("text_content_path"));
-        d.setLanguage(rs.getString("language"));
-        d.setIndexedAt(rs.getLong("indexed_at"));
-        d.setWordCount(rs.getInt("word_count"));
-        d.setHost(rs.getString("host"));
+        d.setDocId(e.getEntryId());
+        d.setRunId(e.getRunId() != null ? e.getRunId() : "");
+        d.setCreatedAt(e.getCrawlTimestamp());
+        d.setKind(e.getKind() != null ? e.getKind() : "PAGE");
+        d.setTitle(e.getTitle());
+        d.setCanonicalUrl(e.getUrl());
+        d.setSourceResourceIds(e.getSourceResourceIds() != null ? e.getSourceResourceIds() : "");
+        d.setExcerpt(e.getExcerpt() != null ? e.getExcerpt() : "");
+        d.setTextContentPath(e.getTextContentPath() != null ? e.getTextContentPath() : "");
+        d.setLanguage(e.getLanguage() != null ? e.getLanguage() : "");
+        d.setIndexedAt(e.getLastIndexed());
+        d.setWordCount(e.getWordCount());
+        d.setHost(e.getHost() != null ? e.getHost() : "");
         return d;
     }
 
@@ -1025,34 +1033,60 @@ public class CacheRepository {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Bulk queries for Documents
+    //  Bulk queries — now from unified archive_entries
     // ═══════════════════════════════════════════════════════════
 
+    /** @deprecated Use {@link #findAll()} and filter by {@link ArchiveEntry#isFromResearchRun()}. */
+    @Deprecated
     public List<ArchiveDocument> findAllDocuments() {
         List<ArchiveDocument> list = new ArrayList<ArchiveDocument>();
-        try {
-            PreparedStatement ps = getConnection().prepareStatement(
-                    "SELECT * FROM archive_documents ORDER BY created_at DESC");
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) { list.add(mapDocument(rs)); }
-            rs.close(); ps.close();
-        } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] findAllDocuments failed", e);
+        for (ArchiveEntry e : findEntriesByRunId()) {
+            list.add(entryToDocument(e));
         }
         return list;
     }
 
-    public List<ArchiveDocument> findDocumentsByRunId(String runId) {
-        List<ArchiveDocument> list = new ArrayList<ArchiveDocument>();
+    /**
+     * Find all entries that belong to a research run (non-empty run_id).
+     */
+    public List<ArchiveEntry> findEntriesByRunId() {
+        List<ArchiveEntry> list = new ArrayList<ArchiveEntry>();
         try {
             PreparedStatement ps = getConnection().prepareStatement(
-                    "SELECT * FROM archive_documents WHERE run_id=? ORDER BY created_at DESC");
-            ps.setString(1, runId);
+                    "SELECT * FROM archive_entries WHERE run_id IS NOT NULL AND run_id <> '' ORDER BY crawl_timestamp DESC");
             ResultSet rs = ps.executeQuery();
-            while (rs.next()) { list.add(mapDocument(rs)); }
+            while (rs.next()) { list.add(mapEntry(rs)); }
             rs.close(); ps.close();
         } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] findDocumentsByRunId failed: " + runId, e);
+            LOG.log(Level.WARNING, "[Archive] findEntriesByRunId failed", e);
+        }
+        return list;
+    }
+
+    /** @deprecated Use {@link #findByRunId(String)}. */
+    @Deprecated
+    public List<ArchiveDocument> findDocumentsByRunId(String runId) {
+        List<ArchiveDocument> list = new ArrayList<ArchiveDocument>();
+        for (ArchiveEntry e : findByRunId(runId)) {
+            list.add(entryToDocument(e));
+        }
+        return list;
+    }
+
+    /**
+     * Find all entries belonging to a specific research run.
+     */
+    public List<ArchiveEntry> findByRunId(String runId) {
+        List<ArchiveEntry> list = new ArrayList<ArchiveEntry>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_entries WHERE run_id=? ORDER BY crawl_timestamp DESC");
+            ps.setString(1, runId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) { list.add(mapEntry(rs)); }
+            rs.close(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findByRunId failed: " + runId, e);
         }
         return list;
     }
@@ -1086,22 +1120,25 @@ public class CacheRepository {
         return r;
     }
 
+    /** @deprecated Use {@link #delete(String)} instead. */
+    @Deprecated
     public void deleteDocument(String docId) {
-        try {
-            PreparedStatement ps = getConnection().prepareStatement(
-                    "DELETE FROM archive_documents WHERE doc_id=?");
-            ps.setString(1, docId);
-            ps.executeUpdate(); ps.close();
-        } catch (SQLException e) {
-            LOG.log(Level.WARNING, "[Archive] deleteDocument failed: " + docId, e);
-        }
+        delete(docId);
     }
 
     public void deleteRun(String runId) {
         try {
             Connection conn = getConnection();
-            PreparedStatement ps1 = conn.prepareStatement("DELETE FROM archive_documents WHERE run_id=?");
+            // Delete entries belonging to this run
+            PreparedStatement ps0 = conn.prepareStatement("DELETE FROM archive_metadata WHERE entry_id IN (SELECT entry_id FROM archive_entries WHERE run_id=?)");
+            ps0.setString(1, runId); ps0.executeUpdate(); ps0.close();
+            PreparedStatement ps1 = conn.prepareStatement("DELETE FROM archive_entries WHERE run_id=?");
             ps1.setString(1, runId); ps1.executeUpdate(); ps1.close();
+            // Also clean legacy archive_documents table if it still exists
+            try {
+                PreparedStatement psd = conn.prepareStatement("DELETE FROM archive_documents WHERE run_id=?");
+                psd.setString(1, runId); psd.executeUpdate(); psd.close();
+            } catch (SQLException ignored) {}
             PreparedStatement ps2 = conn.prepareStatement("DELETE FROM archive_resources WHERE run_id=?");
             ps2.setString(1, runId); ps2.executeUpdate(); ps2.close();
             PreparedStatement ps3 = conn.prepareStatement("DELETE FROM archive_runs WHERE run_id=?");
@@ -1113,12 +1150,17 @@ public class CacheRepository {
 
     public void deleteAllDocuments() {
         try {
-            Statement stmt = getConnection().createStatement();
-            stmt.executeUpdate("DELETE FROM archive_documents");
+            Connection conn = getConnection();
+            Statement stmt = conn.createStatement();
+            // Delete entries that belong to research runs
+            stmt.executeUpdate("DELETE FROM archive_metadata WHERE entry_id IN (SELECT entry_id FROM archive_entries WHERE run_id IS NOT NULL AND run_id <> '')");
+            stmt.executeUpdate("DELETE FROM archive_entries WHERE run_id IS NOT NULL AND run_id <> ''");
+            // Also clean legacy tables
+            try { stmt.executeUpdate("DELETE FROM archive_documents"); } catch (SQLException ignored) {}
             stmt.executeUpdate("DELETE FROM archive_resources");
             stmt.executeUpdate("DELETE FROM archive_runs");
             stmt.close();
-            LOG.info("[Archive] All documents, resources and runs deleted");
+            LOG.info("[Archive] All research documents, resources and runs deleted");
         } catch (SQLException e) {
             LOG.log(Level.WARNING, "[Archive] deleteAllDocuments failed", e);
         }
@@ -1244,6 +1286,15 @@ public class CacheRepository {
         e.setStatus(ArchiveEntryStatus.valueOf(rs.getString("status")));
         e.setSourceId(rs.getString("source_id"));
         e.setErrorMessage(rs.getString("error_message"));
+        // Catalog fields (may be null on old databases before migration)
+        try { e.setRunId(rs.getString("run_id")); } catch (SQLException ignored) {}
+        try { e.setKind(rs.getString("kind")); } catch (SQLException ignored) {}
+        try { e.setExcerpt(rs.getString("excerpt")); } catch (SQLException ignored) {}
+        try { e.setTextContentPath(rs.getString("text_content_path")); } catch (SQLException ignored) {}
+        try { e.setLanguage(rs.getString("language")); } catch (SQLException ignored) {}
+        try { e.setWordCount(rs.getInt("word_count")); } catch (SQLException ignored) {}
+        try { e.setHost(rs.getString("host")); } catch (SQLException ignored) {}
+        try { e.setSourceResourceIds(rs.getString("source_resource_ids")); } catch (SQLException ignored) {}
         return e;
     }
 
