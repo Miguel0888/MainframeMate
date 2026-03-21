@@ -1,5 +1,6 @@
 package de.bund.zrb.wiki.ui;
 
+import de.bund.zrb.wiki.domain.AttachmentRef;
 import de.bund.zrb.wiki.domain.ImageRef;
 
 import javax.imageio.ImageIO;
@@ -12,15 +13,17 @@ import java.io.File;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Narrow vertical strip showing 🖼 icons for each image extracted from a wiki page.
+ * Narrow vertical strip showing icons for each attachment extracted from a page.
  * <ul>
- *   <li>Hover → tooltip with image description</li>
- *   <li>Click → overlay dialog with full image, zoom, pan, download, navigation</li>
+ *   <li>Images → 🖼 icon, hover → tooltip, click → overlay dialog with zoom/pan/download</li>
+ *   <li>Documents (PDF, Word, Excel, …) → type-specific icon, click → document callback</li>
  * </ul>
  */
 public class ImageStripPanel extends JPanel {
@@ -35,29 +38,57 @@ public class ImageStripPanel extends JPanel {
     /** All images on this page — kept for navigation inside the overlay. */
     private List<ImageRef> allImages;
 
+    /** All document (non-image) attachments. */
+    private List<AttachmentRef> documentAttachments = Collections.emptyList();
+
     /** Callback fired when user clicks the expand button (◀◀). */
     private Runnable expandCallback;
 
+    /** Callback fired when user clicks a document attachment icon. */
+    private DocumentClickCallback documentClickCallback;
+
     /** Optional authenticated downloader (e.g. for Confluence mTLS). */
     private static ByteDownloader activeDownloader;
+
+    /** Callback interface for document attachment clicks. */
+    public interface DocumentClickCallback {
+        void onDocumentClicked(AttachmentRef attachment);
+    }
 
     public ImageStripPanel(List<ImageRef> images) {
         this(images, null);
     }
 
     public ImageStripPanel(List<ImageRef> images, ByteDownloader downloader) {
+        this(images, Collections.<AttachmentRef>emptyList(), downloader);
+    }
+
+    /**
+     * Create a strip panel showing both image and document attachment icons.
+     *
+     * @param images      image references from HTML (may be null/empty)
+     * @param attachments document attachments (non-images; may be null/empty)
+     * @param downloader  optional authenticated downloader
+     */
+    public ImageStripPanel(List<ImageRef> images, List<AttachmentRef> attachments,
+                           ByteDownloader downloader) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
         setPreferredSize(new Dimension(ICON_SIZE + 8, 0));
-        this.allImages = images;
+        this.allImages = images != null ? images : Collections.<ImageRef>emptyList();
+        this.documentAttachments = filterDocuments(attachments);
         activeDownloader = downloader;
 
-        if (images == null || images.isEmpty()) {
+        boolean hasImages = !allImages.isEmpty();
+        boolean hasDocs = !documentAttachments.isEmpty();
+
+        if (!hasImages && !hasDocs) {
             setVisible(false);
             return;
         }
 
-        for (final ImageRef img : images) {
+        // ── Image icons ──
+        for (final ImageRef img : allImages) {
             JLabel iconLabel = new JLabel("\uD83D\uDDBC");
             iconLabel.setFont(iconLabel.getFont().deriveFont(16f));
             iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -77,6 +108,44 @@ public class ImageStripPanel extends JPanel {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     showImageOverlay(imgIndex);
+                }
+            });
+
+            add(iconLabel);
+            add(Box.createVerticalStrut(GAP));
+        }
+
+        // ── Separator between images and documents ──
+        if (hasImages && hasDocs) {
+            JSeparator sep = new JSeparator(SwingConstants.HORIZONTAL);
+            sep.setMaximumSize(new Dimension(ICON_SIZE + 4, 2));
+            add(sep);
+            add(Box.createVerticalStrut(GAP));
+        }
+
+        // ── Document attachment icons ──
+        for (final AttachmentRef doc : documentAttachments) {
+            JLabel iconLabel = new JLabel(doc.type().icon());
+            iconLabel.setFont(iconLabel.getFont().deriveFont(16f));
+            iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            iconLabel.setPreferredSize(new Dimension(ICON_SIZE, ICON_SIZE));
+            iconLabel.setMaximumSize(new Dimension(ICON_SIZE, ICON_SIZE));
+            iconLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+            String tooltip = "<html><b>" + escHtml(doc.name()) + "</b>";
+            String sz = doc.formattedSize();
+            if (!sz.isEmpty()) {
+                tooltip += "<br>" + sz;
+            }
+            tooltip += "<br><i>" + doc.type().name() + "</i></html>";
+            iconLabel.setToolTipText(tooltip);
+
+            iconLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (documentClickCallback != null) {
+                        documentClickCallback.onDocumentClicked(doc);
+                    }
                 }
             });
 
@@ -108,6 +177,37 @@ public class ImageStripPanel extends JPanel {
      */
     public void setExpandCallback(Runnable callback) {
         this.expandCallback = callback;
+    }
+
+    /**
+     * Set the callback invoked when the user clicks a document attachment icon.
+     */
+    public void setDocumentClickCallback(DocumentClickCallback callback) {
+        this.documentClickCallback = callback;
+    }
+
+    /** @return the document attachments shown in this strip (unmodifiable). */
+    public List<AttachmentRef> getDocumentAttachments() {
+        return Collections.unmodifiableList(documentAttachments);
+    }
+
+    /** @return true if this strip has any content (images or documents). */
+    public boolean hasContent() {
+        return !allImages.isEmpty() || !documentAttachments.isEmpty();
+    }
+
+    /** Filter out image-type attachments (those are handled via ImageRef). */
+    private static List<AttachmentRef> filterDocuments(List<AttachmentRef> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<AttachmentRef> docs = new ArrayList<AttachmentRef>();
+        for (AttachmentRef ref : attachments) {
+            if (ref.isDocument()) {
+                docs.add(ref);
+            }
+        }
+        return docs;
     }
 
     // ═══════════════════════════════════════════════════════════

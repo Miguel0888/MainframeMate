@@ -1,5 +1,6 @@
 package de.bund.zrb.wiki.ui;
 
+import de.bund.zrb.wiki.domain.AttachmentRef;
 import de.bund.zrb.wiki.domain.ImageRef;
 
 import javax.imageio.ImageIO;
@@ -9,6 +10,7 @@ import java.awt.event.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -41,6 +43,15 @@ public class ImageThumbnailPanel extends JPanel {
     private Runnable collapseCallback;
     /** Optional authenticated downloader (e.g. for Confluence mTLS). */
     private final ByteDownloader downloader;
+
+    /** Document (non-image) attachments shown below the image thumbnails. */
+    private List<AttachmentRef> documentAttachments = Collections.emptyList();
+    /** Entries for document attachment cards. */
+    private final List<DocEntry> docEntries = new ArrayList<DocEntry>();
+    /** Optional renderer for document thumbnails (e.g. PDF first-page via PDFBox). */
+    private DocumentThumbnailRenderer documentThumbnailRenderer;
+    /** Callback for document attachment clicks. */
+    private ImageStripPanel.DocumentClickCallback documentClickCallback;
 
     /** Tracks the last width used for scaling to avoid redundant rescale passes. */
     private int lastScaleWidth = -1;
@@ -149,6 +160,58 @@ public class ImageThumbnailPanel extends JPanel {
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  Document entry (for non-image attachments)
+    // ═══════════════════════════════════════════════════════════
+
+    private static class DocEntry {
+        final AttachmentRef attachment;
+        final JPanel panel;
+        final JLabel thumbnailLabel;
+        BufferedImage renderedThumbnail; // null until rendered via DocumentThumbnailRenderer
+
+        DocEntry(AttachmentRef ref) {
+            this.attachment = ref;
+
+            panel = new JPanel(new BorderLayout(8, 4));
+            panel.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 220, 220)),
+                    BorderFactory.createEmptyBorder(6, PADDING, 6, PADDING)));
+            panel.setOpaque(false);
+            panel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+            // Left: type icon (large)
+            thumbnailLabel = new JLabel(ref.type().icon(), SwingConstants.CENTER);
+            thumbnailLabel.setFont(thumbnailLabel.getFont().deriveFont(32f));
+            thumbnailLabel.setPreferredSize(new Dimension(60, 60));
+            thumbnailLabel.setOpaque(true);
+            thumbnailLabel.setBackground(new Color(240, 240, 240));
+            thumbnailLabel.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200)));
+
+            // Right: name + size + type
+            JPanel infoPanel = new JPanel();
+            infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
+            infoPanel.setOpaque(false);
+
+            JLabel nameLabel = new JLabel(ref.name());
+            nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 12f));
+            nameLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            infoPanel.add(nameLabel);
+
+            String details = ref.type().name();
+            String sz = ref.formattedSize();
+            if (!sz.isEmpty()) details += "  •  " + sz;
+            JLabel detailLabel = new JLabel(details);
+            detailLabel.setFont(detailLabel.getFont().deriveFont(10f));
+            detailLabel.setForeground(Color.GRAY);
+            detailLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            infoPanel.add(detailLabel);
+
+            panel.add(thumbnailLabel, BorderLayout.WEST);
+            panel.add(infoPanel, BorderLayout.CENTER);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  Constructor
     // ═══════════════════════════════════════════════════════════
 
@@ -157,8 +220,21 @@ public class ImageThumbnailPanel extends JPanel {
     }
 
     public ImageThumbnailPanel(final List<ImageRef> images, ByteDownloader downloader) {
-        this.images = images;
+        this(images, Collections.<AttachmentRef>emptyList(), downloader);
+    }
+
+    /**
+     * Create a thumbnail panel showing image thumbnails and document attachment cards.
+     *
+     * @param images      image references from HTML (may be null/empty)
+     * @param attachments document attachments (non-images; may be null/empty)
+     * @param downloader  optional authenticated downloader
+     */
+    public ImageThumbnailPanel(final List<ImageRef> images, List<AttachmentRef> attachments,
+                               ByteDownloader downloader) {
+        this.images = images != null ? images : Collections.<ImageRef>emptyList();
         this.downloader = downloader;
+        this.documentAttachments = filterDocuments(attachments);
         setLayout(new BorderLayout(0, 0));
         setMinimumSize(new Dimension(80, 0));
 
@@ -189,9 +265,9 @@ public class ImageThumbnailPanel extends JPanel {
         bottomBar.add(collapseBtn);
         add(bottomBar, BorderLayout.SOUTH);
 
-        // ── Create placeholder entries ──
-        for (int i = 0; i < images.size(); i++) {
-            final ThumbnailEntry entry = new ThumbnailEntry(images.get(i), i);
+        // ── Create image placeholder entries ──
+        for (int i = 0; i < this.images.size(); i++) {
+            final ThumbnailEntry entry = new ThumbnailEntry(this.images.get(i), i);
             final int idx = i;
             entry.imageLabel.addMouseListener(new MouseAdapter() {
                 @Override
@@ -199,12 +275,41 @@ public class ImageThumbnailPanel extends JPanel {
                     if (entry.animatedGif && isInsideOverlayCircle(entry.imageLabel, e.getX(), e.getY())) {
                         toggleAnimation(entry);
                     } else {
-                        ImageStripPanel.openOverlay(ImageThumbnailPanel.this, images, idx, downloader);
+                        ImageStripPanel.openOverlay(ImageThumbnailPanel.this,
+                                ImageThumbnailPanel.this.images, idx, downloader);
                     }
                 }
             });
             entries.add(entry);
             contentPanel.add(entry.panel);
+        }
+
+        // ── Separator + document attachment cards ──
+        if (!this.images.isEmpty() && !documentAttachments.isEmpty()) {
+            JSeparator sep = new JSeparator(SwingConstants.HORIZONTAL);
+            sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 2));
+            contentPanel.add(sep);
+
+            JLabel docHeader = new JLabel("  Dokumente");
+            docHeader.setFont(docHeader.getFont().deriveFont(Font.BOLD, 11f));
+            docHeader.setForeground(new Color(100, 100, 100));
+            docHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+            docHeader.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+            contentPanel.add(docHeader);
+        }
+
+        for (final AttachmentRef doc : documentAttachments) {
+            final DocEntry docEntry = new DocEntry(doc);
+            docEntry.panel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (documentClickCallback != null) {
+                        documentClickCallback.onDocumentClicked(doc);
+                    }
+                }
+            });
+            docEntries.add(docEntry);
+            contentPanel.add(docEntry.panel);
         }
 
         // ── Rescale thumbnails on resize → also stops all animations ──
@@ -222,6 +327,13 @@ public class ImageThumbnailPanel extends JPanel {
 
         // ── Load thumbnails asynchronously ──
         loadThumbnailsAsync();
+        // ── Load document thumbnails if renderer is set (deferred to allow setter) ──
+        SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                loadDocumentThumbnailsAsync();
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -230,6 +342,30 @@ public class ImageThumbnailPanel extends JPanel {
 
     public void setCollapseCallback(Runnable callback) {
         this.collapseCallback = callback;
+    }
+
+    /**
+     * Set a renderer for document thumbnails (e.g. PDF first-page rendering).
+     * Must be called before or shortly after construction for effect.
+     */
+    public void setDocumentThumbnailRenderer(DocumentThumbnailRenderer renderer) {
+        this.documentThumbnailRenderer = renderer;
+        // If already constructed, trigger async loading now
+        if (!docEntries.isEmpty()) {
+            loadDocumentThumbnailsAsync();
+        }
+    }
+
+    /**
+     * Set the callback invoked when the user clicks a document attachment card.
+     */
+    public void setDocumentClickCallback(ImageStripPanel.DocumentClickCallback callback) {
+        this.documentClickCallback = callback;
+    }
+
+    /** @return the total number of entries (images + documents). */
+    public int getTotalEntryCount() {
+        return entries.size() + docEntries.size();
     }
 
     /**
@@ -525,5 +661,89 @@ public class ImageThumbnailPanel extends JPanel {
             }
         }
         return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  Document thumbnail loading
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Load document thumbnails asynchronously using the registered
+     * {@link DocumentThumbnailRenderer}. If no renderer is set, this is a no-op.
+     */
+    private void loadDocumentThumbnailsAsync() {
+        if (documentThumbnailRenderer == null || docEntries.isEmpty()) return;
+
+        new SwingWorker<Void, Integer>() {
+            @Override
+            protected Void doInBackground() {
+                for (int i = 0; i < docEntries.size(); i++) {
+                    DocEntry de = docEntries.get(i);
+                    if (!documentThumbnailRenderer.supports(de.attachment.type())) continue;
+                    try {
+                        int maxW = getAvailableWidth();
+                        if (maxW < 40) maxW = 120;
+                        BufferedImage thumb = documentThumbnailRenderer.renderThumbnail(
+                                de.attachment, maxW);
+                        if (thumb != null) {
+                            de.renderedThumbnail = thumb;
+                            publish(i);
+                        }
+                    } catch (Exception ex) {
+                        LOG.log(Level.FINE, "[DocThumb] Failed to render: " + de.attachment.name(), ex);
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void process(java.util.List<Integer> indices) {
+                for (int idx : indices) {
+                    DocEntry de = docEntries.get(idx);
+                    if (de.renderedThumbnail != null) {
+                        rescaleDocEntry(de);
+                    }
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * Scale and display a rendered document thumbnail.
+     */
+    private void rescaleDocEntry(DocEntry de) {
+        if (de.renderedThumbnail == null) return;
+
+        int availW = 60; // thumbnail label width
+        BufferedImage orig = de.renderedThumbnail;
+        double scale = (double) availW / orig.getWidth();
+        int thumbW = availW;
+        int thumbH = Math.max(1, (int) (orig.getHeight() * scale));
+        // Cap height
+        if (thumbH > 80) {
+            thumbH = 80;
+            thumbW = Math.max(1, (int) (orig.getWidth() * (80.0 / orig.getHeight())));
+        }
+
+        BufferedImage scaled = scaleImage(orig, thumbW, thumbH);
+        de.thumbnailLabel.setIcon(new ImageIcon(scaled));
+        de.thumbnailLabel.setText(null);
+        de.thumbnailLabel.setPreferredSize(new Dimension(60, thumbH));
+        de.panel.revalidate();
+        de.panel.repaint();
+    }
+
+    /** Filter out image-type attachments (those are handled via ImageRef). */
+    private static List<AttachmentRef> filterDocuments(List<AttachmentRef> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<AttachmentRef> docs = new ArrayList<AttachmentRef>();
+        for (AttachmentRef ref : attachments) {
+            if (ref.isDocument()) {
+                docs.add(ref);
+            }
+        }
+        return docs;
     }
 }

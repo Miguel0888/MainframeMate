@@ -1,5 +1,6 @@
 package de.bund.zrb.wiki.ui;
 
+import de.bund.zrb.wiki.domain.AttachmentRef;
 import de.bund.zrb.wiki.domain.ImageRef;
 
 import javax.swing.*;
@@ -59,6 +60,14 @@ public class HtmlPreviewPanel extends JPanel {
     private ImageThumbnailPanel thumbnailPanel;
     private int lastDividerLocation = -1;
     private ChangeListener scrollSyncListener;
+
+    // ── Document attachments ──
+    /** Document (non-image) attachments shown alongside images. */
+    private List<AttachmentRef> attachments = Collections.emptyList();
+    /** Optional renderer for document thumbnails (e.g. PDF first-page). */
+    private DocumentThumbnailRenderer documentThumbnailRenderer;
+    /** Optional callback when user clicks a document attachment. */
+    private ImageStripPanel.DocumentClickCallback documentClickCallback;
 
     /** Optional authenticated downloader (e.g. for Confluence mTLS). */
     private ByteDownloader byteDownloader;
@@ -238,12 +247,81 @@ public class HtmlPreviewPanel extends JPanel {
         applyContent();
     }
 
+    // ── Attachment API ──
+
+    /**
+     * Set document (non-image) attachments to show alongside images.
+     * Call this before or after {@link #setContent} — the strip/thumbnail panels
+     * will include document icons/cards.
+     *
+     * @param attachments document attachments (may include images — image-type entries
+     *                    are filtered out because images use {@link ImageRef})
+     */
+    public void setAttachments(List<AttachmentRef> attachments) {
+        this.attachments = attachments != null ? attachments : Collections.<AttachmentRef>emptyList();
+        applyContent();
+    }
+
+    /**
+     * Set document attachments together with content in a single call.
+     *
+     * @param cleanedHtml    HTML body without images
+     * @param htmlWithImages HTML body with images (may be null)
+     * @param images         image references (may be null/empty)
+     * @param attachments    document attachments (may be null/empty)
+     * @param baseUrl        optional base URL
+     */
+    public void setContentWithAttachments(String cleanedHtml, String htmlWithImages,
+                                          List<ImageRef> images, List<AttachmentRef> attachments,
+                                          String baseUrl) {
+        this.cleanedHtml = cleanedHtml;
+        this.htmlWithImages = htmlWithImages;
+        this.images = images != null ? images : Collections.<ImageRef>emptyList();
+        this.attachments = attachments != null ? attachments : Collections.<AttachmentRef>emptyList();
+        this.baseUrl = baseUrl;
+        applyContent();
+    }
+
+    /**
+     * Set a renderer for generating document thumbnails (e.g. PDF first page).
+     * The wiki-integration module has no PDFBox dependency — callers from the app
+     * module can inject a renderer that uses PDFBox or any other library.
+     */
+    public void setDocumentThumbnailRenderer(DocumentThumbnailRenderer renderer) {
+        this.documentThumbnailRenderer = renderer;
+    }
+
+    /**
+     * Set a callback for document attachment clicks (e.g. open in external viewer).
+     */
+    public void setDocumentClickCallback(ImageStripPanel.DocumentClickCallback callback) {
+        this.documentClickCallback = callback;
+    }
+
+    /** @return the current document attachments. */
+    public List<AttachmentRef> getAttachments() {
+        return Collections.unmodifiableList(attachments);
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  Content rendering
     // ═══════════════════════════════════════════════════════════
 
     private void applyContent() {
         if (cleanedHtml == null && htmlWithImages == null) {
+            // Even with no HTML, we may still have document attachments to show
+            if (!attachments.isEmpty()) {
+                removeEastComponent();
+                if (imageStripExpanded) collapseImageStripSilently();
+                htmlPane.setText("");
+                ImageStripPanel strip = createStripPanel();
+                if (strip.hasContent()) {
+                    contentPanel.add(strip, BorderLayout.EAST);
+                }
+                contentPanel.revalidate();
+                contentPanel.repaint();
+                return;
+            }
             clear();
             return;
         }
@@ -263,6 +341,14 @@ public class HtmlPreviewPanel extends JPanel {
             htmlPane.setCaretPosition(0);
             // Load images asynchronously
             WikiAsyncImageLoader.loadImagesAsync(htmlPane, htmlWithImages, fullHtml);
+
+            // Even in rendered mode, show document attachments in the strip
+            if (!attachments.isEmpty()) {
+                ImageStripPanel strip = createStripPanel();
+                if (strip.hasContent()) {
+                    contentPanel.add(strip, BorderLayout.EAST);
+                }
+            }
         } else {
             // ── Text mode: images in side strip ──────────────────
             String textHtml = cleanedHtml != null ? cleanedHtml : htmlWithImages;
@@ -278,15 +364,12 @@ public class HtmlPreviewPanel extends JPanel {
             }
             htmlPane.setCaretPosition(0);
 
-            if (!images.isEmpty()) {
-                ImageStripPanel strip = new ImageStripPanel(images, byteDownloader);
-                strip.setExpandCallback(new Runnable() {
-                    @Override
-                    public void run() {
-                        expandImageStrip();
-                    }
-                });
-                contentPanel.add(strip, BorderLayout.EAST);
+            // Show strip if we have images OR document attachments
+            if (!images.isEmpty() || !attachments.isEmpty()) {
+                ImageStripPanel strip = createStripPanel();
+                if (strip.hasContent()) {
+                    contentPanel.add(strip, BorderLayout.EAST);
+                }
             }
         }
 
@@ -299,7 +382,7 @@ public class HtmlPreviewPanel extends JPanel {
     // ═══════════════════════════════════════════════════════════
 
     private void expandImageStrip() {
-        if (images.isEmpty() || imageStripExpanded || renderedMode) return;
+        if ((images.isEmpty() && attachments.isEmpty()) || imageStripExpanded || renderedMode) return;
         imageStripExpanded = true;
 
         // Remove ImageStripPanel
@@ -308,14 +391,20 @@ public class HtmlPreviewPanel extends JPanel {
         // Detach htmlScrollPane
         contentPanel.remove(htmlScrollPane);
 
-        // Create thumbnail panel
-        thumbnailPanel = new ImageThumbnailPanel(images, byteDownloader);
+        // Create thumbnail panel with images + document attachments
+        thumbnailPanel = new ImageThumbnailPanel(images, attachments, byteDownloader);
         thumbnailPanel.setCollapseCallback(new Runnable() {
             @Override
             public void run() {
                 collapseImageStrip();
             }
         });
+        if (documentThumbnailRenderer != null) {
+            thumbnailPanel.setDocumentThumbnailRenderer(documentThumbnailRenderer);
+        }
+        if (documentClickCallback != null) {
+            thumbnailPanel.setDocumentClickCallback(documentClickCallback);
+        }
 
         // Create horizontal split pane
         imageSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, htmlScrollPane, thumbnailPanel);
@@ -337,16 +426,12 @@ public class HtmlPreviewPanel extends JPanel {
         }
         collapseImageStripSilently();
 
-        // Re-add ImageStripPanel
-        if (!images.isEmpty()) {
-            ImageStripPanel strip = new ImageStripPanel(images, byteDownloader);
-            strip.setExpandCallback(new Runnable() {
-                @Override
-                public void run() {
-                    expandImageStrip();
-                }
-            });
-            contentPanel.add(strip, BorderLayout.EAST);
+        // Re-add strip panel
+        if (!images.isEmpty() || !attachments.isEmpty()) {
+            ImageStripPanel strip = createStripPanel();
+            if (strip.hasContent()) {
+                contentPanel.add(strip, BorderLayout.EAST);
+            }
         }
         contentPanel.revalidate();
         contentPanel.repaint();
@@ -438,6 +523,23 @@ public class HtmlPreviewPanel extends JPanel {
     // ═══════════════════════════════════════════════════════════
     //  HTML helpers
     // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Create a configured {@link ImageStripPanel} with images + document attachments.
+     */
+    private ImageStripPanel createStripPanel() {
+        ImageStripPanel strip = new ImageStripPanel(images, attachments, byteDownloader);
+        strip.setExpandCallback(new Runnable() {
+            @Override
+            public void run() {
+                expandImageStrip();
+            }
+        });
+        if (documentClickCallback != null) {
+            strip.setDocumentClickCallback(documentClickCallback);
+        }
+        return strip;
+    }
 
     private void removeEastComponent() {
         Component eastComp = ((BorderLayout) contentPanel.getLayout())
