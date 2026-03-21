@@ -1,18 +1,22 @@
 package de.bund.zrb.search.provider;
 
+import de.bund.zrb.archive.store.CacheRepository;
 import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.model.Settings;
 import de.bund.zrb.search.BackendSearchProvider;
 import de.bund.zrb.search.SearchResult;
 import de.bund.zrb.util.CredentialStore;
 import de.bund.zrb.wiki.domain.WikiCredentials;
+import de.bund.zrb.wiki.domain.WikiPageView;
 import de.bund.zrb.wiki.domain.WikiSiteDescriptor;
 import de.bund.zrb.wiki.domain.WikiSiteId;
 import de.bund.zrb.wiki.infrastructure.JwbfWikiContentService;
+import de.bund.zrb.wiki.service.WikiPrefetchService;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -25,6 +29,11 @@ import java.util.logging.Logger;
  * <p>
  * The underlying {@link JwbfWikiContentService} is cached and rebuilt
  * only when the configured site list changes.
+ * <p>
+ * Implements prefetch: after search, all result pages are preloaded in the
+ * background using a {@link WikiPrefetchService} per site. When preview is
+ * requested via {@link #loadContentHtml(String)}, it either returns the
+ * cached content instantly or uses priority-load to fetch it synchronously.
  */
 public final class WikiSearchProvider implements BackendSearchProvider {
 
@@ -35,6 +44,10 @@ public final class WikiSearchProvider implements BackendSearchProvider {
     private volatile JwbfWikiContentService cachedService;
     /** Fingerprint of the site list used to build {@link #cachedService}. */
     private volatile String cachedFingerprint = "";
+
+    /** Per-site prefetch services: siteId → WikiPrefetchService. */
+    private final ConcurrentHashMap<String, WikiPrefetchService> prefetchServices =
+            new ConcurrentHashMap<String, WikiPrefetchService>();
 
     private WikiSearchProvider() {}
 
@@ -91,7 +104,110 @@ public final class WikiSearchProvider implements BackendSearchProvider {
         return results;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  Prefetch / Content preloading
+    // ═══════════════════════════════════════════════════════════
+
+    @Override
+    public void preloadResults(List<SearchResult> results) {
+        if (results == null || results.isEmpty()) return;
+
+        // Group results by siteId
+        ConcurrentHashMap<String, List<String>> bySite =
+                new ConcurrentHashMap<String, List<String>>();
+        for (SearchResult r : results) {
+            if (r.getSource() != SearchResult.SourceType.WIKI) continue;
+            String docId = r.getDocumentId();
+            if (docId == null || !docId.startsWith("wiki://")) continue;
+            String rest = docId.substring("wiki://".length());
+            int slash = rest.indexOf('/');
+            if (slash <= 0) continue;
+            String siteId = rest.substring(0, slash);
+            String pageTitle = rest.substring(slash + 1);
+            if (!bySite.containsKey(siteId)) {
+                bySite.put(siteId, new ArrayList<String>());
+            }
+            bySite.get(siteId).add(pageTitle);
+        }
+
+        // Trigger prefetch for each site
+        for (String siteId : bySite.keySet()) {
+            WikiPrefetchService pfs = getOrCreatePrefetchService(siteId);
+            if (pfs != null) {
+                List<String> titles = bySite.get(siteId);
+                pfs.prefetchSearchResults(new WikiSiteId(siteId), titles, 0);
+            }
+        }
+    }
+
+    @Override
+    public String loadContentHtml(String docId) {
+        if (docId == null || !docId.startsWith("wiki://")) return null;
+        String rest = docId.substring("wiki://".length());
+        int slash = rest.indexOf('/');
+        if (slash <= 0) return null;
+        String siteId = rest.substring(0, slash);
+        String pageTitle = rest.substring(slash + 1);
+
+        WikiPrefetchService pfs = getOrCreatePrefetchService(siteId);
+        if (pfs == null) return null;
+
+        WikiSiteId wikiSiteId = new WikiSiteId(siteId);
+
+        // Try cache first (O(1))
+        WikiPageView cached = pfs.getCached(wikiSiteId, pageTitle);
+        if (cached != null) {
+            return cached.htmlWithImages() != null ? cached.htmlWithImages() : cached.cleanedHtml();
+        }
+
+        // Priority load — dedicated thread, not blocked by prefetch queue
+        WikiPageView loaded = pfs.loadPriority(wikiSiteId, pageTitle);
+        if (loaded != null) {
+            return loaded.htmlWithImages() != null ? loaded.htmlWithImages() : loaded.cleanedHtml();
+        }
+        return null;
+    }
+
+    @Override
+    public void shutdown() {
+        for (WikiPrefetchService pfs : prefetchServices.values()) {
+            try { pfs.shutdown(); } catch (Exception ignored) {}
+        }
+        prefetchServices.clear();
+    }
+
     // ── Internal helpers ──────────────────────────────────────────
+
+    /**
+     * Get or create a {@link WikiPrefetchService} for the given siteId.
+     * The prefetch service shares the same {@link JwbfWikiContentService}.
+     */
+    private WikiPrefetchService getOrCreatePrefetchService(String siteId) {
+        WikiPrefetchService existing = prefetchServices.get(siteId);
+        if (existing != null) return existing;
+
+        JwbfWikiContentService service = getOrCreateService();
+        if (service == null) return null;
+
+        CacheRepository cacheRepo = null;
+        try {
+            cacheRepo = CacheRepository.getInstance();
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "[WikiSearch] CacheRepository not available", e);
+        }
+
+        WikiPrefetchService pfs = new WikiPrefetchService(service, cacheRepo, 50, 200, 4);
+        // Wire credentials resolver
+        pfs.setCredentialsResolver(new java.util.function.Function<WikiSiteId, WikiCredentials>() {
+            @Override
+            public WikiCredentials apply(WikiSiteId sid) {
+                return resolveCredentials(sid.value());
+            }
+        });
+
+        WikiPrefetchService prev = prefetchServices.putIfAbsent(siteId, pfs);
+        return prev != null ? prev : pfs;
+    }
 
     /**
      * Get or create the shared {@link JwbfWikiContentService}.
@@ -112,6 +228,12 @@ public final class WikiSearchProvider implements BackendSearchProvider {
                 cachedFingerprint = fp;
                 return null;
             }
+            // Shutdown old prefetch services when service is rebuilt
+            for (WikiPrefetchService pfs : prefetchServices.values()) {
+                try { pfs.shutdown(); } catch (Exception ignored) {}
+            }
+            prefetchServices.clear();
+
             List<WikiSiteDescriptor> descriptors = new ArrayList<WikiSiteDescriptor>();
             for (SiteMeta sm : allMetas) {
                 descriptors.add(new WikiSiteDescriptor(

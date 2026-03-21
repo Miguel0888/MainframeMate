@@ -737,10 +737,15 @@ public class SearchTab extends JPanel implements AppTab {
             case WIKI:
             case CONFLUENCE:
             case SHAREPOINT:
-                // Try HTML from CacheRepository first (stored by prefetch services)
+                // Try live content from backend providers (prefetch cache or priority load)
+                String liveHtml = searchService.loadContentHtml(docId);
+                if (liveHtml != null && !liveHtml.isEmpty()) {
+                    return new PreviewContent(truncateContent(liveHtml), true);
+                }
+                // Fallback: HTML from CacheRepository (stored by earlier sessions)
                 PreviewContent htmlContent = loadHtmlFromCacheRepository(docId);
                 if (htmlContent != null) return htmlContent;
-                // Fallback: plain text from Lucene index
+                // Last fallback: plain text from Lucene index
                 return loadFromLuceneIndex(docId);
             default:
                 // NDV, MAIL, RAG → text from Lucene index

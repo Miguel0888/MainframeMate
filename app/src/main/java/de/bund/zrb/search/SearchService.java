@@ -218,6 +218,9 @@ public class SearchService {
                 allResults = new ArrayList<>(allResults.subList(0, maxResults));
             }
 
+            // ── 4. Trigger prefetch of content for live results ──
+            triggerPrefetch(allResults);
+
             return allResults;
         });
     }
@@ -245,6 +248,74 @@ public class SearchService {
     }
 
     // ─── Internal search methods ───
+
+    /**
+     * Trigger background prefetch of content for search results.
+     * Dispatches to registered providers that support content preloading.
+     */
+    private void triggerPrefetch(List<SearchResult> results) {
+        if (results == null || results.isEmpty()) return;
+
+        // Group results by source type
+        Map<SearchResult.SourceType, List<SearchResult>> byType =
+                new HashMap<SearchResult.SourceType, List<SearchResult>>();
+        for (SearchResult r : results) {
+            if (!byType.containsKey(r.getSource())) {
+                byType.put(r.getSource(), new ArrayList<SearchResult>());
+            }
+            byType.get(r.getSource()).add(r);
+        }
+
+        // Dispatch to each provider
+        for (Map.Entry<SearchResult.SourceType, List<SearchResult>> entry : byType.entrySet()) {
+            BackendSearchProvider provider = backendProviders.get(entry.getKey());
+            if (provider != null) {
+                try {
+                    provider.preloadResults(entry.getValue());
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "[Search] Prefetch trigger failed for " + entry.getKey(), e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Load the full HTML content for a document via its registered backend provider.
+     * Used by the SearchTab preview pane to display wiki/confluence content.
+     * <p>
+     * The provider may return cached (prefetched) content or perform a synchronous
+     * priority load on a dedicated thread.
+     *
+     * @param docId the document ID (e.g. "wiki://siteId/page" or "confluence://pageId")
+     * @return HTML content string, or {@code null} if no provider can load it
+     */
+    public String loadContentHtml(String docId) {
+        if (docId == null) return null;
+        for (BackendSearchProvider provider : backendProviders.values()) {
+            try {
+                String html = provider.loadContentHtml(docId);
+                if (html != null) return html;
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "[Search] loadContentHtml failed for provider "
+                        + provider.getSourceType(), e);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Shutdown all backend providers' prefetch threads.
+     * Called on application exit.
+     */
+    public void shutdownProviders() {
+        for (BackendSearchProvider provider : backendProviders.values()) {
+            try {
+                provider.shutdown();
+            } catch (Exception e) {
+                LOG.log(Level.FINE, "[Search] Provider shutdown failed: " + provider.getSourceType(), e);
+            }
+        }
+    }
 
     private List<SearchResult> searchLucene(String query, int maxResults) {
         RagService rag = RagService.getInstance();
