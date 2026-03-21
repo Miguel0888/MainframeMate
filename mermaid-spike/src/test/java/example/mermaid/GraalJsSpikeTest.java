@@ -1,4 +1,4 @@
-https://cdn.jsdelivr.net/npm/mermaid@9.4.3/dist/mermaid.min.jshttps://cdn.jsdelivr.net/npm/mermaid@9.4.3/dist/mermaid.min.jspackage example.mermaid;
+package example.mermaid;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -67,12 +67,46 @@ class GraalJsSpikeTest {
     void stage3TrivialLibraryLoad() {
         MermaidRenderingProbe probe = new MermaidRenderingProbe(executor);
 
-        // Simulate a tiny JS library that sets a global
-        String fakeMermaid = "var mermaid = { version: '0.0.0-fake' };\n";
+        // Simulate a tiny JS library that sets a global via UMD-like pattern
+        String fakeMermaid = "window.mermaid = { version: '0.0.0-fake' };\n";
         JavaScriptExecutionResult result = probe.runMermaidLoadProbe(fakeMermaid);
 
         assertTrue(result.isSuccessful(), "Stage 3 with fake library should succeed: " + result.getErrorMessage());
-        assertEquals("Loaded Mermaid source", result.getOutput());
+        assertTrue(result.getOutput().contains("Loaded Mermaid source"), "Expected loaded confirmation");
+    }
+
+    @Test
+    @DisplayName("Stage 3 loads the real mermaid.min.js bundle successfully")
+    void stage3RealMermaidLoad() {
+        String mermaidSource = MermaidRenderingProbe.loadResource("/mermaid/mermaid.min.js");
+        if (mermaidSource == null || mermaidSource.length() < 10000) {
+            // Placeholder is present, not the real bundle — skip
+            return;
+        }
+
+        MermaidRenderingProbe probe = new MermaidRenderingProbe(executor);
+        JavaScriptExecutionResult result = probe.runMermaidLoadProbe(mermaidSource);
+
+        assertTrue(result.isSuccessful(), "Real mermaid.min.js should load: " + result.getErrorMessage());
+        assertTrue(result.getOutput().contains("window.mermaid available"), "mermaid should be on window");
+    }
+
+    @Test
+    @DisplayName("Stage 4 renders a simple flowchart to SVG")
+    void stage4RenderFlowchartToSvg() {
+        String mermaidSource = MermaidRenderingProbe.loadResource("/mermaid/mermaid.min.js");
+        if (mermaidSource == null || mermaidSource.length() < 10000) {
+            // Placeholder is present, not the real bundle — skip
+            return;
+        }
+
+        MermaidRenderingProbe probe = new MermaidRenderingProbe(executor);
+        JavaScriptExecutionResult result = probe.runMermaidRenderProbe(mermaidSource, "graph TD; A-->B; B-->C;");
+
+        assertTrue(result.isSuccessful(), "Rendering should succeed: " + result.getErrorMessage());
+        assertNotNull(result.getOutput(), "SVG output should not be null");
+        assertTrue(result.getOutput().contains("<svg"), "Output should contain SVG element");
+        assertTrue(result.getOutput().contains("flowchart"), "SVG should contain flowchart content");
     }
 
     @Test

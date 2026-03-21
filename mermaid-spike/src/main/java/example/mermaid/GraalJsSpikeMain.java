@@ -1,4 +1,4 @@
-https://cdn.jsdelivr.net/npm/mermaid@9.4.3/dist/mermaid.min.jspackage example.mermaid;
+package example.mermaid;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -48,6 +48,25 @@ public final class GraalJsSpikeMain {
 
         System.out.println("   Mermaid source size: " + mermaidSource.length() + " chars");
         printResult("Stage 3: Mermaid source load probe", probe.runMermaidLoadProbe(mermaidSource));
+
+        // Stage 4
+        String diagramCode = "graph TD; A-->B; B-->C;";
+        System.out.println("   Diagram code: " + diagramCode);
+        JavaScriptExecutionResult renderResult = probe.runMermaidRenderProbe(mermaidSource, diagramCode);
+        printResult("Stage 4: Mermaid SVG render probe", renderResult);
+
+        if (renderResult.isSuccessful() && renderResult.getOutput() != null
+                && renderResult.getOutput().contains("<svg")) {
+            System.out.println("   *** SVG rendering successful! ***");
+            String svg = renderResult.getOutput();
+            System.out.println("   SVG size: " + svg.length() + " chars");
+            // Print first 500 chars of SVG for inspection
+            if (svg.length() > 500) {
+                System.out.println("   SVG preview: " + svg.substring(0, 500) + "...");
+            } else {
+                System.out.println("   SVG: " + svg);
+            }
+        }
 
         System.out.println("Spike finished.");
     }

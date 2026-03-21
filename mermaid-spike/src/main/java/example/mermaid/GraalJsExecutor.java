@@ -1,6 +1,7 @@
 package example.mermaid;
 
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.PolyglotException;
 import org.graalvm.polyglot.Value;
 
 /**
@@ -33,6 +34,29 @@ public final class GraalJsExecutor {
             Value result = context.eval("js", script);
             String output = convertResultToString(result);
             return JavaScriptExecutionResult.success(output);
+        } catch (PolyglotException polyglotException) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(polyglotException.getMessage());
+
+            if (polyglotException.getSourceLocation() != null) {
+                sb.append("\n  at source line: ").append(polyglotException.getSourceLocation().getStartLine());
+                sb.append(", column: ").append(polyglotException.getSourceLocation().getStartColumn());
+                sb.append("\n  characters: ").append(polyglotException.getSourceLocation().getCharIndex())
+                  .append("-").append(polyglotException.getSourceLocation().getCharEndIndex());
+            }
+
+            // Append JS stack frames
+            sb.append("\n  JS stack trace:");
+            for (PolyglotException.StackFrame frame : polyglotException.getPolyglotStackTrace()) {
+                if (frame.isGuestFrame()) {
+                    sb.append("\n    ").append(frame.getRootName());
+                    if (frame.getSourceLocation() != null) {
+                        sb.append(" (line ").append(frame.getSourceLocation().getStartLine()).append(")");
+                    }
+                }
+            }
+
+            return JavaScriptExecutionResult.failure(sb.toString());
         } catch (Exception exception) {
             return JavaScriptExecutionResult.failure(exception.getClass().getName() + ": " + exception.getMessage());
         } finally {

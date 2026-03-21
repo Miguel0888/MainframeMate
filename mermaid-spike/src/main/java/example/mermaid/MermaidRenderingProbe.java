@@ -1,5 +1,10 @@
 package example.mermaid;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
 /**
  * Three-stage probe for Mermaid rendering feasibility inside GraalJS:
  * <ol>
@@ -9,6 +14,8 @@ package example.mermaid;
  * </ol>
  */
 public final class MermaidRenderingProbe {
+
+    private static final String BROWSER_SHIM_RESOURCE = "/mermaid/browser-shim.js";
 
     private final GraalJsExecutor graalJsExecutor;
 
@@ -32,20 +39,12 @@ public final class MermaidRenderingProbe {
      * Stage 2 — install minimal browser-like globals and verify they survive.
      */
     public JavaScriptExecutionResult runPseudoMermaidEnvironmentProbe() {
-        String script =
-                "var window = {};" +
-                "var document = {" +
-                "  createElement: function(name) {" +
-                "    return {" +
-                "      tagName: name," +
-                "      innerHTML: ''," +
-                "      setAttribute: function(key, value) {}" +
-                "    };" +
-                "  }" +
-                "};" +
-                "var navigator = { userAgent: 'GraalJS Spike' };" +
-                "'Pseudo browser globals installed';";
+        String shimSource = loadShim();
+        if (shimSource == null) {
+            return JavaScriptExecutionResult.failure("browser-shim.js not found on classpath");
+        }
 
+        String script = shimSource + "\n'Pseudo browser globals installed';";
         return graalJsExecutor.execute(script);
     }
 
@@ -55,75 +54,102 @@ public final class MermaidRenderingProbe {
      * @param mermaidSource the full content of mermaid.min.js
      */
     public JavaScriptExecutionResult runMermaidLoadProbe(String mermaidSource) {
-        // Build a script that first installs browser shims, then evaluates the mermaid bundle
-        String script =
-                buildBrowserShim() +
-                "\n" +
-                mermaidSource +
-                "\n'Loaded Mermaid source';";
+        String shimSource = loadShim();
+        if (shimSource == null) {
+            return JavaScriptExecutionResult.failure("browser-shim.js not found on classpath");
+        }
 
+        String script = shimSource + "\n" +
+                "var module = undefined; var exports = undefined; var define = undefined;\n" +
+                mermaidSource + "\n" +
+                "typeof window.mermaid !== 'undefined' ? 'Loaded Mermaid source (window.mermaid available)' : 'Loaded but mermaid not on window';";
         return graalJsExecutor.execute(script);
     }
 
     /**
-     * Constructs a minimal set of browser globals that libraries typically probe for.
+     * Stage 4 — attempt to render a simple Mermaid diagram to SVG.
+     *
+     * @param mermaidSource the full content of mermaid.min.js
+     * @param diagramCode   Mermaid diagram definition, e.g. {@code "graph TD; A-->B;"}
      */
-    private String buildBrowserShim() {
-        return "var self = this;\n" +
-               "var window = self;\n" +
-               "var globalThis = self;\n" +
-               "var navigator = { userAgent: 'GraalJS Spike' };\n" +
-               "var document = {\n" +
-               "  createElement: function(name) {\n" +
-               "    var el = {\n" +
-               "      tagName: name,\n" +
-               "      innerHTML: '',\n" +
-               "      textContent: '',\n" +
-               "      style: {},\n" +
-               "      childNodes: [],\n" +
-               "      setAttribute: function(key, value) {},\n" +
-               "      getAttribute: function(key) { return null; },\n" +
-               "      appendChild: function(child) { this.childNodes.push(child); return child; },\n" +
-               "      removeChild: function(child) { return child; },\n" +
-               "      cloneNode: function(deep) { return document.createElement(name); },\n" +
-               "      addEventListener: function(evt, fn) {},\n" +
-               "      removeEventListener: function(evt, fn) {},\n" +
-               "      insertBefore: function(newNode, refNode) { return newNode; },\n" +
-               "      querySelectorAll: function(sel) { return []; },\n" +
-               "      querySelector: function(sel) { return null; },\n" +
-               "      getBoundingClientRect: function() { return {x:0,y:0,width:0,height:0,top:0,right:0,bottom:0,left:0}; }\n" +
-               "    };\n" +
-               "    return el;\n" +
-               "  },\n" +
-               "  createElementNS: function(ns, name) { return document.createElement(name); },\n" +
-               "  createTextNode: function(text) { return { textContent: text, nodeType: 3 }; },\n" +
-               "  querySelector: function(selector) { return null; },\n" +
-               "  querySelectorAll: function(selector) { return []; },\n" +
-               "  getElementById: function(id) { return null; },\n" +
-               "  getElementsByTagName: function(name) { return []; },\n" +
-               "  body: null,\n" +
-               "  documentElement: { style: {} },\n" +
-               "  head: null\n" +
-               "};\n" +
-               "document.body = document.createElement('body');\n" +
-               "document.head = document.createElement('head');\n" +
-               "var console = {\n" +
-               "  log: function() { javaBridge.log(Array.prototype.slice.call(arguments).join(' ')); },\n" +
-               "  warn: function() { javaBridge.log('WARN: ' + Array.prototype.slice.call(arguments).join(' ')); },\n" +
-               "  error: function() { javaBridge.log('ERROR: ' + Array.prototype.slice.call(arguments).join(' ')); },\n" +
-               "  info: function() { javaBridge.log('INFO: ' + Array.prototype.slice.call(arguments).join(' ')); }\n" +
-               "};\n" +
-               "var setTimeout = function(fn, delay) { fn(); return 0; };\n" +
-               "var clearTimeout = function(id) {};\n" +
-               "var setInterval = function(fn, delay) { return 0; };\n" +
-               "var clearInterval = function(id) {};\n" +
-               "var requestAnimationFrame = function(fn) { fn(0); return 0; };\n" +
-               "var cancelAnimationFrame = function(id) {};\n" +
-               "var URL = { createObjectURL: function(blob) { return ''; }, revokeObjectURL: function(url) {} };\n" +
-               "var Blob = function(parts, options) { this.parts = parts; };\n" +
-               "var XMLHttpRequest = function() {};\n" +
-               "XMLHttpRequest.prototype.open = function() {};\n" +
-               "XMLHttpRequest.prototype.send = function() {};\n";
+    public JavaScriptExecutionResult runMermaidRenderProbe(String mermaidSource, String diagramCode) {
+        String shimSource = loadShim();
+        if (shimSource == null) {
+            return JavaScriptExecutionResult.failure("browser-shim.js not found on classpath");
+        }
+
+        String escapedDiagram = diagramCode
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+                .replace("\r", "");
+
+        String renderScript =
+                shimSource + "\n" +
+                "var module = undefined; var exports = undefined; var define = undefined;\n" +
+                mermaidSource + "\n" +
+                "var __mermaid = window.mermaid || (typeof mermaid !== 'undefined' ? mermaid : null);\n" +
+                "var __svgResult = '';\n" +
+                "if (!__mermaid) { throw new Error('mermaid not found after loading bundle'); }\n" +
+                "javaBridge.log('Mermaid version: ' + (__mermaid.version || 'unknown'));\n" +
+                "__mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });\n" +
+                // Try callback-style first
+                "__mermaid.render('spike-diagram', '" + escapedDiagram + "', function(svgCode, bindFn) {\n" +
+                "  javaBridge.log('Callback received SVG: ' + (svgCode ? svgCode.length + ' chars' : 'null'));\n" +
+                "  __svgResult = svgCode;\n" +
+                "});\n" +
+                // If callback didn't fire, try to extract SVG from the DOM
+                "if (!__svgResult) {\n" +
+                "  javaBridge.log('Callback SVG empty, trying DOM extraction...');\n" +
+                "  var __container = document.querySelector('[id=\"dspike-diagram\"]') || document.getElementById('dspike-diagram');\n" +
+                "  if (__container) {\n" +
+                "    javaBridge.log('Found container: ' + __container.tagName + ', children: ' + __container.childNodes.length);\n" +
+                "    var __svgEl = __container.querySelector('svg') || (__container.childNodes.length > 0 ? __container.childNodes[0] : null);\n" +
+                "    if (__svgEl) {\n" +
+                "      javaBridge.log('Found SVG element: ' + __svgEl.tagName + ', innerHTML length: ' + (__svgEl.innerHTML || '').length);\n" +
+                "      var ser = new XMLSerializer();\n" +
+                "      __svgResult = ser.serializeToString(__svgEl);\n" +
+                "    } else {\n" +
+                "      javaBridge.log('No SVG element in container');\n" +
+                "    }\n" +
+                "  } else {\n" +
+                "    javaBridge.log('Container dspike-diagram not found in DOM');\n" +
+                "  }\n" +
+                "}\n" +
+                "__svgResult;\n";
+
+        return graalJsExecutor.execute(renderScript);
+    }
+
+    private String loadShim() {
+        return loadResource(BROWSER_SHIM_RESOURCE);
+    }
+
+    static String loadResource(String resourcePath) {
+        InputStream inputStream = MermaidRenderingProbe.class.getResourceAsStream(resourcePath);
+        if (inputStream == null) {
+            return null;
+        }
+
+        BufferedReader reader = null;
+        try {
+            reader = new BufferedReader(new InputStreamReader(inputStream, "UTF-8"));
+            StringBuilder content = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append('\n');
+            }
+            return content.toString();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to read resource: " + resourcePath, exception);
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException ignored) {
+                    // Ignore close exception
+                }
+            }
+        }
     }
 }
-
