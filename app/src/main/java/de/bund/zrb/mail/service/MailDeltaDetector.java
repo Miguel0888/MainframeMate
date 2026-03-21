@@ -2,6 +2,7 @@ package de.bund.zrb.mail.service;
 
 import de.bund.zrb.mail.model.MailFolderRef;
 import de.bund.zrb.mail.model.MailMessageHeader;
+import de.bund.zrb.mail.model.MailboxCategory;
 import de.bund.zrb.mail.port.MailboxReader;
 
 import java.security.MessageDigest;
@@ -134,12 +135,13 @@ public class MailDeltaDetector {
      * Perform initial full scan of a PST/OST file.
      * Builds the watermarks and fingerprint map from scratch.
      *
+     * @param syncCategories which folder categories to scan (e.g. MAIL, CALENDAR)
      * @return DeltaResult where all mails are "new"
      */
-    public DeltaResult initialSync(MailConnection connection) {
+    public DeltaResult initialSync(MailConnection connection, Set<MailboxCategory> syncCategories) {
         String connId = connection.getConnectionId();
         String mailboxPath = connection.getFilePath();
-        LOG.info("[MailDelta] Initial sync: " + mailboxPath);
+        LOG.info("[MailDelta] Initial sync: " + mailboxPath + " categories=" + syncCategories);
 
         // Reset state for this connection
         maxDeliveryTime.put(connId, 0L);
@@ -151,8 +153,8 @@ public class MailDeltaDetector {
         int[] counters = {0, 0, 0}; // scanned, skipped, errors
 
         try {
-            // List all folders via MailboxReader (robust, handles OST quirks)
-            List<MailFolderRef> folders = listAllFoldersRecursive(mailboxPath);
+            // List only folders of selected categories via MailboxReader
+            List<MailFolderRef> folders = listFoldersForCategories(mailboxPath, syncCategories);
             LOG.info("[MailDelta] Found " + folders.size() + " folders in " + mailboxPath);
 
             for (MailFolderRef folder : folders) {
@@ -194,8 +196,10 @@ public class MailDeltaDetector {
     /**
      * Perform a delta sync — only check candidates that may be new or changed.
      * Uses time-based watermarks with overlap window.
+     *
+     * @param syncCategories which folder categories to scan
      */
-    public DeltaResult deltaSync(MailConnection connection) {
+    public DeltaResult deltaSync(MailConnection connection, Set<MailboxCategory> syncCategories) {
         String connId = connection.getConnectionId();
         String mailboxPath = connection.getFilePath();
         LOG.info("[MailDelta] Delta sync: " + mailboxPath);
@@ -204,7 +208,7 @@ public class MailDeltaDetector {
         if (fps == null) {
             // No prior state — fall back to initial sync
             LOG.info("[MailDelta] No prior state, falling back to initial sync");
-            return initialSync(connection);
+            return initialSync(connection, syncCategories);
         }
 
         List<MailCandidate> newMails = new ArrayList<MailCandidate>();
@@ -212,7 +216,7 @@ public class MailDeltaDetector {
         int[] counters = {0, 0, 0}; // scanned, skipped, errors
 
         try {
-            List<MailFolderRef> folders = listAllFoldersRecursive(mailboxPath);
+            List<MailFolderRef> folders = listFoldersForCategories(mailboxPath, syncCategories);
 
             // Collect candidates
             List<MailCandidate> candidates = new ArrayList<MailCandidate>();
@@ -282,38 +286,23 @@ public class MailDeltaDetector {
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Recursively enumerates all folders in the mailbox via MailboxReader.
-     * Uses the same robust PST/OST reading that PstMailboxReader provides.
+     * Collects folders for the selected categories via MailboxReader.listFoldersByCategory().
+     * Only touches the folder categories the user has chosen in settings,
+     * avoiding problematic folders (e.g. corrupt Kalender/Kontakte in OST files).
      */
-    private List<MailFolderRef> listAllFoldersRecursive(String mailboxPath) throws Exception {
+    private List<MailFolderRef> listFoldersForCategories(String mailboxPath,
+                                                         Set<MailboxCategory> categories) throws Exception {
         List<MailFolderRef> allFolders = new ArrayList<MailFolderRef>();
-
-        // Get top-level folders
-        List<MailFolderRef> topLevel = mailboxReader.listFolders(mailboxPath);
-        for (MailFolderRef folder : topLevel) {
-            allFolders.add(folder);
-            if (folder.getSubFolderCount() > 0) {
-                collectSubFolders(mailboxPath, folder.getFolderPath(), allFolders, 1);
+        for (MailboxCategory cat : categories) {
+            try {
+                List<MailFolderRef> folders = mailboxReader.listFoldersByCategory(mailboxPath, cat);
+                allFolders.addAll(folders);
+                LOG.fine("[MailDelta] Category " + cat + ": " + folders.size() + " folders");
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "[MailDelta] Error listing folders for category " + cat, e);
             }
         }
-
         return allFolders;
-    }
-
-    private void collectSubFolders(String mailboxPath, String folderPath,
-                                   List<MailFolderRef> result, int depth) {
-        if (depth > MAX_DEPTH) return;
-        try {
-            List<MailFolderRef> subs = mailboxReader.listSubFolders(mailboxPath, folderPath);
-            for (MailFolderRef sub : subs) {
-                result.add(sub);
-                if (sub.getSubFolderCount() > 0) {
-                    collectSubFolders(mailboxPath, sub.getFolderPath(), result, depth + 1);
-                }
-            }
-        } catch (Exception e) {
-            LOG.log(Level.FINE, "[MailDelta] Cannot list subfolders of " + folderPath, e);
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════

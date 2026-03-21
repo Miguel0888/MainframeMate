@@ -11,10 +11,20 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
     private final JTextField mailContainerClassesField;
     private final JList<String> mailWhitelistJList;
 
+    // Sync settings
+    private final JCheckBox cbSyncEnabled;
+    private final JCheckBox cbSyncMails;
+    private final JCheckBox cbSyncCalendar;
+    private final JCheckBox cbSyncContacts;
+    private final JCheckBox cbSyncTasks;
+    private final JCheckBox cbSyncNotes;
+    private final JCheckBox cbSuppressStderr;
+
     public MailSettingsPanel() {
         super("mails", "Mails");
         FormBuilder fb = new FormBuilder();
 
+        // ── Pfad ──
         String defaultPath = de.bund.zrb.ui.commands.ConnectMailMenuCommand.getDefaultOutlookPath();
         String currentValue = settings.mailStorePath;
         if (currentValue == null || currentValue.trim().isEmpty()) currentValue = defaultPath;
@@ -35,6 +45,44 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
         mailContainerClassesField.setToolTipText("Standard: IPF.Note,IPF.Imap");
         fb.addRow("ContainerClasses:", mailContainerClassesField);
 
+        // ── Sync-Einstellungen ──
+        fb.addSection("Hintergrund-Sync (Indizierung)");
+        fb.addInfo("Welche Kategorien sollen automatisch indiziert und bei Änderungen aktualisiert werden?");
+
+        cbSyncEnabled = new JCheckBox("Mail-Sync aktivieren");
+        cbSyncEnabled.setSelected(settings.mailSyncEnabled);
+        cbSyncEnabled.addActionListener(e -> updateSyncCheckboxStates());
+        fb.addWide(cbSyncEnabled);
+
+        cbSyncMails = new JCheckBox("📧 E-Mails (IPF.Note, IPF.Imap)");
+        cbSyncMails.setSelected(settings.mailSyncMails);
+        fb.addWide(cbSyncMails);
+
+        cbSyncCalendar = new JCheckBox("📅 Kalender (IPF.Appointment)");
+        cbSyncCalendar.setSelected(settings.mailSyncCalendar);
+        fb.addWide(cbSyncCalendar);
+
+        cbSyncContacts = new JCheckBox("👥 Kontakte (IPF.Contact)");
+        cbSyncContacts.setSelected(settings.mailSyncContacts);
+        fb.addWide(cbSyncContacts);
+
+        cbSyncTasks = new JCheckBox("✅ Aufgaben (IPF.Task)");
+        cbSyncTasks.setSelected(settings.mailSyncTasks);
+        fb.addWide(cbSyncTasks);
+
+        cbSyncNotes = new JCheckBox("📝 Notizen (IPF.StickyNote)");
+        cbSyncNotes.setSelected(settings.mailSyncNotes);
+        fb.addWide(cbSyncNotes);
+
+        fb.addGap(4);
+        cbSuppressStderr = new JCheckBox("java-libpst Konsolenmeldungen unterdrücken");
+        cbSuppressStderr.setSelected(settings.mailSyncSuppressStderr);
+        cbSuppressStderr.setToolTipText("Unterdrückt 'Unknown message type' und 'Can't get children' Meldungen auf stderr");
+        fb.addWide(cbSuppressStderr);
+
+        updateSyncCheckboxStates();
+
+        // ── HTML-Whitelist ──
         fb.addSection("HTML-Whitelist");
         fb.addInfo("Absender, deren Mails immer in HTML geöffnet werden.");
 
@@ -54,14 +102,32 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
         installPanel(fb);
     }
 
+    private void updateSyncCheckboxStates() {
+        boolean enabled = cbSyncEnabled.isSelected();
+        cbSyncMails.setEnabled(enabled);
+        cbSyncCalendar.setEnabled(enabled);
+        cbSyncContacts.setEnabled(enabled);
+        cbSyncTasks.setEnabled(enabled);
+        cbSyncNotes.setEnabled(enabled);
+        cbSuppressStderr.setEnabled(enabled);
+    }
+
     @Override
     protected void applyToSettings(Settings s) {
         s.mailStorePath = mailPathField.getText().trim();
         s.mailContainerClasses = mailContainerClassesField.getText().trim();
         de.bund.zrb.mail.model.MailboxCategory.setMailContainerClasses(s.mailContainerClasses);
+
+        s.mailSyncEnabled = cbSyncEnabled.isSelected();
+        s.mailSyncMails = cbSyncMails.isSelected();
+        s.mailSyncCalendar = cbSyncCalendar.isSelected();
+        s.mailSyncContacts = cbSyncContacts.isSelected();
+        s.mailSyncTasks = cbSyncTasks.isSelected();
+        s.mailSyncNotes = cbSyncNotes.isSelected();
+        s.mailSyncSuppressStderr = cbSuppressStderr.isSelected();
+
         s.mailHtmlWhitelistedSenders = new java.util.HashSet<>();
         DefaultListModel<String> wlModel = (DefaultListModel<String>) mailWhitelistJList.getModel();
         for (int i = 0; i < wlModel.size(); i++) s.mailHtmlWhitelistedSenders.add(wlModel.getElementAt(i));
     }
 }
-

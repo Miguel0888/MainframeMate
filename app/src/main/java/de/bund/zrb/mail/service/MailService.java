@@ -1,8 +1,13 @@
 package de.bund.zrb.mail.service;
 
+import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.mail.infrastructure.PstMailboxReader;
+import de.bund.zrb.mail.model.MailboxCategory;
 import de.bund.zrb.mail.port.MailboxReader;
+import de.bund.zrb.model.Settings;
 
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
@@ -10,6 +15,13 @@ import java.util.logging.Logger;
 
 /**
  * Central orchestrator for mail synchronisation.
+ * <p>
+ * Reads sync preferences from {@link Settings} to determine:
+ * <ul>
+ *   <li>Which folder categories to sync (MAIL, CALENDAR, CONTACTS, TASKS, NOTES)</li>
+ *   <li>Whether to suppress java-libpst stderr noise</li>
+ *   <li>Whether sync is enabled at all</li>
+ * </ul>
  * <p>
  * Coordinates the interaction between:
  * <ul>
@@ -19,14 +31,6 @@ import java.util.logging.Logger;
  *   <li>{@link MailDeltaDetector} — watermark-based delta detection</li>
  *   <li>{@link MailIndexUpdater} — Lucene index updates</li>
  * </ul>
- * <p>
- * Lifecycle:
- * <ol>
- *   <li>{@link #initialize(String)} — discover PST/OST, run initial sync, start watcher</li>
- *   <li>File change events → coordinator → delta sync → index update</li>
- *   <li>{@link #freshnessCheckBeforeSearch()} — optional pre-search check</li>
- *   <li>{@link #shutdown()} — stop watcher and scheduler</li>
- * </ol>
  * <p>
  * Thread-safe singleton. Does NOT contain UI logic.
  */
@@ -68,6 +72,32 @@ public class MailService {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Settings → sync categories
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Build the set of categories to sync from current Settings.
+     */
+    private Set<MailboxCategory> loadSyncCategories() {
+        Settings s = SettingsHelper.load();
+        Set<MailboxCategory> cats = new LinkedHashSet<MailboxCategory>();
+        if (s.mailSyncMails)    cats.add(MailboxCategory.MAIL);
+        if (s.mailSyncCalendar) cats.add(MailboxCategory.CALENDAR);
+        if (s.mailSyncContacts) cats.add(MailboxCategory.CONTACTS);
+        if (s.mailSyncTasks)    cats.add(MailboxCategory.TASKS);
+        if (s.mailSyncNotes)    cats.add(MailboxCategory.NOTES);
+        // Default: at least MAIL if nothing selected
+        if (cats.isEmpty()) cats.add(MailboxCategory.MAIL);
+        return cats;
+    }
+
+    /** Returns true if stderr suppression is enabled in settings. */
+    private boolean isSuppressStderr() {
+        Settings s = SettingsHelper.load();
+        return s.mailSyncSuppressStderr;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Initialization
     // ═══════════════════════════════════════════════════════════════
 
@@ -80,6 +110,13 @@ public class MailService {
      * @param mailStorePath directory containing PST/OST files
      */
     public synchronized void initialize(String mailStorePath) {
+        Settings s = SettingsHelper.load();
+        if (!s.mailSyncEnabled) {
+            LOG.info("[MailService] Mail sync is disabled in settings");
+            updateStatus(MailSyncStatus.INACTIVE);
+            return;
+        }
+
         if (mailStorePath == null || mailStorePath.trim().isEmpty()) {
             LOG.info("[MailService] No mail store path configured");
             updateStatus(MailSyncStatus.INACTIVE);
@@ -147,31 +184,48 @@ public class MailService {
         LOG.info("[MailService] Running initial sync for " + connections.size() + " store(s)");
         updateStatus(MailSyncStatus.SYNCING);
 
+        Set<MailboxCategory> categories = loadSyncCategories();
+        LOG.info("[MailService] Sync categories: " + categories);
+
         int totalNew = 0;
         int totalErrors = 0;
 
-        for (MailConnection conn : connections) {
-            if (!conn.isActive() || !conn.isValid()) {
-                LOG.warning("[MailService] Skipping invalid connection: " + conn);
-                continue;
+        PrintStream filteredErr = null;
+        PrintStream originalErr = null;
+        if (isSuppressStderr()) {
+            originalErr = System.err;
+            filteredErr = createFilteredErrStream(originalErr);
+            System.setErr(filteredErr);
+        }
+
+        try {
+            for (MailConnection conn : connections) {
+                if (!conn.isActive() || !conn.isValid()) {
+                    LOG.warning("[MailService] Skipping invalid connection: " + conn);
+                    continue;
+                }
+
+                try {
+                    LOG.info("[MailService] Initial sync: " + conn.getDisplayName());
+                    MailDeltaDetector.DeltaResult result = deltaDetector.initialSync(conn, categories);
+
+                    // Index all mails
+                    MailIndexUpdater.UpdateResult indexResult = indexUpdater.indexCandidates(result.newMails);
+                    totalNew += indexResult.indexed;
+                    totalErrors += indexResult.errors + result.errors;
+
+                    LOG.info("[MailService] Initial sync of " + conn.getDisplayName() + ": "
+                            + indexResult.indexed + " indexed, " + result.errors + " scan errors, "
+                            + indexResult.errors + " index errors");
+                } catch (Exception e) {
+                    totalErrors++;
+                    LOG.log(Level.WARNING, "[MailService] Initial sync failed: " + conn, e);
+                    lastError = e.getMessage();
+                }
             }
-
-            try {
-                LOG.info("[MailService] Initial sync: " + conn.getDisplayName());
-                MailDeltaDetector.DeltaResult result = deltaDetector.initialSync(conn);
-
-                // Index all mails
-                MailIndexUpdater.UpdateResult indexResult = indexUpdater.indexCandidates(result.newMails);
-                totalNew += indexResult.indexed;
-                totalErrors += indexResult.errors + result.errors;
-
-                LOG.info("[MailService] Initial sync of " + conn.getDisplayName() + ": "
-                        + indexResult.indexed + " indexed, " + result.errors + " scan errors, "
-                        + indexResult.errors + " index errors");
-            } catch (Exception e) {
-                totalErrors++;
-                LOG.log(Level.WARNING, "[MailService] Initial sync failed: " + conn, e);
-                lastError = e.getMessage();
+        } finally {
+            if (originalErr != null) {
+                System.setErr(originalErr);
             }
         }
 
@@ -194,8 +248,18 @@ public class MailService {
                 + " (Grund: " + reason + ")");
         updateStatus(MailSyncStatus.SYNCING);
 
+        Set<MailboxCategory> categories = loadSyncCategories();
+
+        PrintStream filteredErr = null;
+        PrintStream originalErr = null;
+        if (isSuppressStderr()) {
+            originalErr = System.err;
+            filteredErr = createFilteredErrStream(originalErr);
+            System.setErr(filteredErr);
+        }
+
         try {
-            MailDeltaDetector.DeltaResult result = deltaDetector.deltaSync(connection);
+            MailDeltaDetector.DeltaResult result = deltaDetector.deltaSync(connection, categories);
 
             // Combine new + changed for indexing
             List<MailDeltaDetector.MailCandidate> toIndex =
@@ -219,6 +283,10 @@ public class MailService {
             LOG.log(Level.WARNING, "[MailService] Delta sync failed: " + connection.getDisplayName(), e);
             lastError = e.getMessage();
             updateStatus(MailSyncStatus.ERROR);
+        } finally {
+            if (originalErr != null) {
+                System.setErr(originalErr);
+            }
         }
     }
 
@@ -293,6 +361,49 @@ public class MailService {
                 LOG.log(Level.FINE, "[MailService] Status listener error", e);
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  stderr filter
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Creates a filtered stderr that suppresses java-libpst noise:
+     * - "Unknown message type: ..."
+     * - "Can't get children for folder ..."
+     * - "getNodeInfo: block doesn't exist! ..."
+     * - Standalone numbers, hex dumps, and "---" lines
+     */
+    private static PrintStream createFilteredErrStream(final PrintStream original) {
+        return new PrintStream(new OutputStream() {
+            private final StringBuilder line = new StringBuilder();
+
+            @Override
+            public void write(int b) {
+                if (b == '\n') {
+                    String msg = line.toString().trim();
+                    if (!shouldSuppress(msg)) {
+                        original.println(msg);
+                    }
+                    line.setLength(0);
+                } else {
+                    line.append((char) b);
+                }
+            }
+
+            private boolean shouldSuppress(String msg) {
+                if (msg.isEmpty()) return true;
+                if (msg.startsWith("Unknown message type:")) return true;
+                if (msg.startsWith("Can't get children for folder")) return true;
+                if (msg.startsWith("getNodeInfo:")) return true;
+                if (msg.equals("---")) return true;
+                // Suppress standalone numbers (e.g. "4", "1")
+                if (msg.matches("^\\d+$")) return true;
+                // Suppress hex dump lines (e.g. "f1f1 436a  ññCj")
+                if (msg.matches("^[0-9a-f]{4}\\s.*")) return true;
+                return false;
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════

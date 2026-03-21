@@ -243,6 +243,15 @@ public class Settings {
     public String mailContainerClasses = "IPF.Note,IPF.Imap"; // ContainerClasses die als MAIL gelten (kommasepariert)
     public java.util.Set<String> mailHtmlWhitelistedSenders = new java.util.HashSet<>(); // Absender, die immer in HTML geöffnet werden
 
+    // Mail Sync Settings — welche Kategorien indiziert/aktualisiert werden
+    public boolean mailSyncEnabled = false;               // Mail-Sync überhaupt aktiv
+    public boolean mailSyncMails = true;                  // E-Mails (IPF.Note/IPF.Imap)
+    public boolean mailSyncCalendar = false;              // Kalender (IPF.Appointment)
+    public boolean mailSyncContacts = false;              // Kontakte (IPF.Contact)
+    public boolean mailSyncTasks = false;                 // Aufgaben (IPF.Task)
+    public boolean mailSyncNotes = false;                 // Notizen (IPF.StickyNote)
+    public boolean mailSyncSuppressStderr = true;         // java-libpst stderr-Meldungen unterdrücken
+
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert
     public int historyMaxVersionsPerFile = 100;           // Max Versionen pro Datei

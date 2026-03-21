@@ -16,7 +16,7 @@ import java.util.List;
  */
 public class SettingsDialog {
 
-    public static final int TAB_INDEX_DEBUG = 19;
+    public static final int TAB_INDEX_DEBUG = 20;
 
     public static void show(Component parent) {
         show(parent, 0);
@@ -38,6 +38,7 @@ public class SettingsDialog {
         categories.add(new Tn3270SettingsPanel());
         categories.add(new BrowserSettingsPanel());
         categories.add(new SharePointSettingsPanel());
+        categories.add(new MailSettingsPanel());
         categories.add(new AiSettingsPanel());
         categories.add(wrapPanel("rag", "RAG", ragPanel, ragPanel::saveToSettings));
         categories.add(new ProxySettingsPanel(parent));
