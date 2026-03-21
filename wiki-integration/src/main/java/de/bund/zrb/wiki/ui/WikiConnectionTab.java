@@ -37,7 +37,6 @@ public class WikiConnectionTab implements ConnectionTab {
     private final JPanel siteCheckboxPanel;
     private final List<JCheckBox> siteCheckboxes = new ArrayList<JCheckBox>();
     private final SearchBarPanel searchBar;
-    private final JEditorPane htmlPane;
     private final JLabel statusLabel;
     private final FindBarPanel resultFilterBar;
 
@@ -65,22 +64,8 @@ public class WikiConnectionTab implements ConnectionTab {
     private WikiSiteId currentSiteId;
     private WikiPageView currentPreview;
 
-    /** Panel containing htmlScroll + optional ImageStripPanel for the preview area. */
-    private JPanel previewPanel;
-
-    /** true = rendered mode (images inline), false = text mode (images in side strip). */
-    private boolean renderedMode = false;
-    private JToggleButton textModeBtn;
-    private JToggleButton renderedModeBtn;
-    /** Reference to the htmlScroll pane for layout updates. */
-    private JScrollPane htmlScrollPane;
-
-    /** true when the image strip is expanded into the thumbnail split pane. */
-    private boolean imageStripExpanded = false;
-    private JSplitPane imageSplitPane;
-    private ImageThumbnailPanel thumbnailPanel;
-    private int lastDividerLocation = -1;
-    private javax.swing.event.ChangeListener scrollSyncListener;
+    /** Generalized HTML preview panel with image strip / thumbnail support. */
+    private HtmlPreviewPanel previewPanel;
 
     public WikiConnectionTab(WikiContentService service) {
         this.service = service;
@@ -212,25 +197,25 @@ public class WikiConnectionTab implements ConnectionTab {
         // ═══════════════════════════════════════════════════════════
         //  HTML preview pane
         // ═══════════════════════════════════════════════════════════
-        htmlPane = new JEditorPane();
-        htmlPane.setEditable(false);
-        htmlPane.setContentType("text/html");
-        htmlPane.addHyperlinkListener(e -> {
+        //  HTML preview pane (generalized component)
+        // ═══════════════════════════════════════════════════════════
+        previewPanel = new HtmlPreviewPanel();
+        previewPanel.setHyperlinkListener(e -> {
             if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
                 handleLink(e);
             }
         });
 
         // Click on inline image in rendered mode → open image overlay dialog
-        htmlPane.addMouseListener(new MouseAdapter() {
+        previewPanel.getHtmlPane().addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (!renderedMode || currentPreview == null) return;
+                if (!previewPanel.isRenderedMode() || currentPreview == null) return;
                 java.util.List<ImageRef> imgs = currentPreview.images();
                 if (imgs == null || imgs.isEmpty()) return;
-                int pos = htmlPane.viewToModel(e.getPoint());
+                int pos = previewPanel.getHtmlPane().viewToModel(e.getPoint());
                 if (pos < 0) return;
-                javax.swing.text.Document doc = htmlPane.getDocument();
+                javax.swing.text.Document doc = previewPanel.getHtmlPane().getDocument();
                 if (!(doc instanceof javax.swing.text.html.HTMLDocument)) return;
                 javax.swing.text.Element elem =
                         ((javax.swing.text.html.HTMLDocument) doc).getCharacterElement(pos);
@@ -239,40 +224,35 @@ public class WikiConnectionTab implements ConnectionTab {
                 if (src == null) return;
                 int index = findImageIndex(imgs, src);
                 if (index >= 0) {
-                    ImageStripPanel.openOverlay(htmlPane, imgs, index);
+                    ImageStripPanel.openOverlay(previewPanel.getHtmlPane(), imgs, index);
                 }
             }
         });
         // Hand cursor when hovering over images in rendered mode
-        htmlPane.addMouseMotionListener(new MouseMotionAdapter() {
+        previewPanel.getHtmlPane().addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
-                if (!renderedMode || currentPreview == null) {
+                if (!previewPanel.isRenderedMode() || currentPreview == null) {
                     return;
                 }
                 java.util.List<ImageRef> imgs = currentPreview.images();
                 if (imgs == null || imgs.isEmpty()) return;
-                int pos = htmlPane.viewToModel(e.getPoint());
+                int pos = previewPanel.getHtmlPane().viewToModel(e.getPoint());
                 if (pos >= 0) {
-                    javax.swing.text.Document doc = htmlPane.getDocument();
+                    javax.swing.text.Document doc = previewPanel.getHtmlPane().getDocument();
                     if (doc instanceof javax.swing.text.html.HTMLDocument) {
                         javax.swing.text.Element elem =
                                 ((javax.swing.text.html.HTMLDocument) doc).getCharacterElement(pos);
                         if (extractImgSrc(elem) != null) {
-                            htmlPane.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                            previewPanel.getHtmlPane().setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                             return;
                         }
                     }
                 }
-                htmlPane.setCursor(Cursor.getDefaultCursor());
+                previewPanel.getHtmlPane().setCursor(Cursor.getDefaultCursor());
             }
         });
-        JScrollPane htmlScroll = new JScrollPane(htmlPane);
-        htmlScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
-        htmlScrollPane = htmlScroll;
-
-        previewPanel = new JPanel(new BorderLayout(0, 0));
-        previewPanel.add(htmlScroll, BorderLayout.CENTER);
+        previewPanel.getHtmlScrollPane().setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
         // ═══════════════════════════════════════════════════════════
         //  Main split: top/bottom
@@ -283,31 +263,18 @@ public class WikiConnectionTab implements ConnectionTab {
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
         // ── Toggle buttons: Text vs Rendered ────────────────────
-        textModeBtn = new JToggleButton("Aa");
+        JToggleButton textModeBtn = previewPanel.getTextModeButton();
+        textModeBtn.setText("Aa");
         textModeBtn.setToolTipText("Textmodus (Bilder als Seitenleiste)");
         textModeBtn.setFocusable(false);
-        textModeBtn.setSelected(true);
         textModeBtn.setMargin(new Insets(2, 6, 2, 6));
 
-        renderedModeBtn = new JToggleButton("\uD83D\uDDBC");
+        JToggleButton renderedModeBtn = previewPanel.getRenderedModeButton();
+        renderedModeBtn.setText("\uD83D\uDDBC");
         renderedModeBtn.setToolTipText("Gerenderte Ansicht (Bilder inline)");
         renderedModeBtn.setFocusable(false);
         renderedModeBtn.setMargin(new Insets(2, 6, 2, 6));
 
-        ButtonGroup viewModeGroup = new ButtonGroup();
-        viewModeGroup.add(textModeBtn);
-        viewModeGroup.add(renderedModeBtn);
-
-        textModeBtn.addActionListener(e -> {
-            if (!renderedMode) return;
-            renderedMode = false;
-            refreshPreviewMode();
-        });
-        renderedModeBtn.addActionListener(e -> {
-            if (renderedMode) return;
-            renderedMode = true;
-            refreshPreviewMode();
-        });
 
         JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
         togglePanel.add(textModeBtn);
@@ -385,7 +352,7 @@ public class WikiConnectionTab implements ConnectionTab {
                     }
                 } catch (Exception ex) {
                     LOG.log(Level.WARNING, "[Wiki] Failed to load preview: " + pageTitle, ex);
-                    htmlPane.setText("<html><body><h2>Fehler</h2><p>" + escHtml(getRootMessage(ex)) + "</p></body></html>");
+                    previewPanel.getHtmlPane().setText("<html><body><h2>Fehler</h2><p>" + escHtml(getRootMessage(ex)) + "</p></body></html>");
                     statusLabel.setText("❌ Fehler: " + getRootMessage(ex));
                 }
             }
@@ -475,52 +442,20 @@ public class WikiConnectionTab implements ConnectionTab {
 
     /**
      * Apply the correct HTML content and image display based on the current view mode.
+     * Delegates to the generalized {@link HtmlPreviewPanel}.
      */
     private void applyPreviewContent(WikiPageView view) {
         if (view == null) return;
-
-        // Collapse expanded thumbnails if switching content
-        if (imageStripExpanded) {
-            collapsePreviewImageStripSilently();
-        }
-
-        // Remove existing image strip (EAST component)
-        Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
-                .getLayoutComponent(java.awt.BorderLayout.EAST);
-        if (eastComp != null) {
-            previewPanel.remove(eastComp);
-        }
-
-        if (renderedMode && view.htmlWithImages() != null) {
-            // ── Rendered mode: images inline ─────────────────────
-            String fullHtml = WikiAsyncImageLoader.wrapHtmlWithImages(view.htmlWithImages());
-            htmlPane.setText(fullHtml);
-            htmlPane.setCaretPosition(0);
-            // Load images asynchronously (reuses Confluence pattern)
-            WikiAsyncImageLoader.loadImagesAsync(htmlPane, view.htmlWithImages(), fullHtml);
-        } else {
-            // ── Text mode: images in side strip ──────────────────
-            htmlPane.setText(wrapHtml(view.cleanedHtml()));
-            htmlPane.setCaretPosition(0);
-            if (view.images() != null && !view.images().isEmpty()) {
-                ImageStripPanel strip = new ImageStripPanel(view.images());
-                strip.setExpandCallback(this::expandPreviewImageStrip);
-                previewPanel.add(strip, java.awt.BorderLayout.EAST);
-            }
-        }
-
-        previewPanel.revalidate();
-        previewPanel.repaint();
+        previewPanel.setContent(view.cleanedHtml(), view.htmlWithImages(), view.images());
     }
 
     /**
      * Re-apply current preview using the newly selected view mode.
      * Called when the user toggles between text and rendered mode.
+     * (Now handled automatically by HtmlPreviewPanel's built-in toggle.)
      */
     private void refreshPreviewMode() {
-        if (currentPreview != null) {
-            applyPreviewContent(currentPreview);
-        }
+        // No longer needed — HtmlPreviewPanel handles mode toggle internally
     }
 
     private void openSelectedAsTab() {
@@ -660,7 +595,7 @@ public class WikiConnectionTab implements ConnectionTab {
     private void handleLink(HyperlinkEvent e) {
         String desc = e.getDescription();
         if (desc != null && desc.startsWith("#")) {
-            htmlPane.scrollToReference(desc.substring(1));
+            previewPanel.getHtmlPane().scrollToReference(desc.substring(1));
             return;
         }
 
@@ -700,97 +635,6 @@ public class WikiConnectionTab implements ConnectionTab {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  Preview image strip expand / collapse
-    // ═══════════════════════════════════════════════════════════
-
-    private void expandPreviewImageStrip() {
-        if (currentPreview == null || imageStripExpanded || renderedMode) return;
-        java.util.List<ImageRef> imgs = currentPreview.images();
-        if (imgs == null || imgs.isEmpty()) return;
-        imageStripExpanded = true;
-
-        // Remove ImageStripPanel
-        Component eastComp = ((java.awt.BorderLayout) previewPanel.getLayout())
-                .getLayoutComponent(java.awt.BorderLayout.EAST);
-        if (eastComp != null) previewPanel.remove(eastComp);
-
-        // Detach htmlScroll
-        previewPanel.remove(htmlScrollPane);
-
-        // Create thumbnail panel
-        thumbnailPanel = new ImageThumbnailPanel(imgs);
-        thumbnailPanel.setCollapseCallback(this::collapsePreviewImageStrip);
-
-        // Create horizontal split pane
-        imageSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, htmlScrollPane, thumbnailPanel);
-        imageSplitPane.setResizeWeight(0.7);
-        int divLoc = lastDividerLocation > 0 ? lastDividerLocation
-                : previewPanel.getWidth() * 3 / 4;
-        imageSplitPane.setDividerLocation(divLoc);
-
-        previewPanel.add(imageSplitPane, java.awt.BorderLayout.CENTER);
-        installPreviewScrollSync();
-        previewPanel.revalidate();
-        previewPanel.repaint();
-    }
-
-    private void collapsePreviewImageStrip() {
-        if (!imageStripExpanded) return;
-        if (imageSplitPane != null) {
-            lastDividerLocation = imageSplitPane.getDividerLocation();
-        }
-        collapsePreviewImageStripSilently();
-
-        // Re-add ImageStripPanel
-        if (currentPreview != null && currentPreview.images() != null && !currentPreview.images().isEmpty()) {
-            ImageStripPanel strip = new ImageStripPanel(currentPreview.images());
-            strip.setExpandCallback(this::expandPreviewImageStrip);
-            previewPanel.add(strip, java.awt.BorderLayout.EAST);
-        }
-        previewPanel.revalidate();
-        previewPanel.repaint();
-    }
-
-    private void collapsePreviewImageStripSilently() {
-        if (!imageStripExpanded) return;
-        imageStripExpanded = false;
-        removePreviewScrollSync();
-        if (imageSplitPane != null) {
-            imageSplitPane.remove(htmlScrollPane);
-            previewPanel.remove(imageSplitPane);
-        }
-        previewPanel.add(htmlScrollPane, java.awt.BorderLayout.CENTER);
-        imageSplitPane = null;
-        thumbnailPanel = null;
-    }
-
-    private void installPreviewScrollSync() {
-        if (scrollSyncListener != null) return;
-        scrollSyncListener = new javax.swing.event.ChangeListener() {
-            @Override
-            public void stateChanged(javax.swing.event.ChangeEvent e) {
-                if (thumbnailPanel == null || currentPreview == null) return;
-                java.util.List<ImageRef> imgs = currentPreview.images();
-                if (imgs == null || imgs.isEmpty()) return;
-                JViewport viewport = htmlScrollPane.getViewport();
-                int viewY = viewport.getViewPosition().y;
-                int totalH = htmlPane.getPreferredSize().height - viewport.getHeight();
-                if (totalH <= 0) return;
-                double fraction = Math.min(1.0, Math.max(0.0, (double) viewY / totalH));
-                int targetIndex = (int) Math.round(fraction * (imgs.size() - 1));
-                thumbnailPanel.scrollToImage(targetIndex);
-            }
-        };
-        htmlScrollPane.getViewport().addChangeListener(scrollSyncListener);
-    }
-
-    private void removePreviewScrollSync() {
-        if (scrollSyncListener != null) {
-            htmlScrollPane.getViewport().removeChangeListener(scrollSyncListener);
-            scrollSyncListener = null;
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════
     //  Filter logic
@@ -1025,7 +869,7 @@ public class WikiConnectionTab implements ConnectionTab {
      */
     public void scrollToAnchor(String anchor) {
         if (anchor != null) {
-            htmlPane.scrollToReference(anchor);
+            previewPanel.getHtmlPane().scrollToReference(anchor);
         }
     }
 

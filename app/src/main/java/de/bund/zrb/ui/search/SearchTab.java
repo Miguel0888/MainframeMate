@@ -36,7 +36,8 @@ public class SearchTab extends JPanel implements AppTab {
     private final JToggleButton advancedToggle;
     private final JTable resultTable;
     private final DefaultTableModel tableModel;
-    private final JEditorPane previewPane;
+    private JEditorPane previewPane;
+    private final de.bund.zrb.wiki.ui.HtmlPreviewPanel searchPreviewPanel;
     private final JLabel statusLabel;
 
     // Source filter checkboxes (Archiv removed — cache is transparent)
@@ -385,16 +386,18 @@ public class SearchTab extends JPanel implements AppTab {
         JScrollPane tableScroll = new JScrollPane(resultTable);
 
         // ════════════════════════════════════════════════════════════
-        //  BOTTOM: Preview pane + Status
+        //  BOTTOM: Preview pane + Status (generalized HtmlPreviewPanel)
         // ════════════════════════════════════════════════════════════
-        previewPane = new JEditorPane();
-        previewPane.setContentType("text/html");
-        previewPane.setEditable(false);
+        searchPreviewPanel = new de.bund.zrb.wiki.ui.HtmlPreviewPanel();
+        searchPreviewPanel.setShowModeToggle(true);
+
+        // Keep backward-compat reference for direct text manipulation
+        previewPane = searchPreviewPanel.getHtmlPane();
         previewPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
         previewPane.setFont(new Font("SansSerif", Font.PLAIN, 12));
 
         // Handle star-click in preview
-        previewPane.addHyperlinkListener(e -> {
+        searchPreviewPanel.setHyperlinkListener(e -> {
             if (e.getEventType() == javax.swing.event.HyperlinkEvent.EventType.ACTIVATED
                     && e.getDescription() != null && e.getDescription().equals("toggle-bookmark")) {
                 int row = resultTable.getSelectedRow();
@@ -405,16 +408,15 @@ public class SearchTab extends JPanel implements AppTab {
             }
         });
 
-        JScrollPane previewScroll = new JScrollPane(previewPane);
-        previewScroll.setBorder(BorderFactory.createTitledBorder("Vorschau"));
-        previewScroll.setPreferredSize(new Dimension(0, 180));
+        searchPreviewPanel.getHtmlScrollPane().setBorder(BorderFactory.createTitledBorder("Vorschau"));
+        searchPreviewPanel.setPreferredSize(new Dimension(0, 180));
 
         statusLabel = new JLabel("Bereit. Tippe einen Suchbegriff ein und dr\u00fccke Enter.");
         statusLabel.setBorder(new EmptyBorder(2, 6, 2, 6));
         statusLabel.setForeground(Color.GRAY);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(previewScroll, BorderLayout.CENTER);
+        bottomPanel.add(searchPreviewPanel, BorderLayout.CENTER);
         bottomPanel.add(statusLabel, BorderLayout.SOUTH);
 
         // ════════════════════════════════════════════════════════════
@@ -537,7 +539,7 @@ public class SearchTab extends JPanel implements AppTab {
     private void clearResults() {
         tableModel.setRowCount(0);
         currentResults.clear();
-        previewPane.setText("");
+        searchPreviewPanel.clear();
     }
 
     private Set<SearchResult.SourceType> getSelectedSources() {
@@ -613,9 +615,9 @@ public class SearchTab extends JPanel implements AppTab {
 
     private void updatePreview() {
         int row = resultTable.getSelectedRow();
-        if (row < 0 || row >= resultTable.getRowCount()) { previewPane.setText(""); return; }
+        if (row < 0 || row >= resultTable.getRowCount()) { searchPreviewPanel.clear(); return; }
         int modelRow = resultTable.convertRowIndexToModel(row);
-        if (modelRow < 0 || modelRow >= currentResults.size()) { previewPane.setText(""); return; }
+        if (modelRow < 0 || modelRow >= currentResults.size()) { searchPreviewPanel.clear(); return; }
 
         // Cancel previous preview load
         if (previewLoader != null && !previewLoader.isDone()) {
@@ -643,13 +645,20 @@ public class SearchTab extends JPanel implements AppTab {
                 try {
                     PreviewContent preview = get();
                     StringBuilder html = new StringBuilder(headerHtml);
+                    String rawHtmlForImages = null;
+                    String baseUrl = null;
 
                     if (preview != null && preview.text != null && !preview.text.isEmpty()) {
                         if (preview.isHtml) {
-                            // Render HTML content directly (wiki, confluence, archive web pages, .html files)
+                            // Determine base URL for image resolution
+                            baseUrl = extractBaseUrl(r);
+                            rawHtmlForImages = preview.text;
+
+                            // Strip images for text mode display
+                            String strippedHtml = de.bund.zrb.wiki.ui.HtmlImageExtractor.stripImgTags(preview.text);
                             html.append("<div style='font-size:12px;background:#FAFAFA;border:1px solid #E0E0E0;")
                                     .append("padding:8px;border-radius:4px;line-height:1.5;'>");
-                            html.append(preview.text);
+                            html.append(strippedHtml);
                             html.append("</div>");
                         } else {
                             // Plain text / source code with monospace + highlighting
@@ -675,12 +684,62 @@ public class SearchTab extends JPanel implements AppTab {
                     html.append(" &nbsp;|&nbsp; Chunk: ").append(escHtml(r.getChunkId()));
                     html.append("</div></body></html>");
 
-                    previewPane.setText(html.toString());
-                    previewPane.setCaretPosition(0);
+                    String cleanedHtml = html.toString();
+
+                    // Extract images from the raw HTML (if it was HTML content)
+                    java.util.List<de.bund.zrb.wiki.domain.ImageRef> images =
+                            java.util.Collections.emptyList();
+                    String htmlWithImages = null;
+                    if (rawHtmlForImages != null) {
+                        images = de.bund.zrb.wiki.ui.HtmlImageExtractor
+                                .extractImages(rawHtmlForImages, baseUrl);
+                        if (!images.isEmpty()) {
+                            // Build the rendered version (header + full HTML with images + footer)
+                            StringBuilder renderedHtml = new StringBuilder(headerHtml);
+                            renderedHtml.append("<div style='font-size:12px;background:#FAFAFA;border:1px solid #E0E0E0;")
+                                    .append("padding:8px;border-radius:4px;line-height:1.5;'>");
+                            renderedHtml.append(rawHtmlForImages);
+                            renderedHtml.append("</div>");
+                            renderedHtml.append("<div style='margin-top:8px;color:#999;font-size:10px;'>");
+                            renderedHtml.append("\u2B50 Score: ").append(String.format("%.4f", r.getScore()));
+                            renderedHtml.append(" &nbsp;|&nbsp; Chunk: ").append(escHtml(r.getChunkId()));
+                            renderedHtml.append("</div></body></html>");
+                            htmlWithImages = renderedHtml.toString();
+                        }
+                    }
+
+                    // Use HtmlPreviewPanel to handle text/rendered mode + image strip
+                    searchPreviewPanel.setContent(cleanedHtml, htmlWithImages, images, baseUrl);
                 } catch (Exception ignored) {}
             }
         };
         previewLoader.execute();
+    }
+
+    /**
+     * Extract a base URL from a search result for image resolution.
+     */
+    private static String extractBaseUrl(SearchResult r) {
+        String path = r.getPath();
+        if (path == null) return null;
+        // For Confluence results, the path contains the base URL
+        if (r.getSource() == SearchResult.SourceType.CONFLUENCE) {
+            // Path format: "Space / Page Title" or URL-based
+            String docId = r.getDocumentId();
+            if (docId != null && docId.startsWith("http")) {
+                int slash = docId.indexOf('/', 8); // after "https://"
+                return slash > 0 ? docId.substring(0, slash) : null;
+            }
+        }
+        // For Wiki results, extract base from document ID
+        if (r.getSource() == SearchResult.SourceType.WIKI) {
+            String docId = r.getDocumentId();
+            if (docId != null && docId.contains("://")) {
+                int slash = docId.indexOf('/', 8);
+                return slash > 0 ? docId.substring(0, slash) : null;
+            }
+        }
+        return null;
     }
 
     /**

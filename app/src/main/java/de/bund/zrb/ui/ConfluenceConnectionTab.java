@@ -54,7 +54,6 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private final List<JCheckBox> spaceCheckboxes = new ArrayList<JCheckBox>();
     private final SearchBarPanel searchBar;
     private final FindBarPanel filterBar;
-    private final JEditorPane htmlPane;
     private final JLabel statusLabel;
     private final JLabel pageInfoLabel;
     private final JButton prevBtn;
@@ -83,23 +82,10 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private java.util.List<de.bund.zrb.wiki.domain.ImageRef> currentImages = Collections.emptyList();
 
     // ── Preview mode ──
-    /** true = rendered mode (images inline), false = text mode (images in side strip). */
-    private boolean renderedMode = false;
-    private JToggleButton textModeBtn;
-    private JToggleButton renderedModeBtn;
-    /** Panel wrapping htmlScroll + optional ImageStripPanel for the preview area. */
-    private JPanel previewPanel;
-    /** Scroll pane wrapping htmlPane — kept as field for split-pane attach/detach. */
-    private JScrollPane htmlScrollPane;
+    /** Generalized HTML preview panel with image strip / thumbnail support. */
+    private de.bund.zrb.wiki.ui.HtmlPreviewPanel previewPanel;
     /** Authenticated image downloader wrapping the ConfluenceRestClient. */
     private de.bund.zrb.wiki.ui.ByteDownloader confluenceDownloader;
-
-    // ── Preview image strip expand / collapse ──
-    private boolean imageStripExpanded = false;
-    private JSplitPane imageSplitPane;
-    private de.bund.zrb.wiki.ui.ImageThumbnailPanel thumbnailPanel;
-    private int lastDividerLocation = -1;
-    private javax.swing.event.ChangeListener scrollSyncListener;
 
     // ── Callbacks ──
     /** Callback to notify about outline changes (for RightDrawer). */
@@ -310,22 +296,15 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         topHalf.add(resultPanel, BorderLayout.CENTER);
 
         // ═══════════════════════════════════════════════════════════
-        //  HTML preview pane
+        //  HTML preview pane (generalized component)
         // ═══════════════════════════════════════════════════════════
-        htmlPane = new JEditorPane();
-        htmlPane.setEditable(false);
-        htmlPane.setContentType("text/html");
-        htmlPane.addHyperlinkListener(e -> {
+        previewPanel = new de.bund.zrb.wiki.ui.HtmlPreviewPanel();
+        previewPanel.setHyperlinkListener(e -> {
             if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
                 handleLink(e);
             }
         });
-        htmlScrollPane = new JScrollPane(htmlPane);
-        htmlScrollPane.setBorder(BorderFactory.createTitledBorder("Vorschau"));
-
-        // Wrap in previewPanel for image strip support
-        previewPanel = new JPanel(new BorderLayout(0, 0));
-        previewPanel.add(htmlScrollPane, BorderLayout.CENTER);
+        previewPanel.getHtmlScrollPane().setBorder(BorderFactory.createTitledBorder("Vorschau"));
 
         // Create authenticated downloader
         confluenceDownloader = new de.bund.zrb.wiki.ui.ByteDownloader() {
@@ -336,6 +315,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 return client.getBytes(path);
             }
         };
+        previewPanel.setByteDownloader(confluenceDownloader);
 
         // ═══════════════════════════════════════════════════════════
         //  Main split: top/bottom
@@ -346,31 +326,18 @@ public class ConfluenceConnectionTab implements ConnectionTab {
         mainPanel.add(mainSplit, BorderLayout.CENTER);
 
         // ── Toggle buttons: Text vs Rendered ────────────────────
-        textModeBtn = new JToggleButton("Aa");
+        JToggleButton textModeBtn = previewPanel.getTextModeButton();
+        textModeBtn.setText("Aa");
         textModeBtn.setToolTipText("Textmodus (Bilder als Seitenleiste)");
         textModeBtn.setFocusable(false);
-        textModeBtn.setSelected(true);
         textModeBtn.setMargin(new Insets(2, 6, 2, 6));
 
-        renderedModeBtn = new JToggleButton("\uD83D\uDDBC");
+        JToggleButton renderedModeBtn = previewPanel.getRenderedModeButton();
+        renderedModeBtn.setText("\uD83D\uDDBC");
         renderedModeBtn.setToolTipText("Gerenderte Ansicht (Bilder inline)");
         renderedModeBtn.setFocusable(false);
         renderedModeBtn.setMargin(new Insets(2, 6, 2, 6));
 
-        ButtonGroup viewModeGroup = new ButtonGroup();
-        viewModeGroup.add(textModeBtn);
-        viewModeGroup.add(renderedModeBtn);
-
-        textModeBtn.addActionListener(e -> {
-            if (!renderedMode) return;
-            renderedMode = false;
-            refreshPreviewMode();
-        });
-        renderedModeBtn.addActionListener(e -> {
-            if (renderedMode) return;
-            renderedMode = true;
-            refreshPreviewMode();
-        });
 
         JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
         togglePanel.add(textModeBtn);
@@ -738,11 +705,13 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     new ConfluencePrefetchService.CachedPage(item.id, item.title, html));
         }
 
-        // Extract images from the HTML
+        // Extract images from the HTML (kept for other usages)
         currentImages = de.bund.zrb.wiki.ui.HtmlImageExtractor.extractImages(html, baseUrl);
 
-        // Apply content based on current mode
-        applyPreviewContent(html);
+        // Apply content — inject heading anchors before passing to HtmlPreviewPanel
+        String enrichedHtml = injectHeadingAnchors(html);
+        String strippedHtml = de.bund.zrb.wiki.ui.HtmlImageExtractor.stripImgTags(enrichedHtml);
+        previewPanel.setContent(strippedHtml, enrichedHtml, currentImages, baseUrl);
 
         statusLabel.setText("✅ Vorschau: " + item.title);
 
@@ -765,66 +734,21 @@ public class ConfluenceConnectionTab implements ConnectionTab {
 
     /**
      * Apply the correct HTML content and image display based on the current view mode.
+     * Delegates to the generalized {@link de.bund.zrb.wiki.ui.HtmlPreviewPanel}.
      */
     private void applyPreviewContent(String html) {
         if (html == null) return;
-
-        // Collapse expanded thumbnails if switching content
-        if (imageStripExpanded) {
-            collapsePreviewImageStripSilently();
-        }
-
-        // Remove existing image strip (EAST component)
-        Component eastComp = ((BorderLayout) previewPanel.getLayout())
-                .getLayoutComponent(BorderLayout.EAST);
-        if (eastComp != null) {
-            previewPanel.remove(eastComp);
-        }
-
         String enrichedHtml = injectHeadingAnchors(html);
-
-        if (renderedMode) {
-            // ── Rendered mode: images inline ─────────────────────
-            String fullHtml = "<html><head><base href=\"" + escHtml(baseUrl) + "\">"
-                    + "<style>body{font-family:sans-serif;font-size:13px;padding:8px;}"
-                    + "table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:4px;}"
-                    + "img{max-width:100%;} h1,h2,h3{color:#333;} a{color:#0645ad;}"
-                    + "pre,code{background:#f4f4f4;padding:4px;}</style></head><body>"
-                    + enrichedHtml + "</body></html>";
-            htmlPane.setText(fullHtml);
-            htmlPane.setCaretPosition(0);
-            loadPreviewImagesAsync(html);
-        } else {
-            // ── Text mode: images in side strip ──────────────────
-            String strippedHtml = de.bund.zrb.wiki.ui.HtmlImageExtractor.stripImgTags(html);
-            String enrichedStripped = injectHeadingAnchors(strippedHtml);
-            String fullHtml = "<html><head><base href=\"" + escHtml(baseUrl) + "\">"
-                    + "<style>body{font-family:sans-serif;font-size:13px;padding:8px;}"
-                    + "table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:4px;}"
-                    + "img{max-width:100%;} h1,h2,h3{color:#333;} a{color:#0645ad;}"
-                    + "pre,code{background:#f4f4f4;padding:4px;}</style></head><body>"
-                    + enrichedStripped + "</body></html>";
-            htmlPane.setText(fullHtml);
-            htmlPane.setCaretPosition(0);
-            if (currentImages != null && !currentImages.isEmpty()) {
-                de.bund.zrb.wiki.ui.ImageStripPanel strip =
-                        new de.bund.zrb.wiki.ui.ImageStripPanel(currentImages, confluenceDownloader);
-                strip.setExpandCallback(this::expandPreviewImageStrip);
-                previewPanel.add(strip, BorderLayout.EAST);
-            }
-        }
-
-        previewPanel.revalidate();
-        previewPanel.repaint();
+        String strippedHtml = de.bund.zrb.wiki.ui.HtmlImageExtractor.stripImgTags(enrichedHtml);
+        previewPanel.setContent(strippedHtml, enrichedHtml, currentImages, baseUrl);
     }
 
     /**
      * Re-apply current preview using the newly selected view mode.
+     * (Now handled automatically by HtmlPreviewPanel's built-in toggle.)
      */
     private void refreshPreviewMode() {
-        if (currentHtmlBody != null) {
-            applyPreviewContent(currentHtmlBody);
-        }
+        // No longer needed — HtmlPreviewPanel handles mode toggle internally
     }
 
     /**
@@ -875,7 +799,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
     private void handleLink(HyperlinkEvent e) {
         String desc = e.getDescription();
         if (desc != null && desc.startsWith("#")) {
-            htmlPane.scrollToReference(desc.substring(1));
+            previewPanel.getHtmlPane().scrollToReference(desc.substring(1));
             return;
         }
 
@@ -1075,7 +999,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
             @Override
             protected void process(java.util.List<Object[]> chunks) {
                 // Incremental cache population — lets images appear as they load
-                javax.swing.text.Document doc = htmlPane.getDocument();
+                javax.swing.text.Document doc = previewPanel.getHtmlPane().getDocument();
                 if (!(doc instanceof javax.swing.text.html.HTMLDocument)) return;
 
                 java.util.Dictionary<java.net.URL, java.awt.Image> cache =
@@ -1097,20 +1021,20 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                     if (allImages == null || allImages.isEmpty()) return;
 
                     // 1) Populate cache BEFORE setText() so ImageViews find the images
-                    javax.swing.text.Document doc = htmlPane.getDocument();
+                    javax.swing.text.Document doc = previewPanel.getHtmlPane().getDocument();
                     doc.putProperty("imageCache", allImages);
 
                     // 2) Re-set HTML to force fresh ImageViews
-                    htmlPane.setText(previewFullHtml);
+                    previewPanel.getHtmlPane().setText(previewFullHtml);
 
                     // 3) Safety: if setText() replaced the document, re-apply cache
-                    javax.swing.text.Document newDoc = htmlPane.getDocument();
+                    javax.swing.text.Document newDoc = previewPanel.getHtmlPane().getDocument();
                     if (newDoc != doc) {
                         newDoc.putProperty("imageCache", allImages);
-                        htmlPane.setText(previewFullHtml);
+                        previewPanel.getHtmlPane().setText(previewFullHtml);
                     }
 
-                    htmlPane.setCaretPosition(0);
+                    previewPanel.getHtmlPane().setCaretPosition(0);
                 } catch (Exception e) {
                     LOG.log(Level.FINE, "[Confluence] Failed to refresh preview after image load", e);
                 }
@@ -1153,100 +1077,6 @@ public class ConfluenceConnectionTab implements ConnectionTab {
                 .replace("&#39;", "'");
     }
 
-    // ═══════════════════════════════════════════════════════════
-    //  Preview image strip expand / collapse
-    // ═══════════════════════════════════════════════════════════
-
-    private void expandPreviewImageStrip() {
-        if (currentImages == null || currentImages.isEmpty() || imageStripExpanded || renderedMode) return;
-        imageStripExpanded = true;
-
-        // Remove ImageStripPanel
-        Component eastComp = ((BorderLayout) previewPanel.getLayout())
-                .getLayoutComponent(BorderLayout.EAST);
-        if (eastComp != null) previewPanel.remove(eastComp);
-
-        // Detach htmlScroll
-        previewPanel.remove(htmlScrollPane);
-
-        // Create thumbnail panel
-        thumbnailPanel = new de.bund.zrb.wiki.ui.ImageThumbnailPanel(currentImages, confluenceDownloader);
-        thumbnailPanel.setCollapseCallback(this::collapsePreviewImageStrip);
-
-        // Create horizontal split pane
-        imageSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, htmlScrollPane, thumbnailPanel);
-        imageSplitPane.setResizeWeight(0.7);
-        int divLoc = lastDividerLocation > 0 ? lastDividerLocation
-                : previewPanel.getWidth() * 3 / 4;
-        imageSplitPane.setDividerLocation(divLoc);
-
-        previewPanel.add(imageSplitPane, BorderLayout.CENTER);
-
-        installPreviewScrollSync();
-
-        previewPanel.revalidate();
-        previewPanel.repaint();
-    }
-
-    private void collapsePreviewImageStrip() {
-        if (!imageStripExpanded) return;
-        if (imageSplitPane != null) {
-            lastDividerLocation = imageSplitPane.getDividerLocation();
-        }
-        collapsePreviewImageStripSilently();
-
-        // Re-add ImageStripPanel
-        if (currentImages != null && !currentImages.isEmpty()) {
-            de.bund.zrb.wiki.ui.ImageStripPanel strip =
-                    new de.bund.zrb.wiki.ui.ImageStripPanel(currentImages, confluenceDownloader);
-            strip.setExpandCallback(this::expandPreviewImageStrip);
-            previewPanel.add(strip, BorderLayout.EAST);
-        }
-        previewPanel.revalidate();
-        previewPanel.repaint();
-    }
-
-    private void collapsePreviewImageStripSilently() {
-        if (!imageStripExpanded) return;
-        imageStripExpanded = false;
-
-        removePreviewScrollSync();
-
-        if (imageSplitPane != null) {
-            imageSplitPane.remove(htmlScrollPane);
-            previewPanel.remove(imageSplitPane);
-        }
-
-        previewPanel.add(htmlScrollPane, BorderLayout.CENTER);
-
-        imageSplitPane = null;
-        thumbnailPanel = null;
-    }
-
-    private void installPreviewScrollSync() {
-        if (scrollSyncListener != null) return;
-        scrollSyncListener = new javax.swing.event.ChangeListener() {
-            @Override
-            public void stateChanged(javax.swing.event.ChangeEvent e) {
-                if (thumbnailPanel == null || currentImages == null || currentImages.isEmpty()) return;
-                JViewport viewport = htmlScrollPane.getViewport();
-                int viewY = viewport.getViewPosition().y;
-                int totalH = htmlPane.getPreferredSize().height - viewport.getHeight();
-                if (totalH <= 0) return;
-                double fraction = Math.min(1.0, Math.max(0.0, (double) viewY / totalH));
-                int targetIndex = (int) Math.round(fraction * (currentImages.size() - 1));
-                thumbnailPanel.scrollToImage(targetIndex);
-            }
-        };
-        htmlScrollPane.getViewport().addChangeListener(scrollSyncListener);
-    }
-
-    private void removePreviewScrollSync() {
-        if (scrollSyncListener != null) {
-            htmlScrollPane.getViewport().removeChangeListener(scrollSyncListener);
-            scrollSyncListener = null;
-        }
-    }
 
     /** @return keys of all checked space checkboxes. */
     private List<String> getCheckedSpaceKeys() {
@@ -1516,7 +1346,7 @@ public class ConfluenceConnectionTab implements ConnectionTab {
      */
     public void scrollToAnchor(String anchor) {
         if (anchor != null) {
-            htmlPane.scrollToReference(anchor);
+            previewPanel.getHtmlPane().scrollToReference(anchor);
         }
     }
 
