@@ -16,3 +16,6 @@ include 'dosbox'
 
 include 'onnx'
 include 'winml-java'
+
+include 'mermaid-spike'
+
