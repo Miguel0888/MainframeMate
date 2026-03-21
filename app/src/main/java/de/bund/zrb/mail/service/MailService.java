@@ -143,13 +143,15 @@ public class MailService {
             LOG.info("[MailService]   " + conn);
         }
 
-        // Create coordinator with sync action
+        // Create coordinator with sync action (use configured cooldown / Totzeit)
+        int cooldown = s.mailSyncCooldownSeconds > 0 ? s.mailSyncCooldownSeconds
+                : MailChangeCoordinator.DEFAULT_COOLDOWN_SECONDS;
         coordinator = new MailChangeCoordinator(new MailChangeCoordinator.SyncAction() {
             @Override
             public void performSync(MailConnection connection, String reason) {
                 performDeltaSync(connection, reason);
             }
-        });
+        }, cooldown);
 
         // Create and start watcher
         watcher = new MailStoreWatcher(connections);

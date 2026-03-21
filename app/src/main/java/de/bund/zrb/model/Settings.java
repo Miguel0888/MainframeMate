@@ -251,6 +251,7 @@ public class Settings {
     public boolean mailSyncTasks = false;                 // Aufgaben (IPF.Task)
     public boolean mailSyncNotes = false;                 // Notizen (IPF.StickyNote)
     public boolean mailSyncSuppressStderr = true;         // java-libpst stderr-Meldungen unterdrücken
+    public int mailSyncCooldownSeconds = 60;              // Totzeit (Cooldown) in Sekunden nach einem Sync-Lauf
 
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert

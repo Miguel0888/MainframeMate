@@ -12,10 +12,13 @@ import de.bund.zrb.helper.SettingsHelper;
 import de.bund.zrb.indexing.model.SourceType;
 import de.bund.zrb.indexing.ui.IndexingSidebar;
 import de.bund.zrb.model.Settings;
+import de.bund.zrb.search.SearchResult;
+import de.bund.zrb.search.SearchService;
 import de.bund.zrb.ui.TabbedPaneManager;
 import de.zrb.bund.newApi.ui.ConnectionTab;
 import de.zrb.bund.newApi.ui.FindBarPanel;
 import de.zrb.bund.newApi.ui.Navigable;
+import de.zrb.bund.newApi.ui.SearchBarPanel;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -23,8 +26,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.*;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -59,6 +61,12 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     private final JList<String> fileList = new JList<>(listModel);
     private final FindBarPanel searchBar = new FindBarPanel("Regex-Filter…");
     private final JLabel statusLabel = new JLabel(" ");
+
+    // Toolbar: sort & mail search
+    private final JComboBox<String> sortCombo = new JComboBox<>(new String[]{
+            "📅 Datum ↓ (neueste zuerst)", "📅 Datum ↑ (älteste zuerst)"});
+    private final SearchBarPanel mailSearchBar = new SearchBarPanel("Mails durchsuchen…",
+            "Volltextsuche über indizierte Mails (Lucene-Syntax)");
 
     // Navigation state
     private final List<String> backHistory = new ArrayList<>();
@@ -145,24 +153,61 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         upButton.setFont(upButton.getFont().deriveFont(Font.PLAIN, 20f));
         upButton.addActionListener(e -> navigateUp());
 
-        JPanel rightButtons = new JPanel(new GridLayout(1, 4, 0, 0));
+        JPanel rightButtons = new JPanel(new GridLayout(1, 3, 0, 0));
         rightButtons.add(backButton);
         rightButtons.add(forwardButton);
         rightButtons.add(upButton);
 
+        pathPanel.add(refreshButton, BorderLayout.WEST);
+        pathField.setEditable(false);
+        pathPanel.add(pathField, BorderLayout.CENTER);
+        pathPanel.add(rightButtons, BorderLayout.EAST);
+
+        // ── Toolbar: Sort dropdown | Mail search bar | Details toggle ──
+        JPanel toolbarPanel = new JPanel(new BorderLayout(4, 0));
+        toolbarPanel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+        // Sort combo (left)
+        sortCombo.setToolTipText("Sortierung der Nachrichten nach Datum");
+        sortCombo.setMaximumRowCount(4);
+        sortCombo.addActionListener(e -> applySortOrder());
+
+        // Mail search bar (center, blue style)
+        mailSearchBar.addSearchAction(e -> performMailSearch());
+        mailSearchBar.getTextField().addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent e) {
+                if (e.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
+                    mailSearchBar.setText("");
+                }
+            }
+        });
+
+        // Details toggle (right)
         JToggleButton detailsButton = new JToggleButton("📊");
         detailsButton.setToolTipText("Indexierungs-Details anzeigen");
         detailsButton.setMargin(new Insets(0, 0, 0, 0));
         detailsButton.setFont(detailsButton.getFont().deriveFont(Font.PLAIN, 16f));
         detailsButton.setSelected(sidebarVisible);
         detailsButton.addActionListener(e -> toggleSidebar());
-        rightButtons.add(detailsButton);
 
-        pathPanel.add(refreshButton, BorderLayout.WEST);
-        pathField.setEditable(false);
-        pathPanel.add(pathField, BorderLayout.CENTER);
-        pathPanel.add(rightButtons, BorderLayout.EAST);
-        mainPanel.add(pathPanel, BorderLayout.NORTH);
+        JPanel sortPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        sortPanel.setOpaque(false);
+        sortPanel.add(sortCombo);
+
+        JPanel detailsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        detailsPanel.setOpaque(false);
+        detailsPanel.add(detailsButton);
+
+        toolbarPanel.add(sortPanel, BorderLayout.WEST);
+        toolbarPanel.add(mailSearchBar, BorderLayout.CENTER);
+        toolbarPanel.add(detailsPanel, BorderLayout.EAST);
+
+        // ── Top area: path bar + toolbar ──
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.add(pathPanel, BorderLayout.NORTH);
+        topPanel.add(toolbarPanel, BorderLayout.SOUTH);
+        mainPanel.add(topPanel, BorderLayout.NORTH);
 
         fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         mainPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
@@ -727,6 +772,112 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         searchBar.getTextField().setBackground(hasMatch || regex.isEmpty()
                 ? UIManager.getColor("TextField.background")
                 : new Color(255, 200, 200));
+    }
+
+    // ─── Sort ───
+
+    /**
+     * Re-sort the current message list according to the selected sort order.
+     * Only applies when in MESSAGE_LIST mode with actual messages loaded.
+     */
+    private void applySortOrder() {
+        if (viewMode != ViewMode.MESSAGE_LIST || currentMessages.isEmpty()) return;
+
+        boolean ascending = sortCombo.getSelectedIndex() == 1; // index 0 = newest first (desc), 1 = oldest first (asc)
+
+        // Sort the messages list by date
+        List<MailMessageHeader> sorted = new ArrayList<>(currentMessages);
+        Collections.sort(sorted, new Comparator<MailMessageHeader>() {
+            @Override
+            public int compare(MailMessageHeader a, MailMessageHeader b) {
+                Date da = a.getDate();
+                Date db = b.getDate();
+                if (da == null && db == null) return 0;
+                if (da == null) return ascending ? -1 : 1;
+                if (db == null) return ascending ? 1 : -1;
+                return ascending ? da.compareTo(db) : db.compareTo(da);
+            }
+        });
+
+        // Rebuild display list: keep folders at top, then sorted messages
+        rebuildDisplayList();
+        for (MailFolderRef f : currentFolders) {
+            String display = f.toString();
+            currentDisplayNames.add(display);
+            displayToFolder.put(display, f);
+            listModel.addElement(display);
+        }
+        for (MailMessageHeader m : sorted) {
+            String display = m.toString();
+            currentDisplayNames.add(display);
+            displayToMessage.put(display, m);
+            listModel.addElement(display);
+        }
+        if (hasMoreMessages) {
+            String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
+            currentDisplayNames.add(marker);
+            listModel.addElement(marker);
+        }
+
+        // Re-apply filter if active
+        String filter = searchBar.getText().trim();
+        if (!filter.isEmpty()) applySearchFilter();
+    }
+
+    // ─── Mail Index Search (Lucene) ───
+
+    /**
+     * Perform a Lucene full-text search over indexed mails (the blue search bar).
+     * Results are shown in the list, replacing the current folder view temporarily.
+     */
+    private void performMailSearch() {
+        String query = mailSearchBar.getText().trim();
+        if (query.isEmpty()) {
+            // Empty query → restore current folder view
+            restoreState(encodeState());
+            return;
+        }
+
+        statusLabel.setText("🔍 Suche nach: \"" + query + "\"…");
+        mainPanel.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+
+        new SwingWorker<List<SearchResult>, Void>() {
+            @Override
+            protected List<SearchResult> doInBackground() {
+                Set<SearchResult.SourceType> sources = new LinkedHashSet<>();
+                sources.add(SearchResult.SourceType.MAIL);
+                return SearchService.getInstance().search(query, sources, 200, false);
+            }
+
+            @Override
+            protected void done() {
+                mainPanel.setCursor(Cursor.getDefaultCursor());
+                try {
+                    List<SearchResult> results = get();
+                    rebuildDisplayList();
+
+                    if (results.isEmpty()) {
+                        statusLabel.setText("Keine Treffer für: \"" + query + "\"");
+                    } else {
+                        for (SearchResult r : results) {
+                            String display = "🔎 " + r.getDocumentName();
+                            if (r.getSnippet() != null && !r.getSnippet().isEmpty()) {
+                                String snippet = r.getSnippet().replace('\n', ' ');
+                                if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
+                                display += "  —  " + snippet;
+                            }
+                            currentDisplayNames.add(display);
+                            listModel.addElement(display);
+                        }
+                        statusLabel.setText(results.size() + " Treffer für: \"" + query + "\"");
+                    }
+                    tabbedPaneManager.refreshStarForTab(MailConnectionTab.this);
+                } catch (Exception e) {
+                    LOG.log(Level.SEVERE, "Mail search failed", e);
+                    statusLabel.setText("Suchfehler: " + e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     // ─── Helpers ───

@@ -19,6 +19,7 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
     private final JCheckBox cbSyncTasks;
     private final JCheckBox cbSyncNotes;
     private final JCheckBox cbSuppressStderr;
+    private final JSpinner cooldownSpinner;
 
     public MailSettingsPanel() {
         super("mails", "Mails");
@@ -80,6 +81,11 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
         cbSuppressStderr.setToolTipText("Unterdrückt 'Unknown message type' und 'Can't get children' Meldungen auf stderr");
         fb.addWide(cbSuppressStderr);
 
+        fb.addGap(4);
+        cooldownSpinner = new JSpinner(new SpinnerNumberModel(settings.mailSyncCooldownSeconds, 5, 3600, 5));
+        cooldownSpinner.setToolTipText("Wartezeit in Sekunden nach einem Sync-Lauf, bevor der nächste gestartet wird (Totzeit/Cooldown)");
+        fb.addRow("Totzeit (s):", cooldownSpinner);
+
         updateSyncCheckboxStates();
 
         // ── HTML-Whitelist ──
@@ -110,6 +116,7 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
         cbSyncTasks.setEnabled(enabled);
         cbSyncNotes.setEnabled(enabled);
         cbSuppressStderr.setEnabled(enabled);
+        cooldownSpinner.setEnabled(enabled);
     }
 
     @Override
@@ -125,6 +132,7 @@ public class MailSettingsPanel extends AbstractSettingsPanel {
         s.mailSyncTasks = cbSyncTasks.isSelected();
         s.mailSyncNotes = cbSyncNotes.isSelected();
         s.mailSyncSuppressStderr = cbSuppressStderr.isSelected();
+        s.mailSyncCooldownSeconds = ((Number) cooldownSpinner.getValue()).intValue();
 
         s.mailHtmlWhitelistedSenders = new java.util.HashSet<>();
         DefaultListModel<String> wlModel = (DefaultListModel<String>) mailWhitelistJList.getModel();
