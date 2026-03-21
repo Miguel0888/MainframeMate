@@ -573,10 +573,6 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         resetPaging();
         if (sidebarVisible) updateSidebarPath();
 
-        // Reset sort to original when navigating (suppress ActionListener)
-        sortSuppressed = true;
-        try { sortCombo.setSelectedItem(SORT_ORIGINAL); } finally { sortSuppressed = false; }
-
         SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
             private List<MailFolderRef> folders = new ArrayList<>();
             private List<MailMessageHeader> messages = new ArrayList<>();
@@ -820,22 +816,14 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
 
     // ─── Sort ───
 
-    /** Guard flag to prevent recursive ActionListener calls from programmatic combo changes. */
-    private boolean sortSuppressed = false;
-
     /**
      * Re-sort the current message list according to the selected sort order.
      * <p>
-     * Two-phase approach for instant UX:
-     * <ol>
-     *   <li><b>Immediate:</b> sort currently loaded messages in-memory → user sees change instantly</li>
-     *   <li><b>Async:</b> build / query the Lucene metadata index for ALL mails in the folder,
-     *       sorted by delivery time, with paging — replaces the in-memory view when ready</li>
-     * </ol>
-     * "Originalreihenfolge" reloads directly from PST (unsorted).
+     * "Originalreihenfolge" → reload directly from PST (page-by-page, unsorted).
+     * "Datum ↓/↑" → switch to index-based mode: query {@link MailMetadataIndex}
+     * for ALL mails in the folder, sorted by delivery time, with paging.
      */
     private void applySortOrder() {
-        if (sortSuppressed) return;
         if (viewMode != ViewMode.MESSAGE_LIST) return;
         if (currentMailboxPath == null || currentFolderPath == null) return;
 
@@ -848,66 +836,9 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
             return;
         }
 
-        final boolean ascending = SORT_DATE_ASC.equals(selected);
-
-        // ── Phase 1: Immediate in-memory sort of currently loaded messages ──
-        if (!currentMessages.isEmpty()) {
-            sortCurrentMessagesInMemory(ascending);
-        }
-
-        // ── Phase 2: Async full-index sort (replaces in-memory when ready) ──
+        // Sorted mode → use Lucene metadata index
+        boolean ascending = SORT_DATE_ASC.equals(selected);
         loadFolderFromIndex(currentMailboxPath, currentFolderPath, ascending);
-    }
-
-    /**
-     * Instantly sorts the currently loaded messages in-memory and updates the display.
-     * This provides immediate visual feedback while the index loads in the background.
-     */
-    private void sortCurrentMessagesInMemory(final boolean ascending) {
-        List<MailMessageHeader> sorted = new ArrayList<>(currentMessages);
-        Collections.sort(sorted, new Comparator<MailMessageHeader>() {
-            @Override
-            public int compare(MailMessageHeader a, MailMessageHeader b) {
-                Date da = a.getDate();
-                Date db = b.getDate();
-                if (da == null && db == null) return 0;
-                if (da == null) return ascending ? -1 : 1;
-                if (db == null) return ascending ? 1 : -1;
-                return ascending ? da.compareTo(db) : db.compareTo(da);
-            }
-        });
-
-        // Rebuild display list: folders at top, then sorted messages
-        rebuildDisplayList();
-        for (MailFolderRef f : currentFolders) {
-            String display = f.toString();
-            currentDisplayNames.add(display);
-            displayToFolder.put(display, f);
-            listModel.addElement(display);
-        }
-        for (MailMessageHeader m : sorted) {
-            String display = m.toString();
-            currentDisplayNames.add(display);
-            displayToMessage.put(display, m);
-            listModel.addElement(display);
-        }
-        if (hasMoreMessages) {
-            String marker = LOAD_MORE_MARKER + " (" + currentOffset + "/" + totalMessageCount + ")";
-            currentDisplayNames.add(marker);
-            listModel.addElement(marker);
-        }
-
-        int loaded = currentMessages.size();
-        int total = totalMessageCount > 0 ? totalMessageCount : loaded;
-        if (total > loaded) {
-            statusLabel.setText(loaded + " von " + total + " sortiert (Seite) — lade vollständigen Index…");
-        } else {
-            statusLabel.setText(loaded + " Nachrichten sortiert");
-        }
-
-        // Re-apply filter if active
-        String filter = searchBar.getText().trim();
-        if (!filter.isEmpty()) applySearchFilter();
     }
 
     // ─── Index-based sorted loading ───
@@ -918,17 +849,16 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
      * <p>
      * If the index has no data for this folder yet, triggers a fast metadata-only scan
      * (reads only mail headers, no full-text extraction) so the user can sort immediately.
-     * <p>
-     * If index build fails or returns empty, the in-memory sorted view from phase 1 remains.
      */
     private void loadFolderFromIndex(final String mailboxPath, final String folderPath,
                                      final boolean ascending) {
+        statusLabel.setText("Lade sortiert aus Index…");
 
         new SwingWorker<Void, Void>() {
             private List<MailFolderRef> folders = new ArrayList<>();
             private List<MailMetadataIndex.MailMetadataEntry> metaEntries = new ArrayList<>();
             private int indexCount = 0;
-            private boolean failed = false;
+            private String error = null;
 
             @Override
             protected Void doInBackground() {
@@ -944,62 +874,57 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                     // Messages from Lucene metadata index
                     MailMetadataIndex idx = MailMetadataIndex.getInstance();
                     indexCount = idx.countByFolder(mailboxPath, folderPath);
-                    LOG.info("[MailSort] Index count for '" + folderPath + "': " + indexCount
-                            + " (mailbox=" + mailboxPath + ")");
 
                     if (indexCount == 0) {
                         // Index has no data for this folder yet → build it now (fast, header-only)
-                        LOG.info("[MailSort] Building on-demand metadata index for " + folderPath + "…");
-                        PstStderrFilter.Guard g2 = PstStderrFilter.install();
-                        try {
-                            int built = MailService.getInstance()
-                                    .ensureMetadataIndexForFolder(mailboxPath, folderPath);
-                            LOG.info("[MailSort] On-demand build result: " + built + " entries");
-                        } finally {
-                            g2.uninstall();
-                        }
+                        LOG.info("[MailConnectionTab] Index empty for " + folderPath + " — building on demand…");
+                        int built = MailService.getInstance()
+                                .ensureMetadataIndexForFolder(mailboxPath, folderPath);
                         indexCount = idx.countByFolder(mailboxPath, folderPath);
-                        LOG.info("[MailSort] Index count after build: " + indexCount);
+                        LOG.info("[MailConnectionTab] On-demand index built: " + built
+                                + " entries, count now: " + indexCount);
                     }
 
                     if (indexCount > 0) {
                         metaEntries = idx.listByFolder(mailboxPath, folderPath,
                                 ascending, 0, PAGE_SIZE);
-                        LOG.info("[MailSort] Loaded " + metaEntries.size() + " entries from index");
                     }
                 } catch (Exception e) {
-                    LOG.log(Level.WARNING, "[MailSort] Index loading failed for " + folderPath, e);
-                    failed = true;
+                    LOG.log(Level.WARNING, "Error loading from index", e);
+                    error = extractErrorMessage(e);
                 }
                 return null;
             }
 
             @Override
             protected void done() {
-                // Check if user switched away from this folder or back to original while we were loading
-                if (!folderPath.equals(currentFolderPath) || !mailboxPath.equals(currentMailboxPath)) {
-                    return; // stale result, discard
-                }
-                String currentSort = (String) sortCombo.getSelectedItem();
-                if (SORT_ORIGINAL.equals(currentSort)) {
-                    return; // user switched back to original while we were loading
-                }
-
-                if (failed || indexCount == 0) {
-                    // Index not available — keep the in-memory sorted view from phase 1
-                    if (failed) {
-                        LOG.warning("[MailSort] Index failed, keeping in-memory sort");
-                        statusLabel.setText("⚠ Index nicht verfügbar — zeige sortierte Seite ("
-                                + currentMessages.size() + " Nachrichten)");
-                    } else {
-                        LOG.info("[MailSort] Index empty after build — folder might be empty or PST locked");
-                        statusLabel.setText("⚠ Index leer — zeige sortierte Seite ("
-                                + currentMessages.size() + " Nachrichten)");
-                    }
+                if (error != null) {
+                    showError(error);
+                    statusLabel.setText("Fehler");
                     return;
                 }
 
-                // ── Success: replace view with full index-sorted data ──
+                if (indexCount == 0) {
+                    // Still empty after on-demand build — no messages in this folder
+                    indexMode = true;
+                    currentFolders = folders;
+                    currentMessages = Collections.emptyList();
+                    currentMailboxes = Collections.emptyList();
+                    totalMessageCount = 0;
+                    rebuildDisplayList();
+
+                    for (MailFolderRef f : folders) {
+                        String display = f.toString();
+                        currentDisplayNames.add(display);
+                        displayToFolder.put(display, f);
+                        listModel.addElement(display);
+                    }
+                    statusLabel.setText("Leer");
+                    tabbedPaneManager.refreshStarForTab(MailConnectionTab.this);
+                    return;
+                }
+
+                // Switch to index mode
                 indexMode = true;
                 currentFolders = folders;
                 currentMessages = Collections.emptyList(); // not used in index mode
