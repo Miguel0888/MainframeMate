@@ -314,11 +314,12 @@ public class MainFrame extends JFrame implements MainframeContext {
         // 4. Menübaum aufbauen (nachdem alle Commands + Toolbar da sind!)
         JMenuBar builtMenuBar = MenuTreeBuilder.buildMenuBar();
         final MenuBarSearchField menuSearchField = new MenuBarSearchField(tabManager);
+        final de.bund.zrb.ui.mail.MailMarqueePanel mailMarquee = new de.bund.zrb.ui.mail.MailMarqueePanel();
 
         // ── Custom JMenuBar: true-center search field ───────────
         // doLayout() positions the search field at the absolute center of the
         // bar.  If the menus are too wide the field shifts right so it never
-        // overlaps a menu.
+        // overlaps a menu.  The marquee fills the remaining space to the right.
         final JMenuBar menuBar = new JMenuBar() {
             @Override
             public void doLayout() {
@@ -334,7 +335,7 @@ public class MainFrame extends JFrame implements MainframeContext {
                 int menusEnd = 0;
                 for (int i = 0; i < getComponentCount(); i++) {
                     Component c = getComponent(i);
-                    if (c == menuSearchField || c instanceof Box.Filler) continue;
+                    if (c == menuSearchField || c == mailMarquee || c instanceof Box.Filler) continue;
                     if (c.isVisible()) {
                         menusEnd = Math.max(menusEnd, c.getX() + c.getWidth());
                     }
@@ -345,6 +346,16 @@ public class MainFrame extends JFrame implements MainframeContext {
                 x = Math.min(x, barW - fieldW - 4);
                 int y = Math.max(2, (barH - fieldH) / 2);
                 menuSearchField.setBounds(x, y, fieldW, fieldH);
+
+                // Marquee: fill space right of search field → right edge
+                int marqueeX = x + fieldW + 8;
+                int marqueeW = barW - marqueeX - 4;
+                if (marqueeW > 30) {
+                    mailMarquee.setBounds(marqueeX, y, marqueeW, fieldH);
+                    mailMarquee.setVisible(true);
+                } else {
+                    mailMarquee.setVisible(false);
+                }
             }
         };
 
@@ -355,8 +366,14 @@ public class MainFrame extends JFrame implements MainframeContext {
 
         menuBar.add(Box.createHorizontalGlue());
         menuBar.add(menuSearchField);
+        menuBar.add(mailMarquee);
 
         setJMenuBar(menuBar);
+
+        // Wire mail notification marquee
+        de.bund.zrb.ui.mail.MailNotificationBridge mailNotifBridge =
+                new de.bund.zrb.ui.mail.MailNotificationBridge(mailMarquee);
+        mailNotifBridge.install();
 
         // Initialisiere die mittlere Komponente
         Component tabContent = tabManager.getComponent();

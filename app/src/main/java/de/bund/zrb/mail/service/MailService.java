@@ -57,9 +57,22 @@ public class MailService {
     /** Listeners for status changes. */
     private final List<StatusListener> statusListeners = new CopyOnWriteArrayList<StatusListener>();
 
+    /** Listeners for new-mail notifications (sender, subject). */
+    private final List<NewMailListener> newMailListeners = new CopyOnWriteArrayList<NewMailListener>();
+
     /** Callback for status changes (UI can listen to update status display). */
     public interface StatusListener {
         void onStatusChanged(MailSyncStatus status);
+    }
+
+    /** Callback when new mails arrive (after delta sync). */
+    public interface NewMailListener {
+        /**
+         * Called for each new mail detected.
+         * @param sender  sender name / address
+         * @param subject mail subject (may be null)
+         */
+        void onNewMail(String sender, String subject);
     }
 
     private MailService() {}
@@ -271,6 +284,11 @@ public class MailService {
 
             MailIndexUpdater.UpdateResult indexResult = indexUpdater.indexCandidates(toIndex);
 
+            // Notify listeners about new mails (for marquee display)
+            if (!result.newMails.isEmpty()) {
+                fireNewMails(result.newMails);
+            }
+
             LOG.info("[MailService] Delta sync of " + connection.getDisplayName() + ": "
                     + result.newMails.size() + " new, " + result.changedMails.size() + " changed, "
                     + result.skipped + " skipped, " + result.totalScanned + " scanned, "
@@ -352,6 +370,29 @@ public class MailService {
 
     public void removeStatusListener(StatusListener listener) {
         statusListeners.remove(listener);
+    }
+
+    public void addNewMailListener(NewMailListener listener) {
+        newMailListeners.add(listener);
+    }
+
+    public void removeNewMailListener(NewMailListener listener) {
+        newMailListeners.remove(listener);
+    }
+
+    private void fireNewMails(List<MailDeltaDetector.MailCandidate> newMails) {
+        if (newMailListeners.isEmpty() || newMails.isEmpty()) return;
+        for (MailDeltaDetector.MailCandidate mc : newMails) {
+            String sender = mc.sender != null ? mc.sender : "(unbekannt)";
+            String subject = mc.subject;
+            for (NewMailListener listener : newMailListeners) {
+                try {
+                    listener.onNewMail(sender, subject);
+                } catch (Exception e) {
+                    LOG.log(Level.FINE, "[MailService] NewMailListener error", e);
+                }
+            }
+        }
     }
 
     private void updateStatus(MailSyncStatus status) {

@@ -253,6 +253,12 @@ public class Settings {
     public boolean mailSyncSuppressStderr = true;         // java-libpst stderr-Meldungen unterdrücken
     public int mailSyncCooldownSeconds = 60;              // Totzeit (Cooldown) in Sekunden nach einem Sync-Lauf
 
+    // Mail Notification (Laufschrift)
+    public boolean mailNotifyEnabled = true;               // Laufschrift-Benachrichtigung aktiviert
+    public String mailNotifyDefaultColor = "#CC0000";      // Standard-Farbe (rot)
+    /** Per-sender colour overrides: sender-address → hex colour (e.g. "#0066CC"). */
+    public Map<String, String> mailNotifySenderColors = new LinkedHashMap<>();
+
     // Local History
     public boolean historyEnabled = true;                 // Local History aktiviert
     public int historyMaxVersionsPerFile = 100;           // Max Versionen pro Datei
