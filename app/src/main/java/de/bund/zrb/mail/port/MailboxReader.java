@@ -3,9 +3,12 @@ package de.bund.zrb.mail.port;
 import de.bund.zrb.mail.model.MailFolderRef;
 import de.bund.zrb.mail.model.MailMessageContent;
 import de.bund.zrb.mail.model.MailMessageHeader;
+import de.bund.zrb.mail.model.MailMessageSkeleton;
 import de.bund.zrb.mail.model.MailboxCategory;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Port: reads structure and content from a single mailbox (OST/PST file).
@@ -47,6 +50,29 @@ public interface MailboxReader {
      * Returns the total message count in a folder (without loading them).
      */
     int getMessageCount(String mailboxPath, String folderPath) throws Exception;
+
+    /**
+     * Fast skeleton scan: iterates through ALL messages in a folder in a single
+     * pass, returning only {@code nodeId} and {@code deliveryTimeMillis} per item.
+     * <p>
+     * This is dramatically faster than {@link #listMessages} because:
+     * <ul>
+     *   <li>the PST file is opened only once (not per-page)</li>
+     *   <li>only two properties are read per message (no subject/sender/etc.)</li>
+     * </ul>
+     */
+    List<MailMessageSkeleton> listMessageSkeletons(String mailboxPath, String folderPath) throws Exception;
+
+    /**
+     * Reads full headers for a specific set of messages identified by their
+     * descriptor node IDs.  Implementations should open the PST file once and
+     * iterate through the folder, extracting headers only for matching node IDs.
+     *
+     * @param nodeIds set of descriptor node IDs to look up
+     * @return map from nodeId → full header (only entries that were found)
+     */
+    Map<Long, MailMessageHeader> readHeadersByNodeIds(
+            String mailboxPath, String folderPath, Set<Long> nodeIds) throws Exception;
 
     /**
      * Reads full content of a single message.

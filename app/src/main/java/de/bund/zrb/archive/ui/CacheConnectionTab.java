@@ -1,6 +1,6 @@
 package de.bund.zrb.archive.ui;
 
-import de.bund.zrb.archive.model.ArchiveDocument;
+import de.bund.zrb.archive.model.ArchiveEntry;
 import de.bund.zrb.archive.model.ArchiveRun;
 import de.bund.zrb.archive.service.ArchiveService;
 import de.bund.zrb.archive.service.ResourceStorageService;
@@ -13,16 +13,30 @@ import de.zrb.bund.newApi.ui.SearchBarPanel;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.JTableHeader;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 
 /**
  * Connection tab for the Cache system.
- * Shows locally cached content from all sources (Web, FTP, NDV, Mail, BetaView).
- * Features: source type filter, host/kind filtering (for Web), search-term highlighting,
- * checkboxes for selective delete, delete-all with confirmation.
+ * Shows locally cached content from all sources (Web, Wiki, Confluence, FTP, NDV, BetaView)
+ * stored in the H2 {@code archive_entries} table.
+ * <p>
+ * Features:
+ * <ul>
+ *   <li>Source type filter based on URL scheme</li>
+ *   <li>Search with highlighting</li>
+ *   <li>Checkboxes for selective delete + toggle-all via header click</li>
+ *   <li>"Alle löschen" button deletes all currently displayed entries</li>
+ * </ul>
+ * <p>
+ * Note: Mails are NOT shown here — they are only indexed (in MailMetadataIndex),
+ * not cached. Cache entries are created when the user accesses content or by
+ * prefetch services (Wiki, Confluence).
  */
 public class CacheConnectionTab implements ConnectionTab {
 
@@ -38,11 +52,9 @@ public class CacheConnectionTab implements ConnectionTab {
     private final JComboBox<String> viewSelector;
     private final JComboBox<String> sourceTypeFilter;
     private final JComboBox<String> hostFilter;
-    private final JComboBox<String> kindFilter;
     private final JPanel hostFilterPanel;
-    private final JPanel kindFilterPanel;
     private final RunTableModel runTableModel;
-    private final DocumentTableModel docTableModel;
+    private final CacheEntryTableModel entryTableModel;
     private final JTable runTable;
     private final JTable dataTable;
     private final CardLayout cardLayout;
@@ -57,6 +69,18 @@ public class CacheConnectionTab implements ConnectionTab {
         DATE_FMT.setTimeZone(TimeZone.getTimeZone("Europe/Berlin"));
     }
 
+    // ── Source type definitions (index → URL prefix for filtering) ──
+    // 0=Alle, 1=Web, 2=Wiki, 3=Confluence, 4=FTP, 5=NDV, 6=BetaView
+    private static final String[] SOURCE_LABELS = {
+            "Alle Quellen", "🌐 Web", "📖 Wiki", "📚 Confluence",
+            "📁 FTP", "🖥 NDV", "📘 BetaView"
+    };
+    /** URL prefixes per source type index.  null = all / no filter. */
+    private static final String[] URL_PREFIXES = {
+            null, "http", "wiki://", "confluence://",
+            "ftp://", "ndv://", "betaview://"
+    };
+
     public CacheConnectionTab(TabbedPaneManager tabbedPaneManager) {
         this.tabbedPaneManager = tabbedPaneManager;
         this.repo = CacheRepository.getInstance();
@@ -66,18 +90,17 @@ public class CacheConnectionTab implements ConnectionTab {
         // ── Toolbar ──
         JPanel toolbar = new JPanel(new BorderLayout(4, 0));
 
-        // Left: source type → view selector → refresh → delete
+        // Left: source type → view selector → refresh → delete → delete all
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 
-        sourceTypeFilter = new JComboBox<>(new String[]{
-                "Alle Quellen", "🌐 Web", "📁 FTP", "🖥 NDV", "📧 Mail", "📘 BetaView", "📊 SharePoint"});
+        sourceTypeFilter = new JComboBox<>(SOURCE_LABELS);
         sourceTypeFilter.addActionListener(e -> {
             updateFilterVisibility();
             switchView();
         });
         leftPanel.add(sourceTypeFilter);
 
-        viewSelector = new JComboBox<>(new String[]{"📁 Runs", "📄 Dokumente"});
+        viewSelector = new JComboBox<>(new String[]{"📁 Runs", "📄 Einträge"});
         viewSelector.addActionListener(e -> switchView());
         leftPanel.add(viewSelector);
 
@@ -86,14 +109,19 @@ public class CacheConnectionTab implements ConnectionTab {
         refreshBtn.addActionListener(e -> refresh());
         leftPanel.add(refreshBtn);
 
-        JButton deleteBtn = new JButton("🗑 Löschen");
-        deleteBtn.setToolTipText("Markierte oder alle Einträge löschen");
-        deleteBtn.addActionListener(e -> deleteEntries());
+        JButton deleteBtn = new JButton("🗑 Markierte löschen");
+        deleteBtn.setToolTipText("Markierte Einträge löschen");
+        deleteBtn.addActionListener(e -> deleteSelected());
         leftPanel.add(deleteBtn);
+
+        JButton deleteAllBtn = new JButton("🗑 Alle löschen");
+        deleteAllBtn.setToolTipText("Alle aktuell angezeigten Einträge löschen");
+        deleteAllBtn.addActionListener(e -> deleteAllVisible());
+        leftPanel.add(deleteAllBtn);
 
         // Center: search + advanced toggle
         searchBar = new SearchBarPanel("Cache durchsuchen…", "Cache durchsuchen (Enter)");
-        searchBar.addSearchAction(e -> filterDocuments());
+        searchBar.addSearchAction(e -> filterEntries());
         advancedToggle = new JToggleButton("\u2699");
         advancedToggle.setToolTipText("Erweiterte Suche: AND OR NOT \"phrase\"\n\n"
                 + "Beispiele:\n"
@@ -103,35 +131,27 @@ public class CacheConnectionTab implements ConnectionTab {
         advancedToggle.setFocusable(false);
         advancedToggle.setMargin(new Insets(2, 6, 2, 6));
         searchBar.addEastComponent(advancedToggle);
-        JPanel searchPanel = searchBar;
 
-        // Right: host + kind filters (only visible for Web)
+        // Right: host filter (only visible for Web)
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
 
         hostFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         hostFilter = new JComboBox<>(new String[]{"Alle Hosts"});
-        hostFilter.addActionListener(e -> filterDocuments());
+        hostFilter.addActionListener(e -> filterEntries());
         hostFilterPanel.add(new JLabel("Host:"));
         hostFilterPanel.add(hostFilter);
         filterPanel.add(hostFilterPanel);
 
-        kindFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        kindFilter = new JComboBox<>(new String[]{"Alle Typen", "ARTICLE", "PAGE", "LISTING", "FEED_ENTRY", "OTHER"});
-        kindFilter.addActionListener(e -> filterDocuments());
-        kindFilterPanel.add(new JLabel("Typ:"));
-        kindFilterPanel.add(kindFilter);
-        filterPanel.add(kindFilterPanel);
-
         toolbar.add(leftPanel, BorderLayout.WEST);
-        toolbar.add(searchPanel, BorderLayout.CENTER);
+        toolbar.add(searchBar, BorderLayout.CENTER);
         toolbar.add(filterPanel, BorderLayout.EAST);
         mainPanel.add(toolbar, BorderLayout.NORTH);
 
-        // ── Tables (Card Layout for Run vs Document view) ──
+        // ── Tables (Card Layout for Run vs Entry view) ──
         cardLayout = new CardLayout();
         tableCards = new JPanel(cardLayout);
 
-        // Run table
+        // Run table (Web research only)
         runTableModel = new RunTableModel();
         runTable = new JTable(runTableModel);
         runTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -142,30 +162,41 @@ public class CacheConnectionTab implements ConnectionTab {
         runTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showRunPreview();
         });
-        // Double-click: show documents for this run
-        runTable.addMouseListener(new java.awt.event.MouseAdapter() {
+        runTable.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
                     int row = runTable.getSelectedRow();
                     if (row >= 0) {
-                        ArchiveRun run = runTableModel.getRun(row);
                         viewSelector.setSelectedIndex(1);
-                        loadDocumentsForRun(run.getRunId());
+                        loadAllEntries();
                     }
                 }
             }
         });
         tableCards.add(new JScrollPane(runTable), "RUNS");
 
-        // Document table (with checkbox column)
-        docTableModel = new DocumentTableModel();
-        dataTable = new JTable(docTableModel);
+        // Cache entry table (with checkbox column)
+        entryTableModel = new CacheEntryTableModel();
+        dataTable = new JTable(entryTableModel);
         dataTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        dataTable.getColumnModel().getColumn(0).setMaxWidth(30);
+        dataTable.getColumnModel().getColumn(0).setMaxWidth(30);   // ✓
         dataTable.getColumnModel().getColumn(0).setMinWidth(30);
-        dataTable.getColumnModel().getColumn(2).setMaxWidth(80);
-        dataTable.getColumnModel().getColumn(3).setMaxWidth(130);
+        dataTable.getColumnModel().getColumn(2).setMaxWidth(100);  // Typ
+        dataTable.getColumnModel().getColumn(3).setMaxWidth(130);  // Gecacht
+        dataTable.getColumnModel().getColumn(4).setMaxWidth(80);   // Größe
+
+        // Toggle-all checkbox on header click
+        JTableHeader header = dataTable.getTableHeader();
+        header.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int col = header.columnAtPoint(e.getPoint());
+                if (col == 0) {
+                    entryTableModel.toggleAllSelection();
+                }
+            }
+        });
 
         // Highlighting renderer for Titel column (col 1)
         dataTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
@@ -185,9 +216,9 @@ public class CacheConnectionTab implements ConnectionTab {
         });
 
         dataTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) showDocPreview();
+            if (!e.getValueIsAdjusting()) showEntryPreview();
         });
-        tableCards.add(new JScrollPane(dataTable), "DOCS");
+        tableCards.add(new JScrollPane(dataTable), "ENTRIES");
 
         // ── Preview ──
         previewArea = new JTextArea();
@@ -213,14 +244,9 @@ public class CacheConnectionTab implements ConnectionTab {
     //  Dynamic filter visibility
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * Show/hide Host and Kind filters depending on selected source type.
-     * Host + Kind are only relevant for Web sources.
-     */
     private void updateFilterVisibility() {
         boolean isWeb = sourceTypeFilter.getSelectedIndex() == 1; // "🌐 Web"
         hostFilterPanel.setVisible(isWeb);
-        kindFilterPanel.setVisible(isWeb);
         mainPanel.revalidate();
     }
 
@@ -237,13 +263,13 @@ public class CacheConnectionTab implements ConnectionTab {
             cardLayout.show(tableCards, "RUNS");
             loadRuns();
         } else if (selected == 0 && sourceIdx >= 2) {
-            // Non-web source selected but "Runs" view chosen: switch to docs
+            // Non-web source: switch to entries
             viewSelector.setSelectedIndex(1);
-            cardLayout.show(tableCards, "DOCS");
-            loadAllDocuments();
+            cardLayout.show(tableCards, "ENTRIES");
+            loadAllEntries();
         } else {
-            cardLayout.show(tableCards, "DOCS");
-            loadAllDocuments();
+            cardLayout.show(tableCards, "ENTRIES");
+            loadAllEntries();
         }
     }
 
@@ -254,7 +280,7 @@ public class CacheConnectionTab implements ConnectionTab {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Data loading
+    //  Data loading — now from archive_entries (the real cache)
     // ═══════════════════════════════════════════════════════════
 
     private void loadRuns() {
@@ -265,113 +291,105 @@ public class CacheConnectionTab implements ConnectionTab {
         statusLabel.setText(runs.size() + " Runs │ " + totalRes + " Resources │ " + totalDoc + " Dokumente");
     }
 
-    private void loadAllDocuments() {
+    private void loadAllEntries() {
         int sourceIdx = sourceTypeFilter.getSelectedIndex();
+        currentSearchQuery = null;
 
-        // For non-web sources show empty list with hint
-        if (sourceIdx >= 2) {
-            String sourceName = (String) sourceTypeFilter.getSelectedItem();
-            currentSearchQuery = null;
-            docTableModel.setDocuments(new ArrayList<ArchiveDocument>());
-            statusLabel.setText("Keine gecachten " + sourceName + "-Inhalte vorhanden.");
-            previewArea.setText("");
-            return;
+        List<ArchiveEntry> entries;
+        if (sourceIdx == 0) {
+            // All sources
+            entries = repo.findAll();
+        } else if (sourceIdx == 1) {
+            // Web: http:// and https://
+            List<ArchiveEntry> http = repo.findByUrlPrefix("http://");
+            List<ArchiveEntry> https = repo.findByUrlPrefix("https://");
+            entries = new ArrayList<ArchiveEntry>(http.size() + https.size());
+            entries.addAll(http);
+            entries.addAll(https);
+            // Sort combined by timestamp descending
+            Collections.sort(entries, new Comparator<ArchiveEntry>() {
+                @Override
+                public int compare(ArchiveEntry a, ArchiveEntry b) {
+                    return Long.compare(b.getCrawlTimestamp(), a.getCrawlTimestamp());
+                }
+            });
+        } else {
+            String prefix = URL_PREFIXES[sourceIdx];
+            entries = prefix != null ? repo.findByUrlPrefix(prefix) : repo.findAll();
         }
 
-        currentSearchQuery = null;
-        List<ArchiveDocument> docs = repo.findAllDocuments();
-        docTableModel.setDocuments(docs);
-        statusLabel.setText(docs.size() + " Dokumente im Cache");
-    }
-
-    private void loadDocumentsForRun(String runId) {
-        currentSearchQuery = null;
-        List<ArchiveDocument> docs = repo.findDocumentsByRunId(runId);
-        docTableModel.setDocuments(docs);
-        statusLabel.setText(docs.size() + " Dokumente für Run " + runId.substring(0, Math.min(8, runId.length())) + "…");
+        entryTableModel.setEntries(entries);
+        String label = sourceIdx == 0 ? "Alle Quellen" : SOURCE_LABELS[sourceIdx];
+        statusLabel.setText(entries.size() + " Cache-Einträge" + (sourceIdx > 0 ? " (" + label + ")" : ""));
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Filtering
+    //  Filtering / Search
     // ═══════════════════════════════════════════════════════════
 
-    private void filterDocuments() {
+    private void filterEntries() {
         int sourceIdx = sourceTypeFilter.getSelectedIndex();
-        // 0=Alle, 1=Web, 2=FTP, 3=NDV, 4=Mail, 5=BetaView
-
-        // For non-web sources there are currently no cached documents in the DB.
-        // Show an empty list with a status hint.
-        if (sourceIdx >= 2) {
-            String sourceName = (String) sourceTypeFilter.getSelectedItem();
-            docTableModel.setDocuments(new ArrayList<ArchiveDocument>());
-            viewSelector.setSelectedIndex(1);
-            cardLayout.show(tableCards, "DOCS");
-            statusLabel.setText("Keine gecachten " + sourceName + "-Inhalte vorhanden. "
-                    + "Inhalte werden beim manuellen Cachen aus dem jeweiligen Tab gespeichert.");
-            previewArea.setText("");
-            return;
-        }
 
         String query = searchBar.getText();
-        String selectedHost = (String) hostFilter.getSelectedItem();
-        String selectedKind = (String) kindFilter.getSelectedItem();
-
-        String host = "Alle Hosts".equals(selectedHost) ? null : selectedHost;
         String rawQuery = (query != null && !query.trim().isEmpty()) ? query.trim() : null;
-
         currentSearchQuery = rawQuery;
 
-        List<ArchiveDocument> docs;
-        if (rawQuery != null) {
-            // Extract actual search terms (strip AND/OR/NOT operators)
-            List<String> terms = SearchHighlighter.extractSearchTerms(rawQuery);
-
-            if (terms.isEmpty()) {
-                docs = host != null ? repo.searchDocuments(null, host, 500) : repo.findAllDocuments();
-            } else if (advancedToggle.isSelected() && terms.size() > 1) {
-                // Advanced mode: AND-logic – search for first term, then filter client-side
-                docs = repo.searchDocuments(terms.get(0), host, 2000);
-                for (int i = 1; i < terms.size(); i++) {
-                    final String term = terms.get(i).toLowerCase();
-                    List<ArchiveDocument> filtered = new ArrayList<ArchiveDocument>();
-                    for (ArchiveDocument d : docs) {
-                        boolean match = (d.getTitle() != null && d.getTitle().toLowerCase().contains(term))
-                                || (d.getExcerpt() != null && d.getExcerpt().toLowerCase().contains(term))
-                                || (d.getCanonicalUrl() != null && d.getCanonicalUrl().toLowerCase().contains(term));
-                        if (match) filtered.add(d);
-                    }
-                    docs = filtered;
-                }
-            } else {
-                // Simple mode: pass query to SQL LIKE
-                docs = repo.searchDocuments(rawQuery, host, 500);
-            }
-        } else {
-            docs = host != null ? repo.searchDocuments(null, host, 500) : repo.findAllDocuments();
-        }
-
-        // Additional kind filter (client-side)
-        if (selectedKind != null && !"Alle Typen".equals(selectedKind)) {
-            List<ArchiveDocument> filtered = new ArrayList<ArchiveDocument>();
-            for (ArchiveDocument d : docs) {
-                if (selectedKind.equals(d.getKind())) filtered.add(d);
-            }
-            docs = filtered;
-        }
-
-        // Switch to document view
+        // Switch to entry view
         viewSelector.setSelectedIndex(1);
-        cardLayout.show(tableCards, "DOCS");
-        docTableModel.setDocuments(docs);
-        statusLabel.setText(docs.size() + " Dokumente gefunden"
+        cardLayout.show(tableCards, "ENTRIES");
+
+        if (rawQuery == null) {
+            loadAllEntries();
+            return;
+        }
+
+        // Determine URL prefix for current source type
+        String urlPrefix;
+        if (sourceIdx == 0) {
+            urlPrefix = null;
+        } else if (sourceIdx == 1) {
+            urlPrefix = "http"; // matches http:// and https://
+        } else {
+            urlPrefix = URL_PREFIXES[sourceIdx];
+        }
+
+        List<String> terms = SearchHighlighter.extractSearchTerms(rawQuery);
+        if (terms.isEmpty()) {
+            loadAllEntries();
+            return;
+        }
+
+        // Search in DB
+        List<ArchiveEntry> results = repo.searchEntries(terms.get(0), urlPrefix, 2000);
+
+        // Client-side AND-filter for additional terms
+        if (advancedToggle.isSelected() && terms.size() > 1) {
+            for (int i = 1; i < terms.size(); i++) {
+                final String term = terms.get(i).toLowerCase();
+                List<ArchiveEntry> filtered = new ArrayList<ArchiveEntry>();
+                for (ArchiveEntry e : results) {
+                    boolean match = (e.getTitle() != null && e.getTitle().toLowerCase().contains(term))
+                            || (e.getUrl() != null && e.getUrl().toLowerCase().contains(term));
+                    if (match) filtered.add(e);
+                }
+                results = filtered;
+            }
+        }
+
+        entryTableModel.setEntries(results);
+        statusLabel.setText(results.size() + " Einträge gefunden"
                 + (advancedToggle.isSelected() ? " (erweiterte Suche)" : ""));
     }
 
     private void updateHostFilter() {
         Set<String> hosts = new TreeSet<String>();
-        for (ArchiveDocument d : repo.findAllDocuments()) {
-            if (d.getHost() != null && !d.getHost().isEmpty()) {
-                hosts.add(d.getHost());
+        for (ArchiveEntry e : repo.findByUrlPrefix("http")) {
+            String url = e.getUrl();
+            if (url != null) {
+                try {
+                    java.net.URL u = new java.net.URL(url);
+                    hosts.add(u.getHost());
+                } catch (Exception ignored) {}
             }
         }
         hostFilter.removeAllItems();
@@ -382,7 +400,7 @@ public class CacheConnectionTab implements ConnectionTab {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  Preview (with yellow search-term highlighting)
+    //  Preview
     // ═══════════════════════════════════════════════════════════
 
     private void showRunPreview() {
@@ -407,45 +425,32 @@ public class CacheConnectionTab implements ConnectionTab {
                 && !"{}".equals(run.getDomainPolicyJson())) {
             sb.append("Policy:    ").append(run.getDomainPolicyJson()).append("\n");
         }
-        sb.append("\nDoppelklick → Dokumente dieses Runs anzeigen");
+        sb.append("\nDoppelklick → Einträge anzeigen");
         setPreviewText(sb.toString());
     }
 
-    private void showDocPreview() {
+    private void showEntryPreview() {
         int row = dataTable.getSelectedRow();
         if (row < 0) { previewArea.setText(""); return; }
-        ArchiveDocument doc = docTableModel.getDocument(row);
+        ArchiveEntry entry = entryTableModel.getEntry(row);
         StringBuilder sb = new StringBuilder();
-        sb.append("═══ Dokument ═══\n");
-        sb.append("Titel:    ").append(doc.getTitle()).append("\n");
-        sb.append("URL:      ").append(doc.getCanonicalUrl()).append("\n");
-        sb.append("Typ:      ").append(doc.getKind()).append("\n");
-        sb.append("Host:     ").append(doc.getHost()).append("\n");
-        sb.append("Sprache:  ").append(doc.getLanguage()).append("\n");
-        sb.append("Wörter:   ").append(doc.getWordCount()).append("\n");
-        sb.append("Erstellt: ").append(formatTime(doc.getCreatedAt())).append("\n");
-        sb.append("Run-ID:   ").append(doc.getRunId()).append("\n");
-        sb.append("Doc-ID:   ").append(doc.getDocId()).append("\n\n");
-
-        if (doc.getExcerpt() != null && !doc.getExcerpt().isEmpty()) {
-            sb.append("── Excerpt ──\n").append(doc.getExcerpt()).append("\n\n");
+        sb.append("═══ Cache-Eintrag ═══\n");
+        sb.append("Titel:     ").append(entry.getTitle()).append("\n");
+        sb.append("URL:       ").append(entry.getUrl()).append("\n");
+        sb.append("Typ:       ").append(guessSourceType(entry.getUrl())).append("\n");
+        sb.append("MIME:      ").append(entry.getMimeType()).append("\n");
+        sb.append("Status:    ").append(entry.getStatus()).append("\n");
+        sb.append("Größe:     ").append(formatSize(entry.getFileSizeBytes())).append("\n");
+        sb.append("Gecacht:   ").append(formatTime(entry.getCrawlTimestamp())).append("\n");
+        sb.append("Indexiert: ").append(entry.getLastIndexed() > 0 ? formatTime(entry.getLastIndexed()) : "–").append("\n");
+        sb.append("Quelle:    ").append(entry.getSourceId()).append("\n");
+        sb.append("Entry-ID:  ").append(entry.getEntryId()).append("\n");
+        if (entry.getErrorMessage() != null && !entry.getErrorMessage().isEmpty()) {
+            sb.append("\n⚠ Fehler: ").append(entry.getErrorMessage()).append("\n");
         }
-
-        // Load full text from stored file
-        if (doc.getTextContentPath() != null && !doc.getTextContentPath().isEmpty()) {
-            String text = storageService.readContent(doc.getTextContentPath(), 10000);
-            if (text != null) {
-                sb.append("── Text ──\n").append(text);
-            }
-        }
-
         setPreviewText(sb.toString());
     }
 
-    /**
-     * Sets the preview text and highlights all occurrences of the current
-     * search query in yellow.
-     */
     private void setPreviewText(String text) {
         previewArea.setText(text);
         previewArea.setCaretPosition(0);
@@ -456,60 +461,92 @@ public class CacheConnectionTab implements ConnectionTab {
     //  Delete
     // ═══════════════════════════════════════════════════════════
 
-    private void deleteEntries() {
+    /** Delete only the checked entries. */
+    private void deleteSelected() {
         int currentView = viewSelector.getSelectedIndex();
 
         if (currentView == 1) {
-            // ── Document view: delete checked documents ──
-            List<ArchiveDocument> selected = docTableModel.getSelectedDocuments();
+            // Entry view
+            List<ArchiveEntry> selected = entryTableModel.getSelectedEntries();
             if (selected.isEmpty()) {
-                int count = docTableModel.getRowCount();
-                if (count == 0) return;
-                int result = JOptionPane.showConfirmDialog(mainPanel,
-                        "Es sind keine Einträge markiert.\nAlle " + count + " Einträge löschen?",
-                        "Archiv leeren", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (result == JOptionPane.YES_OPTION) {
-                    repo.deleteAllDocuments();
-                    refresh();
-                    previewArea.setText("");
+                statusLabel.setText("Keine Einträge markiert. Nutze die Checkboxen oder 'Alle löschen'.");
+                return;
+            }
+            int result = JOptionPane.showConfirmDialog(mainPanel,
+                    selected.size() + " markierte Einträge aus dem Cache löschen?",
+                    "Einträge löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                for (ArchiveEntry entry : selected) {
+                    repo.delete(entry.getEntryId());
                 }
-            } else {
-                int result = JOptionPane.showConfirmDialog(mainPanel,
-                        selected.size() + " markierte Einträge löschen?",
-                        "Einträge löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (result == JOptionPane.YES_OPTION) {
-                    for (ArchiveDocument doc : selected) {
-                        repo.deleteDocument(doc.getDocId());
-                    }
-                    refresh();
-                    previewArea.setText("");
-                }
+                refresh();
+                previewArea.setText("");
+                statusLabel.setText(selected.size() + " Einträge gelöscht.");
             }
         } else {
-            // ── Run view: delete selected run ──
+            // Run view: delete selected run
             int selectedRow = runTable.getSelectedRow();
             if (selectedRow < 0) {
-                int count = runTableModel.getRowCount();
-                if (count == 0) return;
-                int result = JOptionPane.showConfirmDialog(mainPanel,
-                        "Kein Run ausgewählt.\nAlle " + count + " Runs mit Dokumenten und Resources löschen?",
-                        "Alles löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (result == JOptionPane.YES_OPTION) {
-                    repo.deleteAllDocuments();
-                    refresh();
-                    previewArea.setText("");
+                statusLabel.setText("Bitte einen Run auswählen.");
+                return;
+            }
+            ArchiveRun run = runTableModel.getRun(selectedRow);
+            String shortId = run.getRunId().substring(0, Math.min(8, run.getRunId().length()));
+            int result = JOptionPane.showConfirmDialog(mainPanel,
+                    "Run '" + shortId + "…' mit allen Dokumenten löschen?",
+                    "Run löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                repo.deleteRun(run.getRunId());
+                refresh();
+                previewArea.setText("");
+            }
+        }
+    }
+
+    /** Delete ALL currently visible entries (respects source filter). */
+    private void deleteAllVisible() {
+        int currentView = viewSelector.getSelectedIndex();
+
+        if (currentView == 1) {
+            int count = entryTableModel.getRowCount();
+            if (count == 0) {
+                statusLabel.setText("Keine Einträge zum Löschen vorhanden.");
+                return;
+            }
+
+            int sourceIdx = sourceTypeFilter.getSelectedIndex();
+            String label = sourceIdx == 0 ? "ALLE " + count + " Cache-Einträge"
+                    : "alle " + count + " " + SOURCE_LABELS[sourceIdx] + "-Einträge";
+
+            int result = JOptionPane.showConfirmDialog(mainPanel,
+                    label + " aus dem Cache löschen?\n\n"
+                            + "⚠ Diese Aktion kann nicht rückgängig gemacht werden.",
+                    "Alle löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                if (sourceIdx == 0) {
+                    repo.deleteAll();
+                } else if (sourceIdx == 1) {
+                    repo.deleteByUrlPrefix("http://");
+                    repo.deleteByUrlPrefix("https://");
+                } else {
+                    String prefix = URL_PREFIXES[sourceIdx];
+                    if (prefix != null) repo.deleteByUrlPrefix(prefix);
                 }
-            } else {
-                ArchiveRun run = runTableModel.getRun(selectedRow);
-                String shortId = run.getRunId().substring(0, Math.min(8, run.getRunId().length()));
-                int result = JOptionPane.showConfirmDialog(mainPanel,
-                        "Run '" + shortId + "…' mit allen Dokumenten löschen?",
-                        "Run löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (result == JOptionPane.YES_OPTION) {
-                    repo.deleteRun(run.getRunId());
-                    refresh();
-                    previewArea.setText("");
-                }
+                refresh();
+                previewArea.setText("");
+                statusLabel.setText(label + " gelöscht.");
+            }
+        } else {
+            // Run view: delete all runs
+            int count = runTableModel.getRowCount();
+            if (count == 0) return;
+            int result = JOptionPane.showConfirmDialog(mainPanel,
+                    "Alle " + count + " Runs mit Dokumenten und Resources löschen?",
+                    "Alles löschen", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (result == JOptionPane.YES_OPTION) {
+                repo.deleteAllDocuments();
+                refresh();
+                previewArea.setText("");
             }
         }
     }
@@ -518,15 +555,36 @@ public class CacheConnectionTab implements ConnectionTab {
     //  Helpers
     // ═══════════════════════════════════════════════════════════
 
-    private static String formatTime(long epochMillis) {
+    static String formatTime(long epochMillis) {
         if (epochMillis <= 0) return "–";
         return DATE_FMT.format(new Date(epochMillis));
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes <= 0) return "–";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
+    }
+
+    /** Guess the source type from a URL. */
+    static String guessSourceType(String url) {
+        if (url == null) return "?";
+        String lower = url.toLowerCase();
+        if (lower.startsWith("wiki://")) return "📖 Wiki";
+        if (lower.startsWith("confluence://")) return "📚 Confluence";
+        if (lower.startsWith("http://") || lower.startsWith("https://")) return "🌐 Web";
+        if (lower.startsWith("ftp://")) return "📁 FTP";
+        if (lower.startsWith("ndv://")) return "🖥 NDV";
+        if (lower.startsWith("betaview://")) return "📘 BetaView";
+        if (lower.startsWith("/") || lower.matches("^[a-zA-Z]:.*")) return "💻 Lokal";
+        return "📄 Sonstige";
     }
 
     // ── ConnectionTab interface ──
 
     @Override public String getTitle() { return "💾 Cache"; }
-    @Override public String getTooltip() { return "Lokal zwischengespeicherte Inhalte (Web, FTP, NDV, Mail, BetaView)"; }
+    @Override public String getTooltip() { return "Lokal zwischengespeicherte Inhalte (H2 archive_entries)"; }
     @Override public JComponent getComponent() { return mainPanel; }
     @Override public void onClose() { /* nothing */ }
     @Override public void saveIfApplicable() { /* read-only */ }
@@ -543,7 +601,7 @@ public class CacheConnectionTab implements ConnectionTab {
     @Override
     public void searchFor(String searchPattern) {
         searchBar.setText(searchPattern);
-        filterDocuments();
+        filterEntries();
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -579,43 +637,62 @@ public class CacheConnectionTab implements ConnectionTab {
         }
     }
 
-    private static class DocumentTableModel extends AbstractTableModel {
-        private List<ArchiveDocument> docs = new ArrayList<ArchiveDocument>();
+    /**
+     * Table model for cache entries ({@code archive_entries}).
+     * Columns: ✓, Titel, Typ, Gecacht, Größe, URL
+     */
+    private static class CacheEntryTableModel extends AbstractTableModel {
+        private List<ArchiveEntry> entries = new ArrayList<ArchiveEntry>();
         private final Set<Integer> selectedRows = new HashSet<Integer>();
-        private static final String[] COLUMNS = {"✓", "Titel", "Typ", "Erstellt", "Host", "Wörter"};
+        private static final String[] COLUMNS = {"✓", "Titel", "Typ", "Gecacht", "Größe", "URL"};
 
-        void setDocuments(List<ArchiveDocument> docs) {
-            this.docs = docs != null ? docs : new ArrayList<ArchiveDocument>();
+        void setEntries(List<ArchiveEntry> entries) {
+            this.entries = entries != null ? entries : new ArrayList<ArchiveEntry>();
             this.selectedRows.clear();
             fireTableDataChanged();
         }
 
-        ArchiveDocument getDocument(int row) { return docs.get(row); }
+        ArchiveEntry getEntry(int row) { return entries.get(row); }
 
-        List<ArchiveDocument> getSelectedDocuments() {
-            List<ArchiveDocument> result = new ArrayList<ArchiveDocument>();
+        List<ArchiveEntry> getSelectedEntries() {
+            List<ArchiveEntry> result = new ArrayList<ArchiveEntry>();
             for (int row : selectedRows) {
-                if (row < docs.size()) {
-                    result.add(docs.get(row));
+                if (row < entries.size()) {
+                    result.add(entries.get(row));
                 }
             }
             return result;
         }
 
-        @Override public int getRowCount() { return docs.size(); }
+        void toggleAllSelection() {
+            int total = entries.size();
+            if (total == 0) return;
+            if (selectedRows.isEmpty()) {
+                for (int i = 0; i < total; i++) selectedRows.add(i);
+            } else if (selectedRows.size() == total) {
+                selectedRows.clear();
+            } else {
+                Set<Integer> inverted = new HashSet<Integer>();
+                for (int i = 0; i < total; i++) {
+                    if (!selectedRows.contains(i)) inverted.add(i);
+                }
+                selectedRows.clear();
+                selectedRows.addAll(inverted);
+            }
+            fireTableDataChanged();
+        }
+
+        @Override public int getRowCount() { return entries.size(); }
         @Override public int getColumnCount() { return COLUMNS.length; }
         @Override public String getColumnName(int col) { return COLUMNS[col]; }
 
         @Override
         public Class<?> getColumnClass(int col) {
-            if (col == 0) return Boolean.class;
-            return Object.class;
+            return col == 0 ? Boolean.class : Object.class;
         }
 
         @Override
-        public boolean isCellEditable(int row, int col) {
-            return col == 0;
-        }
+        public boolean isCellEditable(int row, int col) { return col == 0; }
 
         @Override
         public void setValueAt(Object value, int row, int col) {
@@ -631,16 +708,23 @@ public class CacheConnectionTab implements ConnectionTab {
 
         @Override
         public Object getValueAt(int row, int col) {
-            ArchiveDocument d = docs.get(row);
+            ArchiveEntry e = entries.get(row);
             switch (col) {
                 case 0: return selectedRows.contains(row);
-                case 1: return d.getTitle();
-                case 2: return d.getKind();
-                case 3: return formatTime(d.getCreatedAt());
-                case 4: return d.getHost();
-                case 5: return d.getWordCount();
+                case 1: return e.getTitle() != null && !e.getTitle().isEmpty() ? e.getTitle() : "(kein Titel)";
+                case 2: return guessSourceType(e.getUrl());
+                case 3: return formatTime(e.getCrawlTimestamp());
+                case 4: return formatSize(e.getFileSizeBytes());
+                case 5: return e.getUrl();
                 default: return "";
             }
+        }
+
+        private static String formatSize(long bytes) {
+            if (bytes <= 0) return "–";
+            if (bytes < 1024) return bytes + " B";
+            if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+            return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
         }
     }
 }

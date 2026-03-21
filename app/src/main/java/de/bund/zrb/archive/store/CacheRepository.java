@@ -404,6 +404,78 @@ public class CacheRepository {
         }
     }
 
+    /**
+     * Find archive entries whose URL starts with the given prefix (without loading metadata).
+     * Ordered by crawl_timestamp descending (newest first).
+     */
+    public List<ArchiveEntry> findByUrlPrefix(String urlPrefix) {
+        List<ArchiveEntry> list = new ArrayList<ArchiveEntry>();
+        try {
+            PreparedStatement ps = getConnection().prepareStatement(
+                    "SELECT * FROM archive_entries WHERE url LIKE ? ORDER BY crawl_timestamp DESC");
+            ps.setString(1, urlPrefix + "%");
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) { list.add(mapEntry(rs)); }
+            rs.close(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] findByUrlPrefix failed", e);
+        }
+        return list;
+    }
+
+    /**
+     * Search archive entries by title or URL containing the query string.
+     * Optional URL prefix filter.
+     */
+    public List<ArchiveEntry> searchEntries(String query, String urlPrefix, int maxResults) {
+        List<ArchiveEntry> list = new ArrayList<ArchiveEntry>();
+        try {
+            String pattern = "%" + query.toLowerCase() + "%";
+            String sql;
+            if (urlPrefix != null && !urlPrefix.isEmpty()) {
+                sql = "SELECT * FROM archive_entries WHERE url LIKE ? "
+                        + "AND (LOWER(title) LIKE ? OR LOWER(url) LIKE ?) "
+                        + "ORDER BY crawl_timestamp DESC LIMIT ?";
+            } else {
+                sql = "SELECT * FROM archive_entries WHERE "
+                        + "(LOWER(title) LIKE ? OR LOWER(url) LIKE ?) "
+                        + "ORDER BY crawl_timestamp DESC LIMIT ?";
+            }
+            PreparedStatement ps = getConnection().prepareStatement(sql);
+            int idx = 1;
+            if (urlPrefix != null && !urlPrefix.isEmpty()) {
+                ps.setString(idx++, urlPrefix + "%");
+            }
+            ps.setString(idx++, pattern);
+            ps.setString(idx++, pattern);
+            ps.setInt(idx, maxResults);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) { list.add(mapEntry(rs)); }
+            rs.close(); ps.close();
+        } catch (SQLException e) {
+            LOG.log(Level.WARNING, "[Archive] searchEntries failed", e);
+        }
+        return list;
+    }
+
+    /**
+     * Delete all archive entries whose URL starts with the given prefix.
+     * Also removes associated metadata and snapshot files.
+     */
+    public int deleteByUrlPrefix(String urlPrefix) {
+        int deleted = 0;
+        try {
+            List<ArchiveEntry> entries = findByUrlPrefix(urlPrefix);
+            for (ArchiveEntry entry : entries) {
+                delete(entry.getEntryId());
+                deleted++;
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[Archive] deleteByUrlPrefix failed", e);
+        }
+        return deleted;
+    }
+
     public List<ArchiveEntry> findByStatus(ArchiveEntryStatus status) {
         return queryEntries("SELECT * FROM archive_entries WHERE status=?", status.name());
     }

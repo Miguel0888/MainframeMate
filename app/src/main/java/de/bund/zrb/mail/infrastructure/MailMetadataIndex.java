@@ -397,15 +397,30 @@ public class MailMetadataIndex implements Closeable {
 
         /**
          * Returns a display string similar to {@link de.bund.zrb.mail.model.MailMessageHeader#toString()}.
+         * Skeleton entries (Phase 1) show only the date with a loading indicator.
          */
         public String toDisplayString() {
             String icon = getTypeIcon();
-            String subj = subject != null && !subject.isEmpty() ? subject : "(kein Betreff)";
             String dateStr = deliveryTimeMillis > 0
                     ? String.format("%1$td.%1$tm.%1$tY %1$tH:%1$tM", new Date(deliveryTimeMillis))
                     : "";
+
+            // Skeleton mode: only date + loading indicator
+            if (!isEnriched()) {
+                return icon + " " + dateStr + "  ⏳";
+            }
+
+            String subj = subject != null && !subject.isEmpty() ? subject : "(kein Betreff)";
             String from = sender != null ? sender : "";
             return icon + " " + dateStr + "  " + from + " – " + subj;
+        }
+
+        /**
+         * An entry is considered "enriched" if it has a non-empty messageClass.
+         * Skeleton entries (Phase 1) always have messageClass = "".
+         */
+        public boolean isEnriched() {
+            return messageClass != null && !messageClass.isEmpty();
         }
 
         private String getTypeIcon() {

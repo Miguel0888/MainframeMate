@@ -428,6 +428,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     // ─── Data Loading ───
 
     private void loadMailboxList() {
+        cancelEnrichment();
         this.currentMailboxPath = null;
         this.currentFolderPath = null;
         this.currentCategory = null;
@@ -480,6 +481,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
      *   📝 Notizen
      */
     private void loadCategoryPage(String mailboxPath) {
+        cancelEnrichment();
         this.currentMailboxPath = mailboxPath;
         this.currentFolderPath = null;
         this.currentCategory = null;
@@ -507,6 +509,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
      * Shows all folders of a given category (flat list).
      */
     private void loadCategoryFolders(String mailboxPath, MailboxCategory category) {
+        cancelEnrichment();
         this.currentMailboxPath = mailboxPath;
         this.currentFolderPath = null;
         this.currentCategory = category;
@@ -563,6 +566,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
      * Shows sub-folders + messages (paged) of a folder.
      */
     private void loadFolderContents(String mailboxPath, String folderPath) {
+        cancelEnrichment();
         this.currentMailboxPath = mailboxPath;
         this.currentFolderPath = folderPath;
         this.viewMode = ViewMode.MESSAGE_LIST;
@@ -827,6 +831,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         if (viewMode != ViewMode.MESSAGE_LIST) return;
         if (currentMailboxPath == null || currentFolderPath == null) return;
 
+        cancelEnrichment();
         String selected = (String) sortCombo.getSelectedItem();
 
         if (SORT_ORIGINAL.equals(selected)) {
@@ -841,17 +846,40 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
         loadFolderFromIndex(currentMailboxPath, currentFolderPath, ascending);
     }
 
-    // ─── Index-based sorted loading ───
+    // ─── Index-based sorted loading (3-phase progressive) ───
+
+    /** Active enrichment worker — cancelled when navigating away or re-sorting. */
+    private SwingWorker<?, ?> activeEnrichmentWorker = null;
+
+    /**
+     * Cancel any running enrichment worker (e.g. when navigating to another folder).
+     */
+    private void cancelEnrichment() {
+        if (activeEnrichmentWorker != null && !activeEnrichmentWorker.isDone()) {
+            activeEnrichmentWorker.cancel(true);
+            activeEnrichmentWorker = null;
+        }
+    }
 
     /**
      * Load folder contents from the {@link MailMetadataIndex} (sorted by date).
      * Sub-folders are still loaded from PST (fast), but messages come from the index.
      * <p>
-     * If the index has no data for this folder yet, triggers a fast metadata-only scan
-     * (reads only mail headers, no full-text extraction) so the user can sort immediately.
+     * Uses a 3-phase progressive approach:
+     * <ol>
+     *   <li><b>Phase 1 – Skeleton:</b> If the index has no data for this folder,
+     *       triggers an ultra-fast skeleton scan (only timestamp + nodeId).
+     *       The user immediately gets a date-sorted list showing only dates.</li>
+     *   <li><b>Phase 2 – Enrich visible:</b> A background worker reads full headers
+     *       (subject, sender, …) for the visible page only.  The UI updates
+     *       progressively via callbacks (newest first).</li>
+     *   <li><b>Phase 3 – Full text:</b> Happens later when the user actually
+     *       opens/accesses a specific mail.</li>
+     * </ol>
      */
     private void loadFolderFromIndex(final String mailboxPath, final String folderPath,
                                      final boolean ascending) {
+        cancelEnrichment();
         statusLabel.setText("Lade sortiert aus Index…");
 
         new SwingWorker<Void, Void>() {
@@ -871,20 +899,21 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                         g.uninstall();
                     }
 
-                    // Messages from Lucene metadata index
+                    // ── Phase 1: Ensure skeleton index exists ──
                     MailMetadataIndex idx = MailMetadataIndex.getInstance();
                     indexCount = idx.countByFolder(mailboxPath, folderPath);
 
                     if (indexCount == 0) {
-                        // Index has no data for this folder yet → build it now (fast, header-only)
-                        LOG.info("[MailConnectionTab] Index empty for " + folderPath + " — building on demand…");
+                        LOG.info("[MailConnectionTab] Index empty for " + folderPath
+                                + " — building skeleton on demand…");
                         int built = MailService.getInstance()
-                                .ensureMetadataIndexForFolder(mailboxPath, folderPath);
+                                .ensureSkeletonIndexForFolder(mailboxPath, folderPath);
                         indexCount = idx.countByFolder(mailboxPath, folderPath);
-                        LOG.info("[MailConnectionTab] On-demand index built: " + built
+                        LOG.info("[MailConnectionTab] Skeleton index built: " + built
                                 + " entries, count now: " + indexCount);
                     }
 
+                    // Load first page (sorted by date)
                     if (indexCount > 0) {
                         metaEntries = idx.listByFolder(mailboxPath, folderPath,
                                 ascending, 0, PAGE_SIZE);
@@ -905,7 +934,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                 }
 
                 if (indexCount == 0) {
-                    // Still empty after on-demand build — no messages in this folder
+                    // Still empty after skeleton build — no messages in this folder
                     indexMode = true;
                     currentFolders = folders;
                     currentMessages = Collections.emptyList();
@@ -924,10 +953,10 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                     return;
                 }
 
-                // Switch to index mode
+                // Switch to index mode — show skeleton entries (date only)
                 indexMode = true;
                 currentFolders = folders;
-                currentMessages = Collections.emptyList(); // not used in index mode
+                currentMessages = Collections.emptyList();
                 currentMailboxes = Collections.emptyList();
                 totalMessageCount = indexCount;
                 currentOffset = metaEntries.size();
@@ -942,7 +971,7 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                     listModel.addElement(display);
                 }
 
-                // Sorted messages from index
+                // Messages from index (may be skeleton = date only, or already enriched)
                 for (MailMetadataIndex.MailMetadataEntry entry : metaEntries) {
                     String display = entry.toDisplayString();
                     currentDisplayNames.add(display);
@@ -962,12 +991,115 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                 // Re-apply filter if active
                 String filter = searchBar.getText().trim();
                 if (!filter.isEmpty()) applySearchFilter();
+
+                // ── Phase 2: Enrich visible entries in background ──
+                startEnrichmentForVisibleEntries(metaEntries);
             }
         }.execute();
     }
 
     /**
+     * Phase 2: Start a background worker that enriches the given entries
+     * (typically the current page) with full header data (subject, sender, …).
+     * <p>
+     * The worker publishes enriched entries one by one; the {@code process()}
+     * method updates the corresponding list items in the UI so the user sees
+     * details appear progressively.
+     */
+    private void startEnrichmentForVisibleEntries(
+            final List<MailMetadataIndex.MailMetadataEntry> entries) {
+
+        // Collect entries that still need enrichment
+        final List<Long> unenrichedNodeIds = new ArrayList<>();
+        for (MailMetadataIndex.MailMetadataEntry e : entries) {
+            if (!e.isEnriched()) {
+                unenrichedNodeIds.add(e.nodeId);
+            }
+        }
+        if (unenrichedNodeIds.isEmpty()) return; // all already enriched
+
+        final String mbPath = currentMailboxPath;
+        final String fPath = currentFolderPath;
+
+        SwingWorker<Void, MailMetadataIndex.MailMetadataEntry> worker =
+                new SwingWorker<Void, MailMetadataIndex.MailMetadataEntry>() {
+
+            @Override
+            protected Void doInBackground() {
+                MailService.getInstance().enrichVisibleEntries(
+                        mbPath, fPath, unenrichedNodeIds,
+                        new de.bund.zrb.mail.service.MailIndexUpdater.EnrichmentCallback() {
+                            @Override
+                            public void onEntryEnriched(MailMetadataIndex.MailMetadataEntry enrichedEntry) {
+                                if (!isCancelled()) {
+                                    publish(enrichedEntry);
+                                }
+                            }
+                        }
+                );
+                return null;
+            }
+
+            @Override
+            protected void process(List<MailMetadataIndex.MailMetadataEntry> chunks) {
+                for (MailMetadataIndex.MailMetadataEntry enriched : chunks) {
+                    updateListItemForEnrichedEntry(enriched);
+                }
+            }
+
+            @Override
+            protected void done() {
+                if (!isCancelled()) {
+                    updateIndexStatusText();
+                }
+            }
+        };
+
+        activeEnrichmentWorker = worker;
+        worker.execute();
+    }
+
+    /**
+     * Updates a single list item after its metadata entry has been enriched.
+     * Finds the old (skeleton) display string, replaces it with the enriched version,
+     * and updates all lookup maps.
+     */
+    private void updateListItemForEnrichedEntry(MailMetadataIndex.MailMetadataEntry enriched) {
+        // Find old display string by nodeId
+        String oldDisplay = null;
+        for (Map.Entry<String, MailMetadataIndex.MailMetadataEntry> mapEntry : displayToMetadata.entrySet()) {
+            if (mapEntry.getValue().nodeId == enriched.nodeId) {
+                oldDisplay = mapEntry.getKey();
+                break;
+            }
+        }
+        if (oldDisplay == null) return; // entry not in current view
+
+        String newDisplay = enriched.toDisplayString();
+        if (oldDisplay.equals(newDisplay)) return; // no change
+
+        // Update displayToMetadata
+        displayToMetadata.remove(oldDisplay);
+        displayToMetadata.put(newDisplay, enriched);
+
+        // Update currentDisplayNames
+        int nameIdx = currentDisplayNames.indexOf(oldDisplay);
+        if (nameIdx >= 0) {
+            currentDisplayNames.set(nameIdx, newDisplay);
+        }
+
+        // Update listModel (visible JList)
+        for (int i = 0; i < listModel.size(); i++) {
+            if (oldDisplay.equals(listModel.get(i))) {
+                listModel.setElementAt(newDisplay, i);
+                break;
+            }
+        }
+    }
+
+    /**
      * Load the next page of sorted messages from the metadata index.
+     * After loading, triggers Phase 2 enrichment for any skeleton entries.
      */
     private void loadMoreFromIndex() {
         if (!hasMoreMessages || currentMailboxPath == null || currentFolderPath == null) return;
@@ -1015,6 +1147,9 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
                     }
 
                     updateIndexStatusText();
+
+                    // Trigger enrichment for new skeleton entries
+                    startEnrichmentForVisibleEntries(newEntries);
                 } catch (Exception e) {
                     LOG.log(Level.SEVERE, "Error loading more from index", e);
                     showError("Fehler beim Laden:\n" + extractErrorMessage(e));

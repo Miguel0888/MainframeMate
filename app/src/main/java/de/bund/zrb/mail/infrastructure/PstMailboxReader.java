@@ -4,13 +4,12 @@ import com.pff.*;
 import de.bund.zrb.mail.model.MailFolderRef;
 import de.bund.zrb.mail.model.MailMessageContent;
 import de.bund.zrb.mail.model.MailMessageHeader;
+import de.bund.zrb.mail.model.MailMessageSkeleton;
 import de.bund.zrb.mail.model.MailboxCategory;
 import de.bund.zrb.mail.port.MailboxReader;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Vector;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -291,6 +290,77 @@ public class PstMailboxReader implements MailboxReader {
         } finally {
             closeSilently(pstFile);
         }
+    }
+
+    // ─── Interface: listMessageSkeletons (fast, single-pass) ───
+
+    @Override
+    public List<MailMessageSkeleton> listMessageSkeletons(String mailboxPath, String folderPath) throws Exception {
+        List<MailMessageSkeleton> result = new ArrayList<>();
+        PSTFile pstFile = new PSTFile(new File(mailboxPath));
+        try {
+            PSTFolder folder = navigateToFolder(pstFile, folderPath);
+            if (folder == null) {
+                LOG.fine("[MAIL-DIAG] listMessageSkeletons: folder not found: " + folderPath);
+                return result;
+            }
+
+            PSTObject child = safeGetNextChild(folder);
+            while (child != null) {
+                if (child instanceof PSTMessage) {
+                    PSTMessage msg = (PSTMessage) child;
+                    long nodeId = msg.getDescriptorNodeId();
+                    Date dt = msg.getMessageDeliveryTime();
+                    long millis = dt != null ? dt.getTime() : 0;
+                    result.add(new MailMessageSkeleton(nodeId, millis));
+                }
+                child = safeGetNextChild(folder);
+            }
+
+            LOG.fine("[MAIL-DIAG] listMessageSkeletons('" + folderPath + "'): " + result.size() + " skeletons");
+        } finally {
+            closeSilently(pstFile);
+        }
+        return result;
+    }
+
+    // ─── Interface: readHeadersByNodeIds (single-pass enrichment) ───
+
+    @Override
+    public Map<Long, MailMessageHeader> readHeadersByNodeIds(
+            String mailboxPath, String folderPath, Set<Long> nodeIds) throws Exception {
+
+        Map<Long, MailMessageHeader> result = new LinkedHashMap<>();
+        if (nodeIds == null || nodeIds.isEmpty()) return result;
+
+        Set<Long> remaining = new HashSet<>(nodeIds);
+        PSTFile pstFile = new PSTFile(new File(mailboxPath));
+        try {
+            PSTFolder folder = navigateToFolder(pstFile, folderPath);
+            if (folder == null) {
+                LOG.fine("[MAIL-DIAG] readHeadersByNodeIds: folder not found: " + folderPath);
+                return result;
+            }
+
+            PSTObject child = safeGetNextChild(folder);
+            while (child != null && !remaining.isEmpty()) {
+                if (child instanceof PSTMessage) {
+                    long nodeId = child.getDescriptorNodeId();
+                    if (remaining.contains(nodeId)) {
+                        MailMessageHeader header = extractHeader((PSTMessage) child, folderPath);
+                        result.put(nodeId, header);
+                        remaining.remove(nodeId);
+                    }
+                }
+                child = safeGetNextChild(folder);
+            }
+
+            LOG.fine("[MAIL-DIAG] readHeadersByNodeIds: found " + result.size()
+                    + "/" + nodeIds.size() + " headers");
+        } finally {
+            closeSilently(pstFile);
+        }
+        return result;
     }
 
     // ═══════════════════════════════════════════════════════════════

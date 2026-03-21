@@ -3,11 +3,11 @@ package de.bund.zrb.mail.service;
 import de.bund.zrb.ingestion.model.document.Document;
 import de.bund.zrb.ingestion.model.document.DocumentMetadata;
 import de.bund.zrb.mail.infrastructure.MailMetadataIndex;
+import de.bund.zrb.mail.model.MailMessageHeader;
+import de.bund.zrb.mail.model.MailMessageSkeleton;
 import de.bund.zrb.rag.service.RagService;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -218,6 +218,151 @@ public class MailIndexUpdater {
             LOG.log(Level.WARNING, "[MailIndex] Metadata-only index failed for " + folderPath, e);
         }
         return count;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Phase 1: Skeleton indexing (ultra-fast, only timestamp + URL)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Ultra-fast skeleton indexing for a single folder.
+     * <p>
+     * Opens the PST file exactly once, iterates through ALL messages, and
+     * stores only {@code itemPath}, {@code deliveryTime}, {@code nodeId},
+     * {@code mailboxPath}, and {@code folderPath}.  Subject, sender, and all
+     * other fields are left empty.
+     * <p>
+     * This is the Phase 1 of progressive indexing: the user immediately gets
+     * a date-sorted view.  Enrichment (Phase 2) fills in subject/sender later.
+     *
+     * @return number of skeleton entries indexed
+     */
+    public int indexSkeletonForFolder(String mailboxPath, String folderPath) {
+        MailMetadataIndex metaIndex = MailMetadataIndex.getInstance();
+        int count = 0;
+        try {
+            List<MailMessageSkeleton> skeletons =
+                    mailboxReader.listMessageSkeletons(mailboxPath, folderPath);
+
+            List<MailMetadataIndex.MailMetadataEntry> batch =
+                    new ArrayList<MailMetadataIndex.MailMetadataEntry>();
+
+            for (MailMessageSkeleton sk : skeletons) {
+                String itemPath = mailboxPath + "#" + folderPath + "#" + sk.nodeId;
+                batch.add(new MailMetadataIndex.MailMetadataEntry(
+                        itemPath,
+                        mailboxPath,
+                        folderPath,
+                        sk.nodeId,
+                        "",   // subject — empty (Phase 1)
+                        "",   // sender — empty (Phase 1)
+                        "",   // recipients — empty (Phase 1)
+                        sk.deliveryTimeMillis,
+                        "",   // messageClass — empty (marks as "not enriched")
+                        false, // hasAttachments — unknown
+                        0      // size — unknown
+                ));
+
+                if (batch.size() >= META_BATCH_CHUNK) {
+                    metaIndex.indexBatch(batch);
+                    count += batch.size();
+                    batch = new ArrayList<MailMetadataIndex.MailMetadataEntry>();
+                }
+            }
+
+            // Flush remainder
+            if (!batch.isEmpty()) {
+                metaIndex.indexBatch(batch);
+                count += batch.size();
+            }
+
+            LOG.info("[MailIndex] Skeleton-indexed " + count + " entries for " + folderPath);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[MailIndex] Skeleton index failed for " + folderPath, e);
+        }
+        return count;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Phase 2: Enrichment (visible entries only)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Callback interface for progressive enrichment of visible metadata entries.
+     */
+    public interface EnrichmentCallback {
+        /**
+         * Called on the background thread each time an entry has been enriched
+         * and persisted in the index.
+         */
+        void onEntryEnriched(MailMetadataIndex.MailMetadataEntry enrichedEntry);
+    }
+
+    /**
+     * Enriches a set of skeleton index entries with full header data (subject,
+     * sender, recipients, messageClass, hasAttachments, size).
+     * <p>
+     * Opens the PST file once, iterates through the folder, and for each
+     * matching node ID extracts the full header.  The enriched entry is written
+     * back to the Lucene metadata index and the callback is invoked immediately.
+     * <p>
+     * Entries are enriched in PST iteration order (not necessarily date order).
+     * The callback should handle re-ordering / UI updates.
+     *
+     * @param nodeIds  the descriptor node IDs to enrich
+     * @param callback called for each enriched entry (may be {@code null})
+     * @return number of entries enriched
+     */
+    public int enrichMetadataEntries(String mailboxPath, String folderPath,
+                                     List<Long> nodeIds, EnrichmentCallback callback) {
+        if (nodeIds == null || nodeIds.isEmpty()) return 0;
+
+        MailMetadataIndex metaIndex = MailMetadataIndex.getInstance();
+        int enriched = 0;
+
+        try {
+            Set<Long> nodeIdSet = new LinkedHashSet<>(nodeIds);
+            Map<Long, MailMessageHeader> headers =
+                    mailboxReader.readHeadersByNodeIds(mailboxPath, folderPath, nodeIdSet);
+
+            for (Map.Entry<Long, MailMessageHeader> entry : headers.entrySet()) {
+                long nodeId = entry.getKey();
+                MailMessageHeader h = entry.getValue();
+                String itemPath = mailboxPath + "#" + folderPath + "#" + nodeId;
+
+                MailMetadataIndex.MailMetadataEntry enrichedEntry =
+                        new MailMetadataIndex.MailMetadataEntry(
+                                itemPath,
+                                mailboxPath,
+                                h.getFolderPath(),
+                                nodeId,
+                                h.getSubject(),
+                                h.getFrom(),
+                                h.getTo(),
+                                h.getDate() != null ? h.getDate().getTime() : 0,
+                                h.getMessageClass(),
+                                h.hasAttachments(),
+                                h.getMessageSize()
+                        );
+
+                // Persist enriched entry (replaces skeleton)
+                metaIndex.index(enrichedEntry);
+                enriched++;
+
+                if (callback != null) {
+                    callback.onEntryEnriched(enrichedEntry);
+                }
+            }
+
+            // Single commit after all enrichments
+            metaIndex.flush();
+            LOG.info("[MailIndex] Enriched " + enriched + "/" + nodeIds.size()
+                    + " entries for " + folderPath);
+
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "[MailIndex] Enrichment failed for " + folderPath, e);
+        }
+        return enriched;
     }
 
     // ═══════════════════════════════════════════════════════════════

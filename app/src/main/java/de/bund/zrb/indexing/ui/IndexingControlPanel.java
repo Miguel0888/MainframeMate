@@ -729,85 +729,188 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
 
     /**
      * Opens a dialog showing all cached + indexed content, sorted by source type.
-     * Allows deletion with a warning that it also removes from the cache.
+     * Shows both RAG-indexed documents and H2 cache entries (archive_entries).
+     * Allows deletion with a warning.
      */
     private void showCacheIndexDialog() {
         CacheRepository cache = CacheRepository.getInstance();
         de.bund.zrb.rag.service.RagService rag = de.bund.zrb.rag.service.RagService.getInstance();
 
-        // Gather all indexed documents from RAG
+        // Gather indexed documents from RAG
         java.util.Map<String, String> indexedDocs = rag.listAllIndexedDocuments();
 
-        if (indexedDocs.isEmpty()) {
+        // Gather cached entries from H2 archive_entries
+        java.util.List<de.bund.zrb.archive.model.ArchiveEntry> cacheEntries = cache.findAll();
+
+        // Merge into one unified list: docId → (type, name, source)
+        // Use LinkedHashMap to preserve insertion order and deduplicate by key
+        java.util.Map<String, String[]> allItems = new java.util.LinkedHashMap<>();
+
+        // RAG-indexed documents
+        for (java.util.Map.Entry<String, String> entry : indexedDocs.entrySet()) {
+            allItems.put(entry.getKey(), new String[]{
+                    guessSourceType(entry.getKey()),
+                    entry.getValue(),
+                    "Index"
+            });
+        }
+
+        // H2 cache entries (add if not already in index)
+        for (de.bund.zrb.archive.model.ArchiveEntry ce : cacheEntries) {
+            String key = ce.getUrl() != null ? ce.getUrl() : ce.getEntryId();
+            if (!allItems.containsKey(key)) {
+                allItems.put(key, new String[]{
+                        guessSourceType(key),
+                        ce.getTitle() != null && !ce.getTitle().isEmpty() ? ce.getTitle() : "(kein Titel)",
+                        "Cache"
+                });
+            } else {
+                // Already in index → mark as both
+                allItems.get(key)[2] = "Index + Cache";
+            }
+        }
+
+        if (allItems.isEmpty()) {
             JOptionPane.showMessageDialog(this,
-                    "Der Cache-Index ist leer.\n\n"
+                    "Cache und Index sind leer.\n\n"
                             + "Gecachte Inhalte werden automatisch indexiert.",
                     "Cache-Index", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // Build table: #, Name, DocID, Type (guessed from path/id)
-        String[] columns = {"#", "Typ", "Dateiname / Quelle", "Dokument-ID"};
-        Object[][] data = new Object[indexedDocs.size()][4];
+        // Build table: ✓, #, Typ, Name, Quelle, ID
+        String[] columns = {"✓", "#", "Typ", "Dateiname / Quelle", "Herkunft", "Dokument-ID"};
+        java.util.List<Object[]> dataList = new java.util.ArrayList<>();
         int i = 0;
-        for (java.util.Map.Entry<String, String> entry : indexedDocs.entrySet()) {
-            data[i][0] = i + 1;
-            data[i][1] = guessSourceType(entry.getKey());
-            data[i][2] = entry.getValue();
-            data[i][3] = entry.getKey();
+        for (java.util.Map.Entry<String, String[]> entry : allItems.entrySet()) {
+            dataList.add(new Object[]{
+                    Boolean.FALSE,
+                    i + 1,
+                    entry.getValue()[0],  // type
+                    entry.getValue()[1],  // name
+                    entry.getValue()[2],  // source (Index, Cache, Index + Cache)
+                    entry.getKey()        // docId/url
+            });
             i++;
         }
 
-        // Sort by type (column 1)
-        java.util.Arrays.sort(data, (a, b) -> String.valueOf(a[1]).compareTo(String.valueOf(b[1])));
+        // Sort by type (column 2)
+        dataList.sort((a, b) -> String.valueOf(a[2]).compareTo(String.valueOf(b[2])));
         // Re-number
-        for (int j = 0; j < data.length; j++) data[j][0] = j + 1;
+        for (int j = 0; j < dataList.size(); j++) dataList.get(j)[1] = j + 1;
 
-        JTable table = new JTable(data, columns) {
+        Object[][] data = dataList.toArray(new Object[0][]);
+
+        javax.swing.table.DefaultTableModel tableModel = new javax.swing.table.DefaultTableModel(data, columns) {
             @Override
-            public boolean isCellEditable(int row, int col) { return false; }
+            public boolean isCellEditable(int row, int col) { return col == 0; }
+            @Override
+            public Class<?> getColumnClass(int col) { return col == 0 ? Boolean.class : Object.class; }
         };
+
+        JTable table = new JTable(tableModel);
         table.setAutoCreateRowSorter(true);
         table.setRowHeight(22);
-        table.getColumnModel().getColumn(0).setPreferredWidth(40);
-        table.getColumnModel().getColumn(0).setMaxWidth(50);
-        table.getColumnModel().getColumn(1).setPreferredWidth(80);
-        table.getColumnModel().getColumn(1).setMaxWidth(100);
-        table.getColumnModel().getColumn(2).setPreferredWidth(250);
-        table.getColumnModel().getColumn(3).setPreferredWidth(350);
+        table.getColumnModel().getColumn(0).setPreferredWidth(30);
+        table.getColumnModel().getColumn(0).setMaxWidth(30);
+        table.getColumnModel().getColumn(1).setPreferredWidth(40);
+        table.getColumnModel().getColumn(1).setMaxWidth(50);
+        table.getColumnModel().getColumn(2).setPreferredWidth(90);
+        table.getColumnModel().getColumn(2).setMaxWidth(110);
+        table.getColumnModel().getColumn(3).setPreferredWidth(250);
+        table.getColumnModel().getColumn(4).setPreferredWidth(90);
+        table.getColumnModel().getColumn(4).setMaxWidth(110);
+        table.getColumnModel().getColumn(5).setPreferredWidth(300);
+
+        // Toggle-all on header click (column 0)
+        table.getTableHeader().addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int col = table.getTableHeader().columnAtPoint(e.getPoint());
+                if (col == 0) {
+                    int total = tableModel.getRowCount();
+                    if (total == 0) return;
+                    // Count currently checked
+                    int checked = 0;
+                    for (int r = 0; r < total; r++) {
+                        if (Boolean.TRUE.equals(tableModel.getValueAt(r, 0))) checked++;
+                    }
+                    boolean newValue;
+                    if (checked == 0) {
+                        newValue = true;  // none → select all
+                    } else if (checked == total) {
+                        newValue = false; // all → deselect all
+                    } else {
+                        // partial → invert each
+                        for (int r = 0; r < total; r++) {
+                            boolean current = Boolean.TRUE.equals(tableModel.getValueAt(r, 0));
+                            tableModel.setValueAt(!current, r, 0);
+                        }
+                        return;
+                    }
+                    for (int r = 0; r < total; r++) {
+                        tableModel.setValueAt(newValue, r, 0);
+                    }
+                }
+            }
+        });
 
         JScrollPane scrollPane = new JScrollPane(table);
-        scrollPane.setPreferredSize(new Dimension(780, 400));
+        scrollPane.setPreferredSize(new Dimension(850, 420));
 
-        JLabel summaryLabel = new JLabel(indexedDocs.size() + " Dokumente im Cache-Index");
+        JLabel summaryLabel = new JLabel(allItems.size() + " Einträge (Index: " + indexedDocs.size()
+                + ", Cache: " + cacheEntries.size() + ")");
         summaryLabel.setBorder(new EmptyBorder(4, 4, 4, 4));
 
-        JButton deleteButton = new JButton("🗑 Ausgewählte entfernen");
-        deleteButton.addActionListener(ev -> {
-            int selRow = table.getSelectedRow();
-            if (selRow < 0) return;
-            String docId = String.valueOf(table.getValueAt(selRow, 3));
-            String docName = String.valueOf(table.getValueAt(selRow, 2));
+        JButton deleteSelectedBtn = new JButton("🗑 Markierte entfernen");
+        deleteSelectedBtn.addActionListener(ev -> {
+            java.util.List<String> toDelete = new java.util.ArrayList<>();
+            for (int r = 0; r < tableModel.getRowCount(); r++) {
+                if (Boolean.TRUE.equals(tableModel.getValueAt(r, 0))) {
+                    toDelete.add(String.valueOf(tableModel.getValueAt(r, 5)));
+                }
+            }
+            if (toDelete.isEmpty()) {
+                statusLabel.setText("Keine Einträge markiert.");
+                return;
+            }
             int confirm = JOptionPane.showConfirmDialog(this,
-                    "Eintrag entfernen?\n\n"
-                            + "\"" + docName + "\"\n\n"
-                            + "⚠ Dies entfernt das Dokument sowohl aus dem Index\n"
-                            + "als auch aus dem Cache. Diese Aktion kann nicht\n"
-                            + "rückgängig gemacht werden.",
+                    toDelete.size() + " Einträge entfernen?\n\n"
+                            + "⚠ Dies entfernt die Dokumente aus Index und Cache.\n"
+                            + "Diese Aktion kann nicht rückgängig gemacht werden.",
                     "Aus Cache und Index entfernen",
                     JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
-                rag.removeDocument(docId);
+                for (String docId : toDelete) {
+                    try { rag.removeDocument(docId); } catch (Exception ignored) {}
+                    de.bund.zrb.archive.model.ArchiveEntry byUrl = cache.findByUrl(docId);
+                    if (byUrl != null) cache.delete(byUrl.getEntryId());
+                }
+                // Refresh
+                showCacheIndexDialog();
+            }
+        });
+
+        JButton deleteAllBtn = new JButton("🗑 Alle entfernen");
+        deleteAllBtn.addActionListener(ev -> {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "ALLE " + allItems.size() + " Einträge aus Cache und Index entfernen?\n\n"
+                            + "⚠ Diese Aktion kann nicht rückgängig gemacht werden.",
+                    "Alles löschen",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                rag.clear();
+                cache.deleteAll();
                 JOptionPane.showMessageDialog(this,
-                        "Dokument entfernt: " + docName,
-                        "Entfernt", JOptionPane.INFORMATION_MESSAGE);
-                // Refresh by closing and reopening
+                        "Cache und Index geleert.",
+                        "Gelöscht", JOptionPane.INFORMATION_MESSAGE);
                 showCacheIndexDialog();
             }
         });
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttonPanel.add(deleteButton);
+        buttonPanel.add(deleteSelectedBtn);
+        buttonPanel.add(deleteAllBtn);
 
         JPanel panel = new JPanel(new BorderLayout(4, 4));
         panel.add(summaryLabel, BorderLayout.NORTH);
@@ -815,7 +918,7 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         JOptionPane.showMessageDialog(this, panel,
-                "Cache-Index (" + indexedDocs.size() + " Dokumente)",
+                "Cache & Index (" + allItems.size() + " Einträge)",
                 JOptionPane.PLAIN_MESSAGE);
     }
 
@@ -825,6 +928,8 @@ public class IndexingControlPanel extends JDialog implements IndexingService.Ind
     private static String guessSourceType(String docId) {
         if (docId == null) return "?";
         String lower = docId.toLowerCase();
+        if (lower.startsWith("wiki://")) return "📖 Wiki";
+        if (lower.startsWith("confluence://")) return "📚 Confluence";
         if (lower.startsWith("http://") || lower.startsWith("https://")) return "🌐 Web";
         if (lower.startsWith("ftp://") || lower.contains("/ftp/")) return "📁 FTP";
         if (lower.startsWith("ndv://")) return "🖥 NDV";

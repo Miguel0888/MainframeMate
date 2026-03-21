@@ -424,6 +424,57 @@ public class MailService {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Phase 1: Skeleton indexing (ultra-fast, timestamp + URL only)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Ensures the skeleton index has entries for the given folder.
+     * If the index is empty for this folder, performs an ultra-fast skeleton scan
+     * (only nodeId + deliveryTime, no subject/sender) so that a date-sorted
+     * view is available immediately.
+     *
+     * @return number of newly indexed skeleton entries (0 if index was already populated)
+     */
+    public int ensureSkeletonIndexForFolder(String mailboxPath, String folderPath) {
+        MailMetadataIndex metaIdx = MailMetadataIndex.getInstance();
+        int existing = metaIdx.countByFolder(mailboxPath, folderPath);
+        if (existing > 0) {
+            LOG.fine("[MailService] Index already has " + existing + " entries for " + folderPath);
+            return 0;
+        }
+        LOG.info("[MailService] Building skeleton index for folder: " + folderPath);
+        PstStderrFilter.Guard g = PstStderrFilter.install();
+        try {
+            return indexUpdater.indexSkeletonForFolder(mailboxPath, folderPath);
+        } finally {
+            g.uninstall();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Phase 2: Enrichment of visible entries
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Enriches skeleton index entries with full header metadata (subject, sender, etc.).
+     * Called from the UI for the currently visible page only.
+     *
+     * @param nodeIds  descriptor node IDs to enrich
+     * @param callback called for each enriched entry (on the calling thread)
+     * @return number of entries enriched
+     */
+    public int enrichVisibleEntries(String mailboxPath, String folderPath,
+                                    java.util.List<Long> nodeIds,
+                                    MailIndexUpdater.EnrichmentCallback callback) {
+        PstStderrFilter.Guard g = PstStderrFilter.install();
+        try {
+            return indexUpdater.enrichMetadataEntries(mailboxPath, folderPath, nodeIds, callback);
+        } finally {
+            g.uninstall();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Shutdown
     // ═══════════════════════════════════════════════════════════════
 
