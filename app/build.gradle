@@ -144,6 +144,17 @@ test {
     useJUnitPlatform()
 }
 
+task testMermaid(type: JavaExec) {
+    description = 'Interactive Mermaid render test (Swing dialog)'
+    group = 'verification'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'de.bund.zrb.mermaid.MermaidRenderTest'
+    jvmArgs '-Djava.awt.headless=false'
+    standardInput = System.in
+    standardOutput = System.out
+    errorOutput = System.err
+}
+
 // ANTLR configuration
 generateGrammarSource {
     arguments += ['-visitor', '-listener', '-package', 'de.bund.zrb.jcl.parser']
