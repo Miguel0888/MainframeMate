@@ -63,8 +63,11 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     private final JLabel statusLabel = new JLabel(" ");
 
     // Toolbar: sort & mail search
+    private static final String SORT_ORIGINAL = "Originalreihenfolge";
+    private static final String SORT_DATE_DESC = "📅 Datum ↓ (neueste zuerst)";
+    private static final String SORT_DATE_ASC  = "📅 Datum ↑ (älteste zuerst)";
     private final JComboBox<String> sortCombo = new JComboBox<>(new String[]{
-            "📅 Datum ↓ (neueste zuerst)", "📅 Datum ↑ (älteste zuerst)"});
+            SORT_ORIGINAL, SORT_DATE_DESC, SORT_DATE_ASC});
     private final SearchBarPanel mailSearchBar = new SearchBarPanel("Mails durchsuchen…",
             "Volltextsuche über indizierte Mails (Lucene-Syntax)");
 
@@ -783,7 +786,15 @@ public class MailConnectionTab implements ConnectionTab, Navigable {
     private void applySortOrder() {
         if (viewMode != ViewMode.MESSAGE_LIST || currentMessages.isEmpty()) return;
 
-        boolean ascending = sortCombo.getSelectedIndex() == 1; // index 0 = newest first (desc), 1 = oldest first (asc)
+        String selected = (String) sortCombo.getSelectedItem();
+
+        // "Originalreihenfolge" → reload from store order (no client-side sort)
+        if (SORT_ORIGINAL.equals(selected)) {
+            refresh();
+            return;
+        }
+
+        boolean ascending = SORT_DATE_ASC.equals(selected);
 
         // Sort the messages list by date
         List<MailMessageHeader> sorted = new ArrayList<>(currentMessages);
